@@ -10,7 +10,7 @@ use crate::worker_workspace::{WorkerWorkspaceRpc, WorkspaceReadFormat, Workspace
 use serde::Deserialize;
 use serde_json::Value;
 use std::{
-    collections::hash_map::DefaultHasher,
+    collections::{hash_map::DefaultHasher, HashMap},
     fs,
     hash::{Hash, Hasher},
     path::PathBuf,
@@ -321,36 +321,53 @@ impl WorkerRpcRouter {
 #[derive(Clone, Debug)]
 struct WorkerApprovalRpc {
     policy: CapabilityPolicy,
+    pending: HashMap<String, ApprovalRecord>,
+    approved_once: Vec<String>,
+    approved_session: Vec<String>,
+    denied: Vec<Value>,
 }
 
 impl WorkerApprovalRpc {
     fn new(policy: CapabilityPolicy) -> Self {
-        Self { policy }
+        Self {
+            policy,
+            pending: HashMap::new(),
+            approved_once: Vec::new(),
+            approved_session: Vec::new(),
+            denied: Vec::new(),
+        }
     }
 
     fn request(
-        &self,
+        &mut self,
         params: ApprovalRequestParams,
     ) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
         self.require(WorkerCapability::ApprovalRequest)?;
-        let operation = params.operation;
-        let approval_id = format!("approval-{}", params.run_id);
+        let record = ApprovalRecord::from_params(params);
+        let approval_id = record.id.clone();
         let mut result = serde_json::json!({
             "content": "Waiting for approval.",
             "awaitingUserInput": true,
             "stopReason": "awaiting_approval",
-            "approvalId": approval_id,
-            "operation": operation,
-            "runId": params.run_id,
+            "approvalId": record.id,
+            "operation": record.operation,
+            "runId": record.run_id,
+            "category": record.category,
+            "risk": record.risk,
+            "reason": record.reason,
+            "summary": record.summary,
+            "fingerprint": record.fingerprint,
+            "sessionFingerprint": record.session_fingerprint,
         });
-        if let Some(session_id) = params.session_id {
+        if let Some(session_id) = record.session_id.clone() {
             result["sessionId"] = Value::String(session_id);
         }
+        self.pending.insert(approval_id, record);
         Ok(result)
     }
 
     fn resolve(
-        &self,
+        &mut self,
         params: ApprovalResolveParams,
     ) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
         self.require(WorkerCapability::ApprovalResolve)?;
@@ -358,12 +375,42 @@ impl WorkerApprovalRpc {
         if scope != "once" && scope != "session" {
             return Err(invalid_approval_request("scope must be once or session"));
         }
+        let Some(record) = self.pending.get(&params.approval_id).cloned() else {
+            return Err(invalid_approval_request("pending approval not found"));
+        };
+        if record.session_id.as_deref() != Some(params.session_id.as_str()) {
+            return Err(invalid_approval_request("pending approval not found"));
+        }
+        self.pending.remove(&params.approval_id);
+        if params.approved {
+            if scope == "once" {
+                if !self.approved_once.contains(&record.fingerprint) {
+                    self.approved_once.push(record.fingerprint.clone());
+                }
+            } else if !self.approved_session.contains(&record.session_fingerprint) {
+                self.approved_session
+                    .push(record.session_fingerprint.clone());
+            }
+        } else {
+            self.denied.push(serde_json::json!({
+                "id": record.id,
+                "fingerprint": record.fingerprint,
+                "deniedAt": runtime_now(None)["current_time"].clone(),
+            }));
+        }
         Ok(serde_json::json!({
-            "approvalId": params.approval_id,
+            "approvalId": record.id,
             "approved": params.approved,
             "scope": scope,
             "status": if params.approved { "approved" } else { "denied" },
             "sessionId": params.session_id,
+            "operation": record.operation,
+            "category": record.category,
+            "risk": record.risk,
+            "reason": record.reason,
+            "summary": record.summary,
+            "fingerprint": record.fingerprint,
+            "sessionFingerprint": record.session_fingerprint,
         }))
     }
 
@@ -382,6 +429,121 @@ impl WorkerApprovalRpc {
             crate::worker_protocol::WorkerProtocolErrorSource::RustCore,
         ))
     }
+}
+
+#[derive(Clone, Debug)]
+struct ApprovalRecord {
+    id: String,
+    run_id: String,
+    session_id: Option<String>,
+    operation: Value,
+    category: String,
+    risk: String,
+    reason: String,
+    summary: String,
+    fingerprint: String,
+    session_fingerprint: String,
+}
+
+impl ApprovalRecord {
+    fn from_params(params: ApprovalRequestParams) -> Self {
+        let has_explicit_fingerprint = params.fingerprint.is_some();
+        let category = params
+            .classification
+            .as_ref()
+            .map(|classification| classification.category.clone())
+            .or_else(|| json_string_field(&params.operation, "category"))
+            .unwrap_or_else(|| "tool".to_string());
+        let risk = params
+            .classification
+            .as_ref()
+            .map(|classification| classification.risk.clone())
+            .or_else(|| json_string_field(&params.operation, "risk"))
+            .unwrap_or_else(|| "medium".to_string());
+        let reason = params
+            .classification
+            .as_ref()
+            .map(|classification| classification.reason.clone())
+            .or_else(|| json_string_field(&params.operation, "reason"))
+            .unwrap_or_else(|| "This tool requires user approval before execution.".to_string());
+        let summary = params
+            .summary
+            .unwrap_or_else(|| approval_operation_summary(&params.operation));
+        let fingerprint = params.fingerprint.unwrap_or_else(|| {
+            let fingerprint_input = serde_json::json!({
+                "category": category,
+                "operation": params.operation,
+            });
+            format!("{}:{}", category, short_value_hash(&fingerprint_input))
+        });
+        let session_fingerprint = params
+            .session_fingerprint
+            .or(params.session_fingerprint_camel)
+            .unwrap_or_else(|| fingerprint.clone());
+        let id = if has_explicit_fingerprint {
+            approval_id_for(
+                params.session_id.as_deref(),
+                &params.run_id,
+                &fingerprint,
+                &params.operation,
+            )
+        } else {
+            format!("approval-{}", params.run_id)
+        };
+
+        Self {
+            id,
+            run_id: params.run_id,
+            session_id: params.session_id,
+            operation: params.operation,
+            category,
+            risk,
+            reason,
+            summary,
+            fingerprint,
+            session_fingerprint,
+        }
+    }
+}
+
+fn approval_id_for(
+    session_id: Option<&str>,
+    run_id: &str,
+    fingerprint: &str,
+    operation: &Value,
+) -> String {
+    let mut hasher = DefaultHasher::new();
+    session_id.unwrap_or("").hash(&mut hasher);
+    run_id.hash(&mut hasher);
+    fingerprint.hash(&mut hasher);
+    operation.to_string().hash(&mut hasher);
+    format!("approval-{:016x}", hasher.finish())
+}
+
+fn short_value_hash(value: &Value) -> String {
+    let mut hasher = DefaultHasher::new();
+    value.to_string().hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+fn approval_operation_summary(operation: &Value) -> String {
+    let tool_name = json_string_field(operation, "toolName")
+        .or_else(|| json_string_field(operation, "tool_name"))
+        .unwrap_or_else(|| "tool".to_string());
+    if let Some(path) = operation
+        .get("arguments")
+        .and_then(|arguments| json_string_field(arguments, "path"))
+    {
+        return format!("{tool_name} path=\"{path}\"");
+    }
+    format!("{tool_name}({})", operation.to_string())
+}
+
+fn json_string_field(value: &Value, field: &str) -> Option<String> {
+    value
+        .get(field)
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
 }
 
 #[derive(Clone, Debug)]
@@ -988,6 +1150,16 @@ struct ApprovalRequestParams {
     #[serde(default)]
     session_id: Option<String>,
     operation: Value,
+    #[serde(default)]
+    classification: Option<ApprovalClassificationParams>,
+    #[serde(default)]
+    fingerprint: Option<String>,
+    #[serde(default)]
+    session_fingerprint: Option<String>,
+    #[serde(default, rename = "sessionFingerprint")]
+    session_fingerprint_camel: Option<String>,
+    #[serde(default)]
+    summary: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -997,6 +1169,13 @@ struct ApprovalResolveParams {
     approved: bool,
     #[serde(default)]
     scope: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ApprovalClassificationParams {
+    category: String,
+    risk: String,
+    reason: String,
 }
 
 #[derive(Deserialize)]
@@ -3039,9 +3218,6 @@ mod tests {
         let operation = json!({
             "toolName": "write_file",
             "arguments": { "path": "notes/today.md", "contents": "hello" },
-            "category": "filesystem_write",
-            "risk": "medium",
-            "reason": "File write/edit/delete tools can modify workspace state."
         });
         let mut router = WorkerRpcRouter::new(
             fixture.root.clone(),
@@ -3057,29 +3233,117 @@ mod tests {
             json!({
                 "run_id": "run-1",
                 "session_id": "session-1",
-                "operation": operation
+                "operation": operation,
+                "classification": {
+                    "category": "filesystem_write",
+                    "risk": "medium",
+                    "reason": "File write/edit/delete tools can modify workspace state."
+                },
+                "fingerprint": "write_file:notes/today.md",
+                "session_fingerprint": "write_file:notes/today.md",
+                "summary": "write_file path=\"notes/today.md\""
             }),
         );
 
         let response = router.dispatch(&request);
+        let result = response.result.as_ref().expect("approval request result");
+
+        assert_eq!(result["content"], "Waiting for approval.");
+        assert_eq!(result["awaitingUserInput"], true);
+        assert_eq!(result["stopReason"], "awaiting_approval");
+        assert!(result["approvalId"]
+            .as_str()
+            .unwrap()
+            .starts_with("approval-"));
+        assert_eq!(result["operation"], operation);
+        assert_eq!(result["runId"], "run-1");
+        assert_eq!(result["sessionId"], "session-1");
+        assert_eq!(result["category"], "filesystem_write");
+        assert_eq!(result["risk"], "medium");
+        assert_eq!(
+            result["reason"],
+            "File write/edit/delete tools can modify workspace state."
+        );
+        assert_eq!(result["summary"], "write_file path=\"notes/today.md\"");
+        assert_eq!(result["fingerprint"], "write_file:notes/today.md");
+        assert_eq!(result["sessionFingerprint"], "write_file:notes/today.md");
+        assert!(response.error.is_none());
+    }
+
+    #[test]
+    fn approval_resolve_returns_the_stored_pending_operation() {
+        let fixture = WorkspaceFixture::new();
+        let operation = json!({
+            "toolName": "write_file",
+            "arguments": { "path": "notes/today.md", "contents": "hello" },
+            "toolCallId": "call-1"
+        });
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::ApprovalRequest,
+                WorkerCapability::ApprovalResolve,
+            ]),
+        );
+        let request_response = router.dispatch(&WorkerRequest::new(
+            "req-request",
+            "trace-1",
+            "approval.request",
+            json!({
+                "run_id": "run-1",
+                "session_id": "session-1",
+                "operation": operation,
+                "classification": {
+                    "category": "filesystem_write",
+                    "risk": "medium",
+                    "reason": "File write/edit/delete tools can modify workspace state."
+                },
+                "fingerprint": "write_file:notes/today.md",
+                "session_fingerprint": "write_file:notes/today.md",
+                "summary": "write_file path=\"notes/today.md\""
+            }),
+        ));
+        let approval_id = request_response.result.as_ref().unwrap()["approvalId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let response = router.dispatch(&WorkerRequest::new(
+            "req-resolve",
+            "trace-1",
+            "approval.resolve",
+            json!({
+                "session_id": "session-1",
+                "approval_id": approval_id,
+                "approved": true,
+                "scope": "session"
+            }),
+        ));
 
         assert_eq!(
             response.result,
             Some(json!({
-                "content": "Waiting for approval.",
-                "awaitingUserInput": true,
-                "stopReason": "awaiting_approval",
-                "approvalId": "approval-run-1",
+                "approvalId": approval_id,
+                "approved": true,
+                "scope": "session",
+                "status": "approved",
+                "sessionId": "session-1",
                 "operation": operation,
-                "runId": "run-1",
-                "sessionId": "session-1"
+                "category": "filesystem_write",
+                "risk": "medium",
+                "reason": "File write/edit/delete tools can modify workspace state.",
+                "summary": "write_file path=\"notes/today.md\"",
+                "fingerprint": "write_file:notes/today.md",
+                "sessionFingerprint": "write_file:notes/today.md"
             }))
         );
         assert!(response.error.is_none());
     }
 
     #[test]
-    fn dispatches_approval_resolve_request() {
+    fn approval_resolve_rejects_missing_pending_request() {
         let fixture = WorkspaceFixture::new();
         let mut router = WorkerRpcRouter::new(
             fixture.root.clone(),
@@ -3102,17 +3366,11 @@ mod tests {
 
         let response = router.dispatch(&request);
 
+        assert!(response.result.is_none());
         assert_eq!(
-            response.result,
-            Some(json!({
-                "approvalId": "approval-1",
-                "approved": true,
-                "scope": "session",
-                "status": "approved",
-                "sessionId": "session-1"
-            }))
+            response.error.as_ref().map(|error| error.message.as_str()),
+            Some("pending approval not found")
         );
-        assert!(response.error.is_none());
     }
 
     #[test]

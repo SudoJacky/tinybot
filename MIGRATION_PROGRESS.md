@@ -46,7 +46,7 @@
 
 | Order | Status | Document | Goal | Notes |
 | --- | --- | --- | --- | --- |
-| 8 | active | [ts_security_approval_migration_design.md](ts_security_approval_migration_design.md) | 建立 approval gate 和安全边界 | Phase 1 started: TS classifier/fingerprint/policy helpers now cover Python approval parity for read-only, risky exec, safe exec, request_form, MCP, file writes, persistent data, external messages, and stable fingerprints. |
+| 8 | active | [ts_security_approval_migration_design.md](ts_security_approval_migration_design.md) | 建立 approval gate 和安全边界 | Phase 1 started: TS classifier/fingerprint/policy helpers cover Python approval parity. Phase 2 started: Rust `approval.request` now stores pending records and `approval.resolve` returns the stored operation/classification/fingerprint contract. |
 | 9 | todo | [ts_model_provider_runtime_migration_design.md](ts_model_provider_runtime_migration_design.md) | 让 TS worker 承担真实 chat 后端 | 依赖 ContextBuilder、Tool Runtime、Session/Turn、Approval |
 
 ### Batch 4: User Memory, Knowledge, Skills, And External Tools
@@ -117,6 +117,7 @@
 | 2026-06-12 | Started TS Memory Notes recall in `agent.run_input`: `NativeContextBridge` now reads active notes through native `memory.search`, `ContextBuilder` injects Python-style `[MEMORY RECALL]` system context, and context metadata carries `_memory_references`. |
 | 2026-06-12 | Extended TS/native Memory Notes operations: Rust worker RPC now supports `memory.trace`, `memory.reject`, and `memory.supersede`, and TS native tools expose `trace_memory_note`, `reject_memory_note`, and `supersede_memory_note`. |
 | 2026-06-12 | Started Security/Approval Phase 1: added TS approval classification and fingerprint helpers aligned with Python approval behavior, including MCP read-only approval, request_form exemption, safe exec detection, and session/once fingerprint rules. |
+| 2026-06-12 | Started Security/Approval Phase 2: Rust native `approval.request` now keeps an in-memory pending approval record with operation, classification, summary, fingerprint, and session fingerprint; `approval.resolve` consumes that record and rejects missing pending approvals. |
 
 ## Next Checklist
 
