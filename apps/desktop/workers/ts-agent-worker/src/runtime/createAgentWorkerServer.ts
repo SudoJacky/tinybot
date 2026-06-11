@@ -12,6 +12,7 @@ import {
   createNativeRagTools,
   createNativeReadOnlyTools,
   createNativeShellTools,
+  createNativeTaskTools,
   createNativeWriteTools,
 } from "../tools/nativeToolProxy.ts";
 import { registerToolsByPolicy } from "../tools/toolPolicy.ts";
@@ -61,6 +62,7 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
       ...createNativeMemoryTools(rpcClient),
       ...createNativeRagTools(rpcClient),
       ...createNativeMcpTools(rpcClient),
+      ...createNativeTaskTools(rpcClient),
     ],
     {
       capabilities,
@@ -131,6 +133,8 @@ const DEFAULT_NATIVE_TOOL_CAPABILITIES = [
   "knowledge.read",
   "knowledge.write",
   "mcp.call",
+  "task.read",
+  "task.write",
 ];
 
 class LazyModelProvider implements ModelProvider {

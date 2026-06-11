@@ -1,5 +1,7 @@
 import type { JsonObject } from "../protocol/messages.ts";
 import { formatKnowledgeQueryResults, normalizeKnowledgeQueryResults } from "../knowledge/knowledgeFormatting.ts";
+import { NativeTaskStoreBridge } from "../task/taskStoreBridge.ts";
+import { createTaskTool } from "../task/taskTool.ts";
 import type { Tool } from "./tool.ts";
 
 export type NativeRpcClient = {
@@ -49,6 +51,10 @@ export function createNativeRagTools(rpcClient: NativeRpcClient): Tool[] {
 
 export function createNativeMcpTools(rpcClient: NativeRpcClient): Tool[] {
   return [createCallMcpTool(rpcClient)];
+}
+
+export function createNativeTaskTools(rpcClient: NativeRpcClient): Tool[] {
+  return [createTaskTool({ store: new NativeTaskStoreBridge(rpcClient) })];
 }
 
 function createReadFileTool(rpcClient: NativeRpcClient): Tool {

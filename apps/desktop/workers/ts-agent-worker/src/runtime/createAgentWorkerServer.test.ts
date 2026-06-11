@@ -719,6 +719,99 @@ describe("createAgentWorkerServer", () => {
     });
   });
 
+  test("registers task tool that calls native task RPC", async () => {
+    const lines: string[] = [];
+    const provider = new QueueProvider([
+      {
+        content: "",
+        toolCalls: [
+          {
+            id: "call-task",
+            name: "task",
+            argumentsJson: JSON.stringify({ action: "progress", plan_id: "plan-1" }),
+          },
+        ],
+        stopReason: "tool_calls",
+      },
+      { content: "task checked", toolCalls: [], stopReason: "stop" },
+    ]);
+    const server = createAgentWorkerServer({
+      provider,
+      tools: new ToolRegistry(),
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const run = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "req-1",
+        trace_id: "trace-1",
+        method: "agent.run",
+        params: {
+          spec: {
+            runId: "run-1",
+            messages: [{ role: "user", content: "check task" }],
+            model: "test-model",
+            maxIterations: 2,
+            stream: false,
+          },
+        },
+      }),
+    );
+
+    await waitFor(() => parsedLines(lines).some((line) => line.method === "task.plan.get"));
+    const taskRequest = parsedLines(lines).find((line) => line.method === "task.plan.get");
+    expect(taskRequest).toMatchObject({
+      protocol_version: "1",
+      trace_id: "trace-1",
+      method: "task.plan.get",
+      params: { plan_id: "plan-1" },
+    });
+
+    await server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: taskRequest?.id,
+        trace_id: "trace-1",
+        result: {
+          plan: {
+            id: "plan-1",
+            title: "Backend migration",
+            original_request: "Move backend runtime to TS",
+            status: "executing",
+            current_subtask_ids: [],
+            context: {},
+            subtasks: [
+              {
+                id: "a",
+                title: "Foundation",
+                description: "Build foundation",
+                status: "completed",
+                dependencies: [],
+                parallel_safe: true,
+                result: "done",
+                error: null,
+                started_at: null,
+                completed_at: null,
+                retry_count: 0,
+                max_retries: 2,
+              },
+            ],
+          },
+        },
+      }),
+    );
+    await run;
+
+    expect(provider.requests[1]).toContainEqual(expect.objectContaining({
+      role: "tool",
+      content: expect.stringContaining("**Progress:** 1/1 completed"),
+      toolCallId: "call-task",
+      name: "task",
+    }));
+  });
+
   test("registers MCP tools that call native mcp RPC", async () => {
     const lines: string[] = [];
     const provider = new QueueProvider([
