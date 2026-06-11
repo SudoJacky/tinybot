@@ -29,6 +29,7 @@ export type AgentWorkerOptions = {
   provider: ModelProvider;
   tools: ToolRegistry;
   emitEvent: (event: WorkerEvent) => void;
+  prepareTools?: PrepareToolsHandler;
   reloadProvider?: ProviderReloadHandler;
   listProviderModels?: ProviderModelsListHandler;
   listProviderCatalog?: ProviderCatalogListHandler;
@@ -41,6 +42,7 @@ export type AgentWorkerOptions = {
   contextBridge?: ContextBridge;
 };
 
+export type PrepareToolsHandler = (traceId: string) => Promise<unknown> | unknown;
 export type ProviderReloadHandler = () => Promise<ProviderReloadResult> | ProviderReloadResult;
 
 export type ProviderReloadResult = {
@@ -107,6 +109,7 @@ export class AgentWorker {
   private readonly provider: ModelProvider;
   private readonly tools: ToolRegistry;
   private readonly emitEvent: (event: WorkerEvent) => void;
+  private readonly prepareTools?: PrepareToolsHandler;
   private readonly reloadProvider?: ProviderReloadHandler;
   private readonly listProviderModels?: ProviderModelsListHandler;
   private readonly listProviderCatalog?: ProviderCatalogListHandler;
@@ -125,6 +128,7 @@ export class AgentWorker {
     this.provider = options.provider;
     this.tools = options.tools;
     this.emitEvent = options.emitEvent;
+    this.prepareTools = options.prepareTools;
     this.reloadProvider = options.reloadProvider;
     this.listProviderModels = options.listProviderModels;
     this.listProviderCatalog = options.listProviderCatalog;
@@ -270,6 +274,7 @@ export class AgentWorker {
     spec: AgentRunSpec,
     contextMetadata?: ContextBuildMetadata & { bridge?: ContextBridgeMetadata },
   ): Promise<WorkerResponse> {
+      await this.prepareTools?.(request.trace_id);
       const activeRun: ActiveRun = { traceId: request.trace_id, cancelled: false };
       this.activeRuns.set(spec.runId, activeRun);
       const runner = new AgentRunner({

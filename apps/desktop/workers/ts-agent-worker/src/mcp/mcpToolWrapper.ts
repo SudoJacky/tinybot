@@ -19,7 +19,7 @@ export type McpToolCallResult = {
 };
 
 export type McpToolSession = {
-  callTool(rawToolName: string, args: Record<string, unknown>): Promise<McpToolCallResult>;
+  callTool(rawToolName: string, args: Record<string, unknown>, context?: ToolContext): Promise<McpToolCallResult>;
 };
 
 export type McpToolWrapperOptions = {
@@ -50,10 +50,10 @@ export function createMcpToolWrapper(options: McpToolWrapperOptions): Tool {
     requiresApproval: true,
     approvalCategory: "mcp",
     approvalRisk: "high",
-    async execute(args: Record<string, unknown>, _context: ToolContext): Promise<ToolResult> {
+    async execute(args: Record<string, unknown>, context: ToolContext): Promise<ToolResult> {
       try {
         const result = await withTimeout(
-          options.session.callTool(rawToolName, args),
+          options.session.callTool(rawToolName, args, context),
           options.toolTimeout,
         );
         return {

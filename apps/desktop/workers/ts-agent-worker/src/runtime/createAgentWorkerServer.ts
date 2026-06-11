@@ -27,6 +27,7 @@ import {
   providerRuntimeFromNativeConfig,
 } from "./configBridge.ts";
 import { NativeContextBridge } from "./contextBridge.ts";
+import { NativeMcpBridge } from "./mcpBridge.ts";
 import { NativeMemoryBridge } from "./memoryBridge.ts";
 import { createModelProvider, type ModelProviderConfig } from "./providerFactory.ts";
 import { NativeSessionBridge } from "./sessionBridge.ts";
@@ -38,6 +39,7 @@ export type CreateAgentWorkerServerOptions = {
   env?: Record<string, string | undefined>;
   capabilities?: string[];
   channel?: string;
+  enableNativeMcpDiscovery?: boolean;
   createModelProvider?: (config: ModelProviderConfig) => ModelProvider;
   fetchProviderModelsJson?: JsonFetcher;
   writeLine: (line: string) => void;
@@ -46,6 +48,7 @@ export type CreateAgentWorkerServerOptions = {
 
 export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions): StdioServer {
   const rpcClient = new RpcClient({ writeLine: options.writeLine });
+  const capabilities = options.capabilities ?? DEFAULT_NATIVE_TOOL_CAPABILITIES;
   registerToolsByPolicy(
     options.tools,
     [
@@ -59,7 +62,7 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
       ...createNativeMcpTools(rpcClient),
     ],
     {
-      capabilities: options.capabilities ?? DEFAULT_NATIVE_TOOL_CAPABILITIES,
+      capabilities,
       channel: options.channel ?? "agent_ui",
     },
   );
@@ -77,10 +80,14 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
   if (!provider) {
     throw new Error("model provider is unavailable");
   }
+  const mcpBridge = options.enableNativeMcpDiscovery && capabilities.includes("mcp.call")
+    ? new NativeMcpBridge({ rpcClient, registry: options.tools })
+    : undefined;
   const worker = new AgentWorker({
     provider,
     tools: options.tools,
     emitEvent: writeEvent,
+    prepareTools: mcpBridge ? (traceId) => mcpBridge.ensureConnected(traceId) : undefined,
     reloadProvider: lazyProvider ? () => lazyProvider.reload() : undefined,
     listProviderModels: (request) => providerModelsFromNativeConfig(
       configBridge,

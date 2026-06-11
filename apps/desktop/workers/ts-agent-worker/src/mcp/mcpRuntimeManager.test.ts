@@ -51,7 +51,7 @@ describe("McpRuntimeManager", () => {
     await expect(registry.execute("mcp_fake_echo", { text: "hi" }, { runId: "run-1" })).resolves.toMatchObject({
       content: "pong",
     });
-    expect(session.callTool).toHaveBeenCalledWith("echo", { text: "hi" });
+    expect(session.callTool).toHaveBeenCalledWith("echo", { text: "hi" }, { runId: "run-1" });
   });
 
   test("matches wrapped allowlist names and reports unmatched entries", async () => {

@@ -317,6 +317,7 @@ impl WorkerRpcRouter {
                 let params: McpCallToolParams = parse_params(request)?;
                 self.mcp.call_tool(params)
             }
+            "mcp.list_tools" => self.mcp.list_tools(),
             "runtime.now" => {
                 let params: RuntimeNowParams = parse_params(request)?;
                 Ok(runtime_now(params.timezone))
@@ -769,6 +770,33 @@ impl WorkerMcpRpc {
             "server": server_name,
             "tool": tool_name,
         }))
+    }
+
+    fn list_tools(&self) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
+        self.require(WorkerCapability::McpCall)?;
+        let servers = self
+            .config_snapshot
+            .get("tools")
+            .and_then(|tools| tools.get("mcp_servers").or_else(|| tools.get("mcpServers")))
+            .and_then(Value::as_object)
+            .map(|servers| {
+                servers
+                    .iter()
+                    .filter_map(|(server_name, server)| {
+                        validate_mcp_name("server", server_name).ok()?;
+                        let tools = mcp_fixture_tool_definitions(server_name, server);
+                        if tools.is_empty() {
+                            return None;
+                        }
+                        Some(serde_json::json!({
+                            "name": server_name,
+                            "tools": tools,
+                        }))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        Ok(serde_json::json!({ "servers": servers }))
     }
 
     fn server_config(&self, server_name: &str) -> Option<&Value> {
@@ -2186,6 +2214,46 @@ fn mcp_fixture_tool_content(server: &Value, tool_name: &str) -> Option<String> {
         .and_then(Value::as_str)
         .map(str::to_string)
         .or_else(|| Some(tool_result.to_string()))
+}
+
+fn mcp_fixture_tool_definitions(server_name: &str, server: &Value) -> Vec<Value> {
+    let Some(tools) = server
+        .get("fixture_tools")
+        .or_else(|| server.get("fixtureTools"))
+        .and_then(Value::as_object)
+    else {
+        return Vec::new();
+    };
+    let mut definitions = tools
+        .iter()
+        .filter_map(|(tool_name, tool)| {
+            validate_mcp_name("tool", tool_name).ok()?;
+            if !mcp_tool_is_enabled(server_name, tool_name, server) {
+                return None;
+            }
+            let input_schema = tool
+                .get("inputSchema")
+                .or_else(|| tool.get("input_schema"))
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({ "type": "object" }));
+            let description = tool
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or(tool_name);
+            Some(serde_json::json!({
+                "name": tool_name,
+                "description": description,
+                "inputSchema": input_schema,
+            }))
+        })
+        .collect::<Vec<_>>();
+    definitions.sort_by(|left, right| {
+        left.get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .cmp(right.get("name").and_then(Value::as_str).unwrap_or_default())
+    });
+    definitions
 }
 
 fn normalize_rag_collection(
@@ -4374,6 +4442,78 @@ mod tests {
                 "content": "MCP search result",
                 "server": "docs",
                 "tool": "search"
+            }))
+        );
+        assert!(response.error.is_none());
+    }
+
+    #[test]
+    fn dispatches_mcp_list_tools_from_configured_fixture_tools() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({
+                "tools": {
+                    "mcp_servers": {
+                        "docs": {
+                            "enabled_tools": ["search", "mcp_docs_read"],
+                            "fixture_tools": {
+                                "search": {
+                                    "description": "Search docs",
+                                    "input_schema": {
+                                        "type": "object",
+                                        "properties": { "query": { "type": "string" } }
+                                    },
+                                    "content": "MCP search result"
+                                },
+                                "read": {
+                                    "description": "Read docs",
+                                    "inputSchema": {
+                                        "type": "object",
+                                        "properties": { "path": { "type": "string" } }
+                                    },
+                                    "content": "MCP read result"
+                                },
+                                "delete": { "content": "not allowlisted" }
+                            }
+                        }
+                    }
+                }
+            }),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::McpCall]),
+        );
+        let request = WorkerRequest::new("req-1", "trace-1", "mcp.list_tools", json!({}));
+
+        let response = router.dispatch(&request);
+
+        assert_eq!(
+            response.result,
+            Some(json!({
+                "servers": [
+                    {
+                        "name": "docs",
+                        "tools": [
+                            {
+                                "name": "read",
+                                "description": "Read docs",
+                                "inputSchema": {
+                                    "type": "object",
+                                    "properties": { "path": { "type": "string" } }
+                                }
+                            },
+                            {
+                                "name": "search",
+                                "description": "Search docs",
+                                "inputSchema": {
+                                    "type": "object",
+                                    "properties": { "query": { "type": "string" } }
+                                }
+                            }
+                        ]
+                    }
+                ]
             }))
         );
         assert!(response.error.is_none());

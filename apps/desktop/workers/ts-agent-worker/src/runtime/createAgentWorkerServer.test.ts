@@ -739,6 +739,130 @@ describe("createAgentWorkerServer", () => {
     });
   });
 
+  test("registers discovered native MCP tools as dynamic wrapped tools", async () => {
+    const lines: string[] = [];
+    const provider = new QueueProvider([
+      {
+        content: "",
+        toolCalls: [
+          {
+            id: "call-mcp",
+            name: "mcp_docs_search",
+            argumentsJson: JSON.stringify({ query: "agent loop" }),
+          },
+        ],
+        stopReason: "tool_calls",
+      },
+      { content: "dynamic mcp checked", toolCalls: [], stopReason: "stop" },
+    ]);
+    const server = createAgentWorkerServer({
+      provider,
+      tools: new ToolRegistry(),
+      enableNativeMcpDiscovery: true,
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const run = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "req-1",
+        trace_id: "trace-1",
+        method: "agent.run",
+        params: {
+          spec: {
+            runId: "run-1",
+            messages: [{ role: "user", content: "call dynamic MCP" }],
+            model: "test-model",
+            maxIterations: 2,
+            stream: false,
+          },
+        },
+      }),
+    );
+
+    await waitFor(() => parsedLines(lines).some((line) => line.method === "mcp.list_tools"));
+    const listRequest = parsedLines(lines).find((line) => line.method === "mcp.list_tools");
+    await server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: listRequest?.id,
+        trace_id: "trace-1",
+        result: {
+          servers: [
+            {
+              name: "docs",
+              tools: [
+                {
+                  name: "search",
+                  description: "Search docs",
+                  inputSchema: {
+                    type: "object",
+                    properties: { query: { type: "string" } },
+                    required: ["query"],
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    );
+
+    await waitFor(() => parsedLines(lines).some((line) => line.method === "approval.request"));
+    const approvalRequest = parsedLines(lines).find((line) => line.method === "approval.request");
+    expect(approvalRequest).toMatchObject({
+      protocol_version: "1",
+      trace_id: "trace-1",
+      method: "approval.request",
+      params: {
+        run_id: "run-1",
+        operation: {
+          toolName: "mcp_docs_search",
+          arguments: { query: "agent loop" },
+        },
+        classification: {
+          category: "mcp",
+          risk: "high",
+        },
+      },
+    });
+    await server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: approvalRequest?.id,
+        trace_id: "trace-1",
+        result: {
+          content: "Waiting for approval.",
+          awaitingUserInput: true,
+          stopReason: "awaiting_approval",
+          approvalId: "approval-1",
+          operation: {
+            toolName: "mcp_docs_search",
+            arguments: { query: "agent loop" },
+          },
+        },
+      }),
+    );
+    await run;
+
+    expect(provider.requests).toHaveLength(1);
+    expect(parsedLines(lines)).toContainEqual(expect.objectContaining({
+      event: "agent.awaiting_approval",
+      payload: expect.objectContaining({
+        runId: "run-1",
+        stopReason: "awaiting_approval",
+        approvalId: "approval-1",
+      }),
+    }));
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      protocol_version: "1",
+      id: "req-1",
+      trace_id: "trace-1",
+      result: { finalContent: "", stopReason: "awaiting_approval" },
+    });
+  });
+
   test("loads model provider config from native config when provider is not injected", async () => {
     const lines: string[] = [];
     const provider = new QueueProvider([{ content: "native config done", toolCalls: [], stopReason: "stop" }]);

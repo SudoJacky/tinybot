@@ -47,7 +47,11 @@ describe("createMcpToolWrapper", () => {
 
     const result = await tool.execute({ path: "README.md" }, { runId: "run-1", traceId: "trace-1" });
 
-    expect(session.callTool).toHaveBeenCalledWith("read-file", { path: "README.md" });
+    expect(session.callTool).toHaveBeenCalledWith(
+      "read-file",
+      { path: "README.md" },
+      { runId: "run-1", traceId: "trace-1" },
+    );
     expect(result.content).toContain("first line");
     expect(result.content).toContain("[MCP content:image]");
     expect(result.metadata).toMatchObject({
