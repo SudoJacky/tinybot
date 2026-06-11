@@ -3,7 +3,7 @@ import type { AgentMessage, AgentRunResult, AgentRunSpec } from "../agent/agentR
 import type { AgentRunInput, ContextBuildMetadata, ContextBridgeMetadata } from "../agent/contextTypes.ts";
 import { createDefaultCommandRouter } from "../command/commandRegistry.ts";
 import type { CommandRouter } from "../command/commandRouter.ts";
-import type { RestartCommandRequest } from "../command/commandTypes.ts";
+import type { ResolvePendingApprovalRequest, ResolvePendingApprovalResult, RestartCommandRequest } from "../command/commandTypes.ts";
 import type { ModelProvider, ToolDefinition } from "../model/provider.ts";
 import {
   isJsonObject,
@@ -158,6 +158,9 @@ export class AgentWorker {
         : {}),
       ...(options.approvalBridge?.listPendingApprovals
         ? { listPendingApprovals: (sessionId, traceId) => this.listPendingApprovalsForCommand(sessionId, traceId) }
+        : {}),
+      ...(options.approvalBridge
+        ? { resolvePendingApproval: (request) => this.resolvePendingApprovalForCommand(request) }
         : {}),
     });
     this.turnLifecycle = new TurnLifecycle(options.sessionBridge, options.memoryBridge);
@@ -476,6 +479,41 @@ export class AgentWorker {
           reason: item.reason,
         })),
     };
+  }
+
+  private async resolvePendingApprovalForCommand(
+    request: ResolvePendingApprovalRequest,
+  ): Promise<ResolvePendingApprovalResult> {
+    if (!request.sessionId || !this.approvalBridge) {
+      return {
+        resolved: false,
+        approvalId: request.approvalId,
+        approved: request.approved,
+        scope: request.scope,
+      };
+    }
+    try {
+      const result = await this.approvalBridge.resolveApproval({
+        sessionId: request.sessionId,
+        approvalId: request.approvalId,
+        approved: request.approved,
+        scope: request.scope,
+      }, request.traceId);
+      return {
+        resolved: true,
+        approvalId: stringField(result, "approvalId", "id") ?? request.approvalId,
+        approved: request.approved,
+        summary: typeof result.summary === "string" ? result.summary : undefined,
+        scope: approvalScopeField(result) ?? request.scope,
+      };
+    } catch {
+      return {
+        resolved: false,
+        approvalId: request.approvalId,
+        approved: request.approved,
+        scope: request.scope,
+      };
+    }
   }
 
   private async tryHandleCommand(traceId: string, spec: AgentRunSpec): Promise<AgentRunResult | undefined> {
@@ -1005,6 +1043,16 @@ function isPendingApprovalSummary(value: unknown): value is {
     && typeof value.risk === "string"
     && typeof value.category === "string"
     && typeof value.reason === "string";
+}
+
+function stringField(object: Record<string, unknown>, camelKey: string, snakeKey: string): string | undefined {
+  const value = object[camelKey] ?? object[snakeKey];
+  return typeof value === "string" ? value : undefined;
+}
+
+function approvalScopeField(object: Record<string, unknown>): "once" | "session" | undefined {
+  const value = stringField(object, "scope", "scope");
+  return value === "once" || value === "session" ? value : undefined;
 }
 
 function parseRestoreCheckpointSessionId(params: Record<string, unknown> | undefined): string {

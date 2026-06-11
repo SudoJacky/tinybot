@@ -44,12 +44,29 @@ export type PendingApprovalListResult = {
   approvals: PendingApprovalSummary[];
 };
 
+export type ResolvePendingApprovalRequest = {
+  traceId: string;
+  sessionId: string | undefined;
+  approvalId: string;
+  approved: boolean;
+  scope?: "once" | "session";
+};
+
+export type ResolvePendingApprovalResult = {
+  resolved: boolean;
+  approvalId: string;
+  approved: boolean;
+  summary?: string;
+  scope?: "once" | "session";
+};
+
 export type CommandCapabilities = {
   cancelActiveRunsForSession?: (sessionId: string | undefined) => Promise<CancelActiveRunsResult> | CancelActiveRunsResult;
   getStatusSnapshot?: (context: CommandContext) => Promise<CommandStatusSnapshot> | CommandStatusSnapshot;
   requestRestart?: (request: RestartCommandRequest) => Promise<void> | void;
   clearSession?: (sessionId: string | undefined, traceId: string) => Promise<ClearSessionCommandResult> | ClearSessionCommandResult;
   listPendingApprovals?: (sessionId: string | undefined, traceId: string) => Promise<PendingApprovalListResult> | PendingApprovalListResult;
+  resolvePendingApproval?: (request: ResolvePendingApprovalRequest) => Promise<ResolvePendingApprovalResult> | ResolvePendingApprovalResult;
 };
 
 export type CommandResult = {

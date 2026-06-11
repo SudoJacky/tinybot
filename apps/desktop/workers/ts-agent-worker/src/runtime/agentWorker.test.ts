@@ -522,6 +522,135 @@ describe("AgentWorker", () => {
     expect(response.result?.finalContent).toContain("Approve once: `/approve <id> once`");
   });
 
+  test("handles backend slash approve by resolving a pending approval", async () => {
+    let providerCalls = 0;
+    const resolveCalls: Array<{ sessionId: string; approvalId: string; approved: boolean; scope?: string; traceId: string }> = [];
+    const provider: ModelProvider = {
+      complete: async () => {
+        providerCalls += 1;
+        throw new Error("slash approve reached provider");
+      },
+    };
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      approvalBridge: {
+        requestApproval: async () => ({}),
+        listPendingApprovals: async () => ({ approvals: [] }),
+        resolveApproval: async (params, traceId) => {
+          resolveCalls.push({ ...params, traceId });
+          return {
+            id: params.approvalId,
+            summary: "write_file path=\"notes.md\"",
+            decision: "allow",
+            scope: params.scope,
+          };
+        },
+      },
+    });
+
+    const response = await worker.handleRequest(
+      request({
+        spec: {
+          runId: "run-approve-command",
+          sessionId: "session-1",
+          messages: [{ role: "user", content: "/approve approval-1 session" }],
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+        },
+      }),
+    );
+
+    expect(providerCalls).toBe(0);
+    expect(resolveCalls).toEqual([
+      {
+        sessionId: "session-1",
+        approvalId: "approval-1",
+        approved: true,
+        scope: "session",
+        traceId: "trace-1",
+      },
+    ]);
+    expect(response).toMatchObject({
+      result: {
+        finalContent: "Approved `approval-1` for this session: write_file path=\"notes.md\"\n\nMatching operations in this session will not ask again. Retrying now.",
+        stopReason: "command",
+        metadata: {
+          command: "/approve",
+          render_as: "text",
+          approval_id: "approval-1",
+          approved: true,
+          scope: "session",
+        },
+      },
+    });
+  });
+
+  test("handles backend slash deny by resolving a pending approval", async () => {
+    let providerCalls = 0;
+    const resolveCalls: Array<{ sessionId: string; approvalId: string; approved: boolean; scope?: string; traceId: string }> = [];
+    const provider: ModelProvider = {
+      complete: async () => {
+        providerCalls += 1;
+        throw new Error("slash deny reached provider");
+      },
+    };
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      approvalBridge: {
+        requestApproval: async () => ({}),
+        listPendingApprovals: async () => ({ approvals: [] }),
+        resolveApproval: async (params, traceId) => {
+          resolveCalls.push({ ...params, traceId });
+          return {
+            id: params.approvalId,
+            summary: "write_file path=\"notes.md\"",
+            decision: "deny",
+          };
+        },
+      },
+    });
+
+    const response = await worker.handleRequest(
+      request({
+        spec: {
+          runId: "run-deny-command",
+          sessionId: "session-1",
+          messages: [{ role: "user", content: "/deny approval-1" }],
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+        },
+      }),
+    );
+
+    expect(providerCalls).toBe(0);
+    expect(resolveCalls).toEqual([
+      {
+        sessionId: "session-1",
+        approvalId: "approval-1",
+        approved: false,
+        traceId: "trace-1",
+      },
+    ]);
+    expect(response).toMatchObject({
+      result: {
+        finalContent: "Denied `approval-1`: write_file path=\"notes.md\"",
+        stopReason: "command",
+        metadata: {
+          command: "/deny",
+          render_as: "text",
+          approval_id: "approval-1",
+          approved: false,
+        },
+      },
+    });
+  });
+
   test("routes skills WebUI list and detail requests through the skills bridge", async () => {
     const calls: Array<{ type: string; traceId: string; name?: string }> = [];
     const worker = new AgentWorker({
