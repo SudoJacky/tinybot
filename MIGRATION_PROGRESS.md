@@ -14,7 +14,7 @@
 
 ## Current Focus
 
-- 当前批次：Batch 1，native core 基座已通过本地复核，shared support Phase 1 纯 TS helper 基座已基本建立；config Phase 1 已复核，ConfigStore Load/Save/Migrations 的 TS migration/path/load diagnostics、Rust/native 文件 I/O、TS patch/validate、native patch-result bridge、side-effect planning、受控 `config.apply_patch_result` RPC、store-aware 持久化、TS `applyPatch()` 输入桥接与桌面 settings native-first 保存路径已建立；AgentRunner/worker 最小执行闭环进入 verify，下一步复核 agent loop 验收项并推进 tool/session/context 边界。
+- 当前批次：Batch 2 起点：native core/shared/config/AgentRunner 最小闭环已进入 verify；tool runtime 开始推进，先收紧 TS worker 工具策略，使 approval-gated 工具必须具备 approval capability 且只在可交互通道暴露，下一步继续复核 tool schema/native filesystem/shell/session 边界。
 - 当前业务优先级：`add-source-traceable-knowledge-indexing` 与 knowledge/RAG 相关，但应在 tool/context/session/approval 等前置层稳定后再完整接入。
 - 总体路径：`native core -> shared/config -> agent/tool/session/context -> approval/provider -> skills/memory/knowledge/MCP -> command/task -> cowork -> webui/channel/API -> heartbeat`
 
@@ -38,7 +38,7 @@
 
 | Order | Status | Document | Goal | Notes |
 | --- | --- | --- | --- | --- |
-| 5 | todo | [ts_tool_runtime_migration_design.md](ts_tool_runtime_migration_design.md) | 建立 tool schema、registry、prepare/execute metadata | approval、MCP、memory、knowledge、task 的基座 |
+| 5 | active | [ts_tool_runtime_migration_design.md](ts_tool_runtime_migration_design.md) | 建立 tool schema、registry、prepare/execute metadata | 已具备 schema casting/validation、registry/runtime/native proxy 起点；本轮补齐 approval-aware policy，approval-gated 工具要求 `approval.request` 并限制在可交互通道 |
 | 6 | todo | [ts_session_turn_lifecycle_migration_design.md](ts_session_turn_lifecycle_migration_design.md) | 明确 persistence/checkpoint/resume 语义 | 支撑 approval/form、第二轮对话、background task |
 | 7 | todo | [ts_context_builder_migration_design.md](ts_context_builder_migration_design.md) | 接入 deterministic context assembly | 在 AgentRunner 和 session projection 后推进，再挂 memory/RAG/skills |
 
@@ -100,6 +100,7 @@
 | 2026-06-11 | 继续 Batch 1 config Phase 3：为 Rust `WorkerRpcRouter` 增加可选 `ConfigStore` 持久化路径，`config.apply_patch_result` 在有 store 时先校验 `config.write` 再落盘，并同步后续 `config.get` snapshot；同时新增 TS `NativeConfigBridge.applyPatch()`，用 TS schema/patch validate 生成 patch result 后交给 native。 |
 | 2026-06-11 | 完成 Batch 1 config Phase 3 的 desktop settings 保存切换：新增前端 `applyNativeConfigPatch()` / `saveDesktopSettingsConfig()`，保存时优先通过 Tauri `apply_config_patch_result` 写入 Rust `ConfigStore`，native 不可用时保留 Python gateway `PATCH /api/config` fallback。 |
 | 2026-06-11 | 推进 Batch 1 agent loop 并进入 verify：TS worker 恢复路径 `runResumedSpec()` 登记 active run 并传递 cancel state，使 `agent.submit_form` / `agent.resume_approval` 恢复后的长请求也能被 `agent.cancel` 命中；补充 resumed form cancellation 回归测试。 |
+| 2026-06-11 | 启动 Batch 2 tool runtime：收紧 `toolPolicy`，要求 `requiresApproval` 工具同时具备 `approval.request` capability，并让 `request_approval` / approval-gated 工具像 `request_form` 一样只在 `agent_ui` 通道注册。 |
 
 ## Next Checklist
 
