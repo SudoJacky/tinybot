@@ -114,6 +114,7 @@ export type AgentRunInput = {
 
 export type AgentRunDefaults = {
   providerRetryMode?: "standard" | "persistent";
+  enabledSkills?: string[];
 };
 
 export type ContextBuildMetadata = {

@@ -63,6 +63,7 @@ describe("NativeContextBridge", () => {
       "config.snapshot_public",
       "session.get_history",
       "workspace.read_bootstrap_files",
+      "skills.list",
     ]);
     expect(result.input).toMatchObject({
       identity: expect.stringContaining("TinyBot"),
@@ -104,6 +105,7 @@ describe("NativeContextBridge", () => {
       "config.snapshot_public",
       "session.get_history",
       "workspace.read_bootstrap_files",
+      "skills.list",
     ]);
     expect((result as { runDefaults?: { providerRetryMode?: string } }).runDefaults).toEqual({
       providerRetryMode: "persistent",
@@ -196,6 +198,7 @@ describe("NativeContextBridge", () => {
       "workspace.read_file",
       "workspace.read_file",
       "workspace.read_file",
+      "skills.list",
     ]);
     expect(result.input.history).toEqual([]);
     expect(result.input.bootstrapFiles).toEqual([{ path: "AGENTS.md", contents: "Agent rules" }]);
@@ -261,5 +264,68 @@ describe("NativeContextBridge", () => {
         viewLine: 12,
       },
     ]);
+  });
+
+  test("loads enabled skills context from native skills list", async () => {
+    const rpcClient = new FakeRpcClient({
+      "runtime.now": { current_time: "fixed now" },
+      "config.snapshot_public": {
+        value: {
+          agents: { defaults: { provider_retry_mode: "standard" } },
+          skills: { enabled: ["planner"] },
+        },
+      },
+      "session.get_history": { session_id: "session-1", messages: [] },
+      "workspace.read_bootstrap_files": { files: [], missing: [] },
+      "skills.list": {
+        skills: [
+          {
+            name: "planner",
+            path: "skills/planner/SKILL.md",
+            source: "workspace",
+            content: [
+              "---",
+              "name: planner",
+              "description: Plan work",
+              "always: true",
+              "---",
+              "Plan the work.",
+            ].join("\n"),
+          },
+          {
+            name: "tmux",
+            path: "tinybot/skills/tmux/SKILL.md",
+            source: "builtin",
+            content: [
+              "---",
+              "name: tmux",
+              "description: Terminal sessions",
+              "metadata: '{\"tinybot\":{\"requires\":{\"bins\":[\"definitely_missing_tinybot_bin\"],\"env\":[\"DEFINITELY_MISSING_TINYBOT_ENV\"]}}}'",
+              "---",
+              "Use tmux.",
+            ].join("\n"),
+          },
+        ],
+      },
+    });
+    const bridge = new NativeContextBridge(rpcClient);
+
+    const result = await bridge.loadContextInput(runInput(), "trace-1");
+
+    expect(rpcClient.calls.map((call) => call.method)).toEqual([
+      "runtime.now",
+      "config.snapshot_public",
+      "session.get_history",
+      "workspace.read_bootstrap_files",
+      "skills.list",
+    ]);
+    expect(result.input.skills).toMatchObject({
+      activeSkillsContent: "### Skill: planner\n\nPlan the work.",
+      alwaysSkillNames: ["planner"],
+      sourceCounts: { workspace: 1, builtin: 1 },
+      unavailableCount: 1,
+    });
+    expect(result.input.skills?.skillsSummary).toContain("<name>planner</name>");
+    expect(result.input.skills?.skillsSummary).not.toContain("<name>tmux</name>");
   });
 });

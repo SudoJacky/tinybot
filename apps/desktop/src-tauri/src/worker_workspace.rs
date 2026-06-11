@@ -219,6 +219,22 @@ impl WorkerWorkspaceRpc {
         })
     }
 
+    pub fn list_skills(&self) -> Result<WorkspaceSkillsList, WorkerProtocolError> {
+        self.require(WorkerCapability::FsWorkspaceRead)?;
+        let root = canonicalize_workspace_root(&self.root)?;
+        let mut skills = Vec::new();
+        let mut seen_names = Vec::new();
+        collect_skill_entries(&root, "skills", "workspace", &mut skills, &mut seen_names)?;
+        collect_skill_entries(
+            &root,
+            "tinybot/skills",
+            "builtin",
+            &mut skills,
+            &mut seen_names,
+        )?;
+        Ok(WorkspaceSkillsList { skills })
+    }
+
     pub fn write_file(
         &self,
         requested_path: &str,
@@ -301,7 +317,11 @@ impl WorkerWorkspaceRpc {
                 })?;
             } else {
                 std::fs::remove_dir(&absolute_path).map_err(|error| {
-                    let message = if absolute_path.read_dir().map(|mut items| items.next().is_some()).unwrap_or(false) {
+                    let message = if absolute_path
+                        .read_dir()
+                        .map(|mut items| items.next().is_some())
+                        .unwrap_or(false)
+                    {
                         "workspace directory is not empty"
                     } else {
                         "failed to delete workspace directory"
@@ -419,6 +439,19 @@ pub struct WorkspaceDirectoryListing {
 pub struct WorkspaceBootstrapFiles {
     pub files: Vec<WorkspaceFileContent>,
     pub missing: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct WorkspaceSkillEntry {
+    pub name: String,
+    pub path: String,
+    pub source: String,
+    pub content: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct WorkspaceSkillsList {
+    pub skills: Vec<WorkspaceSkillEntry>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
@@ -546,6 +579,90 @@ fn ignored_workspace_path(base: &Path, path: &Path) -> bool {
             })
         })
         .unwrap_or(false)
+}
+
+fn collect_skill_entries(
+    root: &Path,
+    relative_dir: &str,
+    source: &str,
+    skills: &mut Vec<WorkspaceSkillEntry>,
+    seen_names: &mut Vec<String>,
+) -> Result<(), WorkerProtocolError> {
+    let absolute_dir = workspace_dir_absolute_path(root, relative_dir);
+    if !absolute_dir.exists() || !absolute_dir.is_dir() {
+        return Ok(());
+    }
+    ensure_inside_canonical_workspace(root, &absolute_dir)?;
+
+    let mut entries = std::fs::read_dir(&absolute_dir)
+        .map_err(|error| {
+            filesystem_error(
+                "failed to list skills directory",
+                serde_json::json!({
+                    "path": relative_dir,
+                    "error": error.to_string(),
+                }),
+            )
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| {
+            filesystem_error(
+                "failed to inspect skills directory entry",
+                serde_json::json!({ "error": error.to_string() }),
+            )
+        })?;
+    entries.sort_by_key(|entry| entry.file_name());
+
+    for entry in entries {
+        let path = entry.path();
+        let metadata = std::fs::symlink_metadata(&path).map_err(|error| {
+            filesystem_error(
+                "failed to read skill metadata",
+                serde_json::json!({
+                    "path": path.display().to_string(),
+                    "error": error.to_string(),
+                }),
+            )
+        })?;
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        if seen_names.iter().any(|seen| seen == &name) {
+            continue;
+        }
+        let skill_file = path.join("SKILL.md");
+        if !skill_file.is_file() {
+            continue;
+        }
+        ensure_inside_canonical_workspace(root, &skill_file)?;
+        let canonical_skill_file = skill_file.canonicalize().map_err(|error| {
+            filesystem_error(
+                "failed to resolve skill file",
+                serde_json::json!({
+                    "path": skill_file.display().to_string(),
+                    "error": error.to_string(),
+                }),
+            )
+        })?;
+        let content = std::fs::read_to_string(&canonical_skill_file).map_err(|error| {
+            filesystem_error(
+                "failed to read skill file",
+                serde_json::json!({
+                    "path": skill_file.display().to_string(),
+                    "error": error.to_string(),
+                }),
+            )
+        })?;
+        seen_names.push(name.clone());
+        skills.push(WorkspaceSkillEntry {
+            name,
+            path: workspace_relative_path(root, &canonical_skill_file)?,
+            source: source.to_string(),
+            content,
+        });
+    }
+    Ok(())
 }
 
 fn normalize_workspace_path(requested_path: &str) -> Result<String, WorkerProtocolError> {
@@ -758,14 +875,24 @@ mod tests {
         let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_policy());
 
         let result = rpc
-            .read_bootstrap_files(&["AGENTS.md".to_string(), "TOOLS.md".to_string(), "USER.md".to_string()])
+            .read_bootstrap_files(&[
+                "AGENTS.md".to_string(),
+                "TOOLS.md".to_string(),
+                "USER.md".to_string(),
+            ])
             .expect("bootstrap files should read");
 
         assert_eq!(
             result.files,
             vec![
-                WorkspaceFileContent { path: "AGENTS.md".to_string(), contents: "agent rules".to_string() },
-                WorkspaceFileContent { path: "USER.md".to_string(), contents: "user rules".to_string() },
+                WorkspaceFileContent {
+                    path: "AGENTS.md".to_string(),
+                    contents: "agent rules".to_string()
+                },
+                WorkspaceFileContent {
+                    path: "USER.md".to_string(),
+                    contents: "user rules".to_string()
+                },
             ]
         );
         assert_eq!(result.missing, vec!["TOOLS.md"]);
@@ -819,7 +946,10 @@ mod tests {
             .expect("workspace path should resolve");
 
         assert_eq!(resolved.relative_path, "memory/MEMORY.md");
-        assert_eq!(resolved.absolute_path, fixture.root.join("memory").join("MEMORY.md"));
+        assert_eq!(
+            resolved.absolute_path,
+            fixture.root.join("memory").join("MEMORY.md")
+        );
     }
 
     #[test]
@@ -956,7 +1086,10 @@ mod tests {
             .expect("paginated file should read");
 
         assert_eq!(file.path, "notes/today.md");
-        assert_eq!(file.content, "2| two\n3| three\n\n(Showing lines 2-3 of 4. Use offset=4 to continue.)");
+        assert_eq!(
+            file.content,
+            "2| two\n3| three\n\n(Showing lines 2-3 of 4. Use offset=4 to continue.)"
+        );
         assert_eq!(file.content_type, "text");
         assert_eq!(file.line_start, Some(2));
         assert_eq!(file.line_end, Some(3));
@@ -975,7 +1108,11 @@ mod tests {
         let listing = rpc
             .list_dir(".", true, Some(10))
             .expect("workspace directory should list");
-        let paths: Vec<String> = listing.entries.into_iter().map(|entry| entry.path).collect();
+        let paths: Vec<String> = listing
+            .entries
+            .into_iter()
+            .map(|entry| entry.path)
+            .collect();
 
         assert_eq!(paths, vec!["README.md", "src/", "src/main.ts"]);
         assert_eq!(listing.path, ".");
@@ -992,10 +1129,17 @@ mod tests {
         let listing = rpc
             .list_dir("src", true, Some(10))
             .expect("subdirectory should list");
-        let paths: Vec<String> = listing.entries.into_iter().map(|entry| entry.path).collect();
+        let paths: Vec<String> = listing
+            .entries
+            .into_iter()
+            .map(|entry| entry.path)
+            .collect();
 
         assert_eq!(listing.path, "src");
-        assert_eq!(paths, vec!["src/components/", "src/components/button.ts", "src/main.ts"]);
+        assert_eq!(
+            paths,
+            vec!["src/components/", "src/components/button.ts", "src/main.ts"]
+        );
     }
 
     #[test]
@@ -1052,7 +1196,9 @@ mod tests {
         }
 
         fn write(&self, relative_path: &str, contents: &str) {
-            let path = self.root.join(relative_path.replace('/', std::path::MAIN_SEPARATOR_STR));
+            let path = self
+                .root
+                .join(relative_path.replace('/', std::path::MAIN_SEPARATOR_STR));
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent).expect("fixture parent should create");
             }

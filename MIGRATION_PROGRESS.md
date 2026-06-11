@@ -53,7 +53,7 @@
 
 | Order | Status | Document | Goal | Notes |
 | --- | --- | --- | --- | --- |
-| 10 | active | [ts_skills_runtime_migration_design.md](ts_skills_runtime_migration_design.md) | 先解决 prompt 行为 parity，再做 CRUD | Started TS Skills Runtime prompt parity: pure runtime now covers workspace-over-builtin discovery, frontmatter/tinybot/openclaw metadata, requirements availability, XML summary, always-skill selection, and optional ContextBuilder injection. |
+| 10 | active | [ts_skills_runtime_migration_design.md](ts_skills_runtime_migration_design.md) | 先解决 prompt 行为 parity，再做 CRUD | Started TS Skills Runtime prompt parity: pure runtime now covers workspace-over-builtin discovery, frontmatter/tinybot/openclaw metadata, requirements availability, XML summary, always-skill selection, optional ContextBuilder injection, native `skills.list`, and `agent.run_input` skills context loading. |
 | 11 | active | [ts_memory_notes_migration_design.md](ts_memory_notes_migration_design.md) | 迁移 memory/notes persistent data 能力 | 已启动 TS/native Memory Notes recall 与显式操作面；`memory.search/save/trace/reject/supersede` 已具备 Rust RPC 与 TS native tools 起点，后续补 native-owned recall/evidence capture |
 | 12 | todo | [ts_knowledge_rag_migration_design.md](ts_knowledge_rag_migration_design.md) | 先做 TS types/formatting/tool bridge 和 sparse retrieval | semantic/GraphRAG 后置；当前相关 OpenSpec in-progress |
 | 13 | todo | [ts_mcp_runtime_migration_design.md](ts_mcp_runtime_migration_design.md) | 接入 MCP 外部动态工具层 | 应在 Tool Runtime + Approval + Config 稳定后做 |
@@ -134,6 +134,7 @@
 | 2026-06-12 | Continued Batch 3 Provider Runtime retry header parity: TS retry-after extraction now accepts HTTP-date `Retry-After` headers and converts them to positive retry delays like the Python provider. |
 | 2026-06-12 | Continued Batch 3 Provider Runtime error parity: OpenAI-compatible stream creation failures now surface nested `response.body` text, matching the Python provider's broader provider-error body extraction. |
 | 2026-06-12 | Started Batch 4 Skills Runtime prompt parity: TS now has a testable `SkillsRuntime` for Python-style discovery precedence, frontmatter metadata, requirements, XML summaries, always-skill filtering, and ContextBuilder can inject real active skills/skills summaries instead of only the deferred placeholder. |
+| 2026-06-12 | Continued Batch 4 Skills Runtime native bridge: Rust now exposes read-only `skills.list` with workspace-over-builtin precedence, and `NativeContextBridge` loads enabled skills plus PATH/env requirement probes into `agent.run_input` context. |
 
 ## Next Checklist
 

@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs";
+import { delimiter, join } from "node:path";
+
 import type { AgentMessage } from "../agent/agentRunSpec.ts";
 import {
   type AgentRunDefaults,
@@ -6,9 +9,11 @@ import {
   type BootstrapFile,
   type ContextBridgeLoadResult,
   type MemoryRecallNote,
+  type SkillsContext,
   type UserProfile,
 } from "../agent/contextTypes.ts";
 import type { JsonObject } from "../protocol/messages.ts";
+import { SkillsRuntime, type SkillStoreEntry } from "../skills/skillsRuntime.ts";
 import type { NativeRpcClient } from "../tools/nativeToolProxy.ts";
 
 const DEFAULT_IDENTITY = "You are TinyBot running in the desktop native TS worker.";
@@ -31,12 +36,14 @@ export class NativeContextBridge implements ContextBridge {
     const history = await this.loadHistory(input, traceId);
     const bootstrap = await this.loadBootstrapFiles(traceId);
     const memoryNotes = await this.loadMemoryNotes(input, traceId);
+    const skills = await this.loadSkillsContext(runDefaults.enabledSkills, traceId);
     return {
       input: {
         identity: DEFAULT_IDENTITY,
         bootstrapFiles: bootstrap.files,
         history: history.messages,
         memoryNotes,
+        skills,
         currentMessage: input.input.content,
         currentRole: input.input.role ?? "user",
         runtime: {
@@ -137,11 +144,30 @@ export class NativeContextBridge implements ContextBridge {
       const snapshot = asObject(result?.value);
       const agents = asObject(snapshot?.agents);
       const defaults = asObject(agents?.defaults);
+      const skills = asObject(snapshot?.skills);
       return {
         providerRetryMode: providerRetryModeValue(defaults?.providerRetryMode ?? defaults?.provider_retry_mode),
+        ...(Array.isArray(skills?.enabled) ? { enabledSkills: normalizeStringArray(skills.enabled) } : {}),
       };
     } catch {
       return {};
+    }
+  }
+
+  private async loadSkillsContext(enabledSkills: string[] | undefined, traceId: string): Promise<SkillsContext | undefined> {
+    try {
+      const result = asObject(await this.rpcClient.request(traceId, "skills.list", {}));
+      const skills = normalizeSkillEntries(result?.skills);
+      if (skills.length === 0) {
+        return undefined;
+      }
+      return new SkillsRuntime({
+        skills,
+        hasBin: hasExecutableOnPath,
+        hasEnv: (name) => process.env[name] !== undefined,
+      }).buildContext(enabledSkills);
+    } catch {
+      return undefined;
     }
   }
 
@@ -269,6 +295,23 @@ function normalizeMemoryNotes(value: unknown): MemoryRecallNote[] {
   }).filter((note): note is MemoryRecallNote => note !== null);
 }
 
+function normalizeSkillEntries(value: unknown): SkillStoreEntry[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((entry) => {
+    const object = asObject(entry);
+    const name = asString(object?.name);
+    const path = asString(object?.path);
+    const source = asString(object?.source);
+    const content = asString(object?.content);
+    if (!name || !path || (source !== "workspace" && source !== "builtin") || content === undefined) {
+      return null;
+    }
+    return { name, path, source, content };
+  }).filter((skill): skill is SkillStoreEntry => skill !== null);
+}
+
 function numberValue(value: unknown): number | undefined {
   return typeof value === "number" ? value : undefined;
 }
@@ -320,4 +363,22 @@ function asString(value: unknown): string | undefined {
 
 function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasExecutableOnPath(name: string): boolean {
+  const pathValue = process.env.PATH ?? "";
+  if (!name || pathValue.length === 0) {
+    return false;
+  }
+  const extensions = process.platform === "win32"
+    ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM").split(";").filter(Boolean)
+    : [""];
+  for (const directory of pathValue.split(delimiter)) {
+    for (const extension of extensions) {
+      if (existsSync(join(directory, `${name}${extension}`)) || existsSync(join(directory, name))) {
+        return true;
+      }
+    }
+  }
+  return false;
 }

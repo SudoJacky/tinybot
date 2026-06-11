@@ -137,6 +137,9 @@ impl WorkerRpcRouter {
             "workspace.list_files" => {
                 serde_json::to_value(self.workspace.list_files()?).map_err(serialization_error)
             }
+            "skills.list" => {
+                serde_json::to_value(self.workspace.list_skills()?).map_err(serialization_error)
+            }
             "config.get" => {
                 let params: PathParams = parse_params(request)?;
                 serde_json::to_value(self.config.get(&params.path)?).map_err(serialization_error)
@@ -2013,6 +2016,55 @@ mod tests {
                 "line_end": null,
                 "line_total": null,
                 "truncated": false
+            }))
+        );
+    }
+
+    #[test]
+    fn dispatches_skills_list_request_with_workspace_precedence() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write(
+            "skills/planner/SKILL.md",
+            "---\nname: planner\ndescription: Workspace planner\n---\nWorkspace body",
+        );
+        fixture.write(
+            "tinybot/skills/planner/SKILL.md",
+            "---\nname: planner\ndescription: Builtin planner\n---\nBuiltin body",
+        );
+        fixture.write(
+            "tinybot/skills/tmux/SKILL.md",
+            "---\nname: tmux\ndescription: Terminal sessions\n---\nTmux body",
+        );
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead]),
+        );
+        let request = WorkerRequest::new("req-1", "trace-1", "skills.list", json!({}));
+
+        let response = router.dispatch(&request);
+
+        assert!(response.matches_request(&request));
+        assert!(response.error.is_none());
+        assert_eq!(
+            response.result,
+            Some(json!({
+                "skills": [
+                    {
+                        "name": "planner",
+                        "path": "skills/planner/SKILL.md",
+                        "source": "workspace",
+                        "content": "---\nname: planner\ndescription: Workspace planner\n---\nWorkspace body"
+                    },
+                    {
+                        "name": "tmux",
+                        "path": "tinybot/skills/tmux/SKILL.md",
+                        "source": "builtin",
+                        "content": "---\nname: tmux\ndescription: Terminal sessions\n---\nTmux body"
+                    }
+                ]
             }))
         );
     }
