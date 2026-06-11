@@ -47,7 +47,7 @@
 | Order | Status | Document | Goal | Notes |
 | --- | --- | --- | --- | --- |
 | 8 | active | [ts_security_approval_migration_design.md](ts_security_approval_migration_design.md) | 建立 approval gate 和安全边界 | Phase 1 TS classifier/fingerprint complete. Phase 2 Rust pending store started. Phase 3 TS `NativeApprovalBridge.requestApproval()` added. Phase 4 TS `ApprovalRuntime` now gates `ToolRuntime.execute()` before risky side effects, and AgentRunner's existing `requiresApproval` path emits the same fingerprint/classification contract. Phase 5 native once/session scope reuse now allows matching requests, consumes once approvals, and keeps session approvals scoped to the original session. |
-| 9 | active | [ts_model_provider_runtime_migration_design.md](ts_model_provider_runtime_migration_design.md) | 让 TS worker 承担真实 chat 后端 | 已有 provider catalog/runtime/model-listing、OpenAI request builder、stream parser、retry helper 与 native secret bridge 起点；已补齐 native config patch 后 provider secret snapshot 同步、OpenAI-compatible prompt caching request trait 的 cache_control marker 注入、stream idle timeout、stream interruption terminal error delta、lazy provider config reload、provider retry wait event、run_input provider retry default projection、live model discovery refresh，以及 `provider.catalog.list` / `provider.runtime.resolve` / `provider.models.list` / `provider.model.validate` worker RPC 起点。 |
+| 9 | active | [ts_model_provider_runtime_migration_design.md](ts_model_provider_runtime_migration_design.md) | 让 TS worker 承担真实 chat 后端 | 已有 provider catalog/runtime/model-listing、OpenAI request builder、stream parser、retry helper 与 native secret bridge 起点；已补齐 native config patch 后 provider secret snapshot 同步、OpenAI-compatible prompt caching request trait 的 cache_control marker 注入、stream idle timeout、stream interruption terminal error delta、retry-after body unit parsing、lazy provider config reload、provider retry wait event、run_input provider retry default projection、live model discovery refresh，以及 `provider.catalog.list` / `provider.runtime.resolve` / `provider.models.list` / `provider.model.validate` worker RPC 起点。 |
 
 ### Batch 4: User Memory, Knowledge, Skills, And External Tools
 
@@ -130,6 +130,7 @@
 | 2026-06-12 | Continued Batch 3 Provider Runtime config parity: native `agent.run_input` now reads `agents.defaults.provider_retry_mode` from `config.snapshot_public` and uses it when the caller does not provide an explicit provider retry mode, matching the Python `AgentLoop.from_config()` default flow. |
 | 2026-06-12 | Continued Batch 3 Provider Runtime model discovery: `provider.models.list` with `refresh_live` now probes OpenAI-compatible `/models` endpoints through the TS discovery path, includes live model sources, preserves fallback base URL warnings, and keeps provider secrets out of the response. |
 | 2026-06-12 | Continued Batch 3 Provider Runtime stream parity: interrupted provider streams now emit a terminal tool-call delta with `status: "error"` for any buffered tool calls before returning the model-visible stream error response. |
+| 2026-06-12 | Continued Batch 3 Provider Runtime retry parity: TS retry-after extraction now matches Python body patterns for milliseconds, minutes, and `retry_after` text keys instead of treating every numeric hint as seconds. |
 
 ## Next Checklist
 
