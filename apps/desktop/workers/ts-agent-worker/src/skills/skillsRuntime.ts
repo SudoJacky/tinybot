@@ -22,6 +22,23 @@ export type ListSkillsOptions = {
   filterUnavailable?: boolean;
 };
 
+export type SkillListItem = SkillInfo & {
+  description: string;
+  available: boolean;
+  enabled: boolean;
+  always: boolean;
+  missing_requirements?: string;
+};
+
+export type SkillDetail = {
+  name: string;
+  content: string;
+  raw_content: string;
+  metadata: SkillMetadata;
+  tinybot_meta: TinybotSkillMetadata;
+  available: boolean;
+};
+
 type SkillMetadata = Record<string, string>;
 type TinybotSkillMetadata = Record<string, unknown>;
 
@@ -102,13 +119,52 @@ export class SkillsRuntime {
     return lines.join("\n");
   }
 
+  buildWebuiList(enabledSkills?: string[] | null): { skills: SkillListItem[] } {
+    const skills = this.listSkills({ filterUnavailable: false }).map((skill) => {
+      const skillMeta = this.getSkillMeta(skill.name);
+      const available = this.isAvailable(skillMeta);
+      const item: SkillListItem = {
+        ...skill,
+        description: this.getSkillDescription(skill.name),
+        available,
+        enabled: SkillsRuntime.isSkillEnabled(skill.name, enabledSkills),
+        always: booleanValue(skillMeta.always),
+      };
+      if (!available) {
+        const missingRequirements = this.missingRequirements(skillMeta);
+        if (missingRequirements) {
+          item.missing_requirements = missingRequirements;
+        }
+      }
+      return item;
+    });
+    return { skills };
+  }
+
+  buildWebuiDetail(name: string): SkillDetail | null {
+    const content = this.loadSkill(name);
+    if (!content) {
+      return null;
+    }
+
+    const metadata = this.getSkillMetadata(name) ?? {};
+    const skillMeta = this.frontmatterTinybotMeta(metadata);
+    return {
+      name,
+      content: stripFrontmatter(content),
+      raw_content: content,
+      metadata,
+      tinybot_meta: skillMeta,
+      available: this.isAvailable(skillMeta),
+    };
+  }
+
   getAlwaysSkills(enabledSkills?: string[] | null): string[] {
     return this.listSkills({ filterUnavailable: true })
       .filter((skill) => SkillsRuntime.isSkillEnabled(skill.name, enabledSkills))
       .filter((skill) => {
         const metadata = this.getSkillMetadata(skill.name) ?? {};
-        const skillMeta = parseTinybotMetadata(metadata.metadata);
-        return booleanValue(skillMeta.always) || booleanValue(metadata.always);
+        return booleanValue(this.frontmatterTinybotMeta(metadata).always);
       })
       .map((skill) => skill.name);
   }
@@ -123,7 +179,15 @@ export class SkillsRuntime {
   }
 
   private getSkillMeta(name: string): TinybotSkillMetadata {
-    return parseTinybotMetadata(this.getSkillMetadata(name)?.metadata);
+    return this.frontmatterTinybotMeta(this.getSkillMetadata(name) ?? {});
+  }
+
+  private frontmatterTinybotMeta(metadata: SkillMetadata): TinybotSkillMetadata {
+    const skillMeta = { ...parseTinybotMetadata(metadata.metadata) };
+    if (metadata.always !== undefined && skillMeta.always === undefined) {
+      skillMeta.always = booleanValue(metadata.always);
+    }
+    return skillMeta;
   }
 
   private isAvailable(skillMeta: TinybotSkillMetadata): boolean {
