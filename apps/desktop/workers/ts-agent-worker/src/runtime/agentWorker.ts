@@ -1,6 +1,6 @@
 import { AgentRunner, type AgentRunnerCheckpoint, type AgentRunnerEvent } from "../agent/agentRunner.ts";
 import type { AgentMessage, AgentRunResult, AgentRunSpec } from "../agent/agentRunSpec.ts";
-import { buildContextMessages } from "../agent/contextBuilder.ts";
+import { buildContextMessages, RUNTIME_CONTEXT_TAG } from "../agent/contextBuilder.ts";
 import type { AgentRunInput, ContextBuildMetadata, ContextBridgeMetadata } from "../agent/contextTypes.ts";
 import type { ModelProvider, ToolDefinition } from "../model/provider.ts";
 import {
@@ -33,7 +33,27 @@ export type SessionBridge = {
   setCheckpoint(sessionId: string, checkpoint: Record<string, unknown>, traceId: string): Promise<void>;
   clearCheckpoint(sessionId: string, traceId: string): Promise<void>;
   appendMessages(sessionId: string, messages: AgentMessage[], traceId: string): Promise<void>;
+  persistTurn?(sessionId: string, turn: PersistTurnRequest, traceId: string): Promise<PersistTurnResult>;
   getCheckpoint(sessionId: string, traceId: string): Promise<Record<string, unknown> | null>;
+};
+
+export type PersistTurnRequest = {
+  runId: string;
+  messages: AgentMessage[];
+  clearCheckpoint: boolean;
+  runtimeContextTag?: string;
+  contextMetadata?: Record<string, unknown>;
+};
+
+export type PersistTurnResult = {
+  sessionId: string;
+  messagesBefore: number;
+  messagesAfter: number;
+  savedMessageCount: number;
+  checkpointCleared: boolean;
+  duplicateMessageCount: number;
+  truncatedToolResultCount: number;
+  omittedSideEffects: string[];
 };
 
 export type ApprovalBridge = {
@@ -424,7 +444,17 @@ export class AgentWorker {
     if (!this.sessionBridge || !spec.sessionId) {
       return;
     }
-    await this.sessionBridge.appendMessages(spec.sessionId, sessionAppendMessages(spec, result), traceId);
+    const messages = sessionAppendMessages(spec, result);
+    if (this.sessionBridge.persistTurn) {
+      await this.sessionBridge.persistTurn(spec.sessionId, {
+        runId: spec.runId,
+        messages,
+        clearCheckpoint: !isAwaitingInputResult(result),
+        runtimeContextTag: RUNTIME_CONTEXT_TAG,
+      }, traceId);
+      return;
+    }
+    await this.sessionBridge.appendMessages(spec.sessionId, messages, traceId);
   }
 
   private emitAwaitingInput(traceId: string, runId: string, result: AgentRunResult): void {

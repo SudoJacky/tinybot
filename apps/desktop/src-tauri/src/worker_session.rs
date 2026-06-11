@@ -139,6 +139,61 @@ impl WorkerSessionRpc {
         Ok(session.clone())
     }
 
+    pub fn persist_turn(
+        &mut self,
+        session_id: &str,
+        run_id: &str,
+        messages: Vec<Value>,
+        clear_checkpoint: bool,
+    ) -> Result<PersistTurnResult, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionWrite)?;
+        validate_session_id(session_id)?;
+        let session = self.session_mut_or_create(session_id);
+        ensure_extra_object(session);
+        ensure_messages_array(session);
+        let messages_before = session
+            .extra
+            .get("messages")
+            .and_then(Value::as_array)
+            .map_or(0, Vec::len);
+        let saved_message_count = messages.len();
+        if let Some(existing) = session
+            .extra
+            .get_mut("messages")
+            .and_then(Value::as_array_mut)
+        {
+            existing.extend(messages);
+        }
+        let mut checkpoint_cleared = false;
+        if clear_checkpoint {
+            if let Some(extra) = session.extra.as_object_mut() {
+                checkpoint_cleared = extra.remove("runtime_checkpoint").is_some();
+            }
+        }
+        if let Some(extra) = session.extra.as_object_mut() {
+            extra.insert(
+                "last_persisted_run_id".to_string(),
+                Value::String(run_id.to_string()),
+            );
+        }
+        let messages_after = session
+            .extra
+            .get("messages")
+            .and_then(Value::as_array)
+            .map_or(messages_before, Vec::len);
+        session.updated_at = now_session_timestamp();
+        Ok(PersistTurnResult {
+            session_id: session.session_id.clone(),
+            messages_before,
+            messages_after,
+            saved_message_count,
+            checkpoint_cleared,
+            duplicate_message_count: 0,
+            truncated_tool_result_count: 0,
+            omitted_side_effects: default_omitted_side_effects(),
+        })
+    }
+
     fn require(&self, capability: WorkerCapability) -> Result<(), WorkerProtocolError> {
         if self.policy.allows(&capability) {
             return Ok(());
@@ -194,6 +249,18 @@ pub struct SessionHistoryProjection {
     pub updated_at: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct PersistTurnResult {
+    pub session_id: String,
+    pub messages_before: usize,
+    pub messages_after: usize,
+    pub saved_message_count: usize,
+    pub checkpoint_cleared: bool,
+    pub duplicate_message_count: usize,
+    pub truncated_tool_result_count: usize,
+    pub omitted_side_effects: Vec<String>,
+}
+
 fn validate_session_id(session_id: &str) -> Result<(), WorkerProtocolError> {
     if session_id.is_empty()
         || session_id.contains('\0')
@@ -240,6 +307,18 @@ fn now_session_timestamp() -> String {
         .map(|duration| duration.as_millis())
         .unwrap_or_default();
     format!("unix-ms:{millis}")
+}
+
+fn default_omitted_side_effects() -> Vec<String> {
+    [
+        "conversation_evidence",
+        "memory_extraction",
+        "consolidation",
+        "user_profile_update",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect()
 }
 
 #[cfg(test)]
@@ -537,6 +616,64 @@ mod tests {
             updated.extra["messages"],
             json!([{ "role": "assistant", "content": "hello" }])
         );
+    }
+
+    #[test]
+    fn persist_turn_appends_messages_and_clears_checkpoint() {
+        let mut session = session_fixture();
+        session.extra = json!({
+            "runtime_checkpoint": { "phase": "tools_completed" },
+            "messages": [
+                { "role": "user", "content": "existing" }
+            ]
+        });
+        let mut rpc = WorkerSessionRpc::new(
+            vec![session],
+            CapabilityPolicy::new([
+                WorkerCapability::SessionWrite,
+                WorkerCapability::SessionMetadataRead,
+            ]),
+        );
+
+        let result = rpc
+            .persist_turn(
+                "session-1",
+                "run-1",
+                vec![
+                    json!({ "role": "user", "content": "hello" }),
+                    json!({ "role": "assistant", "content": "done" }),
+                ],
+                true,
+            )
+            .expect("turn should persist");
+
+        assert_eq!(result.session_id, "session-1");
+        assert_eq!(result.messages_before, 1);
+        assert_eq!(result.messages_after, 3);
+        assert_eq!(result.saved_message_count, 2);
+        assert!(result.checkpoint_cleared);
+        assert_eq!(result.duplicate_message_count, 0);
+        assert_eq!(result.truncated_tool_result_count, 0);
+        assert_eq!(
+            result.omitted_side_effects,
+            vec![
+                "conversation_evidence",
+                "memory_extraction",
+                "consolidation",
+                "user_profile_update"
+            ]
+        );
+        let updated = rpc.get_metadata("session-1").expect("session should exist");
+        assert_eq!(
+            updated.extra["messages"],
+            json!([
+                { "role": "user", "content": "existing" },
+                { "role": "user", "content": "hello" },
+                { "role": "assistant", "content": "done" }
+            ])
+        );
+        assert!(updated.extra.get("runtime_checkpoint").is_none());
+        assert_eq!(updated.extra["last_persisted_run_id"], "run-1");
     }
 
     #[test]

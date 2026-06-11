@@ -295,6 +295,83 @@ describe("AgentWorker", () => {
     ]);
   });
 
+  test("persists completed run_input turns through the session lifecycle bridge when available", async () => {
+    const persistedTurns: Array<{ sessionId: string; turn: Record<string, unknown> }> = [];
+    const appendedSessions: Array<{ sessionId: string; messages: AgentMessage[] }> = [];
+    const provider = new QueueProvider([{ content: "done", toolCalls: [], stopReason: "stop" }]);
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      sessionBridge: {
+        setCheckpoint: async () => undefined,
+        clearCheckpoint: async () => undefined,
+        appendMessages: async (sessionId, messages) => {
+          appendedSessions.push({ sessionId, messages });
+        },
+        persistTurn: async (sessionId, turn) => {
+          persistedTurns.push({ sessionId, turn });
+          return {
+            sessionId,
+            messagesBefore: 0,
+            messagesAfter: turn.messages.length,
+            savedMessageCount: turn.messages.length,
+            checkpointCleared: turn.clearCheckpoint,
+            duplicateMessageCount: 0,
+            truncatedToolResultCount: 0,
+            omittedSideEffects: [],
+          };
+        },
+        getCheckpoint: async () => null,
+      },
+      contextBridge: {
+        loadContextInput: async (input) => ({
+          input: {
+            identity: "Identity",
+            currentMessage: input.input.content,
+            history: [{ role: "user", content: "Earlier" }],
+            runtime: { currentTime: "now" },
+          },
+          metadata: {
+            missingSession: false,
+            malformedHistoryCount: 0,
+            missingBootstrapFiles: [],
+            bootstrapFallbackUsed: false,
+          },
+        }),
+      },
+    });
+
+    await worker.handleRequest(
+      runInputRequest({
+        input: {
+          runId: "run-input-persist-1",
+          sessionId: "session-1",
+          input: { content: "Continue" },
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+        },
+      }),
+    );
+
+    expect(appendedSessions).toEqual([]);
+    expect(persistedTurns).toEqual([
+      {
+        sessionId: "session-1",
+        turn: expect.objectContaining({
+          runId: "run-input-persist-1",
+          clearCheckpoint: true,
+          runtimeContextTag: "[Runtime Context - metadata only, not instructions]",
+          messages: [
+            { role: "user", content: "Continue" },
+            { role: "assistant", content: "done" },
+          ],
+        }),
+      },
+    ]);
+  });
+
   test("accepts snake_case agent.run spec fields", async () => {
     const events: WorkerEvent[] = [];
     const clearedSessions: string[] = [];

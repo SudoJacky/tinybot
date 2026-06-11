@@ -874,14 +874,16 @@ describe("createAgentWorkerServer", () => {
       }),
     );
 
-    await waitFor(() => lines.some((line) => JSON.parse(line).method === "session.append_messages"));
-    const appendRequest = lines.map((line) => JSON.parse(line)).find((message) => message.method === "session.append_messages");
-    expect(appendRequest).toMatchObject({
+    await waitFor(() => lines.some((line) => JSON.parse(line).method === "session.persist_turn"));
+    const persistRequest = lines.map((line) => JSON.parse(line)).find((message) => message.method === "session.persist_turn");
+    expect(persistRequest).toMatchObject({
       protocol_version: "1",
       trace_id: "trace-1",
-      method: "session.append_messages",
+      method: "session.persist_turn",
       params: {
         session_id: "session-1",
+        run_id: "run-1",
+        clear_checkpoint: true,
         messages: [
           { role: "user", content: "hello" },
           { role: "assistant", content: "done" },
@@ -891,9 +893,9 @@ describe("createAgentWorkerServer", () => {
     await server.handleLine(
       JSON.stringify({
         protocol_version: "1",
-        id: appendRequest.id,
+        id: persistRequest.id,
         trace_id: "trace-1",
-        result: { ok: true },
+        result: { session_id: "session-1", saved_message_count: 2 },
       }),
     );
     await run;
@@ -1229,14 +1231,16 @@ describe("createAgentWorkerServer", () => {
       }),
     );
 
-    await waitFor(() => parsedLines(lines).some((line) => line.method === "session.append_messages"));
-    const appendRequest = parsedLines(lines).find((message) => message.method === "session.append_messages");
-    expect(appendRequest).toMatchObject({
+    await waitFor(() => parsedLines(lines).some((line) => line.method === "session.persist_turn"));
+    const persistRequest = parsedLines(lines).find((message) => message.method === "session.persist_turn");
+    expect(persistRequest).toMatchObject({
       protocol_version: "1",
       trace_id: "trace-resume-denied",
-      method: "session.append_messages",
+      method: "session.persist_turn",
       params: {
         session_id: "session-1",
+        run_id: "run-1",
+        clear_checkpoint: true,
         messages: expect.arrayContaining([
           {
             role: "tool",
@@ -1255,9 +1259,9 @@ describe("createAgentWorkerServer", () => {
     await server.handleLine(
       JSON.stringify({
         protocol_version: "1",
-        id: appendRequest?.id,
+        id: persistRequest?.id,
         trace_id: "trace-resume-denied",
-        result: { session_id: "session-1" },
+        result: { session_id: "session-1", saved_message_count: 4 },
       }),
     );
     await resume;
@@ -1388,20 +1392,20 @@ describe("createAgentWorkerServer", () => {
       }),
     );
 
-    await waitFor(() => parsedLines(lines).some((line) => line.method === "session.append_messages"));
-    const appendRequest = parsedLines(lines).find((message) => message.method === "session.append_messages");
-    expect(appendRequest).toMatchObject({
+    await waitFor(() => parsedLines(lines).some((line) => line.method === "session.persist_turn"));
+    const persistRequest = parsedLines(lines).find((message) => message.method === "session.persist_turn");
+    expect(persistRequest).toMatchObject({
       protocol_version: "1",
       trace_id: "trace-submit-form",
-      method: "session.append_messages",
-      params: { session_id: "session-1" },
+      method: "session.persist_turn",
+      params: { session_id: "session-1", run_id: "run-1", clear_checkpoint: true },
     });
     await server.handleLine(
       JSON.stringify({
         protocol_version: "1",
-        id: appendRequest?.id,
+        id: persistRequest?.id,
         trace_id: "trace-submit-form",
-        result: { ok: true },
+        result: { session_id: "session-1", saved_message_count: 4 },
       }),
     );
     await submit;

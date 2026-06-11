@@ -141,6 +141,64 @@ describe("NativeSessionBridge", () => {
     });
   });
 
+  test("serializes completed turns through session.persist_turn", async () => {
+    const requests: Array<{ traceId: string; method: string; params: Record<string, unknown> }> = [];
+    const bridge = new NativeSessionBridge({
+      request: async (traceId, method, params) => {
+        requests.push({ traceId, method, params });
+        return {
+          session_id: "session-1",
+          messages_before: 1,
+          messages_after: 3,
+          saved_message_count: 2,
+          checkpoint_cleared: true,
+          duplicate_message_count: 0,
+          truncated_tool_result_count: 0,
+          omitted_side_effects: ["memory_extraction"],
+        };
+      },
+    });
+
+    const result = await bridge.persistTurn("session-1", {
+      runId: "run-1",
+      messages: [
+        { role: "user", content: "hello" },
+        { role: "assistant", content: "done" },
+      ],
+      clearCheckpoint: true,
+      runtimeContextTag: "[Runtime Context - metadata only, not instructions]",
+    }, "trace-1");
+
+    expect(result).toEqual({
+      sessionId: "session-1",
+      messagesBefore: 1,
+      messagesAfter: 3,
+      savedMessageCount: 2,
+      checkpointCleared: true,
+      duplicateMessageCount: 0,
+      truncatedToolResultCount: 0,
+      omittedSideEffects: ["memory_extraction"],
+    });
+    expect(requests).toEqual([
+      {
+        traceId: "trace-1",
+        method: "session.persist_turn",
+        params: {
+          session_id: "session-1",
+          run_id: "run-1",
+          messages: [
+            { role: "user", content: "hello" },
+            { role: "assistant", content: "done" },
+          ],
+          clearCheckpoint: true,
+          clear_checkpoint: true,
+          runtimeContextTag: "[Runtime Context - metadata only, not instructions]",
+          runtime_context_tag: "[Runtime Context - metadata only, not instructions]",
+        },
+      },
+    ]);
+  });
+
   test("serializes checkpoint agent messages with native snake_case tool fields before persisting", async () => {
     const requests: Array<{ traceId: string; method: string; params: Record<string, unknown> }> = [];
     const bridge = new NativeSessionBridge({

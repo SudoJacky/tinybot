@@ -201,6 +201,16 @@ impl WorkerRpcRouter {
                 )
                 .map_err(serialization_error)
             }
+            "session.persist_turn" => {
+                let params: SessionPersistTurnParams = parse_params(request)?;
+                serde_json::to_value(self.session.persist_turn(
+                    &params.session_id,
+                    &params.run_id,
+                    params.messages,
+                    params.clear_checkpoint,
+                )?)
+                .map_err(serialization_error)
+            }
             "diagnostics.append" => {
                 let params: DiagnosticsAppendParams = parse_params(request)?;
                 serde_json::to_value(self.diagnostics.append(&params.stream, &params.line)?)
@@ -755,6 +765,15 @@ struct SessionCheckpointParams {
 struct SessionAppendMessagesParams {
     session_id: String,
     messages: Vec<Value>,
+}
+
+#[derive(Deserialize)]
+struct SessionPersistTurnParams {
+    session_id: String,
+    run_id: String,
+    messages: Vec<Value>,
+    #[serde(default)]
+    clear_checkpoint: bool,
 }
 
 #[derive(Deserialize)]
@@ -2086,6 +2105,61 @@ mod tests {
                 { "role": "user", "content": "hello" },
                 { "role": "assistant", "content": "done" }
             ])
+        );
+        assert!(response.error.is_none());
+    }
+
+    #[test]
+    fn dispatches_session_persist_turn_request() {
+        let fixture = WorkspaceFixture::new();
+        let mut session = session_fixture();
+        session.extra = json!({
+            "runtime_checkpoint": { "phase": "tools_completed" },
+            "messages": [
+                { "role": "user", "content": "existing" }
+            ]
+        });
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![session],
+            20,
+            CapabilityPolicy::new([WorkerCapability::SessionWrite]),
+        );
+        let request = WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "session.persist_turn",
+            json!({
+                "session_id": "session-1",
+                "run_id": "run-1",
+                "messages": [
+                    { "role": "user", "content": "hello" },
+                    { "role": "assistant", "content": "done" }
+                ],
+                "clear_checkpoint": true
+            }),
+        );
+
+        let response = router.dispatch(&request);
+
+        assert_eq!(
+            response.result,
+            Some(json!({
+                "session_id": "session-1",
+                "messages_before": 1,
+                "messages_after": 3,
+                "saved_message_count": 2,
+                "checkpoint_cleared": true,
+                "duplicate_message_count": 0,
+                "truncated_tool_result_count": 0,
+                "omitted_side_effects": [
+                    "conversation_evidence",
+                    "memory_extraction",
+                    "consolidation",
+                    "user_profile_update"
+                ]
+            }))
         );
         assert!(response.error.is_none());
     }
