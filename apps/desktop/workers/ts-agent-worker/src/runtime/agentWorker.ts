@@ -12,6 +12,13 @@ import {
   type WorkerResponse,
 } from "../protocol/messages.ts";
 import type { ToolRegistry } from "../tools/toolRegistry.ts";
+import {
+  approvalOperationFromCheckpoint,
+  canResumeApprovalCheckpoint,
+  resumedSpecFromApprovedToolResult,
+  resumedSpecFromDeniedApproval,
+  resumedSpecFromSubmittedForm,
+} from "./checkpoint.ts";
 import type { ContextBridge } from "./contextBridge.ts";
 import { TurnLifecycle, type SessionBridge } from "./turnLifecycle.ts";
 
@@ -488,27 +495,18 @@ export class AgentWorker {
     approval: ApprovalResolutionRequest,
     checkpoint: Record<string, unknown>,
   ): Promise<AgentRunResult> {
-    const messages = parseCheckpointMessages(checkpoint.messages);
-    const approvalToolIndex = findApprovalToolMessageIndex(messages, approval.approvalId);
-    if (approvalToolIndex < 0) {
-      throw new Error("approval checkpoint does not contain a matching awaiting approval tool result");
-    }
-    const approvalToolMessage = messages[approvalToolIndex];
-    const operation = parseApprovedOperation(approvalToolMessage.metadata);
+    const operation = approvalOperationFromCheckpoint(checkpoint, approval.approvalId);
     const toolResult = await this.tools.execute(operation.toolName, operation.arguments, {
-      runId: checkpointRunId(checkpoint),
+      runId: operation.runId,
       traceId,
       sessionId: approval.sessionId,
     });
-    const replacement: AgentMessage = {
-      role: "tool",
+    return this.runResumedSpec(traceId, resumedSpecFromApprovedToolResult(checkpoint, {
+      sessionId: approval.sessionId,
+      approvalId: approval.approvalId,
       content: toolResult.content,
-      toolCallId: approvalToolMessage.toolCallId,
-      name: approvalToolMessage.name,
       ...(toolResult.metadata ? { metadata: toolResult.metadata } : {}),
-    };
-    const resumedMessages = messages.map((message, index) => (index === approvalToolIndex ? replacement : message));
-    return this.runResumedSpec(traceId, resumedSpecFromCheckpoint(checkpoint, approval.sessionId, resumedMessages));
+    }));
   }
 
   private async resumeSubmittedFormCheckpoint(
@@ -516,25 +514,7 @@ export class AgentWorker {
     submission: FormSubmissionRequest,
     checkpoint: Record<string, unknown>,
   ): Promise<AgentRunResult> {
-    const messages = parseCheckpointMessages(checkpoint.messages);
-    const formToolIndex = findFormToolMessageIndex(messages, submission.formId);
-    if (formToolIndex < 0) {
-      throw new Error("form checkpoint does not contain a matching awaiting form tool result");
-    }
-    const formToolMessage = messages[formToolIndex];
-    const formResultMessage: AgentMessage = {
-      role: "tool",
-      content: formatFormSubmissionContent(submission),
-      toolCallId: formToolMessage.toolCallId,
-      name: formToolMessage.name,
-      metadata: {
-        formId: submission.formId,
-        action: submission.action,
-        values: submission.values,
-      },
-    };
-    const resumedMessages = messages.map((message, index) => (index === formToolIndex ? formResultMessage : message));
-    return this.runResumedSpec(traceId, resumedSpecFromCheckpoint(checkpoint, submission.sessionId, resumedMessages));
+    return this.runResumedSpec(traceId, resumedSpecFromSubmittedForm(checkpoint, submission));
   }
 
   private async resumeDeniedApprovalCheckpoint(
@@ -542,25 +522,7 @@ export class AgentWorker {
     approval: ApprovalResolutionRequest,
     checkpoint: Record<string, unknown>,
   ): Promise<AgentRunResult> {
-    const messages = parseCheckpointMessages(checkpoint.messages);
-    const approvalToolIndex = findApprovalToolMessageIndex(messages, approval.approvalId);
-    if (approvalToolIndex < 0) {
-      throw new Error("approval checkpoint does not contain a matching awaiting approval tool result");
-    }
-    const approvalToolMessage = messages[approvalToolIndex];
-    const denialMessage: AgentMessage = {
-      role: "tool",
-      content: `Approval denied: ${approval.approvalId}`,
-      toolCallId: approvalToolMessage.toolCallId,
-      name: approvalToolMessage.name,
-      metadata: {
-        approvalId: approval.approvalId,
-        approved: false,
-        status: "denied",
-      },
-    };
-    const resumedMessages = messages.map((message, index) => (index === approvalToolIndex ? denialMessage : message));
-    return this.runResumedSpec(traceId, resumedSpecFromCheckpoint(checkpoint, approval.sessionId, resumedMessages));
+    return this.runResumedSpec(traceId, resumedSpecFromDeniedApproval(checkpoint, approval));
   }
 
   private async runResumedSpec(traceId: string, spec: AgentRunSpec): Promise<AgentRunResult> {
@@ -768,31 +730,6 @@ function nativeCheckpointToolCall(toolCall: { id: string; name: string; argument
   };
 }
 
-function resumedSpecFromCheckpoint(
-  checkpoint: Record<string, unknown>,
-  sessionId: string,
-  messages: AgentMessage[],
-): AgentRunSpec {
-  return {
-    runId: checkpointRunId(checkpoint),
-    sessionId,
-    messages,
-    model: checkpointString(checkpoint.model, "checkpoint.model"),
-    maxIterations: numberParam(checkpoint, "maxIterations", "max_iterations") ?? 2,
-    stream: booleanParam(checkpoint, "stream", "stream") ?? false,
-    temperature: numberParam(checkpoint, "temperature", "temperature"),
-    maxTokens: numberParam(checkpoint, "maxTokens", "max_tokens"),
-    reasoningEffort: stringParam(checkpoint, "reasoningEffort", "reasoning_effort"),
-    contextWindow: numberParam(checkpoint, "contextWindow", "context_window"),
-    toolResultBudget: numberParam(checkpoint, "toolResultBudget", "tool_result_budget"),
-    failOnToolError: booleanParam(checkpoint, "failOnToolError", "fail_on_tool_error"),
-  };
-}
-
-function checkpointRunId(checkpoint: Record<string, unknown>): string {
-  return checkpointString(checkpoint.runId ?? checkpoint.run_id, "checkpoint.runId");
-}
-
 function parseRunSpec(params: Record<string, unknown> | undefined): AgentRunSpec {
   if (!isJsonObject(params) || !isJsonObject(params.spec)) {
     throw new Error("agent.run requires object params.spec");
@@ -944,13 +881,6 @@ function parseAgentMessage(value: unknown): AgentMessage {
   };
 }
 
-function parseCheckpointMessages(value: unknown): AgentMessage[] {
-  if (!Array.isArray(value)) {
-    throw new Error("approval checkpoint requires messages");
-  }
-  return value.map(parseAgentMessage);
-}
-
 function parseToolCallRequest(value: unknown): { id: string; name: string; argumentsJson: string } {
   if (!isJsonObject(value) || typeof value.id !== "string") {
     throw new Error("checkpoint tool call is invalid");
@@ -976,60 +906,6 @@ function parseToolCallRequest(value: unknown): { id: string; name: string; argum
     name,
     argumentsJson,
   };
-}
-
-function findApprovalToolMessageIndex(messages: AgentMessage[], approvalId: string): number {
-  return messages.findIndex((message) => (
-    message.role === "tool" &&
-    message.metadata?.awaitingUserInput === true &&
-    message.metadata?.stopReason === "awaiting_approval" &&
-    message.metadata?.approvalId === approvalId
-  ));
-}
-
-function canResumeApprovalCheckpoint(checkpoint: Record<string, unknown>, approvalId: string): boolean {
-  if (!Array.isArray(checkpoint.messages)) {
-    return false;
-  }
-  try {
-    return findApprovalToolMessageIndex(parseCheckpointMessages(checkpoint.messages), approvalId) >= 0;
-  } catch {
-    return false;
-  }
-}
-
-function findFormToolMessageIndex(messages: AgentMessage[], formId: string): number {
-  return messages.findIndex((message) => (
-    message.role === "tool" &&
-    message.metadata?.awaitingUserInput === true &&
-    message.metadata?.stopReason === "awaiting_form" &&
-    message.metadata?.formId === formId
-  ));
-}
-
-function formatFormSubmissionContent(submission: FormSubmissionRequest): string {
-  if (submission.action === "cancelled") {
-    return `Agent UI form cancelled: ${submission.formId}`;
-  }
-  return `Agent UI form submitted: ${submission.formId}\n${JSON.stringify(submission.values)}`;
-}
-
-function parseApprovedOperation(metadata: Record<string, unknown> | undefined): { toolName: string; arguments: Record<string, unknown> } {
-  const operation = isJsonObject(metadata?.operation) ? metadata.operation : undefined;
-  if (!operation || typeof operation.toolName !== "string" || !isJsonObject(operation.arguments)) {
-    throw new Error("approval checkpoint does not contain an executable operation");
-  }
-  return {
-    toolName: operation.toolName,
-    arguments: operation.arguments,
-  };
-}
-
-function checkpointString(value: unknown, field: string): string {
-  if (typeof value !== "string" || value.length === 0) {
-    throw new Error(`approval checkpoint requires ${field}`);
-  }
-  return value;
 }
 
 function errorMessage(error: unknown): string {

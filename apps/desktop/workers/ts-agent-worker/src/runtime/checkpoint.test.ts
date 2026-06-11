@@ -1,8 +1,14 @@
 import { describe, expect, test } from "vitest";
 
-import type { AgentRunSpec } from "../agent/agentRunSpec.ts";
+import type { AgentMessage, AgentRunSpec } from "../agent/agentRunSpec.ts";
 import type { AgentRunnerCheckpoint } from "../agent/agentRunner.ts";
-import { sessionCheckpointFromRunner } from "./checkpoint.ts";
+import {
+  approvalOperationFromCheckpoint,
+  resumedSpecFromApprovedToolResult,
+  resumedSpecFromDeniedApproval,
+  resumedSpecFromSubmittedForm,
+  sessionCheckpointFromRunner,
+} from "./checkpoint.ts";
 
 describe("sessionCheckpointFromRunner", () => {
   test("converts runner checkpoints into versioned session checkpoint payloads with native aliases", () => {
@@ -71,6 +77,149 @@ describe("sessionCheckpointFromRunner", () => {
       completed_tool_results: [],
       pendingToolCalls: checkpoint.pendingToolCalls,
       pending_tool_calls: checkpoint.pendingToolCalls,
+    });
+  });
+});
+
+describe("checkpoint resume helpers", () => {
+  const approvalMessages: AgentMessage[] = [
+    { role: "user", content: "delete file?" },
+    {
+      role: "assistant",
+      content: "",
+      toolCalls: [{ id: "call-approval", name: "request_approval", argumentsJson: "{}" }],
+    },
+    {
+      role: "tool",
+      content: "Waiting for approval.",
+      toolCallId: "call-approval",
+      name: "request_approval",
+      metadata: {
+        awaitingUserInput: true,
+        stopReason: "awaiting_approval",
+        approvalId: "approval-1",
+        operation: {
+          toolName: "delete_file",
+          arguments: { path: "tmp.txt" },
+        },
+      },
+    },
+  ];
+
+  test("extracts approved operations and projects approved tool results into resumed specs", () => {
+    const checkpoint = {
+      run_id: "run-approval",
+      model: "test-model",
+      max_iterations: 5,
+      stream: true,
+      messages: approvalMessages,
+    };
+
+    expect(approvalOperationFromCheckpoint(checkpoint, "approval-1")).toEqual({
+      runId: "run-approval",
+      toolName: "delete_file",
+      arguments: { path: "tmp.txt" },
+    });
+
+    expect(resumedSpecFromApprovedToolResult(checkpoint, {
+      sessionId: "session-1",
+      approvalId: "approval-1",
+      content: "deleted",
+      metadata: { ok: true },
+    })).toMatchObject({
+      runId: "run-approval",
+      sessionId: "session-1",
+      model: "test-model",
+      maxIterations: 5,
+      stream: true,
+      messages: [
+        approvalMessages[0],
+        approvalMessages[1],
+        {
+          role: "tool",
+          content: "deleted",
+          toolCallId: "call-approval",
+          name: "request_approval",
+          metadata: { ok: true },
+        },
+      ],
+    });
+  });
+
+  test("projects denied approvals into resumed specs", () => {
+    expect(resumedSpecFromDeniedApproval({
+      runId: "run-denied",
+      model: "test-model",
+      messages: approvalMessages,
+    }, {
+      sessionId: "session-1",
+      approvalId: "approval-1",
+    })).toMatchObject({
+      runId: "run-denied",
+      sessionId: "session-1",
+      messages: [
+        approvalMessages[0],
+        approvalMessages[1],
+        {
+          role: "tool",
+          content: "Approval denied: approval-1",
+          toolCallId: "call-approval",
+          name: "request_approval",
+          metadata: {
+            approvalId: "approval-1",
+            approved: false,
+            status: "denied",
+          },
+        },
+      ],
+    });
+  });
+
+  test("projects submitted forms into resumed specs", () => {
+    const checkpoint = {
+      runId: "run-form",
+      model: "test-model",
+      toolResultBudget: 900,
+      messages: [
+        { role: "user", content: "book trip" },
+        {
+          role: "tool",
+          content: "Waiting for form submission.",
+          toolCallId: "call-form",
+          name: "request_form",
+          metadata: {
+            awaitingUserInput: true,
+            stopReason: "awaiting_form",
+            formId: "travel_plan",
+          },
+        },
+      ],
+    };
+
+    expect(resumedSpecFromSubmittedForm(checkpoint, {
+      sessionId: "session-1",
+      formId: "travel_plan",
+      action: "submitted",
+      values: { destination: "Tokyo" },
+    })).toMatchObject({
+      runId: "run-form",
+      sessionId: "session-1",
+      model: "test-model",
+      toolResultBudget: 900,
+      messages: [
+        { role: "user", content: "book trip" },
+        {
+          role: "tool",
+          content: "Agent UI form submitted: travel_plan\n{\"destination\":\"Tokyo\"}",
+          toolCallId: "call-form",
+          name: "request_form",
+          metadata: {
+            formId: "travel_plan",
+            action: "submitted",
+            values: { destination: "Tokyo" },
+          },
+        },
+      ],
     });
   });
 });
