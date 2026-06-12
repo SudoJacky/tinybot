@@ -2,8 +2,11 @@ import { AgentRunner, type AgentRunnerCheckpoint, type AgentRunnerEvent } from "
 import type { AgentMessage, AgentRunResult, AgentRunSpec } from "../agent/agentRunSpec.ts";
 import type { AgentRunInput, ContextBuildMetadata, ContextBridgeMetadata } from "../agent/contextTypes.ts";
 import { MessageBus } from "../bus/messageBus.ts";
-import type { InboundMessage, OutboundMessage } from "../bus/messageTypes.ts";
 import { ChannelRuntime } from "../channels/channelRuntime.ts";
+import {
+  parsePythonBridgeInboundMessage,
+  toPythonBridgeOutboundMessage,
+} from "../channels/pythonChannelBridge.ts";
 import { createDefaultCommandRouter } from "../command/commandRegistry.ts";
 import type { CommandRouter } from "../command/commandRouter.ts";
 import type {
@@ -2665,7 +2668,7 @@ export class AgentWorker {
         result: {
           dispatched,
           outboundMessages,
-          outbound_messages: outboundMessages.map(outboundMessageToSnake),
+          outbound_messages: outboundMessages.map(toPythonBridgeOutboundMessage),
           diagnostics: runtime.diagnostics(),
         },
       };
@@ -4176,56 +4179,11 @@ function parseRunInput(params: Record<string, unknown> | undefined): AgentRunInp
   };
 }
 
-function parseChannelDispatchInboundMessage(params: Record<string, unknown> | undefined): InboundMessage {
+function parseChannelDispatchInboundMessage(params: Record<string, unknown> | undefined) {
   if (!isJsonObject(params) || !isJsonObject(params.message)) {
     throw new Error("channel.dispatch_inbound requires object params.message");
   }
-  const raw = params.message;
-  const channel = requiredStringParam(raw, "channel.dispatch_inbound params.message.channel", "channel", "channel");
-  const senderId = requiredStringParam(raw, "channel.dispatch_inbound params.message.senderId", "senderId", "sender_id");
-  const chatId = requiredStringParam(raw, "channel.dispatch_inbound params.message.chatId", "chatId", "chat_id");
-  const content = requiredStringParam(raw, "channel.dispatch_inbound params.message.content", "content", "content");
-  return {
-    channel,
-    senderId,
-    chatId,
-    content,
-    timestamp: stringParam(raw, "timestamp", "timestamp") ?? new Date().toISOString(),
-    media: stringListValue(raw.media),
-    metadata: isJsonObject(raw.metadata) ? { ...raw.metadata } : {},
-    sessionKeyOverride:
-      stringParam(raw, "sessionKeyOverride", "session_key_override")
-      ?? stringParam(raw, "sessionKey", "session_key")
-      ?? null,
-  };
-}
-
-function requiredStringParam(
-  params: Record<string, unknown>,
-  label: string,
-  camelKey: string,
-  snakeKey: string,
-): string {
-  const value = stringParam(params, camelKey, snakeKey);
-  if (value === undefined) {
-    throw new Error(`${label} must be a string`);
-  }
-  return value;
-}
-
-function stringListValue(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
-}
-
-function outboundMessageToSnake(message: OutboundMessage): Record<string, unknown> {
-  return {
-    channel: message.channel,
-    chat_id: message.chatId,
-    content: message.content,
-    reply_to: message.replyTo ?? null,
-    media: message.media,
-    metadata: message.metadata,
-  };
+  return parsePythonBridgeInboundMessage(params.message);
 }
 
 function parseProviderModelsListRequest(params: Record<string, unknown> | undefined): ProviderModelsListRequest {

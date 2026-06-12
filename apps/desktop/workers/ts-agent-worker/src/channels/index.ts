@@ -27,6 +27,11 @@ export {
   type ChannelRuntimeRunAgent,
 } from "./channelRuntime.ts";
 export {
+  parsePythonBridgeInboundMessage,
+  toPythonBridgeOutboundMessage,
+  type PythonBridgeParseOptions,
+} from "./pythonChannelBridge.ts";
+export {
   builtinChannelDescriptors,
   channelDescriptorByName,
   selectChannelDefaultConfigs,
