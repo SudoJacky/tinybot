@@ -5,7 +5,11 @@ use std::{
     net::{SocketAddr, TcpStream},
     path::{Path, PathBuf},
     process::Command,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
+    thread,
     time::Duration,
 };
 use tauri::{
@@ -13,8 +17,8 @@ use tauri::{
     Emitter, Manager, Runtime, State, WindowEvent,
 };
 
-pub mod worker_capability;
 pub mod config_store;
+pub mod worker_capability;
 pub mod worker_config;
 pub mod worker_connection;
 pub mod worker_cron;
@@ -24,8 +28,8 @@ pub mod worker_manager;
 pub mod worker_protocol;
 pub mod worker_rpc;
 pub mod worker_runtime;
-pub mod worker_session;
 pub mod worker_secret;
+pub mod worker_session;
 pub mod worker_shell;
 pub mod worker_stdio;
 pub mod worker_task;
@@ -63,6 +67,7 @@ fn desktop_status() -> DesktopStatus {
 }
 
 type SharedGateway = Arc<Mutex<GatewayRuntime>>;
+const WORKER_CRON_TIMER_MAX_POLL: Duration = Duration::from_secs(30);
 
 struct GatewayRuntime {
     worker: WorkerManager,
@@ -70,6 +75,9 @@ struct GatewayRuntime {
     logs: VecDeque<String>,
     last_error: Option<String>,
     keep_background: bool,
+    cron_dispatch_running: Arc<AtomicBool>,
+    cron_timer_started: Arc<AtomicBool>,
+    cron_timer_stop: Arc<AtomicBool>,
 }
 
 impl Default for GatewayRuntime {
@@ -80,6 +88,9 @@ impl Default for GatewayRuntime {
             logs: VecDeque::with_capacity(200),
             last_error: None,
             keep_background: false,
+            cron_dispatch_running: Arc::new(AtomicBool::new(false)),
+            cron_timer_started: Arc::new(AtomicBool::new(false)),
+            cron_timer_stop: Arc::new(AtomicBool::new(false)),
         }
     }
 }
@@ -1279,6 +1290,15 @@ fn worker_cron_dispatch_due_with_options(
     now_ms: i64,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    let Some(_dispatch_guard) = CronDispatchGuard::begin(shared) else {
+        return Ok(serde_json::json!({
+            "dispatched": 0,
+            "records": [],
+            "recorded": { "updated": [], "deleted": [], "missing": [] },
+            "skipped": "already_running"
+        }));
+    };
+
     let mut router = experimental_worker_router(workspace_root.clone(), config_snapshot.clone());
     let due_response = router.dispatch(&WorkerRequest::new(
         format!("cron-due-{now_ms}"),
@@ -1310,8 +1330,11 @@ fn worker_cron_dispatch_due_with_options(
     };
     ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot.clone())?;
 
-    let request =
-        build_worker_cron_run_due_request(now_unix_ms(), jobs, cron_model_from_config(&config_snapshot));
+    let request = build_worker_cron_run_due_request(
+        now_unix_ms(),
+        jobs,
+        cron_model_from_config(&config_snapshot),
+    );
     let response = worker
         .send_stdio_request(&request, timeout)
         .map_err(|error| format!("worker cron due request failed: {}", error.message))?;
@@ -1347,6 +1370,164 @@ fn worker_cron_dispatch_due_with_options(
         "records": records,
         "recorded": recorded
     }))
+}
+
+fn worker_cron_next_wake_delay_with_options(
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    now_ms: i64,
+    max_poll: Duration,
+) -> Result<Duration, String> {
+    let mut router = experimental_worker_router(workspace_root, config_snapshot);
+    let response = router.dispatch(&WorkerRequest::new(
+        format!("cron-next-wake-{now_ms}"),
+        format!("trace-cron-next-wake-{now_ms}"),
+        "cron.job.list",
+        serde_json::json!({}),
+    ));
+    if let Some(error) = response.error {
+        return Err(format!(
+            "native cron list returned error: {}",
+            error.message
+        ));
+    }
+    let jobs = response
+        .result
+        .as_ref()
+        .and_then(|result| result.get("jobs"))
+        .and_then(serde_json::Value::as_array);
+    let Some(next_run_at_ms) = jobs.and_then(|jobs| {
+        jobs.iter()
+            .filter(|job| {
+                job.get("enabled")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(true)
+            })
+            .filter_map(|job| {
+                job.pointer("/state/nextRunAtMs")
+                    .and_then(serde_json::Value::as_i64)
+            })
+            .min()
+    }) else {
+        return Ok(max_poll);
+    };
+    if next_run_at_ms <= now_ms {
+        return Ok(Duration::ZERO);
+    }
+    Ok(Duration::from_millis((next_run_at_ms - now_ms) as u64).min(max_poll))
+}
+
+struct CronDispatchGuard {
+    running: Arc<AtomicBool>,
+}
+
+impl CronDispatchGuard {
+    fn begin(shared: &SharedGateway) -> Option<Self> {
+        let running = {
+            let runtime = lock_runtime(shared);
+            runtime.cron_dispatch_running.clone()
+        };
+        running
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .ok()?;
+        Some(Self { running })
+    }
+}
+
+impl Drop for CronDispatchGuard {
+    fn drop(&mut self) {
+        self.running.store(false, Ordering::SeqCst);
+    }
+}
+
+fn start_worker_cron_timer(shared: &SharedGateway) -> bool {
+    let (started, stop) = {
+        let runtime = lock_runtime(shared);
+        (
+            runtime.cron_timer_started.clone(),
+            runtime.cron_timer_stop.clone(),
+        )
+    };
+    if started
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return false;
+    }
+    stop.store(false, Ordering::SeqCst);
+    let timer_shared = shared.clone();
+    let log_shared = shared.clone();
+    let builder = thread::Builder::new().name("tinybot-cron-timer".to_string());
+    match builder.spawn(move || worker_cron_timer_loop(timer_shared, stop, started)) {
+        Ok(_handle) => true,
+        Err(error) => {
+            log_shared
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .cron_timer_started
+                .store(false, Ordering::SeqCst);
+            push_log(
+                &log_shared,
+                &format!("failed to start native cron timer: {error}"),
+            );
+            false
+        }
+    }
+}
+
+fn stop_worker_cron_timer(shared: &SharedGateway) {
+    let stop = {
+        let runtime = lock_runtime(shared);
+        runtime.cron_timer_stop.clone()
+    };
+    stop.store(true, Ordering::SeqCst);
+}
+
+fn worker_cron_timer_loop(shared: SharedGateway, stop: Arc<AtomicBool>, started: Arc<AtomicBool>) {
+    while !stop.load(Ordering::SeqCst) {
+        let delay = worker_cron_next_wake_delay_with_options(
+            ts_agent_worker_workspace_root(),
+            experimental_worker_config_snapshot(),
+            now_unix_ms() as i64,
+            WORKER_CRON_TIMER_MAX_POLL,
+        )
+        .unwrap_or(WORKER_CRON_TIMER_MAX_POLL);
+        if sleep_cron_timer_or_stopped(delay, &stop) {
+            break;
+        }
+        match worker_cron_dispatch_due_with_options(
+            &shared,
+            ts_agent_worker_workspace_root(),
+            experimental_worker_config_snapshot(),
+            now_unix_ms() as i64,
+            Duration::from_secs(120),
+        ) {
+            Ok(result)
+                if result.get("dispatched").and_then(serde_json::Value::as_u64) != Some(0) =>
+            {
+                push_log(
+                    &shared,
+                    &format!("native cron dispatched due jobs: {result}"),
+                );
+            }
+            Ok(_) => {}
+            Err(error) => push_log(&shared, &format!("native cron dispatch failed: {error}")),
+        }
+    }
+    started.store(false, Ordering::SeqCst);
+}
+
+fn sleep_cron_timer_or_stopped(delay: Duration, stop: &AtomicBool) -> bool {
+    let mut remaining = delay;
+    while !remaining.is_zero() {
+        if stop.load(Ordering::SeqCst) {
+            return true;
+        }
+        let chunk = remaining.min(Duration::from_millis(250));
+        thread::sleep(chunk);
+        remaining = remaining.saturating_sub(chunk);
+    }
+    stop.load(Ordering::SeqCst)
 }
 
 fn build_worker_cron_run_due_request(
@@ -1395,7 +1576,10 @@ fn worker_skills_list_with_options(
         .map_err(|error| format!("worker skills list request failed: {}", error.message))?;
 
     if let Some(error) = response.error {
-        return Err(format!("worker skills list returned error: {}", error.message));
+        return Err(format!(
+            "worker skills list returned error: {}",
+            error.message
+        ));
     }
     response
         .result
@@ -1644,7 +1828,12 @@ fn worker_restore_agent_checkpoint_with_options(
     let request = build_worker_restore_agent_checkpoint_request(now_unix_ms(), session_id);
     let response = worker
         .send_stdio_request(&request, timeout)
-        .map_err(|error| format!("worker agent checkpoint restore request failed: {}", error.message))?;
+        .map_err(|error| {
+            format!(
+                "worker agent checkpoint restore request failed: {}",
+                error.message
+            )
+        })?;
 
     if let Some(error) = response.error {
         return Err(format!(
@@ -1686,16 +1875,16 @@ fn worker_submit_agent_form_with_options(
 
     ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot)?;
 
-    let request = build_worker_submit_agent_form_request(
-        now_unix_ms(),
-        session_id,
-        form_id,
-        values,
-        action,
-    );
+    let request =
+        build_worker_submit_agent_form_request(now_unix_ms(), session_id, form_id, values, action);
     let response = worker
         .send_stdio_request(&request, timeout)
-        .map_err(|error| format!("worker agent form submission request failed: {}", error.message))?;
+        .map_err(|error| {
+            format!(
+                "worker agent form submission request failed: {}",
+                error.message
+            )
+        })?;
 
     if let Some(error) = response.error {
         return Err(format!(
@@ -1757,7 +1946,12 @@ fn worker_resume_agent_approval_with_options(
     );
     let response = worker
         .send_stdio_request(&request, timeout)
-        .map_err(|error| format!("worker agent approval resume request failed: {}", error.message))?;
+        .map_err(|error| {
+            format!(
+                "worker agent approval resume request failed: {}",
+                error.message
+            )
+        })?;
 
     if let Some(error) = response.error {
         return Err(format!(
@@ -2031,6 +2225,8 @@ pub fn run() {
             runtime.experimental_worker.set_event_sink(move |event| {
                 emit_worker_manager_frontend_event(&app_handle, event);
             });
+            drop(runtime);
+            start_worker_cron_timer(&setup_state);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -2061,6 +2257,7 @@ pub fn run() {
         ])
         .on_window_event(move |_window, event| {
             if matches!(event, WindowEvent::CloseRequested { .. }) {
+                stop_worker_cron_timer(&close_state);
                 let _ = stop_owned_gateway(&close_state, false);
             }
         })
@@ -2382,17 +2579,111 @@ mod tests {
     }
 
     #[test]
+    fn worker_cron_next_wake_delay_uses_earliest_enabled_job() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write(
+            "cron/jobs.json",
+            &serde_json::json!({
+                "version": 1,
+                "jobs": [
+                    {
+                        "id": "later",
+                        "name": "Later",
+                        "enabled": true,
+                        "schedule": { "kind": "at", "atMs": 5000 },
+                        "payload": { "kind": "agent_turn", "message": "later", "deliver": false },
+                        "state": { "nextRunAtMs": 5000, "lastRunAtMs": null, "lastStatus": null, "lastError": null, "runHistory": [] },
+                        "createdAtMs": 1,
+                        "updatedAtMs": 1,
+                        "deleteAfterRun": true
+                    },
+                    {
+                        "id": "disabled-earlier",
+                        "name": "Disabled",
+                        "enabled": false,
+                        "schedule": { "kind": "at", "atMs": 2500 },
+                        "payload": { "kind": "agent_turn", "message": "disabled", "deliver": false },
+                        "state": { "nextRunAtMs": 2500, "lastRunAtMs": null, "lastStatus": null, "lastError": null, "runHistory": [] },
+                        "createdAtMs": 1,
+                        "updatedAtMs": 1,
+                        "deleteAfterRun": true
+                    },
+                    {
+                        "id": "earliest",
+                        "name": "Earliest",
+                        "enabled": true,
+                        "schedule": { "kind": "at", "atMs": 3500 },
+                        "payload": { "kind": "agent_turn", "message": "soon", "deliver": false },
+                        "state": { "nextRunAtMs": 3500, "lastRunAtMs": null, "lastStatus": null, "lastError": null, "runHistory": [] },
+                        "createdAtMs": 1,
+                        "updatedAtMs": 1,
+                        "deleteAfterRun": true
+                    }
+                ]
+            })
+            .to_string(),
+        );
+
+        let delay = worker_cron_next_wake_delay_with_options(
+            fixture.root.clone(),
+            serde_json::json!({}),
+            2000,
+            Duration::from_secs(30),
+        )
+        .expect("cron next wake should be derived from store");
+
+        assert_eq!(delay, Duration::from_millis(1500));
+    }
+
+    #[test]
+    fn worker_cron_dispatch_due_skips_when_dispatch_already_running() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+        {
+            let runtime = lock_runtime(&shared);
+            runtime
+                .cron_dispatch_running
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+
+        let result = worker_cron_dispatch_due_with_options(
+            &shared,
+            fixture.root.clone(),
+            serde_json::json!({ "agents": { "defaults": { "model": "gpt-5" } } }),
+            2000,
+            Duration::from_secs(1),
+        )
+        .expect("overlapping cron dispatch should skip");
+
+        assert_eq!(
+            result,
+            serde_json::json!({
+                "dispatched": 0,
+                "records": [],
+                "recorded": { "updated": [], "deleted": [], "missing": [] },
+                "skipped": "already_running"
+            })
+        );
+        assert_eq!(
+            lock_runtime(&shared).experimental_worker.status().state,
+            WorkerManagerState::Stopped
+        );
+    }
+
+    #[test]
     fn worker_skills_requests_target_ts_webui_skill_methods() {
         let list_request = build_worker_skills_list_request(42);
         let detail_request = build_worker_skills_detail_request(43, "planner/phase".to_string());
-        let create_request = build_worker_skills_create_request(44, serde_json::json!({ "name": "planner" }));
+        let create_request =
+            build_worker_skills_create_request(44, serde_json::json!({ "name": "planner" }));
         let update_request = build_worker_skills_update_request(
             45,
             "planner/phase".to_string(),
             serde_json::json!({ "content": "Updated" }),
         );
         let delete_request = build_worker_skills_delete_request(46, "planner/phase".to_string());
-        let validate_request = build_worker_skills_validate_request(47, "planner/phase".to_string());
+        let validate_request =
+            build_worker_skills_validate_request(47, "planner/phase".to_string());
 
         assert_eq!(list_request.id, "skills-list-42");
         assert_eq!(list_request.trace_id, "trace-skills-list-42");
@@ -2401,11 +2692,17 @@ mod tests {
         assert_eq!(detail_request.id, "skills-detail-43");
         assert_eq!(detail_request.trace_id, "trace-skills-detail-43");
         assert_eq!(detail_request.method, "skills.webui_detail");
-        assert_eq!(detail_request.params, serde_json::json!({ "name": "planner/phase" }));
+        assert_eq!(
+            detail_request.params,
+            serde_json::json!({ "name": "planner/phase" })
+        );
         assert_eq!(create_request.id, "skills-create-44");
         assert_eq!(create_request.trace_id, "trace-skills-create-44");
         assert_eq!(create_request.method, "skills.webui_create");
-        assert_eq!(create_request.params, serde_json::json!({ "body": { "name": "planner" } }));
+        assert_eq!(
+            create_request.params,
+            serde_json::json!({ "body": { "name": "planner" } })
+        );
         assert_eq!(update_request.id, "skills-update-45");
         assert_eq!(update_request.trace_id, "trace-skills-update-45");
         assert_eq!(update_request.method, "skills.webui_update");
@@ -2416,11 +2713,17 @@ mod tests {
         assert_eq!(delete_request.id, "skills-delete-46");
         assert_eq!(delete_request.trace_id, "trace-skills-delete-46");
         assert_eq!(delete_request.method, "skills.webui_delete");
-        assert_eq!(delete_request.params, serde_json::json!({ "name": "planner/phase" }));
+        assert_eq!(
+            delete_request.params,
+            serde_json::json!({ "name": "planner/phase" })
+        );
         assert_eq!(validate_request.id, "skills-validate-47");
         assert_eq!(validate_request.trace_id, "trace-skills-validate-47");
         assert_eq!(validate_request.method, "skills.webui_validate");
-        assert_eq!(validate_request.params, serde_json::json!({ "name": "planner/phase" }));
+        assert_eq!(
+            validate_request.params,
+            serde_json::json!({ "name": "planner/phase" })
+        );
     }
 
     #[test]
@@ -2435,7 +2738,8 @@ mod tests {
 
     #[test]
     fn worker_restore_agent_checkpoint_request_wraps_session_id_for_ts_worker() {
-        let request = build_worker_restore_agent_checkpoint_request(42, "WebSocket:chat-1".to_string());
+        let request =
+            build_worker_restore_agent_checkpoint_request(42, "WebSocket:chat-1".to_string());
 
         assert_eq!(request.id, "agent-restore-checkpoint-42");
         assert_eq!(request.trace_id, "trace-agent-restore-checkpoint-42");
@@ -2502,6 +2806,7 @@ mod tests {
             logs: VecDeque::with_capacity(200),
             last_error: None,
             keep_background: true,
+            ..GatewayRuntime::default()
         }));
 
         let status = current_status(&shared);
