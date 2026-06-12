@@ -1736,17 +1736,18 @@ describe("AgentWorker", () => {
           result: "Steering instruction routed to lead.",
           session: expect.objectContaining({
             status: "active",
-            messages: expect.objectContaining({
-              msg_2: expect.objectContaining({
+            messages: expect.arrayContaining([
+              expect.objectContaining({
+                id: "msg_2",
                 sender_id: "user",
                 recipient_ids: ["lead"],
                 content: "Prioritize the browser findings",
               }),
-            }),
-            agents: expect.objectContaining({
-              lead: expect.objectContaining({ inbox: expect.arrayContaining(["msg_2"]) }),
-              researcher: expect.not.objectContaining({ inbox: expect.arrayContaining(["msg_2"]) }),
-            }),
+            ]),
+            agents: expect.arrayContaining([
+              expect.objectContaining({ id: "lead", inbox_count: 2 }),
+              expect.objectContaining({ id: "researcher", inbox_count: 0 }),
+            ]),
             swarm_plan: expect.objectContaining({
               status: "active",
               user_steering: [

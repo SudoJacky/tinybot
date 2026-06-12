@@ -658,7 +658,9 @@ export class AgentWorker {
             sessionId: params.sessionId,
             instruction: params.content,
           });
-          return { status: result.result.startsWith("Error:") ? 400 : 200, body: result };
+          return result.result.startsWith("Error:")
+            ? { status: 400, body: { error: result.result } }
+            : { status: 200, body: { result: result.result, session: coworkSessionSnapshot(result.session) } };
         }
       }
       const result = await this.coworkService.sendMessage({
