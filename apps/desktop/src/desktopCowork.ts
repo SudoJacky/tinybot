@@ -253,6 +253,13 @@ export type DesktopCoworkActionInput =
   | { action: "loadSession"; sessionId: string }
   | { action: "loadSummary"; sessionId: string }
   | { action: "loadGraph"; sessionId: string }
+  | { action: "loadBlueprint"; sessionId: string }
+  | { action: "loadTrace"; sessionId: string }
+  | { action: "loadDag"; sessionId: string }
+  | { action: "loadArtifacts"; sessionId: string }
+  | { action: "loadOrganization"; sessionId: string }
+  | { action: "loadQueues"; sessionId: string }
+  | { action: "loadBranches"; sessionId: string }
   | { action: "loadAgentActivity"; sessionId: string; agentId: string }
   | { action: "loadObservation"; sessionId: string; detailRef: string }
   | { action: "createSession"; goal?: string; blueprint?: unknown; architecture?: string; autoRun?: boolean }
@@ -481,6 +488,20 @@ export function buildDesktopCoworkActionRequest(input: DesktopCoworkActionInput)
       return { method: "GET", path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/summary` };
     case "loadGraph":
       return { method: "GET", path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/graph` };
+    case "loadBlueprint":
+      return { method: "GET", path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/blueprint` };
+    case "loadTrace":
+      return { method: "GET", path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/trace` };
+    case "loadDag":
+      return { method: "GET", path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/dag` };
+    case "loadArtifacts":
+      return { method: "GET", path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/artifacts` };
+    case "loadOrganization":
+      return { method: "GET", path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/organization` };
+    case "loadQueues":
+      return { method: "GET", path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/queues` };
+    case "loadBranches":
+      return { method: "GET", path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/branches` };
     case "loadAgentActivity":
       return {
         method: "GET",
