@@ -335,6 +335,59 @@ describe("desktop native WebSocket bridge", () => {
       _task_progress: { plan_id: "plan-1", completed: 1, total: 2 },
     });
   });
+
+  test("projects TS worker browser frames into legacy WebUI browser frame events", async () => {
+    const handlers = new Map<DesktopNativeWebSocketAgentEventName, (payload: unknown) => void>();
+    const nativeTransport: NativeTransportApi = {
+      gatewayFrame: vi.fn(),
+      websocketMessage: vi.fn(),
+      dispatchWebsocketMessage: vi.fn(async () => ({
+        transport: {
+          kind: "message",
+          chatId: "chat-native",
+          sessionId: "websocket:chat-native",
+          frames: [],
+        },
+        agent: {
+          runId: "run-5",
+          stopReason: "final_response",
+        },
+      })),
+    };
+    const socket = createDesktopNativeWebSocket({
+      url: "/ws",
+      nativeTransport,
+      listenToAgentEvent: (eventName, handler) => {
+        handlers.set(eventName, handler);
+      },
+    });
+    const events: Array<Record<string, unknown>> = [];
+    socket.addEventListener("message", (event) => {
+      events.push(JSON.parse(String((event as MessageEvent).data)) as Record<string, unknown>);
+    });
+
+    await flushMicrotasks();
+    socket.send(JSON.stringify({ type: "message", chat_id: "chat-native", content: "hello" }));
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(handlers.get("agent.browser_frame")).toBeDefined();
+
+    handlers.get("agent.browser_frame")?.({
+      runId: "run-5",
+      imageUrl: "data:image/png;base64,abc",
+      sourceCommand: "opencli browser state",
+      capturedAt: "2026-06-13T04:15:00.000Z",
+    });
+
+    expect(events).toContainEqual({
+      event: "browser_frame",
+      chat_id: "chat-native",
+      image_url: "data:image/png;base64,abc",
+      source_command: "opencli browser state",
+      captured_at: "2026-06-13T04:15:00.000Z",
+    });
+  });
 });
 
 async function flushMicrotasks(): Promise<void> {

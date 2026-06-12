@@ -21,6 +21,7 @@ export type DesktopNativeWebSocketAgentEventName =
   | "agent.awaiting_approval"
   | "agent.memory_reference"
   | "agent.task_progress"
+  | "agent.browser_frame"
   | "agent.done"
   | "agent.error";
 export type DesktopNativeWebSocketAgentEventHandler = (payload: unknown) => void;
@@ -40,6 +41,7 @@ const AGENT_EVENT_NAMES: DesktopNativeWebSocketAgentEventName[] = [
   "agent.awaiting_approval",
   "agent.memory_reference",
   "agent.task_progress",
+  "agent.browser_frame",
   "agent.done",
   "agent.error",
 ];
@@ -351,6 +353,16 @@ class DesktopNativeWebSocket extends EventTarget {
       const toolName = stringValue(payload.toolName) || stringValue(payload.tool_name) || "task_progress";
       const planId = stringValue(payload.planId) || stringValue(payload.plan_id) || (isRecord(progress) ? stringValue(progress.plan_id) : "");
       this.emitTaskProgressFrame(run.chatId, `${runId}:${toolCallId}:task-progress`, toolName, toolCallId, progress, planId);
+      return;
+    }
+    if (eventName === "agent.browser_frame") {
+      this.emitJson({
+        event: "browser_frame",
+        chat_id: run.chatId,
+        image_url: stringValue(payload.imageUrl) || stringValue(payload.image_url),
+        source_command: stringValue(payload.sourceCommand) || stringValue(payload.source_command),
+        captured_at: payload.capturedAt ?? payload.captured_at ?? null,
+      });
       return;
     }
     if (eventName === "agent.error") {
