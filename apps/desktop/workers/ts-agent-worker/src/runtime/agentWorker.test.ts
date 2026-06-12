@@ -414,6 +414,65 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("serves WebUI refresh-token route through TS worker RPC", async () => {
+    const refreshRequests: Array<{ token: string; traceId: string }> = [];
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      webuiBootstrapProvider: {
+        bootstrap: async () => ({
+          token: "native-token-1",
+          ws_path: "/ws",
+          token_ttl_s: 3600,
+          refresh_token_path: "/webui/refresh-token",
+          sessions_path: "/api/sessions",
+          workspace_files_path: "/api/workspace/files",
+          cowork_path: "/api/cowork",
+        }),
+        refreshToken: async (token: string, traceId: string) => {
+          refreshRequests.push({ token, traceId });
+          return token === "native-token-1" ? { token, token_ttl_s: 3600 } : null;
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(webuiRequest("webui.route_specs"))).resolves.toMatchObject({
+      result: {
+        routes: expect.arrayContaining([
+          { key: "refresh_token", method: "POST", path: "/webui/refresh-token", public: true },
+        ]),
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/webui/refresh-token",
+      headers: { Authorization: "Bearer native-token-1" },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          token: "native-token-1",
+          token_ttl_s: 3600,
+        },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/webui/refresh-token",
+      headers: { Authorization: "Bearer wrong-token" },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 401,
+        body: { error: "unauthorized" },
+      },
+    });
+    expect(refreshRequests).toEqual([
+      { token: "native-token-1", traceId: "trace-webui.handle_request" },
+      { token: "wrong-token", traceId: "trace-webui.handle_request" },
+    ]);
+  });
+
   test("serves WebUI config route through TS worker RPC", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),

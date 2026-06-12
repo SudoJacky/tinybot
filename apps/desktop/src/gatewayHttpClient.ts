@@ -79,6 +79,7 @@ export type NativeCoworkApi = {
 export type NativeWebuiRouteRequest = {
   method: string;
   path: string;
+  headers?: Record<string, unknown>;
   body?: unknown;
 };
 

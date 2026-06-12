@@ -172,6 +172,8 @@ struct WorkerWebuiRouteInput {
     method: String,
     path: String,
     #[serde(default)]
+    headers: Option<serde_json::Value>,
+    #[serde(default)]
     body: Option<serde_json::Value>,
 }
 
@@ -1885,6 +1887,9 @@ fn build_worker_webui_route_request(
     if let Some(body) = input.body {
         params["body"] = body;
     }
+    if let Some(headers) = input.headers {
+        params["headers"] = headers;
+    }
     WorkerRequest::new(
         format!("webui-route-{request_id}"),
         format!("trace-webui-route-{request_id}"),
@@ -2913,6 +2918,7 @@ mod tests {
                 method: "GET".to_string(),
                 path: "/api/status".to_string(),
                 body: None,
+                headers: Some(serde_json::json!({ "Authorization": "Bearer token-1" })),
             },
         );
 
@@ -2923,7 +2929,8 @@ mod tests {
             request.params,
             serde_json::json!({
                 "method": "GET",
-                "path": "/api/status"
+                "path": "/api/status",
+                "headers": { "Authorization": "Bearer token-1" }
             })
         );
     }

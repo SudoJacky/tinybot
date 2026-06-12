@@ -11,6 +11,7 @@ export type WebuiRouteSpec = {
 export type WebuiRouteRequest = {
   method: string;
   path: string;
+  headers?: Record<string, unknown>;
   body?: unknown;
 };
 
@@ -41,6 +42,10 @@ export type WebuiBootstrapResponse = {
 
 export type WebuiBootstrapProvider = {
   bootstrap(traceId: string): Promise<WebuiBootstrapResponse> | WebuiBootstrapResponse;
+  refreshToken?(
+    token: string,
+    traceId: string,
+  ): Promise<{ token: string; token_ttl_s: number } | null> | { token: string; token_ttl_s: number } | null;
 };
 
 export type WebuiSessionMetadata = {
@@ -211,6 +216,7 @@ export type WebuiWorkspaceProvider = {
 
 const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
   { key: "bootstrap", method: "GET", path: "/webui/bootstrap", public: true },
+  { key: "refresh_token", method: "POST", path: "/webui/refresh-token", public: true },
   { key: "get_status", method: "GET", path: "/api/status", public: false },
   { key: "get_tools", method: "GET", path: "/api/tools", public: false },
   { key: "get_config", method: "GET", path: "/api/config", public: false },
@@ -266,6 +272,9 @@ export async function handleWebuiRouteRequest(
       return { status: 503, body: { error: "webui control route unavailable", route: "bootstrap" } };
     }
     return { status: 200, body: await bootstrapProvider.bootstrap(traceId) };
+  }
+  if (method === "POST" && path === "/webui/refresh-token") {
+    return webuiRefreshTokenResponse(request.headers, bootstrapProvider, traceId);
   }
   if (method === "GET" && path === "/api/status") {
     return { status: 200, body: webuiStatusBody(await resolveStatus(statusProvider)) };
@@ -453,7 +462,14 @@ export function parseWebuiRouteRequest(params: JsonObject | undefined): WebuiRou
   if (!method || !path) {
     throw new Error("webui.handle_request requires params.method and params.path");
   }
-  return params.body === undefined ? { method, path } : { method, path, body: params.body };
+  const request: WebuiRouteRequest = { method, path };
+  if (params.headers !== undefined && isJsonObject(params.headers)) {
+    request.headers = params.headers;
+  }
+  if (params.body !== undefined) {
+    request.body = params.body;
+  }
+  return request;
 }
 
 async function resolveStatus(provider: WebuiStatusProvider | undefined): Promise<WebuiStatusSnapshot> {
@@ -480,6 +496,27 @@ function webuiToolsBody(tools: ToolRegistry | undefined): Record<string, unknown
       })
       .filter((tool): tool is { name: string; description: string } => tool !== undefined),
   };
+}
+
+async function webuiRefreshTokenResponse(
+  headers: Record<string, unknown> | undefined,
+  bootstrapProvider: WebuiBootstrapProvider | undefined,
+  traceId: string,
+): Promise<WebuiRouteResponse> {
+  if (!bootstrapProvider?.refreshToken) {
+    return { status: 503, body: { error: "webui control route unavailable", route: "refresh_token" } };
+  }
+  const refreshed = await bootstrapProvider.refreshToken(bearerToken(headers) ?? "", traceId);
+  if (!refreshed) {
+    return { status: 401, body: { error: "unauthorized" } };
+  }
+  return { status: 200, body: refreshed };
+}
+
+function bearerToken(headers: Record<string, unknown> | undefined): string | undefined {
+  const header = stringValue(headers?.Authorization) ?? stringValue(headers?.authorization);
+  const match = /^Bearer\s+(.+)$/i.exec(header ?? "");
+  return match?.[1] ? match[1] : undefined;
 }
 
 async function webuiProviderModelsResponse(
