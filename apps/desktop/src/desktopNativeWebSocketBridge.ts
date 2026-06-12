@@ -22,6 +22,7 @@ export type DesktopNativeWebSocketAgentEventName =
   | "agent.memory_reference"
   | "agent.task_progress"
   | "agent.browser_frame"
+  | "agent.cancelled"
   | "agent.done"
   | "agent.error";
 export type DesktopNativeWebSocketAgentEventHandler = (payload: unknown) => void;
@@ -42,6 +43,7 @@ const AGENT_EVENT_NAMES: DesktopNativeWebSocketAgentEventName[] = [
   "agent.memory_reference",
   "agent.task_progress",
   "agent.browser_frame",
+  "agent.cancelled",
   "agent.done",
   "agent.error",
 ];
@@ -363,6 +365,18 @@ class DesktopNativeWebSocket extends EventTarget {
         source_command: stringValue(payload.sourceCommand) || stringValue(payload.source_command),
         captured_at: payload.capturedAt ?? payload.captured_at ?? null,
       });
+      return;
+    }
+    if (eventName === "agent.cancelled") {
+      run.streamed = true;
+      this.emitJson({
+        event: "interrupted",
+        chat_id: run.chatId,
+        cancelled: payload.cancelled !== false,
+      });
+      this.activeRuns.delete(runId);
+      this.completedStreamedRunIds.add(runId);
+      this.clearToolCallDeltas(runId);
       return;
     }
     if (eventName === "agent.error") {

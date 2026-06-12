@@ -388,6 +388,66 @@ describe("desktop native WebSocket bridge", () => {
       captured_at: "2026-06-13T04:15:00.000Z",
     });
   });
+
+  test("projects TS worker cancellation events into legacy WebUI interrupted frames", async () => {
+    const handlers = new Map<DesktopNativeWebSocketAgentEventName, (payload: unknown) => void>();
+    const dispatch = deferred<unknown>();
+    const nativeTransport: NativeTransportApi = {
+      gatewayFrame: vi.fn(),
+      websocketMessage: vi.fn(),
+      dispatchWebsocketMessage: vi.fn(async () => dispatch.promise),
+    };
+    const socket = createDesktopNativeWebSocket({
+      url: "/ws",
+      nativeTransport,
+      listenToAgentEvent: (eventName, handler) => {
+        handlers.set(eventName, handler);
+      },
+    });
+    const events: Array<Record<string, unknown>> = [];
+    socket.addEventListener("message", (event) => {
+      events.push(JSON.parse(String((event as MessageEvent).data)) as Record<string, unknown>);
+    });
+
+    await flushMicrotasks();
+    socket.send(JSON.stringify({ type: "message", chat_id: "chat-native", content: "hello" }));
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(handlers.get("agent.cancelled")).toBeDefined();
+
+    handlers.get("agent.cancelled")?.({ runId: "run-6", cancelled: true });
+    dispatch.resolve({
+      transport: {
+        kind: "message",
+        chatId: "chat-native",
+        sessionId: "websocket:chat-native",
+        frames: [],
+      },
+      agent: {
+        runId: "run-6",
+        finalContent: "hello after cancel",
+        stopReason: "cancelled",
+      },
+    });
+    await flushMicrotasks();
+
+    expect(events).toContainEqual({
+      event: "interrupted",
+      chat_id: "chat-native",
+      cancelled: true,
+    });
+    expect(events).not.toContainEqual(expect.objectContaining({
+      event: "message",
+      chat_id: "chat-native",
+      text: "hello after cancel",
+    }));
+    expect(events).not.toContainEqual(expect.objectContaining({
+      event: "stream_end",
+      chat_id: "chat-native",
+      reason: "cancelled",
+    }));
+  });
 });
 
 async function flushMicrotasks(): Promise<void> {
