@@ -163,6 +163,10 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     webuiSessionProvider: sessionBridge,
     webuiConfigProvider: {
       getConfig: () => configBridge.snapshotPublic(),
+      patchConfig: async (body) => configBridge.applyPatch(
+        await configBridge.snapshotPublic(),
+        body,
+      ),
     },
     memoryBridge: new NativeMemoryBridge(rpcClient),
     contextBridge: new NativeContextBridge(rpcClient),

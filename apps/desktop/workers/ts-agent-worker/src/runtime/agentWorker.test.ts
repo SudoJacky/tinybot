@@ -536,6 +536,7 @@ describe("AgentWorker", () => {
   });
 
   test("serves WebUI config route through TS worker RPC", async () => {
+    const patchRequests: Array<{ body: Record<string, unknown>; traceId: string }> = [];
     const worker = new AgentWorker({
       provider: new QueueProvider([]),
       tools: new ToolRegistry(),
@@ -545,6 +546,19 @@ describe("AgentWorker", () => {
           agents: { defaults: { provider: "dashscope", model: "qwen-max" } },
           providers: { dashscope: { api_key: "********" } },
         }),
+        patchConfig: async (body, traceId) => {
+          patchRequests.push({ body, traceId });
+          return {
+            config: {
+              agents: { defaults: { provider: "openrouter", model: "openai/gpt-4o-mini" } },
+              providers: {
+                dashscope: { api_key: "********" },
+                openrouter: { api_key: "********", api_base: "https://openrouter.ai/api/v1" },
+              },
+            },
+            updatedFields: ["agents.defaults.provider", "agents.defaults.model", "providers.openrouter"],
+          };
+        },
       },
     });
 
@@ -552,6 +566,7 @@ describe("AgentWorker", () => {
       result: {
         routes: expect.arrayContaining([
           { key: "get_config", method: "GET", path: "/api/config", public: false },
+          { key: "patch_config", method: "PATCH", path: "/api/config", public: false },
         ]),
       },
     });
@@ -567,6 +582,37 @@ describe("AgentWorker", () => {
         },
       },
     });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "PATCH",
+      path: "/api/config",
+      body: {
+        agents: { defaults: { provider: "openrouter", model: "openai/gpt-4o-mini" } },
+        providers: { openrouter: { api_key: "or-key", api_base: "https://openrouter.ai/api/v1" } },
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          config: {
+            agents: { defaults: { provider: "openrouter", model: "openai/gpt-4o-mini" } },
+            providers: {
+              dashscope: { api_key: "********" },
+              openrouter: { api_key: "********", api_base: "https://openrouter.ai/api/v1" },
+            },
+          },
+          updatedFields: ["agents.defaults.provider", "agents.defaults.model", "providers.openrouter"],
+        },
+      },
+    });
+    expect(patchRequests).toEqual([
+      {
+        body: {
+          agents: { defaults: { provider: "openrouter", model: "openai/gpt-4o-mini" } },
+          providers: { openrouter: { api_key: "or-key", api_base: "https://openrouter.ai/api/v1" } },
+        },
+        traceId: "trace-webui.handle_request",
+      },
+    ]);
   });
 
   test("serves WebUI providers route through TS worker RPC", async () => {
