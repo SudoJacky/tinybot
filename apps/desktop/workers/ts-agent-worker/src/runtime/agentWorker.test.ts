@@ -327,6 +327,25 @@ describe("AgentWorker", () => {
 
     await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
       method: "GET",
+      path: `/api/cowork/sessions/${encodeURIComponent(createdSession.id)}`,
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          session: expect.objectContaining({
+            id: "cw_1",
+            title: "Route API",
+            agents: expect.arrayContaining([expect.objectContaining({ id: "lead" })]),
+            messages: expect.arrayContaining([expect.objectContaining({ id: "msg_1", content: "Goal: Route Cowork API" })]),
+            graph: expect.objectContaining({ schema_version: "cowork.graph.v2" }),
+            trace: expect.any(Array),
+          }),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "GET",
       path: `/api/cowork/sessions/${encodeURIComponent(createdSession.id)}/summary`,
     }))).resolves.toMatchObject({
       result: {

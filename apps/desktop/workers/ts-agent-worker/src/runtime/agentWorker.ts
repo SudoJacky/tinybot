@@ -617,7 +617,9 @@ export class AgentWorker {
 
     if (segments.length === 2 && route.method === "GET") {
       const session = await this.coworkService.getSession(sessionId, traceId);
-      return session ? { status: 200, body: { session } } : { status: 404, body: { error: "cowork session not found" } };
+      return session
+        ? { status: 200, body: { session: coworkSessionSnapshot(session) } }
+        : { status: 404, body: { error: "cowork session not found" } };
     }
 
     if (segments.length === 2 && route.method === "DELETE") {
