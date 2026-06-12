@@ -2554,12 +2554,18 @@ export class AgentWorker {
   }
 
   private webuiApprovalProvider() {
-    if (!this.approvalBridge?.listPendingApprovals) {
+    if (!this.approvalBridge) {
       return undefined;
     }
     return {
-      listPendingApprovals: (sessionId: string, traceId: string) =>
-        this.approvalBridge!.listPendingApprovals!(sessionId, traceId),
+      ...(this.approvalBridge.listPendingApprovals
+        ? {
+          listPendingApprovals: (sessionId: string, traceId: string) =>
+            this.approvalBridge!.listPendingApprovals!(sessionId, traceId),
+        }
+        : {}),
+      resolveApproval: (params: ApprovalResolutionRequest, traceId: string) =>
+        this.approvalBridge!.resolveApproval(params, traceId),
     };
   }
 

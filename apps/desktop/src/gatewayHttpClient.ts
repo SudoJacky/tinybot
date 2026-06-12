@@ -339,10 +339,22 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
           "webui.approvals.list",
         );
       },
-      approveApproval: (approvalId: string, body: unknown) =>
-        request(`/api/approvals/${encodePathSegment(approvalId)}/approve`, jsonRequest("POST", body)),
-      denyApproval: (approvalId: string, body: unknown) =>
-        request(`/api/approvals/${encodePathSegment(approvalId)}/deny`, jsonRequest("POST", body)),
+      approveApproval: (approvalId: string, body: unknown) => {
+        const path = `/api/approvals/${encodePathSegment(approvalId)}/approve`;
+        return nativeOrGateway(
+          () => options.nativeWebui?.route({ method: "POST", path, body }),
+          () => request(path, jsonRequest("POST", body)),
+          "webui.approvals.approve",
+        );
+      },
+      denyApproval: (approvalId: string, body: unknown) => {
+        const path = `/api/approvals/${encodePathSegment(approvalId)}/deny`;
+        return nativeOrGateway(
+          () => options.nativeWebui?.route({ method: "POST", path, body }),
+          () => request(path, jsonRequest("POST", body)),
+          "webui.approvals.deny",
+        );
+      },
     },
     skills: {
       list: () => nativeOrGateway(

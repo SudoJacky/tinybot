@@ -447,6 +447,45 @@ describe("gateway HTTP client", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
+  test("prefers native WebUI approval resolution routes when available", async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
+    const nativeWebui = {
+      route: vi.fn(async (request: { method: string; path: string; body?: unknown }) => ({
+        ok: true,
+        request,
+      })),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeWebui,
+    });
+
+    await expect(client.tools.approveApproval("approval/1", {
+      session_key: "websocket:chat-1",
+      scope: "session",
+      auto_retry: false,
+    })).resolves.toEqual({
+      ok: true,
+      request: {
+        method: "POST",
+        path: "/api/approvals/approval%2F1/approve",
+        body: { session_key: "websocket:chat-1", scope: "session", auto_retry: false },
+      },
+    });
+    await expect(client.tools.denyApproval("approval/1", {
+      session_key: "websocket:chat-1",
+    })).resolves.toEqual({
+      ok: true,
+      request: {
+        method: "POST",
+        path: "/api/approvals/approval%2F1/deny",
+        body: { session_key: "websocket:chat-1" },
+      },
+    });
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
   test("prefers native WebUI session list route when available", async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
     const nativeWebui = {

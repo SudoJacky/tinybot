@@ -301,6 +301,74 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("serves WebUI approval resolution routes through TS worker RPC", async () => {
+    const resolved: Array<{ sessionId: string; approvalId: string; approved: boolean; scope?: string }> = [];
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      approvalBridge: {
+        requestApproval: async () => ({}),
+        listPendingApprovals: async () => ({ approvals: [] }),
+        resolveApproval: async (params) => {
+          resolved.push(params);
+          return {
+            approval: {
+              id: params.approvalId,
+              tool_name: "shell",
+              category: "command",
+              risk: "high",
+              reason: "Deletes files",
+              summary: params.approved ? "Approved command" : "Denied command",
+              created_at: "2026-06-13T10:00:00.000Z",
+            },
+          };
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(webuiRequest("webui.route_specs"))).resolves.toMatchObject({
+      result: {
+        routes: expect.arrayContaining([
+          { key: "approve_approval", method: "POST", path: "/api/approvals/{approval_id}/approve", public: false },
+          { key: "deny_approval", method: "POST", path: "/api/approvals/{approval_id}/deny", public: false },
+        ]),
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/api/approvals/approval%2F1/approve",
+      body: { session_key: "websocket:chat-1", scope: "session", auto_retry: false },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          approved: true,
+          approval: { id: "approval/1", summary: "Approved command" },
+          scope: "session",
+          auto_retry: false,
+        },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/api/approvals/approval%2F1/deny",
+      body: { session_key: "websocket:chat-1" },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          denied: true,
+          approval: { id: "approval/1", summary: "Denied command" },
+        },
+      },
+    });
+    expect(resolved).toEqual([
+      { sessionId: "websocket:chat-1", approvalId: "approval/1", approved: true, scope: "session" },
+      { sessionId: "websocket:chat-1", approvalId: "approval/1", approved: false },
+    ]);
+  });
+
   test("serves WebUI session list control route through TS worker RPC", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),

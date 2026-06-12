@@ -102,16 +102,29 @@ export type WebuiSessionProvider = {
 
 export type WebuiApprovalProvider = {
   channelName?: string;
-  listPendingApprovals(
+  listPendingApprovals?(
     sessionId: string,
     traceId: string,
   ): Promise<Record<string, unknown>> | Record<string, unknown>;
+  resolveApproval?(
+    params: WebuiApprovalResolution,
+    traceId: string,
+  ): Promise<Record<string, unknown>> | Record<string, unknown>;
+};
+
+export type WebuiApprovalResolution = {
+  sessionId: string;
+  approvalId: string;
+  approved: boolean;
+  scope?: string;
 };
 
 const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
   { key: "get_status", method: "GET", path: "/api/status", public: false },
   { key: "get_tools", method: "GET", path: "/api/tools", public: false },
   { key: "get_approvals", method: "GET", path: "/api/approvals", public: false },
+  { key: "approve_approval", method: "POST", path: "/api/approvals/{approval_id}/approve", public: false },
+  { key: "deny_approval", method: "POST", path: "/api/approvals/{approval_id}/deny", public: false },
   { key: "list_sessions", method: "GET", path: "/api/sessions", public: false },
   { key: "get_messages", method: "GET", path: "/api/sessions/{key}/messages", public: false },
   { key: "get_profile", method: "GET", path: "/api/sessions/{key}/profile", public: false },
@@ -144,6 +157,17 @@ export async function handleWebuiRouteRequest(
   }
   if (method === "GET" && path === "/api/approvals") {
     return webuiApprovalsResponse(url.searchParams, approvalProvider, traceId);
+  }
+  const approvalResolution = approvalResolutionPath(method, path);
+  if (approvalResolution) {
+    return webuiApprovalResolutionResponse(
+      approvalResolution.approvalId,
+      approvalResolution.approved,
+      url.searchParams,
+      request.body,
+      approvalProvider,
+      traceId,
+    );
   }
   if (method === "GET" && path === "/api/sessions") {
     if (!sessionProvider) {
@@ -278,7 +302,7 @@ async function webuiApprovalsResponse(
   if (!sessionId) {
     return { status: 400, body: { error: "session_key or chat_id is required" } };
   }
-  if (!approvalProvider) {
+  if (!approvalProvider?.listPendingApprovals) {
     return { status: 404, body: { error: "session_key or chat_id is required" } };
   }
   const result = await approvalProvider.listPendingApprovals(sessionId, traceId);
@@ -303,6 +327,97 @@ function approvalSessionId(query: URLSearchParams, fallbackChannel: string): str
   }
   const channel = query.get("channel") || fallbackChannel;
   return `${channel}:${chatId}`;
+}
+
+async function webuiApprovalResolutionResponse(
+  approvalId: string,
+  approved: boolean,
+  query: URLSearchParams,
+  body: unknown,
+  approvalProvider: WebuiApprovalProvider | undefined,
+  traceId: string,
+): Promise<WebuiRouteResponse> {
+  const payload = body === undefined ? {} : body;
+  if (!isJsonObject(payload)) {
+    return { status: 400, body: { error: "payload must be a dict" } };
+  }
+  const sessionId = approvalSessionIdFromPayload(query, payload, approvalProvider?.channelName ?? "websocket");
+  if (!sessionId) {
+    return { status: 400, body: { error: "session_key or chat_id is required" } };
+  }
+  if (!approvalProvider?.resolveApproval) {
+    return { status: 404, body: { error: "approval not found" } };
+  }
+  const scope = approved ? stringValue(payload.scope)?.toLowerCase() ?? "once" : undefined;
+  if (approved && scope !== "once" && scope !== "session") {
+    return { status: 400, body: { error: "scope must be 'once' or 'session'" } };
+  }
+  try {
+    const result = await approvalProvider.resolveApproval(
+      {
+        sessionId,
+        approvalId,
+        approved,
+        ...(approved ? { scope } : {}),
+      },
+      traceId,
+    );
+    const approval = webuiApprovalFromResult(result, approvalId);
+    if (!approval) {
+      return { status: 404, body: { error: "approval not found" } };
+    }
+    if (!approved) {
+      return { status: 200, body: { denied: true, approval } };
+    }
+    return {
+      status: 200,
+      body: {
+        approved: true,
+        approval,
+        scope,
+        auto_retry: payload.auto_retry === undefined ? true : Boolean(payload.auto_retry),
+      },
+    };
+  } catch {
+    return { status: 404, body: { error: "approval not found" } };
+  }
+}
+
+function approvalSessionIdFromPayload(
+  query: URLSearchParams,
+  payload: Record<string, unknown>,
+  fallbackChannel: string,
+): string | undefined {
+  const sessionKey = stringValue(payload.session_key) ?? query.get("session_key");
+  if (sessionKey) {
+    return sessionKey;
+  }
+  const chatId = stringValue(payload.chat_id) ?? query.get("chat_id");
+  if (!chatId) {
+    return undefined;
+  }
+  const channel = stringValue(payload.channel) ?? query.get("channel") ?? fallbackChannel;
+  return `${channel}:${chatId}`;
+}
+
+function webuiApprovalFromResult(result: Record<string, unknown>, fallbackId: string): Record<string, unknown> | undefined {
+  if (isJsonObject(result.approval)) {
+    return result.approval;
+  }
+  const id = stringValue(result.approvalId) ?? stringValue(result.id) ?? fallbackId;
+  if (!id) {
+    return undefined;
+  }
+  const operation = isJsonObject(result.operation) ? result.operation : {};
+  return {
+    id,
+    tool_name: stringValue(operation.toolName) ?? stringValue(operation.tool_name) ?? "",
+    category: stringValue(result.category) ?? "",
+    risk: stringValue(result.risk) ?? "",
+    reason: stringValue(result.reason) ?? "",
+    summary: stringValue(result.summary) ?? "",
+    created_at: stringValue(result.created_at) ?? stringValue(result.createdAt) ?? "",
+  };
 }
 
 function webuiSessionListBody(
@@ -425,6 +540,10 @@ function isInternalAgentUiToolResult(message: Record<string, unknown>): boolean 
 }
 
 function routeKey(method: string, path: string): string {
+  const approvalResolution = approvalResolutionPath(method, path);
+  if (approvalResolution) {
+    return approvalResolution.approved ? "approve_approval" : "deny_approval";
+  }
   if (sessionMessagesPathKey(method, path) !== undefined) {
     return "get_messages";
   }
@@ -495,7 +614,19 @@ function deleteSessionPathKey(method: string, path: string): string | undefined 
   return match ? decodeURIComponent(match[1]) : undefined;
 }
 
+function approvalResolutionPath(method: string, path: string): { approvalId: string; approved: boolean } | undefined {
+  if (method !== "POST") {
+    return undefined;
+  }
+  const match = /^\/api\/approvals\/([^/]+)\/(approve|deny)$/.exec(path);
+  return match ? { approvalId: decodeURIComponent(match[1]), approved: match[2] === "approve" } : undefined;
+}
+
 function stringParam(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
