@@ -558,7 +558,11 @@ export class AgentWorker {
     }
 
     if (segments.length === 1 && segments[0] === "sessions" && route.method === "POST") {
-      const params = parseCoworkCreateSessionParams(body);
+      const parsedParams = this.parseCoworkCreateSessionRouteParams(body);
+      if (!parsedParams.ok) {
+        return parsedParams.response;
+      }
+      const params = parsedParams.params;
       if (params.blueprint !== undefined) {
         const result = await this.coworkService.createSessionFromBlueprint({
           traceId,
@@ -602,6 +606,23 @@ export class AgentWorker {
     }
 
     return unsupportedCoworkRoute(route);
+  }
+
+  private parseCoworkCreateSessionRouteParams(body: Record<string, unknown>): {
+    ok: true;
+    params: ReturnType<typeof parseCoworkCreateSessionParams>;
+  } | {
+    ok: false;
+    response: CoworkRouteResponse;
+  } {
+    try {
+      return { ok: true, params: parseCoworkCreateSessionParams(body) };
+    } catch (error) {
+      if (errorMessage(error) === "cowork.create_session requires params.goal or params.blueprint") {
+        return { ok: false, response: { status: 400, body: { error: "goal is required" } } };
+      }
+      throw error;
+    }
   }
 
   private async maybeAutoRunCoworkSession(session: CoworkSession, body: Record<string, unknown>, traceId: string): Promise<CoworkSession> {

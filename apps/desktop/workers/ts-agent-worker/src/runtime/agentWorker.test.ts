@@ -536,6 +536,30 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("returns Python-compatible create-session route error when goal is missing", async () => {
+    const coworkService = new CoworkService({
+      store: createMemoryCoworkStore(),
+      now: () => "2026-06-12T08:00:00.000Z",
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      coworkService,
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: "/api/cowork/sessions",
+      body: { title: "Missing goal" },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: { error: "goal is required" },
+      },
+    });
+  });
+
   test("auto-runs cowork sessions created through the Python-compatible route when requested", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = (() => {
