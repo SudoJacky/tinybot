@@ -93,6 +93,11 @@ export type WebuiApprovalsListOptions = {
   channel?: string;
 };
 
+export type KnowledgeDocumentsOptions = {
+  category?: string;
+  limit?: number;
+};
+
 type WebSocketProbe = (url: string, timeoutMs: number) => Promise<ProbeResult>;
 
 type BootstrapSession = {
@@ -465,16 +470,51 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
       },
     },
     knowledge: {
-      documents: () => request("/v1/knowledge/documents"),
+      documents: (documentOptions: KnowledgeDocumentsOptions = {}) => {
+        const path = knowledgeDocumentsPath(documentOptions);
+        return nativeOrGateway(
+          () => options.nativeWebui?.route({ method: "GET", path }),
+          () => request(path),
+          "knowledge.documents",
+        );
+      },
+      addDocument: (body: unknown) => nativeOrGateway(
+        () => options.nativeWebui?.route({ method: "POST", path: "/v1/knowledge/documents", body }),
+        () => request("/v1/knowledge/documents", jsonRequest("POST", body)),
+        "knowledge.addDocument",
+      ),
+      document: (documentId: string) => {
+        const path = `/v1/knowledge/documents/${encodePathSegment(documentId)}`;
+        return nativeOrGateway(
+          () => options.nativeWebui?.route({ method: "GET", path }),
+          () => request(path),
+          "knowledge.document",
+        );
+      },
       uploadDocument: (body: FormData) => request("/v1/knowledge/documents/upload?async_index=true", formRequest("POST", body)),
-      deleteDocument: (documentId: string) => request(`/v1/knowledge/documents/${encodePathSegment(documentId)}`, { method: "DELETE" }),
+      deleteDocument: (documentId: string) => {
+        const path = `/v1/knowledge/documents/${encodePathSegment(documentId)}`;
+        return nativeOrGateway(
+          () => options.nativeWebui?.route({ method: "DELETE", path }),
+          () => request(path, { method: "DELETE" }),
+          "knowledge.deleteDocument",
+        );
+      },
       job: (jobId: string) => request(`/v1/knowledge/jobs/${encodePathSegment(jobId)}`),
       rebuildIndex: (type: string = "all") =>
         request(`/v1/knowledge/rebuild-index?type=${encodeURIComponent(type)}&async_index=true`, { method: "POST" }),
-      stats: () => request("/v1/knowledge/stats"),
+      stats: () => nativeOrGateway(
+        () => options.nativeWebui?.route({ method: "GET", path: "/v1/knowledge/stats" }),
+        () => request("/v1/knowledge/stats"),
+        "knowledge.stats",
+      ),
       graph: () => request("/v1/knowledge/graph"),
       graphrag: () => request("/v1/knowledge/graphrag?min_confidence=0&include_reports=true&include_covariates=true"),
-      query: (body: unknown) => request("/v1/knowledge/query", jsonRequest("POST", body)),
+      query: (body: unknown) => nativeOrGateway(
+        () => options.nativeWebui?.route({ method: "POST", path: "/v1/knowledge/query", body }),
+        () => request("/v1/knowledge/query", jsonRequest("POST", body)),
+        "knowledge.query",
+      ),
     },
     workspace: {
       files: () => nativeOrGateway(
@@ -1165,6 +1205,18 @@ function approvalsListPath(options: WebuiApprovalsListOptions | undefined): stri
   }
   const query = params.toString();
   return query ? `/api/approvals?${query}` : "/api/approvals";
+}
+
+function knowledgeDocumentsPath(options: KnowledgeDocumentsOptions): string {
+  const params = new URLSearchParams();
+  if (options.category) {
+    params.set("category", options.category);
+  }
+  if (typeof options.limit === "number" && Number.isFinite(options.limit)) {
+    params.set("limit", String(options.limit));
+  }
+  const query = params.toString();
+  return query ? `/v1/knowledge/documents?${query}` : "/v1/knowledge/documents";
 }
 
 function stringifyError(error: unknown): string {

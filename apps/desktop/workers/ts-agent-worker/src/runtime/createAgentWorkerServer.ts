@@ -38,6 +38,7 @@ import {
 } from "./configBridge.ts";
 import { NativeContextBridge } from "./contextBridge.ts";
 import { NativeDreamBridge } from "./dreamBridge.ts";
+import { NativeKnowledgeBridge } from "./knowledgeBridge.ts";
 import { NativeMcpBridge } from "./mcpBridge.ts";
 import { NativeMemoryBridge } from "./memoryBridge.ts";
 import { createModelProvider, type ModelProviderConfig } from "./providerFactory.ts";
@@ -168,6 +169,7 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
         body,
       ),
     },
+    knowledgeProvider: new NativeKnowledgeBridge(rpcClient),
     memoryBridge: new NativeMemoryBridge(rpcClient),
     contextBridge: new NativeContextBridge(rpcClient),
     coworkService,

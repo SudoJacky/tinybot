@@ -230,6 +230,23 @@ export type WebuiWorkspaceProvider = {
   ): Promise<WebuiWorkspaceWriteResult> | WebuiWorkspaceWriteResult;
 };
 
+export type WebuiKnowledgeListRequest = {
+  category?: string;
+  limit?: number;
+};
+
+export type WebuiKnowledgeProvider = {
+  listDocuments(
+    request: WebuiKnowledgeListRequest,
+    traceId: string,
+  ): Promise<unknown> | unknown;
+  addDocument(body: Record<string, unknown>, traceId: string): Promise<unknown> | unknown;
+  getDocument(docId: string, traceId: string): Promise<unknown> | unknown;
+  deleteDocument(docId: string, traceId: string): Promise<unknown> | unknown;
+  query(body: Record<string, unknown>, traceId: string): Promise<unknown> | unknown;
+  stats(traceId: string): Promise<unknown> | unknown;
+};
+
 export type WebuiOpenAiChatRequest = {
   content: string;
   sessionKey: string;
@@ -256,6 +273,12 @@ const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
   { key: "health", method: "GET", path: "/health", public: true },
   { key: "openai_models", method: "GET", path: "/v1/models", public: true },
   { key: "openai_chat_completions", method: "POST", path: "/v1/chat/completions", public: true },
+  { key: "knowledge_list_documents", method: "GET", path: "/v1/knowledge/documents", public: true },
+  { key: "knowledge_add_document", method: "POST", path: "/v1/knowledge/documents", public: true },
+  { key: "knowledge_get_document", method: "GET", path: "/v1/knowledge/documents/{doc_id}", public: true },
+  { key: "knowledge_delete_document", method: "DELETE", path: "/v1/knowledge/documents/{doc_id}", public: true },
+  { key: "knowledge_query", method: "POST", path: "/v1/knowledge/query", public: true },
+  { key: "knowledge_stats", method: "GET", path: "/v1/knowledge/stats", public: true },
   { key: "bootstrap", method: "GET", path: "/webui/bootstrap", public: true },
   { key: "refresh_token", method: "POST", path: "/webui/refresh-token", public: true },
   { key: "get_status", method: "GET", path: "/api/status", public: false },
@@ -306,6 +329,7 @@ export async function handleWebuiRouteRequest(
   agentUiFormProvider?: WebuiAgentUiFormProvider,
   workspaceProvider?: WebuiWorkspaceProvider,
   openAiCompatProvider?: WebuiOpenAiCompatProvider,
+  knowledgeProvider?: WebuiKnowledgeProvider,
   traceId = "webui-route",
 ): Promise<WebuiRouteResponse> {
   const method = request.method.toUpperCase();
@@ -321,6 +345,25 @@ export async function handleWebuiRouteRequest(
   if (method === "POST" && path === "/v1/chat/completions") {
     const config = configProvider ? await configProvider.getConfig(traceId) : {};
     return openAiChatCompletionsResponse(request.body, config, openAiCompatProvider, traceId);
+  }
+  if (method === "GET" && path === "/v1/knowledge/documents") {
+    return knowledgeListDocumentsResponse(url.searchParams, knowledgeProvider, traceId);
+  }
+  if (method === "POST" && path === "/v1/knowledge/documents") {
+    return knowledgeAddDocumentResponse(request.body, knowledgeProvider, traceId);
+  }
+  const knowledgeDocument = knowledgeDocumentPath(method, path);
+  if (knowledgeDocument) {
+    return knowledgeDocumentResponse(knowledgeDocument.docId, method, knowledgeProvider, traceId);
+  }
+  if (method === "POST" && path === "/v1/knowledge/query") {
+    return knowledgeQueryResponse(request.body, knowledgeProvider, traceId);
+  }
+  if (method === "GET" && path === "/v1/knowledge/stats") {
+    if (!knowledgeProvider) {
+      return { status: 503, body: { error: "Knowledge store not initialized" } };
+    }
+    return { status: 200, body: knowledgeStatsBody(await knowledgeProvider.stats(traceId)) };
   }
   if (method === "GET" && path === "/webui/bootstrap") {
     if (!bootstrapProvider) {
@@ -798,6 +841,238 @@ function manualModelIdsFromPayload(payload: Record<string, unknown>): string[] {
   return [];
 }
 
+async function knowledgeListDocumentsResponse(
+  query: URLSearchParams,
+  provider: WebuiKnowledgeProvider | undefined,
+  traceId: string,
+): Promise<WebuiRouteResponse> {
+  if (!provider) {
+    return { status: 503, body: { error: "Knowledge store not initialized" } };
+  }
+  const request: WebuiKnowledgeListRequest = {};
+  const category = query.get("category");
+  if (category) {
+    request.category = category;
+  }
+  const limit = integerFromString(query.get("limit"));
+  if (limit !== undefined) {
+    request.limit = limit;
+  }
+  const result = await provider.listDocuments(request, traceId);
+  const documents = arrayFromResult(result, "documents");
+  return {
+    status: 200,
+    body: {
+      object: "list",
+      data: documents.map(knowledgeDocumentSummary),
+      total: documents.length,
+    },
+  };
+}
+
+async function knowledgeAddDocumentResponse(
+  body: unknown,
+  provider: WebuiKnowledgeProvider | undefined,
+  traceId: string,
+): Promise<WebuiRouteResponse> {
+  if (!provider) {
+    return { status: 503, body: { error: "Knowledge store not initialized" } };
+  }
+  if (!isJsonObject(body)) {
+    return { status: 400, body: { error: "Invalid JSON body" } };
+  }
+  const name = stringValue(body.name);
+  const content = stringValue(body.content);
+  if (!name) {
+    return { status: 400, body: { error: "Document name is required" } };
+  }
+  if (!content) {
+    return { status: 400, body: { error: "Document content is required" } };
+  }
+  const result = await provider.addDocument(body, traceId);
+  const document = documentFromResult(result);
+  const id = stringValue(document?.id) ?? "";
+  const resultName = stringValue(document?.name) ?? name;
+  return {
+    status: 200,
+    body: {
+      id,
+      name: resultName,
+      message: `Document '${resultName}' added successfully`,
+    },
+  };
+}
+
+async function knowledgeDocumentResponse(
+  docId: string,
+  method: string,
+  provider: WebuiKnowledgeProvider | undefined,
+  traceId: string,
+): Promise<WebuiRouteResponse> {
+  if (!provider) {
+    return { status: 503, body: { error: "Knowledge store not initialized" } };
+  }
+  if (method === "DELETE") {
+    const result = asObject(await provider.deleteDocument(docId, traceId));
+    if (result?.deleted !== true) {
+      return { status: 404, body: { error: `Document ${docId} not found` } };
+    }
+    return { status: 200, body: { id: docId, message: `Document ${docId} deleted successfully` } };
+  }
+  const result = await provider.getDocument(docId, traceId);
+  const document = documentFromResult(result);
+  if (!document) {
+    return { status: 404, body: { error: `Document ${docId} not found` } };
+  }
+  return {
+    status: 200,
+    body: {
+      ...knowledgeDocumentSummary(document),
+      content: stringValue(asObject(result)?.content) ?? stringValue(document.content) ?? "",
+    },
+  };
+}
+
+async function knowledgeQueryResponse(
+  body: unknown,
+  provider: WebuiKnowledgeProvider | undefined,
+  traceId: string,
+): Promise<WebuiRouteResponse> {
+  if (!provider) {
+    return { status: 503, body: { error: "Knowledge store not initialized" } };
+  }
+  if (!isJsonObject(body)) {
+    return { status: 400, body: { error: "Invalid JSON body" } };
+  }
+  const query = stringValue(body.query);
+  if (!query) {
+    return { status: 400, body: { error: "Query text is required" } };
+  }
+  const result = await provider.query(body, traceId);
+  const data = arrayFromResult(result, "results");
+  const mode = stringValue(body.mode) ?? "hybrid";
+  return {
+    status: 200,
+    body: {
+      object: "list",
+      query,
+      mode,
+      data: data.map(knowledgeQueryItem),
+      total: data.length,
+    },
+  };
+}
+
+function knowledgeStatsBody(result: unknown): Record<string, unknown> {
+  const stats = asObject(result) ?? {};
+  return {
+    total_documents: numberValue(stats.total_documents) ?? numberValue(stats.document_count) ?? 0,
+    total_chunks: numberValue(stats.total_chunks) ?? numberValue(stats.chunk_count) ?? 0,
+    total_chars: numberValue(stats.total_chars) ?? 0,
+    categories: isJsonObject(stats.categories) ? stats.categories : {},
+    indexed_dense: numberValue(stats.indexed_dense) ?? 0,
+    indexed_sparse: numberValue(stats.indexed_sparse) ?? numberValue(stats.chunk_count) ?? 0,
+    entity_count: numberValue(stats.entity_count) ?? 0,
+    claim_count: numberValue(stats.claim_count) ?? 0,
+    relation_count: numberValue(stats.relation_count) ?? 0,
+    community_count: numberValue(stats.community_count) ?? 0,
+    community_count_by_level: isJsonObject(stats.community_count_by_level) ? stats.community_count_by_level : {},
+    community_report_count: numberValue(stats.community_report_count) ?? 0,
+    stage_details: Array.isArray(stats.stage_details) ? stats.stage_details : [],
+    stage_readiness: isJsonObject(stats.stage_readiness) ? stats.stage_readiness : {},
+    stage_coverage: isJsonObject(stats.stage_coverage) ? stats.stage_coverage : {},
+    failed_stage_count: numberValue(stats.failed_stage_count) ?? 0,
+    stale_stage_count: numberValue(stats.stale_stage_count) ?? 0,
+    retrieval_ready: Boolean(stats.retrieval_ready),
+    claims_ready: Boolean(stats.claims_ready),
+    relations_ready: Boolean(stats.relations_ready),
+    graph_ready: Boolean(stats.graph_ready),
+    partial_availability: Boolean(stats.partial_availability),
+  };
+}
+
+function knowledgeDocumentSummary(value: Record<string, unknown>): Record<string, unknown> {
+  const content = stringValue(value.content) ?? "";
+  return {
+    id: value.id,
+    name: value.name,
+    file_path: value.file_path ?? value.filePath,
+    file_type: value.file_type ?? value.fileType,
+    category: value.category ?? "",
+    tags: Array.isArray(value.tags) ? value.tags : [],
+    chunk_count: numberValue(value.chunk_count) ?? numberValue(value.chunkCount) ?? 0,
+    content_length: numberValue(value.content_length) ?? content.length,
+    created_at: value.created_at ?? value.createdAt,
+  };
+}
+
+function knowledgeQueryItem(value: Record<string, unknown>): Record<string, unknown> {
+  const score = value.score
+    ?? value.rerank_score
+    ?? value.semantic_fusion_score
+    ?? value.semantic_score
+    ?? value.rrf_score
+    ?? value.bm25_score
+    ?? value.distance;
+  return {
+    id: value.id,
+    parent_id: value.parent_id,
+    chunk_type: value.chunk_type,
+    content: value.content,
+    matched_child_ids: Array.isArray(value.matched_child_ids) ? value.matched_child_ids : [],
+    matched_child_snippets: Array.isArray(value.matched_child_snippets) ? value.matched_child_snippets : [],
+    doc_id: value.doc_id,
+    doc_name: value.doc_name,
+    file_path: value.file_path,
+    start_char: value.start_char,
+    end_char: value.end_char,
+    line_start: value.line_start,
+    line_end: value.line_end,
+    section_path: value.section_path,
+    block_type: value.block_type,
+    score,
+    rerank_score: value.rerank_score,
+    rerank_rank: value.rerank_rank,
+    rerank_model: value.rerank_model,
+    pre_rerank_score: value.pre_rerank_score,
+    rrf_score: value.rrf_score,
+    semantic_score: value.semantic_score,
+    semantic_rank: value.semantic_rank,
+    semantic_fusion_score: value.semantic_fusion_score,
+    bm25_score: value.bm25_score,
+    dense_distance: value.dense_distance ?? value.distance,
+    dense_rank: value.dense_rank,
+    sparse_rank: value.sparse_rank,
+    dense_contribution: value.dense_contribution,
+    sparse_contribution: value.sparse_contribution,
+    method: value.method,
+    retrieval_method: value.retrieval_method ?? value.method,
+    score_metadata: isJsonObject(value.score_metadata) ? value.score_metadata : {},
+    source_snippets: Array.isArray(value.source_snippets) ? value.source_snippets : [],
+    matched_methods: Array.isArray(value.matched_methods) ? value.matched_methods : [],
+    matched_entities: Array.isArray(value.matched_entities) ? value.matched_entities : [],
+    matched_claims: Array.isArray(value.matched_claims) ? value.matched_claims : [],
+    matched_claim_evidence: Array.isArray(value.matched_claim_evidence) ? value.matched_claim_evidence : [],
+    matched_relations: Array.isArray(value.matched_relations) ? value.matched_relations : [],
+    matched_relation_evidence: Array.isArray(value.matched_relation_evidence) ? value.matched_relation_evidence : [],
+    matched_communities: Array.isArray(value.matched_communities) ? value.matched_communities : [],
+    conflict_metadata: Array.isArray(value.conflict_metadata) ? value.conflict_metadata : [],
+    projection_metadata: Array.isArray(value.projection_metadata) ? value.projection_metadata : [],
+  };
+}
+
+function documentFromResult(result: unknown): Record<string, unknown> | undefined {
+  const object = asObject(result);
+  return asObject(object?.document) ?? object;
+}
+
+function arrayFromResult(result: unknown, key: string): Record<string, unknown>[] {
+  const object = asObject(result);
+  const keyed = object?.[key];
+  const items = Array.isArray(keyed) ? keyed : Array.isArray(result) ? result : [];
+  return items.filter(isJsonObject);
+}
+
 async function webuiApprovalsResponse(
   query: URLSearchParams,
   approvalProvider: WebuiApprovalProvider | undefined,
@@ -1224,6 +1499,10 @@ function isInternalAgentUiToolResult(message: Record<string, unknown>): boolean 
 }
 
 function routeKey(method: string, path: string): string {
+  const knowledgeDocument = knowledgeDocumentPath(method, path);
+  if (knowledgeDocument) {
+    return method === "DELETE" ? "knowledge_delete_document" : "knowledge_get_document";
+  }
   const approvalResolution = approvalResolutionPath(method, path);
   if (approvalResolution) {
     return approvalResolution.approved ? "approve_approval" : "deny_approval";
@@ -1248,6 +1527,14 @@ function routeKey(method: string, path: string): string {
   }
   const spec = WEBUI_ROUTE_SPECS.find((entry) => entry.method === method && entry.path === path);
   return spec?.key ?? `${method} ${path}`;
+}
+
+function knowledgeDocumentPath(method: string, path: string): { docId: string } | undefined {
+  if (method !== "GET" && method !== "DELETE") {
+    return undefined;
+  }
+  const match = /^\/v1\/knowledge\/documents\/(.+)$/.exec(path);
+  return match ? { docId: decodeURIComponent(match[1]) } : undefined;
 }
 
 function sessionMessagesPathKey(method: string, path: string): string | undefined {
@@ -1373,6 +1660,20 @@ function stringValue(value: unknown): string | undefined {
 
 function numberValue(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function integerFromString(value: string | null): number | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function asObject(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
 }
 
 const WEBUI_MESSAGE_METADATA_KEYS = [

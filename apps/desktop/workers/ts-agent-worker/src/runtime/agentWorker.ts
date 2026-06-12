@@ -46,6 +46,7 @@ import {
   type WebuiAgentUiFormProvider,
   type WebuiAgentUiFormRequest,
   type WebuiConfigProvider,
+  type WebuiKnowledgeProvider,
   type WebuiOpenAiCompatProvider,
   type WebuiProvidersProvider,
   type WebuiSessionProvider,
@@ -91,6 +92,7 @@ export type AgentWorkerOptions = {
   webuiBootstrapProvider?: WebuiBootstrapProvider;
   webuiSessionProvider?: WebuiSessionProvider;
   webuiConfigProvider?: WebuiConfigProvider;
+  knowledgeProvider?: WebuiKnowledgeProvider;
   workspaceBridge?: WebuiWorkspaceProvider;
 };
 
@@ -220,6 +222,7 @@ export class AgentWorker {
   private readonly webuiBootstrapProvider?: WebuiBootstrapProvider;
   private readonly webuiSessionProvider?: WebuiSessionProvider;
   private readonly webuiConfigProvider?: WebuiConfigProvider;
+  private readonly knowledgeProvider?: WebuiKnowledgeProvider;
   private readonly workspaceBridge?: WebuiWorkspaceProvider;
   private readonly commandRouter: CommandRouter;
   private readonly turnLifecycle: TurnLifecycle;
@@ -250,6 +253,7 @@ export class AgentWorker {
     this.webuiBootstrapProvider = options.webuiBootstrapProvider;
     this.webuiSessionProvider = options.webuiSessionProvider;
     this.webuiConfigProvider = options.webuiConfigProvider;
+    this.knowledgeProvider = options.knowledgeProvider;
     this.workspaceBridge = options.workspaceBridge;
     this.commandRouter = options.commandRouter ?? createDefaultCommandRouter({
       cancelActiveRunsForSession: (sessionId) => this.cancelActiveRunsForSession(sessionId),
@@ -2589,6 +2593,7 @@ export class AgentWorker {
           this.webuiAgentUiFormProvider(),
           this.workspaceBridge,
           this.webuiOpenAiCompatProvider(),
+          this.knowledgeProvider,
           request.trace_id,
         ),
       };

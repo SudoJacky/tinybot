@@ -151,6 +151,8 @@ describe("gateway HTTP client", () => {
     await client.knowledge.documents();
     const knowledgeForm = new FormData();
     knowledgeForm.append("file", new File(["knowledge"], "knowledge.md", { type: "text/markdown" }));
+    await client.knowledge.addDocument({ name: "Inline Knowledge", content: "Notes", file_type: "md" });
+    await client.knowledge.document("docs/knowledge.md");
     await client.knowledge.uploadDocument(knowledgeForm);
     await client.knowledge.deleteDocument("docs/knowledge.md");
     await client.knowledge.job("kjob/1");
@@ -198,6 +200,8 @@ describe("gateway HTTP client", () => {
       "http://127.0.0.1:18790/api/sessions/WebSocket%3Achat-1/temporary-files",
       "http://127.0.0.1:18790/api/sessions/WebSocket%3Achat-1/temporary-files",
       "http://127.0.0.1:18790/v1/knowledge/documents",
+      "http://127.0.0.1:18790/v1/knowledge/documents",
+      "http://127.0.0.1:18790/v1/knowledge/documents/docs%2Fknowledge.md",
       "http://127.0.0.1:18790/v1/knowledge/documents/upload?async_index=true",
       "http://127.0.0.1:18790/v1/knowledge/documents/docs%2Fknowledge.md",
       "http://127.0.0.1:18790/v1/knowledge/jobs/kjob%2F1",
@@ -237,18 +241,26 @@ describe("gateway HTTP client", () => {
     });
     expect(fetchFn.mock.calls[6][1]).toMatchObject({
       method: "POST",
+      headers: expect.objectContaining({
+        Authorization: "Bearer token-1",
+        "Content-Type": "application/json",
+      }),
+      body: JSON.stringify({ name: "Inline Knowledge", content: "Notes", file_type: "md" }),
+    });
+    expect(fetchFn.mock.calls[8][1]).toMatchObject({
+      method: "POST",
       body: knowledgeForm,
     });
     expect((fetchFn.mock.calls[4][1] as RequestInit).headers).not.toMatchObject({
       "Content-Type": expect.any(String),
     });
-    expect((fetchFn.mock.calls[6][1] as RequestInit).headers).not.toMatchObject({
+    expect((fetchFn.mock.calls[8][1] as RequestInit).headers).not.toMatchObject({
       "Content-Type": expect.any(String),
     });
-    expect(fetchFn.mock.calls[7][1]).toMatchObject({
+    expect(fetchFn.mock.calls[9][1]).toMatchObject({
       method: "DELETE",
     });
-    expect(fetchFn.mock.calls[13][1]).toMatchObject({
+    expect(fetchFn.mock.calls[15][1]).toMatchObject({
       method: "POST",
       headers: expect.objectContaining({
         Authorization: "Bearer token-1",
@@ -256,7 +268,7 @@ describe("gateway HTTP client", () => {
       }),
       body: JSON.stringify({ query: "desktop", mode: "hybrid", top_k: 5 }),
     });
-    expect(fetchFn.mock.calls[15][1]).toMatchObject({
+    expect(fetchFn.mock.calls[17][1]).toMatchObject({
       method: "PUT",
       headers: expect.objectContaining({
         Authorization: "Bearer token-1",
@@ -267,7 +279,7 @@ describe("gateway HTTP client", () => {
         expected_updated_at: "2026-05-31T10:00:00+00:00",
       }),
     });
-    expect(fetchFn.mock.calls[18][1]).toMatchObject({
+    expect(fetchFn.mock.calls[20][1]).toMatchObject({
       method: "POST",
       headers: expect.objectContaining({
         Authorization: "Bearer token-1",
@@ -279,7 +291,7 @@ describe("gateway HTTP client", () => {
         session_id: "desktop-chat",
       }),
     });
-    expect(fetchFn.mock.calls[21][1]).toMatchObject({
+    expect(fetchFn.mock.calls[23][1]).toMatchObject({
       method: "PATCH",
       headers: expect.objectContaining({
         Authorization: "Bearer token-1",
@@ -287,13 +299,13 @@ describe("gateway HTTP client", () => {
       }),
       body: JSON.stringify({ content: "# Updated" }),
     });
-    expect(fetchFn.mock.calls[22][1]).toMatchObject({ method: "POST" });
-    expect(fetchFn.mock.calls[23][1]).toMatchObject({ method: "DELETE" });
-    expect(fetchFn.mock.calls[25][1]).toMatchObject({
+    expect(fetchFn.mock.calls[24][1]).toMatchObject({ method: "POST" });
+    expect(fetchFn.mock.calls[25][1]).toMatchObject({ method: "DELETE" });
+    expect(fetchFn.mock.calls[27][1]).toMatchObject({
       method: "POST",
       body: JSON.stringify({ goal: "Ship desktop" }),
     });
-    expect(fetchFn.mock.calls[37][1]).toMatchObject({
+    expect(fetchFn.mock.calls[39][1]).toMatchObject({
       method: "POST",
       body: JSON.stringify({ blueprint: {} }),
     });
@@ -1023,6 +1035,55 @@ describe("gateway HTTP client", () => {
     await expect(client.openAi.chatCompletions(body)).resolves.toEqual({
       native: true,
       request: { method: "POST", path: "/v1/chat/completions", body },
+    });
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  test("prefers native WebUI Knowledge API routes when available", async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
+    const nativeWebui = {
+      route: vi.fn(async (request: { method: string; path: string; body?: unknown }) => ({
+        native: true,
+        request,
+      })),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeWebui,
+    });
+
+    await expect(client.knowledge.documents({ category: "docs", limit: 10 })).resolves.toEqual({
+      native: true,
+      request: { method: "GET", path: "/v1/knowledge/documents?category=docs&limit=10" },
+    });
+    await expect(client.knowledge.addDocument({ name: "Inline Knowledge", content: "Notes", file_type: "md" })).resolves.toEqual({
+      native: true,
+      request: {
+        method: "POST",
+        path: "/v1/knowledge/documents",
+        body: { name: "Inline Knowledge", content: "Notes", file_type: "md" },
+      },
+    });
+    await expect(client.knowledge.document("docs/knowledge.md")).resolves.toEqual({
+      native: true,
+      request: { method: "GET", path: "/v1/knowledge/documents/docs%2Fknowledge.md" },
+    });
+    await expect(client.knowledge.deleteDocument("docs/knowledge.md")).resolves.toEqual({
+      native: true,
+      request: { method: "DELETE", path: "/v1/knowledge/documents/docs%2Fknowledge.md" },
+    });
+    await expect(client.knowledge.stats()).resolves.toEqual({
+      native: true,
+      request: { method: "GET", path: "/v1/knowledge/stats" },
+    });
+    await expect(client.knowledge.query({ query: "desktop", mode: "sparse", top_k: 5 })).resolves.toEqual({
+      native: true,
+      request: {
+        method: "POST",
+        path: "/v1/knowledge/query",
+        body: { query: "desktop", mode: "sparse", top_k: 5 },
+      },
     });
     expect(fetchFn).not.toHaveBeenCalled();
   });

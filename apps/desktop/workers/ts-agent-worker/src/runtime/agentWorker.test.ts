@@ -1297,6 +1297,153 @@ describe("AgentWorker", () => {
     ]);
   });
 
+  test("serves Knowledge API document, query, and stats routes through TS worker RPC", async () => {
+    const calls: Array<{ method: string; traceId: string; params?: unknown }> = [];
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      knowledgeProvider: {
+        listDocuments: async (params, traceId) => {
+          calls.push({ method: "list", traceId, params });
+          return {
+            documents: [{
+              id: "doc-1",
+              name: "Desktop Knowledge",
+              file_path: "knowledge/files/doc-1.md",
+              file_type: "md",
+              category: "docs",
+              tags: ["desktop"],
+              chunk_count: 2,
+              content: "# Desktop Knowledge\n",
+              created_at: "2026-06-13T00:00:00Z",
+            }],
+          };
+        },
+        addDocument: async (body, traceId) => {
+          calls.push({ method: "add", traceId, params: body });
+          return { document: { id: "doc-2", name: body.name } };
+        },
+        getDocument: async (docId, traceId) => {
+          calls.push({ method: "get", traceId, params: { docId } });
+          return {
+            document: {
+              id: docId,
+              name: "Desktop Knowledge",
+              file_path: "knowledge/files/doc-1.md",
+              file_type: "md",
+              category: "docs",
+              tags: ["desktop"],
+              chunk_count: 2,
+              created_at: "2026-06-13T00:00:00Z",
+            },
+            content: "# Desktop Knowledge\n",
+          };
+        },
+        deleteDocument: async (docId, traceId) => {
+          calls.push({ method: "delete", traceId, params: { docId } });
+          return { deleted: true, doc_id: docId };
+        },
+        query: async (body, traceId) => {
+          calls.push({ method: "query", traceId, params: body });
+          return {
+            results: [{
+              id: "chunk-1",
+              doc_id: "doc-1",
+              doc_name: "Desktop Knowledge",
+              content: "TS native knowledge API route.",
+              score: 3,
+              sparse_rank: 1,
+            }],
+          };
+        },
+        stats: async (traceId) => {
+          calls.push({ method: "stats", traceId });
+          return { total_documents: 1, total_chunks: 2, retrieval_ready: true };
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(webuiRequest("webui.route_specs"))).resolves.toMatchObject({
+      result: {
+        routes: expect.arrayContaining([
+          { key: "knowledge_list_documents", method: "GET", path: "/v1/knowledge/documents", public: true },
+          { key: "knowledge_add_document", method: "POST", path: "/v1/knowledge/documents", public: true },
+          { key: "knowledge_get_document", method: "GET", path: "/v1/knowledge/documents/{doc_id}", public: true },
+          { key: "knowledge_delete_document", method: "DELETE", path: "/v1/knowledge/documents/{doc_id}", public: true },
+          { key: "knowledge_query", method: "POST", path: "/v1/knowledge/query", public: true },
+          { key: "knowledge_stats", method: "GET", path: "/v1/knowledge/stats", public: true },
+        ]),
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
+      path: "/v1/knowledge/documents?category=docs&limit=10",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          object: "list",
+          total: 1,
+          data: [expect.objectContaining({
+            id: "doc-1",
+            name: "Desktop Knowledge",
+            content_length: 20,
+          })],
+        },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/v1/knowledge/documents",
+      body: { name: "Added", content: "Body", file_type: "md" },
+    }))).resolves.toMatchObject({
+      result: { status: 200, body: { id: "doc-2", name: "Added", message: "Document 'Added' added successfully" } },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
+      path: "/v1/knowledge/documents/doc-1",
+    }))).resolves.toMatchObject({
+      result: { status: 200, body: { id: "doc-1", content: "# Desktop Knowledge\n" } },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "DELETE",
+      path: "/v1/knowledge/documents/doc-1",
+    }))).resolves.toMatchObject({
+      result: { status: 200, body: { id: "doc-1", message: "Document doc-1 deleted successfully" } },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/v1/knowledge/query",
+      body: { query: "native knowledge", mode: "sparse", top_k: 3 },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          object: "list",
+          query: "native knowledge",
+          mode: "sparse",
+          total: 1,
+          data: [expect.objectContaining({ id: "chunk-1", doc_id: "doc-1", score: 3 })],
+        },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
+      path: "/v1/knowledge/stats",
+    }))).resolves.toMatchObject({
+      result: { status: 200, body: { total_documents: 1, total_chunks: 2, retrieval_ready: true } },
+    });
+    expect(calls).toEqual([
+      { method: "list", traceId: "trace-webui.handle_request", params: { category: "docs", limit: 10 } },
+      { method: "add", traceId: "trace-webui.handle_request", params: { name: "Added", content: "Body", file_type: "md" } },
+      { method: "get", traceId: "trace-webui.handle_request", params: { docId: "doc-1" } },
+      { method: "delete", traceId: "trace-webui.handle_request", params: { docId: "doc-1" } },
+      { method: "query", traceId: "trace-webui.handle_request", params: { query: "native knowledge", mode: "sparse", top_k: 3 } },
+      { method: "stats", traceId: "trace-webui.handle_request" },
+    ]);
+  });
+
   test("serves WebUI session list control route through TS worker RPC", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),
