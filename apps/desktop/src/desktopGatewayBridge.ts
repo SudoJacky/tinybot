@@ -1,4 +1,6 @@
 import { DEFAULT_GATEWAY_CONFIG, resolveGatewayConfig, type GatewayConfig } from "./gatewayConfig";
+import { createDesktopNativeWebSocket } from "./desktopNativeWebSocketBridge";
+import type { NativeTransportApi } from "./desktopNativeTransport";
 
 type FetchLike = typeof fetch;
 type WebSocketCtor = typeof WebSocket;
@@ -11,6 +13,7 @@ export type DesktopGatewayBridgeOptions = {
   pageOrigin?: string;
   fetchTarget?: typeof globalThis;
   webSocketTarget?: typeof globalThis;
+  nativeTransport?: NativeTransportApi;
 };
 
 export type DesktopGatewayBridge = {
@@ -56,6 +59,14 @@ export function rewriteGatewayWebSocketUrl(
   return input instanceof URL ? targetUrl : targetUrl.toString();
 }
 
+export function isGatewayWebSocketPath(
+  input: string | URL,
+  pageOrigin = globalThis.location?.origin ?? "http://localhost",
+): boolean {
+  const sourceUrl = requestUrl(input, pageOrigin);
+  return Boolean(sourceUrl && isSamePageEndpoint(sourceUrl, pageOrigin) && sourceUrl.pathname === "/ws");
+}
+
 function isSamePageEndpoint(url: URL, pageOrigin: string): boolean {
   const pageUrl = new URL(pageOrigin);
   return url.hostname === pageUrl.hostname && url.port === pageUrl.port;
@@ -68,15 +79,29 @@ export function installDesktopGatewayBridge(options: DesktopGatewayBridgeOptions
   const webSocketTarget = options.webSocketTarget ?? globalThis;
   const originalFetch = fetchTarget.fetch.bind(fetchTarget) as FetchLike;
   const OriginalWebSocket = webSocketTarget.WebSocket as WebSocketCtor;
+  const nativeTransport = options.nativeTransport;
 
   fetchTarget.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
     originalFetch(rewriteGatewayRequest(input, config, pageOrigin), init)) as FetchLike;
 
-  webSocketTarget.WebSocket = class DesktopGatewayWebSocket extends OriginalWebSocket {
-    constructor(url: string | URL, protocols?: string | string[]) {
-      super(rewriteGatewayWebSocketUrl(url, config, pageOrigin), protocols);
+  function DesktopGatewayWebSocket(url: string | URL, protocols?: string | string[]) {
+    if (nativeTransport && isGatewayWebSocketPath(url, pageOrigin)) {
+      return createDesktopNativeWebSocket({
+        url,
+        protocols,
+        nativeTransport,
+      });
     }
-  } as WebSocketCtor;
+    return new OriginalWebSocket(rewriteGatewayWebSocketUrl(url, config, pageOrigin), protocols);
+  }
+  Object.assign(DesktopGatewayWebSocket, {
+    CONNECTING: OriginalWebSocket.CONNECTING,
+    OPEN: OriginalWebSocket.OPEN,
+    CLOSING: OriginalWebSocket.CLOSING,
+    CLOSED: OriginalWebSocket.CLOSED,
+  });
+  DesktopGatewayWebSocket.prototype = OriginalWebSocket.prototype;
+  webSocketTarget.WebSocket = DesktopGatewayWebSocket as unknown as WebSocketCtor;
 
   return {
     restore: () => {

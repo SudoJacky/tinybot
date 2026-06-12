@@ -137,4 +137,94 @@ describe("desktop gateway bridge", () => {
       "wss://example.com/ws?token=abc",
     );
   });
+
+  test("can route WebUI WebSocket traffic through the native TS transport shim", async () => {
+    const dispatched: unknown[] = [];
+    const target = {
+      location: { origin: pageOrigin },
+      fetch: vi.fn(),
+      WebSocket: class TestWebSocket {
+        static OPEN = 1;
+        readyState = 0;
+        constructor(readonly url: string | URL) {}
+      } as unknown as typeof WebSocket,
+    } as unknown as typeof globalThis;
+    const bridge = installDesktopGatewayBridge({
+      config: DEFAULT_GATEWAY_CONFIG,
+      pageOrigin,
+      fetchTarget: target,
+      webSocketTarget: target,
+      nativeTransport: {
+        gatewayFrame: vi.fn(),
+        websocketMessage: vi.fn(),
+        dispatchWebsocketMessage: vi.fn(async (request) => {
+          dispatched.push(request);
+          const frame = request.frame;
+          if (frame.type === "new_chat") {
+            return {
+              transport: {
+                kind: "new_chat",
+                chatId: "chat-native",
+                sessionId: "websocket:chat-native",
+                attachedChatId: "chat-native",
+                frames: [{ event: "chat_created", chat_id: "chat-native" }],
+              },
+            };
+          }
+          return {
+            transport: {
+              kind: "message",
+              chatId: "chat-native",
+              sessionId: "websocket:chat-native",
+              frames: [],
+            },
+            agent: {
+              finalContent: "native done",
+              stopReason: "final_response",
+            },
+          };
+        }),
+      },
+    });
+
+    const socket = new target.WebSocket("/ws?token=abc");
+    const events: Array<Record<string, unknown>> = [];
+    socket.addEventListener("message", (event) => {
+      events.push(JSON.parse(String((event as MessageEvent).data)) as Record<string, unknown>);
+    });
+    await flushMicrotasks();
+
+    expect(socket.readyState).toBe(WebSocket.OPEN);
+    expect(events).toContainEqual(expect.objectContaining({ event: "ready", client_id: expect.any(String) }));
+
+    socket.send(JSON.stringify({ type: "new_chat" }));
+    await flushMicrotasks();
+    socket.send(JSON.stringify({ type: "message", chat_id: "chat-native", content: "hello" }));
+    await flushMicrotasks();
+
+    expect(events).toContainEqual({ event: "chat_created", chat_id: "chat-native" });
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "message",
+      chat_id: "chat-native",
+      text: "native done",
+    }));
+    expect(dispatched).toEqual([
+      expect.objectContaining({
+        clientId: expect.any(String),
+        frame: { type: "new_chat" },
+      }),
+      expect.objectContaining({
+        attachedChatId: "chat-native",
+        clientId: expect.any(String),
+        frame: { type: "message", chat_id: "chat-native", content: "hello" },
+      }),
+    ]);
+
+    bridge.restore();
+  });
 });
+
+async function flushMicrotasks(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}

@@ -101,6 +101,7 @@ import {
 import { createDesktopNativeCoworkApi } from "./desktopNativeCowork";
 import { createDesktopNativeSkillsApi } from "./desktopNativeSkills";
 import { createDesktopNativeWebuiApi } from "./desktopNativeWebui";
+import { createDesktopNativeTransportApi } from "./desktopNativeTransport";
 import { normalizeSessionsPayload } from "./nativeChat";
 import {
   flushGatewaySocketQueue,
@@ -130,12 +131,14 @@ const gatewayClientOptions: {
   nativeCowork: ReturnType<typeof createDesktopNativeCoworkApi>;
   nativeSkills: ReturnType<typeof createDesktopNativeSkillsApi>;
   nativeWebui: ReturnType<typeof createDesktopNativeWebuiApi>;
+  nativeTransport: ReturnType<typeof createDesktopNativeTransportApi>;
   tsCoworkRuntime: TsCoworkRuntimeRollout;
 } = {
   config: gatewayConfig,
   nativeCowork: createDesktopNativeCoworkApi({ invoke }),
   nativeSkills: createDesktopNativeSkillsApi({ invoke }),
   nativeWebui: createDesktopNativeWebuiApi({ invoke }),
+  nativeTransport: createDesktopNativeTransportApi({ invoke }),
   tsCoworkRuntime: DEFAULT_TS_COWORK_RUNTIME_ROLLOUT,
 };
 const gatewayApi = createGatewayApiClient(gatewayClientOptions);
@@ -213,7 +216,7 @@ async function bootDesktopWebUi(): Promise<void> {
       });
       console.info("Tinybot desktop loading root WebUI fallback", workbenchMode);
     }
-    installDesktopGatewayBridge({ config: gatewayConfig });
+    installDesktopGatewayBridge({ config: gatewayConfig, nativeTransport: gatewayClientOptions.nativeTransport });
     installWebUiRenderGlobals();
     if (workbenchMode.mode === "native-workbench") {
       const nativeChatRuntime = await loadNativeChatRuntime();
