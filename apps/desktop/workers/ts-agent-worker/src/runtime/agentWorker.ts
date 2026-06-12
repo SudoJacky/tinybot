@@ -1029,7 +1029,7 @@ export class AgentWorker {
     const workUnitId = segments[3];
     const action = segments[4];
     const params = parseCoworkWorkUnitActionParams({ ...body, session_id: sessionId, work_unit_id: workUnitId }, "cowork.route_request");
-    let result: { session: unknown; result: string };
+    let result: { session: CoworkSession; result: string };
     if (action === "retry") {
       result = await this.coworkService.retryWorkUnit({
         traceId,
@@ -1054,7 +1054,13 @@ export class AgentWorker {
     } else {
       return { status: 404, body: { error: "unsupported cowork work-unit route", work_unit_id: workUnitId, action } };
     }
-    return { status: result.result.startsWith("Error:") ? 400 : 200, body: result };
+    const status = result.result.startsWith("Error:") ? 400 : 200;
+    return {
+      status,
+      body: status === 200
+        ? { result: result.result, session: coworkSessionSnapshot(result.session) }
+        : result,
+    };
   }
 
   private async dispatchCoworkBranchRoute(

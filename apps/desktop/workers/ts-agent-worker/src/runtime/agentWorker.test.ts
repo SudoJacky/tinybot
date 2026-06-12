@@ -1001,6 +1001,7 @@ describe("AgentWorker", () => {
       agents: [{ id: "lead", name: "Lead" }],
       tasks: [
         { id: "wu_retry_task", title: "Retry task", assigned_agent_id: "lead" },
+        { id: "wu_retry_route_task", title: "Retry route task", assigned_agent_id: "lead" },
         { id: "wu_skip_task", title: "Skip task", assigned_agent_id: "lead" },
         { id: "wu_cancel_task", title: "Cancel task", assigned_agent_id: "lead" },
       ],
@@ -1011,6 +1012,8 @@ describe("AgentWorker", () => {
     }
     seeded.tasks.wu_retry_task.status = "failed";
     seeded.tasks.wu_retry_task.error = "Needs retry";
+    seeded.tasks.wu_retry_route_task.status = "failed";
+    seeded.tasks.wu_retry_route_task.error = "Needs route retry";
     seeded.tasks.wu_skip_task.status = "pending";
     seeded.tasks.wu_cancel_task.status = "in_progress";
     seeded.swarm_plan = {
@@ -1024,6 +1027,16 @@ describe("AgentWorker", () => {
           max_attempts: 3,
           priority: 2,
           error: "Needs retry",
+        },
+        {
+          id: "wu_retry_route",
+          title: "Retry route unit",
+          source_task_id: "wu_retry_route_task",
+          status: "failed",
+          attempts: 1,
+          max_attempts: 3,
+          priority: 2,
+          error: "Needs route retry",
         },
         {
           id: "wu_skip",
@@ -1073,6 +1086,35 @@ describe("AgentWorker", () => {
 
     await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
       method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/work-units/wu_retry_route/retry`,
+      body: { reason: "Route retry" },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          result: "Work unit 'Retry route unit' queued for retry.",
+          session: expect.objectContaining({
+            tasks: expect.arrayContaining([
+              expect.objectContaining({ id: "wu_retry_route_task", status: "pending", error: null }),
+            ]),
+            swarm_plan: expect.objectContaining({
+              work_units: expect.arrayContaining([
+                expect.objectContaining({
+                  id: "wu_retry_route",
+                  status: "ready",
+                  attempts: 2,
+                  error: null,
+                  priority_boost_reason: "Route retry",
+                }),
+              ]),
+            }),
+          }),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
       path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/work-units/wu_skip/skip`,
       body: { reason: "Out of scope" },
     }))).resolves.toMatchObject({
@@ -1081,9 +1123,9 @@ describe("AgentWorker", () => {
         body: {
           result: "Work unit 'Skip unit' skipped.",
           session: expect.objectContaining({
-            tasks: expect.objectContaining({
-              wu_skip_task: expect.objectContaining({ status: "skipped", result: "Out of scope" }),
-            }),
+            tasks: expect.arrayContaining([
+              expect.objectContaining({ id: "wu_skip_task", status: "skipped", result: "Out of scope" }),
+            ]),
             swarm_plan: expect.objectContaining({
               work_units: expect.arrayContaining([
                 expect.objectContaining({
@@ -1108,9 +1150,9 @@ describe("AgentWorker", () => {
         body: {
           result: "Work unit 'Cancel unit' cancelled.",
           session: expect.objectContaining({
-            tasks: expect.objectContaining({
-              wu_cancel_task: expect.objectContaining({ status: "skipped", result: "User stopped" }),
-            }),
+            tasks: expect.arrayContaining([
+              expect.objectContaining({ id: "wu_cancel_task", status: "skipped", result: "User stopped" }),
+            ]),
             swarm_plan: expect.objectContaining({
               work_units: expect.arrayContaining([
                 expect.objectContaining({
