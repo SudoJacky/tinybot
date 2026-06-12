@@ -86,6 +86,12 @@ export type NativeWebuiApi = {
   route: (request: NativeWebuiRouteRequest) => Promise<unknown>;
 };
 
+export type WebuiApprovalsListOptions = {
+  sessionKey?: string;
+  chatId?: string;
+  channel?: string;
+};
+
 type WebSocketProbe = (url: string, timeoutMs: number) => Promise<ProbeResult>;
 
 type BootstrapSession = {
@@ -325,7 +331,14 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         () => request("/api/tools"),
         "webui.tools.list",
       ),
-      approvals: () => request("/api/approvals"),
+      approvals: (approvalOptions?: WebuiApprovalsListOptions) => {
+        const path = approvalsListPath(approvalOptions);
+        return nativeOrGateway(
+          () => options.nativeWebui?.route({ method: "GET", path }),
+          () => request(path),
+          "webui.approvals.list",
+        );
+      },
       approveApproval: (approvalId: string, body: unknown) =>
         request(`/api/approvals/${encodePathSegment(approvalId)}/approve`, jsonRequest("POST", body)),
       denyApproval: (approvalId: string, body: unknown) =>
@@ -1021,6 +1034,21 @@ function formRequest(method: string, body: FormData): RequestInit {
 
 function encodePathSegment(value: string): string {
   return encodeURIComponent(value);
+}
+
+function approvalsListPath(options: WebuiApprovalsListOptions | undefined): string {
+  const params = new URLSearchParams();
+  if (options?.sessionKey) {
+    params.set("session_key", options.sessionKey);
+  }
+  if (options?.chatId) {
+    params.set("chat_id", options.chatId);
+  }
+  if (options?.channel) {
+    params.set("channel", options.channel);
+  }
+  const query = params.toString();
+  return query ? `/api/approvals?${query}` : "/api/approvals";
 }
 
 function stringifyError(error: unknown): string {

@@ -100,9 +100,18 @@ export type WebuiSessionProvider = {
   ): Promise<WebuiDeleteSessionResult> | WebuiDeleteSessionResult;
 };
 
+export type WebuiApprovalProvider = {
+  channelName?: string;
+  listPendingApprovals(
+    sessionId: string,
+    traceId: string,
+  ): Promise<Record<string, unknown>> | Record<string, unknown>;
+};
+
 const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
   { key: "get_status", method: "GET", path: "/api/status", public: false },
   { key: "get_tools", method: "GET", path: "/api/tools", public: false },
+  { key: "get_approvals", method: "GET", path: "/api/approvals", public: false },
   { key: "list_sessions", method: "GET", path: "/api/sessions", public: false },
   { key: "get_messages", method: "GET", path: "/api/sessions/{key}/messages", public: false },
   { key: "get_profile", method: "GET", path: "/api/sessions/{key}/profile", public: false },
@@ -121,15 +130,20 @@ export async function handleWebuiRouteRequest(
   statusProvider: WebuiStatusProvider | undefined,
   sessionProvider?: WebuiSessionProvider,
   tools?: ToolRegistry,
+  approvalProvider?: WebuiApprovalProvider,
   traceId = "webui-route",
 ): Promise<WebuiRouteResponse> {
   const method = request.method.toUpperCase();
-  const path = new URL(request.path, "http://worker.local").pathname;
+  const url = new URL(request.path, "http://worker.local");
+  const path = url.pathname;
   if (method === "GET" && path === "/api/status") {
     return { status: 200, body: webuiStatusBody(await resolveStatus(statusProvider)) };
   }
   if (method === "GET" && path === "/api/tools") {
     return { status: 200, body: webuiToolsBody(tools) };
+  }
+  if (method === "GET" && path === "/api/approvals") {
+    return webuiApprovalsResponse(url.searchParams, approvalProvider, traceId);
   }
   if (method === "GET" && path === "/api/sessions") {
     if (!sessionProvider) {
@@ -253,6 +267,42 @@ function webuiToolsBody(tools: ToolRegistry | undefined): Record<string, unknown
       })
       .filter((tool): tool is { name: string; description: string } => tool !== undefined),
   };
+}
+
+async function webuiApprovalsResponse(
+  query: URLSearchParams,
+  approvalProvider: WebuiApprovalProvider | undefined,
+  traceId: string,
+): Promise<WebuiRouteResponse> {
+  const sessionId = approvalSessionId(query, approvalProvider?.channelName ?? "websocket");
+  if (!sessionId) {
+    return { status: 400, body: { error: "session_key or chat_id is required" } };
+  }
+  if (!approvalProvider) {
+    return { status: 404, body: { error: "session_key or chat_id is required" } };
+  }
+  const result = await approvalProvider.listPendingApprovals(sessionId, traceId);
+  const approvals = Array.isArray(result.approvals) ? result.approvals.filter(isJsonObject) : [];
+  return {
+    status: 200,
+    body: {
+      session_key: typeof result.session_key === "string" ? result.session_key : sessionId,
+      approvals,
+    },
+  };
+}
+
+function approvalSessionId(query: URLSearchParams, fallbackChannel: string): string | undefined {
+  const sessionKey = query.get("session_key");
+  if (sessionKey) {
+    return sessionKey;
+  }
+  const chatId = query.get("chat_id");
+  if (!chatId) {
+    return undefined;
+  }
+  const channel = query.get("channel") || fallbackChannel;
+  return `${channel}:${chatId}`;
 }
 
 function webuiSessionListBody(

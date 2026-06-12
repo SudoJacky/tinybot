@@ -2544,12 +2544,23 @@ export class AgentWorker {
           this.statusProvider,
           this.webuiSessionProvider,
           this.tools,
+          this.webuiApprovalProvider(),
           request.trace_id,
         ),
       };
     } catch (error) {
       return this.failure(request, errorMessage(error), {}, "invalid_protocol");
     }
+  }
+
+  private webuiApprovalProvider() {
+    if (!this.approvalBridge?.listPendingApprovals) {
+      return undefined;
+    }
+    return {
+      listPendingApprovals: (sessionId: string, traceId: string) =>
+        this.approvalBridge!.listPendingApprovals!(sessionId, traceId),
+    };
   }
 
   private async handleSkillsWebuiListRequest(request: WorkerRequest): Promise<WorkerResponse> {

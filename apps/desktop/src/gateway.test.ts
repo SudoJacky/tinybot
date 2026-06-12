@@ -420,6 +420,33 @@ describe("gateway HTTP client", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
+  test("prefers native WebUI approvals route when session key is provided", async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
+    const nativeWebui = {
+      route: vi.fn(async (request: { method: string; path: string; body?: unknown }) => ({
+        session_key: "websocket:chat-1",
+        approvals: [{ id: "approval-1", summary: "Run risky command" }],
+        request,
+      })),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeWebui,
+    });
+
+    await expect(client.tools.approvals({ sessionKey: "websocket:chat-1" })).resolves.toEqual({
+      session_key: "websocket:chat-1",
+      approvals: [{ id: "approval-1", summary: "Run risky command" }],
+      request: { method: "GET", path: "/api/approvals?session_key=websocket%3Achat-1" },
+    });
+    expect(nativeWebui.route).toHaveBeenCalledWith({
+      method: "GET",
+      path: "/api/approvals?session_key=websocket%3Achat-1",
+    });
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
   test("prefers native WebUI session list route when available", async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
     const nativeWebui = {

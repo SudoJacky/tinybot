@@ -244,6 +244,63 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("serves WebUI pending approvals control route through TS worker RPC", async () => {
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      approvalBridge: {
+        requestApproval: async () => ({}),
+        resolveApproval: async () => ({}),
+        listPendingApprovals: async (sessionId: string, traceId: string) => ({
+          session_key: sessionId,
+          trace_id: traceId,
+          approvals: [
+            {
+              id: "approval-1",
+              tool_name: "shell",
+              category: "command",
+              risk: "high",
+              reason: "Deletes files",
+              summary: "Run risky command",
+              created_at: "2026-06-13T10:00:00.000Z",
+            },
+          ],
+        }),
+      },
+    });
+
+    await expect(worker.handleRequest(webuiRequest("webui.route_specs"))).resolves.toMatchObject({
+      result: {
+        routes: expect.arrayContaining([
+          { key: "get_approvals", method: "GET", path: "/api/approvals", public: false },
+        ]),
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
+      path: "/api/approvals?session_key=websocket%3Achat-1",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          session_key: "websocket:chat-1",
+          approvals: [
+            {
+              id: "approval-1",
+              tool_name: "shell",
+              category: "command",
+              risk: "high",
+              reason: "Deletes files",
+              summary: "Run risky command",
+              created_at: "2026-06-13T10:00:00.000Z",
+            },
+          ],
+        },
+      },
+    });
+  });
+
   test("serves WebUI session list control route through TS worker RPC", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),
