@@ -1,6 +1,10 @@
 import type { MessageBus } from "../bus/messageBus.ts";
 import type { OutboundMessage } from "../bus/messageTypes.ts";
 
+const RESTART_NOTIFY_CHANNEL_ENV = "tinybot_RESTART_NOTIFY_CHANNEL";
+const RESTART_NOTIFY_CHAT_ID_ENV = "tinybot_RESTART_NOTIFY_CHAT_ID";
+const RESTART_STARTED_AT_ENV = "tinybot_RESTART_STARTED_AT";
+
 export type ChannelAdapter = {
   name: string;
   displayName: string;
@@ -35,6 +39,14 @@ export type ChannelDispatchDiagnostic = {
   error?: string;
 };
 
+export type ChannelRestartNotice = {
+  channel: string;
+  chatId: string;
+  startedAtUnixSeconds?: number | null;
+};
+
+export type ChannelRestartNoticeSource = () => ChannelRestartNotice | null;
+
 export type ChannelManagerOptions = {
   bus: MessageBus;
   channels: ChannelAdapter[];
@@ -42,6 +54,9 @@ export type ChannelManagerOptions = {
   sendToolHints?: boolean;
   retryDelaysMs?: number[];
   sleep?: (delayMs: number) => Promise<void>;
+  restartNotice?: ChannelRestartNotice | null | ChannelRestartNoticeSource;
+  nowUnixSeconds?: () => number;
+  env?: Record<string, string | undefined>;
 };
 
 export class ChannelManager {
@@ -51,6 +66,8 @@ export class ChannelManager {
   private readonly sendToolHints: boolean;
   private readonly retryDelaysMs: number[];
   private readonly sleep: (delayMs: number) => Promise<void>;
+  private readonly restartNoticeSource: ChannelRestartNoticeSource;
+  private readonly nowUnixSeconds: () => number;
   private readonly dispatchDiagnostics: ChannelDispatchDiagnostic[] = [];
   private readonly pendingOutbound: OutboundMessage[] = [];
   private readonly runningChannels = new Set<string>();
@@ -62,6 +79,8 @@ export class ChannelManager {
     this.sendToolHints = options.sendToolHints ?? true;
     this.retryDelaysMs = options.retryDelaysMs ?? [1000, 2000, 4000];
     this.sleep = options.sleep ?? ((delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)));
+    this.restartNoticeSource = restartNoticeSource(options);
+    this.nowUnixSeconds = options.nowUnixSeconds ?? (() => Date.now() / 1000);
     for (const channel of options.channels) {
       this.channels.set(channel.name, channel);
     }
@@ -94,6 +113,7 @@ export class ChannelManager {
       await channel.start?.();
       this.runningChannels.add(channel.name);
     }
+    await this.sendRestartNoticeIfNeeded();
   }
 
   async stopAll(): Promise<void> {
@@ -222,6 +242,35 @@ export class ChannelManager {
     return { ok: false, attempts, error: lastError };
   }
 
+  private async sendRestartNoticeIfNeeded(): Promise<void> {
+    const notice = this.restartNoticeSource();
+    if (!notice) {
+      return;
+    }
+    const channel = this.channels.get(notice.channel);
+    if (!channel) {
+      return;
+    }
+    const message: OutboundMessage = {
+      channel: notice.channel,
+      chatId: notice.chatId,
+      content: formatRestartCompletedMessage(notice, this.nowUnixSeconds()),
+      media: [],
+      metadata: { _restart_completed: true },
+    };
+    const result = await this.sendWithRetry(channel, message);
+    if (!result.ok) {
+      this.dispatchDiagnostics.push({
+        kind: "send_failed",
+        channel: message.channel,
+        chatId: message.chatId,
+        content: message.content,
+        attempts: result.attempts,
+        error: String(result.error instanceof Error ? result.error.message : result.error),
+      });
+    }
+  }
+
   private dropReason(message: OutboundMessage): ChannelDispatchDiagnostic["reason"] | null {
     if (!message.metadata._progress) {
       return null;
@@ -241,4 +290,41 @@ function metadataRecord(value: unknown): Record<string, unknown> {
     return value as Record<string, unknown>;
   }
   return {};
+}
+
+function restartNoticeSource(options: ChannelManagerOptions): ChannelRestartNoticeSource {
+  if (typeof options.restartNotice === "function") {
+    return options.restartNotice;
+  }
+  if (options.restartNotice !== undefined) {
+    return () => options.restartNotice ?? null;
+  }
+  return () => consumeRestartNoticeFromEnv(options.env ?? process.env);
+}
+
+export function consumeRestartNoticeFromEnv(env: Record<string, string | undefined>): ChannelRestartNotice | null {
+  const channel = (env[RESTART_NOTIFY_CHANNEL_ENV] ?? "").trim();
+  const chatId = (env[RESTART_NOTIFY_CHAT_ID_ENV] ?? "").trim();
+  const startedAtRaw = (env[RESTART_STARTED_AT_ENV] ?? "").trim();
+  delete env[RESTART_NOTIFY_CHANNEL_ENV];
+  delete env[RESTART_NOTIFY_CHAT_ID_ENV];
+  delete env[RESTART_STARTED_AT_ENV];
+  if (!channel || !chatId) {
+    return null;
+  }
+  const startedAtUnixSeconds = Number.parseFloat(startedAtRaw);
+  return {
+    channel,
+    chatId,
+    startedAtUnixSeconds: Number.isFinite(startedAtUnixSeconds) ? startedAtUnixSeconds : null,
+  };
+}
+
+export function formatRestartCompletedMessage(notice: ChannelRestartNotice, nowUnixSeconds = Date.now() / 1000): string {
+  const startedAtUnixSeconds = notice.startedAtUnixSeconds;
+  if (typeof startedAtUnixSeconds !== "number" || !Number.isFinite(startedAtUnixSeconds)) {
+    return "Restart completed.";
+  }
+  const elapsedSeconds = Math.max(0, nowUnixSeconds - startedAtUnixSeconds);
+  return `Restart completed in ${elapsedSeconds.toFixed(1)}s.`;
 }

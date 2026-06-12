@@ -14,10 +14,14 @@ export {
 } from "./channelConfig.ts";
 export {
   ChannelManager,
+  consumeRestartNoticeFromEnv,
+  formatRestartCompletedMessage,
   type ChannelAdapter,
   type ChannelDispatchDiagnostic,
   type ChannelManagerStatus,
   type ChannelManagerOptions,
+  type ChannelRestartNotice,
+  type ChannelRestartNoticeSource,
   type ChannelStatus,
 } from "./channelManager.ts";
 export {

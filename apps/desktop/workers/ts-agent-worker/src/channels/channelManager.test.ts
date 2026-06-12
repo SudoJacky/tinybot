@@ -60,6 +60,33 @@ describe("ChannelManager", () => {
     });
   });
 
+  test("sends restart completion notice to the marked channel on start", async () => {
+    const bus = new MessageBus();
+    const websocket = adapter({
+      start: vi.fn(async () => undefined),
+    });
+    const manager = new ChannelManager({
+      bus,
+      channels: [websocket],
+      restartNotice: {
+        channel: "websocket",
+        chatId: "chat-1",
+        startedAtUnixSeconds: 100,
+      },
+      nowUnixSeconds: () => 102.25,
+    });
+
+    await manager.startAll();
+
+    expect(websocket.send).toHaveBeenCalledWith({
+      channel: "websocket",
+      chatId: "chat-1",
+      content: "Restart completed in 2.3s.",
+      media: [],
+      metadata: { _restart_completed: true },
+    });
+  });
+
   test("dispatches ordinary outbound messages to their channel adapter", async () => {
     const bus = new MessageBus();
     const websocket = adapter();
