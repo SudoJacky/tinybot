@@ -25,10 +25,31 @@ export type NativeTransportWebSocketDispatchRequest = NativeTransportWebSocketMe
   stream?: boolean;
 };
 
+export type NativeChannelInboundMessage = Record<string, unknown> & {
+  channel: string;
+  content: string;
+  senderId?: string;
+  sender_id?: string;
+  chatId?: string;
+  chat_id?: string;
+  timestamp?: string;
+  media?: string[];
+  metadata?: Record<string, unknown>;
+  sessionKeyOverride?: string | null;
+  session_key_override?: string | null;
+  sessionKey?: string;
+  session_key?: string;
+};
+
+export type NativeChannelDispatchInboundRequest = {
+  message: NativeChannelInboundMessage;
+};
+
 export type NativeTransportApi = {
   gatewayFrame(request: NativeTransportGatewayFrameRequest): Promise<unknown>;
   websocketMessage(request: NativeTransportWebSocketMessageRequest): Promise<unknown>;
   dispatchWebsocketMessage(request: NativeTransportWebSocketDispatchRequest): Promise<unknown>;
+  dispatchChannelInbound(request: NativeChannelDispatchInboundRequest): Promise<unknown>;
 };
 
 export function createDesktopNativeTransportApi(options: { invoke?: TauriInvoke } = {}): NativeTransportApi {
@@ -37,5 +58,6 @@ export function createDesktopNativeTransportApi(options: { invoke?: TauriInvoke 
     gatewayFrame: (request) => invoke("worker_transport_gateway_frame", { input: request }),
     websocketMessage: (request) => invoke("worker_transport_websocket_message", { input: request }),
     dispatchWebsocketMessage: (request) => invoke("worker_transport_dispatch_websocket_message", { input: request }),
+    dispatchChannelInbound: (request) => invoke("worker_channel_dispatch_inbound", { input: request }),
   };
 }

@@ -123,4 +123,51 @@ describe("desktop native transport", () => {
       },
     });
   });
+
+  test("dispatches generic channel inbound envelopes through the native TS worker command", async () => {
+    const invoke = vi.fn(async () => ({
+      dispatched: 1,
+      outbound_messages: [
+        {
+          channel: "feishu",
+          chat_id: "oc_1",
+          content: "done",
+          media: [],
+          metadata: {},
+        },
+      ],
+    }));
+    const transport = createDesktopNativeTransportApi({ invoke });
+
+    await expect(transport.dispatchChannelInbound({
+      message: {
+        channel: "feishu",
+        sender_id: "ou_1",
+        chat_id: "oc_1",
+        content: "hello",
+        timestamp: "2026-06-13T02:00:00.000Z",
+        media: ["file://clip.png"],
+        metadata: { message_id: "mid-1" },
+        session_key_override: "thread:42",
+      },
+    })).resolves.toMatchObject({
+      dispatched: 1,
+      outbound_messages: [expect.objectContaining({ channel: "feishu", chat_id: "oc_1" })],
+    });
+
+    expect(invoke).toHaveBeenCalledWith("worker_channel_dispatch_inbound", {
+      input: {
+        message: {
+          channel: "feishu",
+          sender_id: "ou_1",
+          chat_id: "oc_1",
+          content: "hello",
+          timestamp: "2026-06-13T02:00:00.000Z",
+          media: ["file://clip.png"],
+          metadata: { message_id: "mid-1" },
+          session_key_override: "thread:42",
+        },
+      },
+    });
+  });
 });

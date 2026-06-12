@@ -224,6 +224,12 @@ struct WorkerTransportWebSocketDispatchInput {
     stream: Option<bool>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerChannelDispatchInboundInput {
+    message: serde_json::Value,
+}
+
 #[derive(Clone, Debug, Default)]
 struct WorkerTransportWebSocketDispatchOptions {
     model: Option<String>,
@@ -675,6 +681,20 @@ fn worker_transport_dispatch_websocket_message(
     state: State<'_, SharedGateway>,
 ) -> Result<serde_json::Value, String> {
     worker_transport_dispatch_websocket_message_with_options(
+        state.inner(),
+        input,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(60),
+    )
+}
+
+#[tauri::command]
+fn worker_channel_dispatch_inbound(
+    input: WorkerChannelDispatchInboundInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_channel_dispatch_inbound_with_options(
         state.inner(),
         input,
         ts_agent_worker_workspace_root(),
@@ -2244,6 +2264,53 @@ fn build_worker_transport_websocket_run_input_request(
     ))
 }
 
+fn worker_channel_dispatch_inbound_with_options(
+    shared: &SharedGateway,
+    input: WorkerChannelDispatchInboundInput,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let worker = {
+        let runtime = lock_runtime(shared);
+        runtime.experimental_worker.clone()
+    };
+
+    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot)?;
+
+    let request = build_worker_channel_dispatch_inbound_request(now_unix_ms(), input);
+    let response = worker
+        .send_stdio_request(&request, timeout)
+        .map_err(|error| {
+            format!(
+                "worker channel dispatch inbound request failed: {}",
+                error.message
+            )
+        })?;
+
+    if let Some(error) = response.error {
+        return Err(format!(
+            "worker channel dispatch inbound returned error: {}",
+            error.message
+        ));
+    }
+    response
+        .result
+        .ok_or_else(|| "worker channel dispatch inbound response missing result".to_string())
+}
+
+fn build_worker_channel_dispatch_inbound_request(
+    request_id: u128,
+    input: WorkerChannelDispatchInboundInput,
+) -> WorkerRequest {
+    WorkerRequest::new(
+        format!("channel-dispatch-inbound-{request_id}"),
+        format!("trace-channel-dispatch-inbound-{request_id}"),
+        "channel.dispatch_inbound",
+        serde_json::json!({ "message": input.message }),
+    )
+}
+
 fn json_string_field<'a>(
     object: &'a serde_json::Map<String, serde_json::Value>,
     key: &str,
@@ -2778,6 +2845,7 @@ pub fn run() {
             worker_transport_gateway_frame,
             worker_transport_websocket_message,
             worker_transport_dispatch_websocket_message,
+            worker_channel_dispatch_inbound,
             worker_cancel_agent,
             worker_restore_agent_checkpoint,
             worker_submit_agent_form,
@@ -3439,6 +3507,44 @@ mod tests {
             WorkerTransportWebSocketDispatchOptions::default(),
         )
         .is_none());
+    }
+
+    #[test]
+    fn worker_channel_dispatch_inbound_request_targets_ts_channel_runtime() {
+        let request = build_worker_channel_dispatch_inbound_request(
+            42,
+            WorkerChannelDispatchInboundInput {
+                message: serde_json::json!({
+                    "channel": "feishu",
+                    "sender_id": "ou_1",
+                    "chat_id": "oc_1",
+                    "content": "hello",
+                    "timestamp": "2026-06-13T02:00:00.000Z",
+                    "media": ["file://clip.png"],
+                    "metadata": { "message_id": "mid-1" },
+                    "session_key_override": "thread:42"
+                }),
+            },
+        );
+
+        assert_eq!(request.id, "channel-dispatch-inbound-42");
+        assert_eq!(request.trace_id, "trace-channel-dispatch-inbound-42");
+        assert_eq!(request.method, "channel.dispatch_inbound");
+        assert_eq!(
+            request.params,
+            serde_json::json!({
+                "message": {
+                    "channel": "feishu",
+                    "sender_id": "ou_1",
+                    "chat_id": "oc_1",
+                    "content": "hello",
+                    "timestamp": "2026-06-13T02:00:00.000Z",
+                    "media": ["file://clip.png"],
+                    "metadata": { "message_id": "mid-1" },
+                    "session_key_override": "thread:42"
+                }
+            })
+        );
     }
 
     #[test]

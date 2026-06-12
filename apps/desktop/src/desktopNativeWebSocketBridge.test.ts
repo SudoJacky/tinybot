@@ -11,6 +11,7 @@ describe("desktop native WebSocket bridge", () => {
       gatewayFrame: vi.fn(),
       websocketMessage: vi.fn(),
       dispatchWebsocketMessage: vi.fn(async () => dispatch.promise),
+      dispatchChannelInbound: vi.fn(),
     };
     const socket = createDesktopNativeWebSocket({
       url: "/ws",
@@ -111,6 +112,7 @@ describe("desktop native WebSocket bridge", () => {
           stopReason: "final_response",
         },
       })),
+      dispatchChannelInbound: vi.fn(),
     };
     const socket = createDesktopNativeWebSocket({
       url: "/ws",
@@ -199,6 +201,7 @@ describe("desktop native WebSocket bridge", () => {
           stopReason: "awaiting_form",
         },
       })),
+      dispatchChannelInbound: vi.fn(),
     };
     const socket = createDesktopNativeWebSocket({
       url: "/ws",
@@ -281,6 +284,7 @@ describe("desktop native WebSocket bridge", () => {
           stopReason: "final_response",
         },
       })),
+      dispatchChannelInbound: vi.fn(),
     };
     const socket = createDesktopNativeWebSocket({
       url: "/ws",
@@ -353,6 +357,7 @@ describe("desktop native WebSocket bridge", () => {
           stopReason: "final_response",
         },
       })),
+      dispatchChannelInbound: vi.fn(),
     };
     const socket = createDesktopNativeWebSocket({
       url: "/ws",
@@ -396,6 +401,7 @@ describe("desktop native WebSocket bridge", () => {
       gatewayFrame: vi.fn(),
       websocketMessage: vi.fn(),
       dispatchWebsocketMessage: vi.fn(async () => dispatch.promise),
+      dispatchChannelInbound: vi.fn(),
     };
     const socket = createDesktopNativeWebSocket({
       url: "/ws",
