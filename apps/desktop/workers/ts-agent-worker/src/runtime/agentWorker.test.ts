@@ -493,8 +493,25 @@ describe("AgentWorker", () => {
           session: expect.objectContaining({
             id: "cw_1",
             stop_reason: "idle",
+            tasks: expect.arrayContaining([
+              expect.objectContaining({ id: "draft", title: "Draft" }),
+            ]),
             run_metrics: [expect.objectContaining({ status: "stopped", stop_reason: "idle" })],
           }),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: "/api/cowork/sessions/missing/run",
+      body: { max_rounds: 1 },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          result: "Error: cowork session 'missing' not found",
+          session: null,
         },
       },
     });

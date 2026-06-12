@@ -933,7 +933,14 @@ export class AgentWorker {
         runUntilIdle: params.runUntilIdle,
         stopOnBlocker: params.stopOnBlocker,
       });
-      return { status: result.result.startsWith("Error:") ? 404 : 200, body: result };
+      return {
+        status: 200,
+        body: {
+          result: result.result,
+          session: result.session ? coworkSessionSnapshot(result.session) : null,
+          ...(result.runId ? { runId: result.runId, run_id: result.runId } : {}),
+        },
+      };
     }
     return {
       status: 501,
