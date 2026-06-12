@@ -332,7 +332,7 @@ class TsCoworkRuntimeConfig(Base):
     mutations: bool = True
     scheduler: bool = True
     swarm: bool = True
-    fallback_to_python: bool = True
+    fallback_to_python: bool = False
 
 
 class DesktopConfig(Base):

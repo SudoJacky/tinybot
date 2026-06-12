@@ -57,7 +57,7 @@ class TestConfig:
         assert default_config.desktop.ts_cowork_runtime.mutations is True
         assert default_config.desktop.ts_cowork_runtime.scheduler is True
         assert default_config.desktop.ts_cowork_runtime.swarm is True
-        assert default_config.desktop.ts_cowork_runtime.fallback_to_python is True
+        assert default_config.desktop.ts_cowork_runtime.fallback_to_python is False
 
         config = Config.model_validate(
             {

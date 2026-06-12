@@ -51,7 +51,7 @@ describe("configSchema", () => {
       mutations: true,
       scheduler: true,
       swarm: true,
-      fallbackToPython: true,
+      fallbackToPython: false,
     });
     expect(config.tools).toMatchObject({
       restrictToWorkspace: true,

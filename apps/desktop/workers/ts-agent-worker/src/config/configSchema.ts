@@ -79,7 +79,7 @@ function defaultDesktopConfig(): DesktopConfig {
       mutations: true,
       scheduler: true,
       swarm: true,
-      fallbackToPython: true,
+      fallbackToPython: false,
     },
   };
 }

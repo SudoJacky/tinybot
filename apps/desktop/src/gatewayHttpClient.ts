@@ -26,7 +26,7 @@ export const DEFAULT_TS_COWORK_RUNTIME_ROLLOUT: Required<TsCoworkRuntimeRollout>
   mutations: true,
   scheduler: true,
   swarm: true,
-  fallbackToPython: true,
+  fallbackToPython: false,
 };
 
 export function resolveTsCoworkRuntimeRollout(config: unknown): Required<TsCoworkRuntimeRollout> {
@@ -618,6 +618,7 @@ function coworkNativeOrGateway(
   body: unknown,
   label: string,
 ): Promise<unknown> {
+  const effectiveRollout = { ...DEFAULT_TS_COWORK_RUNTIME_ROLLOUT, ...(rollout ?? {}) };
   const nativeRequest: NativeCoworkRouteRequest = body === undefined
     ? { method, path }
     : { method, path, body };
@@ -626,14 +627,14 @@ function coworkNativeOrGateway(
     : body === undefined
       ? { method }
       : jsonRequest(method, body);
-  if (!coworkRouteEnabledByRollout(method, path, rollout)) {
+  if (!coworkRouteEnabledByRollout(method, path, effectiveRollout)) {
     return request(path, gatewayInit);
   }
   return nativeOrGateway(
     () => nativeCowork?.route(nativeRequest),
     () => request(path, gatewayInit),
     label,
-    rollout?.fallbackToPython !== false,
+    effectiveRollout.fallbackToPython,
   );
 }
 

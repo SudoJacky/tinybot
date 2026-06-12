@@ -37,7 +37,7 @@ describe("gateway config", () => {
       mutations: true,
       scheduler: true,
       swarm: true,
-      fallbackToPython: true,
+      fallbackToPython: false,
     });
 
     expect(resolveTsCoworkRuntimeRollout({
@@ -69,7 +69,7 @@ describe("gateway config", () => {
     })).toMatchObject({
       enabled: false,
       scheduler: false,
-      fallbackToPython: true,
+      fallbackToPython: false,
     });
   });
 });
@@ -542,7 +542,30 @@ describe("gateway HTTP client", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
-  test("falls back to the Python gateway when native cowork run fails", async () => {
+  test("does not fall back to Python by default when native cowork run fails", async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
+    const nativeCowork = {
+      route: vi.fn(async () => {
+        throw new Error("native unavailable");
+      }),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeCowork,
+    });
+
+    await expect(client.cowork.run("cw_1", { max_rounds: 4 })).rejects.toThrow("native unavailable");
+
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "POST",
+      path: "/api/cowork/sessions/cw_1/run",
+      body: { max_rounds: 4 },
+    });
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  test("falls back to the Python gateway when native cowork fallback is explicitly enabled", async () => {
     const fetchFn = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
       if (String(url).endsWith("/webui/bootstrap")) {
         return new Response(JSON.stringify({ token: "token-1" }), { status: 200 });
@@ -558,6 +581,9 @@ describe("gateway HTTP client", () => {
       config: DEFAULT_GATEWAY_CONFIG,
       fetchFn,
       nativeCowork,
+      tsCoworkRuntime: {
+        fallbackToPython: true,
+      },
     });
 
     await expect(client.cowork.run("cw_1", { max_rounds: 4 })).resolves.toEqual({ gateway: true });
