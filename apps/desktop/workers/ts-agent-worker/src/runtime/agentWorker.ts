@@ -504,7 +504,12 @@ export class AgentWorker {
 
   private async handleCoworkRouteRequest(request: WorkerRequest): Promise<WorkerResponse> {
     if (!this.coworkService) {
-      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: unavailableCoworkRouteResponse(),
+      };
     }
     try {
       const route = parseCoworkRouteRequest(request.params);
@@ -531,7 +536,7 @@ export class AgentWorker {
 
   private async dispatchCoworkRouteRequest(route: CoworkRouteRequest, traceId: string): Promise<CoworkRouteResponse> {
     if (!this.coworkService) {
-      return { status: 503, body: { error: "cowork service is unavailable" } };
+      return unavailableCoworkRouteResponse();
     }
     const segments = coworkRouteSegments(route.path);
     const body = isJsonObject(route.body) ? route.body : {};
@@ -673,7 +678,7 @@ export class AgentWorker {
     traceId: string,
   ): Promise<CoworkRouteResponse> {
     if (!this.coworkService) {
-      return { status: 503, body: { error: "cowork service is unavailable" } };
+      return unavailableCoworkRouteResponse();
     }
 
     if (segments.length === 2 && route.method === "GET") {
@@ -944,7 +949,7 @@ export class AgentWorker {
     traceId: string,
   ): Promise<CoworkRouteResponse> {
     if (!this.coworkService) {
-      return { status: 503, body: { error: "cowork service is unavailable" } };
+      return unavailableCoworkRouteResponse();
     }
     const action = segments[3];
     if (action === "select") {
@@ -992,7 +997,7 @@ export class AgentWorker {
     traceId: string,
   ): Promise<CoworkRouteResponse> {
     if (!this.coworkService) {
-      return { status: 503, body: { error: "cowork service is unavailable" } };
+      return unavailableCoworkRouteResponse();
     }
     if (resource === "pause") {
       const result = await this.coworkService.pauseSession({ traceId, sessionId });
@@ -1067,7 +1072,7 @@ export class AgentWorker {
     traceId: string,
   ): Promise<CoworkRouteResponse> {
     if (!this.coworkService) {
-      return { status: 503, body: { error: "cowork service is unavailable" } };
+      return unavailableCoworkRouteResponse();
     }
     const taskId = segments[3];
     const action = segments[4];
@@ -1139,7 +1144,7 @@ export class AgentWorker {
     traceId: string,
   ): Promise<CoworkRouteResponse> {
     if (!this.coworkService) {
-      return { status: 503, body: { error: "cowork service is unavailable" } };
+      return unavailableCoworkRouteResponse();
     }
     const workUnitId = segments[3];
     const action = segments[4];
@@ -1186,7 +1191,7 @@ export class AgentWorker {
     traceId: string,
   ): Promise<CoworkRouteResponse> {
     if (!this.coworkService) {
-      return { status: 503, body: { error: "cowork service is unavailable" } };
+      return unavailableCoworkRouteResponse();
     }
     if (segments.length === 3 && route.method === "GET") {
       const session = await this.coworkService.getSession(sessionId, traceId);
@@ -3231,6 +3236,10 @@ function unsupportedCoworkRoute(route: CoworkRouteRequest): CoworkRouteResponse 
 
 function invalidCoworkJsonBodyRouteResponse(): CoworkRouteResponse {
   return { status: 400, body: { error: "invalid json body" } };
+}
+
+function unavailableCoworkRouteResponse(): CoworkRouteResponse {
+  return { status: 503, body: { error: "cowork is not available" } };
 }
 
 function branchSnapshots(session: CoworkSession): JsonObject[] {

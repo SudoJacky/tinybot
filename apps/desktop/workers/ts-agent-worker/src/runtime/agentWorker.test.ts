@@ -165,6 +165,24 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 }
 
 describe("AgentWorker", () => {
+  test("returns Python-compatible cowork route unavailable errors", async () => {
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "GET",
+      path: "/api/cowork/sessions",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 503,
+        body: { error: "cowork is not available" },
+      },
+    });
+  });
+
   test("routes cowork create/list/get/delete requests through the injected CoworkService", async () => {
     const coworkService = new CoworkService({
       store: createMemoryCoworkStore(),
