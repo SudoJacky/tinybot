@@ -291,6 +291,8 @@ export type DesktopCoworkActionId = Extract<
   | "loadOrganization"
   | "loadQueues"
   | "loadBranches"
+  | "loadAgentActivity"
+  | "loadObservation"
   | "validateBlueprint"
   | "addTask"
   | "updateBudget"
@@ -324,6 +326,9 @@ export interface DesktopCoworkActionEvent {
   branchId?: string;
   resultId?: string;
   branchIds?: string[];
+  agentId?: string;
+  detailRef?: string;
+  requesterAgentId?: string;
 }
 
 interface DesktopCoworkActionOptions {

@@ -1074,6 +1074,16 @@ async function handleNativeCoworkAction(event: DesktopCoworkActionEvent): Promis
       setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork branches loaded." }));
       return;
     }
+    if (event.action === "loadAgentActivity" && event.agentId) {
+      await gatewayApi.cowork.agentActivity(sessionId, event.agentId);
+      setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork agent activity loaded." }));
+      return;
+    }
+    if (event.action === "loadObservation" && event.detailRef) {
+      await gatewayApi.cowork.observation(sessionId, event.detailRef, { requesterAgentId: event.requesterAgentId });
+      setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork observation loaded." }));
+      return;
+    }
     if (event.action === "updateBudget") {
       if (!event.maxRounds) {
         outcome = "blocked";

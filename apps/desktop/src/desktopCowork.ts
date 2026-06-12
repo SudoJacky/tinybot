@@ -261,7 +261,7 @@ export type DesktopCoworkActionInput =
   | { action: "loadQueues"; sessionId: string }
   | { action: "loadBranches"; sessionId: string }
   | { action: "loadAgentActivity"; sessionId: string; agentId: string }
-  | { action: "loadObservation"; sessionId: string; detailRef: string }
+  | { action: "loadObservation"; sessionId: string; detailRef: string; requesterAgentId?: string }
   | { action: "createSession"; goal?: string; blueprint?: unknown; architecture?: string; autoRun?: boolean }
   | { action: "runSession"; sessionId: string }
   | { action: "pauseSession" | "resumeSession" | "emergencyStopSession"; sessionId: string }
@@ -512,9 +512,13 @@ export function buildDesktopCoworkActionRequest(input: DesktopCoworkActionInput)
         path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/agents/${encodePathSegment(input.agentId)}/activity`,
       };
     case "loadObservation":
+      const params = new URLSearchParams();
+      if (input.requesterAgentId) {
+        params.set("agent_id", input.requesterAgentId);
+      }
       return {
         method: "GET",
-        path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/observations/${encodePathSegment(input.detailRef)}`,
+        path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/observations/${encodePathSegment(input.detailRef)}${params.toString() ? `?${params}` : ""}`,
       };
     case "createSession": {
       const architecture = coworkArchitectureValue(input.architecture);

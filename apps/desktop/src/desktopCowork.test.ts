@@ -502,6 +502,19 @@ describe("desktop Cowork helpers", () => {
       method: "GET",
       path: "/api/cowork/sessions/cowork%2F1/branches",
     });
+    expect(buildDesktopCoworkActionRequest({ action: "loadAgentActivity", sessionId: "cowork/1", agentId: "lead agent" })).toEqual({
+      method: "GET",
+      path: "/api/cowork/sessions/cowork%2F1/agents/lead%20agent/activity",
+    });
+    expect(buildDesktopCoworkActionRequest({
+      action: "loadObservation",
+      sessionId: "cowork/1",
+      detailRef: "detail 1",
+      requesterAgentId: "reviewer",
+    })).toEqual({
+      method: "GET",
+      path: "/api/cowork/sessions/cowork%2F1/observations/detail%201?agent_id=reviewer",
+    });
     expect(buildDesktopCoworkActionRequest({ action: "sendMessage", sessionId: "cowork/1", content: "Continue", recipientIds: ["agent-1"] })).toEqual({
       method: "POST",
       path: "/api/cowork/sessions/cowork%2F1/messages",
