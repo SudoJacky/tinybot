@@ -37,6 +37,7 @@ import {
   type WebuiConfigProvider,
   type WebuiProvidersProvider,
   type WebuiSessionProvider,
+  type WebuiSkillsProvider,
   type WebuiStatusProvider,
 } from "../webui/webuiRoutes.ts";
 import {
@@ -2558,6 +2559,7 @@ export class AgentWorker {
           this.webuiProviderModelsProvider(),
           this.webuiConfigProvider,
           this.webuiProvidersProvider(),
+          this.webuiSkillsProvider(),
           request.trace_id,
         ),
       };
@@ -2603,6 +2605,16 @@ export class AgentWorker {
         const result = await this.listProviderCatalog!();
         return isJsonObject(result) ? result : {};
       },
+    };
+  }
+
+  private webuiSkillsProvider(): WebuiSkillsProvider | undefined {
+    if (!this.skillsBridge) {
+      return undefined;
+    }
+    return {
+      listSkills: (traceId: string) => this.skillsBridge!.listWebuiSkills(traceId),
+      getSkillDetail: (name: string, traceId: string) => this.skillsBridge!.getWebuiSkillDetail(name, traceId),
     };
   }
 

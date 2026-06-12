@@ -155,6 +155,11 @@ export type WebuiProvidersProvider = {
   listProviders(traceId: string): Promise<unknown> | unknown;
 };
 
+export type WebuiSkillsProvider = {
+  listSkills(traceId: string): Promise<unknown> | unknown;
+  getSkillDetail(name: string, traceId: string): Promise<unknown> | unknown;
+};
+
 const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
   { key: "bootstrap", method: "GET", path: "/webui/bootstrap", public: true },
   { key: "get_status", method: "GET", path: "/api/status", public: false },
@@ -172,6 +177,8 @@ const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
   { key: "delete_session", method: "DELETE", path: "/api/sessions/{key}", public: false },
   { key: "clear_session", method: "POST", path: "/api/sessions/{key}/clear", public: false },
   { key: "list_temporary_files", method: "GET", path: "/api/sessions/{key}/temporary-files", public: false },
+  { key: "get_skills", method: "GET", path: "/api/skills", public: false },
+  { key: "get_skill_detail", method: "GET", path: "/api/skills/{name}", public: false },
 ];
 
 export function webuiRouteSpecs(): WebuiRouteSpec[] {
@@ -188,6 +195,7 @@ export async function handleWebuiRouteRequest(
   providerModelsProvider?: WebuiProviderModelsProvider,
   configProvider?: WebuiConfigProvider,
   providersProvider?: WebuiProvidersProvider,
+  skillsProvider?: WebuiSkillsProvider,
   traceId = "webui-route",
 ): Promise<WebuiRouteResponse> {
   const method = request.method.toUpperCase();
@@ -216,6 +224,19 @@ export async function handleWebuiRouteRequest(
       return { status: 503, body: { error: "webui control route unavailable", route: "providers" } };
     }
     return { status: 200, body: await providersProvider.listProviders(traceId) };
+  }
+  if (method === "GET" && path === "/api/skills") {
+    if (!skillsProvider) {
+      return { status: 503, body: { error: "webui control route unavailable", route: "get_skills" } };
+    }
+    return { status: 200, body: await skillsProvider.listSkills(traceId) };
+  }
+  const skillName = skillDetailPath(method, path);
+  if (skillName !== undefined) {
+    if (!skillsProvider) {
+      return { status: 503, body: { error: "webui control route unavailable", route: "get_skill_detail" } };
+    }
+    return { status: 200, body: await skillsProvider.getSkillDetail(skillName, traceId) };
   }
   if (method === "POST" && path === "/api/provider-models") {
     return webuiProviderModelsResponse(request.body, providerModelsProvider, traceId);
@@ -734,6 +755,14 @@ function temporaryFilesPathKey(method: string, path: string): string | undefined
     return undefined;
   }
   const match = /^\/api\/sessions\/([^/]+)\/temporary-files$/.exec(path);
+  return match ? decodeURIComponent(match[1]) : undefined;
+}
+
+function skillDetailPath(method: string, path: string): string | undefined {
+  if (method !== "GET") {
+    return undefined;
+  }
+  const match = /^\/api\/skills\/(.+)$/.exec(path);
   return match ? decodeURIComponent(match[1]) : undefined;
 }
 

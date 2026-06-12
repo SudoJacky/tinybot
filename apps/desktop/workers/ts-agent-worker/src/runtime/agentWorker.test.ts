@@ -244,6 +244,60 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("serves WebUI skills read routes through TS worker RPC", async () => {
+    const calls: Array<{ type: string; traceId: string; name?: string }> = [];
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      skillsBridge: {
+        listWebuiSkills: async (traceId) => {
+          calls.push({ type: "list", traceId });
+          return { skills: [{ name: "planner/phase", tinybot_meta: { always: true } }] };
+        },
+        getWebuiSkillDetail: async (name, traceId) => {
+          calls.push({ type: "detail", traceId, name });
+          return { name, content: "Plan.", tinybot_meta: { always: true } };
+        },
+        createWebuiSkill: async () => ({}),
+        updateWebuiSkill: async () => ({}),
+        deleteWebuiSkill: async () => ({}),
+        validateWebuiSkill: async () => ({}),
+      },
+    });
+
+    await expect(worker.handleRequest(webuiRequest("webui.route_specs"))).resolves.toMatchObject({
+      result: {
+        routes: expect.arrayContaining([
+          { key: "get_skills", method: "GET", path: "/api/skills", public: false },
+          { key: "get_skill_detail", method: "GET", path: "/api/skills/{name}", public: false },
+        ]),
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
+      path: "/api/skills",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: { skills: [{ name: "planner/phase", tinybot_meta: { always: true } }] },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
+      path: "/api/skills/planner%2Fphase",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: { name: "planner/phase", content: "Plan.", tinybot_meta: { always: true } },
+      },
+    });
+    expect(calls).toEqual([
+      { type: "list", traceId: "trace-webui.handle_request" },
+      { type: "detail", traceId: "trace-webui.handle_request", name: "planner/phase" },
+    ]);
+  });
+
   test("serves WebUI bootstrap route through TS worker RPC", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),

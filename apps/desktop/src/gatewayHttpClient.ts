@@ -370,12 +370,15 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
     },
     skills: {
       list: () => nativeOrGateway(
-        () => options.nativeSkills?.list(),
+        () => options.nativeWebui?.route({ method: "GET", path: "/api/skills" }) ?? options.nativeSkills?.list(),
         () => request("/api/skills"),
         "skills.list",
       ),
       detail: (name: string) => nativeOrGateway(
-        () => options.nativeSkills?.detail(name),
+        () => options.nativeWebui?.route({
+          method: "GET",
+          path: `/api/skills/${encodePathSegment(name)}`,
+        }) ?? options.nativeSkills?.detail(name),
         () => request(`/api/skills/${encodePathSegment(name)}`),
         "skills.detail",
       ),
