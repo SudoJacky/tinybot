@@ -516,7 +516,16 @@ export class AgentWorker {
         result,
       };
     } catch (error) {
-      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+      const message = errorMessage(error);
+      if (/^cowork session '.+' not found$/.test(message)) {
+        return {
+          protocol_version: WORKER_PROTOCOL_VERSION,
+          id: request.id,
+          trace_id: request.trace_id,
+          result: { status: 404, body: { error: "cowork session not found" } },
+        };
+      }
+      return this.failure(request, message, {}, "invalid_protocol");
     }
   }
 
@@ -606,7 +615,7 @@ export class AgentWorker {
 
     if (segments.length === 2 && route.method === "GET") {
       const session = await this.coworkService.getSession(sessionId, traceId);
-      return session ? { status: 200, body: { session } } : { status: 404, body: { error: "session not found" } };
+      return session ? { status: 200, body: { session } } : { status: 404, body: { error: "cowork session not found" } };
     }
 
     if (segments.length === 2 && route.method === "DELETE") {

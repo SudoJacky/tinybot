@@ -1253,6 +1253,42 @@ describe("AgentWorker", () => {
     });
 
     await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "GET",
+      path: "/api/cowork/sessions/missing-session",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 404,
+        body: {
+          error: "cowork session not found",
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "GET",
+      path: "/api/cowork/sessions/missing-session/summary",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 404,
+        body: {
+          error: "cowork session not found",
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "GET",
+      path: "/api/cowork/sessions/missing-session/trace",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 404,
+        body: {
+          error: "cowork session not found",
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
       method: "POST",
       path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/final-result/select`,
       body: { branch_id: "missing-branch" },
