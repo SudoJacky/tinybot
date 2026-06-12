@@ -1376,6 +1376,7 @@ describe("AgentWorker", () => {
           { key: "knowledge_stats", method: "GET", path: "/v1/knowledge/stats", public: true },
           { key: "knowledge_job", method: "GET", path: "/v1/knowledge/jobs/{job_id}", public: true },
           { key: "knowledge_rebuild_index", method: "POST", path: "/v1/knowledge/rebuild-index", public: true },
+          { key: "knowledge_graph", method: "GET", path: "/v1/knowledge/graph", public: true },
         ]),
       },
     });
@@ -1493,6 +1494,38 @@ describe("AgentWorker", () => {
       result: { status: 200, body: { total_documents: 1, total_chunks: 2, retrieval_ready: true } },
     });
     await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
+      path: "/v1/knowledge/graph?doc_id=doc-1&limit=20&edge_limit=40&min_confidence=0.2&include_orphans=true",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          object: "knowledge_graph",
+          nodes: [],
+          edges: [],
+          stats: {
+            node_count: 0,
+            edge_count: 0,
+            total_entities: 0,
+            total_relations: 0,
+            total_mentions: 0,
+            doc_id: "doc-1",
+            limit: 20,
+            edge_limit: 40,
+            min_confidence: 0.2,
+            include_orphans: true,
+          },
+          readiness: {
+            retrieval_ready: true,
+            claims_ready: false,
+            relations_ready: false,
+            graph_ready: false,
+            partial_availability: true,
+          },
+        },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
       method: "POST",
       path: "/v1/knowledge/rebuild-index?type=bm25&async_index=true",
     }))).resolves.toMatchObject({
@@ -1560,6 +1593,7 @@ describe("AgentWorker", () => {
       { method: "get", traceId: "trace-webui.handle_request", params: { docId: "doc-1" } },
       { method: "delete", traceId: "trace-webui.handle_request", params: { docId: "doc-1" } },
       { method: "query", traceId: "trace-webui.handle_request", params: { query: "native knowledge", mode: "sparse", top_k: 3 } },
+      { method: "stats", traceId: "trace-webui.handle_request" },
       { method: "stats", traceId: "trace-webui.handle_request" },
       { method: "stats", traceId: "trace-webui.handle_request" },
       { method: "stats", traceId: "trace-webui.handle_request" },

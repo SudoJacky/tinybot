@@ -282,6 +282,7 @@ const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
   { key: "knowledge_stats", method: "GET", path: "/v1/knowledge/stats", public: true },
   { key: "knowledge_job", method: "GET", path: "/v1/knowledge/jobs/{job_id}", public: true },
   { key: "knowledge_rebuild_index", method: "POST", path: "/v1/knowledge/rebuild-index", public: true },
+  { key: "knowledge_graph", method: "GET", path: "/v1/knowledge/graph", public: true },
   { key: "bootstrap", method: "GET", path: "/webui/bootstrap", public: true },
   { key: "refresh_token", method: "POST", path: "/webui/refresh-token", public: true },
   { key: "get_status", method: "GET", path: "/api/status", public: false },
@@ -377,6 +378,9 @@ export async function handleWebuiRouteRequest(
   }
   if (method === "POST" && path === "/v1/knowledge/rebuild-index") {
     return knowledgeRebuildIndexResponse(url.searchParams, knowledgeProvider, traceId);
+  }
+  if (method === "GET" && path === "/v1/knowledge/graph") {
+    return knowledgeGraphResponse(url.searchParams, knowledgeProvider, traceId);
   }
   if (method === "GET" && path === "/webui/bootstrap") {
     if (!bootstrapProvider) {
@@ -1077,6 +1081,22 @@ async function knowledgeRebuildIndexResponse(
   };
 }
 
+async function knowledgeGraphResponse(
+  query: URLSearchParams,
+  provider: WebuiKnowledgeProvider | undefined,
+  traceId: string,
+): Promise<WebuiRouteResponse> {
+  if (!provider) {
+    return { status: 503, body: { error: "Knowledge store not initialized" } };
+  }
+  const params = parseKnowledgeGraphQuery(query);
+  if (!params.ok) {
+    return { status: 400, body: { error: "Invalid graph query params" } };
+  }
+  const stats = knowledgeStatsBody(await provider.stats(traceId));
+  return { status: 200, body: knowledgeGraphBody(stats, params.value) };
+}
+
 async function knowledgeQueryResponse(
   body: unknown,
   provider: WebuiKnowledgeProvider | undefined,
@@ -1140,6 +1160,77 @@ function knowledgeBm25RebuildResult(stats: Record<string, unknown>): Record<stri
     chunks_indexed: numberValue(stats.total_chunks) ?? 0,
     terms_created: numberValue(stats.terms_created) ?? 0,
     total_docs: numberValue(stats.total_documents) ?? 0,
+  };
+}
+
+type KnowledgeGraphQuery = {
+  docId: string;
+  limit: number;
+  edgeLimit: number;
+  minConfidence: number;
+  includeOrphans: boolean;
+};
+
+function parseKnowledgeGraphQuery(query: URLSearchParams): { ok: true; value: KnowledgeGraphQuery } | { ok: false } {
+  const limit = clampedNumberQuery(query.get("limit"), 80, 1, 500, true);
+  if (limit === undefined) {
+    return { ok: false };
+  }
+  const edgeLimit = clampedNumberQuery(query.get("edge_limit"), limit * 2, 1, 1000, true);
+  if (edgeLimit === undefined) {
+    return { ok: false };
+  }
+  const minConfidence = clampedNumberQuery(query.get("min_confidence"), 0, 0, 1, false);
+  if (minConfidence === undefined) {
+    return { ok: false };
+  }
+  return {
+    ok: true,
+    value: {
+      docId: query.get("doc_id") ?? "",
+      limit,
+      edgeLimit,
+      minConfidence,
+      includeOrphans: booleanQuery(query.get("include_orphans")),
+    },
+  };
+}
+
+function knowledgeGraphBody(
+  stats: Record<string, unknown>,
+  query: KnowledgeGraphQuery,
+): Record<string, unknown> {
+  const retrievalReady = Boolean(stats.retrieval_ready);
+  const graphReady = Boolean(stats.graph_ready);
+  return {
+    object: "knowledge_graph",
+    nodes: [],
+    edges: [],
+    communities: [],
+    reports: [],
+    claims: [],
+    conflicts: [],
+    stats: {
+      node_count: 0,
+      edge_count: 0,
+      total_entities: numberValue(stats.entity_count) ?? 0,
+      total_relations: numberValue(stats.relation_count) ?? 0,
+      total_mentions: 0,
+      doc_id: query.docId,
+      limit: query.limit,
+      edge_limit: query.edgeLimit,
+      min_confidence: query.minConfidence,
+      include_orphans: query.includeOrphans,
+    },
+    readiness: {
+      retrieval_ready: retrievalReady,
+      claims_ready: Boolean(stats.claims_ready),
+      relations_ready: Boolean(stats.relations_ready),
+      graph_ready: graphReady,
+      partial_availability: Boolean(stats.partial_availability) || (retrievalReady && !graphReady),
+    },
+    stage_readiness: isJsonObject(stats.stage_readiness) ? stats.stage_readiness : {},
+    stage_coverage: isJsonObject(stats.stage_coverage) ? stats.stage_coverage : {},
   };
 }
 
@@ -1892,6 +1983,21 @@ function integerFromString(value: string | null): number | undefined {
   }
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function clampedNumberQuery(
+  value: string | null,
+  fallback: number,
+  min: number,
+  max: number,
+  integer: boolean,
+): number | undefined {
+  const parsed = value === null || value === "" ? fallback : Number(value);
+  if (!Number.isFinite(parsed)) {
+    return undefined;
+  }
+  const normalized = integer ? Math.trunc(parsed) : parsed;
+  return Math.max(min, Math.min(max, normalized));
 }
 
 function asObject(value: unknown): Record<string, unknown> | undefined {

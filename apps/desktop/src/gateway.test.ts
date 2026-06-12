@@ -1118,6 +1118,13 @@ describe("gateway HTTP client", () => {
         path: "/v1/knowledge/rebuild-index?type=bm25&async_index=true",
       },
     });
+    await expect(client.knowledge.graph()).resolves.toEqual({
+      native: true,
+      request: {
+        method: "GET",
+        path: "/v1/knowledge/graph",
+      },
+    });
     expect(fetchFn).not.toHaveBeenCalled();
   });
 

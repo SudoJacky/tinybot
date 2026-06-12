@@ -537,7 +537,11 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         () => request("/v1/knowledge/stats"),
         "knowledge.stats",
       ),
-      graph: () => request("/v1/knowledge/graph"),
+      graph: () => nativeOrGateway(
+        () => options.nativeWebui?.route({ method: "GET", path: "/v1/knowledge/graph" }),
+        () => request("/v1/knowledge/graph"),
+        "knowledge.graph",
+      ),
       graphrag: () => request("/v1/knowledge/graphrag?min_confidence=0&include_reports=true&include_covariates=true"),
       query: (body: unknown) => nativeOrGateway(
         () => options.nativeWebui?.route({ method: "POST", path: "/v1/knowledge/query", body }),
