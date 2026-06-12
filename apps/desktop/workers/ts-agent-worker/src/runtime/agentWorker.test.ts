@@ -503,6 +503,63 @@ describe("AgentWorker", () => {
     ]);
   });
 
+  test("serves WebUI session temporary files list control route through TS worker RPC", async () => {
+    const temporaryFileRequests: Array<{ sessionId: string; traceId: string }> = [];
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      webuiSessionProvider: {
+        listSessions: () => [],
+        listTemporaryFiles: (sessionId: string, traceId: string) => {
+          temporaryFileRequests.push({ sessionId, traceId });
+          return {
+            sessionId,
+            items: [
+              {
+                id: "tmp-1",
+                name: "context.md",
+                file_type: "md",
+                chunk_count: 2,
+                temporary: true,
+              },
+            ],
+          };
+        },
+      },
+    } as any);
+
+    await expect(worker.handleRequest(webuiRequest("webui.route_specs"))).resolves.toMatchObject({
+      result: {
+        routes: expect.arrayContaining([
+          { key: "list_temporary_files", method: "GET", path: "/api/sessions/{key}/temporary-files", public: false },
+        ]),
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
+      path: "/api/sessions/websocket%3Achat-1/temporary-files",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          items: [
+            {
+              id: "tmp-1",
+              name: "context.md",
+              file_type: "md",
+              chunk_count: 2,
+              temporary: true,
+            },
+          ],
+        },
+      },
+    });
+    expect(temporaryFileRequests).toEqual([
+      { sessionId: "websocket:chat-1", traceId: "trace-webui.handle_request" },
+    ]);
+  });
+
   test("returns Python-compatible cowork route unavailable errors", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),

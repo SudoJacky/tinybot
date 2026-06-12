@@ -119,6 +119,49 @@ describe("NativeSessionBridge", () => {
     ]);
   });
 
+  test("lists WebUI temporary files through native session.get_metadata", async () => {
+    const requests: Array<{ traceId: string; method: string; params: Record<string, unknown> }> = [];
+    const bridge = new NativeSessionBridge({
+      request: async (traceId, method, params) => {
+        requests.push({ traceId, method, params });
+        return {
+          session_id: "websocket:chat-1",
+          extra: {
+            temporary_files: [
+              {
+                id: "tmp-1",
+                name: "context.md",
+                file_type: "md",
+                chunk_count: 2,
+                temporary: true,
+              },
+            ],
+          },
+        };
+      },
+    });
+
+    await expect((bridge as any).listTemporaryFiles("websocket:chat-1", "trace-webui")).resolves.toEqual({
+      sessionId: "websocket:chat-1",
+      items: [
+        {
+          id: "tmp-1",
+          name: "context.md",
+          file_type: "md",
+          chunk_count: 2,
+          temporary: true,
+        },
+      ],
+    });
+    expect(requests).toEqual([
+      {
+        traceId: "trace-webui",
+        method: "session.get_metadata",
+        params: { session_id: "websocket:chat-1" },
+      },
+    ]);
+  });
+
   test("lists WebUI session metadata through native session.list_metadata", async () => {
     const requests: Array<{ traceId: string; method: string; params: Record<string, unknown> }> = [];
     const bridge = new NativeSessionBridge({

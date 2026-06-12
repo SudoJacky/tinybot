@@ -7,6 +7,7 @@ import type {
   WebuiSessionMessages,
   WebuiSessionMetadata,
   WebuiSessionProfile,
+  WebuiSessionTemporaryFiles,
   WebuiSessionProvider,
 } from "../webui/webuiRoutes.ts";
 import type { ClearSessionResult, PersistTurnRequest, PersistTurnResult, SessionBridge } from "./agentWorker.ts";
@@ -58,6 +59,13 @@ export class NativeSessionBridge implements SessionBridge, WebuiSessionProvider 
       metadata,
     });
     return normalizeWebuiPatchSessionResult(result);
+  }
+
+  async listTemporaryFiles(sessionId: string, traceId: string): Promise<WebuiSessionTemporaryFiles> {
+    const result = await this.rpcClient.request(traceId, "session.get_metadata", {
+      session_id: sessionId,
+    });
+    return normalizeWebuiTemporaryFiles(result, sessionId);
   }
 
   async deleteSession(sessionId: string, traceId: string): Promise<WebuiDeleteSessionResult> {
@@ -210,6 +218,19 @@ function normalizeWebuiPatchSessionResult(result: unknown): WebuiPatchSessionRes
     sessionId,
     metadata: isJsonObject(metadata) ? metadata : {},
     updatedAt: stringField(result, "updatedAt", "updated_at") ?? "",
+  };
+}
+
+function normalizeWebuiTemporaryFiles(result: unknown, fallbackSessionId: string): WebuiSessionTemporaryFiles {
+  if (!isJsonObject(result)) {
+    return { sessionId: fallbackSessionId, items: [] };
+  }
+  const sessionId = stringField(result, "sessionId", "session_id") ?? fallbackSessionId;
+  const extra = isJsonObject(result.extra) ? result.extra : {};
+  const items = extra.temporary_files ?? extra.temporaryFiles ?? result.temporary_files ?? result.temporaryFiles;
+  return {
+    sessionId,
+    items: Array.isArray(items) ? items.filter(isJsonObject) : [],
   };
 }
 

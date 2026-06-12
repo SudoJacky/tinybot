@@ -52,6 +52,11 @@ export type WebuiPatchSessionResult = {
   updatedAt: string;
 };
 
+export type WebuiSessionTemporaryFiles = {
+  sessionId: string;
+  items: Record<string, unknown>[];
+};
+
 export type WebuiClearSessionResult = {
   sessionId: string;
   messagesBefore: number;
@@ -80,6 +85,10 @@ export type WebuiSessionProvider = {
     metadata: Record<string, unknown>,
     traceId: string,
   ): Promise<WebuiPatchSessionResult | null> | WebuiPatchSessionResult | null;
+  listTemporaryFiles?(
+    sessionId: string,
+    traceId: string,
+  ): Promise<WebuiSessionTemporaryFiles> | WebuiSessionTemporaryFiles;
   clearSession?(
     sessionId: string,
     traceId: string,
@@ -98,6 +107,7 @@ const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
   { key: "patch_session", method: "PATCH", path: "/api/sessions/{key}", public: false },
   { key: "delete_session", method: "DELETE", path: "/api/sessions/{key}", public: false },
   { key: "clear_session", method: "POST", path: "/api/sessions/{key}/clear", public: false },
+  { key: "list_temporary_files", method: "GET", path: "/api/sessions/{key}/temporary-files", public: false },
 ];
 
 export function webuiRouteSpecs(): WebuiRouteSpec[] {
@@ -160,6 +170,16 @@ export async function handleWebuiRouteRequest(
       return { status: 404, body: { error: "session not found" } };
     }
     return { status: 200, body: webuiPatchSessionBody(session) };
+  }
+  const temporaryFilesKey = temporaryFilesPathKey(method, path);
+  if (temporaryFilesKey !== undefined) {
+    if (!sessionProvider?.listTemporaryFiles) {
+      return { status: 200, body: { items: [] } };
+    }
+    return {
+      status: 200,
+      body: webuiTemporaryFilesBody(await sessionProvider.listTemporaryFiles(temporaryFilesKey, traceId)),
+    };
   }
   const clearSessionKey = clearSessionPathKey(method, path);
   if (clearSessionKey !== undefined) {
@@ -278,6 +298,12 @@ function webuiPatchSessionBody(session: WebuiPatchSessionResult): Record<string,
   };
 }
 
+function webuiTemporaryFilesBody(session: WebuiSessionTemporaryFiles): Record<string, unknown> {
+  return {
+    items: session.items,
+  };
+}
+
 function serializeWebuiMessage(message: Record<string, unknown>): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     role: typeof message.role === "string" ? message.role : "",
@@ -341,6 +367,9 @@ function routeKey(method: string, path: string): string {
   if (patchSessionPathKey(method, path) !== undefined) {
     return "patch_session";
   }
+  if (temporaryFilesPathKey(method, path) !== undefined) {
+    return "list_temporary_files";
+  }
   if (clearSessionPathKey(method, path) !== undefined) {
     return "clear_session";
   }
@@ -372,6 +401,14 @@ function patchSessionPathKey(method: string, path: string): string | undefined {
     return undefined;
   }
   const match = /^\/api\/sessions\/([^/]+)$/.exec(path);
+  return match ? decodeURIComponent(match[1]) : undefined;
+}
+
+function temporaryFilesPathKey(method: string, path: string): string | undefined {
+  if (method !== "GET") {
+    return undefined;
+  }
+  const match = /^\/api\/sessions\/([^/]+)\/temporary-files$/.exec(path);
   return match ? decodeURIComponent(match[1]) : undefined;
 }
 
