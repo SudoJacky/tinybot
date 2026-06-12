@@ -1111,6 +1111,13 @@ describe("gateway HTTP client", () => {
         path: "/v1/knowledge/jobs/kjob_doc-2",
       },
     });
+    await expect(client.knowledge.rebuildIndex("bm25")).resolves.toEqual({
+      native: true,
+      request: {
+        method: "POST",
+        path: "/v1/knowledge/rebuild-index?type=bm25&async_index=true",
+      },
+    });
     expect(fetchFn).not.toHaveBeenCalled();
   });
 

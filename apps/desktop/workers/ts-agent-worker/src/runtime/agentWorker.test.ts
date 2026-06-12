@@ -1375,6 +1375,7 @@ describe("AgentWorker", () => {
           { key: "knowledge_query", method: "POST", path: "/v1/knowledge/query", public: true },
           { key: "knowledge_stats", method: "GET", path: "/v1/knowledge/stats", public: true },
           { key: "knowledge_job", method: "GET", path: "/v1/knowledge/jobs/{job_id}", public: true },
+          { key: "knowledge_rebuild_index", method: "POST", path: "/v1/knowledge/rebuild-index", public: true },
         ]),
       },
     });
@@ -1491,6 +1492,55 @@ describe("AgentWorker", () => {
     }))).resolves.toMatchObject({
       result: { status: 200, body: { total_documents: 1, total_chunks: 2, retrieval_ready: true } },
     });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/v1/knowledge/rebuild-index?type=bm25&async_index=true",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 202,
+        body: {
+          message: "Knowledge index rebuild started",
+          job_id: "kjob_rebuild_bm25",
+          type: "bm25",
+          job: {
+            id: "kjob_rebuild_bm25",
+            name: "rebuild:bm25",
+            status: "completed",
+            stage: "completed",
+            message: "BM25 index is available in native TS worker",
+            processed: 2,
+            total: 2,
+            retrieval_ready: true,
+            graph_ready: false,
+            partial_availability: true,
+            result: {
+              chunks_indexed: 2,
+              terms_created: 0,
+              total_docs: 1,
+            },
+          },
+        },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
+      path: "/v1/knowledge/jobs/kjob_rebuild_bm25",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          id: "kjob_rebuild_bm25",
+          name: "rebuild:bm25",
+          status: "completed",
+          stage: "completed",
+          result: {
+            chunks_indexed: 2,
+            terms_created: 0,
+            total_docs: 1,
+          },
+        },
+      },
+    });
     expect(calls).toEqual([
       { method: "list", traceId: "trace-webui.handle_request", params: { category: "docs", limit: 10 } },
       { method: "add", traceId: "trace-webui.handle_request", params: { name: "Added", content: "Body", file_type: "md" } },
@@ -1510,6 +1560,8 @@ describe("AgentWorker", () => {
       { method: "get", traceId: "trace-webui.handle_request", params: { docId: "doc-1" } },
       { method: "delete", traceId: "trace-webui.handle_request", params: { docId: "doc-1" } },
       { method: "query", traceId: "trace-webui.handle_request", params: { query: "native knowledge", mode: "sparse", top_k: 3 } },
+      { method: "stats", traceId: "trace-webui.handle_request" },
+      { method: "stats", traceId: "trace-webui.handle_request" },
       { method: "stats", traceId: "trace-webui.handle_request" },
     ]);
   });

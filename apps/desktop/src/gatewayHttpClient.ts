@@ -524,8 +524,14 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
           "knowledge.job",
         );
       },
-      rebuildIndex: (type: string = "all") =>
-        request(`/v1/knowledge/rebuild-index?type=${encodeURIComponent(type)}&async_index=true`, { method: "POST" }),
+      rebuildIndex: (type: string = "all") => {
+        const path = `/v1/knowledge/rebuild-index?type=${encodeURIComponent(type)}&async_index=true`;
+        return nativeOrGateway(
+          () => type === "bm25" ? options.nativeWebui?.route({ method: "POST", path }) : undefined,
+          () => request(path, { method: "POST" }),
+          "knowledge.rebuildIndex",
+        );
+      },
       stats: () => nativeOrGateway(
         () => options.nativeWebui?.route({ method: "GET", path: "/v1/knowledge/stats" }),
         () => request("/v1/knowledge/stats"),

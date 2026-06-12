@@ -281,6 +281,7 @@ const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
   { key: "knowledge_query", method: "POST", path: "/v1/knowledge/query", public: true },
   { key: "knowledge_stats", method: "GET", path: "/v1/knowledge/stats", public: true },
   { key: "knowledge_job", method: "GET", path: "/v1/knowledge/jobs/{job_id}", public: true },
+  { key: "knowledge_rebuild_index", method: "POST", path: "/v1/knowledge/rebuild-index", public: true },
   { key: "bootstrap", method: "GET", path: "/webui/bootstrap", public: true },
   { key: "refresh_token", method: "POST", path: "/webui/refresh-token", public: true },
   { key: "get_status", method: "GET", path: "/api/status", public: false },
@@ -373,6 +374,9 @@ export async function handleWebuiRouteRequest(
   const knowledgeJobId = knowledgeJobPath(method, path);
   if (knowledgeJobId !== undefined) {
     return knowledgeJobResponse(knowledgeJobId, knowledgeProvider, traceId);
+  }
+  if (method === "POST" && path === "/v1/knowledge/rebuild-index") {
+    return knowledgeRebuildIndexResponse(url.searchParams, knowledgeProvider, traceId);
   }
   if (method === "GET" && path === "/webui/bootstrap") {
     if (!bootstrapProvider) {
@@ -1016,6 +1020,10 @@ async function knowledgeJobResponse(
   if (!provider) {
     return { status: 503, body: { error: "Knowledge store not initialized" } };
   }
+  if (jobId === "kjob_rebuild_bm25") {
+    const stats = knowledgeStatsBody(await provider.stats(traceId));
+    return { status: 200, body: completedKnowledgeBm25RebuildJob(stats, knowledgeBm25RebuildResult(stats)) };
+  }
   const docId = knowledgeUploadJobDocumentId(jobId);
   if (!docId) {
     return { status: 404, body: { error: `Knowledge job ${jobId} not found` } };
@@ -1027,6 +1035,46 @@ async function knowledgeJobResponse(
   }
   const name = stringValue(document.name) ?? docId;
   return { status: 200, body: completedKnowledgeUploadJob(docId, name) };
+}
+
+async function knowledgeRebuildIndexResponse(
+  query: URLSearchParams,
+  provider: WebuiKnowledgeProvider | undefined,
+  traceId: string,
+): Promise<WebuiRouteResponse> {
+  if (!provider) {
+    return { status: 503, body: { error: "Knowledge store not initialized" } };
+  }
+  const rebuildType = query.get("type") ?? "bm25";
+  if (rebuildType !== "bm25") {
+    return {
+      status: 404,
+      body: { error: `Knowledge rebuild type '${rebuildType}' not available natively` },
+    };
+  }
+
+  const stats = knowledgeStatsBody(await provider.stats(traceId));
+  const result = knowledgeBm25RebuildResult(stats);
+  if (!booleanQuery(query.get("async_index"))) {
+    return {
+      status: 200,
+      body: {
+        message: "BM25 index rebuilt successfully",
+        ...result,
+      },
+    };
+  }
+
+  const job = completedKnowledgeBm25RebuildJob(stats, result);
+  return {
+    status: 202,
+    body: {
+      message: "Knowledge index rebuild started",
+      job,
+      job_id: job.id,
+      type: "bm25",
+    },
+  };
 }
 
 async function knowledgeQueryResponse(
@@ -1084,6 +1132,14 @@ function knowledgeStatsBody(result: unknown): Record<string, unknown> {
     relations_ready: Boolean(stats.relations_ready),
     graph_ready: Boolean(stats.graph_ready),
     partial_availability: Boolean(stats.partial_availability),
+  };
+}
+
+function knowledgeBm25RebuildResult(stats: Record<string, unknown>): Record<string, unknown> {
+  return {
+    chunks_indexed: numberValue(stats.total_chunks) ?? 0,
+    terms_created: numberValue(stats.terms_created) ?? 0,
+    total_docs: numberValue(stats.total_documents) ?? 0,
   };
 }
 
@@ -1204,6 +1260,32 @@ function completedKnowledgeUploadJob(docId: string, name: string): Record<string
     retrieval_ready: true,
     graph_ready: false,
     partial_availability: true,
+  };
+}
+
+function completedKnowledgeBm25RebuildJob(
+  stats: Record<string, unknown>,
+  result: Record<string, unknown>,
+): Record<string, unknown> {
+  const chunksIndexed = numberValue(result.chunks_indexed) ?? 0;
+  const retrievalReady = Boolean(stats.retrieval_ready) || chunksIndexed > 0;
+  const graphReady = Boolean(stats.graph_ready);
+  return {
+    id: "kjob_rebuild_bm25",
+    name: "rebuild:bm25",
+    status: "completed",
+    stage: "completed",
+    message: "BM25 index is available in native TS worker",
+    processed: chunksIndexed,
+    total: chunksIndexed,
+    error: "",
+    stage_details: Array.isArray(stats.stage_details) ? stats.stage_details : [],
+    failed_stage_count: numberValue(stats.failed_stage_count) ?? 0,
+    stale_stage_count: numberValue(stats.stale_stage_count) ?? 0,
+    retrieval_ready: retrievalReady,
+    graph_ready: graphReady,
+    partial_availability: retrievalReady && !graphReady,
+    result,
   };
 }
 
