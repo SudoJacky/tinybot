@@ -320,7 +320,11 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
       providerModels: (body: unknown) => request("/api/provider-models", jsonRequest("POST", body)),
     },
     tools: {
-      list: () => request("/api/tools"),
+      list: () => nativeOrGateway(
+        () => options.nativeWebui?.route({ method: "GET", path: "/api/tools" }),
+        () => request("/api/tools"),
+        "webui.tools.list",
+      ),
       approvals: () => request("/api/approvals"),
       approveApproval: (approvalId: string, body: unknown) =>
         request(`/api/approvals/${encodePathSegment(approvalId)}/approve`, jsonRequest("POST", body)),

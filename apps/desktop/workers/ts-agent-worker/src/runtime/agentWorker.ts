@@ -2543,6 +2543,7 @@ export class AgentWorker {
           parseWebuiRouteRequest(request.params),
           this.statusProvider,
           this.webuiSessionProvider,
+          this.tools,
           request.trace_id,
         ),
       };

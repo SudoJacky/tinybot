@@ -209,6 +209,41 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("serves WebUI tools control route through TS worker RPC", async () => {
+    const tools = new ToolRegistry();
+    tools.register({
+      name: "shell",
+      description: "A".repeat(250),
+      parameters: { type: "object", properties: {} },
+      execute: async () => ({ content: "ok" }),
+    });
+
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools,
+      emitEvent: () => undefined,
+    });
+
+    await expect(worker.handleRequest(webuiRequest("webui.route_specs"))).resolves.toMatchObject({
+      result: {
+        routes: expect.arrayContaining([
+          { key: "get_tools", method: "GET", path: "/api/tools", public: false },
+        ]),
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
+      path: "/api/tools",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          tools: [{ name: "shell", description: "A".repeat(200) }],
+        },
+      },
+    });
+  });
+
   test("serves WebUI session list control route through TS worker RPC", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),

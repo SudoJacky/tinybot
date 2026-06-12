@@ -1,4 +1,5 @@
 import { isJsonObject, type JsonObject } from "../protocol/messages.ts";
+import type { ToolRegistry } from "../tools/toolRegistry.ts";
 
 export type WebuiRouteSpec = {
   key: string;
@@ -101,6 +102,7 @@ export type WebuiSessionProvider = {
 
 const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
   { key: "get_status", method: "GET", path: "/api/status", public: false },
+  { key: "get_tools", method: "GET", path: "/api/tools", public: false },
   { key: "list_sessions", method: "GET", path: "/api/sessions", public: false },
   { key: "get_messages", method: "GET", path: "/api/sessions/{key}/messages", public: false },
   { key: "get_profile", method: "GET", path: "/api/sessions/{key}/profile", public: false },
@@ -118,12 +120,16 @@ export async function handleWebuiRouteRequest(
   request: WebuiRouteRequest,
   statusProvider: WebuiStatusProvider | undefined,
   sessionProvider?: WebuiSessionProvider,
+  tools?: ToolRegistry,
   traceId = "webui-route",
 ): Promise<WebuiRouteResponse> {
   const method = request.method.toUpperCase();
   const path = new URL(request.path, "http://worker.local").pathname;
   if (method === "GET" && path === "/api/status") {
     return { status: 200, body: webuiStatusBody(await resolveStatus(statusProvider)) };
+  }
+  if (method === "GET" && path === "/api/tools") {
+    return { status: 200, body: webuiToolsBody(tools) };
   }
   if (method === "GET" && path === "/api/sessions") {
     if (!sessionProvider) {
@@ -235,6 +241,17 @@ function webuiStatusBody(status: WebuiStatusSnapshot): Record<string, unknown> {
     channels: { websocket: { enabled: true, running: status.channelRunning } },
     provider: status.provider,
     model: status.model,
+  };
+}
+
+function webuiToolsBody(tools: ToolRegistry | undefined): Record<string, unknown> {
+  return {
+    tools: (tools?.toolNames ?? [])
+      .map((name) => {
+        const tool = tools?.get(name);
+        return tool ? { name, description: (tool.description || "").slice(0, 200) } : undefined;
+      })
+      .filter((tool): tool is { name: string; description: string } => tool !== undefined),
   };
 }
 

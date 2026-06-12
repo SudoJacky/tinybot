@@ -398,6 +398,28 @@ describe("gateway HTTP client", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
+  test("prefers native WebUI tools route when available", async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
+    const nativeWebui = {
+      route: vi.fn(async (request: { method: string; path: string; body?: unknown }) => ({
+        tools: [{ name: "shell", description: "Run commands" }],
+        request,
+      })),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeWebui,
+    });
+
+    await expect(client.tools.list()).resolves.toEqual({
+      tools: [{ name: "shell", description: "Run commands" }],
+      request: { method: "GET", path: "/api/tools" },
+    });
+    expect(nativeWebui.route).toHaveBeenCalledWith({ method: "GET", path: "/api/tools" });
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
   test("prefers native WebUI session list route when available", async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
     const nativeWebui = {
