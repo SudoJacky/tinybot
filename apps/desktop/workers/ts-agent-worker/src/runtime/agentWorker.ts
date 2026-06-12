@@ -12,6 +12,7 @@ import type {
   ResolvePendingApprovalResult,
   RestartCommandRequest,
 } from "../command/commandTypes.ts";
+import { previewBlueprint, validateBlueprint } from "../cowork/coworkBlueprint.ts";
 import type { ModelProvider, ToolDefinition } from "../model/provider.ts";
 import {
   isJsonObject,
@@ -247,6 +248,14 @@ export class AgentWorker {
       return this.handleCronRunDueRequest(request);
     }
 
+    if (request.method === "cowork.validate_blueprint") {
+      return this.handleCoworkValidateBlueprintRequest(request);
+    }
+
+    if (request.method === "cowork.preview_blueprint") {
+      return this.handleCoworkPreviewBlueprintRequest(request);
+    }
+
     if (request.method === "worker.provider.reload") {
       return this.handleProviderReloadRequest(request);
     }
@@ -296,6 +305,34 @@ export class AgentWorker {
     }
 
     return this.handleRunRequest(request);
+  }
+
+  private handleCoworkValidateBlueprintRequest(request: WorkerRequest): WorkerResponse {
+    try {
+      const params = parseCoworkBlueprintParams(request.params, "cowork.validate_blueprint");
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: validateBlueprint(params.blueprint, params.policy, params.defaultGoal),
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private handleCoworkPreviewBlueprintRequest(request: WorkerRequest): WorkerResponse {
+    try {
+      const params = parseCoworkBlueprintParams(request.params, "cowork.preview_blueprint");
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: previewBlueprint(params.blueprint, params.policy, params.defaultGoal),
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
   }
 
   private async handleCronRunDueRequest(request: WorkerRequest): Promise<WorkerResponse> {
@@ -1411,6 +1448,23 @@ function parseCronRunDueParams(params: Record<string, unknown> | undefined): Cro
     model,
     maxIterations: numberParam(params, "maxIterations", "max_iterations") ?? 4,
     stream: booleanParam(params, "stream", "stream") ?? false,
+  };
+}
+
+function parseCoworkBlueprintParams(
+  params: Record<string, unknown> | undefined,
+  method: string,
+): { blueprint: unknown; policy?: Record<string, unknown>; defaultGoal: string } {
+  if (!isJsonObject(params)) {
+    throw new Error(`${method} requires object params`);
+  }
+  if (!("blueprint" in params)) {
+    throw new Error(`${method} requires params.blueprint`);
+  }
+  return {
+    blueprint: params.blueprint,
+    policy: isJsonObject(params.policy) ? params.policy : undefined,
+    defaultGoal: stringParam(params, "defaultGoal", "default_goal") ?? "",
   };
 }
 

@@ -812,6 +812,53 @@ describe("createAgentWorkerServer", () => {
     }));
   });
 
+  test("serves cowork blueprint preview through worker RPC", async () => {
+    const lines: string[] = [];
+    const server = createAgentWorkerServer({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    await server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "cowork-preview-1",
+        trace_id: "trace-cowork-preview",
+        method: "cowork.preview_blueprint",
+        params: {
+          blueprint: {
+            goal: "Plan launch",
+            workflow_mode: "hybrid",
+            budgets: { parallel_width: 2 },
+          },
+        },
+      }),
+    );
+
+    expect(lines.map((line) => JSON.parse(line)).at(-1)).toMatchObject({
+      protocol_version: "1",
+      id: "cowork-preview-1",
+      trace_id: "trace-cowork-preview",
+      result: {
+        ok: true,
+        blueprint: {
+          goal: "Plan launch",
+          workflow_mode: "adaptive_starter",
+          lead_agent_id: "coordinator",
+          budgets: { parallel_width: 2 },
+        },
+        graph_preview: {
+          schema_version: "cowork.graph.preview.v1",
+        },
+        initial_ready_work: {
+          ready_task_ids: ["lead_start"],
+        },
+      },
+    });
+  });
+
   test("registers cron tool that calls native cron RPC", async () => {
     const lines: string[] = [];
     const provider = new QueueProvider([
