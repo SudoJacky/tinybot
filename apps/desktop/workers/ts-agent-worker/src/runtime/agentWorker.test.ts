@@ -237,6 +237,40 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("maps inbound WebSocket client frames through TS worker RPC", async () => {
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+    });
+
+    await expect(worker.handleRequest(webuiRequest("transport.websocket_message", {
+      clientId: "client-1",
+      attachedChatId: "chat-1",
+      frame: {
+        type: "message",
+        chat_id: "chat-1",
+        content: "  hello  ",
+        use_persistent_rag: true,
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        kind: "message",
+        chatId: "chat-1",
+        sessionId: "websocket:chat-1",
+        inbound: {
+          channel: "websocket",
+          sender_id: "client-1",
+          chat_id: "chat-1",
+          content: "hello",
+          metadata: { _use_persistent_rag: true },
+          session_key: "websocket:chat-1",
+        },
+        frames: [],
+      },
+    });
+  });
+
   test("serves WebUI tools control route through TS worker RPC", async () => {
     const tools = new ToolRegistry();
     tools.register({

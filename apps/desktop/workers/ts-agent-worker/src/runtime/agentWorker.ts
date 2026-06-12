@@ -30,6 +30,10 @@ import {
 import type { ApprovalRequestPayload } from "../security/approvalTypes.ts";
 import type { ToolRegistry } from "../tools/toolRegistry.ts";
 import {
+  handleClientWebSocketFrame,
+  parseClientWebSocketFrameRequest,
+} from "../transport/clientFrames.ts";
+import {
   gatewayFrameFromTransportEvent,
   parseTransportGatewayFrameEvent,
 } from "../transport/streamFrames.ts";
@@ -466,6 +470,10 @@ export class AgentWorker {
 
     if (request.method === "transport.gateway_frame") {
       return this.handleTransportGatewayFrameRequest(request);
+    }
+
+    if (request.method === "transport.websocket_message") {
+      return this.handleTransportWebSocketMessageRequest(request);
     }
 
     if (request.method === "worker.provider.reload") {
@@ -2591,6 +2599,19 @@ export class AgentWorker {
         id: request.id,
         trace_id: request.trace_id,
         result: gatewayFrameFromTransportEvent(parseTransportGatewayFrameEvent(request.params)),
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private handleTransportWebSocketMessageRequest(request: WorkerRequest): WorkerResponse {
+    try {
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: handleClientWebSocketFrame(parseClientWebSocketFrameRequest(request.params)),
       };
     } catch (error) {
       return this.failure(request, errorMessage(error), {}, "invalid_protocol");
