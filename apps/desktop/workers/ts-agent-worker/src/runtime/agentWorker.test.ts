@@ -244,6 +244,50 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("serves WebUI bootstrap route through TS worker RPC", async () => {
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      webuiBootstrapProvider: {
+        bootstrap: async () => ({
+          token: "native-token-1",
+          ws_path: "/ws",
+          token_ttl_s: 3600,
+          refresh_token_path: "/webui/refresh-token",
+          sessions_path: "/api/sessions",
+          workspace_files_path: "/api/workspace/files",
+          cowork_path: "/api/cowork",
+        }),
+      },
+    });
+
+    await expect(worker.handleRequest(webuiRequest("webui.route_specs"))).resolves.toMatchObject({
+      result: {
+        routes: expect.arrayContaining([
+          { key: "bootstrap", method: "GET", path: "/webui/bootstrap", public: true },
+        ]),
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
+      path: "/webui/bootstrap",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          token: "native-token-1",
+          ws_path: "/ws",
+          token_ttl_s: 3600,
+          refresh_token_path: "/webui/refresh-token",
+          sessions_path: "/api/sessions",
+          workspace_files_path: "/api/workspace/files",
+          cowork_path: "/api/cowork",
+        },
+      },
+    });
+  });
+
   test("serves WebUI config route through TS worker RPC", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),

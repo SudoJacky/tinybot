@@ -29,6 +29,20 @@ export type WebuiStatusProvider =
   | WebuiStatusSnapshot
   | (() => Promise<WebuiStatusSnapshot> | WebuiStatusSnapshot);
 
+export type WebuiBootstrapResponse = {
+  token: string;
+  ws_path: string;
+  token_ttl_s: number;
+  refresh_token_path: string;
+  sessions_path: string;
+  workspace_files_path: string;
+  cowork_path: string;
+};
+
+export type WebuiBootstrapProvider = {
+  bootstrap(traceId: string): Promise<WebuiBootstrapResponse> | WebuiBootstrapResponse;
+};
+
 export type WebuiSessionMetadata = {
   sessionId: string;
   title: string;
@@ -142,6 +156,7 @@ export type WebuiProvidersProvider = {
 };
 
 const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
+  { key: "bootstrap", method: "GET", path: "/webui/bootstrap", public: true },
   { key: "get_status", method: "GET", path: "/api/status", public: false },
   { key: "get_tools", method: "GET", path: "/api/tools", public: false },
   { key: "get_config", method: "GET", path: "/api/config", public: false },
@@ -166,6 +181,7 @@ export function webuiRouteSpecs(): WebuiRouteSpec[] {
 export async function handleWebuiRouteRequest(
   request: WebuiRouteRequest,
   statusProvider: WebuiStatusProvider | undefined,
+  bootstrapProvider?: WebuiBootstrapProvider,
   sessionProvider?: WebuiSessionProvider,
   tools?: ToolRegistry,
   approvalProvider?: WebuiApprovalProvider,
@@ -177,6 +193,12 @@ export async function handleWebuiRouteRequest(
   const method = request.method.toUpperCase();
   const url = new URL(request.path, "http://worker.local");
   const path = url.pathname;
+  if (method === "GET" && path === "/webui/bootstrap") {
+    if (!bootstrapProvider) {
+      return { status: 503, body: { error: "webui control route unavailable", route: "bootstrap" } };
+    }
+    return { status: 200, body: await bootstrapProvider.bootstrap(traceId) };
+  }
   if (method === "GET" && path === "/api/status") {
     return { status: 200, body: webuiStatusBody(await resolveStatus(statusProvider)) };
   }

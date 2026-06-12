@@ -33,6 +33,7 @@ import {
   handleWebuiRouteRequest,
   parseWebuiRouteRequest,
   webuiRouteSpecs,
+  type WebuiBootstrapProvider,
   type WebuiConfigProvider,
   type WebuiProvidersProvider,
   type WebuiSessionProvider,
@@ -73,6 +74,7 @@ export type AgentWorkerOptions = {
   coworkService?: CoworkService;
   coworkScheduler?: CoworkScheduler;
   statusProvider?: WebuiStatusProvider;
+  webuiBootstrapProvider?: WebuiBootstrapProvider;
   webuiSessionProvider?: WebuiSessionProvider;
   webuiConfigProvider?: WebuiConfigProvider;
 };
@@ -200,6 +202,7 @@ export class AgentWorker {
   private readonly coworkService?: CoworkService;
   private readonly coworkScheduler?: CoworkScheduler;
   private readonly statusProvider?: WebuiStatusProvider;
+  private readonly webuiBootstrapProvider?: WebuiBootstrapProvider;
   private readonly webuiSessionProvider?: WebuiSessionProvider;
   private readonly webuiConfigProvider?: WebuiConfigProvider;
   private readonly commandRouter: CommandRouter;
@@ -226,6 +229,7 @@ export class AgentWorker {
     this.coworkService = options.coworkService;
     this.coworkScheduler = options.coworkScheduler;
     this.statusProvider = options.statusProvider;
+    this.webuiBootstrapProvider = options.webuiBootstrapProvider;
     this.webuiSessionProvider = options.webuiSessionProvider;
     this.webuiConfigProvider = options.webuiConfigProvider;
     this.commandRouter = options.commandRouter ?? createDefaultCommandRouter({
@@ -2547,6 +2551,7 @@ export class AgentWorker {
         result: await handleWebuiRouteRequest(
           parseWebuiRouteRequest(request.params),
           this.statusProvider,
+          this.webuiBootstrapProvider,
           this.webuiSessionProvider,
           this.tools,
           this.webuiApprovalProvider(),
