@@ -32,6 +32,7 @@ describe("desktop native WebSocket bridge", () => {
     await flushMicrotasks();
     socket.send(JSON.stringify({ type: "message", chat_id: "chat-native", content: "hello" }));
     await flushMicrotasks();
+    await flushMicrotasks();
 
     expect(handlers.get("agent.delta")).toBeDefined();
     expect(handlers.get("agent.reasoning_delta")).toBeDefined();
@@ -84,6 +85,94 @@ describe("desktop native WebSocket bridge", () => {
     socket.close();
     await flushMicrotasks();
     expect(unlisteners.every((unlisten) => vi.mocked(unlisten).mock.calls.length === 1)).toBe(true);
+  });
+
+  test("projects TS worker tool progress into legacy WebUI message frames", async () => {
+    const handlers = new Map<DesktopNativeWebSocketAgentEventName, (payload: unknown) => void>();
+    const nativeTransport: NativeTransportApi = {
+      gatewayFrame: vi.fn(),
+      websocketMessage: vi.fn(),
+      dispatchWebsocketMessage: vi.fn(async () => ({
+        transport: {
+          kind: "message",
+          chatId: "chat-native",
+          sessionId: "websocket:chat-native",
+          frames: [],
+        },
+        agent: {
+          runId: "run-2",
+          stopReason: "final_response",
+        },
+      })),
+    };
+    const socket = createDesktopNativeWebSocket({
+      url: "/ws",
+      nativeTransport,
+      listenToAgentEvent: (eventName, handler) => {
+        handlers.set(eventName, handler);
+      },
+    });
+    const events: Array<Record<string, unknown>> = [];
+    socket.addEventListener("message", (event) => {
+      events.push(JSON.parse(String((event as MessageEvent).data)) as Record<string, unknown>);
+    });
+
+    await flushMicrotasks();
+    socket.send(JSON.stringify({ type: "message", chat_id: "chat-native", content: "hello" }));
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    handlers.get("agent.tool_call.delta")?.({
+      runId: "run-2",
+      index: 0,
+      deltaText: "{\"path\":\"AGENTS.md\"}",
+      toolCallId: "call-read",
+      toolName: "read_file",
+    });
+    handlers.get("agent.tool.start")?.({
+      runId: "run-2",
+      toolCallId: "call-read",
+      toolName: "read_file",
+    });
+    handlers.get("agent.tool.result")?.({
+      runId: "run-2",
+      toolCallId: "call-read",
+      toolName: "read_file",
+      content: "file contents",
+    });
+
+    expect(events).toContainEqual({
+      event: "message",
+      chat_id: "chat-native",
+      message_id: "run-2:call-read:args",
+      text: "read_file({\"path\":\"AGENTS.md\"})",
+      _progress: true,
+      _tool_call_id: "call-read",
+      _tool_detail: true,
+      _tool_hint: true,
+      _tool_name: "read_file",
+    });
+    expect(events).toContainEqual({
+      event: "message",
+      chat_id: "chat-native",
+      message_id: "run-2:call-read:start",
+      text: "read_file({\"path\":\"AGENTS.md\"})",
+      _progress: true,
+      _tool_call_id: "call-read",
+      _tool_detail: true,
+      _tool_hint: true,
+      _tool_name: "read_file",
+    });
+    expect(events).toContainEqual({
+      event: "message",
+      chat_id: "chat-native",
+      message_id: "run-2:call-read:result",
+      text: "file contents",
+      _progress: true,
+      _tool_call_id: "call-read",
+      _tool_name: "read_file",
+      _tool_result: true,
+    });
   });
 });
 

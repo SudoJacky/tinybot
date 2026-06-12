@@ -42,6 +42,12 @@ type ActiveRun = {
   streamed: boolean;
 };
 
+type ActiveToolCallDelta = {
+  argumentsText: string;
+  toolCallId: string;
+  toolName: string;
+};
+
 export function createDesktopNativeWebSocket(options: DesktopNativeWebSocketOptions): WebSocket {
   return new DesktopNativeWebSocket(options) as unknown as WebSocket;
 }
@@ -70,6 +76,7 @@ class DesktopNativeWebSocket extends EventTarget {
   private readonly agentEventUnlisteners: Array<() => void> = [];
   private readonly pendingAgentEvents = new Map<string, Array<{ eventName: DesktopNativeWebSocketAgentEventName; payload: Record<string, unknown> }>>();
   private readonly activeRuns = new Map<string, ActiveRun>();
+  private readonly activeToolCallDeltas = new Map<string, ActiveToolCallDelta>();
   private readonly completedStreamedRunIds = new Set<string>();
   private attachedChatId?: string;
 
@@ -202,6 +209,7 @@ class DesktopNativeWebSocket extends EventTarget {
     }
     this.pendingAgentEvents.clear();
     this.activeRuns.clear();
+    this.activeToolCallDeltas.clear();
     this.completedStreamedRunIds.clear();
   }
 
@@ -257,8 +265,42 @@ class DesktopNativeWebSocket extends EventTarget {
       });
       return;
     }
+    if (eventName === "agent.tool_call.delta") {
+      const index = numberValue(payload.index) ?? 0;
+      const deltaKey = toolCallDeltaKey(runId, index);
+      const current = this.activeToolCallDeltas.get(deltaKey);
+      const toolCallId = stringValue(payload.toolCallId) || stringValue(payload.tool_call_id) || current?.toolCallId || `${runId}:tool-${index}`;
+      const toolName = stringValue(payload.toolName) || stringValue(payload.tool_name) || current?.toolName || "tool";
+      const argumentsText = `${current?.argumentsText ?? ""}${stringValue(payload.deltaText) || stringValue(payload.delta_text) || stringValue(payload.argumentsDelta) || stringValue(payload.arguments_delta)}`;
+      this.activeToolCallDeltas.set(deltaKey, { argumentsText, toolCallId, toolName });
+      this.emitToolProgressFrame(run.chatId, `${runId}:${toolCallId}:args`, toolName, toolCallId, formatToolCallText(toolName, argumentsText), {
+        detail: true,
+        hint: true,
+      });
+      return;
+    }
+    if (eventName === "agent.tool.start") {
+      const toolCallId = stringValue(payload.toolCallId) || stringValue(payload.tool_call_id) || `${runId}:tool`;
+      const cachedToolCall = this.findToolCallDelta(runId, toolCallId);
+      const toolName = cachedToolCall?.toolName || stringValue(payload.toolName) || stringValue(payload.tool_name) || "tool";
+      const text = formatToolCallText(toolName, cachedToolCall?.argumentsText ?? "");
+      this.emitToolProgressFrame(run.chatId, `${runId}:${toolCallId}:start`, toolName, toolCallId, text, {
+        detail: true,
+        hint: true,
+      });
+      return;
+    }
+    if (eventName === "agent.tool.result") {
+      const toolCallId = stringValue(payload.toolCallId) || stringValue(payload.tool_call_id) || `${runId}:tool`;
+      const toolName = stringValue(payload.toolName) || stringValue(payload.tool_name) || "tool";
+      const text = stringValue(payload.content) || stringValue(payload.result) || stringValue(payload.output);
+      this.emitToolProgressFrame(run.chatId, `${runId}:${toolCallId}:result`, toolName, toolCallId, text, {
+        result: true,
+      });
+      this.deleteToolCallDelta(runId, toolCallId);
+      return;
+    }
     if (eventName === "agent.usage") {
-      run.streamed = true;
       this.emitJson({
         event: "usage",
         chat_id: run.chatId,
@@ -286,6 +328,54 @@ class DesktopNativeWebSocket extends EventTarget {
       });
       this.activeRuns.delete(runId);
       this.completedStreamedRunIds.add(runId);
+      this.clearToolCallDeltas(runId);
+    }
+  }
+
+  private emitToolProgressFrame(
+    chatId: string,
+    messageId: string,
+    toolName: string,
+    toolCallId: string,
+    text: string,
+    flags: { detail?: boolean; hint?: boolean; result?: boolean },
+  ): void {
+    this.emitJson({
+      event: "message",
+      chat_id: chatId,
+      message_id: messageId,
+      text,
+      _progress: true,
+      _tool_call_id: toolCallId,
+      ...(flags.detail ? { _tool_detail: true } : {}),
+      ...(flags.hint ? { _tool_hint: true } : {}),
+      ...(flags.result ? { _tool_result: true } : {}),
+      _tool_name: toolName,
+    });
+  }
+
+  private findToolCallDelta(runId: string, toolCallId: string): ActiveToolCallDelta | null {
+    for (const [key, value] of this.activeToolCallDeltas.entries()) {
+      if (key.startsWith(`${runId}:`) && value.toolCallId === toolCallId) {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  private deleteToolCallDelta(runId: string, toolCallId: string): void {
+    for (const [key, value] of this.activeToolCallDeltas.entries()) {
+      if (key.startsWith(`${runId}:`) && value.toolCallId === toolCallId) {
+        this.activeToolCallDeltas.delete(key);
+      }
+    }
+  }
+
+  private clearToolCallDeltas(runId: string): void {
+    for (const key of this.activeToolCallDeltas.keys()) {
+      if (key.startsWith(`${runId}:`)) {
+        this.activeToolCallDeltas.delete(key);
+      }
     }
   }
 
@@ -316,4 +406,23 @@ function arrayValue(value: unknown): unknown[] {
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value : "";
+}
+
+function numberValue(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function toolCallDeltaKey(runId: string, index: number): string {
+  return `${runId}:${index}`;
+}
+
+function formatToolCallText(toolName: string, argumentsText: string): string {
+  return `${toolName}(${argumentsText})`;
 }
