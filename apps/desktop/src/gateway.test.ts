@@ -1093,7 +1093,7 @@ describe("gateway HTTP client", () => {
       native: true,
       request: {
         method: "POST",
-        path: "/v1/knowledge/documents/upload",
+        path: "/v1/knowledge/documents/upload?async_index=true",
         body: {
           name: "native.md",
           file_type: "md",

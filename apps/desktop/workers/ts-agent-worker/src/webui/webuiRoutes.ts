@@ -354,7 +354,7 @@ export async function handleWebuiRouteRequest(
     return knowledgeAddDocumentResponse(request.body, knowledgeProvider, traceId);
   }
   if (method === "POST" && path === "/v1/knowledge/documents/upload") {
-    return knowledgeUploadDocumentResponse(request.body, knowledgeProvider, traceId);
+    return knowledgeUploadDocumentResponse(request.body, url.searchParams, knowledgeProvider, traceId);
   }
   const knowledgeDocument = knowledgeDocumentPath(method, path);
   if (knowledgeDocument) {
@@ -909,6 +909,7 @@ async function knowledgeAddDocumentResponse(
 
 async function knowledgeUploadDocumentResponse(
   body: unknown,
+  query: URLSearchParams,
   provider: WebuiKnowledgeProvider | undefined,
   traceId: string,
 ): Promise<WebuiRouteResponse> {
@@ -950,15 +951,25 @@ async function knowledgeUploadDocumentResponse(
   const document = documentFromResult(result);
   const id = stringValue(document?.id) ?? "";
   const resultName = stringValue(document?.name) ?? name;
+  const sizeBytes = numberValue(body.size_bytes) ?? numberValue(body.sizeBytes) ?? new TextEncoder().encode(content).length;
+  const asyncIndex = booleanQuery(query.get("async_index"));
+  const responseBody: Record<string, unknown> = {
+    id,
+    name: resultName,
+    file_type: fileType,
+    size_bytes: sizeBytes,
+    message: asyncIndex
+      ? `File '${resultName}' uploaded; knowledge indexing is running`
+      : `File '${resultName}' uploaded and indexed successfully`,
+  };
+  if (asyncIndex) {
+    const job = completedKnowledgeUploadJob(id, resultName);
+    responseBody.job = job;
+    responseBody.job_id = job.id;
+  }
   return {
-    status: 200,
-    body: {
-      id,
-      name: resultName,
-      file_type: fileType,
-      size_bytes: numberValue(body.size_bytes) ?? numberValue(body.sizeBytes) ?? new TextEncoder().encode(content).length,
-      message: `File '${resultName}' uploaded and indexed successfully`,
-    },
+    status: asyncIndex ? 202 : 200,
+    body: responseBody,
   };
 }
 
@@ -1140,6 +1151,30 @@ function knowledgeTags(value: unknown): string[] {
     return value.map((item) => String(item).trim()).filter(Boolean);
   }
   return [];
+}
+
+function booleanQuery(value: string | null): boolean {
+  return value !== null && ["1", "true", "yes", "on"].includes(value.toLowerCase());
+}
+
+function completedKnowledgeUploadJob(docId: string, name: string): Record<string, unknown> {
+  return {
+    id: `kjob_${docId || "upload"}`,
+    doc_id: docId,
+    name,
+    status: "completed",
+    stage: "completed",
+    message: "Knowledge indexing completed in native TS worker",
+    processed: 1,
+    total: 1,
+    error: "",
+    stage_details: [],
+    failed_stage_count: 0,
+    stale_stage_count: 0,
+    retrieval_ready: true,
+    graph_ready: false,
+    partial_availability: true,
+  };
 }
 
 async function webuiApprovalsResponse(

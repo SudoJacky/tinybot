@@ -1403,7 +1403,7 @@ describe("AgentWorker", () => {
     });
     await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
       method: "POST",
-      path: "/v1/knowledge/documents/upload",
+      path: "/v1/knowledge/documents/upload?async_index=true",
       body: {
         name: "Upload.md",
         content: "# Upload\n",
@@ -1414,13 +1414,27 @@ describe("AgentWorker", () => {
       },
     }))).resolves.toMatchObject({
       result: {
-        status: 200,
+        status: 202,
         body: {
           id: "doc-2",
           name: "Upload.md",
           file_type: "md",
           size_bytes: 9,
-          message: "File 'Upload.md' uploaded and indexed successfully",
+          message: "File 'Upload.md' uploaded; knowledge indexing is running",
+          job_id: "kjob_doc-2",
+          job: {
+            id: "kjob_doc-2",
+            doc_id: "doc-2",
+            name: "Upload.md",
+            status: "completed",
+            stage: "completed",
+            message: "Knowledge indexing completed in native TS worker",
+            processed: 1,
+            total: 1,
+            retrieval_ready: true,
+            graph_ready: false,
+            partial_availability: true,
+          },
         },
       },
     });

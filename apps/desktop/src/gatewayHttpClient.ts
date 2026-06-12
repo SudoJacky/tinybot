@@ -500,7 +500,7 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
           return uploadBody
             ? uploadBody.then((payload) => options.nativeWebui?.route({
               method: "POST",
-              path: "/v1/knowledge/documents/upload",
+              path: "/v1/knowledge/documents/upload?async_index=true",
               body: payload,
             }))
             : undefined;
