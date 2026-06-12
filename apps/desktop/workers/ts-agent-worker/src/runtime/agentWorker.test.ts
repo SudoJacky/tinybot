@@ -1662,6 +1662,10 @@ describe("AgentWorker", () => {
         status: 400,
         body: {
           result: "Error: agent 'item' not found",
+          session: expect.objectContaining({
+            tasks: expect.arrayContaining([expect.objectContaining({ id: "open", assigned_agent_id: "reviewer" })]),
+            graph: expect.objectContaining({ schema_version: "cowork.graph.v2" }),
+          }),
         },
       },
     });
@@ -1674,6 +1678,10 @@ describe("AgentWorker", () => {
         status: 400,
         body: {
           result: "Error: task 'missing' not found",
+          session: expect.objectContaining({
+            tasks: expect.arrayContaining([expect.objectContaining({ id: "open", assigned_agent_id: "reviewer" })]),
+            graph: expect.objectContaining({ schema_version: "cowork.graph.v2" }),
+          }),
         },
       },
     });

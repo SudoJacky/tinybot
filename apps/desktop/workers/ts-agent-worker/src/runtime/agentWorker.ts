@@ -1016,7 +1016,7 @@ export class AgentWorker {
         status,
         body: status === 200
           ? { result: result.result, session: coworkSessionSnapshot(result.session) }
-          : result,
+          : { result: result.result, session: coworkSessionSnapshot(result.session) },
       };
     }
     if (action === "retry") {
@@ -1031,7 +1031,7 @@ export class AgentWorker {
         status,
         body: status === 200
           ? { result: result.result, session: coworkSessionSnapshot(result.session) }
-          : result,
+          : { result: result.result, session: coworkSessionSnapshot(result.session) },
       };
     }
     if (action === "review") {
