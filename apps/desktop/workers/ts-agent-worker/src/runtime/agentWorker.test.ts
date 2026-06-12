@@ -266,6 +266,68 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("serves WebUI session messages control route through TS worker RPC", async () => {
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      webuiSessionProvider: {
+        listSessions: () => [],
+        getSessionMessages: (sessionId: string) => ({
+          sessionId,
+          messages: [
+            { role: "user", content: "Hello", timestamp: "2026-06-13T08:00:00.000Z" },
+            {
+              role: "assistant",
+              content: "Working",
+              reasoning_content: "private chain",
+              _memory_references: [{ id: "mem-1" }],
+            },
+            {
+              role: "tool",
+              name: "request_form",
+              content: "Agent UI form `f1` requested asynchronously for WebUI chat. Wait for the form response continuation.",
+            },
+            {
+              role: "user",
+              content: "## Plan:\n1. internal",
+              _task_event: true,
+              _task_plan_id: "plan-1",
+            },
+          ],
+        }),
+      },
+    } as any);
+
+    await expect(worker.handleRequest(webuiRequest("webui.route_specs"))).resolves.toMatchObject({
+      result: {
+        routes: expect.arrayContaining([
+          { key: "get_messages", method: "GET", path: "/api/sessions/{key}/messages", public: false },
+        ]),
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
+      path: "/api/sessions/websocket%3Achat-1/messages",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          key: "websocket:chat-1",
+          messages: [
+            { role: "user", content: "Hello", timestamp: "2026-06-13T08:00:00.000Z" },
+            {
+              role: "assistant",
+              content: "Working",
+              reasoning_content: "private chain",
+              _memory_references: [{ id: "mem-1" }],
+            },
+          ],
+        },
+      },
+    });
+  });
+
   test("returns Python-compatible cowork route unavailable errors", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),

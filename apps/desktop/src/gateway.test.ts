@@ -419,6 +419,32 @@ describe("gateway HTTP client", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
+  test("prefers native WebUI session messages route when available", async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
+    const nativeWebui = {
+      route: vi.fn(async (request: { method: string; path: string; body?: unknown }) => ({
+        key: "websocket:chat-1",
+        messages: [{ role: "user", content: "Native history" }],
+        request,
+      })),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeWebui,
+    });
+
+    await expect(client.sessions.messages("websocket:chat-1")).resolves.toMatchObject({
+      key: "websocket:chat-1",
+      messages: [{ role: "user", content: "Native history" }],
+    });
+    expect(nativeWebui.route).toHaveBeenCalledWith({
+      method: "GET",
+      path: "/api/sessions/websocket%3Achat-1/messages",
+    });
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
   test("falls back to gateway skills operations when native skills are unavailable", async () => {
     const fetchFn = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
       if (String(url).endsWith("/webui/bootstrap")) {

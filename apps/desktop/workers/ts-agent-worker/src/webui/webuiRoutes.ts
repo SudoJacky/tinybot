@@ -36,14 +36,24 @@ export type WebuiSessionMetadata = {
   extra: Record<string, unknown>;
 };
 
+export type WebuiSessionMessages = {
+  sessionId: string;
+  messages: Record<string, unknown>[];
+};
+
 export type WebuiSessionProvider = {
   channelName?: string;
   listSessions(traceId: string): Promise<WebuiSessionMetadata[]> | WebuiSessionMetadata[];
+  getSessionMessages?(
+    sessionId: string,
+    traceId: string,
+  ): Promise<WebuiSessionMessages | null> | WebuiSessionMessages | null;
 };
 
 const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
   { key: "get_status", method: "GET", path: "/api/status", public: false },
   { key: "list_sessions", method: "GET", path: "/api/sessions", public: false },
+  { key: "get_messages", method: "GET", path: "/api/sessions/{key}/messages", public: false },
 ];
 
 export function webuiRouteSpecs(): WebuiRouteSpec[] {
@@ -69,6 +79,17 @@ export async function handleWebuiRouteRequest(
       status: 200,
       body: webuiSessionListBody(await sessionProvider.listSessions(traceId), sessionProvider.channelName ?? "websocket"),
     };
+  }
+  const sessionMessagesKey = sessionMessagesPathKey(method, path);
+  if (sessionMessagesKey !== undefined) {
+    if (!sessionProvider?.getSessionMessages) {
+      return { status: 503, body: { error: "session manager not available" } };
+    }
+    const session = await sessionProvider.getSessionMessages(sessionMessagesKey, traceId);
+    if (!session) {
+      return { status: 404, body: { error: "session not found" } };
+    }
+    return { status: 200, body: webuiSessionMessagesBody(session) };
   }
   return {
     status: 404,
@@ -124,6 +145,30 @@ function webuiSessionListBody(
   };
 }
 
+function webuiSessionMessagesBody(session: WebuiSessionMessages): Record<string, unknown> {
+  return {
+    key: session.sessionId,
+    messages: session.messages
+      .filter((message) => !isInternalAgentUiToolResult(message))
+      .filter((message) => !isInternalTaskNotification(message))
+      .map(serializeWebuiMessage),
+  };
+}
+
+function serializeWebuiMessage(message: Record<string, unknown>): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    role: typeof message.role === "string" ? message.role : "",
+    content: message.content ?? "",
+    timestamp: message.timestamp,
+  };
+  for (const key of WEBUI_MESSAGE_METADATA_KEYS) {
+    if (key in message) {
+      payload[key] = message[key];
+    }
+  }
+  return payload;
+}
+
 function compactSessionTitle(messages: Record<string, unknown>[]): string {
   for (const message of messages) {
     if (message.role !== "user" || isInternalTaskNotification(message)) {
@@ -148,11 +193,60 @@ function isInternalTaskNotification(message: Record<string, unknown>): boolean {
   return message._task_event === true || metadata._task_event === true;
 }
 
+function isInternalAgentUiToolResult(message: Record<string, unknown>): boolean {
+  if (message._agent_ui_internal === true) {
+    return true;
+  }
+  if (message.role !== "tool" || message.name !== "request_form") {
+    return false;
+  }
+  const content = typeof message.content === "string" ? message.content : "";
+  return (
+    content.includes("Agent UI form `") &&
+    content.includes("requested asynchronously for WebUI chat") &&
+    content.includes("Wait for the form response continuation")
+  );
+}
+
 function routeKey(method: string, path: string): string {
+  if (sessionMessagesPathKey(method, path) !== undefined) {
+    return "get_messages";
+  }
   const spec = WEBUI_ROUTE_SPECS.find((entry) => entry.method === method && entry.path === path);
   return spec?.key ?? `${method} ${path}`;
+}
+
+function sessionMessagesPathKey(method: string, path: string): string | undefined {
+  if (method !== "GET") {
+    return undefined;
+  }
+  const match = /^\/api\/sessions\/([^/]+)\/messages$/.exec(path);
+  return match ? decodeURIComponent(match[1]) : undefined;
 }
 
 function stringParam(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
+
+const WEBUI_MESSAGE_METADATA_KEYS = [
+  "tool_calls",
+  "tool_call_id",
+  "name",
+  "reasoning_content",
+  "_progress",
+  "_tool_hint",
+  "_tool_detail",
+  "_tool_result",
+  "_tool_name",
+  "_approval_status",
+  "_approval_id",
+  "_task_event",
+  "_task_progress",
+  "_task_plan_id",
+  "_memory_references",
+  "_recent_context_references",
+  "_agent_ui_form_id",
+  "_agent_ui_form_status",
+  "_agent_ui_form_display",
+  "_agent_ui_form_response",
+];

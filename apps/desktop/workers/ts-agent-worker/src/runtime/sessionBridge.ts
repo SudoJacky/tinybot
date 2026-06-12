@@ -1,7 +1,7 @@
 import type { AgentMessage } from "../agent/agentRunSpec.ts";
 import type { JsonObject } from "../protocol/messages.ts";
 import type { NativeRpcClient } from "../tools/nativeToolProxy.ts";
-import type { WebuiSessionMetadata, WebuiSessionProvider } from "../webui/webuiRoutes.ts";
+import type { WebuiSessionMessages, WebuiSessionMetadata, WebuiSessionProvider } from "../webui/webuiRoutes.ts";
 import type { ClearSessionResult, PersistTurnRequest, PersistTurnResult, SessionBridge } from "./agentWorker.ts";
 
 export class NativeSessionBridge implements SessionBridge, WebuiSessionProvider {
@@ -17,6 +17,17 @@ export class NativeSessionBridge implements SessionBridge, WebuiSessionProvider 
 
   async listWebuiSessions(traceId: string): Promise<WebuiSessionMetadata[]> {
     return this.listSessions(traceId);
+  }
+
+  async getSessionMessages(sessionId: string, traceId: string): Promise<WebuiSessionMessages | null> {
+    const result = await this.rpcClient.request(traceId, "session.get_metadata", {
+      session_id: sessionId,
+    });
+    return normalizeWebuiSessionMessages(result);
+  }
+
+  async getWebuiSessionMessages(sessionId: string, traceId: string): Promise<WebuiSessionMessages | null> {
+    return this.getSessionMessages(sessionId, traceId);
   }
 
   async setCheckpoint(sessionId: string, checkpoint: Record<string, unknown>, traceId: string): Promise<void> {
@@ -107,6 +118,21 @@ function normalizeWebuiSessionMetadata(result: unknown): WebuiSessionMetadata[] 
     updatedAt: stringField(payload, "updatedAt", "updated_at") ?? "",
     extra: isJsonObject(payload.extra) ? payload.extra : {},
   })).filter((session) => session.sessionId.length > 0);
+}
+
+function normalizeWebuiSessionMessages(result: unknown): WebuiSessionMessages | null {
+  if (!isJsonObject(result)) {
+    return null;
+  }
+  const sessionId = stringField(result, "sessionId", "session_id");
+  if (!sessionId) {
+    return null;
+  }
+  const extra = isJsonObject(result.extra) ? result.extra : {};
+  return {
+    sessionId,
+    messages: Array.isArray(extra.messages) ? extra.messages.filter(isJsonObject) : [],
+  };
 }
 
 function nativeSessionCheckpoint(checkpoint: Record<string, unknown>): JsonObject {
