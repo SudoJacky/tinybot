@@ -179,6 +179,21 @@ struct WorkerWebuiRouteInput {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct WorkerTransportGatewayFrameInput {
+    kind: String,
+    chat_id: String,
+    #[serde(default)]
+    content: Option<String>,
+    #[serde(default)]
+    delta: Option<String>,
+    #[serde(default)]
+    usage: Option<serde_json::Value>,
+    #[serde(default)]
+    metadata: Option<serde_json::Value>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct WorkerCancelAgentInput {
     run_id: String,
 }
@@ -579,6 +594,20 @@ fn worker_webui_route(
     state: State<'_, SharedGateway>,
 ) -> Result<serde_json::Value, String> {
     worker_webui_route_with_options(
+        state.inner(),
+        input,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_transport_gateway_frame(
+    input: WorkerTransportGatewayFrameInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_transport_gateway_frame_with_options(
         state.inner(),
         input,
         ts_agent_worker_workspace_root(),
@@ -1898,6 +1927,69 @@ fn build_worker_webui_route_request(
     )
 }
 
+fn worker_transport_gateway_frame_with_options(
+    shared: &SharedGateway,
+    input: WorkerTransportGatewayFrameInput,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let worker = {
+        let runtime = lock_runtime(shared);
+        runtime.experimental_worker.clone()
+    };
+
+    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot)?;
+
+    let request = build_worker_transport_gateway_frame_request(now_unix_ms(), input);
+    let response = worker
+        .send_stdio_request(&request, timeout)
+        .map_err(|error| {
+            format!(
+                "worker transport gateway frame request failed: {}",
+                error.message
+            )
+        })?;
+
+    if let Some(error) = response.error {
+        return Err(format!(
+            "worker transport gateway frame returned error: {}",
+            error.message
+        ));
+    }
+    response
+        .result
+        .ok_or_else(|| "worker transport gateway frame response missing result".to_string())
+}
+
+fn build_worker_transport_gateway_frame_request(
+    request_id: u128,
+    input: WorkerTransportGatewayFrameInput,
+) -> WorkerRequest {
+    let mut params = serde_json::json!({
+        "kind": input.kind,
+        "chatId": input.chat_id,
+    });
+    if let Some(content) = input.content {
+        params["content"] = serde_json::Value::String(content);
+    }
+    if let Some(delta) = input.delta {
+        params["delta"] = serde_json::Value::String(delta);
+    }
+    if let Some(usage) = input.usage {
+        params["usage"] = usage;
+    }
+    if let Some(metadata) = input.metadata {
+        params["metadata"] = metadata;
+    }
+    WorkerRequest::new(
+        format!("transport-gateway-frame-{request_id}"),
+        format!("trace-transport-gateway-frame-{request_id}"),
+        "transport.gateway_frame",
+        params,
+    )
+}
+
 fn send_skills_worker_request(
     shared: &SharedGateway,
     workspace_root: PathBuf,
@@ -2404,6 +2496,7 @@ pub fn run() {
             worker_skills_validate,
             worker_cowork_route,
             worker_webui_route,
+            worker_transport_gateway_frame,
             worker_cancel_agent,
             worker_restore_agent_checkpoint,
             worker_submit_agent_form,
@@ -2931,6 +3024,42 @@ mod tests {
                 "method": "GET",
                 "path": "/api/status",
                 "headers": { "Authorization": "Bearer token-1" }
+            })
+        );
+    }
+
+    #[test]
+    fn worker_transport_gateway_frame_request_targets_ts_transport_mapper() {
+        let request = build_worker_transport_gateway_frame_request(
+            42,
+            WorkerTransportGatewayFrameInput {
+                kind: "message".to_string(),
+                chat_id: "chat-1".to_string(),
+                content: Some("reading file".to_string()),
+                delta: None,
+                usage: None,
+                metadata: Some(serde_json::json!({
+                    "_stream_id": "msg-1",
+                    "_progress": true,
+                    "_tool_name": "read_file"
+                })),
+            },
+        );
+
+        assert_eq!(request.id, "transport-gateway-frame-42");
+        assert_eq!(request.trace_id, "trace-transport-gateway-frame-42");
+        assert_eq!(request.method, "transport.gateway_frame");
+        assert_eq!(
+            request.params,
+            serde_json::json!({
+                "kind": "message",
+                "chatId": "chat-1",
+                "content": "reading file",
+                "metadata": {
+                    "_stream_id": "msg-1",
+                    "_progress": true,
+                    "_tool_name": "read_file"
+                }
             })
         );
     }
