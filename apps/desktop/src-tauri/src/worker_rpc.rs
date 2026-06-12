@@ -1093,19 +1093,31 @@ impl WorkerMemoryRpc {
             ));
         }
 
-        let pending_legacy_history = self.pending_legacy_history_count()?;
-        if pending_legacy_history > 0 {
+        let pending_legacy_history = self.pending_legacy_history(50)?;
+        if !pending_legacy_history.is_empty() {
+            let pending_count = pending_legacy_history.len();
+            let extraction =
+                self.extract_dream_notes_from_legacy_history(&pending_legacy_history)?;
+            let content = if extraction.captured_notes > 0 {
+                format!(
+                    "Dream captured {} memory note(s) from {pending_count} legacy history record(s).",
+                    extraction.captured_notes
+                )
+            } else {
+                format!(
+                    "Dream processed {pending_count} legacy history record(s), but found no explicit memory-worthy notes."
+                )
+            };
             return Ok(memory_dream_result_with_metadata(
-                &format!(
-                    "Dream has {pending_legacy_history} pending legacy history record(s).\n\nNative Dream extraction is not migrated yet."
-                ),
-                false,
+                &content,
+                true,
                 serde_json::json!({
-                    "changed": false,
+                    "changed": extraction.captured_notes > 0,
                     "pending_evidence": 0,
-                    "pending_legacy_history": pending_legacy_history,
-                    "last_dream_cursor": self.last_dream_cursor(),
-                    "deferred": "dream_extraction"
+                    "pending_legacy_history": pending_count,
+                    "captured_notes": extraction.captured_notes,
+                    "skipped_history": extraction.skipped_history,
+                    "last_dream_cursor": extraction.last_dream_cursor
                 }),
             ));
         }
@@ -1198,6 +1210,71 @@ impl WorkerMemoryRpc {
             captured_notes,
             skipped_evidence,
             last_evidence_cursor,
+        })
+    }
+
+    fn extract_dream_notes_from_legacy_history(
+        &self,
+        history: &[Value],
+    ) -> Result<DreamLegacyExtractionResult, crate::worker_protocol::WorkerProtocolError> {
+        let mut notes = self.read_notes()?;
+        let mut captured_notes = 0usize;
+        let mut skipped_history = 0usize;
+        let mut last_dream_cursor = self.last_dream_cursor();
+        let timestamp = memory_timestamp();
+
+        for record in history {
+            let cursor = record
+                .get("cursor")
+                .and_then(Value::as_u64)
+                .map(|value| value as usize)
+                .unwrap_or(last_dream_cursor);
+            last_dream_cursor = last_dream_cursor.max(cursor);
+
+            let content = record
+                .get("content")
+                .and_then(Value::as_str)
+                .and_then(dream_memory_text);
+            let Some(content) = content else {
+                skipped_history += 1;
+                continue;
+            };
+            let note_type = dream_note_type(&content);
+            let scope = default_memory_scope(note_type);
+            let source = serde_json::json!({
+                "capture_origin": "dream",
+                "history_start_cursor": cursor,
+                "history_end_cursor": cursor
+            });
+            let note_id = generate_memory_note_id(note_type, scope, &content, &source);
+            let note = serde_json::json!({
+                "id": note_id,
+                "scope": scope,
+                "type": note_type,
+                "status": "active",
+                "content": content,
+                "priority": 0.6,
+                "confidence": 0.6,
+                "sources": [source],
+                "created_at": timestamp,
+                "updated_at": timestamp,
+                "metadata": {
+                    "extractor": "native_dream_heuristic",
+                    "legacy_history": true
+                }
+            });
+            notes.retain(|existing| existing.get("id") != note.get("id"));
+            notes.push(note);
+            captured_notes += 1;
+        }
+
+        self.write_notes(&notes)?;
+        self.refresh_memory_views(&notes)?;
+        self.write_dream_cursor(last_dream_cursor)?;
+        Ok(DreamLegacyExtractionResult {
+            captured_notes,
+            skipped_history,
+            last_dream_cursor,
         })
     }
 
@@ -1660,6 +1737,17 @@ impl WorkerMemoryRpc {
             .unwrap_or(0)
     }
 
+    fn write_dream_cursor(
+        &self,
+        cursor: usize,
+    ) -> Result<(), crate::worker_protocol::WorkerProtocolError> {
+        let path = self.workspace_root.join("memory").join(".dream_cursor");
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(memory_io_error)?;
+        }
+        fs::write(path, cursor.to_string()).map_err(memory_io_error)
+    }
+
     fn dream_log_commits(&self, max_entries: usize) -> Vec<DreamCommitInfo> {
         if max_entries == 0 {
             return vec![];
@@ -2047,25 +2135,39 @@ impl WorkerMemoryRpc {
             .unwrap_or(0)
     }
 
-    fn pending_legacy_history_count(
+    fn pending_legacy_history(
         &self,
-    ) -> Result<usize, crate::worker_protocol::WorkerProtocolError> {
+        limit: usize,
+    ) -> Result<Vec<Value>, crate::worker_protocol::WorkerProtocolError> {
         let path = self.workspace_root.join("memory").join("history.jsonl");
         let contents = match fs::read_to_string(path) {
             Ok(contents) => contents,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
             Err(error) => return Err(memory_io_error(error)),
         };
         let since_cursor = self.last_dream_cursor() as u64;
-        Ok(contents
+        let mut history = contents
             .lines()
-            .filter(|line| {
-                serde_json::from_str::<Value>(line)
-                    .ok()
-                    .and_then(|value| value.get("cursor").and_then(Value::as_u64))
+            .filter_map(|line| {
+                let value = serde_json::from_str::<Value>(line).ok()?;
+                value
+                    .get("cursor")
+                    .and_then(Value::as_u64)
                     .is_some_and(|cursor| cursor > since_cursor)
+                    .then_some(value)
             })
-            .count())
+            .collect::<Vec<_>>();
+        history.sort_by(|left, right| {
+            let left_cursor = left.get("cursor").and_then(Value::as_u64).unwrap_or(0);
+            let right_cursor = right.get("cursor").and_then(Value::as_u64).unwrap_or(0);
+            left_cursor.cmp(&right_cursor).then_with(|| {
+                left.get("timestamp")
+                    .and_then(Value::as_str)
+                    .cmp(&right.get("timestamp").and_then(Value::as_str))
+            })
+        });
+        history.truncate(limit);
+        Ok(history)
     }
 
     fn append_conversation_evidence_record(
@@ -2311,6 +2413,13 @@ struct DreamExtractionResult {
     captured_notes: usize,
     skipped_evidence: usize,
     last_evidence_cursor: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct DreamLegacyExtractionResult {
+    captured_notes: usize,
+    skipped_history: usize,
+    last_dream_cursor: usize,
 }
 
 #[derive(Deserialize)]
@@ -2576,9 +2685,14 @@ fn dream_note_content(record: &Value) -> Option<String> {
     if role != "user" && role != "assistant" {
         return None;
     }
-    let content = record
+    record
         .get("content")
-        .and_then(Value::as_str)?
+        .and_then(Value::as_str)
+        .and_then(dream_memory_text)
+}
+
+fn dream_memory_text(content: &str) -> Option<String> {
+    let content = content
         .trim()
         .split_whitespace()
         .collect::<Vec<_>>()
@@ -4879,6 +4993,65 @@ mod tests {
         assert!(notes.contains("\"capture_origin\":\"dream\""));
         assert!(notes.contains("\"evidence_ids\":[\"ev_1\"]"));
         assert!(notes.contains("Remember that I prefer uv for Python commands."));
+    }
+
+    #[test]
+    fn dispatches_memory_dream_run_extracts_pending_legacy_history() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write(
+            "memory/history.jsonl",
+            &format!(
+                "{}\n{}\n",
+                json!({
+                    "cursor": 3,
+                    "timestamp": "2026-06-12 03:00",
+                    "content": "User prefers concise progress updates."
+                }),
+                json!({
+                    "cursor": 4,
+                    "timestamp": "2026-06-12 03:01",
+                    "content": "Short exchange with no durable memory."
+                })
+            ),
+        );
+        fixture.write("memory/.dream_cursor", "2");
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::MemoryWrite]),
+        );
+
+        let response = router.dispatch(&WorkerRequest::new(
+            "req-run",
+            "trace-1",
+            "memory.dream_run",
+            json!({}),
+        ));
+        let result = response.result.expect("dream run should return content");
+        let content = result
+            .get("content")
+            .and_then(Value::as_str)
+            .expect("dream run content should be text");
+
+        assert!(response.error.is_none());
+        assert!(
+            content.contains("Dream captured 1 memory note(s) from 2 legacy history record(s).")
+        );
+        assert_eq!(result["metadata"]["render_as"], json!("text"));
+        assert_eq!(result["metadata"]["available"], json!(true));
+        assert_eq!(result["metadata"]["changed"], json!(true));
+        assert_eq!(result["metadata"]["pending_legacy_history"], json!(2));
+        assert_eq!(result["metadata"]["captured_notes"], json!(1));
+        assert_eq!(result["metadata"]["skipped_history"], json!(1));
+        assert_eq!(result["metadata"]["last_dream_cursor"], json!(4));
+        assert_eq!(fixture.read("memory/.dream_cursor"), "4");
+        let notes = fixture.read("memory/notes.jsonl");
+        assert!(notes.contains("\"capture_origin\":\"dream\""));
+        assert!(notes.contains("\"history_start_cursor\":3"));
+        assert!(notes.contains("\"history_end_cursor\":3"));
+        assert!(notes.contains("User prefers concise progress updates."));
     }
 
     #[test]
