@@ -216,7 +216,13 @@ async function bootDesktopWebUi(): Promise<void> {
       });
       console.info("Tinybot desktop loading root WebUI fallback", workbenchMode);
     }
-    installDesktopGatewayBridge({ config: gatewayConfig, nativeTransport: gatewayClientOptions.nativeTransport });
+    installDesktopGatewayBridge({
+      config: gatewayConfig,
+      nativeTransport: gatewayClientOptions.nativeTransport,
+      listenToNativeAgentEvent: (eventName, handler) => listen(eventName, (event) => {
+        handler(event.payload);
+      }),
+    });
     installWebUiRenderGlobals();
     if (workbenchMode.mode === "native-workbench") {
       const nativeChatRuntime = await loadNativeChatRuntime();

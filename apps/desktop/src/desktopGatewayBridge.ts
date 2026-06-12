@@ -1,5 +1,8 @@
 import { DEFAULT_GATEWAY_CONFIG, resolveGatewayConfig, type GatewayConfig } from "./gatewayConfig";
-import { createDesktopNativeWebSocket } from "./desktopNativeWebSocketBridge";
+import {
+  createDesktopNativeWebSocket,
+  type DesktopNativeWebSocketAgentEventListener,
+} from "./desktopNativeWebSocketBridge";
 import type { NativeTransportApi } from "./desktopNativeTransport";
 
 type FetchLike = typeof fetch;
@@ -14,6 +17,7 @@ export type DesktopGatewayBridgeOptions = {
   fetchTarget?: typeof globalThis;
   webSocketTarget?: typeof globalThis;
   nativeTransport?: NativeTransportApi;
+  listenToNativeAgentEvent?: DesktopNativeWebSocketAgentEventListener;
 };
 
 export type DesktopGatewayBridge = {
@@ -80,6 +84,7 @@ export function installDesktopGatewayBridge(options: DesktopGatewayBridgeOptions
   const originalFetch = fetchTarget.fetch.bind(fetchTarget) as FetchLike;
   const OriginalWebSocket = webSocketTarget.WebSocket as WebSocketCtor;
   const nativeTransport = options.nativeTransport;
+  const listenToNativeAgentEvent = options.listenToNativeAgentEvent;
 
   fetchTarget.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
     originalFetch(rewriteGatewayRequest(input, config, pageOrigin), init)) as FetchLike;
@@ -90,6 +95,7 @@ export function installDesktopGatewayBridge(options: DesktopGatewayBridgeOptions
         url,
         protocols,
         nativeTransport,
+        listenToAgentEvent: listenToNativeAgentEvent,
       });
     }
     return new OriginalWebSocket(rewriteGatewayWebSocketUrl(url, config, pageOrigin), protocols);
