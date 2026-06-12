@@ -1,7 +1,12 @@
 import type { AgentMessage } from "../agent/agentRunSpec.ts";
 import type { JsonObject } from "../protocol/messages.ts";
 import type { NativeRpcClient } from "../tools/nativeToolProxy.ts";
-import type { WebuiSessionMessages, WebuiSessionMetadata, WebuiSessionProvider } from "../webui/webuiRoutes.ts";
+import type {
+  WebuiDeleteSessionResult,
+  WebuiSessionMessages,
+  WebuiSessionMetadata,
+  WebuiSessionProvider,
+} from "../webui/webuiRoutes.ts";
 import type { ClearSessionResult, PersistTurnRequest, PersistTurnResult, SessionBridge } from "./agentWorker.ts";
 
 export class NativeSessionBridge implements SessionBridge, WebuiSessionProvider {
@@ -28,6 +33,13 @@ export class NativeSessionBridge implements SessionBridge, WebuiSessionProvider 
 
   async getWebuiSessionMessages(sessionId: string, traceId: string): Promise<WebuiSessionMessages | null> {
     return this.getSessionMessages(sessionId, traceId);
+  }
+
+  async deleteSession(sessionId: string, traceId: string): Promise<WebuiDeleteSessionResult> {
+    const result = await this.rpcClient.request(traceId, "session.delete", {
+      session_id: sessionId,
+    });
+    return normalizeDeleteSessionResult(result, sessionId);
   }
 
   async setCheckpoint(sessionId: string, checkpoint: Record<string, unknown>, traceId: string): Promise<void> {
@@ -104,6 +116,14 @@ function normalizeClearSessionResult(result: unknown, fallbackSessionId: string)
     messagesBefore: numberField(payload, "messagesBefore", "messages_before"),
     messagesAfter: numberField(payload, "messagesAfter", "messages_after"),
     checkpointCleared: booleanField(payload, "checkpointCleared", "checkpoint_cleared"),
+  };
+}
+
+function normalizeDeleteSessionResult(result: unknown, fallbackSessionId: string): WebuiDeleteSessionResult {
+  const payload = isJsonObject(result) ? result : {};
+  return {
+    sessionId: stringField(payload, "sessionId", "session_id") ?? fallbackSessionId,
+    deleted: booleanField(payload, "deleted", "deleted"),
   };
 }
 

@@ -2,6 +2,31 @@ import { describe, expect, test } from "vitest";
 import { NativeSessionBridge } from "./sessionBridge";
 
 describe("NativeSessionBridge", () => {
+  test("deletes a WebUI session through native session.delete", async () => {
+    const requests: Array<{ traceId: string; method: string; params: Record<string, unknown> }> = [];
+    const bridge = new NativeSessionBridge({
+      request: async (traceId, method, params) => {
+        requests.push({ traceId, method, params });
+        return {
+          session_id: "websocket:chat-1",
+          deleted: true,
+        };
+      },
+    });
+
+    await expect((bridge as any).deleteSession("websocket:chat-1", "trace-webui")).resolves.toEqual({
+      sessionId: "websocket:chat-1",
+      deleted: true,
+    });
+    expect(requests).toEqual([
+      {
+        traceId: "trace-webui",
+        method: "session.delete",
+        params: { session_id: "websocket:chat-1" },
+      },
+    ]);
+  });
+
   test("loads WebUI session messages through native session.get_metadata", async () => {
     const requests: Array<{ traceId: string; method: string; params: Record<string, unknown> }> = [];
     const bridge = new NativeSessionBridge({

@@ -147,6 +147,28 @@ impl WorkerSessionRpc {
         })
     }
 
+    pub fn delete_session(
+        &mut self,
+        session_id: &str,
+    ) -> Result<DeleteSessionResult, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionWrite)?;
+        validate_session_id(session_id)?;
+        let deleted = if let Some(index) = self
+            .sessions
+            .iter()
+            .position(|session| session.session_id == session_id)
+        {
+            self.sessions.remove(index);
+            true
+        } else {
+            false
+        };
+        Ok(DeleteSessionResult {
+            session_id: session_id.to_string(),
+            deleted,
+        })
+    }
+
     pub fn append_messages(
         &mut self,
         session_id: &str,
@@ -362,6 +384,12 @@ pub struct ClearSessionResult {
     pub messages_after: usize,
     pub checkpoint_cleared: bool,
     pub session: SessionMetadata,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct DeleteSessionResult {
+    pub session_id: String,
+    pub deleted: bool,
 }
 
 fn validate_session_id(session_id: &str) -> Result<(), WorkerProtocolError> {
@@ -704,6 +732,31 @@ mod tests {
         assert!(result.session.extra.get("runtime_checkpoint").is_none());
         assert!(result.session.extra.get("last_context_metadata").is_none());
         assert!(result.session.extra.get("last_persisted_run_id").is_none());
+    }
+
+    #[test]
+    fn delete_session_removes_existing_session_with_write_capability() {
+        let mut rpc = WorkerSessionRpc::new(vec![session_fixture()], write_policy());
+
+        let result = rpc
+            .delete_session("session-1")
+            .expect("session should delete");
+
+        assert_eq!(result.session_id, "session-1");
+        assert!(result.deleted);
+        assert!(rpc.get_metadata("session-1").is_err());
+    }
+
+    #[test]
+    fn delete_session_reports_missing_session_with_write_capability() {
+        let mut rpc = WorkerSessionRpc::new(vec![session_fixture()], write_policy());
+
+        let result = rpc
+            .delete_session("missing-session")
+            .expect("missing session delete should be reported");
+
+        assert_eq!(result.session_id, "missing-session");
+        assert!(!result.deleted);
     }
 
     #[test]

@@ -373,6 +373,43 @@ describe("AgentWorker", () => {
     expect(clearRequests).toEqual([{ sessionId: "websocket:chat-1", traceId: "trace-webui.handle_request" }]);
   });
 
+  test("serves WebUI session delete control route through TS worker RPC", async () => {
+    const deleteRequests: Array<{ sessionId: string; traceId: string }> = [];
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      webuiSessionProvider: {
+        listSessions: () => [],
+        deleteSession: (sessionId: string, traceId: string) => {
+          deleteRequests.push({ sessionId, traceId });
+          return { sessionId, deleted: true };
+        },
+      },
+    } as any);
+
+    await expect(worker.handleRequest(webuiRequest("webui.route_specs"))).resolves.toMatchObject({
+      result: {
+        routes: expect.arrayContaining([
+          { key: "delete_session", method: "DELETE", path: "/api/sessions/{key}", public: false },
+        ]),
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "DELETE",
+      path: "/api/sessions/websocket%3Achat-1",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          key: "websocket:chat-1",
+          deleted: true,
+        },
+      },
+    });
+    expect(deleteRequests).toEqual([{ sessionId: "websocket:chat-1", traceId: "trace-webui.handle_request" }]);
+  });
+
   test("returns Python-compatible cowork route unavailable errors", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),

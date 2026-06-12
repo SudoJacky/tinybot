@@ -224,6 +224,11 @@ impl WorkerRpcRouter {
                 serde_json::to_value(self.session.clear_session(&params.session_id)?)
                     .map_err(serialization_error)
             }
+            "session.delete" => {
+                let params: SessionIdParams = parse_params(request)?;
+                serde_json::to_value(self.session.delete_session(&params.session_id)?)
+                    .map_err(serialization_error)
+            }
             "session.append_messages" => {
                 let params: SessionAppendMessagesParams = parse_params(request)?;
                 serde_json::to_value(
@@ -3821,6 +3826,38 @@ mod tests {
                 "messages": [{ "role": "assistant", "content": "second" }],
                 "user_profile": { "name": "Ada" },
                 "updated_at": "2026-06-09T09:30:00Z"
+            }))
+        );
+        assert!(response.error.is_none());
+    }
+
+    #[test]
+    fn dispatches_session_delete_request() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![session_fixture()],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::SessionWrite,
+                WorkerCapability::SessionMetadataRead,
+            ]),
+        );
+        let request = WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "session.delete",
+            json!({ "session_id": "session-1" }),
+        );
+
+        let response = router.dispatch(&request);
+
+        assert_eq!(
+            response.result,
+            Some(json!({
+                "session_id": "session-1",
+                "deleted": true
             }))
         );
         assert!(response.error.is_none());

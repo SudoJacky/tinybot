@@ -48,6 +48,11 @@ export type WebuiClearSessionResult = {
   checkpointCleared: boolean;
 };
 
+export type WebuiDeleteSessionResult = {
+  sessionId: string;
+  deleted: boolean;
+};
+
 export type WebuiSessionProvider = {
   channelName?: string;
   listSessions(traceId: string): Promise<WebuiSessionMetadata[]> | WebuiSessionMetadata[];
@@ -59,12 +64,17 @@ export type WebuiSessionProvider = {
     sessionId: string,
     traceId: string,
   ): Promise<WebuiClearSessionResult> | WebuiClearSessionResult;
+  deleteSession?(
+    sessionId: string,
+    traceId: string,
+  ): Promise<WebuiDeleteSessionResult> | WebuiDeleteSessionResult;
 };
 
 const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
   { key: "get_status", method: "GET", path: "/api/status", public: false },
   { key: "list_sessions", method: "GET", path: "/api/sessions", public: false },
   { key: "get_messages", method: "GET", path: "/api/sessions/{key}/messages", public: false },
+  { key: "delete_session", method: "DELETE", path: "/api/sessions/{key}", public: false },
   { key: "clear_session", method: "POST", path: "/api/sessions/{key}/clear", public: false },
 ];
 
@@ -112,6 +122,17 @@ export async function handleWebuiRouteRequest(
       status: 200,
       body: webuiClearSessionBody(await sessionProvider.clearSession(clearSessionKey, traceId)),
     };
+  }
+  const deleteSessionKey = deleteSessionPathKey(method, path);
+  if (deleteSessionKey !== undefined) {
+    if (!sessionProvider?.deleteSession) {
+      return { status: 503, body: { error: "session manager not available" } };
+    }
+    const result = await sessionProvider.deleteSession(deleteSessionKey, traceId);
+    if (!result.deleted) {
+      return { status: 404, body: { error: "session not found" } };
+    }
+    return { status: 200, body: webuiDeleteSessionBody(result) };
   }
   return {
     status: 404,
@@ -164,6 +185,13 @@ function webuiSessionListBody(
         created_at: session.createdAt,
         updated_at: session.updatedAt,
       })),
+  };
+}
+
+function webuiDeleteSessionBody(result: WebuiDeleteSessionResult): Record<string, unknown> {
+  return {
+    key: result.sessionId,
+    deleted: result.deleted,
   };
 }
 
@@ -247,6 +275,9 @@ function routeKey(method: string, path: string): string {
   if (clearSessionPathKey(method, path) !== undefined) {
     return "clear_session";
   }
+  if (deleteSessionPathKey(method, path) !== undefined) {
+    return "delete_session";
+  }
   const spec = WEBUI_ROUTE_SPECS.find((entry) => entry.method === method && entry.path === path);
   return spec?.key ?? `${method} ${path}`;
 }
@@ -264,6 +295,14 @@ function clearSessionPathKey(method: string, path: string): string | undefined {
     return undefined;
   }
   const match = /^\/api\/sessions\/([^/]+)\/clear$/.exec(path);
+  return match ? decodeURIComponent(match[1]) : undefined;
+}
+
+function deleteSessionPathKey(method: string, path: string): string | undefined {
+  if (method !== "DELETE") {
+    return undefined;
+  }
+  const match = /^\/api\/sessions\/([^/]+)$/.exec(path);
   return match ? decodeURIComponent(match[1]) : undefined;
 }
 
