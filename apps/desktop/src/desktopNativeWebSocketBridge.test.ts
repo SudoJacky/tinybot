@@ -40,7 +40,12 @@ describe("desktop native WebSocket bridge", () => {
 
     handlers.get("agent.delta")?.({ runId: "run-1", delta: "hello", messageId: "message-1" });
     handlers.get("agent.reasoning_delta")?.({ run_id: "run-1", delta: "thinking", message_id: "message-1" });
-    handlers.get("agent.done")?.({ runId: "run-1", stopReason: "final_response" });
+    handlers.get("agent.done")?.({
+      runId: "run-1",
+      stopReason: "final_response",
+      _memory_references: [{ note_id: "note-1" }],
+      _recent_context_references: [{ evidence_id: "ev-1" }],
+    });
     dispatch.resolve({
       transport: {
         kind: "message",
@@ -75,6 +80,8 @@ describe("desktop native WebSocket bridge", () => {
       chat_id: "chat-native",
       message_id: "message-1",
       reason: "final_response",
+      _memory_references: [{ note_id: "note-1" }],
+      _recent_context_references: [{ evidence_id: "ev-1" }],
     });
     expect(events).not.toContainEqual(expect.objectContaining({
       event: "message",

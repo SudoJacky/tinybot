@@ -370,6 +370,7 @@ class DesktopNativeWebSocket extends EventTarget {
         chat_id: run.chatId,
         message_id: run.messageId,
         reason: stringValue(payload.stopReason) || stringValue(payload.stop_reason) || "stop",
+        ...referenceMetadata(payload),
       });
       this.activeRuns.delete(runId);
       this.completedStreamedRunIds.add(runId);
@@ -516,6 +517,17 @@ function numberValue(value: unknown): number | null {
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
+}
+
+function referenceMetadata(payload: Record<string, unknown>): Record<string, unknown> {
+  const memoryReferences = arrayValue(payload._memory_references ?? payload.memoryReferences ?? payload.memory_references);
+  const recentContextReferences = arrayValue(
+    payload._recent_context_references ?? payload.recentContextReferences ?? payload.recent_context_references,
+  );
+  return {
+    ...(memoryReferences.length ? { _memory_references: memoryReferences } : {}),
+    ...(recentContextReferences.length ? { _recent_context_references: recentContextReferences } : {}),
+  };
 }
 
 function toolCallDeltaKey(runId: string, index: number): string {
