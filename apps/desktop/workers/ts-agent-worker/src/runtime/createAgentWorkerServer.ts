@@ -43,6 +43,7 @@ import { NativeMemoryBridge } from "./memoryBridge.ts";
 import { createModelProvider, type ModelProviderConfig } from "./providerFactory.ts";
 import { NativeSessionBridge } from "./sessionBridge.ts";
 import { NativeSkillsBridge } from "./skillsBridge.ts";
+import { NativeWorkspaceBridge } from "./workspaceBridge.ts";
 import { NativeTaskNotificationBridge, NativeTaskProgressCardBridge } from "../task/taskNotificationBridge.ts";
 
 export type CreateAgentWorkerServerOptions = {
@@ -136,6 +137,7 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     ? new NativeMcpBridge({ rpcClient, registry: options.tools })
     : undefined;
   const sessionBridge = new NativeSessionBridge(rpcClient);
+  const workspaceBridge = new NativeWorkspaceBridge(rpcClient);
   const worker = new AgentWorker({
     provider,
     tools: options.tools,
@@ -157,6 +159,7 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     approvalBridge: new NativeApprovalBridge(rpcClient),
     dreamBridge: new NativeDreamBridge(rpcClient),
     sessionBridge,
+    workspaceBridge,
     webuiSessionProvider: sessionBridge,
     webuiConfigProvider: {
       getConfig: () => configBridge.snapshotPublic(),

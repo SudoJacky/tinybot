@@ -875,6 +875,45 @@ describe("gateway HTTP client", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
+  test("prefers native WebUI workspace file routes when available", async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
+    const nativeWebui = {
+      route: vi.fn(async (request: { method: string; path: string; body?: unknown }) => ({
+        native: true,
+        request,
+      })),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeWebui,
+    });
+
+    await expect(client.workspace.files()).resolves.toEqual({
+      native: true,
+      request: { method: "GET", path: "/api/workspace/files" },
+    });
+    await expect(client.workspace.file("docs/readme.md")).resolves.toEqual({
+      native: true,
+      request: { method: "GET", path: "/api/workspace/files/docs%2Freadme.md" },
+    });
+    await expect(client.workspace.putFile("docs/readme.md", {
+      content: "# Readme\n",
+      expected_updated_at: null,
+    })).resolves.toEqual({
+      native: true,
+      request: {
+        method: "PUT",
+        path: "/api/workspace/files/docs%2Freadme.md",
+        body: {
+          content: "# Readme\n",
+          expected_updated_at: null,
+        },
+      },
+    });
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
   test("falls back to gateway skills operations when native skills are unavailable", async () => {
     const fetchFn = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
       if (String(url).endsWith("/webui/bootstrap")) {

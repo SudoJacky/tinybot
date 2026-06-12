@@ -446,10 +446,27 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
       query: (body: unknown) => request("/v1/knowledge/query", jsonRequest("POST", body)),
     },
     workspace: {
-      files: () => request("/api/workspace/files"),
-      file: (path: string) => request(`/api/workspace/files/${encodePathSegment(path)}`),
-      putFile: (path: string, body: unknown) =>
-        request(`/api/workspace/files/${encodePathSegment(path)}`, jsonRequest("PUT", body)),
+      files: () => nativeOrGateway(
+        () => options.nativeWebui?.route({ method: "GET", path: "/api/workspace/files" }),
+        () => request("/api/workspace/files"),
+        "webui.workspace.files",
+      ),
+      file: (path: string) => {
+        const routePath = `/api/workspace/files/${encodePathSegment(path)}`;
+        return nativeOrGateway(
+          () => options.nativeWebui?.route({ method: "GET", path: routePath }),
+          () => request(routePath),
+          "webui.workspace.file",
+        );
+      },
+      putFile: (path: string, body: unknown) => {
+        const routePath = `/api/workspace/files/${encodePathSegment(path)}`;
+        return nativeOrGateway(
+          () => options.nativeWebui?.route({ method: "PUT", path: routePath, body }),
+          () => request(routePath, jsonRequest("PUT", body)),
+          "webui.workspace.putFile",
+        );
+      },
     },
     cowork: {
       sessions: (sessionOptions: { includeCompleted?: boolean; originChatId?: string } = {}) => {

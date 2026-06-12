@@ -41,6 +41,7 @@ import {
   type WebuiSessionProvider,
   type WebuiSkillsProvider,
   type WebuiStatusProvider,
+  type WebuiWorkspaceProvider,
 } from "../webui/webuiRoutes.ts";
 import {
   approvalOperationFromCheckpoint,
@@ -80,6 +81,7 @@ export type AgentWorkerOptions = {
   webuiBootstrapProvider?: WebuiBootstrapProvider;
   webuiSessionProvider?: WebuiSessionProvider;
   webuiConfigProvider?: WebuiConfigProvider;
+  workspaceBridge?: WebuiWorkspaceProvider;
 };
 
 export type PrepareToolsHandler = (traceId: string) => Promise<unknown> | unknown;
@@ -208,6 +210,7 @@ export class AgentWorker {
   private readonly webuiBootstrapProvider?: WebuiBootstrapProvider;
   private readonly webuiSessionProvider?: WebuiSessionProvider;
   private readonly webuiConfigProvider?: WebuiConfigProvider;
+  private readonly workspaceBridge?: WebuiWorkspaceProvider;
   private readonly commandRouter: CommandRouter;
   private readonly turnLifecycle: TurnLifecycle;
   private readonly activeRuns = new Map<string, ActiveRun>();
@@ -235,6 +238,7 @@ export class AgentWorker {
     this.webuiBootstrapProvider = options.webuiBootstrapProvider;
     this.webuiSessionProvider = options.webuiSessionProvider;
     this.webuiConfigProvider = options.webuiConfigProvider;
+    this.workspaceBridge = options.workspaceBridge;
     this.commandRouter = options.commandRouter ?? createDefaultCommandRouter({
       cancelActiveRunsForSession: (sessionId) => this.cancelActiveRunsForSession(sessionId),
       getStatusSnapshot: (context) => this.statusSnapshot(context.sessionId),
@@ -2563,6 +2567,7 @@ export class AgentWorker {
           this.webuiProvidersProvider(),
           this.webuiSkillsProvider(),
           this.webuiAgentUiFormProvider(),
+          this.workspaceBridge,
           request.trace_id,
         ),
       };

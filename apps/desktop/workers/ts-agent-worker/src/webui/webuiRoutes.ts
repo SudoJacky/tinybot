@@ -181,6 +181,34 @@ export type WebuiAgentUiFormProvider = {
   ): Promise<Record<string, unknown>> | Record<string, unknown>;
 };
 
+export type WebuiWorkspaceFileEntry = {
+  path: string;
+  exists?: boolean;
+  updatedAt?: string | null;
+};
+
+export type WebuiWorkspaceFileContent = {
+  path: string;
+  content: string;
+  exists?: boolean;
+  updatedAt?: string | null;
+};
+
+export type WebuiWorkspaceWriteResult = {
+  path: string;
+  updatedAt?: string | null;
+};
+
+export type WebuiWorkspaceProvider = {
+  listFiles(traceId: string): Promise<WebuiWorkspaceFileEntry[]> | WebuiWorkspaceFileEntry[];
+  readFile(path: string, traceId: string): Promise<WebuiWorkspaceFileContent | null> | WebuiWorkspaceFileContent | null;
+  writeFile(
+    path: string,
+    contents: string,
+    traceId: string,
+  ): Promise<WebuiWorkspaceWriteResult> | WebuiWorkspaceWriteResult;
+};
+
 const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
   { key: "bootstrap", method: "GET", path: "/webui/bootstrap", public: true },
   { key: "get_status", method: "GET", path: "/api/status", public: false },
@@ -206,6 +234,9 @@ const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
   { key: "validate_skill", method: "POST", path: "/api/skills/{name}/validate", public: false },
   { key: "submit_agent_ui_form", method: "POST", path: "/api/agent-ui/forms/{form_id}/submit", public: false },
   { key: "cancel_agent_ui_form", method: "POST", path: "/api/agent-ui/forms/{form_id}/cancel", public: false },
+  { key: "list_workspace_files", method: "GET", path: "/api/workspace/files", public: false },
+  { key: "get_workspace_file", method: "GET", path: "/api/workspace/files/{path:.+}", public: false },
+  { key: "put_workspace_file", method: "PUT", path: "/api/workspace/files/{path:.+}", public: false },
 ];
 
 export function webuiRouteSpecs(): WebuiRouteSpec[] {
@@ -224,6 +255,7 @@ export async function handleWebuiRouteRequest(
   providersProvider?: WebuiProvidersProvider,
   skillsProvider?: WebuiSkillsProvider,
   agentUiFormProvider?: WebuiAgentUiFormProvider,
+  workspaceProvider?: WebuiWorkspaceProvider,
   traceId = "webui-route",
 ): Promise<WebuiRouteResponse> {
   const method = request.method.toUpperCase();
@@ -315,6 +347,16 @@ export async function handleWebuiRouteRequest(
   const agentUiFormAction = agentUiFormActionPath(method, path);
   if (agentUiFormAction) {
     return webuiAgentUiFormResponse(request.body, agentUiFormAction, agentUiFormProvider, traceId);
+  }
+  if (method === "GET" && path === "/api/workspace/files") {
+    if (!workspaceProvider) {
+      return { status: 404, body: { error: "workspace not available" } };
+    }
+    return { status: 200, body: webuiWorkspaceFileListBody(await workspaceProvider.listFiles(traceId)) };
+  }
+  const workspaceFilePath = workspaceFileRoutePath(method, path);
+  if (workspaceFilePath !== undefined) {
+    return webuiWorkspaceFileResponse(method, workspaceFilePath, request.body, workspaceProvider, traceId);
   }
   if (method === "GET" && path === "/api/sessions") {
     if (!sessionProvider) {
@@ -706,6 +748,65 @@ function agentUiFormRouteKey(action: WebuiAgentUiFormAction): string {
   return action === "cancelled" ? "cancel_agent_ui_form" : "submit_agent_ui_form";
 }
 
+async function webuiWorkspaceFileResponse(
+  method: string,
+  path: string,
+  body: unknown,
+  workspaceProvider: WebuiWorkspaceProvider | undefined,
+  traceId: string,
+): Promise<WebuiRouteResponse> {
+  if (!workspaceProvider) {
+    return { status: 404, body: { error: "workspace not available" } };
+  }
+  try {
+    if (method === "GET") {
+      const file = await workspaceProvider.readFile(path, traceId);
+      if (!file) {
+        return { status: 404, body: { error: "file is not editable" } };
+      }
+      return { status: 200, body: webuiWorkspaceFileBody(file) };
+    }
+    const payload = body === undefined ? {} : body;
+    if (!isJsonObject(payload)) {
+      return { status: 400, body: { error: "invalid json body" } };
+    }
+    if (typeof payload.content !== "string") {
+      return { status: 400, body: { error: "content must be a string" } };
+    }
+    const result = await workspaceProvider.writeFile(path, payload.content, traceId);
+    return { status: 200, body: webuiWorkspaceWriteBody(result) };
+  } catch (error) {
+    return { status: 404, body: { error: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+function webuiWorkspaceFileListBody(files: WebuiWorkspaceFileEntry[]): Record<string, unknown> {
+  return {
+    items: files.map((file) => ({
+      path: file.path,
+      exists: file.exists ?? true,
+      updated_at: file.updatedAt ?? null,
+    })),
+  };
+}
+
+function webuiWorkspaceFileBody(file: WebuiWorkspaceFileContent): Record<string, unknown> {
+  return {
+    path: file.path,
+    content: file.content,
+    updated_at: file.updatedAt ?? null,
+    exists: file.exists ?? true,
+  };
+}
+
+function webuiWorkspaceWriteBody(result: WebuiWorkspaceWriteResult): Record<string, unknown> {
+  return {
+    saved: true,
+    path: result.path,
+    updated_at: result.updatedAt ?? null,
+  };
+}
+
 function webuiSessionListBody(
   sessions: WebuiSessionMetadata[],
   channelName: string,
@@ -931,6 +1032,14 @@ function agentUiFormActionPath(
     formId: decodeURIComponent(match[1]),
     action: match[2] === "cancel" ? "cancelled" : "submitted",
   };
+}
+
+function workspaceFileRoutePath(method: string, path: string): string | undefined {
+  if (method !== "GET" && method !== "PUT") {
+    return undefined;
+  }
+  const match = /^\/api\/workspace\/files\/(.+)$/.exec(path);
+  return match ? decodeURIComponent(match[1]) : undefined;
 }
 
 function clearSessionPathKey(method: string, path: string): string | undefined {

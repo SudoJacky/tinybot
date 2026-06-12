@@ -793,6 +793,89 @@ describe("AgentWorker", () => {
     ]));
   });
 
+  test("serves WebUI workspace file routes through TS worker RPC", async () => {
+    const calls: Array<{ method: string; path?: string; contents?: string }> = [];
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      workspaceBridge: {
+        listFiles: async (traceId: string) => {
+          calls.push({ method: `list:${traceId}` });
+          return [
+            { path: "AGENTS.md", sizeBytes: 32 },
+            { path: "docs/notes.md", sizeBytes: 64 },
+          ];
+        },
+        readFile: async (path: string, traceId: string) => {
+          calls.push({ method: `read:${traceId}`, path });
+          return { path, content: `# ${path}\n`, exists: true, updatedAt: null };
+        },
+        writeFile: async (path: string, contents: string, traceId: string) => {
+          calls.push({ method: `write:${traceId}`, path, contents });
+          return { path, updatedAt: null };
+        },
+      },
+    } as any);
+
+    await expect(worker.handleRequest(webuiRequest("webui.route_specs"))).resolves.toMatchObject({
+      result: {
+        routes: expect.arrayContaining([
+          { key: "list_workspace_files", method: "GET", path: "/api/workspace/files", public: false },
+          { key: "get_workspace_file", method: "GET", path: "/api/workspace/files/{path:.+}", public: false },
+          { key: "put_workspace_file", method: "PUT", path: "/api/workspace/files/{path:.+}", public: false },
+        ]),
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
+      path: "/api/workspace/files",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          items: [
+            { path: "AGENTS.md", exists: true, updated_at: null },
+            { path: "docs/notes.md", exists: true, updated_at: null },
+          ],
+        },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
+      path: "/api/workspace/files/docs%2Fnotes.md",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          path: "docs/notes.md",
+          content: "# docs/notes.md\n",
+          exists: true,
+          updated_at: null,
+        },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "PUT",
+      path: "/api/workspace/files/docs%2Fnotes.md",
+      body: { content: "# Updated\n", expected_updated_at: null },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          saved: true,
+          path: "docs/notes.md",
+          updated_at: null,
+        },
+      },
+    });
+    expect(calls).toEqual([
+      { method: "list:trace-webui.handle_request" },
+      { method: "read:trace-webui.handle_request", path: "docs/notes.md" },
+      { method: "write:trace-webui.handle_request", path: "docs/notes.md", contents: "# Updated\n" },
+    ]);
+  });
+
   test("serves WebUI session list control route through TS worker RPC", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),
