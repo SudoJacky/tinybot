@@ -549,8 +549,10 @@ export class AgentWorker {
         status: 200,
         body: {
           items: originChatId
-            ? sessions.filter((session) => session.runtime_state?.origin_chat_id === originChatId)
-            : sessions,
+            ? sessions
+              .filter((session) => session.runtime_state?.origin_chat_id === originChatId)
+              .map((session) => coworkSessionSnapshot(session, { verbose: false }))
+            : sessions.map((session) => coworkSessionSnapshot(session, { verbose: false })),
         },
       };
     }

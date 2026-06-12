@@ -293,7 +293,13 @@ describe("AgentWorker", () => {
       result: {
         status: 200,
         body: {
-          items: [expect.objectContaining({ id: "cw_1", title: "Route API" })],
+          items: [expect.objectContaining({
+            id: "cw_1",
+            title: "Route API",
+            agents: [expect.objectContaining({ id: "lead", private_summary: "" })],
+            messages: [],
+            trace_spans: [],
+          })],
         },
       },
     });
