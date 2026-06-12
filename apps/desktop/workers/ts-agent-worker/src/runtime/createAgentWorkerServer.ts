@@ -158,6 +158,9 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     dreamBridge: new NativeDreamBridge(rpcClient),
     sessionBridge,
     webuiSessionProvider: sessionBridge,
+    webuiConfigProvider: {
+      getConfig: () => configBridge.snapshotPublic(),
+    },
     memoryBridge: new NativeMemoryBridge(rpcClient),
     contextBridge: new NativeContextBridge(rpcClient),
     coworkService,

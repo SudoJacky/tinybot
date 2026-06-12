@@ -420,6 +420,28 @@ describe("gateway HTTP client", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
+  test("prefers native WebUI config route when available", async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
+    const nativeWebui = {
+      route: vi.fn(async (request: { method: string; path: string; body?: unknown }) => ({
+        agents: { defaults: { provider: "dashscope", model: "qwen-max" } },
+        request,
+      })),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeWebui,
+    });
+
+    await expect(client.config.get()).resolves.toEqual({
+      agents: { defaults: { provider: "dashscope", model: "qwen-max" } },
+      request: { method: "GET", path: "/api/config" },
+    });
+    expect(nativeWebui.route).toHaveBeenCalledWith({ method: "GET", path: "/api/config" });
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
   test("prefers native WebUI provider models route when available", async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
     const nativeWebui = {

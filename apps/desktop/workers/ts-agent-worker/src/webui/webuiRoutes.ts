@@ -133,9 +133,14 @@ export type WebuiProviderModelsProvider = {
   ): Promise<Record<string, unknown>> | Record<string, unknown>;
 };
 
+export type WebuiConfigProvider = {
+  getConfig(traceId: string): Promise<Record<string, unknown>> | Record<string, unknown>;
+};
+
 const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
   { key: "get_status", method: "GET", path: "/api/status", public: false },
   { key: "get_tools", method: "GET", path: "/api/tools", public: false },
+  { key: "get_config", method: "GET", path: "/api/config", public: false },
   { key: "provider_models", method: "POST", path: "/api/provider-models", public: false },
   { key: "get_approvals", method: "GET", path: "/api/approvals", public: false },
   { key: "approve_approval", method: "POST", path: "/api/approvals/{approval_id}/approve", public: false },
@@ -160,6 +165,7 @@ export async function handleWebuiRouteRequest(
   tools?: ToolRegistry,
   approvalProvider?: WebuiApprovalProvider,
   providerModelsProvider?: WebuiProviderModelsProvider,
+  configProvider?: WebuiConfigProvider,
   traceId = "webui-route",
 ): Promise<WebuiRouteResponse> {
   const method = request.method.toUpperCase();
@@ -170,6 +176,12 @@ export async function handleWebuiRouteRequest(
   }
   if (method === "GET" && path === "/api/tools") {
     return { status: 200, body: webuiToolsBody(tools) };
+  }
+  if (method === "GET" && path === "/api/config") {
+    if (!configProvider) {
+      return { status: 503, body: { error: "webui control route unavailable", route: "get_config" } };
+    }
+    return { status: 200, body: await configProvider.getConfig(traceId) };
   }
   if (method === "POST" && path === "/api/provider-models") {
     return webuiProviderModelsResponse(request.body, providerModelsProvider, traceId);

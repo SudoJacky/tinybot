@@ -244,6 +244,40 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("serves WebUI config route through TS worker RPC", async () => {
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      webuiConfigProvider: {
+        getConfig: async () => ({
+          agents: { defaults: { provider: "dashscope", model: "qwen-max" } },
+          providers: { dashscope: { api_key: "********" } },
+        }),
+      },
+    });
+
+    await expect(worker.handleRequest(webuiRequest("webui.route_specs"))).resolves.toMatchObject({
+      result: {
+        routes: expect.arrayContaining([
+          { key: "get_config", method: "GET", path: "/api/config", public: false },
+        ]),
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
+      path: "/api/config",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          agents: { defaults: { provider: "dashscope", model: "qwen-max" } },
+          providers: { dashscope: { api_key: "********" } },
+        },
+      },
+    });
+  });
+
   test("serves WebUI provider models route through TS worker RPC", async () => {
     const requests: ProviderModelsListRequest[] = [];
     const worker = new AgentWorker({

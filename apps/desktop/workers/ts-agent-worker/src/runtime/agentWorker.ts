@@ -33,6 +33,7 @@ import {
   handleWebuiRouteRequest,
   parseWebuiRouteRequest,
   webuiRouteSpecs,
+  type WebuiConfigProvider,
   type WebuiSessionProvider,
   type WebuiStatusProvider,
 } from "../webui/webuiRoutes.ts";
@@ -72,6 +73,7 @@ export type AgentWorkerOptions = {
   coworkScheduler?: CoworkScheduler;
   statusProvider?: WebuiStatusProvider;
   webuiSessionProvider?: WebuiSessionProvider;
+  webuiConfigProvider?: WebuiConfigProvider;
 };
 
 export type PrepareToolsHandler = (traceId: string) => Promise<unknown> | unknown;
@@ -198,6 +200,7 @@ export class AgentWorker {
   private readonly coworkScheduler?: CoworkScheduler;
   private readonly statusProvider?: WebuiStatusProvider;
   private readonly webuiSessionProvider?: WebuiSessionProvider;
+  private readonly webuiConfigProvider?: WebuiConfigProvider;
   private readonly commandRouter: CommandRouter;
   private readonly turnLifecycle: TurnLifecycle;
   private readonly activeRuns = new Map<string, ActiveRun>();
@@ -223,6 +226,7 @@ export class AgentWorker {
     this.coworkScheduler = options.coworkScheduler;
     this.statusProvider = options.statusProvider;
     this.webuiSessionProvider = options.webuiSessionProvider;
+    this.webuiConfigProvider = options.webuiConfigProvider;
     this.commandRouter = options.commandRouter ?? createDefaultCommandRouter({
       cancelActiveRunsForSession: (sessionId) => this.cancelActiveRunsForSession(sessionId),
       getStatusSnapshot: (context) => this.statusSnapshot(context.sessionId),
@@ -2546,6 +2550,7 @@ export class AgentWorker {
           this.tools,
           this.webuiApprovalProvider(),
           this.webuiProviderModelsProvider(),
+          this.webuiConfigProvider,
           request.trace_id,
         ),
       };
