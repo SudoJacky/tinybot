@@ -542,7 +542,7 @@ export class AgentWorker {
     const body = isJsonObject(route.body) ? route.body : {};
 
     if (segments.length === 2 && segments[0] === "blueprints" && route.method === "POST") {
-      if (!isJsonObject(route.body)) {
+      if (routeHasInvalidJsonBody(route)) {
         return invalidCoworkJsonBodyRouteResponse();
       }
       return this.dispatchCoworkBlueprintRoute(segments, body);
@@ -566,7 +566,7 @@ export class AgentWorker {
     }
 
     if (segments.length === 1 && segments[0] === "sessions" && route.method === "POST") {
-      if (!isJsonObject(route.body)) {
+      if (routeHasInvalidJsonBody(route)) {
         return invalidCoworkJsonBodyRouteResponse();
       }
       const parsedParams = this.parseCoworkCreateSessionRouteParams(body);
@@ -1208,7 +1208,7 @@ export class AgentWorker {
     }
 
     if (segments.length === 4 && segments[3] === "derive" && route.method === "POST") {
-      if (!isJsonObject(route.body)) {
+      if (routeHasInvalidJsonBody(route)) {
         return invalidCoworkJsonBodyRouteResponse();
       }
       const params = parseCoworkDeriveBranchParams({ ...body, session_id: sessionId });
@@ -1225,6 +1225,9 @@ export class AgentWorker {
     }
 
     if (segments.length === 5 && segments[4] === "derive" && route.method === "POST") {
+      if (routeHasInvalidJsonBody(route)) {
+        return invalidCoworkJsonBodyRouteResponse();
+      }
       const params = parseCoworkDeriveBranchParams({ ...body, session_id: sessionId, source_branch_id: segments[3] });
       const result = await this.coworkService.deriveBranch({
         traceId,
@@ -1254,6 +1257,9 @@ export class AgentWorker {
     }
 
     if (segments.length === 6 && segments[4] === "result" && segments[5] === "select-final" && route.method === "POST") {
+      if (routeHasInvalidJsonBody(route)) {
+        return invalidCoworkJsonBodyRouteResponse();
+      }
       const result = await this.coworkService.selectSessionFinalResult({
         traceId,
         sessionId,
@@ -3236,6 +3242,10 @@ function unsupportedCoworkRoute(route: CoworkRouteRequest): CoworkRouteResponse 
 
 function invalidCoworkJsonBodyRouteResponse(): CoworkRouteResponse {
   return { status: 400, body: { error: "invalid json body" } };
+}
+
+function routeHasInvalidJsonBody(route: CoworkRouteRequest): boolean {
+  return route.body !== undefined && !isJsonObject(route.body);
 }
 
 function unavailableCoworkRouteResponse(): CoworkRouteResponse {

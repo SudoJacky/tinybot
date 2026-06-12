@@ -1824,6 +1824,19 @@ describe("AgentWorker", () => {
 
     await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
       method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/branches/default/result/select-final`,
+      body: ["not", "an", "object"],
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: {
+          error: "invalid json body",
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
       path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/final-result/select`,
       body: { branch_id: "missing-branch" },
     }))).resolves.toMatchObject({

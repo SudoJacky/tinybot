@@ -296,6 +296,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: create-session routes with non-object bodies now return Python-compatible `400 {"error":"invalid json body"}` instead of falling through to missing-goal validation. |
 | 2026-06-13 | Continued Batch 5 Cowork runtime Phase 10 route parity: routes backed by Python `_json_body()` now reject non-object TS `cowork.route_request` bodies with Python-compatible `400 {"error":"invalid json body"}` for blueprint validation, message/task mutations, assign-task, budget updates, and related JSON-body actions. |
 | 2026-06-13 | Continued Batch 5 Cowork runtime Phase 10 route parity: TS `cowork.route_request` now returns Python-compatible HTTP `503 {"error":"cowork is not available"}` when the Cowork service is absent instead of surfacing a worker protocol error. |
+| 2026-06-13 | Continued Batch 5 Cowork runtime Phase 10 route parity: branch-scoped derive and select-final routes now reject explicit non-object `cowork.route_request` bodies with Python-compatible `400 {"error":"invalid json body"}` while preserving the TS bridge's empty-body business-error compatibility. |
 
 ## Next Checklist
 
@@ -399,6 +400,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: return Python-compatible create-session route errors for non-object bodies.
 - [x] Continue Cowork Phase 10: reject non-object route bodies with Python-compatible invalid-json responses on `_json_body()` mutation routes.
 - [x] Continue Cowork Phase 10: return Python-compatible route-level 503 errors when Cowork service is unavailable.
+- [x] Continue Cowork Phase 10: return Python-compatible invalid-json errors for explicit non-object branch-scoped derive/select-final route bodies.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 
 - [x] 复核 `ts_native_core.md` 对应实现和 `rust-native-core-worker-migration` 完成状态。
