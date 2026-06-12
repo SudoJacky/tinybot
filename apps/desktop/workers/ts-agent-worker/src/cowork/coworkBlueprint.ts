@@ -394,7 +394,7 @@ function buildBlueprintGraph(blueprint: CoworkBlueprint): JsonObject {
   const layoutNodes = isJsonObject(blueprint.layout.nodes) ? blueprint.layout.nodes : {};
 
   blueprint.agents.forEach((agent, index) => {
-    const position = isJsonObject(layoutNodes[agent.id]) ? layoutNodes[agent.id] : {};
+    const position = layoutPosition(layoutNodes, agent.id);
     nodes.push({
       id: `agent:${agent.id}`,
       entity_id: agent.id,
@@ -415,7 +415,7 @@ function buildBlueprintGraph(blueprint: CoworkBlueprint): JsonObject {
   });
 
   blueprint.tasks.forEach((task, index) => {
-    const position = isJsonObject(layoutNodes[task.id]) ? layoutNodes[task.id] : {};
+    const position = layoutPosition(layoutNodes, task.id);
     nodes.push({
       id: `task:${task.id}`,
       entity_id: task.id,
@@ -663,6 +663,11 @@ function toolAllowed(tool: string, policy?: JsonObject | null): boolean {
     ? new Set(policy.allowed_tools.map((item) => stringValue(item).trim()))
     : DEFAULT_ALLOWED_TOOLS;
   return allowed.has(tool);
+}
+
+function layoutPosition(layoutNodes: JsonObject, id: string): JsonObject {
+  const position = layoutNodes[id];
+  return isJsonObject(position) ? position : {};
 }
 
 function addEdge(edges: JsonObject[], source: string, target: string, kind: string, extra: JsonObject = {}): void {

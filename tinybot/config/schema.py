@@ -324,6 +324,23 @@ class GatewayConfig(Base):
     heartbeat: HeartbeatConfig = Field(default_factory=HeartbeatConfig)
 
 
+class TsCoworkRuntimeConfig(Base):
+    """Desktop TS Cowork runtime rollout flags."""
+
+    enabled: bool = True
+    read_only_snapshot: bool = True
+    mutations: bool = True
+    scheduler: bool = True
+    swarm: bool = True
+    fallback_to_python: bool = True
+
+
+class DesktopConfig(Base):
+    """Desktop native application configuration."""
+
+    ts_cowork_runtime: TsCoworkRuntimeConfig = Field(default_factory=TsCoworkRuntimeConfig)
+
+
 class WebSearchConfig(Base):
     """Web search tool configuration."""
 
@@ -451,6 +468,7 @@ class Config(BaseSettings):
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     api: ApiConfig = Field(default_factory=ApiConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
+    desktop: DesktopConfig = Field(default_factory=DesktopConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
     knowledge: KnowledgeConfig = Field(default_factory=KnowledgeConfig)

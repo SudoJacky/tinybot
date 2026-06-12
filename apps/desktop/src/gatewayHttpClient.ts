@@ -7,7 +7,54 @@ type ClientOptions = {
   config?: GatewayConfig;
   fetchFn?: FetchFn;
   nativeSkills?: NativeSkillsApi;
+  nativeCowork?: NativeCoworkApi;
+  tsCoworkRuntime?: TsCoworkRuntimeRollout;
 };
+
+export type TsCoworkRuntimeRollout = {
+  enabled?: boolean;
+  readOnlySnapshot?: boolean;
+  mutations?: boolean;
+  scheduler?: boolean;
+  swarm?: boolean;
+  fallbackToPython?: boolean;
+};
+
+export const DEFAULT_TS_COWORK_RUNTIME_ROLLOUT: Required<TsCoworkRuntimeRollout> = {
+  enabled: true,
+  readOnlySnapshot: true,
+  mutations: true,
+  scheduler: true,
+  swarm: true,
+  fallbackToPython: true,
+};
+
+export function resolveTsCoworkRuntimeRollout(config: unknown): Required<TsCoworkRuntimeRollout> {
+  const desktop = asRecord(config)?.desktop;
+  const rollout = asRecord(asRecord(desktop)?.tsCoworkRuntime ?? asRecord(desktop)?.ts_cowork_runtime);
+  return {
+    enabled: booleanValue(rollout?.enabled, DEFAULT_TS_COWORK_RUNTIME_ROLLOUT.enabled),
+    readOnlySnapshot: booleanValue(
+      rollout?.readOnlySnapshot ?? rollout?.read_only_snapshot,
+      DEFAULT_TS_COWORK_RUNTIME_ROLLOUT.readOnlySnapshot,
+    ),
+    mutations: booleanValue(rollout?.mutations, DEFAULT_TS_COWORK_RUNTIME_ROLLOUT.mutations),
+    scheduler: booleanValue(rollout?.scheduler, DEFAULT_TS_COWORK_RUNTIME_ROLLOUT.scheduler),
+    swarm: booleanValue(rollout?.swarm, DEFAULT_TS_COWORK_RUNTIME_ROLLOUT.swarm),
+    fallbackToPython: booleanValue(
+      rollout?.fallbackToPython ?? rollout?.fallback_to_python,
+      DEFAULT_TS_COWORK_RUNTIME_ROLLOUT.fallbackToPython,
+    ),
+  };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function booleanValue(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
 
 export type NativeSkillsApi = {
   list: () => Promise<unknown>;
@@ -16,6 +63,16 @@ export type NativeSkillsApi = {
   update: (name: string, body: unknown) => Promise<unknown>;
   delete: (name: string) => Promise<unknown>;
   validate: (name: string) => Promise<unknown>;
+};
+
+export type NativeCoworkRouteRequest = {
+  method: string;
+  path: string;
+  body?: unknown;
+};
+
+export type NativeCoworkApi = {
+  route: (request: NativeCoworkRouteRequest) => Promise<unknown>;
 };
 
 type WebSocketProbe = (url: string, timeoutMs: number) => Promise<ProbeResult>;
@@ -275,47 +332,333 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         request(`/api/workspace/files/${encodePathSegment(path)}`, jsonRequest("PUT", body)),
     },
     cowork: {
-      sessions: (options: { includeCompleted?: boolean; originChatId?: string } = {}) => {
+      sessions: (sessionOptions: { includeCompleted?: boolean; originChatId?: string } = {}) => {
         const params = new URLSearchParams();
-        if (options.includeCompleted) {
+        if (sessionOptions.includeCompleted) {
           params.set("include_completed", "true");
         }
-        if (options.originChatId) {
-          params.set("origin_chat_id", options.originChatId);
+        if (sessionOptions.originChatId) {
+          params.set("origin_chat_id", sessionOptions.originChatId);
         }
-        return request(`/api/cowork/sessions${params.toString() ? `?${params}` : ""}`);
+        const path = `/api/cowork/sessions${params.toString() ? `?${params}` : ""}`;
+        return coworkNativeOrGateway(
+          options.nativeCowork,
+          options.tsCoworkRuntime,
+          request,
+          "GET",
+          path,
+          undefined,
+          "cowork.sessions",
+        );
       },
-      session: (sessionId: string) => request(`/api/cowork/sessions/${encodePathSegment(sessionId)}`),
-      summary: (sessionId: string) => request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/summary`),
-      graph: (sessionId: string) => request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/graph`),
-      agentActivity: (sessionId: string, agentId: string) =>
-        request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/agents/${encodePathSegment(agentId)}/activity`),
-      observation: (sessionId: string, detailRef: string) =>
-        request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/observations/${encodePathSegment(detailRef)}`),
-      create: (body: unknown) => request("/api/cowork/sessions", jsonRequest("POST", body)),
-      run: (sessionId: string, body: unknown) =>
-        request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/run`, jsonRequest("POST", body)),
-      action: (sessionId: string, action: "pause" | "resume" | "emergency-stop") =>
-        request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/${action}`, { method: "POST" }),
-      delete: (sessionId: string) => request(`/api/cowork/sessions/${encodePathSegment(sessionId)}`, { method: "DELETE" }),
-      message: (sessionId: string, body: unknown) =>
-        request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/messages`, jsonRequest("POST", body)),
-      addTask: (sessionId: string, body: unknown) =>
-        request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/tasks`, jsonRequest("POST", body)),
-      taskAction: (sessionId: string, taskId: string, action: "assign" | "retry" | "review", body: unknown = {}) =>
-        request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/tasks/${encodePathSegment(taskId)}/${action}`, jsonRequest("POST", body)),
-      workUnitAction: (sessionId: string, workUnitId: string, action: "retry" | "skip" | "cancel", body: unknown = {}) =>
-        request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/work-units/${encodePathSegment(workUnitId)}/${action}`, jsonRequest("POST", body)),
-      selectBranch: (sessionId: string, branchId: string) =>
-        request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/branches/${encodePathSegment(branchId)}/select`, { method: "POST" }),
-      selectBranchResult: (sessionId: string, branchId: string, body: unknown) =>
-        request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/branches/${encodePathSegment(branchId)}/result/select-final`, jsonRequest("POST", body)),
-      mergeBranchResults: (sessionId: string, body: unknown) =>
-        request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/branch-results/merge`, jsonRequest("POST", body)),
-      validateBlueprint: (body: unknown, options: { preview?: boolean } = {}) =>
-        request(`/api/cowork/blueprints/${options.preview ? "preview" : "validate"}`, jsonRequest("POST", body)),
+      session: (sessionId: string) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "GET",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}`,
+        undefined,
+        "cowork.session",
+      ),
+      summary: (sessionId: string) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "GET",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/summary`,
+        undefined,
+        "cowork.summary",
+      ),
+      graph: (sessionId: string) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "GET",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/graph`,
+        undefined,
+        "cowork.graph",
+      ),
+      agentActivity: (sessionId: string, agentId: string) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "GET",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/agents/${encodePathSegment(agentId)}/activity`,
+        undefined,
+        "cowork.agentActivity",
+      ),
+      observation: (sessionId: string, detailRef: string) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "GET",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/observations/${encodePathSegment(detailRef)}`,
+        undefined,
+        "cowork.observation",
+      ),
+      blueprint: (sessionId: string) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "GET",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/blueprint`,
+        undefined,
+        "cowork.blueprint",
+      ),
+      trace: (sessionId: string) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "GET",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/trace`,
+        undefined,
+        "cowork.trace",
+      ),
+      dag: (sessionId: string) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "GET",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/dag`,
+        undefined,
+        "cowork.dag",
+      ),
+      artifacts: (sessionId: string) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "GET",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/artifacts`,
+        undefined,
+        "cowork.artifacts",
+      ),
+      organization: (sessionId: string) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "GET",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/organization`,
+        undefined,
+        "cowork.organization",
+      ),
+      queues: (sessionId: string) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "GET",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/queues`,
+        undefined,
+        "cowork.queues",
+      ),
+      branches: (sessionId: string) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "GET",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/branches`,
+        undefined,
+        "cowork.branches",
+      ),
+      create: (body: unknown) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "POST",
+        "/api/cowork/sessions",
+        body,
+        "cowork.create",
+      ),
+      run: (sessionId: string, body: unknown) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "POST",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/run`,
+        body,
+        "cowork.run",
+      ),
+      updateBudget: (sessionId: string, body: unknown) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "POST",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/budget`,
+        body,
+        "cowork.updateBudget",
+      ),
+      action: (sessionId: string, action: "pause" | "resume" | "emergency-stop") => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "POST",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/${action}`,
+        undefined,
+        `cowork.${action}`,
+      ),
+      delete: (sessionId: string) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "DELETE",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}`,
+        undefined,
+        "cowork.delete",
+      ),
+      message: (sessionId: string, body: unknown) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "POST",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/messages`,
+        body,
+        "cowork.message",
+      ),
+      addTask: (sessionId: string, body: unknown) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "POST",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/tasks`,
+        body,
+        "cowork.addTask",
+      ),
+      taskAction: (sessionId: string, taskId: string, action: "assign" | "retry" | "review", body: unknown = {}) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "POST",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/tasks/${encodePathSegment(taskId)}/${action}`,
+        body,
+        `cowork.task.${action}`,
+      ),
+      workUnitAction: (sessionId: string, workUnitId: string, action: "retry" | "skip" | "cancel", body: unknown = {}) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "POST",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/work-units/${encodePathSegment(workUnitId)}/${action}`,
+        body,
+        `cowork.workUnit.${action}`,
+      ),
+      selectBranch: (sessionId: string, branchId: string) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "POST",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/branches/${encodePathSegment(branchId)}/select`,
+        undefined,
+        "cowork.selectBranch",
+      ),
+      deriveBranch: (sessionId: string, sourceBranchId: string | null, body: unknown) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "POST",
+        sourceBranchId
+          ? `/api/cowork/sessions/${encodePathSegment(sessionId)}/branches/${encodePathSegment(sourceBranchId)}/derive`
+          : `/api/cowork/sessions/${encodePathSegment(sessionId)}/branches/derive`,
+        body,
+        "cowork.deriveBranch",
+      ),
+      selectBranchResult: (sessionId: string, branchId: string, body: unknown) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "POST",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/branches/${encodePathSegment(branchId)}/result/select-final`,
+        body,
+        "cowork.selectBranchResult",
+      ),
+      mergeBranchResults: (sessionId: string, body: unknown) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "POST",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/branch-results/merge`,
+        body,
+        "cowork.mergeBranchResults",
+      ),
+      selectFinalResult: (sessionId: string, body: unknown) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "POST",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/final-result/select`,
+        body,
+        "cowork.selectFinalResult",
+      ),
+      mergeFinalResult: (sessionId: string, body: unknown) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "POST",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/final-result/merge`,
+        body,
+        "cowork.mergeFinalResult",
+      ),
+      validateBlueprint: (body: unknown, validateOptions: { preview?: boolean } = {}) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "POST",
+        `/api/cowork/blueprints/${validateOptions.preview ? "preview" : "validate"}`,
+        body,
+        "cowork.validateBlueprint",
+      ),
     },
   };
+}
+
+function coworkNativeOrGateway(
+  nativeCowork: NativeCoworkApi | undefined,
+  rollout: TsCoworkRuntimeRollout | undefined,
+  request: (path: string, init?: RequestInit) => Promise<unknown>,
+  method: string,
+  path: string,
+  body: unknown,
+  label: string,
+): Promise<unknown> {
+  const nativeRequest: NativeCoworkRouteRequest = body === undefined
+    ? { method, path }
+    : { method, path, body };
+  const gatewayInit = method === "GET"
+    ? undefined
+    : body === undefined
+      ? { method }
+      : jsonRequest(method, body);
+  if (!coworkRouteEnabledByRollout(method, path, rollout)) {
+    return request(path, gatewayInit);
+  }
+  return nativeOrGateway(
+    () => nativeCowork?.route(nativeRequest),
+    () => request(path, gatewayInit),
+    label,
+    rollout?.fallbackToPython !== false,
+  );
+}
+
+function coworkRouteEnabledByRollout(method: string, path: string, rollout: TsCoworkRuntimeRollout | undefined): boolean {
+  if (!rollout) {
+    return true;
+  }
+  if (rollout.enabled === false) {
+    return false;
+  }
+  const group = coworkRouteGroup(method, path);
+  return rollout[group] !== false;
+}
+
+function coworkRouteGroup(method: string, path: string): "readOnlySnapshot" | "mutations" | "scheduler" | "swarm" {
+  if (method === "GET") {
+    return "readOnlySnapshot";
+  }
+  if (/\/api\/cowork\/sessions\/[^/]+\/run(?:$|\?)/.test(path)) {
+    return "scheduler";
+  }
+  if (path.includes("/work-units/")) {
+    return "swarm";
+  }
+  return "mutations";
 }
 
 async function bootstrapGateway(
@@ -499,6 +842,7 @@ async function nativeOrGateway(
   nativeRequest: () => Promise<unknown> | undefined,
   gatewayRequest: () => Promise<unknown>,
   label: string,
+  fallbackToGateway = true,
 ): Promise<unknown> {
   const request = nativeRequest();
   if (!request) {
@@ -508,6 +852,9 @@ async function nativeOrGateway(
     return await request;
   } catch (error) {
     logDesktopNativeDebug(`${label}.nativeFallback`, { error: stringifyError(error) });
+    if (!fallbackToGateway) {
+      throw error;
+    }
     return gatewayRequest();
   }
 }

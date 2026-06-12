@@ -91,7 +91,14 @@ import { installWebUiShell } from "./desktopWebUiShell";
 import { resolveDesktopWorkbenchStartupMode } from "./desktopWorkbenchGate";
 import { installDesktopWindowFrame, setDesktopWindowRuntimeStatus } from "./desktopWindowFrame";
 import { DEFAULT_GATEWAY_CONFIG, resolveGatewayConfig } from "./gatewayConfig";
-import { checkGatewayHealth, createGatewayApiClient } from "./gatewayHttpClient";
+import {
+  DEFAULT_TS_COWORK_RUNTIME_ROLLOUT,
+  checkGatewayHealth,
+  createGatewayApiClient,
+  resolveTsCoworkRuntimeRollout,
+  type TsCoworkRuntimeRollout,
+} from "./gatewayHttpClient";
+import { createDesktopNativeCoworkApi } from "./desktopNativeCowork";
 import { createDesktopNativeSkillsApi } from "./desktopNativeSkills";
 import { normalizeSessionsPayload } from "./nativeChat";
 import {
@@ -117,10 +124,18 @@ import {
 import { resolveDesktopAgentRoute } from "./desktopAgentRoute";
 
 const gatewayConfig = resolveGatewayConfig(DEFAULT_GATEWAY_CONFIG);
-const gatewayApi = createGatewayApiClient({
+const gatewayClientOptions: {
+  config: typeof gatewayConfig;
+  nativeCowork: ReturnType<typeof createDesktopNativeCoworkApi>;
+  nativeSkills: ReturnType<typeof createDesktopNativeSkillsApi>;
+  tsCoworkRuntime: TsCoworkRuntimeRollout;
+} = {
   config: gatewayConfig,
+  nativeCowork: createDesktopNativeCoworkApi({ invoke }),
   nativeSkills: createDesktopNativeSkillsApi({ invoke }),
-});
+  tsCoworkRuntime: DEFAULT_TS_COWORK_RUNTIME_ROLLOUT,
+};
+const gatewayApi = createGatewayApiClient(gatewayClientOptions);
 const WEBUI_ENTRY = "/assets/src/main.js";
 const nativeKnowledgeTaskOperations = new Map<string, DesktopTaskSourceOperation>();
 const nativeCoworkTaskOperations = new Map<string, DesktopTaskSourceOperation>();
@@ -1410,6 +1425,7 @@ async function loadNativeSettingsPane(): Promise<DesktopSettingsPaneModel> {
     const providerCatalog = buildDesktopProviderCatalogItems(providersPayload);
     const state = buildDesktopSettingsFormState(config, providerCatalog);
     nativeSettingsConfig = config;
+    syncTsCoworkRuntimeRollout(config);
     nativeSettingsState = state;
     nativeSettingsLastSavedState = state;
     nativeSettingsProviderCatalog = providerCatalog;
@@ -1474,6 +1490,7 @@ async function saveNativeSettingsPane(): Promise<void> {
         logDesktopNativeDebug("settings.save.nativeFallback", { error: stringifyError(fallbackError) });
       },
     });
+    syncTsCoworkRuntimeRollout(nativeSettingsConfig);
     nativeSettingsState = buildDesktopSettingsFormState(nativeSettingsConfig, nativeSettingsProviderCatalog);
     nativeSettingsLastSavedState = nativeSettingsState;
     updateNativeSettingsPane("saved");
@@ -1533,6 +1550,11 @@ async function refreshNativeProviderModels(): Promise<void> {
       provider: request.provider,
     });
   }
+}
+
+function syncTsCoworkRuntimeRollout(config: unknown): void {
+  gatewayClientOptions.tsCoworkRuntime = resolveTsCoworkRuntimeRollout(config);
+  logDesktopNativeDebug("cowork.rollout.sync", gatewayClientOptions.tsCoworkRuntime);
 }
 
 function updateNativeSettingsPane(

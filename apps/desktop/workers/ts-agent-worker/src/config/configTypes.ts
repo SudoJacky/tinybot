@@ -8,6 +8,7 @@ export type TinybotConfig = {
   providers: ProvidersConfig;
   api: ApiConfig;
   gateway: GatewayConfig;
+  desktop: DesktopConfig;
   tools: ToolsConfig;
   skills: SkillsConfig;
   knowledge: KnowledgeConfig;
@@ -104,6 +105,19 @@ export type GatewayConfig = {
   host: string;
   port: number;
   heartbeat: HeartbeatConfig;
+};
+
+export type DesktopConfig = {
+  tsCoworkRuntime: TsCoworkRuntimeConfig;
+};
+
+export type TsCoworkRuntimeConfig = {
+  enabled: boolean;
+  readOnlySnapshot: boolean;
+  mutations: boolean;
+  scheduler: boolean;
+  swarm: boolean;
+  fallbackToPython: boolean;
 };
 
 export type HeartbeatConfig = {

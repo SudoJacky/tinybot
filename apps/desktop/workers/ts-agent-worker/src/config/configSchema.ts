@@ -1,6 +1,7 @@
 import type {
   AgentDefaultsConfig,
   ChannelsConfig,
+  DesktopConfig,
   ExecToolConfig,
   GatewayConfig,
   JsonRecord,
@@ -33,6 +34,7 @@ export function defaultTinybotConfig(): TinybotConfig {
     },
     api: { host: "127.0.0.1", port: 8900, timeout: 120.0 },
     gateway: { host: "0.0.0.0", port: 18790, heartbeat: { enabled: true, intervalS: 1800, keepRecentMessages: 8 } },
+    desktop: defaultDesktopConfig(),
     tools: {
       web: { enable: true, proxy: null, search: { provider: "duckduckgo", apiKey: "", baseUrl: "", maxResults: 5 } },
       exec: { enable: true, timeout: 60, pathAppend: "" },
@@ -60,12 +62,26 @@ export function parseTinybotConfig(raw: unknown = {}): TinybotConfig {
       timeout: positiveNumber(read(record(input.api), "timeout"), base.api.timeout, "api.timeout"),
     },
     gateway: parseGateway(record(input.gateway), base.gateway),
+    desktop: parseDesktop(record(input.desktop), base.desktop),
     tools: parseTools(record(input.tools), base.tools),
     skills: { enabled: stringList(read(record(input.skills), "enabled"), base.skills.enabled) },
     knowledge: parseKnowledge(record(input.knowledge), base.knowledge),
   };
   validateAgentDefaults(config.agents.defaults);
   return config;
+}
+
+function defaultDesktopConfig(): DesktopConfig {
+  return {
+    tsCoworkRuntime: {
+      enabled: true,
+      readOnlySnapshot: true,
+      mutations: true,
+      scheduler: true,
+      swarm: true,
+      fallbackToPython: true,
+    },
+  };
 }
 
 function defaultAgentDefaults(): AgentDefaultsConfig {
@@ -320,6 +336,20 @@ function parseGateway(input: JsonRecord | undefined, defaults: GatewayConfig): G
       enabled: booleanValue(read(heartbeatInput, "enabled"), defaults.heartbeat.enabled),
       intervalS: positiveInteger(read(heartbeatInput, "intervalS", "interval_s"), defaults.heartbeat.intervalS, "gateway.heartbeat.intervalS"),
       keepRecentMessages: positiveInteger(read(heartbeatInput, "keepRecentMessages", "keep_recent_messages"), defaults.heartbeat.keepRecentMessages, "gateway.heartbeat.keepRecentMessages"),
+    },
+  };
+}
+
+function parseDesktop(input: JsonRecord | undefined, defaults: DesktopConfig): DesktopConfig {
+  const rolloutInput = record(read(input, "tsCoworkRuntime", "ts_cowork_runtime"));
+  return {
+    tsCoworkRuntime: {
+      enabled: booleanValue(read(rolloutInput, "enabled"), defaults.tsCoworkRuntime.enabled),
+      readOnlySnapshot: booleanValue(read(rolloutInput, "readOnlySnapshot", "read_only_snapshot"), defaults.tsCoworkRuntime.readOnlySnapshot),
+      mutations: booleanValue(read(rolloutInput, "mutations"), defaults.tsCoworkRuntime.mutations),
+      scheduler: booleanValue(read(rolloutInput, "scheduler"), defaults.tsCoworkRuntime.scheduler),
+      swarm: booleanValue(read(rolloutInput, "swarm"), defaults.tsCoworkRuntime.swarm),
+      fallbackToPython: booleanValue(read(rolloutInput, "fallbackToPython", "fallback_to_python"), defaults.tsCoworkRuntime.fallbackToPython),
     },
   };
 }

@@ -45,6 +45,14 @@ describe("configSchema", () => {
       port: 18790,
       heartbeat: { enabled: true, intervalS: 1800, keepRecentMessages: 8 },
     });
+    expect(config.desktop.tsCoworkRuntime).toEqual({
+      enabled: true,
+      readOnlySnapshot: true,
+      mutations: true,
+      scheduler: true,
+      swarm: true,
+      fallbackToPython: true,
+    });
     expect(config.tools).toMatchObject({
       restrictToWorkspace: true,
       mcpServers: {},
@@ -82,6 +90,16 @@ describe("configSchema", () => {
         },
         ssrf_whitelist: ["100.64.0.0/10"],
       },
+      desktop: {
+        ts_cowork_runtime: {
+          enabled: true,
+          read_only_snapshot: true,
+          mutations: true,
+          scheduler: false,
+          swarm: false,
+          fallback_to_python: true,
+        },
+      },
     });
 
     expect(config.agents.defaults.activeProfile).toBe("coding");
@@ -96,6 +114,14 @@ describe("configSchema", () => {
     expect(config.tools.restrictToWorkspace).toBe(false);
     expect(config.tools.mcpServers.local).toMatchObject({ type: "stdio", command: "node", toolTimeout: 5 });
     expect(config.tools.ssrfWhitelist).toEqual(["100.64.0.0/10"]);
+    expect(config.desktop.tsCoworkRuntime).toMatchObject({
+      enabled: true,
+      readOnlySnapshot: true,
+      mutations: true,
+      scheduler: false,
+      swarm: false,
+      fallbackToPython: true,
+    });
     expect(Object.keys(config.agents.defaults)).toContain("activeProfile");
     expect(Object.keys(config.agents.defaults)).not.toContain("active_profile");
   });

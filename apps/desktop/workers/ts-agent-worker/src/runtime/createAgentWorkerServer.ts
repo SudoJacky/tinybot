@@ -1,9 +1,16 @@
+import { AgentRunner } from "../agent/agentRunner.ts";
 import type { ModelProvider, ModelRequestOptions, ModelResponse } from "../model/provider.ts";
 import type { AgentMessage } from "../agent/agentRunSpec.ts";
 import { WORKER_PROTOCOL_VERSION, type WorkerEvent } from "../protocol/messages.ts";
 import type { JsonFetcher } from "../providers/modelDiscovery.ts";
 import { RpcClient } from "../protocol/rpcClient.ts";
 import { StdioServer } from "../protocol/stdioServer.ts";
+import { CoworkAgentRuntime } from "../cowork/coworkAgentRuntime.ts";
+import { CoworkScheduler } from "../cowork/coworkScheduler.ts";
+import { CoworkService } from "../cowork/coworkService.ts";
+import { NativeCoworkStoreBridge } from "../cowork/coworkStoreBridge.ts";
+import { CoworkTeamPlanner } from "../cowork/coworkTeamPlanner.ts";
+import { createCoworkTool } from "../cowork/coworkTool.ts";
 import {
   createNativeApprovalTools,
   createNativeCronTools,
@@ -68,6 +75,19 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
   if (!provider) {
     throw new Error("model provider is unavailable");
   }
+  const coworkStore = new NativeCoworkStoreBridge(rpcClient);
+  const coworkService = new CoworkService({ store: coworkStore });
+  const coworkAgentRuntime = new CoworkAgentRuntime({
+    store: coworkStore,
+    runner: new AgentRunner({ provider, tools: options.tools }),
+    tools: options.tools,
+    model: options.env?.TINYBOT_MODEL ?? options.env?.OPENAI_MODEL ?? "default",
+  });
+  const coworkScheduler = new CoworkScheduler({ store: coworkStore, agentRuntime: coworkAgentRuntime });
+  const coworkPlanner = new CoworkTeamPlanner({
+    provider,
+    workspace: process.cwd(),
+  });
   registerToolsByPolicy(
     options.tools,
     [
@@ -105,6 +125,7 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
           }),
         },
       }),
+      createCoworkTool({ service: coworkService, planner: coworkPlanner, scheduler: coworkScheduler }),
     ],
     {
       capabilities,
@@ -137,6 +158,8 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     sessionBridge: new NativeSessionBridge(rpcClient),
     memoryBridge: new NativeMemoryBridge(rpcClient),
     contextBridge: new NativeContextBridge(rpcClient),
+    coworkService,
+    coworkScheduler,
   });
   return new StdioServer({
     worker,
@@ -168,6 +191,8 @@ const DEFAULT_NATIVE_TOOL_CAPABILITIES = [
   "session.write",
   "task.read",
   "task.write",
+  "cowork.read",
+  "cowork.write",
 ];
 
 class LazyModelProvider implements ModelProvider {

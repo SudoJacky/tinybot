@@ -116,12 +116,13 @@ export class AgentRunner {
             if (!prepared.ok) {
               result = { content: prepared.content };
             } else {
-              this.emitEvent({
+              this.emit(spec, {
                 type: "tool_start",
                 payload: {
                   runId: spec.runId,
                   toolCallId: toolCall.id,
                   toolName: toolCall.name,
+                  args,
                 },
               });
               try {
@@ -167,7 +168,7 @@ export class AgentRunner {
               result = { ...result, content: `${result.content}${TOOL_ERROR_RECOVERY_HINT}` };
             }
           }
-          this.emitEvent({
+          this.emit(spec, {
             type: "tool_result",
             payload: {
               runId: spec.runId,
@@ -334,7 +335,7 @@ export class AgentRunner {
         if (!spec.stream) {
           return;
         }
-        this.emitEvent({
+        this.emit(spec, {
           type: "content_delta",
           payload: { runId: spec.runId, delta },
         });
@@ -343,7 +344,7 @@ export class AgentRunner {
         if (!spec.stream) {
           return;
         }
-        this.emitEvent({
+        this.emit(spec, {
           type: "reasoning_delta",
           payload: { runId: spec.runId, delta },
         });
@@ -352,7 +353,7 @@ export class AgentRunner {
         if (!spec.stream) {
           return;
         }
-        this.emitEvent({
+        this.emit(spec, {
           type: "tool_call_delta",
           payload: { runId: spec.runId, ...delta },
         });
@@ -390,6 +391,11 @@ export class AgentRunner {
 
   private toolAllowed(spec: AgentRunSpec, name: string): boolean {
     return spec.tools === undefined || spec.tools.some((tool) => tool.name === name);
+  }
+
+  private emit(spec: AgentRunSpec, event: AgentRunnerEvent): void {
+    this.emitEvent(event);
+    spec.emitEvent?.(event);
   }
 
   private emitContextUsage(

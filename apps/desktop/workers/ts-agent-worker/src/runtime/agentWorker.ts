@@ -13,6 +13,10 @@ import type {
   RestartCommandRequest,
 } from "../command/commandTypes.ts";
 import { previewBlueprint, validateBlueprint } from "../cowork/coworkBlueprint.ts";
+import type { CoworkEnvelope } from "../cowork/coworkMailbox.ts";
+import type { CoworkScheduler } from "../cowork/coworkScheduler.ts";
+import type { CoworkService } from "../cowork/coworkService.ts";
+import type { CoworkBranch, CoworkSession, JsonObject } from "../cowork/coworkTypes.ts";
 import type { ModelProvider, ToolDefinition } from "../model/provider.ts";
 import {
   isJsonObject,
@@ -56,6 +60,8 @@ export type AgentWorkerOptions = {
   contextBridge?: ContextBridge;
   commandRouter?: CommandRouter;
   requestRestart?: RestartRequestHandler;
+  coworkService?: CoworkService;
+  coworkScheduler?: CoworkScheduler;
 };
 
 export type PrepareToolsHandler = (traceId: string) => Promise<unknown> | unknown;
@@ -130,6 +136,18 @@ type CronRunDueParams = {
   stream: boolean;
 };
 
+type CoworkRouteRequest = {
+  method: string;
+  path: string;
+  body?: unknown;
+  query: URLSearchParams;
+};
+
+type CoworkRouteResponse = {
+  status: number;
+  body: unknown;
+};
+
 export type ApprovalBridge = {
   requestApproval(params: ApprovalRequestPayload, traceId: string): Promise<Record<string, unknown>>;
   resolveApproval(params: ApprovalResolutionRequest, traceId: string): Promise<Record<string, unknown>>;
@@ -166,6 +184,8 @@ export class AgentWorker {
   private readonly sessionBridge?: SessionBridge;
   private readonly memoryBridge?: MemoryEvidenceBridge;
   private readonly contextBridge?: ContextBridge;
+  private readonly coworkService?: CoworkService;
+  private readonly coworkScheduler?: CoworkScheduler;
   private readonly commandRouter: CommandRouter;
   private readonly turnLifecycle: TurnLifecycle;
   private readonly activeRuns = new Map<string, ActiveRun>();
@@ -187,6 +207,8 @@ export class AgentWorker {
     this.sessionBridge = options.sessionBridge;
     this.memoryBridge = options.memoryBridge;
     this.contextBridge = options.contextBridge;
+    this.coworkService = options.coworkService;
+    this.coworkScheduler = options.coworkScheduler;
     this.commandRouter = options.commandRouter ?? createDefaultCommandRouter({
       cancelActiveRunsForSession: (sessionId) => this.cancelActiveRunsForSession(sessionId),
       getStatusSnapshot: (context) => this.statusSnapshot(context.sessionId),
@@ -248,12 +270,156 @@ export class AgentWorker {
       return this.handleCronRunDueRequest(request);
     }
 
+    if (request.method === "cowork.list_sessions") {
+      return this.handleCoworkListSessionsRequest(request);
+    }
+
+    if (request.method === "cowork.get_session") {
+      return this.handleCoworkGetSessionRequest(request);
+    }
+
+    if (request.method === "cowork.create_session") {
+      return this.handleCoworkCreateSessionRequest(request);
+    }
+
+    if (request.method === "cowork.delete_session") {
+      return this.handleCoworkDeleteSessionRequest(request);
+    }
+
+    if (request.method === "cowork.send_message") {
+      return this.handleCoworkSendMessageRequest(request);
+    }
+
+    if (request.method === "cowork.add_task") {
+      return this.handleCoworkAddTaskRequest(request);
+    }
+
+    if (request.method === "cowork.assign_task") {
+      return this.handleCoworkAssignTaskRequest(request);
+    }
+
+    if (request.method === "cowork.retry_task") {
+      return this.handleCoworkRetryTaskRequest(request);
+    }
+
+    if (request.method === "cowork.request_task_review") {
+      return this.handleCoworkRequestTaskReviewRequest(request);
+    }
+
+    if (request.method === "cowork.retry_work_unit") {
+      return this.handleCoworkRetryWorkUnitRequest(request);
+    }
+
+    if (request.method === "cowork.skip_work_unit") {
+      return this.handleCoworkSkipWorkUnitRequest(request);
+    }
+
+    if (request.method === "cowork.cancel_work_unit") {
+      return this.handleCoworkCancelWorkUnitRequest(request);
+    }
+
+    if (request.method === "cowork.pause_session") {
+      return this.handleCoworkPauseSessionRequest(request);
+    }
+
+    if (request.method === "cowork.resume_session") {
+      return this.handleCoworkResumeSessionRequest(request);
+    }
+
+    if (request.method === "cowork.emergency_stop_session") {
+      return this.handleCoworkEmergencyStopSessionRequest(request);
+    }
+
+    if (request.method === "cowork.run_session") {
+      return this.handleCoworkRunSessionRequest(request);
+    }
+
+    if (request.method === "cowork.update_budget") {
+      return this.handleCoworkUpdateBudgetRequest(request);
+    }
+
+    if (request.method === "cowork.select_branch") {
+      return this.handleCoworkSelectBranchRequest(request);
+    }
+
+    if (request.method === "cowork.derive_branch") {
+      return this.handleCoworkDeriveBranchRequest(request);
+    }
+
+    if (request.method === "cowork.select_branch_result") {
+      return this.handleCoworkSelectBranchResultRequest(request);
+    }
+
+    if (request.method === "cowork.merge_branch_results") {
+      return this.handleCoworkMergeBranchResultsRequest(request);
+    }
+
+    if (request.method === "cowork.deliver_envelope") {
+      return this.handleCoworkDeliverEnvelopeRequest(request);
+    }
+
+    if (request.method === "cowork.mark_messages_read") {
+      return this.handleCoworkMarkMessagesReadRequest(request);
+    }
+
+    if (request.method === "cowork.expire_mailbox_records") {
+      return this.handleCoworkExpireMailboxRecordsRequest(request);
+    }
+
+    if (request.method === "cowork.escalate_stale_blockers") {
+      return this.handleCoworkEscalateStaleBlockersRequest(request);
+    }
+
+    if (request.method === "cowork.export_blueprint") {
+      return this.handleCoworkExportBlueprintRequest(request);
+    }
+
+    if (request.method === "cowork.get_graph") {
+      return this.handleCoworkGetGraphRequest(request);
+    }
+
+    if (request.method === "cowork.get_trace") {
+      return this.handleCoworkGetTraceRequest(request);
+    }
+
+    if (request.method === "cowork.get_summary") {
+      return this.handleCoworkGetSummaryRequest(request);
+    }
+
+    if (request.method === "cowork.get_dag") {
+      return this.handleCoworkGetDagRequest(request);
+    }
+
+    if (request.method === "cowork.get_artifacts") {
+      return this.handleCoworkGetArtifactsRequest(request);
+    }
+
+    if (request.method === "cowork.get_organization") {
+      return this.handleCoworkGetOrganizationRequest(request);
+    }
+
+    if (request.method === "cowork.get_queues") {
+      return this.handleCoworkGetQueuesRequest(request);
+    }
+
+    if (request.method === "cowork.get_agent_activity") {
+      return this.handleCoworkGetAgentActivityRequest(request);
+    }
+
+    if (request.method === "cowork.get_observation_detail") {
+      return this.handleCoworkGetObservationDetailRequest(request);
+    }
+
     if (request.method === "cowork.validate_blueprint") {
       return this.handleCoworkValidateBlueprintRequest(request);
     }
 
     if (request.method === "cowork.preview_blueprint") {
       return this.handleCoworkPreviewBlueprintRequest(request);
+    }
+
+    if (request.method === "cowork.route_request") {
+      return this.handleCoworkRouteRequest(request);
     }
 
     if (request.method === "worker.provider.reload") {
@@ -329,6 +495,1292 @@ export class AgentWorker {
         id: request.id,
         trace_id: request.trace_id,
         result: previewBlueprint(params.blueprint, params.policy, params.defaultGoal),
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkRouteRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const route = parseCoworkRouteRequest(request.params);
+      const result = await this.dispatchCoworkRouteRequest(route, request.trace_id);
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result,
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async dispatchCoworkRouteRequest(route: CoworkRouteRequest, traceId: string): Promise<CoworkRouteResponse> {
+    if (!this.coworkService) {
+      return { status: 503, body: { error: "cowork service is unavailable" } };
+    }
+    const segments = coworkRouteSegments(route.path);
+    const body = isJsonObject(route.body) ? route.body : {};
+
+    if (segments.length === 2 && segments[0] === "blueprints" && route.method === "POST") {
+      return this.dispatchCoworkBlueprintRoute(segments, body);
+    }
+
+    if (segments.length === 1 && segments[0] === "sessions" && route.method === "GET") {
+      const sessions = await this.coworkService.listSessions(traceId, {
+        includeCompleted: route.query.get("include_completed") === "true" || route.query.get("includeCompleted") === "true",
+      });
+      const originChatId = route.query.get("origin_chat_id") ?? route.query.get("originChatId");
+      return {
+        status: 200,
+        body: {
+          items: originChatId
+            ? sessions.filter((session) => session.runtime_state?.origin_chat_id === originChatId)
+            : sessions,
+        },
+      };
+    }
+
+    if (segments.length === 1 && segments[0] === "sessions" && route.method === "POST") {
+      const params = parseCoworkCreateSessionParams(body);
+      if (params.blueprint !== undefined) {
+        const result = await this.coworkService.createSessionFromBlueprint({
+          traceId,
+          blueprint: params.blueprint,
+          runtimeState: params.runtimeState,
+        });
+        return { status: result.session ? 200 : 400, body: result };
+      }
+      const session = await this.coworkService.createSession({
+        traceId,
+        goal: params.goal,
+        title: params.title,
+        workflowMode: params.workflowMode,
+        agents: params.agents,
+        tasks: params.tasks,
+        budgets: params.budgets,
+        runtimeState: params.runtimeState,
+      });
+      return { status: 200, body: { result: `started ${session.id}`, session } };
+    }
+
+    if (segments.length >= 2 && segments[0] === "sessions") {
+      const sessionId = segments[1];
+      return this.dispatchCoworkSessionRoute(route, segments, sessionId, body, traceId);
+    }
+
+    return unsupportedCoworkRoute(route);
+  }
+
+  private dispatchCoworkBlueprintRoute(segments: string[], body: Record<string, unknown>): CoworkRouteResponse {
+    const action = segments[1];
+    const params = "blueprint" in body ? body : { blueprint: body };
+    if (action === "validate") {
+      const parsed = parseCoworkBlueprintParams(params, "cowork.route_request");
+      const result = validateBlueprint(parsed.blueprint, parsed.policy, parsed.defaultGoal);
+      return { status: result.ok ? 200 : 400, body: result };
+    }
+    if (action === "preview") {
+      const parsed = parseCoworkBlueprintParams(params, "cowork.route_request");
+      const result = previewBlueprint(parsed.blueprint, parsed.policy, parsed.defaultGoal);
+      return { status: result.ok ? 200 : 400, body: result };
+    }
+    return { status: 404, body: { error: "unsupported cowork route" } };
+  }
+
+  private async dispatchCoworkSessionRoute(
+    route: CoworkRouteRequest,
+    segments: string[],
+    sessionId: string,
+    body: Record<string, unknown>,
+    traceId: string,
+  ): Promise<CoworkRouteResponse> {
+    if (!this.coworkService) {
+      return { status: 503, body: { error: "cowork service is unavailable" } };
+    }
+
+    if (segments.length === 2 && route.method === "GET") {
+      const session = await this.coworkService.getSession(sessionId, traceId);
+      return session ? { status: 200, body: { session } } : { status: 404, body: { error: "session not found" } };
+    }
+
+    if (segments.length === 2 && route.method === "DELETE") {
+      const deleted = await this.coworkService.deleteSession(sessionId, traceId);
+      return { status: 200, body: { deleted } };
+    }
+
+    const resource = segments[2];
+    if (["pause", "resume", "emergency-stop", "run"].includes(resource) && segments.length === 3 && route.method === "POST") {
+      return this.dispatchCoworkSessionControlRoute(route, resource, sessionId, body, traceId);
+    }
+
+    if (resource === "messages" && segments.length === 3 && route.method === "POST") {
+      const content = stringParam(body, "content", "content")?.trim() ?? "";
+      if (!content) {
+        return { status: 400, body: { error: "content is required" } };
+      }
+      const params = parseCoworkSendMessageParams({ ...body, session_id: sessionId, content });
+      if (params.recipientIds.length === 0) {
+        const session = await this.coworkService.getSession(params.sessionId, traceId);
+        if (session?.workflow_mode === "swarm") {
+          const result = await this.coworkService.steerSwarm({
+            traceId,
+            sessionId: params.sessionId,
+            instruction: params.content,
+          });
+          return { status: result.result.startsWith("Error:") ? 400 : 200, body: result };
+        }
+      }
+      const result = await this.coworkService.sendMessage({
+        traceId,
+        sessionId: params.sessionId,
+        senderId: params.senderId,
+        recipientIds: params.recipientIds,
+        content: params.content,
+        threadId: params.threadId,
+        wakeRecipients: params.wakeRecipients,
+      });
+      return { status: 200, body: result };
+    }
+
+    if (resource === "tasks" && segments.length === 5 && route.method === "POST") {
+      return this.dispatchCoworkTaskActionRoute(segments, sessionId, body, traceId);
+    }
+
+    if (resource === "tasks" && segments.length === 3 && route.method === "POST") {
+      const title = stringParam(body, "title", "title")?.trim() ?? "";
+      if (!title) {
+        return { status: 400, body: { error: "title is required" } };
+      }
+      const params = parseCoworkAddTaskParams({ ...body, session_id: sessionId, title });
+      const result = await this.coworkService.addTask({
+        traceId,
+        sessionId: params.sessionId,
+        title: params.title,
+        description: params.description,
+        assignedAgentId: params.assignedAgentId,
+        dependencies: params.dependencies,
+        priority: params.priority,
+        expectedOutput: params.expectedOutput,
+        reviewRequired: params.reviewRequired,
+        reviewerAgentIds: params.reviewerAgentIds,
+        fanoutGroupId: params.fanoutGroupId,
+        mergeTaskId: params.mergeTaskId,
+      });
+      return { status: 200, body: result };
+    }
+
+    if (resource === "work-units" && segments.length === 5 && route.method === "POST") {
+      return this.dispatchCoworkWorkUnitActionRoute(segments, sessionId, body, traceId);
+    }
+
+    if (resource === "blueprint" && segments.length === 3 && route.method === "GET") {
+      const blueprint = await this.coworkService.exportBlueprint({ traceId, sessionId });
+      return { status: 200, body: { blueprint } };
+    }
+
+    if (resource === "budget" && segments.length === 3 && (route.method === "POST" || route.method === "PATCH")) {
+      const params = parseCoworkUpdateBudgetParams({ ...body, session_id: sessionId });
+      const result = await this.coworkService.updateBudget({
+        traceId,
+        sessionId: params.sessionId,
+        budgets: params.budgets,
+      });
+      return { status: 200, body: result };
+    }
+
+    if (resource === "summary" && segments.length === 3 && route.method === "GET") {
+      const summary = await this.coworkService.getSummary({ traceId, sessionId });
+      return { status: 200, body: { summary } };
+    }
+
+    if (resource === "graph" && segments.length === 3 && route.method === "GET") {
+      const graph = await this.coworkService.getGraph({ traceId, sessionId });
+      return { status: 200, body: { graph } };
+    }
+
+    if (resource === "trace" && segments.length === 3 && route.method === "GET") {
+      const result = await this.coworkService.getTrace({ traceId, sessionId });
+      return { status: 200, body: result };
+    }
+
+    if (resource === "dag" && segments.length === 3 && route.method === "GET") {
+      const taskDag = await this.coworkService.getTaskDag({ traceId, sessionId });
+      return { status: 200, body: { task_dag: taskDag } };
+    }
+
+    if (resource === "artifacts" && segments.length === 3 && route.method === "GET") {
+      const artifacts = await this.coworkService.getArtifacts({ traceId, sessionId });
+      return { status: 200, body: { artifacts } };
+    }
+
+    if (resource === "organization" && segments.length === 3 && route.method === "GET") {
+      const organization = await this.coworkService.getOrganization({ traceId, sessionId });
+      return { status: 200, body: { organization } };
+    }
+
+    if (resource === "queues" && segments.length === 3 && route.method === "GET") {
+      const queues = await this.coworkService.getQueues({ traceId, sessionId });
+      return { status: 200, body: { queues } };
+    }
+
+    if (resource === "agents" && segments.length === 5 && segments[4] === "activity" && route.method === "GET") {
+      const activity = await this.coworkService.getAgentActivity({
+        traceId,
+        sessionId,
+        agentId: segments[3],
+        limit: route.query.has("limit") ? Number.parseInt(route.query.get("limit") ?? "", 10) : undefined,
+      });
+      return { status: 200, body: { activity } };
+    }
+
+    if (resource === "observations" && segments.length === 4 && route.method === "GET") {
+      const detail = await this.coworkService.getObservationDetail({
+        traceId,
+        sessionId,
+        detailId: segments[3],
+        requesterAgentId: route.query.get("agent_id") ?? route.query.get("agentId") ?? undefined,
+      });
+      return { status: 200, body: { detail } };
+    }
+
+    if (resource === "branches") {
+      return this.dispatchCoworkBranchRoute(route, segments, sessionId, body, traceId);
+    }
+
+    if (resource === "final-result" && segments.length === 4 && route.method === "POST") {
+      return this.dispatchCoworkFinalResultRoute(segments, sessionId, body, traceId);
+    }
+
+    if (resource === "branch-results" && segments.length === 4 && segments[3] === "merge" && route.method === "POST") {
+      const params = parseCoworkMergeBranchResultsParams({ ...body, session_id: sessionId });
+      const result = await this.coworkService.mergeBranchResults({
+        traceId,
+        sessionId: params.sessionId,
+        branchIds: params.branchIds,
+        summary: params.summary,
+      });
+      return { status: 200, body: result };
+    }
+
+    return unsupportedCoworkRoute(route);
+  }
+
+  private async dispatchCoworkFinalResultRoute(
+    segments: string[],
+    sessionId: string,
+    body: Record<string, unknown>,
+    traceId: string,
+  ): Promise<CoworkRouteResponse> {
+    if (!this.coworkService) {
+      return { status: 503, body: { error: "cowork service is unavailable" } };
+    }
+    const action = segments[3];
+    if (action === "select") {
+      const params = parseCoworkSelectBranchResultParams({ ...body, session_id: sessionId });
+      const result = await this.coworkService.selectSessionFinalResult({
+        traceId,
+        sessionId: params.sessionId,
+        branchId: params.branchId,
+        resultId: params.resultId,
+      });
+      return { status: 200, body: result };
+    }
+    if (action === "merge") {
+      const params = parseCoworkMergeBranchResultsParams({ ...body, session_id: sessionId });
+      const result = await this.coworkService.mergeBranchResults({
+        traceId,
+        sessionId: params.sessionId,
+        branchIds: params.branchIds,
+        summary: params.summary,
+      });
+      return { status: 200, body: result };
+    }
+    return { status: 404, body: { error: "unsupported cowork final-result route", action } };
+  }
+
+  private async dispatchCoworkSessionControlRoute(
+    route: CoworkRouteRequest,
+    resource: string,
+    sessionId: string,
+    body: Record<string, unknown>,
+    traceId: string,
+  ): Promise<CoworkRouteResponse> {
+    if (!this.coworkService) {
+      return { status: 503, body: { error: "cowork service is unavailable" } };
+    }
+    if (resource === "pause") {
+      return { status: 200, body: await this.coworkService.pauseSession({ traceId, sessionId }) };
+    }
+    if (resource === "resume") {
+      return { status: 200, body: await this.coworkService.resumeSession({ traceId, sessionId }) };
+    }
+    if (resource === "emergency-stop") {
+      const reason = stringParam(body, "reason", "reason");
+      return { status: 200, body: await this.coworkService.emergencyStopSession({ traceId, sessionId, reason }) };
+    }
+    if (resource === "run") {
+      if (!this.coworkScheduler) {
+        return {
+          status: 501,
+          body: {
+            error: "cowork route not migrated",
+            method: route.method,
+            path: route.path,
+          },
+        };
+      }
+      const params = parseCoworkRunSessionParams({ ...body, session_id: sessionId });
+      const result = await this.coworkScheduler.runSession({
+        traceId,
+        sessionId: params.sessionId,
+        maxRounds: params.maxRounds,
+        maxAgents: params.maxAgents,
+        maxAgentCalls: params.maxAgentCalls,
+        runUntilIdle: params.runUntilIdle,
+        stopOnBlocker: params.stopOnBlocker,
+      });
+      return { status: result.result.startsWith("Error:") ? 404 : 200, body: result };
+    }
+    return {
+      status: 501,
+      body: {
+        error: "cowork route not migrated",
+        method: route.method,
+        path: route.path,
+      },
+    };
+  }
+
+  private async dispatchCoworkTaskActionRoute(
+    segments: string[],
+    sessionId: string,
+    body: Record<string, unknown>,
+    traceId: string,
+  ): Promise<CoworkRouteResponse> {
+    if (!this.coworkService) {
+      return { status: 503, body: { error: "cowork service is unavailable" } };
+    }
+    const taskId = segments[3];
+    const action = segments[4];
+    if (action === "assign") {
+      const agentId = stringParam(body, "agentId", "agent_id")
+        ?? stringParam(body, "assignedAgentId", "assigned_agent_id")
+        ?? "";
+      const result = await this.coworkService.assignTask({
+        traceId,
+        sessionId,
+        taskId,
+        agentId,
+      });
+      return { status: result.result.startsWith("Error:") ? 400 : 200, body: result };
+    }
+    if (action === "retry") {
+      const params = parseCoworkTaskMutationParams({ ...body, session_id: sessionId, task_id: taskId }, "cowork.route_request");
+      const result = await this.coworkService.retryTask({
+        traceId,
+        sessionId: params.sessionId,
+        taskId: params.taskId,
+      });
+      return { status: 200, body: result };
+    }
+    if (action === "review") {
+      const params = parseCoworkTaskMutationParams({ ...body, session_id: sessionId, task_id: taskId }, "cowork.route_request");
+      const result = await this.coworkService.requestTaskReview({
+        traceId,
+        sessionId: params.sessionId,
+        taskId: params.taskId,
+        reviewerAgentId: params.reviewerAgentId,
+      });
+      return { status: 200, body: result };
+    }
+    return { status: 404, body: { error: "unsupported cowork task route", task_id: taskId, action } };
+  }
+
+  private async dispatchCoworkWorkUnitActionRoute(
+    segments: string[],
+    sessionId: string,
+    body: Record<string, unknown>,
+    traceId: string,
+  ): Promise<CoworkRouteResponse> {
+    if (!this.coworkService) {
+      return { status: 503, body: { error: "cowork service is unavailable" } };
+    }
+    const workUnitId = segments[3];
+    const action = segments[4];
+    const params = parseCoworkWorkUnitActionParams({ ...body, session_id: sessionId, work_unit_id: workUnitId }, "cowork.route_request");
+    let result: { session: unknown; result: string };
+    if (action === "retry") {
+      result = await this.coworkService.retryWorkUnit({
+        traceId,
+        sessionId: params.sessionId,
+        workUnitId: params.workUnitId,
+        reason: params.reason,
+      });
+    } else if (action === "skip") {
+      result = await this.coworkService.skipWorkUnit({
+        traceId,
+        sessionId: params.sessionId,
+        workUnitId: params.workUnitId,
+        reason: params.reason,
+      });
+    } else if (action === "cancel") {
+      result = await this.coworkService.cancelWorkUnit({
+        traceId,
+        sessionId: params.sessionId,
+        workUnitId: params.workUnitId,
+        reason: params.reason,
+      });
+    } else {
+      return { status: 404, body: { error: "unsupported cowork work-unit route", work_unit_id: workUnitId, action } };
+    }
+    return { status: result.result.startsWith("Error:") ? 400 : 200, body: result };
+  }
+
+  private async dispatchCoworkBranchRoute(
+    route: CoworkRouteRequest,
+    segments: string[],
+    sessionId: string,
+    body: Record<string, unknown>,
+    traceId: string,
+  ): Promise<CoworkRouteResponse> {
+    if (!this.coworkService) {
+      return { status: 503, body: { error: "cowork service is unavailable" } };
+    }
+    if (segments.length === 3 && route.method === "GET") {
+      const session = await this.coworkService.getSession(sessionId, traceId);
+      if (!session) {
+        return { status: 404, body: { error: "session not found" } };
+      }
+      return {
+        status: 200,
+        body: {
+          current_branch_id: session.current_branch_id,
+          branches: branchSnapshots(session),
+        },
+      };
+    }
+
+    if (segments.length === 4 && segments[3] === "derive" && route.method === "POST") {
+      const params = parseCoworkDeriveBranchParams({ ...body, session_id: sessionId });
+      const result = await this.coworkService.deriveBranch({
+        traceId,
+        sessionId: params.sessionId,
+        sourceBranchId: params.sourceBranchId,
+        targetArchitecture: params.targetArchitecture,
+        reason: params.reason,
+        title: params.title,
+        inheritedContextSummary: params.inheritedContextSummary,
+      });
+      return { status: 200, body: result };
+    }
+
+    if (segments.length === 5 && segments[4] === "derive" && route.method === "POST") {
+      const params = parseCoworkDeriveBranchParams({ ...body, session_id: sessionId, source_branch_id: segments[3] });
+      const result = await this.coworkService.deriveBranch({
+        traceId,
+        sessionId: params.sessionId,
+        sourceBranchId: params.sourceBranchId,
+        targetArchitecture: params.targetArchitecture,
+        reason: params.reason,
+        title: params.title,
+        inheritedContextSummary: params.inheritedContextSummary,
+      });
+      return { status: 200, body: result };
+    }
+
+    if (segments.length === 5 && segments[4] === "select" && route.method === "POST") {
+      const branchId = segments[3];
+      const result = await this.coworkService.selectBranch({ traceId, sessionId, branchId });
+      return { status: 200, body: result };
+    }
+
+    if (segments.length === 4 && segments[3] === "select" && route.method === "POST") {
+      const branchId = stringParam(body, "branchId", "branch_id");
+      if (!branchId) {
+        return { status: 400, body: { error: "branch_id is required" } };
+      }
+      const result = await this.coworkService.selectBranch({ traceId, sessionId, branchId });
+      return { status: 200, body: result };
+    }
+
+    if (segments.length === 6 && segments[4] === "result" && segments[5] === "select-final" && route.method === "POST") {
+      const result = await this.coworkService.selectSessionFinalResult({
+        traceId,
+        sessionId,
+        branchId: segments[3],
+        resultId: stringParam(body, "resultId", "result_id"),
+      });
+      return { status: 200, body: result };
+    }
+
+    return unsupportedCoworkRoute(route);
+  }
+
+  private async handleCoworkListSessionsRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const params = isJsonObject(request.params) ? request.params : {};
+      const sessions = await this.coworkService.listSessions(request.trace_id, {
+        includeCompleted: booleanParam(params, "includeCompleted", "include_completed") === true,
+      });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: { sessions },
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkGetSessionRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const sessionId = parseRequiredSessionId(request.params, "cowork.get_session");
+      const session = await this.coworkService.getSession(sessionId, request.trace_id);
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: { session },
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkCreateSessionRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const params = parseCoworkCreateSessionParams(request.params);
+      if (params.blueprint !== undefined) {
+        const result = await this.coworkService.createSessionFromBlueprint({
+          traceId: request.trace_id,
+          blueprint: params.blueprint,
+          runtimeState: params.runtimeState,
+        });
+        return {
+          protocol_version: WORKER_PROTOCOL_VERSION,
+          id: request.id,
+          trace_id: request.trace_id,
+          result,
+        };
+      }
+      const session = await this.coworkService.createSession({
+        traceId: request.trace_id,
+        goal: params.goal,
+        title: params.title,
+        workflowMode: params.workflowMode,
+        agents: params.agents,
+        tasks: params.tasks,
+        budgets: params.budgets,
+        runtimeState: params.runtimeState,
+      });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: { session },
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkDeleteSessionRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const sessionId = parseRequiredSessionId(request.params, "cowork.delete_session");
+      const deleted = await this.coworkService.deleteSession(sessionId, request.trace_id);
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: { deleted },
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkSendMessageRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const params = parseCoworkSendMessageParams(request.params);
+      const result = await this.coworkService.sendMessage({
+        traceId: request.trace_id,
+        sessionId: params.sessionId,
+        senderId: params.senderId,
+        recipientIds: params.recipientIds,
+        content: params.content,
+        threadId: params.threadId,
+        wakeRecipients: params.wakeRecipients,
+      });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result,
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkAddTaskRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const params = parseCoworkAddTaskParams(request.params);
+      const result = await this.coworkService.addTask({
+        traceId: request.trace_id,
+        sessionId: params.sessionId,
+        title: params.title,
+        description: params.description,
+        assignedAgentId: params.assignedAgentId,
+        dependencies: params.dependencies,
+        priority: params.priority,
+        expectedOutput: params.expectedOutput,
+        reviewRequired: params.reviewRequired,
+        reviewerAgentIds: params.reviewerAgentIds,
+        fanoutGroupId: params.fanoutGroupId,
+        mergeTaskId: params.mergeTaskId,
+      });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result,
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkAssignTaskRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const params = parseCoworkAssignTaskParams(request.params);
+      const result = await this.coworkService.assignTask({
+        traceId: request.trace_id,
+        sessionId: params.sessionId,
+        taskId: params.taskId,
+        agentId: params.agentId,
+      });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result,
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkRetryTaskRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const params = parseCoworkTaskMutationParams(request.params, "cowork.retry_task");
+      const result = await this.coworkService.retryTask({
+        traceId: request.trace_id,
+        sessionId: params.sessionId,
+        taskId: params.taskId,
+      });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result,
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkRequestTaskReviewRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const params = parseCoworkTaskMutationParams(request.params, "cowork.request_task_review");
+      const result = await this.coworkService.requestTaskReview({
+        traceId: request.trace_id,
+        sessionId: params.sessionId,
+        taskId: params.taskId,
+        reviewerAgentId: params.reviewerAgentId,
+      });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result,
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkRetryWorkUnitRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const params = parseCoworkWorkUnitActionParams(request.params, "cowork.retry_work_unit");
+      const result = await this.coworkService.retryWorkUnit({
+        traceId: request.trace_id,
+        sessionId: params.sessionId,
+        workUnitId: params.workUnitId,
+        reason: params.reason,
+      });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result,
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkSkipWorkUnitRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const params = parseCoworkWorkUnitActionParams(request.params, "cowork.skip_work_unit");
+      const result = await this.coworkService.skipWorkUnit({
+        traceId: request.trace_id,
+        sessionId: params.sessionId,
+        workUnitId: params.workUnitId,
+        reason: params.reason,
+      });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result,
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkCancelWorkUnitRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const params = parseCoworkWorkUnitActionParams(request.params, "cowork.cancel_work_unit");
+      const result = await this.coworkService.cancelWorkUnit({
+        traceId: request.trace_id,
+        sessionId: params.sessionId,
+        workUnitId: params.workUnitId,
+        reason: params.reason,
+      });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result,
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkPauseSessionRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const sessionId = parseRequiredSessionId(request.params, "cowork.pause_session");
+      const result = await this.coworkService.pauseSession({ traceId: request.trace_id, sessionId });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result,
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkResumeSessionRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const sessionId = parseRequiredSessionId(request.params, "cowork.resume_session");
+      const result = await this.coworkService.resumeSession({ traceId: request.trace_id, sessionId });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result,
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkEmergencyStopSessionRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const params = parseCoworkEmergencyStopParams(request.params);
+      const result = await this.coworkService.emergencyStopSession({
+        traceId: request.trace_id,
+        sessionId: params.sessionId,
+        reason: params.reason,
+      });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result,
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkRunSessionRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkScheduler) {
+      return this.failure(request, "cowork scheduler is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const params = parseCoworkRunSessionParams(request.params);
+      const result = await this.coworkScheduler.runSession({
+        traceId: request.trace_id,
+        sessionId: params.sessionId,
+        maxRounds: params.maxRounds,
+        maxAgents: params.maxAgents,
+        maxAgentCalls: params.maxAgentCalls,
+        runUntilIdle: params.runUntilIdle,
+        stopOnBlocker: params.stopOnBlocker,
+      });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result,
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkUpdateBudgetRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const params = parseCoworkUpdateBudgetParams(request.params);
+      const result = await this.coworkService.updateBudget({
+        traceId: request.trace_id,
+        sessionId: params.sessionId,
+        budgets: params.budgets,
+      });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result,
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkSelectBranchRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const params = parseCoworkBranchParams(request.params, "cowork.select_branch");
+      const result = await this.coworkService.selectBranch({
+        traceId: request.trace_id,
+        sessionId: params.sessionId,
+        branchId: params.branchId,
+      });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result,
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkDeriveBranchRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const params = parseCoworkDeriveBranchParams(request.params);
+      const result = await this.coworkService.deriveBranch({
+        traceId: request.trace_id,
+        sessionId: params.sessionId,
+        sourceBranchId: params.sourceBranchId,
+        targetArchitecture: params.targetArchitecture,
+        reason: params.reason,
+        title: params.title,
+        inheritedContextSummary: params.inheritedContextSummary,
+      });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result,
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkSelectBranchResultRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const params = parseCoworkSelectBranchResultParams(request.params);
+      const result = await this.coworkService.selectSessionFinalResult({
+        traceId: request.trace_id,
+        sessionId: params.sessionId,
+        branchId: params.branchId,
+        resultId: params.resultId,
+      });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result,
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkMergeBranchResultsRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const params = parseCoworkMergeBranchResultsParams(request.params);
+      const result = await this.coworkService.mergeBranchResults({
+        traceId: request.trace_id,
+        sessionId: params.sessionId,
+        branchIds: params.branchIds,
+        summary: params.summary,
+      });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result,
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkDeliverEnvelopeRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const params = parseCoworkDeliverEnvelopeParams(request.params);
+      const result = await this.coworkService.deliverEnvelope({
+        traceId: request.trace_id,
+        sessionId: params.sessionId,
+        envelope: params.envelope,
+      });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result,
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkMarkMessagesReadRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const params = parseCoworkMailboxAgentParams(request.params, "cowork.mark_messages_read");
+      const result = await this.coworkService.markMailboxMessagesRead({
+        traceId: request.trace_id,
+        sessionId: params.sessionId,
+        agentId: params.agentId,
+      });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result,
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkExpireMailboxRecordsRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const sessionId = parseRequiredSessionId(request.params, "cowork.expire_mailbox_records");
+      const result = await this.coworkService.expireMailboxRecords({
+        traceId: request.trace_id,
+        sessionId,
+      });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result,
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkEscalateStaleBlockersRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const sessionId = parseRequiredSessionId(request.params, "cowork.escalate_stale_blockers");
+      const result = await this.coworkService.escalateStaleBlockers({
+        traceId: request.trace_id,
+        sessionId,
+      });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result,
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkExportBlueprintRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const sessionId = parseRequiredSessionId(request.params, "cowork.export_blueprint");
+      const blueprint = await this.coworkService.exportBlueprint({ traceId: request.trace_id, sessionId });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: { blueprint },
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkGetGraphRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const sessionId = parseRequiredSessionId(request.params, "cowork.get_graph");
+      const graph = await this.coworkService.getGraph({ traceId: request.trace_id, sessionId });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: { graph },
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkGetTraceRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const sessionId = parseRequiredSessionId(request.params, "cowork.get_trace");
+      const result = await this.coworkService.getTrace({ traceId: request.trace_id, sessionId });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result,
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkGetSummaryRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const sessionId = parseRequiredSessionId(request.params, "cowork.get_summary");
+      const summary = await this.coworkService.getSummary({ traceId: request.trace_id, sessionId });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: { summary },
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkGetDagRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const sessionId = parseRequiredSessionId(request.params, "cowork.get_dag");
+      const taskDag = await this.coworkService.getTaskDag({ traceId: request.trace_id, sessionId });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: { task_dag: taskDag },
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkGetArtifactsRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const sessionId = parseRequiredSessionId(request.params, "cowork.get_artifacts");
+      const artifacts = await this.coworkService.getArtifacts({ traceId: request.trace_id, sessionId });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: { artifacts },
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkGetOrganizationRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const sessionId = parseRequiredSessionId(request.params, "cowork.get_organization");
+      const organization = await this.coworkService.getOrganization({ traceId: request.trace_id, sessionId });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: { organization },
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkGetQueuesRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const sessionId = parseRequiredSessionId(request.params, "cowork.get_queues");
+      const queues = await this.coworkService.getQueues({ traceId: request.trace_id, sessionId });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: { queues },
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkGetAgentActivityRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const params = parseCoworkAgentActivityParams(request.params);
+      const activity = await this.coworkService.getAgentActivity({
+        traceId: request.trace_id,
+        sessionId: params.sessionId,
+        agentId: params.agentId,
+        limit: params.limit,
+      });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: { activity },
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleCoworkGetObservationDetailRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.coworkService) {
+      return this.failure(request, "cowork service is unavailable", {}, "invalid_protocol");
+    }
+    try {
+      const params = parseCoworkObservationDetailParams(request.params);
+      const detail = await this.coworkService.getObservationDetail({
+        traceId: request.trace_id,
+        sessionId: params.sessionId,
+        detailId: params.detailId,
+        requesterAgentId: params.requesterAgentId,
+      });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: { detail },
       };
     } catch (error) {
       return this.failure(request, errorMessage(error), {}, "invalid_protocol");
@@ -1466,6 +2918,508 @@ function parseCoworkBlueprintParams(
     policy: isJsonObject(params.policy) ? params.policy : undefined,
     defaultGoal: stringParam(params, "defaultGoal", "default_goal") ?? "",
   };
+}
+
+function parseCoworkRouteRequest(params: Record<string, unknown> | undefined): CoworkRouteRequest {
+  if (!isJsonObject(params)) {
+    throw new Error("cowork.route_request requires object params");
+  }
+  const method = stringParam(params, "method", "method")?.toUpperCase();
+  const rawPath = stringParam(params, "path", "path");
+  if (!method || !rawPath) {
+    throw new Error("cowork.route_request requires params.method and params.path");
+  }
+  const url = new URL(rawPath, "http://worker.local");
+  const query = new URLSearchParams(url.search);
+  const rawQuery = params.query;
+  if (isJsonObject(rawQuery)) {
+    for (const [key, value] of Object.entries(rawQuery)) {
+      if (value !== undefined && value !== null) {
+        query.set(key, String(value));
+      }
+    }
+  }
+  return {
+    method,
+    path: `${url.pathname}${url.search}`,
+    body: params.body,
+    query,
+  };
+}
+
+function coworkRouteSegments(path: string): string[] {
+  const url = new URL(path, "http://worker.local");
+  const segments = url.pathname.split("/").filter(Boolean).map((segment) => decodeURIComponent(segment));
+  if (segments[0] !== "api" || segments[1] !== "cowork") {
+    return [];
+  }
+  return segments.slice(2);
+}
+
+function unsupportedCoworkRoute(route: CoworkRouteRequest): CoworkRouteResponse {
+  return {
+    status: 404,
+    body: {
+      error: "unsupported cowork route",
+      method: route.method,
+      path: route.path,
+    },
+  };
+}
+
+function branchSnapshots(session: CoworkSession): JsonObject[] {
+  return Object.values(session.branches)
+    .sort((left, right) => left.created_at.localeCompare(right.created_at))
+    .map((branch) => branchSnapshot(branch, branch.id === session.current_branch_id));
+}
+
+function branchSnapshot(branch: CoworkBranch, current: boolean): JsonObject {
+  return {
+    id: branch.id,
+    title: branch.title,
+    architecture: branch.architecture,
+    status: branch.status,
+    topology_reference: branch.topology_reference ?? {},
+    source_branch_id: branch.source_branch_id,
+    source_stage_record_id: branch.source_stage_record_id,
+    derivation_event_id: branch.derivation_event_id,
+    derivation_reason: branch.derivation_reason,
+    inherited_context_summary: branch.inherited_context_summary,
+    completion_decision: branch.completion_decision ?? {},
+    runtime_state: branch.runtime_state ?? {},
+    branch_result: branch.branch_result ?? {},
+    created_at: branch.created_at,
+    updated_at: branch.updated_at,
+    current,
+    derived: Boolean(branch.source_branch_id),
+  };
+}
+
+function parseRequiredSessionId(params: Record<string, unknown> | undefined, method: string): string {
+  if (!isJsonObject(params)) {
+    throw new Error(`${method} requires object params`);
+  }
+  const sessionId = stringParam(params, "sessionId", "session_id");
+  if (!sessionId) {
+    throw new Error(`${method} requires params.session_id`);
+  }
+  return sessionId;
+}
+
+function parseCoworkCreateSessionParams(params: Record<string, unknown> | undefined): {
+  blueprint?: unknown;
+  goal: string;
+  title?: string;
+  workflowMode?: string;
+  agents?: Record<string, unknown>[];
+  tasks?: Record<string, unknown>[];
+  budgets?: Record<string, unknown>;
+  runtimeState?: Record<string, unknown>;
+} {
+  if (!isJsonObject(params)) {
+    throw new Error("cowork.create_session requires object params");
+  }
+  if (params.blueprint !== undefined && params.blueprint !== null) {
+    return {
+      blueprint: params.blueprint,
+      goal: "",
+      runtimeState: isJsonObject(params.runtimeState) ? params.runtimeState : isJsonObject(params.runtime_state) ? params.runtime_state : undefined,
+    };
+  }
+  const goal = stringParam(params, "goal", "goal");
+  if (!goal) {
+    throw new Error("cowork.create_session requires params.goal or params.blueprint");
+  }
+  return {
+    goal,
+    title: stringParam(params, "title", "title"),
+    workflowMode: stringParam(params, "workflowMode", "workflow_mode"),
+    agents: objectArrayParam(params.agents),
+    tasks: objectArrayParam(params.tasks),
+    budgets: isJsonObject(params.budgets) ? params.budgets : isJsonObject(params.budget) ? params.budget : undefined,
+    runtimeState: isJsonObject(params.runtimeState) ? params.runtimeState : isJsonObject(params.runtime_state) ? params.runtime_state : undefined,
+  };
+}
+
+function parseCoworkSendMessageParams(params: Record<string, unknown> | undefined): {
+  sessionId: string;
+  senderId: string;
+  recipientIds: string[];
+  content: string;
+  threadId?: string;
+  wakeRecipients?: boolean;
+} {
+  if (!isJsonObject(params)) {
+    throw new Error("cowork.send_message requires object params");
+  }
+  const sessionId = stringParam(params, "sessionId", "session_id");
+  const content = stringParam(params, "content", "content");
+  if (!sessionId || !content) {
+    throw new Error("cowork.send_message requires params.session_id and params.content");
+  }
+  return {
+    sessionId,
+    senderId: stringParam(params, "senderId", "sender_id") ?? "user",
+    recipientIds: stringListParam(params, "recipientIds", "recipient_ids"),
+    content,
+    threadId: stringParam(params, "threadId", "thread_id"),
+    wakeRecipients: booleanParam(params, "wakeRecipients", "wake_recipients"),
+  };
+}
+
+function parseCoworkAddTaskParams(params: Record<string, unknown> | undefined): {
+  sessionId: string;
+  title: string;
+  description?: string;
+  assignedAgentId?: string;
+  dependencies: string[];
+  priority?: number;
+  expectedOutput?: string;
+  reviewRequired?: boolean;
+  reviewerAgentIds: string[];
+  fanoutGroupId?: string;
+  mergeTaskId?: string;
+} {
+  if (!isJsonObject(params)) {
+    throw new Error("cowork.add_task requires object params");
+  }
+  const sessionId = stringParam(params, "sessionId", "session_id");
+  const title = stringParam(params, "title", "title");
+  if (!sessionId || !title) {
+    throw new Error("cowork.add_task requires params.session_id and params.title");
+  }
+  return {
+    sessionId,
+    title,
+    description: stringParam(params, "description", "description"),
+    assignedAgentId: stringParam(params, "assignedAgentId", "assigned_agent_id"),
+    dependencies: stringListParam(params, "dependencies", "dependencies"),
+    priority: numberParam(params, "priority", "priority"),
+    expectedOutput: stringParam(params, "expectedOutput", "expected_output"),
+    reviewRequired: booleanParam(params, "reviewRequired", "review_required"),
+    reviewerAgentIds: stringListParam(params, "reviewerAgentIds", "reviewer_agent_ids"),
+    fanoutGroupId: stringParam(params, "fanoutGroupId", "fanout_group_id"),
+    mergeTaskId: stringParam(params, "mergeTaskId", "merge_task_id"),
+  };
+}
+
+function parseCoworkAssignTaskParams(params: Record<string, unknown> | undefined): {
+  sessionId: string;
+  taskId: string;
+  agentId: string;
+} {
+  if (!isJsonObject(params)) {
+    throw new Error("cowork.assign_task requires object params");
+  }
+  const sessionId = stringParam(params, "sessionId", "session_id");
+  const taskId = stringParam(params, "taskId", "task_id");
+  const agentId = stringParam(params, "agentId", "agent_id") ?? stringParam(params, "assignedAgentId", "assigned_agent_id");
+  if (!sessionId || !taskId || !agentId) {
+    throw new Error("cowork.assign_task requires params.session_id, params.task_id, and params.assigned_agent_id");
+  }
+  return { sessionId, taskId, agentId };
+}
+
+function parseCoworkTaskMutationParams(params: Record<string, unknown> | undefined, method: string): {
+  sessionId: string;
+  taskId: string;
+  reviewerAgentId?: string;
+} {
+  if (!isJsonObject(params)) {
+    throw new Error(`${method} requires object params`);
+  }
+  const sessionId = stringParam(params, "sessionId", "session_id");
+  const taskId = stringParam(params, "taskId", "task_id");
+  if (!sessionId || !taskId) {
+    throw new Error(`${method} requires params.session_id and params.task_id`);
+  }
+  return {
+    sessionId,
+    taskId,
+    reviewerAgentId: stringParam(params, "reviewerAgentId", "reviewer_agent_id"),
+  };
+}
+
+function parseCoworkWorkUnitActionParams(params: Record<string, unknown> | undefined, method: string): {
+  sessionId: string;
+  workUnitId: string;
+  reason?: string;
+} {
+  if (!isJsonObject(params)) {
+    throw new Error(`${method} requires object params`);
+  }
+  const sessionId = stringParam(params, "sessionId", "session_id");
+  const workUnitId = stringParam(params, "workUnitId", "work_unit_id");
+  if (!sessionId || !workUnitId) {
+    throw new Error(`${method} requires params.session_id and params.work_unit_id`);
+  }
+  return {
+    sessionId,
+    workUnitId,
+    reason: stringParam(params, "reason", "reason"),
+  };
+}
+
+function parseCoworkEmergencyStopParams(params: Record<string, unknown> | undefined): {
+  sessionId: string;
+  reason?: string;
+} {
+  if (!isJsonObject(params)) {
+    throw new Error("cowork.emergency_stop_session requires object params");
+  }
+  const sessionId = stringParam(params, "sessionId", "session_id");
+  if (!sessionId) {
+    throw new Error("cowork.emergency_stop_session requires params.session_id");
+  }
+  return {
+    sessionId,
+    reason: stringParam(params, "reason", "reason"),
+  };
+}
+
+function parseCoworkRunSessionParams(params: Record<string, unknown> | undefined): {
+  sessionId: string;
+  maxRounds?: number;
+  maxAgents?: number;
+  maxAgentCalls?: number;
+  runUntilIdle?: boolean;
+  stopOnBlocker?: boolean;
+} {
+  if (!isJsonObject(params)) {
+    throw new Error("cowork.run_session requires object params");
+  }
+  const sessionId = stringParam(params, "sessionId", "session_id");
+  if (!sessionId) {
+    throw new Error("cowork.run_session requires params.session_id");
+  }
+  return {
+    sessionId,
+    maxRounds: numberParam(params, "maxRounds", "max_rounds"),
+    maxAgents: numberParam(params, "maxAgents", "max_agents"),
+    maxAgentCalls: numberParam(params, "maxAgentCalls", "max_agent_calls"),
+    runUntilIdle: booleanParam(params, "runUntilIdle", "run_until_idle"),
+    stopOnBlocker: booleanParam(params, "stopOnBlocker", "stop_on_blocker"),
+  };
+}
+
+function parseCoworkUpdateBudgetParams(params: Record<string, unknown> | undefined): {
+  sessionId: string;
+  budgets: Record<string, unknown>;
+} {
+  if (!isJsonObject(params)) {
+    throw new Error("cowork.update_budget requires object params");
+  }
+  const sessionId = stringParam(params, "sessionId", "session_id");
+  const budgets = isJsonObject(params.budgets)
+    ? params.budgets
+    : isJsonObject(params.budget)
+      ? params.budget
+      : withoutSessionId(params);
+  if (!sessionId) {
+    throw new Error("cowork.update_budget requires params.session_id");
+  }
+  return { sessionId, budgets };
+}
+
+function parseCoworkBranchParams(params: Record<string, unknown> | undefined, method: string): {
+  sessionId: string;
+  branchId: string;
+} {
+  if (!isJsonObject(params)) {
+    throw new Error(`${method} requires object params`);
+  }
+  const sessionId = stringParam(params, "sessionId", "session_id");
+  const branchId = stringParam(params, "branchId", "branch_id");
+  if (!sessionId || !branchId) {
+    throw new Error(`${method} requires params.session_id and params.branch_id`);
+  }
+  return { sessionId, branchId };
+}
+
+function parseCoworkDeriveBranchParams(params: Record<string, unknown> | undefined): {
+  sessionId: string;
+  sourceBranchId?: string;
+  targetArchitecture?: string;
+  reason?: string;
+  title?: string;
+  inheritedContextSummary?: string;
+} {
+  if (!isJsonObject(params)) {
+    throw new Error("cowork.derive_branch requires object params");
+  }
+  const sessionId = stringParam(params, "sessionId", "session_id");
+  if (!sessionId) {
+    throw new Error("cowork.derive_branch requires params.session_id");
+  }
+  return {
+    sessionId,
+    sourceBranchId: stringParam(params, "sourceBranchId", "source_branch_id"),
+    targetArchitecture: stringParam(params, "targetArchitecture", "target_architecture"),
+    reason: stringParam(params, "reason", "reason"),
+    title: stringParam(params, "title", "title"),
+    inheritedContextSummary: stringParam(params, "inheritedContextSummary", "inherited_context_summary"),
+  };
+}
+
+function parseCoworkSelectBranchResultParams(params: Record<string, unknown> | undefined): {
+  sessionId: string;
+  branchId: string;
+  resultId?: string;
+} {
+  const parsed = parseCoworkBranchParams(params, "cowork.select_branch_result");
+  return {
+    ...parsed,
+    resultId: isJsonObject(params) ? stringParam(params, "resultId", "result_id") : undefined,
+  };
+}
+
+function parseCoworkMergeBranchResultsParams(params: Record<string, unknown> | undefined): {
+  sessionId: string;
+  branchIds: string[];
+  summary?: string;
+} {
+  if (!isJsonObject(params)) {
+    throw new Error("cowork.merge_branch_results requires object params");
+  }
+  const sessionId = stringParam(params, "sessionId", "session_id");
+  const branchIds = stringListParam(params, "branchIds", "branch_ids");
+  if (!sessionId || branchIds.length === 0) {
+    throw new Error("cowork.merge_branch_results requires params.session_id and params.branch_ids");
+  }
+  return {
+    sessionId,
+    branchIds,
+    summary: stringParam(params, "summary", "summary"),
+  };
+}
+
+function parseCoworkDeliverEnvelopeParams(params: Record<string, unknown> | undefined): {
+  sessionId: string;
+  envelope: CoworkEnvelope;
+} {
+  if (!isJsonObject(params)) {
+    throw new Error("cowork.deliver_envelope requires object params");
+  }
+  const sessionId = stringParam(params, "sessionId", "session_id");
+  const rawEnvelope = params.envelope;
+  if (!sessionId || !isJsonObject(rawEnvelope)) {
+    throw new Error("cowork.deliver_envelope requires params.session_id and params.envelope");
+  }
+  const senderId = stringParam(rawEnvelope, "senderId", "sender_id");
+  const content = stringParam(rawEnvelope, "content", "content");
+  if (!senderId || !content) {
+    throw new Error("cowork.deliver_envelope requires params.envelope.sender_id and params.envelope.content");
+  }
+  const envelope: CoworkEnvelope = {
+    sender_id: senderId,
+    content,
+    recipient_ids: stringListParam(rawEnvelope, "recipientIds", "recipient_ids"),
+    visibility: stringParam(rawEnvelope, "visibility", "visibility"),
+    kind: stringParam(rawEnvelope, "kind", "kind"),
+    topic: stringParam(rawEnvelope, "topic", "topic"),
+    event_type: stringParam(rawEnvelope, "eventType", "event_type"),
+    request_type: stringParam(rawEnvelope, "requestType", "request_type"),
+    thread_id: stringParam(rawEnvelope, "threadId", "thread_id"),
+    requires_reply: booleanParam(rawEnvelope, "requiresReply", "requires_reply"),
+    priority: numberParam(rawEnvelope, "priority", "priority"),
+    deadline_round: numberParam(rawEnvelope, "deadlineRound", "deadline_round"),
+    correlation_id: stringParam(rawEnvelope, "correlationId", "correlation_id"),
+    lineage_id: stringParam(rawEnvelope, "lineageId", "lineage_id"),
+    reply_to_envelope_id: stringParam(rawEnvelope, "replyToEnvelopeId", "reply_to_envelope_id"),
+    caused_by_envelope_id: stringParam(rawEnvelope, "causedByEnvelopeId", "caused_by_envelope_id"),
+    expected_output_schema: isJsonObject(rawEnvelope.expectedOutputSchema)
+      ? rawEnvelope.expectedOutputSchema
+      : isJsonObject(rawEnvelope.expected_output_schema)
+        ? rawEnvelope.expected_output_schema
+        : undefined,
+    blocking_task_id: stringParam(rawEnvelope, "blockingTaskId", "blocking_task_id"),
+    escalate_after_rounds: numberParam(rawEnvelope, "escalateAfterRounds", "escalate_after_rounds"),
+    wake_recipients: booleanParam(rawEnvelope, "wakeRecipients", "wake_recipients"),
+    tool_call_id: stringParam(rawEnvelope, "toolCallId", "tool_call_id"),
+    draft_id: stringParam(rawEnvelope, "draftId", "draft_id"),
+  };
+  return { sessionId, envelope };
+}
+
+function parseCoworkMailboxAgentParams(params: Record<string, unknown> | undefined, method: string): {
+  sessionId: string;
+  agentId: string;
+} {
+  if (!isJsonObject(params)) {
+    throw new Error(`${method} requires object params`);
+  }
+  const sessionId = stringParam(params, "sessionId", "session_id");
+  const agentId = stringParam(params, "agentId", "agent_id");
+  if (!sessionId || !agentId) {
+    throw new Error(`${method} requires params.session_id and params.agent_id`);
+  }
+  return { sessionId, agentId };
+}
+
+function parseCoworkAgentActivityParams(params: Record<string, unknown> | undefined): {
+  sessionId: string;
+  agentId: string;
+  limit?: number;
+} {
+  if (!isJsonObject(params)) {
+    throw new Error("cowork.get_agent_activity requires object params");
+  }
+  const sessionId = stringParam(params, "sessionId", "session_id");
+  const agentId = stringParam(params, "agentId", "agent_id");
+  if (!sessionId || !agentId) {
+    throw new Error("cowork.get_agent_activity requires params.session_id and params.agent_id");
+  }
+  return {
+    sessionId,
+    agentId,
+    limit: numberParam(params, "limit", "limit"),
+  };
+}
+
+function parseCoworkObservationDetailParams(params: Record<string, unknown> | undefined): {
+  sessionId: string;
+  detailId: string;
+  requesterAgentId?: string;
+} {
+  if (!isJsonObject(params)) {
+    throw new Error("cowork.get_observation_detail requires object params");
+  }
+  const sessionId = stringParam(params, "sessionId", "session_id");
+  const detailId = stringParam(params, "detailId", "detail_id");
+  if (!sessionId || !detailId) {
+    throw new Error("cowork.get_observation_detail requires params.session_id and params.detail_id");
+  }
+  return {
+    sessionId,
+    detailId,
+    requesterAgentId: stringParam(params, "requesterAgentId", "requester_agent_id")
+      ?? stringParam(params, "agentId", "agent_id"),
+  };
+}
+
+function withoutSessionId(params: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(params)) {
+    if (key !== "sessionId" && key !== "session_id") {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
+function objectArrayParam(value: unknown): Record<string, unknown>[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error("cowork.create_session agents and tasks must be arrays when provided");
+  }
+  return value.map((item) => {
+    if (!isJsonObject(item)) {
+      throw new Error("cowork.create_session agents and tasks must contain objects");
+    }
+    return item;
+  });
 }
 
 function parseCronRunDueJob(value: unknown): CronRunDueJob {

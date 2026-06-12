@@ -157,6 +157,17 @@ struct WorkerSkillUpdateInput {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct WorkerCoworkRouteInput {
+    method: String,
+    path: String,
+    #[serde(default)]
+    body: Option<serde_json::Value>,
+    #[serde(default)]
+    query: Option<serde_json::Value>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct WorkerCancelAgentInput {
     run_id: String,
 }
@@ -534,6 +545,20 @@ fn worker_skills_validate(
         ts_agent_worker_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_cowork_route(
+    input: WorkerCoworkRouteInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_cowork_route_with_options(
+        state.inner(),
+        input,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(30),
     )
 }
 
@@ -1744,6 +1769,58 @@ fn build_worker_skills_validate_request(request_id: u128, name: String) -> Worke
     )
 }
 
+fn worker_cowork_route_with_options(
+    shared: &SharedGateway,
+    input: WorkerCoworkRouteInput,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let worker = {
+        let runtime = lock_runtime(shared);
+        runtime.experimental_worker.clone()
+    };
+
+    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot)?;
+
+    let request = build_worker_cowork_route_request(now_unix_ms(), input);
+    let response = worker
+        .send_stdio_request(&request, timeout)
+        .map_err(|error| format!("worker cowork route request failed: {}", error.message))?;
+
+    if let Some(error) = response.error {
+        return Err(format!(
+            "worker cowork route returned error: {}",
+            error.message
+        ));
+    }
+    response
+        .result
+        .ok_or_else(|| "worker cowork route response missing result".to_string())
+}
+
+fn build_worker_cowork_route_request(
+    request_id: u128,
+    input: WorkerCoworkRouteInput,
+) -> WorkerRequest {
+    let mut params = serde_json::json!({
+        "method": input.method,
+        "path": input.path,
+    });
+    if let Some(body) = input.body {
+        params["body"] = body;
+    }
+    if let Some(query) = input.query {
+        params["query"] = query;
+    }
+    WorkerRequest::new(
+        format!("cowork-route-{request_id}"),
+        format!("trace-cowork-route-{request_id}"),
+        "cowork.route_request",
+        params,
+    )
+}
+
 fn send_skills_worker_request(
     shared: &SharedGateway,
     workspace_root: PathBuf,
@@ -2248,6 +2325,7 @@ pub fn run() {
             worker_skills_update,
             worker_skills_delete,
             worker_skills_validate,
+            worker_cowork_route,
             worker_cancel_agent,
             worker_restore_agent_checkpoint,
             worker_submit_agent_form,
@@ -2726,6 +2804,31 @@ mod tests {
         assert_eq!(
             validate_request.params,
             serde_json::json!({ "name": "planner/phase" })
+        );
+    }
+
+    #[test]
+    fn worker_cowork_route_request_targets_ts_route_bridge() {
+        let request = build_worker_cowork_route_request(
+            42,
+            WorkerCoworkRouteInput {
+                method: "POST".to_string(),
+                path: "/api/cowork/sessions/cw_1/tasks/task_1/retry".to_string(),
+                body: Some(serde_json::json!({ "reason": "Retry" })),
+                query: None,
+            },
+        );
+
+        assert_eq!(request.id, "cowork-route-42");
+        assert_eq!(request.trace_id, "trace-cowork-route-42");
+        assert_eq!(request.method, "cowork.route_request");
+        assert_eq!(
+            request.params,
+            serde_json::json!({
+                "method": "POST",
+                "path": "/api/cowork/sessions/cw_1/tasks/task_1/retry",
+                "body": { "reason": "Retry" }
+            })
         );
     }
 

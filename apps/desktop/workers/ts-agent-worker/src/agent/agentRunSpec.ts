@@ -42,6 +42,7 @@ export type AgentRunSpec = {
   contextWindow?: number;
   toolResultBudget?: number;
   failOnToolError?: boolean;
+  emitEvent?: (event: { type: string; payload: Record<string, unknown> }) => void;
   metadata?: Record<string, unknown>;
 };
 

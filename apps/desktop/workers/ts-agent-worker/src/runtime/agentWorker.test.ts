@@ -1,6 +1,9 @@
 import { describe, expect, test } from "vitest";
 
 import type { AgentMessage } from "../agent/agentRunSpec";
+import { CoworkScheduler } from "../cowork/coworkScheduler";
+import { CoworkService, createMemoryCoworkStore } from "../cowork/coworkService";
+import type { CoworkSession } from "../cowork/coworkTypes";
 import type { ModelProvider, ModelRequestOptions, ModelResponse } from "../model/provider";
 import type { WorkerEvent, WorkerRequest } from "../protocol/messages";
 import { ToolRegistry } from "../tools/toolRegistry";
@@ -49,6 +52,16 @@ function cronRunDueRequest(params: Record<string, unknown>): WorkerRequest {
     id: "cron-run-due-1",
     trace_id: "trace-cron-run-due",
     method: "cron.run_due",
+    params,
+  };
+}
+
+function coworkRequest(method: string, params: Record<string, unknown> = {}): WorkerRequest {
+  return {
+    protocol_version: "1",
+    id: `${method}-1`,
+    trace_id: `trace-${method}`,
+    method,
     params,
   };
 }
@@ -152,6 +165,1666 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 }
 
 describe("AgentWorker", () => {
+  test("routes cowork create/list/get/delete requests through the injected CoworkService", async () => {
+    const coworkService = new CoworkService({
+      store: createMemoryCoworkStore(),
+      now: () => "2026-06-12T08:00:00.000Z",
+      idGenerator: (() => {
+        const counters = new Map<string, number>();
+        return (prefix: string) => {
+          const next = (counters.get(prefix) ?? 0) + 1;
+          counters.set(prefix, next);
+          return `${prefix}_${next}`;
+        };
+      })(),
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      coworkService,
+    });
+
+    const create = await worker.handleRequest(coworkRequest("cowork.create_session", {
+      goal: "Wire Cowork RPCs",
+      title: "Cowork RPC",
+      workflow_mode: "team",
+      agents: [{ id: "lead", role: "Lead" }],
+      tasks: [{ id: "plan", title: "Plan", assigned_agent_id: "lead" }],
+    }));
+
+    expect(create).toMatchObject({
+      protocol_version: "1",
+      id: "cowork.create_session-1",
+      result: {
+        session: {
+          id: "cw_1",
+          title: "Cowork RPC",
+          workflow_mode: "team",
+        },
+      },
+    });
+    await expect(worker.handleRequest(coworkRequest("cowork.list_sessions"))).resolves.toMatchObject({
+      result: {
+        sessions: [expect.objectContaining({ id: "cw_1" })],
+      },
+    });
+    await expect(worker.handleRequest(coworkRequest("cowork.get_session", { session_id: "cw_1" }))).resolves.toMatchObject({
+      result: {
+        session: expect.objectContaining({ id: "cw_1" }),
+      },
+    });
+    await expect(worker.handleRequest(coworkRequest("cowork.delete_session", { session_id: "cw_1" }))).resolves.toMatchObject({
+      result: { deleted: true },
+    });
+    await expect(worker.handleRequest(coworkRequest("cowork.get_session", { session_id: "cw_1" }))).resolves.toMatchObject({
+      result: { session: null },
+    });
+  });
+
+  test("routes Python-compatible cowork API requests through the injected CoworkService", async () => {
+    const coworkService = new CoworkService({
+      store: createMemoryCoworkStore(),
+      now: () => "2026-06-12T08:00:00.000Z",
+      idGenerator: (() => {
+        const counters = new Map<string, number>();
+        return (prefix: string) => {
+          const next = (counters.get(prefix) ?? 0) + 1;
+          counters.set(prefix, next);
+          return `${prefix}_${next}`;
+        };
+      })(),
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      coworkService,
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: "/api/cowork/blueprints/preview",
+      body: {
+        blueprint: {
+          goal: "Preview route",
+          agents: [{ id: "lead", role: "Lead", tools: ["cowork_internal"] }],
+        },
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: expect.objectContaining({
+          ok: true,
+          blueprint: expect.objectContaining({ goal: "Preview route" }),
+        }),
+      },
+    });
+
+    const create = await worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: "/api/cowork/sessions",
+      body: {
+        goal: "Route Cowork API",
+        title: "Route API",
+        workflow_mode: "team",
+        agents: [{ id: "lead", name: "Lead", role: "Lead" }],
+        tasks: [{ id: "draft", title: "Draft", description: "Draft answer", assigned_agent_id: "lead" }],
+      },
+    }));
+    const createdSession = (((create.result as Record<string, unknown>).body as Record<string, unknown>).session as CoworkSession);
+    expect(create).toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          result: "started cw_1",
+          session: expect.objectContaining({
+            id: "cw_1",
+            title: "Route API",
+          }),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "GET",
+      path: "/api/cowork/sessions?include_completed=true",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          items: [expect.objectContaining({ id: "cw_1", title: "Route API" })],
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(createdSession.id)}/messages`,
+      body: {
+        content: "Continue",
+        recipient_ids: ["lead"],
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          message: expect.objectContaining({ id: "msg_2", content: "Continue" }),
+          session: expect.objectContaining({
+            messages: expect.objectContaining({
+              msg_2: expect.objectContaining({ content: "Continue" }),
+            }),
+          }),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "GET",
+      path: `/api/cowork/sessions/${encodeURIComponent(createdSession.id)}/summary`,
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          summary: expect.objectContaining({
+            session_id: "cw_1",
+            counts: expect.objectContaining({ agents: 1, tasks: 1 }),
+          }),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(createdSession.id)}/branches/derive`,
+      body: {
+        target_architecture: "team",
+        title: "Follow-up branch",
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          branch: expect.objectContaining({ id: "br_1", title: "Follow-up branch" }),
+          session: expect.objectContaining({ current_branch_id: "br_1" }),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "DELETE",
+      path: `/api/cowork/sessions/${encodeURIComponent(createdSession.id)}`,
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: { deleted: true },
+      },
+    });
+  });
+
+  test("routes Python-compatible cowork run requests through the injected CoworkScheduler", async () => {
+    const store = createMemoryCoworkStore();
+    const idGenerator = (() => {
+      const counters = new Map<string, number>();
+      return (prefix: string) => {
+        const next = (counters.get(prefix) ?? 0) + 1;
+        counters.set(prefix, next);
+        return `${prefix}_${next}`;
+      };
+    })();
+    const coworkService = new CoworkService({
+      store,
+      now: () => "2026-06-12T08:00:00.000Z",
+      idGenerator,
+    });
+    const coworkScheduler = new CoworkScheduler({
+      store,
+      now: () => "2026-06-12T08:00:00.000Z",
+      idGenerator,
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      coworkService,
+      coworkScheduler,
+    });
+    const session = await coworkService.createSession({
+      traceId: "seed",
+      goal: "Route Cowork scheduler",
+      title: "Scheduler route",
+      workflowMode: "team",
+      agents: [{ id: "lead", name: "Lead", role: "Lead" }],
+      tasks: [{ id: "draft", title: "Draft", description: "Draft answer", assigned_agent_id: "lead" }],
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/run`,
+      body: { max_rounds: 2, max_agents: 2 },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          result: expect.stringContaining("Round 1: no ready agents."),
+          session: expect.objectContaining({
+            id: "cw_1",
+            stop_reason: "idle",
+            run_metrics: [expect.objectContaining({ status: "stopped", stop_reason: "idle" })],
+          }),
+        },
+      },
+    });
+  });
+
+  test("routes desktop cowork action API paths through the injected CoworkService", async () => {
+    const store = createMemoryCoworkStore();
+    const coworkService = new CoworkService({
+      store,
+      now: () => "2026-06-12T08:00:00.000Z",
+      idGenerator: (() => {
+        const counters = new Map<string, number>();
+        return (prefix: string) => {
+          const next = (counters.get(prefix) ?? 0) + 1;
+          counters.set(prefix, next);
+          return `${prefix}_${next}`;
+        };
+      })(),
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      coworkService,
+    });
+
+    const create = await worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: "/api/cowork/sessions",
+      body: {
+        goal: "Desktop action route",
+        title: "Desktop Actions",
+        blueprint: null,
+        architecture: "team",
+        workflow_mode: "team",
+        agents: [{ id: "lead", name: "Lead" }, { id: "reviewer", name: "Reviewer", role: "Reviewer" }],
+        tasks: [{ id: "answer", title: "Answer", description: "Answer task", assigned_agent_id: "lead" }],
+      },
+    }));
+    const session = (((create.result as Record<string, unknown>).body as Record<string, unknown>).session as CoworkSession);
+    expect(create).toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          result: "started cw_1",
+          session: expect.objectContaining({
+            id: "cw_1",
+            title: "Desktop Actions",
+            workflow_mode: "team",
+          }),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/pause`,
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          session: expect.objectContaining({ status: "paused" }),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/resume`,
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          session: expect.objectContaining({ status: "active" }),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/tasks/answer/assign`,
+      body: { assigned_agent_id: "reviewer" },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          session: expect.objectContaining({
+            tasks: expect.objectContaining({
+              answer: expect.objectContaining({ assigned_agent_id: "reviewer" }),
+            }),
+          }),
+        },
+      },
+    });
+
+    const failed = await store.readSnapshot(session.id, "seed-failed");
+    if (!failed) {
+      throw new Error("missing desktop route session");
+    }
+    failed.tasks.answer.status = "failed";
+    failed.tasks.answer.error = "Needs another pass";
+    await store.writeSnapshot(failed, "seed-failed");
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/tasks/answer/retry`,
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          session: expect.objectContaining({
+            tasks: expect.objectContaining({
+              answer: expect.objectContaining({ status: "pending", error: null }),
+            }),
+          }),
+        },
+      },
+    });
+
+    const completed = await store.readSnapshot(session.id, "seed-completed");
+    if (!completed) {
+      throw new Error("missing retried desktop route session");
+    }
+    completed.tasks.answer.status = "completed";
+    completed.tasks.answer.result = "answer";
+    await store.writeSnapshot(completed, "seed-completed");
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/tasks/answer/review`,
+      body: { reviewer_agent_id: "reviewer" },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          review_task_id: "task_1",
+          reviewTask: expect.objectContaining({
+            title: "Review Answer",
+            assigned_agent_id: "reviewer",
+          }),
+        },
+      },
+    });
+
+    const branchSeed = await store.readSnapshot(session.id, "seed-branch");
+    if (!branchSeed) {
+      throw new Error("missing branch seed session");
+    }
+    branchSeed.status = "completed";
+    branchSeed.final_draft = "Default branch result";
+    branchSeed.artifacts = ["default.md"];
+    branchSeed.tasks.answer.status = "completed";
+    branchSeed.tasks.answer.confidence = 0.6;
+    await store.writeSnapshot(branchSeed, "seed-branch");
+
+    await worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/branches/derive`,
+      body: {
+        target_architecture: "team",
+        title: "Team branch",
+      },
+    }));
+    const derived = await store.readSnapshot(session.id, "seed-team-result");
+    if (!derived) {
+      throw new Error("missing derived desktop route session");
+    }
+    derived.branches.br_1.status = "completed";
+    derived.branches.br_1.branch_result = {
+      id: "brres_team",
+      source_branch_id: "br_1",
+      source_architecture: "team",
+      summary: "Team branch result",
+      artifacts: ["team.md"],
+      decision: { team: true },
+      confidence: 0.8,
+      result_type: "branch",
+      source_result_ids: [],
+      created_at: "2026-06-12T08:00:00.000Z",
+    };
+    await store.writeSnapshot(derived, "seed-team-result");
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/branches/default/select`,
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          branch: expect.objectContaining({ id: "default" }),
+          session: expect.objectContaining({ current_branch_id: "default" }),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/branches/br_1/result/select-final`,
+      body: { result_id: "brres_team" },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          finalResult: expect.objectContaining({
+            source: "selected_branch_result",
+            selected_branch_id: "br_1",
+            selected_result_id: "brres_team",
+          }),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/branch-results/merge`,
+      body: { branch_ids: ["default", "br_1"] },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          finalResult: expect.objectContaining({
+            source: "branch_merge",
+            source_branch_ids: ["default", "br_1"],
+          }),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/final-result/select`,
+      body: { branch_id: "br_1", result_id: "brres_team" },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          finalResult: expect.objectContaining({
+            source: "selected_branch_result",
+            selected_branch_id: "br_1",
+            selected_result_id: "brres_team",
+          }),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/final-result/merge`,
+      body: { branch_ids: ["default", "br_1"] },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          finalResult: expect.objectContaining({
+            source: "branch_merge",
+            source_branch_ids: ["default", "br_1"],
+          }),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/emergency-stop`,
+      body: { reason: "Unsafe to continue" },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          agentStep: expect.objectContaining({ action_kind: "emergency_stop" }),
+          session: expect.objectContaining({ status: "paused", stop_reason: "emergency_stop" }),
+        },
+      },
+    });
+  });
+
+  test("routes remaining non-run cowork API compatibility paths through the injected CoworkService", async () => {
+    const store = createMemoryCoworkStore();
+    const coworkService = new CoworkService({
+      store,
+      now: () => "2026-06-12T08:00:00.000Z",
+      idGenerator: (() => {
+        const counters = new Map<string, number>();
+        return (prefix: string) => {
+          const next = (counters.get(prefix) ?? 0) + 1;
+          counters.set(prefix, next);
+          return `${prefix}_${next}`;
+        };
+      })(),
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      coworkService,
+    });
+
+    const created = await coworkService.createSession({
+      traceId: "seed-compat-routes",
+      goal: "Compatibility routes",
+      title: "Compatibility",
+      workflowMode: "team",
+      agents: [{ id: "lead", name: "Lead" }],
+      tasks: [{ id: "draft", title: "Draft", assigned_agent_id: "lead" }],
+      budgets: { max_tokens: 100 },
+      blueprint: {
+        goal: "Compatibility routes",
+        title: "Compatibility",
+        agents: [{ id: "lead", role: "Lead" }],
+        tasks: [{ id: "draft", title: "Draft", assigned_agent_id: "lead" }],
+        budgets: { max_tokens: 100 },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "GET",
+      path: `/api/cowork/sessions/${encodeURIComponent(created.id)}/blueprint`,
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          blueprint: expect.objectContaining({
+            schema_version: "cowork.blueprint.v1",
+            goal: "Compatibility routes",
+            budgets: expect.objectContaining({ max_tokens: 100 }),
+          }),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "GET",
+      path: `/api/cowork/sessions/${encodeURIComponent(created.id)}/branches`,
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          current_branch_id: "default",
+          branches: [
+            expect.objectContaining({
+              id: "default",
+              current: true,
+              architecture: "team",
+            }),
+          ],
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(created.id)}/budget`,
+      body: { budgets: { max_tokens: 250 } },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          budget: expect.objectContaining({
+            limits: expect.objectContaining({ max_tokens: 250 }),
+          }),
+          session: expect.objectContaining({
+            budget_limits: expect.objectContaining({ max_tokens: 250 }),
+          }),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "PATCH",
+      path: `/api/cowork/sessions/${encodeURIComponent(created.id)}/budget`,
+      body: { budgets: { max_tokens: 275 } },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          budget: expect.objectContaining({
+            limits: expect.objectContaining({ max_tokens: 275 }),
+          }),
+          session: expect.objectContaining({
+            budget_limits: expect.objectContaining({ max_tokens: 275 }),
+          }),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(created.id)}/branches/default/derive`,
+      body: {
+        target_architecture: "adaptive_starter",
+        title: "Adaptive branch",
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          branch: expect.objectContaining({
+            id: "br_1",
+            title: "Adaptive branch",
+            source_branch_id: "default",
+          }),
+          session: expect.objectContaining({ current_branch_id: "br_1" }),
+        },
+      },
+    });
+  });
+
+  test("routes cowork work-unit lifecycle requests through the injected CoworkService", async () => {
+    const store = createMemoryCoworkStore();
+    const coworkService = new CoworkService({
+      store,
+      now: () => "2026-06-12T08:00:00.000Z",
+      idGenerator: (() => {
+        const counters = new Map<string, number>();
+        return (prefix: string) => {
+          const next = (counters.get(prefix) ?? 0) + 1;
+          counters.set(prefix, next);
+          return `${prefix}_${next}`;
+        };
+      })(),
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      coworkService,
+    });
+    const session = await coworkService.createSession({
+      traceId: "seed-work-units",
+      goal: "Work unit lifecycle",
+      title: "Work Units",
+      workflowMode: "swarm",
+      agents: [{ id: "lead", name: "Lead" }],
+      tasks: [
+        { id: "wu_retry_task", title: "Retry task", assigned_agent_id: "lead" },
+        { id: "wu_skip_task", title: "Skip task", assigned_agent_id: "lead" },
+        { id: "wu_cancel_task", title: "Cancel task", assigned_agent_id: "lead" },
+      ],
+    });
+    const seeded = await store.readSnapshot(session.id, "seed-work-units");
+    if (!seeded) {
+      throw new Error("missing work unit session");
+    }
+    seeded.tasks.wu_retry_task.status = "failed";
+    seeded.tasks.wu_retry_task.error = "Needs retry";
+    seeded.tasks.wu_skip_task.status = "pending";
+    seeded.tasks.wu_cancel_task.status = "in_progress";
+    seeded.swarm_plan = {
+      work_units: [
+        {
+          id: "wu_retry",
+          title: "Retry unit",
+          source_task_id: "wu_retry_task",
+          status: "failed",
+          attempts: 1,
+          max_attempts: 3,
+          priority: 2,
+          error: "Needs retry",
+        },
+        {
+          id: "wu_skip",
+          title: "Skip unit",
+          source_task_id: "wu_skip_task",
+          status: "ready",
+          attempts: 0,
+          max_attempts: 2,
+        },
+        {
+          id: "wu_cancel",
+          title: "Cancel unit",
+          source_task_id: "wu_cancel_task",
+          status: "in_progress",
+          attempts: 1,
+          max_attempts: 2,
+        },
+      ],
+    };
+    await store.writeSnapshot(seeded, "seed-work-units");
+
+    await expect(worker.handleRequest(coworkRequest("cowork.retry_work_unit", {
+      session_id: session.id,
+      work_unit_id: "wu_retry",
+      reason: "User retry",
+    }))).resolves.toMatchObject({
+      result: {
+        result: "Work unit 'Retry unit' queued for retry.",
+        session: expect.objectContaining({
+          tasks: expect.objectContaining({
+            wu_retry_task: expect.objectContaining({ status: "pending", error: null }),
+          }),
+          swarm_plan: expect.objectContaining({
+            work_units: expect.arrayContaining([
+              expect.objectContaining({
+                id: "wu_retry",
+                status: "ready",
+                attempts: 2,
+                error: null,
+                priority_boost_reason: "User retry",
+              }),
+            ]),
+          }),
+        }),
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/work-units/wu_skip/skip`,
+      body: { reason: "Out of scope" },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          result: "Work unit 'Skip unit' skipped.",
+          session: expect.objectContaining({
+            tasks: expect.objectContaining({
+              wu_skip_task: expect.objectContaining({ status: "skipped", result: "Out of scope" }),
+            }),
+            swarm_plan: expect.objectContaining({
+              work_units: expect.arrayContaining([
+                expect.objectContaining({
+                  id: "wu_skip",
+                  status: "skipped",
+                  skip_reason: "Out of scope",
+                }),
+              ]),
+            }),
+          }),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/work-units/wu_cancel/cancel`,
+      body: { reason: "User stopped" },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          result: "Work unit 'Cancel unit' cancelled.",
+          session: expect.objectContaining({
+            tasks: expect.objectContaining({
+              wu_cancel_task: expect.objectContaining({ status: "skipped", result: "User stopped" }),
+            }),
+            swarm_plan: expect.objectContaining({
+              work_units: expect.arrayContaining([
+                expect.objectContaining({
+                  id: "wu_cancel",
+                  status: "cancelled",
+                  cancel_reason: "User stopped",
+                }),
+              ]),
+            }),
+          }),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/work-units/missing/retry`,
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: {
+          result: "Error: work unit 'missing' not found",
+        },
+      },
+    });
+  });
+
+  test("routes desktop cowork read-only detail API paths through the injected CoworkService", async () => {
+    const store = createMemoryCoworkStore();
+    const coworkService = new CoworkService({
+      store,
+      now: () => "2026-06-12T08:00:00.000Z",
+      idGenerator: (() => {
+        const counters = new Map<string, number>();
+        return (prefix: string) => {
+          const next = (counters.get(prefix) ?? 0) + 1;
+          counters.set(prefix, next);
+          return `${prefix}_${next}`;
+        };
+      })(),
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      coworkService,
+    });
+    const session = await coworkService.createSession({
+      traceId: "seed-read-only",
+      goal: "Read details",
+      title: "Read Details",
+      agents: [{ id: "lead", name: "Lead" }],
+      tasks: [],
+    });
+    session.agent_steps = [{
+      id: "step_1",
+      session_id: session.id,
+      branch_id: "default",
+      architecture: "team",
+      agent_id: "lead",
+      action_kind: "tool_call",
+      status: "completed",
+      started_at: "2026-06-12T08:00:00.000Z",
+      ended_at: "2026-06-12T08:00:01.000Z",
+      duration_ms: 1000,
+      task_id: null,
+      work_unit_id: null,
+      input_summary: "Read file",
+      output_summary: "Read result",
+      error: null,
+      linked_message_ids: [],
+      linked_artifact_refs: [],
+      linked_task_ids: [],
+      linked_envelope_ids: [],
+      tool_observations: [{ id: "tool_1", name: "read_file", status: "completed" }],
+      browser_observations: [],
+      summary: null,
+      detail_ref: "detail_1",
+      source_span_id: null,
+      source_event_id: null,
+      projected: false,
+    }];
+    session.observation_details.detail_1 = {
+      id: "detail_1",
+      session_id: session.id,
+      subject_type: "tool_observation",
+      subject_id: "tool_1",
+      visibility: "public",
+      content: "Tool detail",
+    };
+    await store.writeSnapshot(session, "seed-detail");
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "GET",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/agents/lead/activity`,
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          activity: expect.objectContaining({
+            recent_steps: expect.arrayContaining([
+              expect.objectContaining({ id: "step_1", agent_id: "lead" }),
+            ]),
+          }),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "GET",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/observations/detail_1`,
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          detail: expect.objectContaining({
+            id: "detail_1",
+            subject_id: "tool_1",
+            visibility: "public",
+          }),
+        },
+      },
+    });
+  });
+
+  test("routes cowork message and task mutation requests through the injected CoworkService", async () => {
+    const coworkService = new CoworkService({
+      store: createMemoryCoworkStore(),
+      now: () => "2026-06-12T08:00:00.000Z",
+      idGenerator: (() => {
+        const counters = new Map<string, number>();
+        return (prefix: string) => {
+          const next = (counters.get(prefix) ?? 0) + 1;
+          counters.set(prefix, next);
+          return `${prefix}_${next}`;
+        };
+      })(),
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      coworkService,
+    });
+    const create = await worker.handleRequest(coworkRequest("cowork.create_session", {
+      goal: "Mutate Cowork session",
+      title: "Mutation",
+      agents: [{ id: "lead", name: "Lead" }, { id: "reviewer", name: "Reviewer" }],
+      tasks: [{ id: "open", title: "Open", description: "Open task" }],
+    }));
+    const sessionId = ((create.result as Record<string, unknown>).session as Record<string, unknown>).id;
+
+    const messageResponse = await worker.handleRequest(coworkRequest("cowork.send_message", {
+      session_id: sessionId,
+      sender_id: "lead",
+      recipient_ids: ["reviewer"],
+      content: "Please review",
+      thread_id: "thread_1",
+    }));
+    const messageResult = messageResponse.result as { message: Record<string, unknown>; session: { agents: Record<string, { inbox: string[] }> } };
+    expect(messageResult.message).toMatchObject({ id: "msg_2", content: "Please review" });
+    expect(messageResult.session.agents.reviewer.inbox).toEqual(["msg_2"]);
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(String(sessionId))}/messages`,
+      body: { content: "   " },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: { error: "content is required" },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.add_task", {
+      session_id: sessionId,
+      title: "Follow up",
+      description: "Check result",
+      assigned_agent_id: "reviewer",
+      dependencies: ["open"],
+    }))).resolves.toMatchObject({
+      result: {
+        task: expect.objectContaining({
+          id: "task_1",
+          title: "Follow up",
+          assigned_agent_id: "reviewer",
+        }),
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(String(sessionId))}/tasks`,
+      body: { title: "   " },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: { error: "title is required" },
+      },
+    });
+
+    const assignResponse = await worker.handleRequest(coworkRequest("cowork.assign_task", {
+      session_id: sessionId,
+      task_id: "open",
+      assigned_agent_id: "reviewer",
+    }));
+    const assignResult = assignResponse.result as { result: string; session: { tasks: Record<string, { assigned_agent_id: string }> } };
+    expect(assignResult.result).toBe("Task 'Open' assigned to Reviewer.");
+    expect(assignResult.session.tasks.open.assigned_agent_id).toBe("reviewer");
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(String(sessionId))}/tasks/open/assign`,
+      body: {},
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: {
+          result: "Error: agent 'item' not found",
+        },
+      },
+    });
+  });
+
+  test("routes recipient-less swarm messages as user steering instructions", async () => {
+    const store = createMemoryCoworkStore();
+    const coworkService = new CoworkService({
+      store,
+      now: () => "2026-06-12T08:00:00.000Z",
+      idGenerator: (() => {
+        const counters = new Map<string, number>();
+        return (prefix: string) => {
+          const next = (counters.get(prefix) ?? 0) + 1;
+          counters.set(prefix, next);
+          return `${prefix}_${next}`;
+        };
+      })(),
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      coworkService,
+    });
+    const created = await coworkService.createSession({
+      traceId: "seed-swarm-steering",
+      goal: "Coordinate swarm steering",
+      title: "Swarm Steering",
+      workflowMode: "swarm",
+      agents: [
+        { id: "lead", name: "Lead" },
+        { id: "researcher", name: "Researcher" },
+      ],
+      tasks: [{ id: "research", title: "Research", assigned_agent_id: "researcher" }],
+    });
+    const seeded = await store.readSnapshot(created.id, "seed-swarm-steering");
+    if (!seeded) {
+      throw new Error("missing swarm session");
+    }
+    seeded.swarm_plan = {
+      id: "swarm_1",
+      status: "blocked",
+      work_units: [],
+    };
+    await store.writeSnapshot(seeded, "seed-swarm-steering");
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(created.id)}/messages`,
+      body: { content: "Prioritize the browser findings" },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          result: "Steering instruction routed to lead.",
+          session: expect.objectContaining({
+            status: "active",
+            messages: expect.objectContaining({
+              msg_2: expect.objectContaining({
+                sender_id: "user",
+                recipient_ids: ["lead"],
+                content: "Prioritize the browser findings",
+              }),
+            }),
+            agents: expect.objectContaining({
+              lead: expect.objectContaining({ inbox: expect.arrayContaining(["msg_2"]) }),
+              researcher: expect.not.objectContaining({ inbox: expect.arrayContaining(["msg_2"]) }),
+            }),
+            swarm_plan: expect.objectContaining({
+              status: "active",
+              user_steering: [
+                expect.objectContaining({
+                  instruction: "Prioritize the browser findings",
+                  actor_id: "user",
+                }),
+              ],
+            }),
+            events: expect.arrayContaining([
+              expect.objectContaining({
+                type: "swarm.user_steered",
+                data: expect.objectContaining({ lead_agent_id: "lead" }),
+              }),
+            ]),
+            trace_spans: expect.arrayContaining([
+              expect.objectContaining({
+                kind: "swarm",
+                name: "User steering",
+                status: "completed",
+              }),
+            ]),
+          }),
+        },
+      },
+    });
+  });
+
+  test("routes cowork mailbox lifecycle requests through the injected CoworkService", async () => {
+    const store = createMemoryCoworkStore();
+    const coworkService = new CoworkService({
+      store,
+      now: () => "2026-06-12T08:00:00.000Z",
+      idGenerator: (() => {
+        const counters = new Map<string, number>();
+        return (prefix: string) => {
+          const next = (counters.get(prefix) ?? 0) + 1;
+          counters.set(prefix, next);
+          return `${prefix}_${next}`;
+        };
+      })(),
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      coworkService,
+    });
+    const create = await worker.handleRequest(coworkRequest("cowork.create_session", {
+      goal: "Mailbox worker path",
+      title: "Mailbox Worker",
+      agents: [
+        { id: "coordinator", name: "Coordinator", role: "Lead" },
+        { id: "researcher", name: "Researcher", role: "Research" },
+        { id: "reviewer", name: "Reviewer", role: "Quality reviewer", responsibilities: ["Verify risk"] },
+      ],
+      tasks: [],
+    }));
+    const session = (create.result as { session: CoworkSession }).session;
+
+    await expect(worker.handleRequest(coworkRequest("cowork.deliver_envelope", {
+      session_id: session.id,
+      envelope: {
+        sender_id: "coordinator",
+        recipient_ids: ["researcher"],
+        content: "Please verify.",
+        requires_reply: true,
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        message: expect.objectContaining({ id: "msg_2", recipient_ids: ["researcher"] }),
+        record: expect.objectContaining({ id: "env_1", status: "delivered" }),
+        session: expect.objectContaining({
+          agents: expect.objectContaining({
+            researcher: expect.objectContaining({ inbox: ["msg_2"] }),
+          }),
+        }),
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.mark_messages_read", {
+      session_id: session.id,
+      agent_id: "researcher",
+    }))).resolves.toMatchObject({
+      result: {
+        messages: [expect.objectContaining({ id: "msg_2", read_by: ["coordinator", "researcher"] })],
+        session: expect.objectContaining({
+          mailbox: expect.objectContaining({
+            env_1: expect.objectContaining({ status: "read", read_by: ["researcher"] }),
+          }),
+        }),
+      },
+    });
+
+    const stale = await coworkService.deliverEnvelope({
+      traceId: "seed-stale",
+      sessionId: session.id,
+      envelope: {
+        sender_id: "researcher",
+        recipient_ids: ["coordinator"],
+        content: "Blocked on verification.",
+        requires_reply: true,
+        blocking_task_id: "task_x",
+        escalate_after_rounds: 1,
+      },
+    });
+    stale.session.rounds = 1;
+    await store.writeSnapshot(stale.session, "seed-round");
+
+    await expect(worker.handleRequest(coworkRequest("cowork.escalate_stale_blockers", {
+      session_id: session.id,
+    }))).resolves.toMatchObject({
+      result: {
+        records: [expect.objectContaining({ id: "env_2", escalated_at: "2026-06-12T08:00:00.000Z" })],
+        session: expect.objectContaining({
+          messages: expect.objectContaining({
+            msg_4: expect.objectContaining({
+              sender_id: "user",
+              recipient_ids: ["reviewer"],
+            }),
+          }),
+        }),
+      },
+    });
+
+    const expiring = await coworkService.deliverEnvelope({
+      traceId: "seed-expiring",
+      sessionId: session.id,
+      envelope: {
+        sender_id: "coordinator",
+        recipient_ids: ["researcher"],
+        content: "Deadline.",
+        requires_reply: true,
+        deadline_round: 1,
+        correlation_id: "deadline-1",
+      },
+    });
+    expiring.session.rounds = 1;
+    await store.writeSnapshot(expiring.session, "seed-deadline");
+
+    await expect(worker.handleRequest(coworkRequest("cowork.expire_mailbox_records", {
+      session_id: session.id,
+    }))).resolves.toMatchObject({
+      result: {
+        records: [expect.objectContaining({ id: "env_3", status: "expired" })],
+        session: expect.objectContaining({
+          mailbox: expect.objectContaining({
+            env_3: expect.objectContaining({ status: "expired", correlation_id: "deadline-1" }),
+          }),
+        }),
+      },
+    });
+  });
+
+  test("routes cowork retry and review task requests through the injected CoworkService", async () => {
+    const store = createMemoryCoworkStore();
+    const coworkService = new CoworkService({
+      store,
+      now: () => "2026-06-12T08:00:00.000Z",
+      idGenerator: (() => {
+        const counters = new Map<string, number>();
+        return (prefix: string) => {
+          const next = (counters.get(prefix) ?? 0) + 1;
+          counters.set(prefix, next);
+          return `${prefix}_${next}`;
+        };
+      })(),
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      coworkService,
+    });
+    const create = await worker.handleRequest(coworkRequest("cowork.create_session", {
+      goal: "Review retry path",
+      title: "Review Retry",
+      agents: [{ id: "lead", name: "Lead" }, { id: "reviewer", name: "Reviewer", role: "Reviewer" }],
+      tasks: [{ id: "answer", title: "Answer", description: "Answer task", assigned_agent_id: "lead" }],
+    }));
+    const session = ((create.result as Record<string, unknown>).session as CoworkSession);
+    session.tasks.answer.status = "failed";
+    session.tasks.answer.error = "bad result";
+    await store.writeSnapshot(session, "seed-failed");
+
+    await expect(worker.handleRequest(coworkRequest("cowork.retry_task", {
+      session_id: session.id,
+      task_id: "answer",
+    }))).resolves.toMatchObject({
+      result: {
+        result: "Task 'Answer' queued for retry.",
+        session: expect.objectContaining({
+          tasks: {
+            answer: expect.objectContaining({ status: "pending", error: null }),
+          },
+        }),
+      },
+    });
+
+    const retried = await store.readSnapshot(session.id, "seed-completed");
+    if (!retried) {
+      throw new Error("missing retried session");
+    }
+    retried.tasks.answer.status = "completed";
+    retried.tasks.answer.result = "answer";
+    await store.writeSnapshot(retried, "seed-completed");
+
+    await expect(worker.handleRequest(coworkRequest("cowork.request_task_review", {
+      session_id: session.id,
+      task_id: "answer",
+      reviewer_agent_id: "reviewer",
+    }))).resolves.toMatchObject({
+      result: {
+        review_task_id: "task_1",
+        reviewTask: expect.objectContaining({
+          title: "Review Answer",
+          assigned_agent_id: "reviewer",
+          dependencies: ["answer"],
+        }),
+      },
+    });
+  });
+
+  test("routes cowork session control and budget requests through the injected CoworkService", async () => {
+    const coworkService = new CoworkService({
+      store: createMemoryCoworkStore(),
+      now: () => "2026-06-12T08:00:00.000Z",
+      idGenerator: (() => {
+        const counters = new Map<string, number>();
+        return (prefix: string) => {
+          const next = (counters.get(prefix) ?? 0) + 1;
+          counters.set(prefix, next);
+          return `${prefix}_${next}`;
+        };
+      })(),
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      coworkService,
+    });
+    const create = await worker.handleRequest(coworkRequest("cowork.create_session", {
+      goal: "Control session",
+      title: "Control",
+      agents: [{ id: "lead", name: "Lead" }],
+      tasks: [],
+    }));
+    const sessionId = ((create.result as Record<string, unknown>).session as CoworkSession).id;
+
+    await expect(worker.handleRequest(coworkRequest("cowork.pause_session", {
+      session_id: sessionId,
+    }))).resolves.toMatchObject({
+      result: {
+        result: `Paused cowork session ${sessionId}.`,
+        session: expect.objectContaining({
+          status: "paused",
+        }),
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.resume_session", {
+      session_id: sessionId,
+    }))).resolves.toMatchObject({
+      result: {
+        result: `Resumed cowork session ${sessionId}.`,
+        session: expect.objectContaining({
+          status: "active",
+        }),
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.update_budget", {
+      session_id: sessionId,
+      budgets: { max_tokens: 500 },
+    }))).resolves.toMatchObject({
+      result: {
+        budget: expect.objectContaining({
+          limits: expect.objectContaining({ max_tokens: 500 }),
+          remaining: expect.objectContaining({ max_tokens: 500 }),
+        }),
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.emergency_stop_session", {
+      session_id: sessionId,
+      reason: "Unsafe to continue",
+    }))).resolves.toMatchObject({
+      result: {
+        agentStep: expect.objectContaining({
+          action_kind: "emergency_stop",
+          status: "stopped",
+        }),
+        session: expect.objectContaining({
+          status: "paused",
+          stop_reason: "emergency_stop",
+        }),
+      },
+    });
+  });
+
+  test("routes cowork branch and final-result requests through the injected CoworkService", async () => {
+    const store = createMemoryCoworkStore();
+    const coworkService = new CoworkService({
+      store,
+      now: () => "2026-06-12T08:00:00.000Z",
+      idGenerator: (() => {
+        const counters = new Map<string, number>();
+        return (prefix: string) => {
+          const next = (counters.get(prefix) ?? 0) + 1;
+          counters.set(prefix, next);
+          return `${prefix}_${next}`;
+        };
+      })(),
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      coworkService,
+    });
+    const create = await worker.handleRequest(coworkRequest("cowork.create_session", {
+      goal: "Branch worker path",
+      title: "Branches",
+      agents: [{ id: "lead", name: "Lead" }],
+      tasks: [{ id: "draft", title: "Draft", description: "Draft answer", assigned_agent_id: "lead" }],
+    }));
+    const session = (create.result as { session: CoworkSession }).session;
+    session.status = "completed";
+    session.final_draft = "Default branch result";
+    session.artifacts = ["default.md"];
+    session.tasks.draft.status = "completed";
+    session.tasks.draft.confidence = 0.6;
+    await store.writeSnapshot(session, "seed-completed-default");
+
+    await expect(worker.handleRequest(coworkRequest("cowork.derive_branch", {
+      session_id: session.id,
+      source_branch_id: "default",
+      target_architecture: "team",
+      reason: "Compare team workflow",
+      title: "Team branch",
+      inherited_context_summary: "Carry context forward",
+    }))).resolves.toMatchObject({
+      result: {
+        branch: expect.objectContaining({
+          id: "br_1",
+          architecture: "team",
+          source_branch_id: "default",
+        }),
+        session: expect.objectContaining({
+          current_branch_id: "br_1",
+          branches: expect.objectContaining({
+            default: expect.objectContaining({
+              branch_result: expect.objectContaining({ id: "brres_1" }),
+            }),
+          }),
+        }),
+      },
+    });
+
+    const derived = await store.readSnapshot(session.id, "seed-team-result");
+    if (!derived) {
+      throw new Error("missing derived session");
+    }
+    derived.branches.br_1.status = "completed";
+    derived.branches.br_1.branch_result = {
+      id: "brres_team",
+      source_branch_id: "br_1",
+      source_architecture: "team",
+      summary: "Team branch result",
+      artifacts: ["team.md"],
+      decision: { team: true },
+      confidence: 0.8,
+      result_type: "branch",
+      source_result_ids: [],
+      created_at: "2026-06-12T08:00:00.000Z",
+    };
+    await store.writeSnapshot(derived, "seed-team-result");
+
+    await expect(worker.handleRequest(coworkRequest("cowork.select_branch", {
+      session_id: session.id,
+      branch_id: "default",
+    }))).resolves.toMatchObject({
+      result: {
+        branch: expect.objectContaining({ id: "default" }),
+        session: expect.objectContaining({ current_branch_id: "default" }),
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.select_branch_result", {
+      session_id: session.id,
+      branch_id: "br_1",
+      result_id: "brres_team",
+    }))).resolves.toMatchObject({
+      result: {
+        finalResult: expect.objectContaining({
+          id: "final_1",
+          source: "selected_branch_result",
+          selected_branch_id: "br_1",
+          selected_result_id: "brres_team",
+        }),
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.merge_branch_results", {
+      session_id: session.id,
+      branch_ids: ["default", "br_1"],
+    }))).resolves.toMatchObject({
+      result: {
+        finalResult: expect.objectContaining({
+          id: "final_2",
+          source: "branch_merge",
+          source_branch_ids: ["default", "br_1"],
+          source_result_ids: ["brres_1", "brres_team"],
+          artifacts: ["default.md", "team.md"],
+        }),
+      },
+    });
+  });
+
+  test("routes cowork read-only observability requests through the injected CoworkService", async () => {
+    const store = createMemoryCoworkStore();
+    const coworkService = new CoworkService({
+      store,
+      now: () => "2026-06-12T08:00:00.000Z",
+      idGenerator: (() => {
+        const counters = new Map<string, number>();
+        return (prefix: string) => {
+          const next = (counters.get(prefix) ?? 0) + 1;
+          counters.set(prefix, next);
+          return `${prefix}_${next}`;
+        };
+      })(),
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      coworkService,
+    });
+    const create = await worker.handleRequest(coworkRequest("cowork.create_session", {
+      goal: "Inspect worker facade",
+      title: "Worker Facade",
+      workflow_mode: "team",
+      agents: [{ id: "lead", name: "Lead" }],
+      tasks: [{ id: "draft", title: "Draft", description: "Draft answer", assigned_agent_id: "lead" }],
+      budgets: { max_tokens: 300 },
+    }));
+    const session = (create.result as { session: CoworkSession }).session;
+    session.agent_steps = [{
+      id: "step_1",
+      session_id: session.id,
+      agent_id: "lead",
+      task_id: "draft",
+      status: "completed",
+      linked_message_ids: ["msg_1"],
+      linked_task_ids: ["draft"],
+      linked_artifact_refs: ["answer.md"],
+      tool_observations: [{ id: "tool_1", name: "read_file", status: "completed" }],
+      browser_observations: [],
+    }];
+    session.observation_details.detail_1 = {
+      id: "detail_1",
+      subject_id: "tool_1",
+      subject_type: "tool_observation",
+      state: "available",
+      summary: "Read result",
+      content: "full content",
+      content_type: "text/plain",
+      redacted: false,
+      sensitivity: "",
+      permitted_agent_ids: [],
+      artifact_refs: ["answer.md"],
+    };
+    session.artifacts = ["answer.md"];
+    await store.writeSnapshot(session, "seed-worker-observability");
+
+    await expect(worker.handleRequest(coworkRequest("cowork.export_blueprint", {
+      session_id: session.id,
+    }))).resolves.toMatchObject({
+      result: {
+        blueprint: expect.objectContaining({
+          schema_version: "cowork.blueprint.v1",
+          goal: "Inspect worker facade",
+          title: "Worker Facade",
+          budgets: expect.objectContaining({ max_tokens: 300 }),
+        }),
+      },
+    });
+    await expect(worker.handleRequest(coworkRequest("cowork.get_graph", {
+      session_id: session.id,
+    }))).resolves.toMatchObject({
+      result: {
+        graph: expect.objectContaining({
+          schema_version: "cowork.graph.v2",
+        }),
+      },
+    });
+    await expect(worker.handleRequest(coworkRequest("cowork.get_trace", {
+      session_id: session.id,
+    }))).resolves.toMatchObject({
+      result: {
+        trace: expect.any(Array),
+        trace_spans: expect.any(Array),
+        agent_steps: [expect.objectContaining({ id: "step_1" })],
+      },
+    });
+    await expect(worker.handleRequest(coworkRequest("cowork.get_agent_activity", {
+      session_id: session.id,
+      agent_id: "lead",
+      limit: 5,
+    }))).resolves.toMatchObject({
+      result: {
+        activity: expect.objectContaining({
+          available: true,
+          session_id: session.id,
+          agent: expect.objectContaining({ id: "lead" }),
+        }),
+      },
+    });
+    await expect(worker.handleRequest(coworkRequest("cowork.get_observation_detail", {
+      session_id: session.id,
+      detail_id: "detail_1",
+      agent_id: "lead",
+    }))).resolves.toMatchObject({
+      result: {
+        detail: expect.objectContaining({
+          id: "detail_1",
+          state: "available",
+          content: "full content",
+        }),
+      },
+    });
+    await expect(worker.handleRequest(coworkRequest("cowork.get_summary", {
+      session_id: session.id,
+    }))).resolves.toMatchObject({
+      result: {
+        summary: expect.objectContaining({
+          session_id: session.id,
+          counts: expect.objectContaining({ agents: 1, tasks: 1, artifacts: 1 }),
+        }),
+      },
+    });
+    await expect(worker.handleRequest(coworkRequest("cowork.get_dag", {
+      session_id: session.id,
+    }))).resolves.toMatchObject({
+      result: {
+        task_dag: expect.objectContaining({
+          nodes: expect.arrayContaining([
+            expect.objectContaining({ id: "task:draft" }),
+          ]),
+        }),
+      },
+    });
+    await expect(worker.handleRequest(coworkRequest("cowork.get_artifacts", {
+      session_id: session.id,
+    }))).resolves.toMatchObject({
+      result: {
+        artifacts: [expect.objectContaining({ path_or_url: "answer.md" })],
+      },
+    });
+    await expect(worker.handleRequest(coworkRequest("cowork.get_organization", {
+      session_id: session.id,
+    }))).resolves.toMatchObject({
+      result: {
+        organization: expect.objectContaining({
+          schema_version: "cowork.organization_projection.v1",
+          architecture: "team",
+        }),
+      },
+    });
+    await expect(worker.handleRequest(coworkRequest("cowork.get_queues", {
+      session_id: session.id,
+    }))).resolves.toMatchObject({
+      result: {
+        queues: {},
+      },
+    });
+  });
+
   test("routes agent.run through AgentRunner and emits completion event", async () => {
     const events: WorkerEvent[] = [];
     const worker = new AgentWorker({

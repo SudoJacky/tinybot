@@ -868,7 +868,7 @@ describe("AgentRunner", () => {
     expect(events.filter((event) => event.type === "tool_start" || event.type === "tool_result")).toEqual([
       {
         type: "tool_start",
-        payload: { runId: "run-1", toolCallId: "call-1", toolName: "echo" },
+        payload: { runId: "run-1", toolCallId: "call-1", toolName: "echo", args: { text: "from tool" } },
       },
       {
         type: "tool_result",
@@ -1093,6 +1093,48 @@ describe("AgentRunner", () => {
     await runner.run(spec({ stream: true }));
 
     expect(events.filter((event) => (
+      event.type === "content_delta"
+      || event.type === "reasoning_delta"
+      || event.type === "tool_call_delta"
+    ))).toEqual([
+      {
+        type: "content_delta",
+        payload: { runId: "run-1", delta: "stream content" },
+      },
+      {
+        type: "reasoning_delta",
+        payload: { runId: "run-1", delta: "stream reasoning" },
+      },
+      {
+        type: "tool_call_delta",
+        payload: {
+          runId: "run-1",
+          index: 0,
+          deltaText: "{\"streamed\":true}",
+          toolCallId: "stream-call",
+          toolName: "stream_tool",
+        },
+      },
+    ]);
+  });
+
+  test("also forwards provider streaming deltas to a per-run event hook", async () => {
+    const provider = new QueueProvider([{ content: "done", toolCalls: [], stopReason: "stop" }]);
+    const runnerEvents: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    const runEvents: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    const runner = new AgentRunner({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: (event) => runnerEvents.push(event),
+    });
+
+    await runner.run(spec({
+      stream: true,
+      emitEvent: (event) => runEvents.push(event),
+    }));
+
+    expect(runnerEvents.some((event) => event.type === "content_delta")).toBe(true);
+    expect(runEvents.filter((event) => (
       event.type === "content_delta"
       || event.type === "reasoning_delta"
       || event.type === "tool_call_delta"

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import type { AgentMessage } from "../agent/agentRunSpec";
-import type { ModelProvider, ModelResponse } from "../model/provider";
+import type { ModelProvider, ModelRequestOptions, ModelResponse } from "../model/provider";
 import { ToolRegistry } from "../tools/toolRegistry";
 import { createAgentWorkerServer } from "./createAgentWorkerServer";
 import type { ModelProviderConfig } from "./providerFactory";
@@ -15,11 +15,13 @@ type ParsedLine = {
 
 class QueueProvider implements ModelProvider {
   readonly requests: AgentMessage[][] = [];
+  readonly options: ModelRequestOptions[] = [];
 
   constructor(private readonly responses: ModelResponse[]) {}
 
-  async complete(messages: AgentMessage[]): Promise<ModelResponse> {
+  async complete(messages: AgentMessage[], options: ModelRequestOptions = {}): Promise<ModelResponse> {
     this.requests.push(messages.map((message) => ({ ...message })));
+    this.options.push({ ...options });
     const response = this.responses.shift();
     if (!response) {
       throw new Error("no queued model response");
@@ -855,6 +857,382 @@ describe("createAgentWorkerServer", () => {
         initial_ready_work: {
           ready_task_ids: ["lead_start"],
         },
+      },
+    });
+  });
+
+  test("wires cowork create_session through native cowork store RPCs", async () => {
+    const lines: string[] = [];
+    const server = createAgentWorkerServer({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const run = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "cowork-create-1",
+        trace_id: "trace-cowork-create",
+        method: "cowork.create_session",
+        params: {
+          goal: "Wire native Cowork store",
+          title: "Native Cowork",
+          workflow_mode: "team",
+          agents: [{ id: "lead", role: "Lead" }],
+          tasks: [{ id: "plan", title: "Plan", assigned_agent_id: "lead" }],
+        },
+      }),
+    );
+
+    const workspaceRequest = await respondToWorkerRequest(server, lines, "cowork_store.ensure_session_workspace", {
+      workspace_dir: "D:/tmp/cowork/cw-test",
+    });
+    expect(workspaceRequest).toMatchObject({
+      trace_id: "trace-cowork-create",
+      params: { session_id: expect.any(String) },
+    });
+    const writeRequest = await respondToWorkerRequest(
+      server,
+      lines,
+      "cowork_store.write_snapshot",
+      (request) => ({ session: request.params?.session }),
+    );
+    expect(writeRequest).toMatchObject({
+      trace_id: "trace-cowork-create",
+      params: {
+        session: expect.objectContaining({
+          title: "Native Cowork",
+          workspace_dir: "D:/tmp/cowork/cw-test",
+        }),
+      },
+    });
+    await run;
+
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      protocol_version: "1",
+      id: "cowork-create-1",
+      trace_id: "trace-cowork-create",
+      result: {
+        session: expect.objectContaining({
+          title: "Native Cowork",
+          workspace_dir: "D:/tmp/cowork/cw-test",
+        }),
+      },
+    });
+  });
+
+  test("registers cowork tool that creates sessions through native cowork store RPCs", async () => {
+    const lines: string[] = [];
+    const provider = new QueueProvider([
+      {
+        content: "",
+        toolCalls: [
+          {
+            id: "call-cowork",
+            name: "cowork",
+            argumentsJson: JSON.stringify({
+              action: "start",
+              goal: "Coordinate the TS migration",
+              title: "TS Migration Cowork",
+              workflow_mode: "team",
+              agents: [{ id: "lead", name: "Lead", role: "Coordinator" }],
+              tasks: [{ id: "plan", title: "Plan migration", assigned_agent_id: "lead" }],
+            }),
+          },
+        ],
+        stopReason: "tool_calls",
+      },
+      { content: "cowork started", toolCalls: [], stopReason: "stop" },
+    ]);
+    const server = createAgentWorkerServer({
+      provider,
+      tools: new ToolRegistry(),
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const run = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "req-1",
+        trace_id: "trace-1",
+        method: "agent.run",
+        params: {
+          spec: {
+            runId: "run-1",
+            messages: [{ role: "user", content: "start a cowork session" }],
+            model: "test-model",
+            maxIterations: 2,
+            stream: false,
+          },
+        },
+      }),
+    );
+
+    const workspaceRequest = await respondToWorkerRequest(server, lines, "cowork_store.ensure_session_workspace", {
+      workspace_dir: "D:/tmp/cowork/cw-tool",
+    });
+    expect(workspaceRequest).toMatchObject({
+      trace_id: "trace-1",
+      params: { session_id: expect.any(String) },
+    });
+    const writeRequest = await respondToWorkerRequest(
+      server,
+      lines,
+      "cowork_store.write_snapshot",
+      (request) => ({ session: request.params?.session }),
+    );
+    expect(writeRequest).toMatchObject({
+      trace_id: "trace-1",
+      params: {
+        session: expect.objectContaining({
+          title: "TS Migration Cowork",
+          workspace_dir: "D:/tmp/cowork/cw-tool",
+        }),
+      },
+    });
+    await run;
+
+    expect(provider.requests[1]).toContainEqual(expect.objectContaining({
+      role: "tool",
+      content: expect.stringContaining("Cowork session started:"),
+      toolCallId: "call-cowork",
+      name: "cowork",
+    }));
+  });
+
+  test("registers cowork tool run path through the native cowork scheduler bridge", async () => {
+    const lines: string[] = [];
+    const provider = new QueueProvider([
+      {
+        content: "",
+        toolCalls: [
+          {
+            id: "call-cowork",
+            name: "cowork",
+            argumentsJson: JSON.stringify({
+              action: "start",
+              goal: "Coordinate the TS scheduler migration",
+              title: "Scheduler Cowork",
+              workflow_mode: "team",
+              agents: [{ id: "lead", name: "Lead", role: "Coordinator" }],
+              tasks: [{ id: "plan", title: "Plan scheduler", assigned_agent_id: "lead" }],
+              auto_run: true,
+              max_rounds: 1,
+            }),
+          },
+        ],
+        stopReason: "tool_calls",
+      },
+      {
+        content: JSON.stringify({
+          status: "done",
+          action: "complete",
+          public_note: "Native scheduler agent round complete.",
+          private_note: "Ran through CoworkAgentRuntime.",
+          completed_task_ids: ["plan"],
+        }),
+        toolCalls: [],
+        stopReason: "stop",
+      },
+      { content: "scheduler recorded", toolCalls: [], stopReason: "stop" },
+    ]);
+    const server = createAgentWorkerServer({
+      provider,
+      tools: new ToolRegistry(),
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const run = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "req-1",
+        trace_id: "trace-1",
+        method: "agent.run",
+        params: {
+          spec: {
+            runId: "run-1",
+            messages: [{ role: "user", content: "start and run a cowork session" }],
+            model: "test-model",
+            maxIterations: 2,
+            stream: false,
+          },
+        },
+      }),
+    );
+
+    const handledStoreRequests = new Set<unknown>();
+    const respondToNextStoreRequest = async (
+      method: string,
+      result: unknown | ((request: ParsedLine) => unknown),
+    ): Promise<ParsedLine> => {
+      await waitFor(() => parsedLines(lines).some((line) => line.method === method && !handledStoreRequests.has(line.id)));
+      const request = parsedLines(lines).find((line) => line.method === method && !handledStoreRequests.has(line.id));
+      if (!request || typeof request.id !== "string" || typeof request.trace_id !== "string") {
+        throw new Error(`missing ${method} request`);
+      }
+      handledStoreRequests.add(request.id);
+      await server.handleLine(
+        JSON.stringify({
+          protocol_version: "1",
+          id: request.id,
+          trace_id: request.trace_id,
+          result: typeof result === "function" ? result(request) : result,
+        }),
+      );
+      return request;
+    };
+
+    await respondToNextStoreRequest("cowork_store.ensure_session_workspace", {
+      workspace_dir: "D:/tmp/cowork/cw-scheduler",
+    });
+    const createWrite = await respondToNextStoreRequest(
+      "cowork_store.write_snapshot",
+      (request) => ({ session: request.params?.session }),
+    );
+    const createdSession = createWrite.params?.session as Record<string, unknown>;
+    await respondToNextStoreRequest("cowork_store.read_snapshot", {
+      session: createdSession,
+    });
+    const schedulerInitialWrite = await respondToNextStoreRequest(
+      "cowork_store.write_snapshot",
+      (request) => ({ session: request.params?.session }),
+    );
+    await respondToNextStoreRequest("cowork_store.read_snapshot", {
+      session: schedulerInitialWrite.params?.session,
+    });
+    const agentStartWrite = await respondToNextStoreRequest(
+      "cowork_store.write_snapshot",
+      (request) => ({ session: request.params?.session }),
+    );
+    await respondToNextStoreRequest("cowork_store.read_snapshot", {
+      session: agentStartWrite.params?.session,
+    });
+    const agentRunStartWrite = await respondToNextStoreRequest(
+      "cowork_store.write_snapshot",
+      (request) => ({ session: request.params?.session }),
+    );
+    await respondToNextStoreRequest("cowork_store.read_snapshot", {
+      session: agentRunStartWrite.params?.session,
+    });
+    const agentFinishWrite = await respondToNextStoreRequest(
+      "cowork_store.write_snapshot",
+      (request) => ({ session: request.params?.session }),
+    );
+    await respondToNextStoreRequest("cowork_store.read_snapshot", {
+      session: agentFinishWrite.params?.session,
+    });
+    const schedulerWrite = await respondToNextStoreRequest(
+      "cowork_store.write_snapshot",
+      (request) => ({ session: request.params?.session }),
+    );
+    await run;
+
+    expect(schedulerWrite.params?.session).toMatchObject({
+      title: "Scheduler Cowork",
+      stop_reason: "max_rounds",
+      tasks: expect.objectContaining({
+        plan: expect.objectContaining({ status: "completed" }),
+      }),
+      run_metrics: [expect.objectContaining({ status: "stopped", stop_reason: "max_rounds", agent_calls: 1 })],
+      scheduler_decisions: [expect.objectContaining({ selected_agent_ids: ["lead"] })],
+    });
+    expect(provider.requests[1][1]).toMatchObject({
+      role: "user",
+      content: expect.stringContaining("Plan scheduler"),
+    });
+    expect(provider.requests[2]).toContainEqual(expect.objectContaining({
+      role: "tool",
+      content: expect.stringContaining("Round 1: running lead"),
+      toolCallId: "call-cowork",
+      name: "cowork",
+    }));
+  });
+
+  test("registers cowork tool with provider-backed team planning for goal-only starts", async () => {
+    const lines: string[] = [];
+    const provider = new QueueProvider([
+      {
+        content: "",
+        toolCalls: [
+          {
+            id: "call-cowork",
+            name: "cowork",
+            argumentsJson: JSON.stringify({
+              action: "start",
+              goal: "Review the TS migration plan",
+              workflow_mode: "team",
+            }),
+          },
+        ],
+        stopReason: "tool_calls",
+      },
+      {
+        content: "",
+        toolCalls: [
+          {
+            id: "team-1",
+            name: "submit_cowork_team",
+            argumentsJson: JSON.stringify({
+              title: "Planned Cowork",
+              agents: [{ id: "lead", name: "Lead", role: "Coordinator", goal: "Plan work", responsibilities: ["Coordinate"] }],
+              tasks: [{ id: "lead_start", title: "Plan", description: "Plan work", assigned_agent_id: "lead" }],
+            }),
+          },
+        ],
+        stopReason: "tool_calls",
+      },
+      { content: "cowork planned", toolCalls: [], stopReason: "stop" },
+    ]);
+    const server = createAgentWorkerServer({
+      provider,
+      tools: new ToolRegistry(),
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const run = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "req-1",
+        trace_id: "trace-1",
+        method: "agent.run",
+        params: {
+          spec: {
+            runId: "run-1",
+            messages: [{ role: "user", content: "start a planned cowork session" }],
+            model: "test-model",
+            maxIterations: 2,
+            stream: false,
+          },
+        },
+      }),
+    );
+
+    await respondToWorkerRequest(server, lines, "cowork_store.ensure_session_workspace", {
+      workspace_dir: "D:/tmp/cowork/cw-planned",
+    });
+    const writeRequest = await respondToWorkerRequest(
+      server,
+      lines,
+      "cowork_store.write_snapshot",
+      (request) => ({ session: request.params?.session }),
+    );
+    await run;
+
+    expect(provider.options[1]).toMatchObject({
+      toolChoice: { type: "function", function: { name: "submit_cowork_team" } },
+    });
+    expect(writeRequest).toMatchObject({
+      params: {
+        session: expect.objectContaining({
+          title: "Planned Cowork",
+          agents: expect.objectContaining({ lead: expect.objectContaining({ role: "Coordinator" }) }),
+          tasks: expect.objectContaining({ lead_start: expect.objectContaining({ assigned_agent_id: "lead" }) }),
+        }),
       },
     });
   });
@@ -2461,6 +2839,28 @@ async function waitFor(assertion: () => boolean): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
   throw new Error("condition was not met");
+}
+
+async function respondToWorkerRequest(
+  server: ReturnType<typeof createAgentWorkerServer>,
+  lines: string[],
+  method: string,
+  result: unknown | ((request: ParsedLine) => unknown),
+): Promise<ParsedLine> {
+  await waitFor(() => parsedLines(lines).some((line) => line.method === method));
+  const request = parsedLines(lines).find((line) => line.method === method);
+  if (!request || typeof request.id !== "string" || typeof request.trace_id !== "string") {
+    throw new Error(`missing ${method} request`);
+  }
+  await server.handleLine(
+    JSON.stringify({
+      protocol_version: "1",
+      id: request.id,
+      trace_id: request.trace_id,
+      result: typeof result === "function" ? result(request) : result,
+    }),
+  );
+  return request;
 }
 
 async function respondToConfigGet(server: ReturnType<typeof createAgentWorkerServer>, lines: string[], path: string, value: unknown): Promise<void> {

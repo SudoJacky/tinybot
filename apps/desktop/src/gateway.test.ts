@@ -3,6 +3,7 @@ import { DEFAULT_GATEWAY_CONFIG, resolveGatewayConfig } from "./gatewayConfig";
 import {
   checkGatewayHealth,
   createGatewayApiClient,
+  resolveTsCoworkRuntimeRollout,
 } from "./gatewayHttpClient";
 import {
   createGatewaySocketMessage,
@@ -27,6 +28,49 @@ describe("gateway config", () => {
     expect(config.httpBaseUrl).toBe("http://localhost:18790");
     expect(config.wsUrl).toBe("ws://localhost:18790/ws");
     expect(config.requestTimeoutMs).toBe(250);
+  });
+
+  test("resolves TS Cowork runtime rollout from desktop config with TS-first defaults", () => {
+    expect(resolveTsCoworkRuntimeRollout({})).toEqual({
+      enabled: true,
+      readOnlySnapshot: true,
+      mutations: true,
+      scheduler: true,
+      swarm: true,
+      fallbackToPython: true,
+    });
+
+    expect(resolveTsCoworkRuntimeRollout({
+      desktop: {
+        ts_cowork_runtime: {
+          enabled: true,
+          read_only_snapshot: true,
+          mutations: true,
+          scheduler: true,
+          fallback_to_python: false,
+        },
+      },
+    })).toEqual({
+      enabled: true,
+      readOnlySnapshot: true,
+      mutations: true,
+      scheduler: true,
+      swarm: true,
+      fallbackToPython: false,
+    });
+
+    expect(resolveTsCoworkRuntimeRollout({
+      desktop: {
+        tsCoworkRuntime: {
+          enabled: false,
+          scheduler: false,
+        },
+      },
+    })).toMatchObject({
+      enabled: false,
+      scheduler: false,
+      fallbackToPython: true,
+    });
   });
 });
 
@@ -379,6 +423,210 @@ describe("gateway HTTP client", () => {
       "http://127.0.0.1:18790/api/skills/planner%2Fphase",
       "http://127.0.0.1:18790/api/skills/planner%2Fphase/validate",
     ]);
+  });
+
+  test("prefers native cowork route operations for migrated cowork paths", async () => {
+    const fetchFn = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
+      if (String(url).endsWith("/webui/bootstrap")) {
+        return new Response(JSON.stringify({ token: "token-1" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ gateway: true }), { status: 200 });
+    });
+    const nativeCowork = {
+      route: vi.fn(async (request: { method: string; path: string; body?: unknown }) => ({
+        native: true,
+        request,
+      })),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeCowork,
+    });
+
+    await expect(client.cowork.sessions({ includeCompleted: true })).resolves.toMatchObject({ native: true });
+    await expect(client.cowork.blueprint("cw_1")).resolves.toMatchObject({ native: true });
+    await expect(client.cowork.trace("cw_1")).resolves.toMatchObject({ native: true });
+    await expect(client.cowork.dag("cw_1")).resolves.toMatchObject({ native: true });
+    await expect(client.cowork.artifacts("cw_1")).resolves.toMatchObject({ native: true });
+    await expect(client.cowork.organization("cw_1")).resolves.toMatchObject({ native: true });
+    await expect(client.cowork.queues("cw_1")).resolves.toMatchObject({ native: true });
+    await expect(client.cowork.branches("cw_1")).resolves.toMatchObject({ native: true });
+    await expect(client.cowork.create({ goal: "Native Cowork" })).resolves.toMatchObject({ native: true });
+    await expect(client.cowork.run("cw_1", { max_rounds: 4 })).resolves.toMatchObject({ native: true });
+    await expect(client.cowork.updateBudget("cw_1", { max_rounds: 4 })).resolves.toMatchObject({ native: true });
+    await expect(client.cowork.deriveBranch("cw_1", "branch 1", { target_architecture: "swarm" })).resolves.toMatchObject({ native: true });
+    await expect(client.cowork.taskAction("cw_1", "task/1", "assign", { assigned_agent_id: "lead" })).resolves.toMatchObject({ native: true });
+    await expect(client.cowork.workUnitAction("cw_1", "wu 1", "retry", { reason: "Retry" })).resolves.toMatchObject({ native: true });
+    await expect(client.cowork.selectBranchResult("cw_1", "branch 1", { result_id: "result_1" })).resolves.toMatchObject({ native: true });
+    await expect(client.cowork.selectFinalResult("cw_1", { branch_id: "branch 1", result_id: "result_1" })).resolves.toMatchObject({ native: true });
+    await expect(client.cowork.mergeFinalResult("cw_1", { branch_ids: ["branch 1", "branch 2"] })).resolves.toMatchObject({ native: true });
+
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "GET",
+      path: "/api/cowork/sessions?include_completed=true",
+    });
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "GET",
+      path: "/api/cowork/sessions/cw_1/blueprint",
+    });
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "GET",
+      path: "/api/cowork/sessions/cw_1/trace",
+    });
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "GET",
+      path: "/api/cowork/sessions/cw_1/dag",
+    });
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "GET",
+      path: "/api/cowork/sessions/cw_1/artifacts",
+    });
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "GET",
+      path: "/api/cowork/sessions/cw_1/organization",
+    });
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "GET",
+      path: "/api/cowork/sessions/cw_1/queues",
+    });
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "GET",
+      path: "/api/cowork/sessions/cw_1/branches",
+    });
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "POST",
+      path: "/api/cowork/sessions",
+      body: { goal: "Native Cowork" },
+    });
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "POST",
+      path: "/api/cowork/sessions/cw_1/run",
+      body: { max_rounds: 4 },
+    });
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "POST",
+      path: "/api/cowork/sessions/cw_1/budget",
+      body: { max_rounds: 4 },
+    });
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "POST",
+      path: "/api/cowork/sessions/cw_1/branches/branch%201/derive",
+      body: { target_architecture: "swarm" },
+    });
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "POST",
+      path: "/api/cowork/sessions/cw_1/tasks/task%2F1/assign",
+      body: { assigned_agent_id: "lead" },
+    });
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "POST",
+      path: "/api/cowork/sessions/cw_1/work-units/wu%201/retry",
+      body: { reason: "Retry" },
+    });
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "POST",
+      path: "/api/cowork/sessions/cw_1/branches/branch%201/result/select-final",
+      body: { result_id: "result_1" },
+    });
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "POST",
+      path: "/api/cowork/sessions/cw_1/final-result/select",
+      body: { branch_id: "branch 1", result_id: "result_1" },
+    });
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "POST",
+      path: "/api/cowork/sessions/cw_1/final-result/merge",
+      body: { branch_ids: ["branch 1", "branch 2"] },
+    });
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  test("falls back to the Python gateway when native cowork run fails", async () => {
+    const fetchFn = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
+      if (String(url).endsWith("/webui/bootstrap")) {
+        return new Response(JSON.stringify({ token: "token-1" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ gateway: true }), { status: 200 });
+    });
+    const nativeCowork = {
+      route: vi.fn(async () => {
+        throw new Error("native unavailable");
+      }),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeCowork,
+    });
+
+    await expect(client.cowork.run("cw_1", { max_rounds: 4 })).resolves.toEqual({ gateway: true });
+
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "POST",
+      path: "/api/cowork/sessions/cw_1/run",
+      body: { max_rounds: 4 },
+    });
+    expect(fetchFn.mock.calls.map((call) => String((call as unknown[])[0]))).toEqual([
+      "http://127.0.0.1:18790/webui/bootstrap",
+      "http://127.0.0.1:18790/api/cowork/sessions/cw_1/run",
+    ]);
+  });
+
+  test("uses Python gateway for cowork run when the scheduler rollout gate is disabled", async () => {
+    const fetchFn = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
+      if (String(url).endsWith("/webui/bootstrap")) {
+        return new Response(JSON.stringify({ token: "token-1" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ gateway: true }), { status: 200 });
+    });
+    const nativeCowork = {
+      route: vi.fn(async () => ({ native: true })),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeCowork,
+      tsCoworkRuntime: {
+        scheduler: false,
+        fallbackToPython: true,
+      },
+    });
+
+    await expect(client.cowork.run("cw_1", { max_rounds: 4 })).resolves.toEqual({ gateway: true });
+
+    expect(nativeCowork.route).not.toHaveBeenCalled();
+    expect(fetchFn.mock.calls.map((call) => String((call as unknown[])[0]))).toEqual([
+      "http://127.0.0.1:18790/webui/bootstrap",
+      "http://127.0.0.1:18790/api/cowork/sessions/cw_1/run",
+    ]);
+  });
+
+  test("does not fall back to Python when cowork native fallback is disabled", async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
+    const nativeCowork = {
+      route: vi.fn(async () => {
+        throw new Error("native unavailable");
+      }),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeCowork,
+      tsCoworkRuntime: {
+        scheduler: true,
+        fallbackToPython: false,
+      },
+    });
+
+    await expect(client.cowork.run("cw_1", { max_rounds: 4 })).rejects.toThrow("native unavailable");
+
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "POST",
+      path: "/api/cowork/sessions/cw_1/run",
+      body: { max_rounds: 4 },
+    });
+    expect(fetchFn).not.toHaveBeenCalled();
   });
 
   test("refreshes the gateway token before authenticated requests when the session is near expiry", async () => {
