@@ -562,6 +562,51 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("accepts Python route parallel_width alias for cowork run max agents", async () => {
+    const store = createMemoryCoworkStore();
+    const idGenerator = (() => {
+      const counters = new Map<string, number>();
+      return (prefix: string) => {
+        const next = (counters.get(prefix) ?? 0) + 1;
+        counters.set(prefix, next);
+        return `${prefix}_${next}`;
+      };
+    })();
+    const coworkService = new CoworkService({
+      store,
+      now: () => "2026-06-12T08:00:00.000Z",
+      idGenerator,
+    });
+    const coworkScheduler = new CoworkScheduler({
+      store,
+      now: () => "2026-06-12T08:00:00.000Z",
+      idGenerator,
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      coworkService,
+      coworkScheduler,
+    });
+    const session = await coworkService.createSession({
+      traceId: "seed",
+      goal: "Parallel alias",
+      workflowMode: "team",
+      agents: [{ id: "lead", name: "Lead", role: "Lead" }],
+    });
+
+    await worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/run`,
+      body: { max_rounds: 1, parallel_width: 2 },
+    }));
+    const saved = await store.readSnapshot(session.id, "trace-1");
+    const runSpan = saved?.trace_spans.find((span) => span.name === "Cowork run");
+
+    expect(runSpan?.input_ref).toContain("max_agents=2");
+  });
+
   test("routes desktop cowork action API paths through the injected CoworkService", async () => {
     const store = createMemoryCoworkStore();
     const coworkService = new CoworkService({

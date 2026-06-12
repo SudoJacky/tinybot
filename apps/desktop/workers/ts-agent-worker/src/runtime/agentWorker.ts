@@ -3381,10 +3381,12 @@ function parseCoworkRunSessionParams(params: Record<string, unknown> | undefined
   if (!sessionId) {
     throw new Error("cowork.run_session requires params.session_id");
   }
+  const maxAgents = numberParam(params, "maxAgents", "max_agents")
+    ?? numberParam(params, "parallelWidth", "parallel_width");
   return {
     sessionId,
     maxRounds: numberParam(params, "maxRounds", "max_rounds"),
-    maxAgents: numberParam(params, "maxAgents", "max_agents"),
+    maxAgents,
     maxAgentCalls: numberParam(params, "maxAgentCalls", "max_agent_calls"),
     runUntilIdle: booleanParam(params, "runUntilIdle", "run_until_idle"),
     stopOnBlocker: booleanParam(params, "stopOnBlocker", "stop_on_blocker"),
