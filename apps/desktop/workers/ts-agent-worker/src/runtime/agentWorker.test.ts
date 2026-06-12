@@ -7,7 +7,7 @@ import type { CoworkSession } from "../cowork/coworkTypes";
 import type { ModelProvider, ModelRequestOptions, ModelResponse } from "../model/provider";
 import type { WorkerEvent, WorkerRequest } from "../protocol/messages";
 import { ToolRegistry } from "../tools/toolRegistry";
-import { AgentWorker } from "./agentWorker";
+import { AgentWorker, type ProviderModelsListRequest } from "./agentWorker";
 
 class QueueProvider implements ModelProvider {
   readonly options: Array<ModelRequestOptions | undefined> = [];
@@ -242,6 +242,64 @@ describe("AgentWorker", () => {
         },
       },
     });
+  });
+
+  test("serves WebUI provider models route through TS worker RPC", async () => {
+    const requests: ProviderModelsListRequest[] = [];
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      listProviderModels: (request) => {
+        requests.push(request);
+        return {
+          providerId: request.providerId,
+          models: ["qwen-max", "qwen-manual"],
+          modelSources: {
+            "qwen-max": ["curated"],
+            "qwen-manual": ["manual"],
+          },
+          sourceCounts: { curated: 1, profile: 0, live: 0, manual: 1 },
+          warning: null,
+          url: null,
+        };
+      },
+    });
+
+    await expect(worker.handleRequest(webuiRequest("webui.route_specs"))).resolves.toMatchObject({
+      result: {
+        routes: expect.arrayContaining([
+          { key: "provider_models", method: "POST", path: "/api/provider-models", public: false },
+        ]),
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/api/provider-models",
+      body: { provider: "dashscope", manual_models: "qwen-manual", refresh_live: true },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          ok: true,
+          models: ["qwen-max", "qwen-manual"],
+          model_sources: {
+            "qwen-max": ["curated"],
+            "qwen-manual": ["manual"],
+          },
+          sources: { curated: 1, profile: 0, live: 0, manual: 1 },
+          warning: null,
+          url: null,
+        },
+      },
+    });
+    expect(requests).toEqual([
+      {
+        providerId: "dashscope",
+        manualModelIds: ["qwen-manual"],
+        refreshLive: true,
+      },
+    ]);
   });
 
   test("serves WebUI pending approvals control route through TS worker RPC", async () => {

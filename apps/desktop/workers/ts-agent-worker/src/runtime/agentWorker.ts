@@ -2545,6 +2545,7 @@ export class AgentWorker {
           this.webuiSessionProvider,
           this.tools,
           this.webuiApprovalProvider(),
+          this.webuiProviderModelsProvider(),
           request.trace_id,
         ),
       };
@@ -2566,6 +2567,18 @@ export class AgentWorker {
         : {}),
       resolveApproval: (params: ApprovalResolutionRequest, traceId: string) =>
         this.approvalBridge!.resolveApproval(params, traceId),
+    };
+  }
+
+  private webuiProviderModelsProvider() {
+    if (!this.listProviderModels) {
+      return undefined;
+    }
+    return {
+      listProviderModels: async (params: ProviderModelsListRequest) => {
+        const result = await this.listProviderModels!(params);
+        return isJsonObject(result) ? result : {};
+      },
     };
   }
 

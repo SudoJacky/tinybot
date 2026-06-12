@@ -119,9 +119,24 @@ export type WebuiApprovalResolution = {
   scope?: string;
 };
 
+export type WebuiProviderModelsRequest = {
+  providerId: string;
+  model?: string;
+  manualModelIds: string[];
+  refreshLive: boolean;
+};
+
+export type WebuiProviderModelsProvider = {
+  listProviderModels(
+    request: WebuiProviderModelsRequest,
+    traceId: string,
+  ): Promise<Record<string, unknown>> | Record<string, unknown>;
+};
+
 const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
   { key: "get_status", method: "GET", path: "/api/status", public: false },
   { key: "get_tools", method: "GET", path: "/api/tools", public: false },
+  { key: "provider_models", method: "POST", path: "/api/provider-models", public: false },
   { key: "get_approvals", method: "GET", path: "/api/approvals", public: false },
   { key: "approve_approval", method: "POST", path: "/api/approvals/{approval_id}/approve", public: false },
   { key: "deny_approval", method: "POST", path: "/api/approvals/{approval_id}/deny", public: false },
@@ -144,6 +159,7 @@ export async function handleWebuiRouteRequest(
   sessionProvider?: WebuiSessionProvider,
   tools?: ToolRegistry,
   approvalProvider?: WebuiApprovalProvider,
+  providerModelsProvider?: WebuiProviderModelsProvider,
   traceId = "webui-route",
 ): Promise<WebuiRouteResponse> {
   const method = request.method.toUpperCase();
@@ -154,6 +170,9 @@ export async function handleWebuiRouteRequest(
   }
   if (method === "GET" && path === "/api/tools") {
     return { status: 200, body: webuiToolsBody(tools) };
+  }
+  if (method === "POST" && path === "/api/provider-models") {
+    return webuiProviderModelsResponse(request.body, providerModelsProvider, traceId);
   }
   if (method === "GET" && path === "/api/approvals") {
     return webuiApprovalsResponse(url.searchParams, approvalProvider, traceId);
@@ -291,6 +310,80 @@ function webuiToolsBody(tools: ToolRegistry | undefined): Record<string, unknown
       })
       .filter((tool): tool is { name: string; description: string } => tool !== undefined),
   };
+}
+
+async function webuiProviderModelsResponse(
+  body: unknown,
+  providerModelsProvider: WebuiProviderModelsProvider | undefined,
+  traceId: string,
+): Promise<WebuiRouteResponse> {
+  if (body !== undefined && !isJsonObject(body)) {
+    return { status: 400, body: { ok: false, error: "payload must be a dict" } };
+  }
+  const payload = isJsonObject(body) ? body : {};
+  const providerId = stringValue(payload.provider) ?? stringValue(payload.providerId) ?? stringValue(payload.provider_id);
+  if (!providerId) {
+    return { status: 200, body: { ok: false, error: "provider is required" } };
+  }
+  if (!providerModelsProvider) {
+    return { status: 200, body: { ok: false, error: "config is required" } };
+  }
+  try {
+    const result = await providerModelsProvider.listProviderModels(
+      {
+        providerId: providerId.trim().toLowerCase(),
+        ...(stringValue(payload.model) ? { model: stringValue(payload.model) } : {}),
+        manualModelIds: manualModelIdsFromPayload(payload),
+        refreshLive: Boolean(payload.refresh ?? payload.refresh_live ?? payload.refreshLive),
+      },
+      traceId,
+    );
+    return { status: 200, body: webuiProviderModelsBody(result) };
+  } catch (error) {
+    return { status: 200, body: { ok: false, error: error instanceof Error ? error.message : "no models available" } };
+  }
+}
+
+function webuiProviderModelsBody(result: Record<string, unknown>): Record<string, unknown> {
+  const models = Array.isArray(result.models) ? result.models.filter((model): model is string => typeof model === "string") : [];
+  const warning = result.warning ?? null;
+  if (result.ok === false) {
+    return {
+      ok: false,
+      error: stringValue(result.error) ?? stringValue(warning) ?? "no models available",
+      models: [],
+      sources: isJsonObject(result.sources) ? result.sources : isJsonObject(result.sourceCounts) ? result.sourceCounts : {},
+      warning,
+      url: result.url ?? null,
+    };
+  }
+  return {
+    ok: true,
+    models,
+    model_sources: isJsonObject(result.model_sources)
+      ? result.model_sources
+      : isJsonObject(result.modelSources)
+        ? result.modelSources
+        : {},
+    sources: isJsonObject(result.sources)
+      ? result.sources
+      : isJsonObject(result.sourceCounts)
+        ? result.sourceCounts
+        : {},
+    warning,
+    url: result.url ?? null,
+  };
+}
+
+function manualModelIdsFromPayload(payload: Record<string, unknown>): string[] {
+  const raw = payload.manual_models ?? payload.manualModels ?? payload.manualModelIds;
+  if (typeof raw === "string") {
+    return raw.replace(/\n/g, ",").split(",").map((item) => item.trim()).filter(Boolean);
+  }
+  if (Array.isArray(raw)) {
+    return raw.map((item) => String(item).trim()).filter(Boolean);
+  }
+  return [];
 }
 
 async function webuiApprovalsResponse(
