@@ -628,6 +628,46 @@ describe("gateway HTTP client", () => {
     ]);
   });
 
+  test("keeps blueprint validation native when only mutation cowork routes are disabled", async () => {
+    const fetchFn = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
+      if (String(url).endsWith("/webui/bootstrap")) {
+        return new Response(JSON.stringify({ token: "token-1" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ gateway: true }), { status: 200 });
+    });
+    const nativeCowork = {
+      route: vi.fn(async (request: { method: string; path: string; body?: unknown }) => ({
+        native: true,
+        request,
+      })),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeCowork,
+      tsCoworkRuntime: {
+        mutations: false,
+        fallbackToPython: true,
+      },
+    });
+
+    await expect(client.cowork.validateBlueprint({ blueprint: { agents: [] } }, { preview: true })).resolves.toMatchObject({
+      native: true,
+      request: {
+        method: "POST",
+        path: "/api/cowork/blueprints/preview",
+        body: { blueprint: { agents: [] } },
+      },
+    });
+    await expect(client.cowork.addTask("cw_1", { title: "Gateway task" })).resolves.toEqual({ gateway: true });
+
+    expect(nativeCowork.route).toHaveBeenCalledTimes(1);
+    expect(fetchFn.mock.calls.map((call) => String((call as unknown[])[0]))).toEqual([
+      "http://127.0.0.1:18790/webui/bootstrap",
+      "http://127.0.0.1:18790/api/cowork/sessions/cw_1/tasks",
+    ]);
+  });
+
   test("uses Python gateway for swarm cowork routes when the swarm rollout gate is disabled", async () => {
     const fetchFn = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
       if (String(url).endsWith("/webui/bootstrap")) {

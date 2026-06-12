@@ -653,6 +653,9 @@ function coworkRouteGroup(method: string, path: string): "readOnlySnapshot" | "m
   if (method === "GET") {
     return "readOnlySnapshot";
   }
+  if (/\/api\/cowork\/blueprints\/(?:validate|preview)(?:$|\?)/.test(path)) {
+    return "readOnlySnapshot";
+  }
   if (/\/api\/cowork\/sessions\/[^/]+\/run(?:$|\?)/.test(path)) {
     return "scheduler";
   }
