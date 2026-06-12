@@ -558,6 +558,9 @@ export class AgentWorker {
     }
 
     if (segments.length === 1 && segments[0] === "sessions" && route.method === "POST") {
+      if (!isJsonObject(route.body)) {
+        return { status: 400, body: { error: "invalid json body" } };
+      }
       const parsedParams = this.parseCoworkCreateSessionRouteParams(body);
       if (!parsedParams.ok) {
         return parsedParams.response;
