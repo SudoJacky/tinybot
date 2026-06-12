@@ -16,6 +16,7 @@ import { previewBlueprint, validateBlueprint } from "../cowork/coworkBlueprint.t
 import type { CoworkEnvelope } from "../cowork/coworkMailbox.ts";
 import type { CoworkScheduler } from "../cowork/coworkScheduler.ts";
 import type { CoworkService } from "../cowork/coworkService.ts";
+import { coworkSessionSnapshot } from "../cowork/coworkSnapshot.ts";
 import type { CoworkBranch, CoworkSession, JsonObject } from "../cowork/coworkTypes.ts";
 import type { ModelProvider, ToolDefinition } from "../model/provider.ts";
 import {
@@ -699,8 +700,20 @@ export class AgentWorker {
     }
 
     if (resource === "graph" && segments.length === 3 && route.method === "GET") {
-      const graph = await this.coworkService.getGraph({ traceId, sessionId });
-      return { status: 200, body: { graph } };
+      const session = await this.coworkService.getSession(sessionId, traceId);
+      if (!session) {
+        return { status: 404, body: { error: "cowork session not found" } };
+      }
+      const snapshot = coworkSessionSnapshot(session);
+      return {
+        status: 200,
+        body: {
+          graph: snapshot.graph ?? {},
+          trace: snapshot.trace ?? [],
+          architecture_topology: snapshot.architecture_topology ?? {},
+          organization_projection: snapshot.organization_projection ?? {},
+        },
+      };
     }
 
     if (resource === "trace" && segments.length === 3 && route.method === "GET") {
@@ -709,23 +722,56 @@ export class AgentWorker {
     }
 
     if (resource === "dag" && segments.length === 3 && route.method === "GET") {
-      const taskDag = await this.coworkService.getTaskDag({ traceId, sessionId });
-      return { status: 200, body: { task_dag: taskDag } };
+      const session = await this.coworkService.getSession(sessionId, traceId);
+      if (!session) {
+        return { status: 404, body: { error: "cowork session not found" } };
+      }
+      const snapshot = coworkSessionSnapshot(session);
+      return { status: 200, body: { task_dag: snapshot.task_dag ?? {}, artifact_index: snapshot.artifact_index ?? [] } };
     }
 
     if (resource === "artifacts" && segments.length === 3 && route.method === "GET") {
-      const artifacts = await this.coworkService.getArtifacts({ traceId, sessionId });
-      return { status: 200, body: { artifacts } };
+      const session = await this.coworkService.getSession(sessionId, traceId);
+      if (!session) {
+        return { status: 404, body: { error: "cowork session not found" } };
+      }
+      const snapshot = coworkSessionSnapshot(session);
+      const artifactIndex = snapshot.artifact_index ?? [];
+      return {
+        status: 200,
+        body: {
+          artifacts: artifactIndex,
+          artifact_index: artifactIndex,
+          large_swarm_summary: snapshot.large_swarm_summary ?? {},
+          swarm_organization: snapshot.swarm_organization ?? {},
+        },
+      };
     }
 
     if (resource === "organization" && segments.length === 3 && route.method === "GET") {
-      const organization = await this.coworkService.getOrganization({ traceId, sessionId });
-      return { status: 200, body: { organization } };
+      const session = await this.coworkService.getSession(sessionId, traceId);
+      if (!session) {
+        return { status: 404, body: { error: "cowork session not found" } };
+      }
+      const snapshot = coworkSessionSnapshot(session);
+      return {
+        status: 200,
+        body: {
+          organization: snapshot.organization_projection ?? {},
+          organization_projection: snapshot.organization_projection ?? {},
+          swarm_organization: snapshot.swarm_organization ?? {},
+        },
+      };
     }
 
     if (resource === "queues" && segments.length === 3 && route.method === "GET") {
-      const queues = await this.coworkService.getQueues({ traceId, sessionId });
-      return { status: 200, body: { queues } };
+      const session = await this.coworkService.getSession(sessionId, traceId);
+      if (!session) {
+        return { status: 404, body: { error: "cowork session not found" } };
+      }
+      const snapshot = coworkSessionSnapshot(session);
+      const queues = snapshot.swarm_queues ?? {};
+      return { status: 200, body: { queues, swarm_queues: queues } };
     }
 
     if (resource === "agents" && segments.length === 5 && segments[4] === "activity" && route.method === "GET") {

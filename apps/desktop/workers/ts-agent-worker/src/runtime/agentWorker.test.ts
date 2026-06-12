@@ -725,6 +725,8 @@ describe("AgentWorker", () => {
         budgets: { max_tokens: 100 },
       },
     });
+    created.artifacts = ["answer.md"];
+    await store.writeSnapshot(created, "seed-compat-route-artifacts");
 
     await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
       method: "GET",
@@ -757,6 +759,74 @@ describe("AgentWorker", () => {
               architecture: "team",
             }),
           ],
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "GET",
+      path: `/api/cowork/sessions/${encodeURIComponent(created.id)}/graph`,
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          graph: expect.objectContaining({ schema_version: "cowork.graph.v2" }),
+          trace: expect.any(Array),
+          architecture_topology: expect.objectContaining({ schema_version: "cowork.architecture_topology.v1" }),
+          organization_projection: expect.objectContaining({ schema_version: "cowork.organization_projection.v1" }),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "GET",
+      path: `/api/cowork/sessions/${encodeURIComponent(created.id)}/dag`,
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          task_dag: expect.objectContaining({
+            nodes: expect.arrayContaining([expect.objectContaining({ id: "task:draft" })]),
+          }),
+          artifact_index: [expect.objectContaining({ path_or_url: "answer.md" })],
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "GET",
+      path: `/api/cowork/sessions/${encodeURIComponent(created.id)}/artifacts`,
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          artifact_index: [expect.objectContaining({ path_or_url: "answer.md" })],
+          large_swarm_summary: expect.any(Object),
+          swarm_organization: expect.any(Object),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "GET",
+      path: `/api/cowork/sessions/${encodeURIComponent(created.id)}/organization`,
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          swarm_organization: expect.any(Object),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "GET",
+      path: `/api/cowork/sessions/${encodeURIComponent(created.id)}/queues`,
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          swarm_queues: expect.any(Object),
         },
       },
     });
