@@ -658,7 +658,15 @@ export class AgentWorker {
         threadId: params.threadId,
         wakeRecipients: params.wakeRecipients,
       });
-      return { status: 200, body: result };
+      const messageId = typeof result.message.id === "string" ? result.message.id : "";
+      return {
+        status: 200,
+        body: {
+          result: messageId ? `Sent message ${messageId}.` : "Sent message.",
+          message: result.message,
+          session: coworkSessionSnapshot(result.session),
+        },
+      };
     }
 
     if (resource === "tasks" && segments.length === 5 && route.method === "POST") {

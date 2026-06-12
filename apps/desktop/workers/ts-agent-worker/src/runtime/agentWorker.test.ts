@@ -315,11 +315,11 @@ describe("AgentWorker", () => {
       result: {
         status: 200,
         body: {
+          result: "Sent message msg_2.",
           message: expect.objectContaining({ id: "msg_2", content: "Continue" }),
           session: expect.objectContaining({
-            messages: expect.objectContaining({
-              msg_2: expect.objectContaining({ content: "Continue" }),
-            }),
+            messages: expect.arrayContaining([expect.objectContaining({ id: "msg_2", content: "Continue" })]),
+            graph: expect.objectContaining({ schema_version: "cowork.graph.v2" }),
           }),
         },
       },
