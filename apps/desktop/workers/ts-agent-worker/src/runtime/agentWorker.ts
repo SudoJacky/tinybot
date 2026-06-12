@@ -694,6 +694,12 @@ export class AgentWorker {
     }
 
     if (resource === "budget" && segments.length === 3 && (route.method === "POST" || route.method === "PATCH")) {
+      if (
+        (Object.prototype.hasOwnProperty.call(body, "budgets") && !isJsonObject(body.budgets))
+        || (Object.prototype.hasOwnProperty.call(body, "budget") && !isJsonObject(body.budget))
+      ) {
+        return { status: 400, body: { error: "budgets must be an object" } };
+      }
       const params = parseCoworkUpdateBudgetParams({ ...body, session_id: sessionId });
       const result = await this.coworkService.updateBudget({
         traceId,
@@ -1025,7 +1031,7 @@ export class AgentWorker {
     if (segments.length === 3 && route.method === "GET") {
       const session = await this.coworkService.getSession(sessionId, traceId);
       if (!session) {
-        return { status: 404, body: { error: "session not found" } };
+        return { status: 404, body: { error: "cowork session not found" } };
       }
       return {
         status: 200,

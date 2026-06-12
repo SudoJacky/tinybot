@@ -1152,7 +1152,7 @@ describe("AgentWorker", () => {
     });
   });
 
-  test("returns Python-compatible status codes for unavailable cowork observability route details", async () => {
+  test("returns Python-compatible status codes for cowork route errors", async () => {
     const store = createMemoryCoworkStore();
     const coworkService = new CoworkService({
       store,
@@ -1284,6 +1284,31 @@ describe("AgentWorker", () => {
         status: 404,
         body: {
           error: "cowork session not found",
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "GET",
+      path: "/api/cowork/sessions/missing-session/branches",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 404,
+        body: {
+          error: "cowork session not found",
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/budget`,
+      body: { budgets: "invalid" },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: {
+          error: "budgets must be an object",
         },
       },
     });
