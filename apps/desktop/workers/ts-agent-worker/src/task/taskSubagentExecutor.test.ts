@@ -71,7 +71,79 @@ describe("TaskProviderSubagentExecutor", () => {
     ]);
     expect(completions).toEqual([{ status: "completed", result: "inspection complete" }]);
   });
+
+  test("limits concurrent provider-backed subtasks", async () => {
+    const first = deferred<ModelResponse>();
+    const second = deferred<ModelResponse>();
+    const provider = new QueueProvider([first.promise, second.promise]);
+    const executor = new TaskProviderSubagentExecutor({
+      provider,
+      model: "test-model",
+      maxConcurrent: 1,
+      timeoutMs: 1000,
+      idGenerator: (() => {
+        let index = 0;
+        return () => `subagent-${index += 1}`;
+      })(),
+    });
+    const completions: Array<{ status: string; result?: string | null }> = [];
+
+    await executor.spawnSubtask(requestFor("a", "Inspect", completions), "trace-1");
+    await executor.spawnSubtask(requestFor("b", "Implement", completions), "trace-1");
+    await waitFor(() => provider.requests.length === 1);
+
+    first.resolve({ content: "inspection complete", toolCalls: [], stopReason: "stop" });
+    await waitFor(() => provider.requests.length === 2);
+    second.resolve({ content: "implementation complete", toolCalls: [], stopReason: "stop" });
+    await waitFor(() => completions.length === 2);
+
+    expect(completions).toEqual([
+      { status: "completed", result: "inspection complete" },
+      { status: "completed", result: "implementation complete" },
+    ]);
+  });
 });
+
+class QueueProvider implements ModelProvider {
+  readonly requests: Array<{ messages: AgentMessage[]; options?: ModelRequestOptions }> = [];
+
+  constructor(private readonly responses: Array<Promise<ModelResponse>>) {}
+
+  async complete(messages: AgentMessage[], options?: ModelRequestOptions): Promise<ModelResponse> {
+    this.requests.push({ messages, options });
+    const response = this.responses.shift();
+    if (!response) {
+      throw new Error("unexpected provider request");
+    }
+    return response;
+  }
+}
+
+function requestFor(
+  id: string,
+  title: string,
+  completions: Array<{ status: string; result?: string | null }>,
+): SpawnSubtaskRequest {
+  const taskPlan = plan();
+  const subtask = { ...taskPlan.subtasks[0], id, title };
+  return {
+    plan: taskPlan,
+    subtask,
+    label: title,
+    task: `Execute subtask: ${title}`,
+    onComplete: async (completion) => {
+      completions.push(completion);
+    },
+  };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
+}
 
 async function waitFor(condition: () => boolean, attempts = 20): Promise<void> {
   for (let index = 0; index < attempts; index += 1) {

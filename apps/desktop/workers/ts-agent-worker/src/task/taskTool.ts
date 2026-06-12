@@ -26,7 +26,7 @@ export function createTaskTool(options: TaskRuntimeOptions): Tool {
     description: [
       "Manage complex multi-step task plans.",
       "Native TS currently supports plan creation, listing, status/progress, resume with a configured subtask executor, pause/cancel/delete, and subtask edits.",
-      "Final summaries and fully isolated AgentRunner-backed subagent sessions are still being migrated.",
+      "Subtask execution uses a native TS subagent runtime for concurrency, timeout, and completion callbacks; fully isolated AgentRunner-backed tool sessions are still being migrated.",
     ].join(" "),
     parameters: {
       type: "object",
