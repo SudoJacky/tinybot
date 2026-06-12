@@ -505,6 +505,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: wire desktop Cowork action controls and handler dispatch for TS-native blueprint, trace, DAG, artifact, organization, queue, and branch read-only routes.
 - [x] Continue Cowork Phase 10: expose desktop native action requests for TS-native budget update, source-branch derive, final-result select, and final-result merge routes.
 - [x] Continue Cowork Phase 10: wire desktop Cowork action controls and handler dispatch for TS-native budget update, source-branch derive, final-result select, and final-result merge routes.
+- [x] Continue Cowork Phase 10: expand desktop gateway regression coverage for default TS-native Cowork session detail, summary, graph, pause, delete, message, add-task, branch select, and branch-result merge routes.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 
 - [x] 复核 `ts_native_core.md` 对应实现和 `rust-native-core-worker-migration` 完成状态。

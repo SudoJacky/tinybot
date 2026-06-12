@@ -1209,6 +1209,9 @@ describe("gateway HTTP client", () => {
     });
 
     await expect(client.cowork.sessions({ includeCompleted: true })).resolves.toMatchObject({ native: true });
+    await expect(client.cowork.session("cw_1")).resolves.toMatchObject({ native: true });
+    await expect(client.cowork.summary("cw_1")).resolves.toMatchObject({ native: true });
+    await expect(client.cowork.graph("cw_1")).resolves.toMatchObject({ native: true });
     await expect(client.cowork.blueprint("cw_1")).resolves.toMatchObject({ native: true });
     await expect(client.cowork.trace("cw_1")).resolves.toMatchObject({ native: true });
     await expect(client.cowork.dag("cw_1")).resolves.toMatchObject({ native: true });
@@ -1222,16 +1225,34 @@ describe("gateway HTTP client", () => {
     await expect(client.cowork.run("cw_1", { max_rounds: 4 })).resolves.toMatchObject({ native: true });
     await expect(client.cowork.updateBudget("cw_1", { max_rounds: 4 })).resolves.toMatchObject({ native: true });
     await expect(client.cowork.updateBudget("cw_1", { budgets: { max_tokens: 120 } }, { method: "PATCH" })).resolves.toMatchObject({ native: true });
+    await expect(client.cowork.action("cw_1", "pause")).resolves.toMatchObject({ native: true });
+    await expect(client.cowork.delete("cw_1")).resolves.toMatchObject({ native: true });
+    await expect(client.cowork.message("cw_1", { content: "Direct note", recipient_ids: ["lead"] })).resolves.toMatchObject({ native: true });
+    await expect(client.cowork.addTask("cw_1", { title: "Native task" })).resolves.toMatchObject({ native: true });
     await expect(client.cowork.deriveBranch("cw_1", "branch 1", { target_architecture: "swarm" })).resolves.toMatchObject({ native: true });
     await expect(client.cowork.taskAction("cw_1", "task/1", "assign", { assigned_agent_id: "lead" })).resolves.toMatchObject({ native: true });
     await expect(client.cowork.workUnitAction("cw_1", "wu 1", "retry", { reason: "Retry" })).resolves.toMatchObject({ native: true });
+    await expect(client.cowork.selectBranch("cw_1", "branch 1")).resolves.toMatchObject({ native: true });
     await expect(client.cowork.selectBranchResult("cw_1", "branch 1", { result_id: "result_1" })).resolves.toMatchObject({ native: true });
+    await expect(client.cowork.mergeBranchResults("cw_1", { branch_ids: ["branch 1", "branch 2"] })).resolves.toMatchObject({ native: true });
     await expect(client.cowork.selectFinalResult("cw_1", { branch_id: "branch 1", result_id: "result_1" })).resolves.toMatchObject({ native: true });
     await expect(client.cowork.mergeFinalResult("cw_1", { branch_ids: ["branch 1", "branch 2"] })).resolves.toMatchObject({ native: true });
 
     expect(nativeCowork.route).toHaveBeenCalledWith({
       method: "GET",
       path: "/api/cowork/sessions?include_completed=true",
+    });
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "GET",
+      path: "/api/cowork/sessions/cw_1",
+    });
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "GET",
+      path: "/api/cowork/sessions/cw_1/summary",
+    });
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "GET",
+      path: "/api/cowork/sessions/cw_1/graph",
     });
     expect(nativeCowork.route).toHaveBeenCalledWith({
       method: "GET",
@@ -1291,6 +1312,24 @@ describe("gateway HTTP client", () => {
     });
     expect(nativeCowork.route).toHaveBeenCalledWith({
       method: "POST",
+      path: "/api/cowork/sessions/cw_1/pause",
+    });
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "DELETE",
+      path: "/api/cowork/sessions/cw_1",
+    });
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "POST",
+      path: "/api/cowork/sessions/cw_1/messages",
+      body: { content: "Direct note", recipient_ids: ["lead"] },
+    });
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "POST",
+      path: "/api/cowork/sessions/cw_1/tasks",
+      body: { title: "Native task" },
+    });
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "POST",
       path: "/api/cowork/sessions/cw_1/branches/branch%201/derive",
       body: { target_architecture: "swarm" },
     });
@@ -1306,8 +1345,17 @@ describe("gateway HTTP client", () => {
     });
     expect(nativeCowork.route).toHaveBeenCalledWith({
       method: "POST",
+      path: "/api/cowork/sessions/cw_1/branches/branch%201/select",
+    });
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "POST",
       path: "/api/cowork/sessions/cw_1/branches/branch%201/result/select-final",
       body: { result_id: "result_1" },
+    });
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "POST",
+      path: "/api/cowork/sessions/cw_1/branch-results/merge",
+      body: { branch_ids: ["branch 1", "branch 2"] },
     });
     expect(nativeCowork.route).toHaveBeenCalledWith({
       method: "POST",
