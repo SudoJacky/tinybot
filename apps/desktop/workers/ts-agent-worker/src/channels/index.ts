@@ -21,6 +21,12 @@ export {
   type ChannelStatus,
 } from "./channelManager.ts";
 export {
+  ChannelRuntime,
+  type ChannelRuntimeDiagnostic,
+  type ChannelRuntimeOptions,
+  type ChannelRuntimeRunAgent,
+} from "./channelRuntime.ts";
+export {
   builtinChannelDescriptors,
   channelDescriptorByName,
   selectChannelDefaultConfigs,

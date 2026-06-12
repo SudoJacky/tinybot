@@ -62,6 +62,10 @@ export class MessageBus {
     return this.consumeBatch(this.inbound, options);
   }
 
+  tryConsumeInbound(): InboundMessage | null {
+    return this.inbound.shiftNow() ?? null;
+  }
+
   async publishOutbound(message: OutboundMessage): Promise<void> {
     if (this.closed) {
       return;
