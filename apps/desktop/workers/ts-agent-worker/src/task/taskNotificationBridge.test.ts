@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { NativeTaskNotificationBridge } from "./taskNotificationBridge";
+import { NativeTaskNotificationBridge, NativeTaskProgressCardBridge } from "./taskNotificationBridge";
 import type { TaskPlan } from "./taskTypes";
 
 class FakeRpc {
@@ -63,5 +63,55 @@ describe("NativeTaskNotificationBridge", () => {
         content: expect.stringContaining("## Results Summary\n[Inspect] done"),
       }),
     ]);
+  });
+});
+
+describe("NativeTaskProgressCardBridge", () => {
+  test("upserts the owning session task progress card", async () => {
+    const rpc = new FakeRpc();
+    const bridge = new NativeTaskProgressCardBridge(rpc);
+
+    await bridge.persistTaskProgress(
+      "desktop:chat-1",
+      {
+        event: "completed",
+        planId: "plan-1",
+        subtaskId: "b",
+        subtaskTitle: "Runtime",
+        progress: {
+          plan_id: "plan-1",
+          title: "Backend migration",
+          status: "executing",
+          total: 2,
+          completed: 1,
+          in_progress: 1,
+          pending: 0,
+          failed: 0,
+          skipped: 0,
+          current: "Runtime",
+          current_all: ["Runtime"],
+          next: null,
+        },
+      },
+      "trace-progress",
+    );
+
+    expect(rpc.requests).toEqual([
+      {
+        traceId: "trace-progress",
+        method: "session.task_progress.upsert",
+        params: {
+          session_id: "desktop:chat-1",
+          plan_id: "plan-1",
+          progress: expect.objectContaining({
+            plan_id: "plan-1",
+            completed: 1,
+            in_progress: 1,
+          }),
+          content: expect.stringContaining("## Task Progress: Backend migration"),
+        },
+      },
+    ]);
+    expect(rpc.requests[0]?.params.content).toEqual(expect.stringContaining("**Last event:** Completed Runtime"));
   });
 });

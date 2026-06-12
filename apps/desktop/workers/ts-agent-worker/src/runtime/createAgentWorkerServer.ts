@@ -36,7 +36,7 @@ import { NativeMemoryBridge } from "./memoryBridge.ts";
 import { createModelProvider, type ModelProviderConfig } from "./providerFactory.ts";
 import { NativeSessionBridge } from "./sessionBridge.ts";
 import { NativeSkillsBridge } from "./skillsBridge.ts";
-import { NativeTaskNotificationBridge } from "../task/taskNotificationBridge.ts";
+import { NativeTaskNotificationBridge, NativeTaskProgressCardBridge } from "../task/taskNotificationBridge.ts";
 
 export type CreateAgentWorkerServerOptions = {
   provider?: ModelProvider;
@@ -87,6 +87,9 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
           : undefined,
         notifier: capabilities.includes("session.write")
           ? new NativeTaskNotificationBridge(rpcClient)
+          : undefined,
+        progressCard: capabilities.includes("session.write")
+          ? new NativeTaskProgressCardBridge(rpcClient)
           : undefined,
         progressPublisher: {
           publishTaskProgress: (event, traceId) => writeEvent({

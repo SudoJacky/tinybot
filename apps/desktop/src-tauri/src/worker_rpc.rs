@@ -232,6 +232,16 @@ impl WorkerRpcRouter {
                 )
                 .map_err(serialization_error)
             }
+            "session.task_progress.upsert" => {
+                let params: SessionTaskProgressUpsertParams = parse_params(request)?;
+                serde_json::to_value(self.session.upsert_task_progress(
+                    &params.session_id,
+                    &params.plan_id,
+                    params.progress,
+                    params.content,
+                )?)
+                .map_err(serialization_error)
+            }
             "session.persist_turn" => {
                 let params: SessionPersistTurnParams = parse_params(request)?;
                 let context_metadata = params.context_metadata();
@@ -2033,6 +2043,14 @@ struct SessionCheckpointParams {
 struct SessionAppendMessagesParams {
     session_id: String,
     messages: Vec<Value>,
+}
+
+#[derive(Deserialize)]
+struct SessionTaskProgressUpsertParams {
+    session_id: String,
+    plan_id: String,
+    progress: Value,
+    content: String,
 }
 
 #[derive(Deserialize)]
@@ -5111,6 +5129,52 @@ mod tests {
         assert_eq!(every["state"]["nextRunAtMs"], 63000);
         assert_eq!(every["state"]["runHistory"][0]["durationMs"], 25);
         assert!(!fixture.read("cron/jobs.json").contains("due-at"));
+    }
+
+    #[test]
+    fn dispatches_session_task_progress_upsert_request() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![session_fixture()],
+            20,
+            CapabilityPolicy::new([WorkerCapability::SessionWrite]),
+        );
+
+        let first = router.dispatch(&WorkerRequest::new(
+            "req-progress-1",
+            "trace-1",
+            "session.task_progress.upsert",
+            json!({
+                "session_id": "session-1",
+                "plan_id": "plan-1",
+                "content": "first progress",
+                "progress": { "completed": 0, "total": 2 }
+            }),
+        ));
+        let second = router.dispatch(&WorkerRequest::new(
+            "req-progress-2",
+            "trace-2",
+            "session.task_progress.upsert",
+            json!({
+                "session_id": "session-1",
+                "plan_id": "plan-1",
+                "content": "updated progress",
+                "progress": { "completed": 1, "total": 2 }
+            }),
+        ));
+
+        assert_eq!(first.error, None);
+        assert_eq!(second.error, None);
+        let messages = second.result.as_ref().unwrap()["extra"]["messages"]
+            .as_array()
+            .expect("messages should be an array");
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0]["role"], "progress");
+        assert_eq!(messages[0]["content"], "updated progress");
+        assert_eq!(messages[0]["_task_plan_id"], "plan-1");
+        assert_eq!(messages[0]["_task_progress"]["completed"], 1);
     }
 
     #[test]

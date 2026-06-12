@@ -1,7 +1,7 @@
 import { isPlanCompleted, readySubtasks, validateTaskDag } from "./taskDag";
 import { taskProgressPayload, type TaskProgressPayload } from "./taskProgress";
 import type { TaskPlanContext } from "./taskPlanner";
-import type { TaskNotificationBridge } from "./taskNotificationBridge";
+import type { TaskNotificationBridge, TaskProgressCardBridge } from "./taskNotificationBridge";
 import type { SubTask, SubTaskStatus, TaskPlan } from "./taskTypes";
 
 export interface TaskStoreBridge {
@@ -49,6 +49,7 @@ export interface TaskRuntimeOptions {
   };
   notifier?: TaskNotificationBridge;
   progressPublisher?: TaskProgressPublisher;
+  progressCard?: TaskProgressCardBridge;
   idGenerator?: () => string;
   now?: () => string;
 }
@@ -77,6 +78,7 @@ export class TaskRuntime {
   private readonly executor?: TaskRuntimeOptions["executor"];
   private readonly notifier?: TaskNotificationBridge;
   private readonly progressPublisher?: TaskProgressPublisher;
+  private readonly progressCard?: TaskProgressCardBridge;
   private readonly idGenerator: () => string;
   private readonly now: () => string;
 
@@ -86,6 +88,7 @@ export class TaskRuntime {
     this.executor = options.executor;
     this.notifier = options.notifier;
     this.progressPublisher = options.progressPublisher;
+    this.progressCard = options.progressCard;
     this.idGenerator = options.idGenerator ?? randomTaskId;
     this.now = options.now ?? (() => new Date().toISOString());
   }
@@ -223,7 +226,7 @@ export class TaskRuntime {
 
   private async publishStartedSubtasks(plan: TaskPlan, subtasks: SubTask[], traceId: string): Promise<void> {
     for (const subtask of subtasks) {
-      await this.progressPublisher?.publishTaskProgress({
+      await this.publishTaskProgress(plan, {
         event: "started",
         planId: plan.id,
         subtaskId: subtask.id,
@@ -242,7 +245,7 @@ export class TaskRuntime {
     if (request.status !== "completed" && request.status !== "failed" && request.status !== "skipped") {
       return;
     }
-    await this.progressPublisher?.publishTaskProgress({
+    await this.publishTaskProgress(plan, {
       event: request.status,
       planId: plan.id,
       subtaskId: subtask.id,
@@ -250,6 +253,14 @@ export class TaskRuntime {
       progress: taskProgressPayload(plan),
       error: request.error,
     }, traceId);
+  }
+
+  private async publishTaskProgress(plan: TaskPlan, event: TaskProgressEvent, traceId: string): Promise<void> {
+    await this.progressPublisher?.publishTaskProgress(event, traceId);
+    const sessionKey = typeof plan.context.sessionKey === "string" ? plan.context.sessionKey : undefined;
+    if (sessionKey) {
+      await this.progressCard?.persistTaskProgress(sessionKey, event, traceId);
+    }
   }
 
   private async notifyPlanCompleted(plan: TaskPlan, traceId: string): Promise<void> {

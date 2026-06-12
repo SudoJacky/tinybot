@@ -168,6 +168,62 @@ impl WorkerSessionRpc {
         Ok(session.clone())
     }
 
+    pub fn upsert_task_progress(
+        &mut self,
+        session_id: &str,
+        plan_id: &str,
+        progress: Value,
+        content: String,
+    ) -> Result<SessionMetadata, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionWrite)?;
+        validate_session_id(session_id)?;
+        if plan_id.is_empty() {
+            return Err(WorkerProtocolError::new(
+                WorkerProtocolErrorCode::InvalidProtocol,
+                "invalid task plan id",
+                serde_json::json!({ "plan_id": plan_id }),
+                false,
+                WorkerProtocolErrorSource::RustCore,
+            ));
+        }
+        let session = self.session_mut_or_create(session_id);
+        ensure_extra_object(session);
+        ensure_messages_array(session);
+        let timestamp = now_session_timestamp();
+        let progress_message = serde_json::json!({
+            "role": "progress",
+            "content": content,
+            "timestamp": timestamp,
+            "_progress": true,
+            "_task_event": true,
+            "_task_progress": progress,
+            "_task_plan_id": plan_id,
+            "_tool_name": "task",
+        });
+        if let Some(existing) = session
+            .extra
+            .get_mut("messages")
+            .and_then(Value::as_array_mut)
+        {
+            if let Some(message) = existing.iter_mut().find(|message| {
+                message
+                    .get("_task_event")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                    && message
+                        .get("_task_plan_id")
+                        .and_then(Value::as_str)
+                        .is_some_and(|existing_plan_id| existing_plan_id == plan_id)
+            }) {
+                *message = progress_message;
+            } else {
+                existing.push(progress_message);
+            }
+        }
+        session.updated_at = now_session_timestamp();
+        Ok(session.clone())
+    }
+
     pub fn persist_turn(
         &mut self,
         session_id: &str,
@@ -869,6 +925,81 @@ mod tests {
     }
 
     #[test]
+    fn upsert_task_progress_updates_existing_progress_message() {
+        let mut session = session_fixture();
+        session.extra = json!({
+            "messages": [
+                { "role": "user", "content": "existing" },
+                {
+                    "role": "progress",
+                    "content": "old progress",
+                    "_task_event": true,
+                    "_task_plan_id": "plan-1",
+                    "_task_progress": { "completed": 0 }
+                }
+            ]
+        });
+        let mut rpc = WorkerSessionRpc::new(vec![session], write_policy());
+
+        let updated = rpc
+            .upsert_task_progress(
+                "session-1",
+                "plan-1",
+                json!({ "completed": 1, "total": 2 }),
+                "new progress".to_string(),
+            )
+            .expect("task progress should upsert");
+
+        let messages = updated.extra["messages"]
+            .as_array()
+            .expect("messages should be an array");
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0], json!({ "role": "user", "content": "existing" }));
+        assert_eq!(messages[1]["role"], "progress");
+        assert_eq!(messages[1]["content"], "new progress");
+        assert_eq!(messages[1]["_progress"], true);
+        assert_eq!(messages[1]["_task_event"], true);
+        assert_eq!(
+            messages[1]["_task_progress"],
+            json!({ "completed": 1, "total": 2 })
+        );
+        assert_eq!(messages[1]["_task_plan_id"], "plan-1");
+        assert_eq!(messages[1]["_tool_name"], "task");
+        assert!(messages[1]["timestamp"].is_string());
+    }
+
+    #[test]
+    fn upsert_task_progress_creates_progress_message() {
+        let mut rpc = WorkerSessionRpc::new(vec![], write_policy());
+
+        let updated = rpc
+            .upsert_task_progress(
+                "desktop:chat-1",
+                "plan-1",
+                json!({ "completed": 0, "total": 2 }),
+                "progress".to_string(),
+            )
+            .expect("task progress should create session and message");
+
+        assert_eq!(updated.session_id, "desktop:chat-1");
+        let messages = updated.extra["messages"]
+            .as_array()
+            .expect("messages should be an array");
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0]["role"], "progress");
+        assert_eq!(messages[0]["content"], "progress");
+        assert_eq!(messages[0]["_progress"], true);
+        assert_eq!(messages[0]["_task_event"], true);
+        assert_eq!(
+            messages[0]["_task_progress"],
+            json!({ "completed": 0, "total": 2 })
+        );
+        assert_eq!(messages[0]["_task_plan_id"], "plan-1");
+        assert_eq!(messages[0]["_tool_name"], "task");
+        assert!(messages[0]["timestamp"].is_string());
+    }
+
+    #[test]
     fn persist_turn_appends_messages_and_clears_checkpoint() {
         let mut session = session_fixture();
         session.extra = json!({
@@ -951,6 +1082,23 @@ mod tests {
                 vec![json!({ "role": "assistant", "content": "hello" })],
             )
             .expect_err("append should require session write capability");
+
+        assert_eq!(error.code, WorkerProtocolErrorCode::CapabilityDenied);
+        assert_eq!(error.details["capability"], "session.write");
+    }
+
+    #[test]
+    fn default_policy_denies_task_progress_upsert() {
+        let mut rpc = WorkerSessionRpc::new(vec![session_fixture()], CapabilityPolicy::default());
+
+        let error = rpc
+            .upsert_task_progress(
+                "session-1",
+                "plan-1",
+                json!({ "completed": 1 }),
+                "progress".to_string(),
+            )
+            .expect_err("progress upsert should require session write capability");
 
         assert_eq!(error.code, WorkerProtocolErrorCode::CapabilityDenied);
         assert_eq!(error.details["capability"], "session.write");

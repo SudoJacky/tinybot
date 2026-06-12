@@ -275,6 +275,46 @@ describe("TaskRuntime", () => {
     ]);
   });
 
+  test("persists task progress cards for plans with an owning session", async () => {
+    const plan = basePlan();
+    plan.status = "planning";
+    plan.context = { sessionKey: "desktop:chat-1" };
+    plan.subtasks[0].status = "pending";
+    plan.subtasks[0].result = null;
+    const { bridge } = memoryBridge([plan]);
+    const persisted: Array<{ sessionKey: string; event: string; planId: string; subtaskId: string; traceId: string }> = [];
+    const runtime = new TaskRuntime({
+      store: bridge,
+      now: () => "2026-06-12T00:00:00.000Z",
+      executor: {
+        spawnSubtask: async () => {},
+      },
+      progressCard: {
+        persistTaskProgress: async (sessionKey, event, traceId) => {
+          persisted.push({
+            sessionKey,
+            event: event.event,
+            planId: event.planId,
+            subtaskId: event.subtaskId,
+            traceId,
+          });
+        },
+      },
+    });
+
+    await runtime.resumePlan("plan-1", { parallel: true }, "trace-resume");
+
+    expect(persisted).toEqual([
+      {
+        sessionKey: "desktop:chat-1",
+        event: "started",
+        planId: "plan-1",
+        subtaskId: "a",
+        traceId: "trace-resume",
+      },
+    ]);
+  });
+
   test("completes a subtask and spawns the next ready subtask", async () => {
     const plan = basePlan();
     plan.status = "executing";

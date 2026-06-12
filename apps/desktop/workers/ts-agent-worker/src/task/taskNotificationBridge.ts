@@ -1,9 +1,14 @@
 import type { JsonObject } from "../protocol/messages.ts";
 import type { NativeRpcClient } from "../tools/nativeToolProxy.ts";
+import type { TaskProgressEvent } from "./taskRuntime.ts";
 import type { TaskPlan } from "./taskTypes";
 
 export interface TaskNotificationBridge {
   notifyPlanCompleted(sessionKey: string, plan: TaskPlan, summary: string, traceId: string): Promise<void>;
+}
+
+export interface TaskProgressCardBridge {
+  persistTaskProgress(sessionKey: string, event: TaskProgressEvent, traceId: string): Promise<void>;
 }
 
 export class NativeTaskNotificationBridge implements TaskNotificationBridge {
@@ -17,6 +22,23 @@ export class NativeTaskNotificationBridge implements TaskNotificationBridge {
     await this.rpcClient.request(traceId, "session.append_messages", {
       session_id: sessionKey,
       messages: [nativeTaskCompletionMessage(plan, summary)],
+    });
+  }
+}
+
+export class NativeTaskProgressCardBridge implements TaskProgressCardBridge {
+  private readonly rpcClient: NativeRpcClient;
+
+  constructor(rpcClient: NativeRpcClient) {
+    this.rpcClient = rpcClient;
+  }
+
+  async persistTaskProgress(sessionKey: string, event: TaskProgressEvent, traceId: string): Promise<void> {
+    await this.rpcClient.request(traceId, "session.task_progress.upsert", {
+      session_id: sessionKey,
+      plan_id: event.planId,
+      progress: event.progress,
+      content: renderTaskProgressCard(event),
     });
   }
 }
@@ -52,6 +74,22 @@ function instructionForStatus(plan: TaskPlan): string {
   return "The plan has completed successfully. Summarize and present the results to the user in a clear, helpful format. Focus on the key outcomes and what was accomplished. Do not mention technical details like `plan_id` or `subtask`.";
 }
 
+export function renderTaskProgressCard(event: TaskProgressEvent): string {
+  const progress = event.progress;
+  const lines = [
+    `## Task Progress: ${progress.title}`,
+    `**Status:** ${progress.status}`,
+    `**Progress:** ${progress.completed}/${progress.total} completed`,
+    `**Current:** ${progress.current_all.length > 0 ? progress.current_all.join(", ") : "None"}`,
+    `**Next:** ${progress.next ?? "None"}`,
+    `**Last event:** ${taskProgressEventLabel(event)}`,
+  ];
+  if (event.error) {
+    lines.push(`**Error:** ${event.error}`);
+  }
+  return lines.join("\n");
+}
+
 export function nativeTaskCompletionMessage(plan: TaskPlan, summary: string): JsonObject {
   return {
     role: "user",
@@ -64,4 +102,17 @@ export function nativeTaskCompletionMessage(plan: TaskPlan, summary: string): Js
       _tool_name: "task",
     },
   };
+}
+
+function taskProgressEventLabel(event: TaskProgressEvent): string {
+  switch (event.event) {
+    case "started":
+      return `Started ${event.subtaskTitle}`;
+    case "completed":
+      return `Completed ${event.subtaskTitle}`;
+    case "failed":
+      return `Failed ${event.subtaskTitle}`;
+    case "skipped":
+      return `Skipped ${event.subtaskTitle}`;
+  }
 }

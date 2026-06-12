@@ -5,7 +5,7 @@ import { createCronTool } from "../cron/cronTool.ts";
 import { formatKnowledgeQueryResults, normalizeKnowledgeQueryResults } from "../knowledge/knowledgeFormatting.ts";
 import type { ModelProvider } from "../model/provider.ts";
 import { NativeTaskStoreBridge } from "../task/taskStoreBridge.ts";
-import type { TaskNotificationBridge } from "../task/taskNotificationBridge.ts";
+import type { TaskNotificationBridge, TaskProgressCardBridge } from "../task/taskNotificationBridge.ts";
 import { TaskPlanner } from "../task/taskPlanner.ts";
 import { TaskProviderSubagentExecutor } from "../task/taskSubagentExecutor.ts";
 import { createTaskTool } from "../task/taskTool.ts";
@@ -75,6 +75,7 @@ export function createNativeTaskTools(
     backgroundRegistry?: BackgroundRunRegistry;
     notifier?: TaskNotificationBridge;
     progressPublisher?: TaskProgressPublisher;
+    progressCard?: TaskProgressCardBridge;
   } = {},
 ): Tool[] {
   const planner = options.provider
@@ -98,6 +99,7 @@ export function createNativeTaskTools(
     executor,
     notifier: options.notifier,
     progressPublisher: options.progressPublisher,
+    progressCard: options.progressCard,
   })];
 }
 
