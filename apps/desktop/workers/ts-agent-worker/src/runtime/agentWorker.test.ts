@@ -1369,6 +1369,7 @@ describe("AgentWorker", () => {
         routes: expect.arrayContaining([
           { key: "knowledge_list_documents", method: "GET", path: "/v1/knowledge/documents", public: true },
           { key: "knowledge_add_document", method: "POST", path: "/v1/knowledge/documents", public: true },
+          { key: "knowledge_upload_document", method: "POST", path: "/v1/knowledge/documents/upload", public: true },
           { key: "knowledge_get_document", method: "GET", path: "/v1/knowledge/documents/{doc_id}", public: true },
           { key: "knowledge_delete_document", method: "DELETE", path: "/v1/knowledge/documents/{doc_id}", public: true },
           { key: "knowledge_query", method: "POST", path: "/v1/knowledge/query", public: true },
@@ -1399,6 +1400,29 @@ describe("AgentWorker", () => {
       body: { name: "Added", content: "Body", file_type: "md" },
     }))).resolves.toMatchObject({
       result: { status: 200, body: { id: "doc-2", name: "Added", message: "Document 'Added' added successfully" } },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/v1/knowledge/documents/upload",
+      body: {
+        name: "Upload.md",
+        content: "# Upload\n",
+        file_type: "md",
+        size_bytes: 9,
+        category: "docs",
+        tags: ["desktop", "native"],
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          id: "doc-2",
+          name: "Upload.md",
+          file_type: "md",
+          size_bytes: 9,
+          message: "File 'Upload.md' uploaded and indexed successfully",
+        },
+      },
     });
     await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
       method: "GET",
@@ -1437,6 +1461,18 @@ describe("AgentWorker", () => {
     expect(calls).toEqual([
       { method: "list", traceId: "trace-webui.handle_request", params: { category: "docs", limit: 10 } },
       { method: "add", traceId: "trace-webui.handle_request", params: { name: "Added", content: "Body", file_type: "md" } },
+      {
+        method: "add",
+        traceId: "trace-webui.handle_request",
+        params: {
+          name: "Upload.md",
+          content: "# Upload\n",
+          file_type: "md",
+          category: "docs",
+          tags: ["desktop", "native"],
+          source: "file_upload",
+        },
+      },
       { method: "get", traceId: "trace-webui.handle_request", params: { docId: "doc-1" } },
       { method: "delete", traceId: "trace-webui.handle_request", params: { docId: "doc-1" } },
       { method: "query", traceId: "trace-webui.handle_request", params: { query: "native knowledge", mode: "sparse", top_k: 3 } },

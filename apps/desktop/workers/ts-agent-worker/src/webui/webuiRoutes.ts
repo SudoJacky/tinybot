@@ -275,6 +275,7 @@ const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
   { key: "openai_chat_completions", method: "POST", path: "/v1/chat/completions", public: true },
   { key: "knowledge_list_documents", method: "GET", path: "/v1/knowledge/documents", public: true },
   { key: "knowledge_add_document", method: "POST", path: "/v1/knowledge/documents", public: true },
+  { key: "knowledge_upload_document", method: "POST", path: "/v1/knowledge/documents/upload", public: true },
   { key: "knowledge_get_document", method: "GET", path: "/v1/knowledge/documents/{doc_id}", public: true },
   { key: "knowledge_delete_document", method: "DELETE", path: "/v1/knowledge/documents/{doc_id}", public: true },
   { key: "knowledge_query", method: "POST", path: "/v1/knowledge/query", public: true },
@@ -351,6 +352,9 @@ export async function handleWebuiRouteRequest(
   }
   if (method === "POST" && path === "/v1/knowledge/documents") {
     return knowledgeAddDocumentResponse(request.body, knowledgeProvider, traceId);
+  }
+  if (method === "POST" && path === "/v1/knowledge/documents/upload") {
+    return knowledgeUploadDocumentResponse(request.body, knowledgeProvider, traceId);
   }
   const knowledgeDocument = knowledgeDocumentPath(method, path);
   if (knowledgeDocument) {
@@ -903,6 +907,61 @@ async function knowledgeAddDocumentResponse(
   };
 }
 
+async function knowledgeUploadDocumentResponse(
+  body: unknown,
+  provider: WebuiKnowledgeProvider | undefined,
+  traceId: string,
+): Promise<WebuiRouteResponse> {
+  if (!provider) {
+    return { status: 503, body: { error: "Knowledge store not initialized" } };
+  }
+  if (!isJsonObject(body)) {
+    return { status: 400, body: { error: "No file uploaded" } };
+  }
+  const name = stringValue(body.name) ?? stringValue(body.filename);
+  const content = stringValue(body.content);
+  if (!name || content === undefined) {
+    return { status: 400, body: { error: "No file uploaded" } };
+  }
+  const fileType = (stringValue(body.file_type) ?? stringValue(body.fileType) ?? extensionFromName(name))
+    .toLowerCase()
+    .replace(/^\./, "");
+  if (fileType !== "txt" && fileType !== "md") {
+    return { status: 400, body: { error: `Unsupported file type '${fileType}'. Supported: md, txt` } };
+  }
+  if (!content.trim()) {
+    return { status: 400, body: { error: "File content is empty" } };
+  }
+  const uploadBody: Record<string, unknown> = {
+    name,
+    content,
+    file_type: fileType,
+    source: "file_upload",
+  };
+  const category = stringValue(body.category);
+  if (category !== undefined) {
+    uploadBody.category = category;
+  }
+  const tags = knowledgeTags(body.tags);
+  if (tags.length > 0) {
+    uploadBody.tags = tags;
+  }
+  const result = await provider.addDocument(uploadBody, traceId);
+  const document = documentFromResult(result);
+  const id = stringValue(document?.id) ?? "";
+  const resultName = stringValue(document?.name) ?? name;
+  return {
+    status: 200,
+    body: {
+      id,
+      name: resultName,
+      file_type: fileType,
+      size_bytes: numberValue(body.size_bytes) ?? numberValue(body.sizeBytes) ?? new TextEncoder().encode(content).length,
+      message: `File '${resultName}' uploaded and indexed successfully`,
+    },
+  };
+}
+
 async function knowledgeDocumentResponse(
   docId: string,
   method: string,
@@ -1071,6 +1130,16 @@ function arrayFromResult(result: unknown, key: string): Record<string, unknown>[
   const keyed = object?.[key];
   const items = Array.isArray(keyed) ? keyed : Array.isArray(result) ? result : [];
   return items.filter(isJsonObject);
+}
+
+function knowledgeTags(value: unknown): string[] {
+  if (typeof value === "string") {
+    return value.split(",").map((item) => item.trim()).filter(Boolean);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item).trim()).filter(Boolean);
+  }
+  return [];
 }
 
 async function webuiApprovalsResponse(

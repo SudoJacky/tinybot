@@ -1085,7 +1085,58 @@ describe("gateway HTTP client", () => {
         body: { query: "desktop", mode: "sparse", top_k: 5 },
       },
     });
+    const form = new FormData();
+    form.append("file", new File(["# Native\n"], "native.md", { type: "text/markdown" }));
+    form.append("category", "docs");
+    form.append("tags", "desktop, native");
+    await expect(client.knowledge.uploadDocument(form)).resolves.toEqual({
+      native: true,
+      request: {
+        method: "POST",
+        path: "/v1/knowledge/documents/upload",
+        body: {
+          name: "native.md",
+          file_type: "md",
+          content: "# Native\n",
+          size_bytes: 9,
+          category: "docs",
+          tags: ["desktop", "native"],
+        },
+      },
+    });
     expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  test("keeps unsupported Knowledge uploads on the HTTP gateway fallback", async () => {
+    const fetchFn = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
+      if (String(url).endsWith("/webui/bootstrap")) {
+        return new Response(JSON.stringify({ token: "token-1" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ gateway: true }), { status: 200 });
+    });
+    const nativeWebui = {
+      route: vi.fn(async () => {
+        throw new Error("pdf upload should not use native route");
+      }),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeWebui,
+    });
+    const form = new FormData();
+    form.append("file", new File(["%PDF-1.4"], "paper.pdf", { type: "application/pdf" }));
+
+    await expect(client.knowledge.uploadDocument(form)).resolves.toEqual({ gateway: true });
+    expect(nativeWebui.route).not.toHaveBeenCalled();
+    expect(fetchFn.mock.calls.map((call) => String((call as unknown[])[0]))).toEqual([
+      "http://127.0.0.1:18790/webui/bootstrap",
+      "http://127.0.0.1:18790/v1/knowledge/documents/upload?async_index=true",
+    ]);
+    expect(fetchFn.mock.calls[1][1]).toMatchObject({
+      method: "POST",
+      body: form,
+    });
   });
 
   test("falls back to gateway skills operations when native skills are unavailable", async () => {

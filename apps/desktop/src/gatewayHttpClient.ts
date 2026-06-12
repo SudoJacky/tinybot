@@ -491,7 +491,23 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
           "knowledge.document",
         );
       },
-      uploadDocument: (body: FormData) => request("/v1/knowledge/documents/upload?async_index=true", formRequest("POST", body)),
+      uploadDocument: (body: FormData) => nativeOrGateway(
+        () => {
+          if (!options.nativeWebui) {
+            return undefined;
+          }
+          const uploadBody = nativeKnowledgeUploadBody(body);
+          return uploadBody
+            ? uploadBody.then((payload) => options.nativeWebui?.route({
+              method: "POST",
+              path: "/v1/knowledge/documents/upload",
+              body: payload,
+            }))
+            : undefined;
+        },
+        () => request("/v1/knowledge/documents/upload?async_index=true", formRequest("POST", body)),
+        "knowledge.uploadDocument",
+      ),
       deleteDocument: (documentId: string) => {
         const path = `/v1/knowledge/documents/${encodePathSegment(documentId)}`;
         return nativeOrGateway(
@@ -1181,6 +1197,38 @@ async function nativeTemporaryFileUploadBody(body: FormData): Promise<Record<str
     content: await file.text(),
     size_bytes: file.size,
   };
+}
+
+function nativeKnowledgeUploadBody(body: FormData): Promise<Record<string, unknown>> | undefined {
+  const file = body.get("file");
+  if (!(file instanceof File)) {
+    return undefined;
+  }
+  const fileType = extensionFromName(file.name);
+  if (fileType !== "txt" && fileType !== "md") {
+    return undefined;
+  }
+  return file.text().then((content) => {
+    const payload: Record<string, unknown> = {
+      name: file.name,
+      file_type: fileType,
+      content,
+      size_bytes: file.size,
+    };
+    const category = formString(body.get("category"));
+    if (category) {
+      payload.category = category;
+    }
+    const tags = formString(body.get("tags"));
+    if (tags) {
+      payload.tags = tags.split(",").map((tag) => tag.trim()).filter(Boolean);
+    }
+    return payload;
+  });
+}
+
+function formString(value: FormDataEntryValue | null): string | undefined {
+  return typeof value === "string" ? value.trim() : undefined;
 }
 
 function extensionFromName(name: string): string {
