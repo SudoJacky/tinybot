@@ -267,6 +267,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: missing-session route requests now return Python-compatible `404 {"error":"cowork session not found"}` responses for direct session reads and migrated service-backed detail routes instead of worker protocol failures. |
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: task retry/review route business errors now return Python-compatible 400 responses instead of successful TS service wrappers or worker protocol failures. |
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: branch listing now uses the Python-compatible missing-session error payload, and budget route requests reject non-object `budgets` payloads with `400 {"error":"budgets must be an object"}` before mutating session state. |
+| 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: branch select, branch derive, and branch-scoped final-result selection now translate TS service business errors into Python-compatible 404/400 route responses instead of successful result wrappers. |
 
 ## Next Checklist
 
@@ -341,6 +342,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: map missing-session service errors to Python-compatible 404 route responses instead of worker protocol failures.
 - [x] Continue Cowork Phase 10: return Python-compatible 400 responses for task retry/review route business errors.
 - [x] Continue Cowork Phase 10: return Python-compatible branch-list missing-session errors and reject non-object budget route payloads.
+- [x] Continue Cowork Phase 10: map branch select/derive/final-result business errors to Python-compatible HTTP route errors.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 
 - [x] 复核 `ts_native_core.md` 对应实现和 `rust-native-core-worker-migration` 完成状态。

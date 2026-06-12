@@ -1053,7 +1053,9 @@ export class AgentWorker {
         title: params.title,
         inheritedContextSummary: params.inheritedContextSummary,
       });
-      return { status: 200, body: result };
+      return result.branch
+        ? { status: 200, body: result }
+        : { status: 400, body: { error: result.result, session: result.session } };
     }
 
     if (segments.length === 5 && segments[4] === "derive" && route.method === "POST") {
@@ -1067,13 +1069,17 @@ export class AgentWorker {
         title: params.title,
         inheritedContextSummary: params.inheritedContextSummary,
       });
-      return { status: 200, body: result };
+      return result.branch
+        ? { status: 200, body: result }
+        : { status: 400, body: { error: result.result, session: result.session } };
     }
 
     if (segments.length === 5 && segments[4] === "select" && route.method === "POST") {
       const branchId = segments[3];
       const result = await this.coworkService.selectBranch({ traceId, sessionId, branchId });
-      return { status: 200, body: result };
+      return result.branch
+        ? { status: 200, body: result }
+        : { status: 404, body: { error: result.result, session: result.session } };
     }
 
     if (segments.length === 4 && segments[3] === "select" && route.method === "POST") {
@@ -1082,7 +1088,9 @@ export class AgentWorker {
         return { status: 400, body: { error: "branch_id is required" } };
       }
       const result = await this.coworkService.selectBranch({ traceId, sessionId, branchId });
-      return { status: 200, body: result };
+      return result.branch
+        ? { status: 200, body: result }
+        : { status: 404, body: { error: result.result, session: result.session } };
     }
 
     if (segments.length === 6 && segments[4] === "result" && segments[5] === "select-final" && route.method === "POST") {
@@ -1092,7 +1100,9 @@ export class AgentWorker {
         branchId: segments[3],
         resultId: stringParam(body, "resultId", "result_id"),
       });
-      return { status: 200, body: result };
+      return result.finalResult
+        ? { status: 200, body: result }
+        : { status: 400, body: { error: result.result, session: result.session } };
     }
 
     return unsupportedCoworkRoute(route);

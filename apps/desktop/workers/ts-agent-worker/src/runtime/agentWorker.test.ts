@@ -1315,6 +1315,42 @@ describe("AgentWorker", () => {
 
     await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
       method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/branches/missing-branch/select`,
+    }))).resolves.toMatchObject({
+      result: {
+        status: 404,
+        body: {
+          error: "Error: branch 'missing-branch' not found.",
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/branches/missing-branch/derive`,
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: {
+          error: "Error: source branch 'missing-branch' not found.",
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/branches/missing-branch/result/select-final`,
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: {
+          error: "Error: branch 'missing-branch' not found.",
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
       path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/final-result/select`,
       body: { branch_id: "missing-branch" },
     }))).resolves.toMatchObject({
