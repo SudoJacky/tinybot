@@ -537,6 +537,9 @@ export class AgentWorker {
     const body = isJsonObject(route.body) ? route.body : {};
 
     if (segments.length === 2 && segments[0] === "blueprints" && route.method === "POST") {
+      if (!isJsonObject(route.body)) {
+        return invalidCoworkJsonBodyRouteResponse();
+      }
       return this.dispatchCoworkBlueprintRoute(segments, body);
     }
 
@@ -559,7 +562,7 @@ export class AgentWorker {
 
     if (segments.length === 1 && segments[0] === "sessions" && route.method === "POST") {
       if (!isJsonObject(route.body)) {
-        return { status: 400, body: { error: "invalid json body" } };
+        return invalidCoworkJsonBodyRouteResponse();
       }
       const parsedParams = this.parseCoworkCreateSessionRouteParams(body);
       if (!parsedParams.ok) {
@@ -691,6 +694,9 @@ export class AgentWorker {
     }
 
     if (resource === "messages" && segments.length === 3 && route.method === "POST") {
+      if (!isJsonObject(route.body)) {
+        return invalidCoworkJsonBodyRouteResponse();
+      }
       const content = stringParam(body, "content", "content")?.trim() ?? "";
       if (!content) {
         return { status: 400, body: { error: "content is required" } };
@@ -730,10 +736,16 @@ export class AgentWorker {
     }
 
     if (resource === "tasks" && segments.length === 5 && route.method === "POST") {
+      if (segments[4] === "assign" && !isJsonObject(route.body)) {
+        return invalidCoworkJsonBodyRouteResponse();
+      }
       return this.dispatchCoworkTaskActionRoute(segments, sessionId, body, traceId);
     }
 
     if (resource === "tasks" && segments.length === 3 && route.method === "POST") {
+      if (!isJsonObject(route.body)) {
+        return invalidCoworkJsonBodyRouteResponse();
+      }
       const title = stringParam(body, "title", "title")?.trim() ?? "";
       if (!title) {
         return { status: 400, body: { error: "title is required" } };
@@ -765,6 +777,9 @@ export class AgentWorker {
     }
 
     if (resource === "work-units" && segments.length === 5 && route.method === "POST") {
+      if ((segments[4] === "skip" || segments[4] === "cancel") && !isJsonObject(route.body)) {
+        return invalidCoworkJsonBodyRouteResponse();
+      }
       return this.dispatchCoworkWorkUnitActionRoute(segments, sessionId, body, traceId);
     }
 
@@ -774,6 +789,9 @@ export class AgentWorker {
     }
 
     if (resource === "budget" && segments.length === 3 && (route.method === "POST" || route.method === "PATCH")) {
+      if (!isJsonObject(route.body)) {
+        return invalidCoworkJsonBodyRouteResponse();
+      }
       if (
         (Object.prototype.hasOwnProperty.call(body, "budgets") && !isJsonObject(body.budgets))
         || (Object.prototype.hasOwnProperty.call(body, "budget") && !isJsonObject(body.budget))
@@ -896,10 +914,16 @@ export class AgentWorker {
     }
 
     if (resource === "final-result" && segments.length === 4 && route.method === "POST") {
+      if (!isJsonObject(route.body)) {
+        return invalidCoworkJsonBodyRouteResponse();
+      }
       return this.dispatchCoworkFinalResultRoute(segments, sessionId, body, traceId);
     }
 
     if (resource === "branch-results" && segments.length === 4 && segments[3] === "merge" && route.method === "POST") {
+      if (!isJsonObject(route.body)) {
+        return invalidCoworkJsonBodyRouteResponse();
+      }
       const params = parseCoworkMergeBranchResultsParams({ ...body, session_id: sessionId });
       const result = await this.coworkService.mergeBranchResults({
         traceId,
@@ -1179,6 +1203,9 @@ export class AgentWorker {
     }
 
     if (segments.length === 4 && segments[3] === "derive" && route.method === "POST") {
+      if (!isJsonObject(route.body)) {
+        return invalidCoworkJsonBodyRouteResponse();
+      }
       const params = parseCoworkDeriveBranchParams({ ...body, session_id: sessionId });
       const result = await this.coworkService.deriveBranch({
         traceId,
@@ -3200,6 +3227,10 @@ function unsupportedCoworkRoute(route: CoworkRouteRequest): CoworkRouteResponse 
       path: route.path,
     },
   };
+}
+
+function invalidCoworkJsonBodyRouteResponse(): CoworkRouteResponse {
+  return { status: 400, body: { error: "invalid json body" } };
 }
 
 function branchSnapshots(session: CoworkSession): JsonObject[] {

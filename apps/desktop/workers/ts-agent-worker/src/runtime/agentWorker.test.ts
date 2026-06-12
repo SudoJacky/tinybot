@@ -261,6 +261,17 @@ describe("AgentWorker", () => {
       },
     });
 
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: "/api/cowork/blueprints/validate",
+      body: ["not", "an", "object"],
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: { error: "invalid json body" },
+      },
+    });
+
     const create = await worker.handleRequest(coworkRequest("cowork.route_request", {
       method: "POST",
       path: "/api/cowork/sessions",
@@ -1746,6 +1757,19 @@ describe("AgentWorker", () => {
 
     await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
       method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/budget`,
+      body: ["not", "an", "object"],
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: {
+          error: "invalid json body",
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
       path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/branches/missing-branch/select`,
     }))).resolves.toMatchObject({
       result: {
@@ -1856,6 +1880,17 @@ describe("AgentWorker", () => {
       },
     });
 
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(String(sessionId))}/messages`,
+      body: ["not", "an", "object"],
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: { error: "invalid json body" },
+      },
+    });
+
     await expect(worker.handleRequest(coworkRequest("cowork.add_task", {
       session_id: sessionId,
       title: "Follow up",
@@ -1883,6 +1918,17 @@ describe("AgentWorker", () => {
       },
     });
 
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(String(sessionId))}/tasks`,
+      body: ["not", "an", "object"],
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: { error: "invalid json body" },
+      },
+    });
+
     const assignResponse = await worker.handleRequest(coworkRequest("cowork.assign_task", {
       session_id: sessionId,
       task_id: "open",
@@ -1906,6 +1952,17 @@ describe("AgentWorker", () => {
             graph: expect.objectContaining({ schema_version: "cowork.graph.v2" }),
           }),
         },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(String(sessionId))}/tasks/open/assign`,
+      body: ["not", "an", "object"],
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: { error: "invalid json body" },
       },
     });
 

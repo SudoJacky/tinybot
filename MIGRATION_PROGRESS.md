@@ -294,6 +294,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: create-session routes with `auto_run=true` now dispatch the newly created TS session through the native Cowork scheduler before returning the snapshot. |
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: create-session routes without `goal` or `blueprint` now return Python-compatible `400 {"error":"goal is required"}` instead of a worker protocol failure. |
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: create-session routes with non-object bodies now return Python-compatible `400 {"error":"invalid json body"}` instead of falling through to missing-goal validation. |
+| 2026-06-13 | Continued Batch 5 Cowork runtime Phase 10 route parity: routes backed by Python `_json_body()` now reject non-object TS `cowork.route_request` bodies with Python-compatible `400 {"error":"invalid json body"}` for blueprint validation, message/task mutations, assign-task, budget updates, and related JSON-body actions. |
 
 ## Next Checklist
 
@@ -395,6 +396,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: auto-run newly created sessions through the TS scheduler when route body sets `auto_run=true`.
 - [x] Continue Cowork Phase 10: return Python-compatible create-session route errors for missing `goal`/`blueprint`.
 - [x] Continue Cowork Phase 10: return Python-compatible create-session route errors for non-object bodies.
+- [x] Continue Cowork Phase 10: reject non-object route bodies with Python-compatible invalid-json responses on `_json_body()` mutation routes.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 
 - [x] 复核 `ts_native_core.md` 对应实现和 `rust-native-core-worker-migration` 完成状态。
