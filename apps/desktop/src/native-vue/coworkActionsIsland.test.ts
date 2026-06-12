@@ -65,18 +65,21 @@ describe("cowork actions Vue island", () => {
       "organization",
       "queues",
       "branches",
+      "updateBudget",
       "addTask",
     ]);
 
     const goal = host.querySelector<HTMLTextAreaElement>('[data-desktop-cowork-input="goal"]');
     const message = host.querySelector<HTMLTextAreaElement>('[data-desktop-cowork-input="message"]');
     const blueprint = host.querySelector<HTMLTextAreaElement>('[data-desktop-cowork-input="blueprint"]');
+    const budgetMaxRounds = host.querySelector<HTMLInputElement>('[data-desktop-cowork-input="budgetMaxRounds"]');
     const taskTitle = host.querySelector<HTMLInputElement>('[data-desktop-cowork-input="taskTitle"]');
     const assignedAgent = host.querySelector<HTMLInputElement>('[data-desktop-cowork-input="assignedAgentId"]');
     expect(assignedAgent?.getAttribute("aria-label")).toBe("Cowork assigned agent id");
     if (goal) goal.value = "Create a desktop run";
     if (message) message.value = "Continue with next unit";
     if (blueprint) blueprint.value = "{\"agents\":[]}";
+    if (budgetMaxRounds) budgetMaxRounds.value = "7";
     if (taskTitle) taskTitle.value = "Write migration notes";
     if (assignedAgent) assignedAgent.value = "agent-1";
 
@@ -92,6 +95,7 @@ describe("cowork actions Vue island", () => {
     host.querySelector<HTMLButtonElement>('[data-desktop-cowork-action="organization"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-desktop-cowork-action="queues"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-desktop-cowork-action="branches"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-cowork-action="updateBudget"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-desktop-cowork-action="addTask"]')?.click();
 
     expect(events).toEqual([
@@ -107,6 +111,7 @@ describe("cowork actions Vue island", () => {
       { action: "loadOrganization", sessionId: "cowork-1" },
       { action: "loadQueues", sessionId: "cowork-1" },
       { action: "loadBranches", sessionId: "cowork-1" },
+      { action: "updateBudget", sessionId: "cowork-1", maxRounds: 7 },
       { action: "addTask", sessionId: "cowork-1", taskTitle: "Write migration notes", assignedAgentId: "agent-1" },
     ]);
 

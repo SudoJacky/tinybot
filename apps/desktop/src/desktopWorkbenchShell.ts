@@ -293,11 +293,15 @@ export type DesktopCoworkActionId = Extract<
   | "loadBranches"
   | "validateBlueprint"
   | "addTask"
+  | "updateBudget"
   | "task"
   | "workUnit"
+  | "deriveBranch"
   | "selectBranch"
   | "selectBranchResult"
   | "mergeBranchResults"
+  | "selectFinalResult"
+  | "mergeFinalResult"
 >;
 
 export interface DesktopCoworkActionEvent {
@@ -310,10 +314,13 @@ export interface DesktopCoworkActionEvent {
   preview?: boolean;
   taskTitle?: string;
   assignedAgentId?: string;
+  maxRounds?: number;
   taskId?: string;
   taskAction?: Extract<DesktopCoworkActionInput, { action: "task" }>["taskAction"];
   workUnitId?: string;
   workUnitAction?: Extract<DesktopCoworkActionInput, { action: "workUnit" }>["workUnitAction"];
+  sourceBranchId?: string;
+  targetArchitecture?: string;
   branchId?: string;
   resultId?: string;
   branchIds?: string[];
@@ -4201,6 +4208,14 @@ function createCoworkActionControls(
   assignedAgentId.setAttribute("data-desktop-cowork-input", "assignedAgentId");
   (assignedAgentId as HTMLInputElement).value = pane.cockpitView?.agents[0]?.id ?? "";
 
+  const budgetMaxRounds = targetDocument.createElement("input");
+  budgetMaxRounds.className = "desktop-cowork-action-input";
+  budgetMaxRounds.setAttribute("aria-label", "Cowork max rounds");
+  budgetMaxRounds.setAttribute("data-desktop-cowork-input", "budgetMaxRounds");
+  budgetMaxRounds.setAttribute("type", "number");
+  budgetMaxRounds.setAttribute("min", "1");
+  (budgetMaxRounds as HTMLInputElement).value = coworkBudgetMaxRoundsValue(pane);
+
   const sessionId = pane.cockpitView?.header.id ?? "";
   const rows: Array<[string, string, DesktopCoworkActionId, boolean]> = [
     ["create", "Create session", "createSession", true],
@@ -4218,8 +4233,9 @@ function createCoworkActionControls(
     ["organization", "Organization", "loadOrganization", Boolean(sessionId)],
     ["queues", "Queues", "loadQueues", Boolean(sessionId)],
     ["branches", "Branches", "loadBranches", Boolean(sessionId)],
+    ["updateBudget", "Update budget", "updateBudget", Boolean(sessionId)],
   ];
-  actions.append(goal, message, blueprint, taskTitle, assignedAgentId);
+  actions.append(goal, message, blueprint, taskTitle, assignedAgentId, budgetMaxRounds);
   if (pane.actionStatus) {
     const status = createText(targetDocument, "p", pane.actionStatus);
     status.className = "desktop-cowork-action-status";
@@ -4273,6 +4289,7 @@ function createCoworkActionControls(
         sessionId: eventAction === "createSession" ? undefined : sessionId || undefined,
         goal: eventAction === "createSession" ? (goal as HTMLTextAreaElement).value.trim() : undefined,
         message: eventAction === "sendMessage" ? (message as HTMLTextAreaElement).value.trim() : undefined,
+        maxRounds: eventAction === "updateBudget" ? parseCoworkPositiveInteger((budgetMaxRounds as HTMLInputElement).value) : undefined,
       });
     });
     actions.append(button);
@@ -4313,6 +4330,7 @@ function mountCoworkActionsVueIsland(
   mountCoworkActionsIsland(actions, {
     sessionId: pane.cockpitView?.header.id ?? "",
     agents: pane.cockpitView?.agents ?? [],
+    budgetMaxRounds: coworkBudgetMaxRoundsValue(pane),
     actionStatus: pane.actionStatus,
     summaryText: pane.summaryText,
     blueprintDiagnostics: pane.blueprintDiagnostics,
@@ -4608,12 +4626,15 @@ function appendCoworkSelectedActions(
     const branch = view.branches.find((item) => item.branchId === id || item.resultId === id);
     for (const [action, label] of [
       ["selectBranch", "Select branch"],
+      ["deriveBranch", "Derive branch"],
       ["selectBranchResult", "Set final"],
       ["mergeBranchResults", "Merge results"],
+      ["selectFinalResult", "Select final"],
+      ["mergeFinalResult", "Merge final"],
     ] as const) {
       const button = createCoworkSelectedActionButton(targetDocument, action, label);
       button.addEventListener("click", () => {
-        if (action === "mergeBranchResults") {
+        if (action === "mergeBranchResults" || action === "mergeFinalResult") {
           coworkActions.onCoworkAction?.({
             action,
             pane,
@@ -4626,8 +4647,10 @@ function appendCoworkSelectedActions(
           action,
           pane,
           sessionId,
-          branchId: branch?.branchId || id,
-          resultId: action === "selectBranchResult" ? branch?.resultId : undefined,
+          sourceBranchId: action === "deriveBranch" ? branch?.branchId || id : undefined,
+          targetArchitecture: action === "deriveBranch" ? "swarm" : undefined,
+          branchId: action === "deriveBranch" ? undefined : branch?.branchId || id,
+          resultId: action === "selectBranchResult" || action === "selectFinalResult" ? branch?.resultId : undefined,
         });
       });
       actions.append(button);
@@ -4646,6 +4669,19 @@ function createCoworkSelectedActionButton(targetDocument: Document, action: stri
   button.setAttribute("data-desktop-cowork-entity-action", action);
   button.textContent = label;
   return button as HTMLButtonElement;
+}
+
+function coworkBudgetMaxRoundsValue(pane: DesktopCoworkPaneModel): string {
+  const raw = pane.cockpitView?.raw as Record<string, unknown> | undefined;
+  const budgetState = raw?.budget_state as Record<string, unknown> | undefined;
+  const budget = raw?.budget as Record<string, unknown> | undefined;
+  const value = budgetState?.max_rounds ?? budget?.max_rounds;
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? String(value) : "";
+}
+
+function parseCoworkPositiveInteger(value: string): number | undefined {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 function createCoworkTaskFeed(targetDocument: Document, view: DesktopCoworkCockpitView): HTMLElement {

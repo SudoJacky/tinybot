@@ -1074,6 +1074,24 @@ async function handleNativeCoworkAction(event: DesktopCoworkActionEvent): Promis
       setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork branches loaded." }));
       return;
     }
+    if (event.action === "updateBudget") {
+      if (!event.maxRounds) {
+        outcome = "blocked";
+        setNativeCoworkPane({
+          ...event.pane,
+          actionStatus: "Enter a positive Cowork max rounds value before updating the budget.",
+        });
+        return;
+      }
+      const request = buildDesktopCoworkActionRequest({
+        action: "updateBudget",
+        sessionId,
+        body: { max_rounds: event.maxRounds },
+      });
+      await gatewayApi.cowork.updateBudget(sessionId, requestBody(request));
+      setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork budget updated." }));
+      return;
+    }
     if (event.action === "addTask") {
       const request = buildDesktopCoworkActionRequest({
         action: "addTask",
@@ -1114,6 +1132,18 @@ async function handleNativeCoworkAction(event: DesktopCoworkActionEvent): Promis
       setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork branch selected." }));
       return;
     }
+    if (event.action === "deriveBranch" && (event.sourceBranchId || event.branchId)) {
+      const sourceBranchId = event.sourceBranchId || event.branchId || null;
+      const request = buildDesktopCoworkActionRequest({
+        action: "deriveBranch",
+        sessionId,
+        sourceBranchId,
+        body: { target_architecture: event.targetArchitecture || "swarm" },
+      });
+      await gatewayApi.cowork.deriveBranch(sessionId, sourceBranchId, requestBody(request));
+      setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork branch derived." }));
+      return;
+    }
     if (event.action === "selectBranchResult" && event.branchId && event.resultId) {
       const request = buildDesktopCoworkActionRequest({
         action: "selectBranchResult",
@@ -1142,6 +1172,35 @@ async function handleNativeCoworkAction(event: DesktopCoworkActionEvent): Promis
       });
       await gatewayApi.cowork.mergeBranchResults(sessionId, requestBody(request));
       setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork branch results merged." }));
+      return;
+    }
+    if (event.action === "selectFinalResult" && event.branchId && event.resultId) {
+      const request = buildDesktopCoworkActionRequest({
+        action: "selectFinalResult",
+        sessionId,
+        body: { branch_id: event.branchId, result_id: event.resultId },
+      });
+      await gatewayApi.cowork.selectFinalResult(sessionId, requestBody(request));
+      setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork final result selected." }));
+      return;
+    }
+    if (event.action === "mergeFinalResult") {
+      const branchIds = event.branchIds ?? [];
+      if (branchIds.length < 2) {
+        outcome = "blocked";
+        setNativeCoworkPane({
+          ...event.pane,
+          actionStatus: "Select at least two Cowork final result branches before merging.",
+        });
+        return;
+      }
+      const request = buildDesktopCoworkActionRequest({
+        action: "mergeFinalResult",
+        sessionId,
+        body: { branch_ids: branchIds },
+      });
+      await gatewayApi.cowork.mergeFinalResult(sessionId, requestBody(request));
+      setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork final results merged." }));
     }
   } catch (error) {
     outcome = "failed";

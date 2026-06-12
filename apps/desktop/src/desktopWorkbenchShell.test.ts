@@ -2945,7 +2945,7 @@ describe("desktop workbench shell", () => {
 
   test("renders a desktop Cowork cockpit with session list, graph, inspector, actions, and task feed", () => {
     const targetDocument = new FakeDocument();
-    const actionEvents: Array<{ action: string; sessionId: string; goal: string; message: string }> = [];
+    const actionEvents: Array<{ action: string; sessionId: string; goal: string; message: string; maxRounds?: number }> = [];
     const session = {
       id: "cowork-1",
       title: "Desktop migration",
@@ -2984,6 +2984,7 @@ describe("desktop workbench shell", () => {
             sessionId: event.sessionId ?? "",
             goal: event.goal ?? "",
             message: event.message ?? "",
+            maxRounds: event.maxRounds,
           });
         },
       },
@@ -2992,11 +2993,15 @@ describe("desktop workbench shell", () => {
     const pane = targetDocument.body.querySelector(".desktop-cowork-cockpit");
     const goal = pane?.querySelector('[data-desktop-cowork-input="goal"]');
     const message = pane?.querySelector('[data-desktop-cowork-input="message"]');
+    const budgetMaxRounds = pane?.querySelector('[data-desktop-cowork-input="budgetMaxRounds"]');
     if (goal) {
       goal.value = "Create a desktop run";
     }
     if (message) {
       message.value = "Continue with the next unit";
+    }
+    if (budgetMaxRounds) {
+      budgetMaxRounds.value = "7";
     }
     expect(pane?.getAttribute("aria-label")).toBe("Cowork cockpit");
     expect(pane?.textContent).toContain("Desktop migration");
@@ -3030,9 +3035,10 @@ describe("desktop workbench shell", () => {
       "organization",
       "queues",
       "branches",
+      "updateBudget",
       "addTask",
     ]);
-    for (const action of ["create", "run", "pause", "resume", "emergencyStop", "delete", "message", "summary", "blueprint", "trace", "dag", "artifacts", "organization", "queues", "branches"]) {
+    for (const action of ["create", "run", "pause", "resume", "emergencyStop", "delete", "message", "summary", "blueprint", "trace", "dag", "artifacts", "organization", "queues", "branches", "updateBudget"]) {
       pane?.querySelector(`[data-desktop-cowork-action="${action}"]`)?.click();
     }
     expect(actionEvents).toEqual([
@@ -3051,6 +3057,7 @@ describe("desktop workbench shell", () => {
       { action: "loadOrganization", sessionId: "cowork-1", goal: "", message: "" },
       { action: "loadQueues", sessionId: "cowork-1", goal: "", message: "" },
       { action: "loadBranches", sessionId: "cowork-1", goal: "", message: "" },
+      { action: "updateBudget", sessionId: "cowork-1", goal: "", message: "", maxRounds: 7 },
     ]);
     expect(pane?.querySelector(".desktop-cowork-task-feed")?.textContent).toContain("1 blocker");
   });
@@ -3289,6 +3296,8 @@ describe("desktop workbench shell", () => {
             branchId: event.branchId,
             resultId: event.resultId,
             branchIds: event.branchIds,
+            sourceBranchId: event.sourceBranchId,
+            targetArchitecture: event.targetArchitecture,
             title: event.taskTitle,
             assignedAgentId: event.assignedAgentId,
           };
@@ -3323,8 +3332,11 @@ describe("desktop workbench shell", () => {
 
     pane?.querySelector('[data-desktop-cowork-entity="branch-a"]')?.click();
     pane?.querySelector('[data-desktop-cowork-entity-action="selectBranch"]')?.click();
+    pane?.querySelector('[data-desktop-cowork-entity-action="deriveBranch"]')?.click();
     pane?.querySelector('[data-desktop-cowork-entity-action="selectBranchResult"]')?.click();
     pane?.querySelector('[data-desktop-cowork-entity-action="mergeBranchResults"]')?.click();
+    pane?.querySelector('[data-desktop-cowork-entity-action="selectFinalResult"]')?.click();
+    pane?.querySelector('[data-desktop-cowork-entity-action="mergeFinalResult"]')?.click();
 
     expect(actionEvents).toEqual([
       { action: "addTask", sessionId: "cowork-1", title: "Write migration notes", assignedAgentId: "agent-2" },
@@ -3335,8 +3347,11 @@ describe("desktop workbench shell", () => {
       { action: "workUnit", sessionId: "cowork-1", workUnitId: "wu-1", workUnitAction: "skip" },
       { action: "workUnit", sessionId: "cowork-1", workUnitId: "wu-1", workUnitAction: "cancel" },
       { action: "selectBranch", sessionId: "cowork-1", branchId: "branch-a" },
+      { action: "deriveBranch", sessionId: "cowork-1", sourceBranchId: "branch-a", targetArchitecture: "swarm" },
       { action: "selectBranchResult", sessionId: "cowork-1", branchId: "branch-a", resultId: "result-a" },
       { action: "mergeBranchResults", sessionId: "cowork-1", branchIds: ["branch-a", "branch-b"] },
+      { action: "selectFinalResult", sessionId: "cowork-1", branchId: "branch-a", resultId: "result-a" },
+      { action: "mergeFinalResult", sessionId: "cowork-1", branchIds: ["branch-a", "branch-b"] },
     ]);
   });
 
