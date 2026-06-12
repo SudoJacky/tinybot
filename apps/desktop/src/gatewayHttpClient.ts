@@ -281,7 +281,14 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
       delete: (key: string) => request(`/api/sessions/${encodePathSegment(key)}`, { method: "DELETE" }),
       patch: (key: string, body: unknown) =>
         request(`/api/sessions/${encodePathSegment(key)}`, jsonRequest("PATCH", body)),
-      clear: (key: string) => request(`/api/sessions/${encodePathSegment(key)}/clear`, { method: "POST" }),
+      clear: (key: string) => nativeOrGateway(
+        () => options.nativeWebui?.route({
+          method: "POST",
+          path: `/api/sessions/${encodePathSegment(key)}/clear`,
+        }),
+        () => request(`/api/sessions/${encodePathSegment(key)}/clear`, { method: "POST" }),
+        "webui.sessions.clear",
+      ),
     },
     config: {
       get: () => request("/api/config"),

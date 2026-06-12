@@ -41,6 +41,13 @@ export type WebuiSessionMessages = {
   messages: Record<string, unknown>[];
 };
 
+export type WebuiClearSessionResult = {
+  sessionId: string;
+  messagesBefore: number;
+  messagesAfter: number;
+  checkpointCleared: boolean;
+};
+
 export type WebuiSessionProvider = {
   channelName?: string;
   listSessions(traceId: string): Promise<WebuiSessionMetadata[]> | WebuiSessionMetadata[];
@@ -48,12 +55,17 @@ export type WebuiSessionProvider = {
     sessionId: string,
     traceId: string,
   ): Promise<WebuiSessionMessages | null> | WebuiSessionMessages | null;
+  clearSession?(
+    sessionId: string,
+    traceId: string,
+  ): Promise<WebuiClearSessionResult> | WebuiClearSessionResult;
 };
 
 const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
   { key: "get_status", method: "GET", path: "/api/status", public: false },
   { key: "list_sessions", method: "GET", path: "/api/sessions", public: false },
   { key: "get_messages", method: "GET", path: "/api/sessions/{key}/messages", public: false },
+  { key: "clear_session", method: "POST", path: "/api/sessions/{key}/clear", public: false },
 ];
 
 export function webuiRouteSpecs(): WebuiRouteSpec[] {
@@ -90,6 +102,16 @@ export async function handleWebuiRouteRequest(
       return { status: 404, body: { error: "session not found" } };
     }
     return { status: 200, body: webuiSessionMessagesBody(session) };
+  }
+  const clearSessionKey = clearSessionPathKey(method, path);
+  if (clearSessionKey !== undefined) {
+    if (!sessionProvider?.clearSession) {
+      return { status: 503, body: { error: "session manager not available" } };
+    }
+    return {
+      status: 200,
+      body: webuiClearSessionBody(await sessionProvider.clearSession(clearSessionKey, traceId)),
+    };
   }
   return {
     status: 404,
@@ -142,6 +164,16 @@ function webuiSessionListBody(
         created_at: session.createdAt,
         updated_at: session.updatedAt,
       })),
+  };
+}
+
+function webuiClearSessionBody(result: WebuiClearSessionResult): Record<string, unknown> {
+  return {
+    key: result.sessionId,
+    cleared: true,
+    messages_before: result.messagesBefore,
+    messages_after: result.messagesAfter,
+    checkpoint_cleared: result.checkpointCleared,
   };
 }
 
@@ -212,6 +244,9 @@ function routeKey(method: string, path: string): string {
   if (sessionMessagesPathKey(method, path) !== undefined) {
     return "get_messages";
   }
+  if (clearSessionPathKey(method, path) !== undefined) {
+    return "clear_session";
+  }
   const spec = WEBUI_ROUTE_SPECS.find((entry) => entry.method === method && entry.path === path);
   return spec?.key ?? `${method} ${path}`;
 }
@@ -221,6 +256,14 @@ function sessionMessagesPathKey(method: string, path: string): string | undefine
     return undefined;
   }
   const match = /^\/api\/sessions\/([^/]+)\/messages$/.exec(path);
+  return match ? decodeURIComponent(match[1]) : undefined;
+}
+
+function clearSessionPathKey(method: string, path: string): string | undefined {
+  if (method !== "POST") {
+    return undefined;
+  }
+  const match = /^\/api\/sessions\/([^/]+)\/clear$/.exec(path);
   return match ? decodeURIComponent(match[1]) : undefined;
 }
 

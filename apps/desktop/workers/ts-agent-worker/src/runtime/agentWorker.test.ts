@@ -328,6 +328,51 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("serves WebUI session clear control route through TS worker RPC", async () => {
+    const clearRequests: Array<{ sessionId: string; traceId: string }> = [];
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      webuiSessionProvider: {
+        listSessions: () => [],
+        clearSession: (sessionId: string, traceId: string) => {
+          clearRequests.push({ sessionId, traceId });
+          return {
+            sessionId,
+            messagesBefore: 3,
+            messagesAfter: 0,
+            checkpointCleared: true,
+          };
+        },
+      },
+    } as any);
+
+    await expect(worker.handleRequest(webuiRequest("webui.route_specs"))).resolves.toMatchObject({
+      result: {
+        routes: expect.arrayContaining([
+          { key: "clear_session", method: "POST", path: "/api/sessions/{key}/clear", public: false },
+        ]),
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/api/sessions/websocket%3Achat-1/clear",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          key: "websocket:chat-1",
+          cleared: true,
+          messages_before: 3,
+          messages_after: 0,
+          checkpoint_cleared: true,
+        },
+      },
+    });
+    expect(clearRequests).toEqual([{ sessionId: "websocket:chat-1", traceId: "trace-webui.handle_request" }]);
+  });
+
   test("returns Python-compatible cowork route unavailable errors", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),
