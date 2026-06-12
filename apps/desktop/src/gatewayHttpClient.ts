@@ -655,7 +655,12 @@ function coworkRouteGroup(method: string, path: string): "readOnlySnapshot" | "m
   if (/\/api\/cowork\/sessions\/[^/]+\/run(?:$|\?)/.test(path)) {
     return "scheduler";
   }
-  if (path.includes("/work-units/")) {
+  if (
+    path.includes("/work-units/")
+    || path.includes("/branch-results/")
+    || path.includes("/final-result/")
+    || /\/api\/cowork\/sessions\/[^/]+\/branches\/[^/]+\/result\/select-final(?:$|\?)/.test(path)
+  ) {
     return "swarm";
   }
   return "mutations";

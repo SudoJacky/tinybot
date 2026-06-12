@@ -270,6 +270,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: branch select, branch derive, and branch-scoped final-result selection now translate TS service business errors into Python-compatible 404/400 route responses instead of successful result wrappers. |
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: session list route now returns Python-compatible non-verbose Cowork snapshots instead of raw persisted sessions, preserving list privacy for messages, trace spans, and agent private summaries. |
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: session detail route now returns the verbose Python-compatible Cowork snapshot projection, including array-shaped agents/messages plus graph and trace payloads, instead of raw persisted maps. |
+| 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 rollout coverage: desktop gateway routing now treats work-unit, branch-result, and final-result routes as swarm-gated so `swarm=false` cleanly falls back to the Python gateway instead of using native TS. |
 
 ## Next Checklist
 
@@ -347,6 +348,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: map branch select/derive/final-result business errors to Python-compatible HTTP route errors.
 - [x] Continue Cowork Phase 10: return non-verbose snapshot payloads from the session list route.
 - [x] Continue Cowork Phase 10: return verbose snapshot payloads from the session detail route.
+- [x] Continue Cowork Phase 10: gate desktop work-unit, branch-result, and final-result routes behind the swarm rollout flag with Python fallback.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 
 - [x] 复核 `ts_native_core.md` 对应实现和 `rust-native-core-worker-migration` 完成状态。

@@ -602,6 +602,43 @@ describe("gateway HTTP client", () => {
     ]);
   });
 
+  test("uses Python gateway for swarm cowork routes when the swarm rollout gate is disabled", async () => {
+    const fetchFn = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
+      if (String(url).endsWith("/webui/bootstrap")) {
+        return new Response(JSON.stringify({ token: "token-1" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ gateway: true }), { status: 200 });
+    });
+    const nativeCowork = {
+      route: vi.fn(async () => ({ native: true })),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeCowork,
+      tsCoworkRuntime: {
+        swarm: false,
+        fallbackToPython: true,
+      },
+    });
+
+    await expect(client.cowork.workUnitAction("cw_1", "wu 1", "retry", { reason: "Retry" })).resolves.toEqual({ gateway: true });
+    await expect(client.cowork.selectBranchResult("cw_1", "branch 1", { result_id: "result_1" })).resolves.toEqual({ gateway: true });
+    await expect(client.cowork.mergeBranchResults("cw_1", { branch_ids: ["branch 1", "branch 2"] })).resolves.toEqual({ gateway: true });
+    await expect(client.cowork.selectFinalResult("cw_1", { branch_id: "branch 1", result_id: "result_1" })).resolves.toEqual({ gateway: true });
+    await expect(client.cowork.mergeFinalResult("cw_1", { branch_ids: ["branch 1", "branch 2"] })).resolves.toEqual({ gateway: true });
+
+    expect(nativeCowork.route).not.toHaveBeenCalled();
+    expect(fetchFn.mock.calls.map((call) => String((call as unknown[])[0]))).toEqual([
+      "http://127.0.0.1:18790/webui/bootstrap",
+      "http://127.0.0.1:18790/api/cowork/sessions/cw_1/work-units/wu%201/retry",
+      "http://127.0.0.1:18790/api/cowork/sessions/cw_1/branches/branch%201/result/select-final",
+      "http://127.0.0.1:18790/api/cowork/sessions/cw_1/branch-results/merge",
+      "http://127.0.0.1:18790/api/cowork/sessions/cw_1/final-result/select",
+      "http://127.0.0.1:18790/api/cowork/sessions/cw_1/final-result/merge",
+    ]);
+  });
+
   test("does not fall back to Python when cowork native fallback is disabled", async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
     const nativeCowork = {
