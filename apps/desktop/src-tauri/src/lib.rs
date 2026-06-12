@@ -582,6 +582,17 @@ fn worker_resume_agent_approval(
 }
 
 #[tauri::command]
+fn worker_cron_dispatch_due(state: State<'_, SharedGateway>) -> Result<serde_json::Value, String> {
+    worker_cron_dispatch_due_with_options(
+        state.inner(),
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        now_unix_ms() as i64,
+        Duration::from_secs(120),
+    )
+}
+
+#[tauri::command]
 fn apply_config_patch_result(
     result: ConfigPatchBridgeResult,
 ) -> Result<ConfigPatchApplyResult, String> {
@@ -1261,6 +1272,110 @@ fn build_worker_run_agent_input_request(
     )
 }
 
+fn worker_cron_dispatch_due_with_options(
+    shared: &SharedGateway,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    now_ms: i64,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let mut router = experimental_worker_router(workspace_root.clone(), config_snapshot.clone());
+    let due_response = router.dispatch(&WorkerRequest::new(
+        format!("cron-due-{now_ms}"),
+        format!("trace-cron-due-{now_ms}"),
+        "cron.job.due",
+        serde_json::json!({ "now_ms": now_ms }),
+    ));
+    if let Some(error) = due_response.error {
+        return Err(format!("native cron due returned error: {}", error.message));
+    }
+    let jobs = due_response
+        .result
+        .as_ref()
+        .and_then(|result| result.get("jobs"))
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!([]));
+    let dispatched = jobs.as_array().map_or(0, Vec::len);
+    if dispatched == 0 {
+        return Ok(serde_json::json!({
+            "dispatched": 0,
+            "records": [],
+            "recorded": { "updated": [], "deleted": [], "missing": [] }
+        }));
+    }
+
+    let worker = {
+        let runtime = lock_runtime(shared);
+        runtime.experimental_worker.clone()
+    };
+    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot.clone())?;
+
+    let request =
+        build_worker_cron_run_due_request(now_unix_ms(), jobs, cron_model_from_config(&config_snapshot));
+    let response = worker
+        .send_stdio_request(&request, timeout)
+        .map_err(|error| format!("worker cron due request failed: {}", error.message))?;
+    if let Some(error) = response.error {
+        return Err(format!("worker cron due returned error: {}", error.message));
+    }
+    let result = response
+        .result
+        .ok_or_else(|| "worker cron due response missing result".to_string())?;
+    let records = result
+        .get("records")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!([]));
+
+    let record_response = router.dispatch(&WorkerRequest::new(
+        format!("cron-record-{now_ms}"),
+        format!("trace-cron-record-{now_ms}"),
+        "cron.job.record_runs",
+        serde_json::json!({ "now_ms": now_ms, "records": records.clone() }),
+    ));
+    if let Some(error) = record_response.error {
+        return Err(format!(
+            "native cron record_runs returned error: {}",
+            error.message
+        ));
+    }
+    let recorded = record_response
+        .result
+        .ok_or_else(|| "native cron record_runs response missing result".to_string())?;
+
+    Ok(serde_json::json!({
+        "dispatched": dispatched,
+        "records": records,
+        "recorded": recorded
+    }))
+}
+
+fn build_worker_cron_run_due_request(
+    request_id: u128,
+    jobs: serde_json::Value,
+    model: String,
+) -> WorkerRequest {
+    WorkerRequest::new(
+        format!("cron-run-due-{request_id}"),
+        format!("trace-cron-run-due-{request_id}"),
+        "cron.run_due",
+        serde_json::json!({
+            "jobs": jobs,
+            "model": model,
+            "maxIterations": 4,
+            "stream": false
+        }),
+    )
+}
+
+fn cron_model_from_config(config_snapshot: &serde_json::Value) -> String {
+    config_snapshot
+        .pointer("/agents/defaults/model")
+        .and_then(serde_json::Value::as_str)
+        .filter(|model| !model.trim().is_empty())
+        .unwrap_or("gpt-5")
+        .to_string()
+}
+
 fn worker_skills_list_with_options(
     shared: &SharedGateway,
     workspace_root: PathBuf,
@@ -1761,6 +1876,7 @@ fn experimental_worker_router(
             WorkerCapability::KnowledgeWrite,
             WorkerCapability::CronRead,
             WorkerCapability::CronWrite,
+            WorkerCapability::CronRun,
             WorkerCapability::McpCall,
             WorkerCapability::SessionMetadataRead,
             WorkerCapability::SessionWrite,
@@ -1937,6 +2053,7 @@ pub fn run() {
             worker_restore_agent_checkpoint,
             worker_submit_agent_form,
             worker_resume_agent_approval,
+            worker_cron_dispatch_due,
             apply_config_patch_result,
             pick_upload_file,
             reveal_workspace_file,
@@ -2182,6 +2299,86 @@ mod tests {
         assert_eq!(request.trace_id, "trace-agent-run-input-42");
         assert_eq!(request.method, "agent.run_input");
         assert_eq!(request.params, serde_json::json!({ "input": agent_input }));
+    }
+
+    #[test]
+    fn worker_cron_run_due_request_wraps_due_jobs_for_ts_worker() {
+        let jobs = serde_json::json!([
+            {
+                "id": "job-1",
+                "name": "Check status",
+                "enabled": true,
+                "schedule": { "kind": "every", "everyMs": 60000 },
+                "payload": { "kind": "agent_turn", "message": "Check", "deliver": true },
+                "state": { "nextRunAtMs": 1000 },
+                "createdAtMs": 1,
+                "updatedAtMs": 1,
+                "deleteAfterRun": false
+            }
+        ]);
+
+        let request = build_worker_cron_run_due_request(42, jobs.clone(), "gpt-5".to_string());
+
+        assert_eq!(request.id, "cron-run-due-42");
+        assert_eq!(request.trace_id, "trace-cron-run-due-42");
+        assert_eq!(request.method, "cron.run_due");
+        assert_eq!(
+            request.params,
+            serde_json::json!({
+                "jobs": jobs,
+                "model": "gpt-5",
+                "maxIterations": 4,
+                "stream": false
+            })
+        );
+    }
+
+    #[test]
+    fn worker_cron_dispatch_due_noops_without_due_jobs() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write(
+            "cron/jobs.json",
+            &serde_json::json!({
+                "version": 1,
+                "jobs": [
+                    {
+                        "id": "future",
+                        "name": "Future",
+                        "enabled": true,
+                        "schedule": { "kind": "at", "atMs": 100000 },
+                        "payload": { "kind": "agent_turn", "message": "later", "deliver": false },
+                        "state": { "nextRunAtMs": 100000, "lastRunAtMs": null, "lastStatus": null, "lastError": null, "runHistory": [] },
+                        "createdAtMs": 1,
+                        "updatedAtMs": 1,
+                        "deleteAfterRun": true
+                    }
+                ]
+            })
+            .to_string(),
+        );
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+
+        let result = worker_cron_dispatch_due_with_options(
+            &shared,
+            fixture.root.clone(),
+            serde_json::json!({ "agents": { "defaults": { "model": "gpt-5" } } }),
+            2000,
+            Duration::from_secs(1),
+        )
+        .expect("cron due dispatch should no-op");
+
+        assert_eq!(
+            result,
+            serde_json::json!({
+                "dispatched": 0,
+                "records": [],
+                "recorded": { "updated": [], "deleted": [], "missing": [] }
+            })
+        );
+        assert_eq!(
+            lock_runtime(&shared).experimental_worker.status().state,
+            WorkerManagerState::Stopped
+        );
     }
 
     #[test]
