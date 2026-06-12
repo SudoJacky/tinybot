@@ -1,9 +1,12 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  createPythonChannelBridgeAdapter,
   parsePythonBridgeInboundMessage,
   toPythonBridgeOutboundMessage,
 } from "./index.ts";
+import { MessageBus } from "../bus/messageBus.ts";
+import { ChannelManager } from "./channelManager.ts";
 
 describe("pythonChannelBridge", () => {
   test("normalizes Python channel inbound JSON without dropping bridge fields", () => {
@@ -79,6 +82,70 @@ describe("pythonChannelBridge", () => {
         unknown: { keep: true },
       },
     });
+  });
+
+  test("adapts ChannelManager outbound delivery to Python bridge JSON", async () => {
+    const delivered: Array<Record<string, unknown>> = [];
+    const bridge = createPythonChannelBridgeAdapter({
+      name: "feishu",
+      displayName: "Feishu Python Bridge",
+      deliver: async (message) => {
+        delivered.push(message);
+      },
+    });
+    const bus = new MessageBus();
+    const manager = new ChannelManager({ bus, channels: [bridge] });
+
+    await bus.publishOutbound({
+      channel: "feishu",
+      chatId: "oc_1",
+      content: "done",
+      media: ["file://out.png"],
+      metadata: { message_id: "mid-1" },
+    });
+    await bus.publishOutbound({
+      channel: "feishu",
+      chatId: "oc_1",
+      content: "",
+      media: [],
+      metadata: { _usage: true, usage_data: { prompt_tokens: 4 } },
+    });
+    await bus.publishOutbound({
+      channel: "feishu",
+      chatId: "oc_1",
+      content: "delta",
+      media: [],
+      metadata: { _stream_delta: true },
+    });
+
+    await expect(manager.dispatchAvailable()).resolves.toBe(3);
+    expect(bridge.supportsStreaming).toBe(true);
+    expect(delivered).toEqual([
+      {
+        channel: "feishu",
+        chat_id: "oc_1",
+        content: "done",
+        reply_to: null,
+        media: ["file://out.png"],
+        metadata: { message_id: "mid-1" },
+      },
+      {
+        channel: "feishu",
+        chat_id: "oc_1",
+        content: "",
+        reply_to: null,
+        media: [],
+        metadata: { _usage: true, usage_data: { prompt_tokens: 4 } },
+      },
+      {
+        channel: "feishu",
+        chat_id: "oc_1",
+        content: "delta",
+        reply_to: null,
+        media: [],
+        metadata: { _stream_delta: true },
+      },
+    ]);
   });
 
   test("rejects malformed inbound bridge JSON with field-specific messages", () => {

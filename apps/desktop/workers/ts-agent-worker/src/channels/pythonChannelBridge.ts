@@ -1,8 +1,20 @@
 import type { InboundMessage, OutboundMessage } from "../bus/messageTypes.ts";
 import { isJsonObject } from "../protocol/messages.ts";
+import type { ChannelAdapter } from "./channelManager.ts";
 
 export type PythonBridgeParseOptions = {
   now?: () => string;
+};
+
+export type PythonBridgeOutboundJson = Record<string, unknown>;
+
+export type PythonChannelBridgeDeliver = (message: PythonBridgeOutboundJson) => Promise<void> | void;
+
+export type PythonChannelBridgeAdapterOptions = {
+  name: string;
+  displayName?: string;
+  supportsStreaming?: boolean;
+  deliver: PythonChannelBridgeDeliver;
 };
 
 export function parsePythonBridgeInboundMessage(
@@ -39,6 +51,37 @@ export function toPythonBridgeOutboundMessage(message: OutboundMessage): Record<
     reply_to: message.replyTo ?? null,
     media: message.media,
     metadata: message.metadata,
+  };
+}
+
+export function createPythonChannelBridgeAdapter(options: PythonChannelBridgeAdapterOptions): ChannelAdapter {
+  const deliverOutbound = async (message: OutboundMessage): Promise<void> => {
+    await options.deliver(toPythonBridgeOutboundMessage(message));
+  };
+
+  return {
+    name: options.name,
+    displayName: options.displayName ?? `${options.name} Python Bridge`,
+    supportsStreaming: options.supportsStreaming ?? true,
+    send: deliverOutbound,
+    sendDelta: async (chatId, delta, metadata) => {
+      await deliverOutbound({
+        channel: options.name,
+        chatId,
+        content: delta,
+        media: [],
+        metadata,
+      });
+    },
+    sendUsage: async (chatId, usage) => {
+      await deliverOutbound({
+        channel: options.name,
+        chatId,
+        content: "",
+        media: [],
+        metadata: { _usage: true, usage_data: usage },
+      });
+    },
   };
 }
 
