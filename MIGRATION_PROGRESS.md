@@ -261,6 +261,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: `POST /api/cowork/sessions/{session_id}/messages` now rejects blank content with Python-compatible `400 {"error":"content is required"}` instead of persisting an empty TS message. |
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: `POST /api/cowork/sessions/{session_id}/tasks` now rejects blank titles with Python-compatible `400 {"error":"title is required"}` instead of creating a default untitled TS task through the HTTP route. |
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: `POST /api/cowork/sessions/{session_id}/tasks/{task_id}/assign` now returns Python-compatible 400 API responses for missing assignees instead of surfacing a worker protocol error. |
+| 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: read-only observability routes now return Python-compatible HTTP status codes for missing agent activity, unavailable observation details, and unauthorized sensitive observation details while keeping the TS route body shape aligned. |
 
 ## Next Checklist
 
@@ -329,6 +330,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: reject blank message route content with Python-compatible 400 responses.
 - [x] Continue Cowork Phase 10: reject blank add-task route titles with Python-compatible 400 responses.
 - [x] Continue Cowork Phase 10: return Python-compatible 400 responses for missing assign-task assignees.
+- [x] Continue Cowork Phase 10: return Python-compatible read-only observability route status codes for missing agent activity and unavailable/unauthorized observation details.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 
 - [x] 复核 `ts_native_core.md` 对应实现和 `rust-native-core-worker-migration` 完成状态。

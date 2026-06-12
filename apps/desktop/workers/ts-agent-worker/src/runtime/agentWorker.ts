@@ -735,7 +735,7 @@ export class AgentWorker {
         agentId: segments[3],
         limit: route.query.has("limit") ? Number.parseInt(route.query.get("limit") ?? "", 10) : undefined,
       });
-      return { status: 200, body: { activity } };
+      return { status: activity.available === false ? 404 : 200, body: { activity } };
     }
 
     if (resource === "observations" && segments.length === 4 && route.method === "GET") {
@@ -745,7 +745,9 @@ export class AgentWorker {
         detailId: segments[3],
         requesterAgentId: route.query.get("agent_id") ?? route.query.get("agentId") ?? undefined,
       });
-      return { status: 200, body: { detail } };
+      const state = typeof detail.state === "string" ? detail.state : "";
+      const status = state === "unavailable" ? 404 : state === "unauthorized" ? 403 : 200;
+      return { status, body: { detail } };
     }
 
     if (resource === "branches") {

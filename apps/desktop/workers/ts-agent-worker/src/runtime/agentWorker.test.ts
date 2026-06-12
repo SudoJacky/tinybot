@@ -1082,6 +1082,95 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("returns Python-compatible status codes for unavailable cowork observability route details", async () => {
+    const store = createMemoryCoworkStore();
+    const coworkService = new CoworkService({
+      store,
+      now: () => "2026-06-12T08:00:00.000Z",
+      idGenerator: (() => {
+        const counters = new Map<string, number>();
+        return (prefix: string) => {
+          const next = (counters.get(prefix) ?? 0) + 1;
+          counters.set(prefix, next);
+          return `${prefix}_${next}`;
+        };
+      })(),
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      coworkService,
+    });
+    const session = await coworkService.createSession({
+      traceId: "seed-observability-status",
+      goal: "Observability route status",
+      title: "Observability Status",
+      workflowMode: "team",
+      agents: [{ id: "lead", name: "Lead" }],
+    });
+    const seeded = await store.readSnapshot(session.id, "seed-sensitive-detail");
+    if (!seeded) {
+      throw new Error("missing observability status session");
+    }
+    seeded.observation_details["secret-detail"] = {
+      id: "secret-detail",
+      subject_id: "secret-detail",
+      subject_type: "tool",
+      state: "available",
+      summary: "Secret tool output",
+      content: "sensitive output",
+      sensitivity: "high",
+      permitted_agent_ids: ["lead"],
+    };
+    await store.writeSnapshot(seeded, "seed-sensitive-detail");
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "GET",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/agents/missing/activity`,
+    }))).resolves.toMatchObject({
+      result: {
+        status: 404,
+        body: {
+          activity: expect.objectContaining({
+            available: false,
+            error: "agent not found",
+          }),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "GET",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/observations/missing-detail`,
+    }))).resolves.toMatchObject({
+      result: {
+        status: 404,
+        body: {
+          detail: expect.objectContaining({
+            state: "unavailable",
+          }),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "GET",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/observations/secret-detail?agent_id=reviewer`,
+    }))).resolves.toMatchObject({
+      result: {
+        status: 403,
+        body: {
+          detail: expect.objectContaining({
+            state: "unauthorized",
+            content: "",
+            redacted: true,
+          }),
+        },
+      },
+    });
+  });
+
   test("routes cowork message and task mutation requests through the injected CoworkService", async () => {
     const coworkService = new CoworkService({
       store: createMemoryCoworkStore(),
