@@ -1155,6 +1155,13 @@ describe("gateway HTTP client", () => {
         path: "/v1/knowledge/rebuild-index?type=all&async_index=true",
       },
     });
+    await expect(client.knowledge.rebuildIndex("semantic")).resolves.toEqual({
+      native: true,
+      request: {
+        method: "POST",
+        path: "/v1/knowledge/rebuild-index?type=semantic&async_index=true",
+      },
+    });
     await expect(client.knowledge.graph()).resolves.toEqual({
       native: true,
       request: {

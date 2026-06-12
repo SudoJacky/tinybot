@@ -1036,6 +1036,10 @@ async function knowledgeJobResponse(
     const stats = knowledgeStatsBody(await provider.stats(traceId));
     return { status: 200, body: completedKnowledgeAllRebuildJob(stats, knowledgeAllRebuildResult(stats)) };
   }
+  if (jobId === "kjob_rebuild_semantic") {
+    const stats = knowledgeStatsBody(await provider.stats(traceId));
+    return { status: 200, body: completedKnowledgeSemanticRebuildJob(stats) };
+  }
   const docId = knowledgeUploadJobDocumentId(jobId);
   if (!docId) {
     return { status: 404, body: { error: `Knowledge job ${jobId} not found` } };
@@ -1058,7 +1062,7 @@ async function knowledgeRebuildIndexResponse(
     return { status: 503, body: { error: "Knowledge store not initialized" } };
   }
   const rebuildType = query.get("type") ?? "bm25";
-  if (rebuildType !== "bm25" && rebuildType !== "all") {
+  if (rebuildType !== "bm25" && rebuildType !== "all" && rebuildType !== "semantic") {
     return {
       status: 404,
       body: { error: `Knowledge rebuild type '${rebuildType}' not available natively` },
@@ -1066,7 +1070,11 @@ async function knowledgeRebuildIndexResponse(
   }
 
   const stats = knowledgeStatsBody(await provider.stats(traceId));
-  const result = rebuildType === "all" ? knowledgeAllRebuildResult(stats) : knowledgeBm25RebuildResult(stats);
+  const result = rebuildType === "all"
+    ? knowledgeAllRebuildResult(stats)
+    : rebuildType === "semantic"
+      ? knowledgeSemanticUnavailableResult()
+      : knowledgeBm25RebuildResult(stats);
   if (!booleanQuery(query.get("async_index"))) {
     return {
       status: 200,
@@ -1075,6 +1083,11 @@ async function knowledgeRebuildIndexResponse(
             message: "All available native knowledge indexes rebuilt successfully",
             ...result,
           }
+        : rebuildType === "semantic"
+          ? {
+              message: "Semantic index is not available in native TS worker",
+              ...result,
+            }
         : {
             message: "BM25 index rebuilt successfully",
             ...result,
@@ -1084,6 +1097,8 @@ async function knowledgeRebuildIndexResponse(
 
   const job = rebuildType === "all"
     ? completedKnowledgeAllRebuildJob(stats, result)
+    : rebuildType === "semantic"
+      ? completedKnowledgeSemanticRebuildJob(stats)
     : completedKnowledgeBm25RebuildJob(stats, result);
   return {
     status: 202,
@@ -1520,6 +1535,28 @@ function completedKnowledgeAllRebuildJob(
     graph_ready: graphReady,
     partial_availability: retrievalReady && !graphReady,
     result,
+  };
+}
+
+function completedKnowledgeSemanticRebuildJob(stats: Record<string, unknown>): Record<string, unknown> {
+  const retrievalReady = Boolean(stats.retrieval_ready) || (numberValue(stats.total_chunks) ?? 0) > 0;
+  const graphReady = Boolean(stats.graph_ready);
+  return {
+    id: "kjob_rebuild_semantic",
+    name: "rebuild:semantic",
+    status: "completed",
+    stage: "completed",
+    message: "Semantic index is not available in native TS worker",
+    processed: 2,
+    total: 2,
+    error: "",
+    stage_details: Array.isArray(stats.stage_details) ? stats.stage_details : [],
+    failed_stage_count: numberValue(stats.failed_stage_count) ?? 0,
+    stale_stage_count: numberValue(stats.stale_stage_count) ?? 0,
+    retrieval_ready: retrievalReady,
+    graph_ready: graphReady,
+    partial_availability: retrievalReady && !graphReady,
+    result: knowledgeSemanticUnavailableResult(),
   };
 }
 
