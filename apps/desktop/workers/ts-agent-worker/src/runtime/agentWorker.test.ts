@@ -1412,6 +1412,30 @@ describe("AgentWorker", () => {
         },
       },
     });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(String(sessionId))}/tasks/missing/retry`,
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: {
+          result: "Error: task 'missing' not found",
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(String(sessionId))}/tasks/missing/review`,
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: {
+          error: "Error: task 'missing' not found",
+        },
+      },
+    });
   });
 
   test("routes recipient-less swarm messages as user steering instructions", async () => {

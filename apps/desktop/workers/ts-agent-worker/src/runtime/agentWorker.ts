@@ -949,17 +949,25 @@ export class AgentWorker {
         sessionId: params.sessionId,
         taskId: params.taskId,
       });
-      return { status: 200, body: result };
+      return { status: result.result.startsWith("Error:") ? 400 : 200, body: result };
     }
     if (action === "review") {
       const params = parseCoworkTaskMutationParams({ ...body, session_id: sessionId, task_id: taskId }, "cowork.route_request");
-      const result = await this.coworkService.requestTaskReview({
-        traceId,
-        sessionId: params.sessionId,
-        taskId: params.taskId,
-        reviewerAgentId: params.reviewerAgentId,
-      });
-      return { status: 200, body: result };
+      try {
+        const result = await this.coworkService.requestTaskReview({
+          traceId,
+          sessionId: params.sessionId,
+          taskId: params.taskId,
+          reviewerAgentId: params.reviewerAgentId,
+        });
+        return { status: 200, body: result };
+      } catch (error) {
+        const message = errorMessage(error);
+        if (message.startsWith("Error:")) {
+          return { status: 400, body: { error: message } };
+        }
+        throw error;
+      }
     }
     return { status: 404, body: { error: "unsupported cowork task route", task_id: taskId, action } };
   }

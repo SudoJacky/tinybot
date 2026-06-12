@@ -265,6 +265,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: read-only graph, DAG, artifacts, organization, and queues routes now expose Python-compatible response keys while preserving existing TS route aliases for desktop callers. |
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: delete-session and final-result select/merge route errors now return Python-compatible 404/400 responses with `error` payloads instead of successful TS service result wrappers. |
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: missing-session route requests now return Python-compatible `404 {"error":"cowork session not found"}` responses for direct session reads and migrated service-backed detail routes instead of worker protocol failures. |
+| 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: task retry/review route business errors now return Python-compatible 400 responses instead of successful TS service wrappers or worker protocol failures. |
 
 ## Next Checklist
 
@@ -337,6 +338,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: expose Python-compatible read-only route response keys for graph, DAG, artifacts, organization, and queues while preserving TS aliases.
 - [x] Continue Cowork Phase 10: return Python-compatible 404/400 responses for delete-session and final-result select/merge route errors.
 - [x] Continue Cowork Phase 10: map missing-session service errors to Python-compatible 404 route responses instead of worker protocol failures.
+- [x] Continue Cowork Phase 10: return Python-compatible 400 responses for task retry/review route business errors.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 
 - [x] 复核 `ts_native_core.md` 对应实现和 `rust-native-core-worker-migration` 完成状态。
