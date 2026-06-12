@@ -1,6 +1,9 @@
 import { AgentRunner, type AgentRunnerCheckpoint, type AgentRunnerEvent } from "../agent/agentRunner.ts";
 import type { AgentMessage, AgentRunResult, AgentRunSpec } from "../agent/agentRunSpec.ts";
 import type { AgentRunInput, ContextBuildMetadata, ContextBridgeMetadata } from "../agent/contextTypes.ts";
+import { MessageBus } from "../bus/messageBus.ts";
+import type { InboundMessage, OutboundMessage } from "../bus/messageTypes.ts";
+import { ChannelRuntime } from "../channels/channelRuntime.ts";
 import { createDefaultCommandRouter } from "../command/commandRegistry.ts";
 import type { CommandRouter } from "../command/commandRouter.ts";
 import type {
@@ -482,6 +485,10 @@ export class AgentWorker {
 
     if (request.method === "transport.websocket_message") {
       return this.handleTransportWebSocketMessageRequest(request);
+    }
+
+    if (request.method === "channel.dispatch_inbound") {
+      return this.handleChannelDispatchInboundRequest(request);
     }
 
     if (request.method === "worker.provider.reload") {
@@ -2628,6 +2635,45 @@ export class AgentWorker {
     }
   }
 
+  private async handleChannelDispatchInboundRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    try {
+      const message = parseChannelDispatchInboundMessage(request.params);
+      const bus = new MessageBus();
+      const runtime = new ChannelRuntime({
+        bus,
+        runAgent: async (input) => {
+          const response = await this.handleRunInputRequest({
+            protocol_version: WORKER_PROTOCOL_VERSION,
+            id: `${request.id}:agent.run_input`,
+            trace_id: request.trace_id,
+            method: "agent.run_input",
+            params: { input },
+          });
+          if (response.error) {
+            throw new Error(response.error.message);
+          }
+          return response.result as AgentRunResult;
+        },
+      });
+      await bus.publishInbound(message);
+      const dispatched = await runtime.dispatchInboundAvailable(1);
+      const outboundMessages = bus.drainOutboundForTest();
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: {
+          dispatched,
+          outboundMessages,
+          outbound_messages: outboundMessages.map(outboundMessageToSnake),
+          diagnostics: runtime.diagnostics(),
+        },
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
   private webuiApprovalProvider() {
     if (!this.approvalBridge) {
       return undefined;
@@ -4127,6 +4173,58 @@ function parseRunInput(params: Record<string, unknown> | undefined): AgentRunInp
     toolResultBudget: numberParam(raw, "toolResultBudget", "tool_result_budget"),
     failOnToolError: booleanParam(raw, "failOnToolError", "fail_on_tool_error"),
     metadata: isJsonObject(raw.metadata) ? raw.metadata : undefined,
+  };
+}
+
+function parseChannelDispatchInboundMessage(params: Record<string, unknown> | undefined): InboundMessage {
+  if (!isJsonObject(params) || !isJsonObject(params.message)) {
+    throw new Error("channel.dispatch_inbound requires object params.message");
+  }
+  const raw = params.message;
+  const channel = requiredStringParam(raw, "channel.dispatch_inbound params.message.channel", "channel", "channel");
+  const senderId = requiredStringParam(raw, "channel.dispatch_inbound params.message.senderId", "senderId", "sender_id");
+  const chatId = requiredStringParam(raw, "channel.dispatch_inbound params.message.chatId", "chatId", "chat_id");
+  const content = requiredStringParam(raw, "channel.dispatch_inbound params.message.content", "content", "content");
+  return {
+    channel,
+    senderId,
+    chatId,
+    content,
+    timestamp: stringParam(raw, "timestamp", "timestamp") ?? new Date().toISOString(),
+    media: stringListValue(raw.media),
+    metadata: isJsonObject(raw.metadata) ? { ...raw.metadata } : {},
+    sessionKeyOverride:
+      stringParam(raw, "sessionKeyOverride", "session_key_override")
+      ?? stringParam(raw, "sessionKey", "session_key")
+      ?? null,
+  };
+}
+
+function requiredStringParam(
+  params: Record<string, unknown>,
+  label: string,
+  camelKey: string,
+  snakeKey: string,
+): string {
+  const value = stringParam(params, camelKey, snakeKey);
+  if (value === undefined) {
+    throw new Error(`${label} must be a string`);
+  }
+  return value;
+}
+
+function stringListValue(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function outboundMessageToSnake(message: OutboundMessage): Record<string, unknown> {
+  return {
+    channel: message.channel,
+    chat_id: message.chatId,
+    content: message.content,
+    reply_to: message.replyTo ?? null,
+    media: message.media,
+    metadata: message.metadata,
   };
 }
 

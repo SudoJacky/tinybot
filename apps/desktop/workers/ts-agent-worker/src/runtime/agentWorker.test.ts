@@ -166,6 +166,16 @@ function webuiRequest(method: string, params: Record<string, unknown> = {}): Wor
   };
 }
 
+function channelRequest(method: string, params: Record<string, unknown> = {}): WorkerRequest {
+  return {
+    protocol_version: "1",
+    id: `${method}-1`,
+    trace_id: `trace-${method}`,
+    method,
+    params,
+  };
+}
+
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((innerResolve) => {
@@ -269,6 +279,133 @@ describe("AgentWorker", () => {
         frames: [],
       },
     });
+  });
+
+  test("dispatches channel inbound envelopes through the agent run_input path", async () => {
+    const events: WorkerEvent[] = [];
+    const provider = new QueueProvider([
+      {
+        content: "channel done",
+        toolCalls: [],
+        stopReason: "stop",
+        usage: { inputTokens: 4, outputTokens: 2, totalTokens: 6, cachedTokens: 1 },
+      },
+    ]);
+    const loadedInputs: Array<{
+      runId: string;
+      sessionId: string;
+      channel?: string;
+      chatId?: string;
+      stream?: boolean;
+      metadata?: Record<string, unknown>;
+      traceId: string;
+    }> = [];
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: (event) => events.push(event),
+      contextBridge: {
+        loadContextInput: async (input, traceId) => {
+          loadedInputs.push({
+            runId: input.runId,
+            sessionId: input.sessionId,
+            channel: input.channel,
+            chatId: input.chatId,
+            stream: input.stream,
+            metadata: input.metadata,
+            traceId,
+          });
+          return {
+            input: {
+              identity: "Identity",
+              currentMessage: input.input.content,
+              runtime: {
+                currentTime: "2026-06-13 10:00:00 Asia/Shanghai",
+                channel: input.channel,
+                chatId: input.chatId,
+              },
+            },
+            metadata: {
+              missingSession: false,
+              malformedHistoryCount: 0,
+              missingBootstrapFiles: [],
+              bootstrapFallbackUsed: false,
+            },
+          };
+        },
+      },
+    });
+
+    const response = await worker.handleRequest(channelRequest("channel.dispatch_inbound", {
+      message: {
+        channel: "websocket",
+        sender_id: "client-1",
+        chat_id: "chat-1",
+        content: "hello from channel",
+        timestamp: "2026-06-13T02:00:00.000Z",
+        media: ["file://clip.png"],
+        metadata: { _wants_stream: true, message_id: "msg-1" },
+        session_key_override: "thread:42",
+      },
+    }));
+
+    expect(loadedInputs).toEqual([
+      expect.objectContaining({
+        runId: "channel-websocket-chat-1-1",
+        sessionId: "thread:42",
+        channel: "websocket",
+        chatId: "chat-1",
+        stream: true,
+        metadata: expect.objectContaining({
+          senderId: "client-1",
+          message_id: "msg-1",
+        }),
+        traceId: "trace-channel.dispatch_inbound",
+      }),
+    ]);
+    expect(provider.messages[0]?.at(-1)?.role).toBe("user");
+    expect(provider.messages[0]?.at(-1)?.content).toContain("hello from channel");
+    expect(response).toMatchObject({
+      protocol_version: "1",
+      id: "channel.dispatch_inbound-1",
+      trace_id: "trace-channel.dispatch_inbound",
+      result: {
+        dispatched: 1,
+        outboundMessages: [
+          expect.objectContaining({
+            channel: "websocket",
+            chatId: "chat-1",
+            content: "",
+            metadata: expect.objectContaining({
+              _usage: true,
+              usage_data: {
+                prompt_tokens: 4,
+                completion_tokens: 2,
+                total_tokens: 6,
+                cached_tokens: 1,
+              },
+            }),
+          }),
+          expect.objectContaining({
+            channel: "websocket",
+            chatId: "chat-1",
+            content: "",
+            metadata: expect.objectContaining({ _streamed: true }),
+          }),
+        ],
+        outbound_messages: [
+          expect.objectContaining({ channel: "websocket", chat_id: "chat-1" }),
+          expect.objectContaining({ channel: "websocket", chat_id: "chat-1" }),
+        ],
+      },
+    });
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "agent.done",
+      payload: expect.objectContaining({
+        runId: "channel-websocket-chat-1-1",
+        stopReason: "final_response",
+      }),
+    }));
   });
 
   test("serves WebUI tools control route through TS worker RPC", async () => {
