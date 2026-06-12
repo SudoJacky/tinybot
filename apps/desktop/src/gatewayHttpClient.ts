@@ -265,7 +265,11 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
       ),
     },
     sessions: {
-      list: () => request("/api/sessions"),
+      list: () => nativeOrGateway(
+        () => options.nativeWebui?.route({ method: "GET", path: "/api/sessions" }),
+        () => request("/api/sessions"),
+        "webui.sessions.list",
+      ),
       messages: (key: string) => request(`/api/sessions/${encodePathSegment(key)}/messages`),
       temporaryFiles: (key: string) => request(`/api/sessions/${encodePathSegment(key)}/temporary-files`),
       uploadTemporaryFile: (key: string, body: FormData) =>

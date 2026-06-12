@@ -209,6 +209,63 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("serves WebUI session list control route through TS worker RPC", async () => {
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      webuiSessionProvider: {
+        listSessions: () => [
+          {
+            sessionId: "websocket:chat-2",
+            title: "Fallback title",
+            createdAt: "2026-06-13T08:00:00.000Z",
+            updatedAt: "2026-06-13T09:00:00.000Z",
+            extra: {
+              messages: [
+                { role: "assistant", content: "not used" },
+                { role: "user", content: "  # Investigate native session list route with a long title  " },
+              ],
+            },
+          },
+          {
+            sessionId: "cli:chat-1",
+            title: "CLI session",
+            createdAt: "2026-06-13T07:00:00.000Z",
+            updatedAt: "2026-06-13T07:30:00.000Z",
+          },
+        ],
+      },
+    } as any);
+
+    await expect(worker.handleRequest(webuiRequest("webui.route_specs"))).resolves.toMatchObject({
+      result: {
+        routes: expect.arrayContaining([
+          { key: "list_sessions", method: "GET", path: "/api/sessions", public: false },
+        ]),
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
+      path: "/api/sessions",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          items: [
+            {
+              key: "websocket:chat-2",
+              chat_id: "chat-2",
+              title: "Investigate native session list rout...",
+              created_at: "2026-06-13T08:00:00.000Z",
+              updated_at: "2026-06-13T09:00:00.000Z",
+            },
+          ],
+        },
+      },
+    });
+  });
+
   test("returns Python-compatible cowork route unavailable errors", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),

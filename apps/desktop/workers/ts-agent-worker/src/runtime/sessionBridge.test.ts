@@ -2,6 +2,42 @@ import { describe, expect, test } from "vitest";
 import { NativeSessionBridge } from "./sessionBridge";
 
 describe("NativeSessionBridge", () => {
+  test("lists WebUI session metadata through native session.list_metadata", async () => {
+    const requests: Array<{ traceId: string; method: string; params: Record<string, unknown> }> = [];
+    const bridge = new NativeSessionBridge({
+      request: async (traceId, method, params) => {
+        requests.push({ traceId, method, params });
+        return [
+          {
+            session_id: "websocket:chat-1",
+            title: "Chat one",
+            workspace_dir: "D:/Code/py/tinybot",
+            created_at: "2026-06-13T08:00:00.000Z",
+            updated_at: "2026-06-13T09:00:00.000Z",
+            extra: { messages: [{ role: "user", content: "Hello" }] },
+          },
+        ];
+      },
+    });
+
+    await expect((bridge as any).listWebuiSessions("trace-webui")).resolves.toEqual([
+      {
+        sessionId: "websocket:chat-1",
+        title: "Chat one",
+        createdAt: "2026-06-13T08:00:00.000Z",
+        updatedAt: "2026-06-13T09:00:00.000Z",
+        extra: { messages: [{ role: "user", content: "Hello" }] },
+      },
+    ]);
+    expect(requests).toEqual([
+      {
+        traceId: "trace-webui",
+        method: "session.list_metadata",
+        params: {},
+      },
+    ]);
+  });
+
   test("clears a session through native session.clear", async () => {
     const requests: Array<{ traceId: string; method: string; params: Record<string, unknown> }> = [];
     const bridge = new NativeSessionBridge({

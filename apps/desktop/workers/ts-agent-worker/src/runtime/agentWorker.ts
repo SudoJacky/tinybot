@@ -33,6 +33,7 @@ import {
   handleWebuiRouteRequest,
   parseWebuiRouteRequest,
   webuiRouteSpecs,
+  type WebuiSessionProvider,
   type WebuiStatusProvider,
 } from "../webui/webuiRoutes.ts";
 import {
@@ -70,6 +71,7 @@ export type AgentWorkerOptions = {
   coworkService?: CoworkService;
   coworkScheduler?: CoworkScheduler;
   statusProvider?: WebuiStatusProvider;
+  webuiSessionProvider?: WebuiSessionProvider;
 };
 
 export type PrepareToolsHandler = (traceId: string) => Promise<unknown> | unknown;
@@ -195,6 +197,7 @@ export class AgentWorker {
   private readonly coworkService?: CoworkService;
   private readonly coworkScheduler?: CoworkScheduler;
   private readonly statusProvider?: WebuiStatusProvider;
+  private readonly webuiSessionProvider?: WebuiSessionProvider;
   private readonly commandRouter: CommandRouter;
   private readonly turnLifecycle: TurnLifecycle;
   private readonly activeRuns = new Map<string, ActiveRun>();
@@ -219,6 +222,7 @@ export class AgentWorker {
     this.coworkService = options.coworkService;
     this.coworkScheduler = options.coworkScheduler;
     this.statusProvider = options.statusProvider;
+    this.webuiSessionProvider = options.webuiSessionProvider;
     this.commandRouter = options.commandRouter ?? createDefaultCommandRouter({
       cancelActiveRunsForSession: (sessionId) => this.cancelActiveRunsForSession(sessionId),
       getStatusSnapshot: (context) => this.statusSnapshot(context.sessionId),
@@ -2535,7 +2539,12 @@ export class AgentWorker {
         protocol_version: WORKER_PROTOCOL_VERSION,
         id: request.id,
         trace_id: request.trace_id,
-        result: await handleWebuiRouteRequest(parseWebuiRouteRequest(request.params), this.statusProvider),
+        result: await handleWebuiRouteRequest(
+          parseWebuiRouteRequest(request.params),
+          this.statusProvider,
+          this.webuiSessionProvider,
+          request.trace_id,
+        ),
       };
     } catch (error) {
       return this.failure(request, errorMessage(error), {}, "invalid_protocol");

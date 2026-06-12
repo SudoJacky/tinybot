@@ -135,6 +135,7 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
   const mcpBridge = options.enableNativeMcpDiscovery === true && capabilities.includes("mcp.call")
     ? new NativeMcpBridge({ rpcClient, registry: options.tools })
     : undefined;
+  const sessionBridge = new NativeSessionBridge(rpcClient);
   const worker = new AgentWorker({
     provider,
     tools: options.tools,
@@ -155,7 +156,8 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     skillsBridge: new NativeSkillsBridge(rpcClient, options.env ?? process.env),
     approvalBridge: new NativeApprovalBridge(rpcClient),
     dreamBridge: new NativeDreamBridge(rpcClient),
-    sessionBridge: new NativeSessionBridge(rpcClient),
+    sessionBridge,
+    webuiSessionProvider: sessionBridge,
     memoryBridge: new NativeMemoryBridge(rpcClient),
     contextBridge: new NativeContextBridge(rpcClient),
     coworkService,

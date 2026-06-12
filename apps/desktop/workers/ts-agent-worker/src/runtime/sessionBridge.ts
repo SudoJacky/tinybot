@@ -1,13 +1,22 @@
 import type { AgentMessage } from "../agent/agentRunSpec.ts";
 import type { JsonObject } from "../protocol/messages.ts";
 import type { NativeRpcClient } from "../tools/nativeToolProxy.ts";
+import type { WebuiSessionMetadata, WebuiSessionProvider } from "../webui/webuiRoutes.ts";
 import type { ClearSessionResult, PersistTurnRequest, PersistTurnResult, SessionBridge } from "./agentWorker.ts";
 
-export class NativeSessionBridge implements SessionBridge {
+export class NativeSessionBridge implements SessionBridge, WebuiSessionProvider {
   private readonly rpcClient: NativeRpcClient;
 
   constructor(rpcClient: NativeRpcClient) {
     this.rpcClient = rpcClient;
+  }
+
+  async listSessions(traceId: string): Promise<WebuiSessionMetadata[]> {
+    return normalizeWebuiSessionMetadata(await this.rpcClient.request(traceId, "session.list_metadata", {}));
+  }
+
+  async listWebuiSessions(traceId: string): Promise<WebuiSessionMetadata[]> {
+    return this.listSessions(traceId);
   }
 
   async setCheckpoint(sessionId: string, checkpoint: Record<string, unknown>, traceId: string): Promise<void> {
@@ -85,6 +94,19 @@ function normalizeClearSessionResult(result: unknown, fallbackSessionId: string)
     messagesAfter: numberField(payload, "messagesAfter", "messages_after"),
     checkpointCleared: booleanField(payload, "checkpointCleared", "checkpoint_cleared"),
   };
+}
+
+function normalizeWebuiSessionMetadata(result: unknown): WebuiSessionMetadata[] {
+  if (!Array.isArray(result)) {
+    return [];
+  }
+  return result.filter(isJsonObject).map((payload) => ({
+    sessionId: stringField(payload, "sessionId", "session_id") ?? "",
+    title: stringField(payload, "title", "title") ?? "",
+    createdAt: stringField(payload, "createdAt", "created_at") ?? "",
+    updatedAt: stringField(payload, "updatedAt", "updated_at") ?? "",
+    extra: isJsonObject(payload.extra) ? payload.extra : {},
+  })).filter((session) => session.sessionId.length > 0);
 }
 
 function nativeSessionCheckpoint(checkpoint: Record<string, unknown>): JsonObject {
