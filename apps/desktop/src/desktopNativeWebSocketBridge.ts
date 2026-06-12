@@ -17,6 +17,8 @@ export type DesktopNativeWebSocketAgentEventName =
   | "agent.tool.start"
   | "agent.tool.result"
   | "agent.usage"
+  | "agent.awaiting_form"
+  | "agent.awaiting_approval"
   | "agent.done"
   | "agent.error";
 export type DesktopNativeWebSocketAgentEventHandler = (payload: unknown) => void;
@@ -32,12 +34,15 @@ const AGENT_EVENT_NAMES: DesktopNativeWebSocketAgentEventName[] = [
   "agent.tool.start",
   "agent.tool.result",
   "agent.usage",
+  "agent.awaiting_form",
+  "agent.awaiting_approval",
   "agent.done",
   "agent.error",
 ];
 
 type ActiveRun = {
   chatId: string;
+  sessionId?: string;
   messageId: string;
   streamed: boolean;
 };
@@ -155,6 +160,7 @@ class DesktopNativeWebSocket extends EventTarget {
     if (runId && chatId) {
       this.registerRun(runId, {
         chatId,
+        sessionId: stringValue(transport.sessionId) || stringValue(transport.session_id),
         messageId: stringValue(agent?.messageId) || stringValue(agent?.message_id) || runId,
         streamed: false,
       });
@@ -308,6 +314,19 @@ class DesktopNativeWebSocket extends EventTarget {
       });
       return;
     }
+    if (eventName === "agent.awaiting_form") {
+      this.emitAwaitingFormFrame(run, payload, runId);
+      return;
+    }
+    if (eventName === "agent.awaiting_approval") {
+      const approvalId = stringValue(payload.approvalId) || stringValue(payload.approval_id);
+      this.emitJson({
+        event: "approval_pending",
+        chat_id: run.chatId,
+        ...(approvalId ? { approval_id: approvalId } : {}),
+      });
+      return;
+    }
     if (eventName === "agent.error") {
       run.streamed = true;
       this.emitJson({
@@ -330,6 +349,37 @@ class DesktopNativeWebSocket extends EventTarget {
       this.completedStreamedRunIds.add(runId);
       this.clearToolCallDeltas(runId);
     }
+  }
+
+  private emitAwaitingFormFrame(run: ActiveRun, payload: Record<string, unknown>, runId: string): void {
+    const form = isRecord(payload.form) ? payload.form : {};
+    const formId = stringValue(payload.formId) || stringValue(payload.form_id) || stringValue(form.form_id);
+    if (!formId) {
+      return;
+    }
+    const correlation = isRecord(form.correlation) ? form.correlation : {};
+    const agentUiPayload = {
+      ...form,
+      form_id: formId,
+      correlation: {
+        ...correlation,
+        chat_id: stringValue(correlation.chat_id) || run.chatId,
+        form_id: stringValue(correlation.form_id) || formId,
+        run_id: stringValue(correlation.run_id) || runId,
+        ...(stringValue(correlation.session_id) || run.sessionId
+          ? { session_id: stringValue(correlation.session_id) || run.sessionId }
+          : {}),
+      },
+    };
+    this.emitJson({
+      event: "agent_ui_event",
+      chat_id: run.chatId,
+      agent_ui_event: {
+        event_type: "ui.form.requested",
+        chat_id: run.chatId,
+        payload: agentUiPayload,
+      },
+    });
   }
 
   private emitToolProgressFrame(

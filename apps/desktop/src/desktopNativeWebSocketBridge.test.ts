@@ -174,6 +174,88 @@ describe("desktop native WebSocket bridge", () => {
       _tool_result: true,
     });
   });
+
+  test("projects TS worker awaiting interaction events into legacy WebUI frames", async () => {
+    const handlers = new Map<DesktopNativeWebSocketAgentEventName, (payload: unknown) => void>();
+    const nativeTransport: NativeTransportApi = {
+      gatewayFrame: vi.fn(),
+      websocketMessage: vi.fn(),
+      dispatchWebsocketMessage: vi.fn(async () => ({
+        transport: {
+          kind: "message",
+          chatId: "chat-native",
+          sessionId: "websocket:chat-native",
+          frames: [],
+        },
+        agent: {
+          runId: "run-3",
+          stopReason: "awaiting_form",
+        },
+      })),
+    };
+    const socket = createDesktopNativeWebSocket({
+      url: "/ws",
+      nativeTransport,
+      listenToAgentEvent: (eventName, handler) => {
+        handlers.set(eventName, handler);
+      },
+    });
+    const events: Array<Record<string, unknown>> = [];
+    socket.addEventListener("message", (event) => {
+      events.push(JSON.parse(String((event as MessageEvent).data)) as Record<string, unknown>);
+    });
+
+    await flushMicrotasks();
+    socket.send(JSON.stringify({ type: "message", chat_id: "chat-native", content: "hello" }));
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(handlers.get("agent.awaiting_form")).toBeDefined();
+    expect(handlers.get("agent.awaiting_approval")).toBeDefined();
+
+    handlers.get("agent.awaiting_form")?.({
+      runId: "run-3",
+      formId: "travel-form",
+      form: {
+        form_id: "travel-form",
+        title: "Travel preferences",
+        fields: [{ name: "destination", label: "Destination", type: "text" }],
+        correlation: { reason: "trip" },
+      },
+      stopReason: "awaiting_form",
+    });
+    handlers.get("agent.awaiting_approval")?.({
+      runId: "run-3",
+      approvalId: "approval-1",
+      stopReason: "awaiting_approval",
+    });
+
+    expect(events).toContainEqual({
+      event: "agent_ui_event",
+      chat_id: "chat-native",
+      agent_ui_event: {
+        event_type: "ui.form.requested",
+        chat_id: "chat-native",
+        payload: {
+          form_id: "travel-form",
+          title: "Travel preferences",
+          fields: [{ name: "destination", label: "Destination", type: "text" }],
+          correlation: {
+            reason: "trip",
+            chat_id: "chat-native",
+            form_id: "travel-form",
+            run_id: "run-3",
+            session_id: "websocket:chat-native",
+          },
+        },
+      },
+    });
+    expect(events).toContainEqual({
+      event: "approval_pending",
+      chat_id: "chat-native",
+      approval_id: "approval-1",
+    });
+  });
 });
 
 async function flushMicrotasks(): Promise<void> {
