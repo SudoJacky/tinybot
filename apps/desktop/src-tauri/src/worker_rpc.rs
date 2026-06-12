@@ -1,4 +1,7 @@
 use crate::config_store::{ConfigPatchBridgeResult, ConfigStore};
+use crate::worker_background::{
+    BackgroundRunCompleteParams, BackgroundRunUpsertParams, WorkerBackgroundRpc,
+};
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_config::WorkerConfigRpc;
 use crate::worker_cron::{
@@ -40,6 +43,7 @@ pub struct WorkerRpcRouter {
     knowledge: WorkerKnowledgeRpc,
     task: WorkerTaskRpc,
     cron: WorkerCronRpc,
+    background: WorkerBackgroundRpc,
     mcp: WorkerMcpRpc,
     config_store: Option<ConfigStore>,
 }
@@ -65,6 +69,7 @@ impl WorkerRpcRouter {
             knowledge: WorkerKnowledgeRpc::new(workspace_root.clone(), policy.clone()),
             task: WorkerTaskRpc::new(workspace_root.clone(), policy.clone()),
             cron: WorkerCronRpc::new(workspace_root.clone(), policy.clone()),
+            background: WorkerBackgroundRpc::new(workspace_root.clone(), policy.clone()),
             mcp: WorkerMcpRpc::new(config_snapshot, policy),
             config_store: None,
         }
@@ -380,6 +385,19 @@ impl WorkerRpcRouter {
             "cron.job.remove" => {
                 let params: CronJobRemoveParams = parse_params(request)?;
                 serde_json::to_value(self.cron.remove_job(params)?).map_err(serialization_error)
+            }
+            "background.run.list" => {
+                serde_json::to_value(self.background.list_runs()?).map_err(serialization_error)
+            }
+            "background.run.upsert" => {
+                let params: BackgroundRunUpsertParams = parse_params(request)?;
+                serde_json::to_value(self.background.upsert_run(params)?)
+                    .map_err(serialization_error)
+            }
+            "background.run.complete" => {
+                let params: BackgroundRunCompleteParams = parse_params(request)?;
+                serde_json::to_value(self.background.complete_run(params)?)
+                    .map_err(serialization_error)
             }
             "mcp.call_tool" => {
                 let params: McpCallToolParams = parse_params(request)?;
@@ -5093,6 +5111,123 @@ mod tests {
         assert_eq!(every["state"]["nextRunAtMs"], 63000);
         assert_eq!(every["state"]["runHistory"][0]["durationMs"], 25);
         assert!(!fixture.read("cron/jobs.json").contains("due-at"));
+    }
+
+    #[test]
+    fn dispatches_background_run_registry_round_trip_requests() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::BackgroundRead,
+                WorkerCapability::BackgroundWrite,
+            ]),
+        );
+
+        let upsert_response = router.dispatch(&WorkerRequest::new(
+            "req-background-upsert",
+            "trace-1",
+            "background.run.upsert",
+            json!({
+                "run": {
+                    "id": "subagent-1",
+                    "kind": "subagent",
+                    "source": "task",
+                    "status": "running",
+                    "label": "Inspect",
+                    "sessionKey": "desktop:chat-1",
+                    "planId": "plan-1",
+                    "subtaskId": "a",
+                    "startedAtMs": 1000,
+                    "updatedAtMs": 1000,
+                    "metadata": { "traceId": "trace-1" }
+                }
+            }),
+        ));
+        assert_eq!(upsert_response.error, None);
+        assert_eq!(
+            upsert_response.result.as_ref().unwrap()["run"]["id"],
+            "subagent-1"
+        );
+        assert!(fixture
+            .read("background/registry.json")
+            .contains("subagent-1"));
+
+        let list_response = router.dispatch(&WorkerRequest::new(
+            "req-background-list",
+            "trace-1",
+            "background.run.list",
+            json!({}),
+        ));
+        assert_eq!(list_response.error, None);
+        assert_eq!(
+            list_response.result.as_ref().unwrap()["runs"][0]["status"],
+            "running"
+        );
+
+        let complete_response = router.dispatch(&WorkerRequest::new(
+            "req-background-complete",
+            "trace-1",
+            "background.run.complete",
+            json!({
+                "run_id": "subagent-1",
+                "status": "completed",
+                "completedAtMs": 2000,
+                "result": "inspection complete"
+            }),
+        ));
+        assert_eq!(complete_response.error, None);
+        assert_eq!(
+            complete_response.result.as_ref().unwrap()["run"]["status"],
+            "completed"
+        );
+        assert_eq!(
+            complete_response.result.as_ref().unwrap()["run"]["result"],
+            "inspection complete"
+        );
+        assert_eq!(
+            complete_response.result.as_ref().unwrap()["run"]["completedAtMs"],
+            2000
+        );
+    }
+
+    #[test]
+    fn denies_background_run_write_without_write_capability() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::BackgroundRead]),
+        );
+
+        let response = router.dispatch(&WorkerRequest::new(
+            "req-background-upsert",
+            "trace-1",
+            "background.run.upsert",
+            json!({
+                "run": {
+                    "id": "subagent-1",
+                    "kind": "subagent",
+                    "source": "task",
+                    "status": "running",
+                    "startedAtMs": 1000,
+                    "updatedAtMs": 1000
+                }
+            }),
+        ));
+
+        let error = response.error.expect("background write should be denied");
+        assert_eq!(
+            error.code,
+            crate::worker_protocol::WorkerProtocolErrorCode::CapabilityDenied
+        );
+        assert_eq!(error.details["capability"], "background.write");
+        assert!(response.result.is_none());
     }
 
     #[test]

@@ -1,3 +1,10 @@
+import type {
+  BackgroundRunCompletion,
+  BackgroundRunRecord,
+  BackgroundRunRegistry,
+  BackgroundRunStatus,
+} from "./backgroundRegistryBridge.ts";
+
 export type SubagentStatus = "completed" | "failed";
 
 export interface SubagentSpawnRequest {
@@ -43,6 +50,8 @@ export interface SubagentRuntimeOptions {
   maxConcurrent?: number;
   timeoutMs?: number;
   idGenerator?: () => string;
+  nowMs?: () => number;
+  registry?: BackgroundRunRegistry;
   runner: (request: SubagentRunRequest) => Promise<SubagentRunResult>;
 }
 
@@ -60,6 +69,8 @@ export class SubagentRuntime {
   private readonly maxConcurrent: number;
   private readonly timeoutMs: number;
   private readonly idGenerator: () => string;
+  private readonly nowMs: () => number;
+  private readonly registry?: BackgroundRunRegistry;
   private readonly runner: SubagentRuntimeOptions["runner"];
   private readonly queue: QueuedSubagent[] = [];
   private readonly active = new Map<string, QueuedSubagent>();
@@ -69,6 +80,8 @@ export class SubagentRuntime {
     this.maxConcurrent = Math.max(1, options.maxConcurrent ?? DEFAULT_MAX_CONCURRENT);
     this.timeoutMs = Math.max(1, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
     this.idGenerator = options.idGenerator ?? randomSubagentId;
+    this.nowMs = options.nowMs ?? Date.now;
+    this.registry = options.registry;
     this.runner = options.runner;
   }
 
@@ -80,6 +93,7 @@ export class SubagentRuntime {
     const shouldQueue = this.active.size >= this.maxConcurrent;
     if (shouldQueue) {
       this.queue.push(queued);
+      this.recordRun(queued, "queued");
     } else {
       this.start(queued);
     }
@@ -119,6 +133,7 @@ export class SubagentRuntime {
 
   private start(entry: QueuedSubagent): void {
     this.active.set(entry.id, entry);
+    this.recordRun(entry, "running");
     void this.run(entry);
   }
 
@@ -155,6 +170,7 @@ export class SubagentRuntime {
   private async complete(entry: QueuedSubagent, result: SubagentRunResult): Promise<void> {
     this.active.delete(entry.id);
     this.untrackSession(entry.request.sessionKey, entry.id);
+    this.recordCompletion(entry, result);
     try {
       await entry.request.onComplete?.({
         id: entry.id,
@@ -205,6 +221,7 @@ export class SubagentRuntime {
       if (predicate(queued)) {
         this.queue.splice(index, 1);
         this.untrackSession(queued.request.sessionKey, queued.id);
+        this.recordCompletion(queued, cancelledResult());
         cancelled += 1;
       }
     }
@@ -216,6 +233,54 @@ export class SubagentRuntime {
     }
     return cancelled;
   }
+
+  private recordRun(entry: QueuedSubagent, status: Extract<BackgroundRunStatus, "queued" | "running">): void {
+    const now = this.nowMs();
+    const record: BackgroundRunRecord = {
+      id: entry.id,
+      kind: "subagent",
+      source: "task",
+      status,
+      label: entry.label,
+      sessionKey: entry.request.sessionKey,
+      planId: stringMetadata(entry.request.metadata, "planId"),
+      subtaskId: stringMetadata(entry.request.metadata, "subtaskId"),
+      startedAtMs: now,
+      updatedAtMs: now,
+      metadata: { ...(entry.request.metadata ?? {}) },
+    };
+    void this.registry?.upsertRun(record, traceIdFor(entry)).catch(() => {});
+  }
+
+  private recordCompletion(entry: QueuedSubagent, result: SubagentRunResult): void {
+    const completion: BackgroundRunCompletion = {
+      runId: entry.id,
+      status: completionStatus(entry, result),
+      completedAtMs: this.nowMs(),
+      result: result.result,
+      error: result.error ?? null,
+    };
+    void this.registry?.completeRun(completion, traceIdFor(entry)).catch(() => {});
+  }
+}
+
+function traceIdFor(entry: QueuedSubagent): string {
+  return stringMetadata(entry.request.metadata, "traceId") ?? `trace-subagent-${entry.id}`;
+}
+
+function stringMetadata(metadata: Record<string, unknown> | undefined, key: string): string | undefined {
+  const value = metadata?.[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function completionStatus(
+  entry: QueuedSubagent,
+  result: SubagentRunResult,
+): Extract<BackgroundRunStatus, "completed" | "failed" | "cancelled"> {
+  if (entry.controller.signal.aborted) {
+    return "cancelled";
+  }
+  return result.status;
 }
 
 function shortLabel(task: string): string {

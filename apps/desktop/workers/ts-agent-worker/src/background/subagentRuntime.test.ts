@@ -227,6 +227,77 @@ describe("SubagentRuntime", () => {
     expect(runtime.getSessionSubagentIds("desktop:chat-4")).toEqual([]);
     expect(runtime.getRunningCount()).toBe(0);
   });
+
+  test("records queued, running, and completed subagents in the background registry", async () => {
+    const gates = [deferred<string>(), deferred<string>()];
+    const upserts: Array<{ id: string; status: string; planId?: string; subtaskId?: string }> = [];
+    const completes: Array<{ id: string; status: string; result: string }> = [];
+    const runtime = new SubagentRuntime({
+      maxConcurrent: 1,
+      timeoutMs: 1000,
+      idGenerator: (() => {
+        let index = 0;
+        return () => `subagent-${index += 1}`;
+      })(),
+      nowMs: (() => {
+        let now = 1000;
+        return () => {
+          now += 1;
+          return now;
+        };
+      })(),
+      registry: {
+        upsertRun: async (run) => {
+          upserts.push({
+            id: run.id,
+            status: run.status,
+            planId: run.planId,
+            subtaskId: run.subtaskId,
+          });
+        },
+        completeRun: async (completion) => {
+          completes.push({
+            id: completion.runId,
+            status: completion.status,
+            result: completion.result ?? "",
+          });
+        },
+      },
+      runner: async (request: SubagentRunRequest) => {
+        const index = request.id === "subagent-1" ? 0 : 1;
+        return { status: "completed", result: await gates[index].promise };
+      },
+    });
+
+    await runtime.spawn({
+      task: "Inspect Python task runtime",
+      label: "Inspect",
+      sessionKey: "desktop:chat-5",
+      metadata: { planId: "plan-1", subtaskId: "a" },
+    });
+    await runtime.spawn({
+      task: "Implement TS runtime",
+      label: "Implement",
+      sessionKey: "desktop:chat-5",
+      metadata: { planId: "plan-1", subtaskId: "b" },
+    });
+    await waitFor(() => upserts.length === 2);
+
+    gates[0].resolve("inspection complete");
+    await waitFor(() => upserts.length === 3);
+    gates[1].resolve("implementation complete");
+    await waitFor(() => completes.length === 2);
+
+    expect(upserts).toEqual([
+      { id: "subagent-1", status: "running", planId: "plan-1", subtaskId: "a" },
+      { id: "subagent-2", status: "queued", planId: "plan-1", subtaskId: "b" },
+      { id: "subagent-2", status: "running", planId: "plan-1", subtaskId: "b" },
+    ]);
+    expect(completes).toEqual([
+      { id: "subagent-1", status: "completed", result: "inspection complete" },
+      { id: "subagent-2", status: "completed", result: "implementation complete" },
+    ]);
+  });
 });
 
 async function waitFor(condition: () => boolean, attempts = 20): Promise<void> {

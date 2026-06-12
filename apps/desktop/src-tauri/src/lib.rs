@@ -18,6 +18,7 @@ use tauri::{
 };
 
 pub mod config_store;
+pub mod worker_background;
 pub mod worker_capability;
 pub mod worker_config;
 pub mod worker_connection;
@@ -2071,6 +2072,8 @@ fn experimental_worker_router(
             WorkerCapability::CronRead,
             WorkerCapability::CronWrite,
             WorkerCapability::CronRun,
+            WorkerCapability::BackgroundRead,
+            WorkerCapability::BackgroundWrite,
             WorkerCapability::McpCall,
             WorkerCapability::SessionMetadataRead,
             WorkerCapability::SessionWrite,

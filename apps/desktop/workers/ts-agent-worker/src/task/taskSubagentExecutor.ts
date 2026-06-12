@@ -1,5 +1,6 @@
 import { AgentRunner } from "../agent/agentRunner.ts";
 import type { AgentMessage } from "../agent/agentRunSpec.ts";
+import type { BackgroundRunRegistry } from "../background/backgroundRegistryBridge.ts";
 import { SubagentRuntime, type SubagentRunRequest } from "../background/subagentRuntime.ts";
 import type { ModelProvider } from "../model/provider.ts";
 import { ToolRegistry } from "../tools/toolRegistry.ts";
@@ -13,6 +14,7 @@ export interface TaskProviderSubagentExecutorOptions {
   timeoutMs?: number;
   idGenerator?: () => string;
   runnerTools?: ToolRegistry;
+  registry?: BackgroundRunRegistry;
   maxIterations?: number;
   toolResultBudget?: number;
 }
@@ -35,6 +37,7 @@ export class TaskProviderSubagentExecutor {
       maxConcurrent: options.maxConcurrent,
       timeoutMs: options.timeoutMs,
       idGenerator: options.idGenerator,
+      registry: options.registry,
       runner: (request) => this.runSubagent(request),
     });
   }

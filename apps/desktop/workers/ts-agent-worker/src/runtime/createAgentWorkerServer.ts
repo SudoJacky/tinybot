@@ -18,6 +18,7 @@ import {
 } from "../tools/nativeToolProxy.ts";
 import { registerToolsByPolicy } from "../tools/toolPolicy.ts";
 import type { ToolRegistry } from "../tools/toolRegistry.ts";
+import { NativeBackgroundRegistryBridge } from "../background/backgroundRegistryBridge.ts";
 import { NativeApprovalBridge } from "./approvalBridge.ts";
 import { AgentWorker } from "./agentWorker.ts";
 import {
@@ -78,7 +79,12 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
       ...createNativeRagTools(rpcClient),
       ...createNativeMcpTools(rpcClient),
       ...createNativeCronTools(rpcClient),
-      ...createNativeTaskTools(rpcClient, { provider }),
+      ...createNativeTaskTools(rpcClient, {
+        provider,
+        backgroundRegistry: capabilities.includes("background.write")
+          ? new NativeBackgroundRegistryBridge(rpcClient)
+          : undefined,
+      }),
     ],
     {
       capabilities,
@@ -137,6 +143,8 @@ const DEFAULT_NATIVE_TOOL_CAPABILITIES = [
   "mcp.call",
   "cron.read",
   "cron.write",
+  "background.read",
+  "background.write",
   "task.read",
   "task.write",
 ];

@@ -45,6 +45,10 @@ pub enum WorkerCapability {
     CronWrite,
     #[serde(rename = "cron.run")]
     CronRun,
+    #[serde(rename = "background.read")]
+    BackgroundRead,
+    #[serde(rename = "background.write")]
+    BackgroundWrite,
     #[serde(rename = "mcp.call")]
     McpCall,
     #[serde(rename = "shell.execute")]
@@ -97,6 +101,8 @@ mod tests {
         assert!(!policy.allows(&WorkerCapability::CronRead));
         assert!(!policy.allows(&WorkerCapability::CronWrite));
         assert!(!policy.allows(&WorkerCapability::CronRun));
+        assert!(!policy.allows(&WorkerCapability::BackgroundRead));
+        assert!(!policy.allows(&WorkerCapability::BackgroundWrite));
         assert!(!policy.allows(&WorkerCapability::McpCall));
         assert!(!policy.allows(&WorkerCapability::ShellExecute));
     }
@@ -209,6 +215,33 @@ mod tests {
             json!({
                 "capability": "memory.write",
                 "scope": "memory://notes"
+            })
+        );
+    }
+
+    #[test]
+    fn background_capability_names_serialize_as_protocol_strings() {
+        let read = CapabilityGrant {
+            capability: WorkerCapability::BackgroundRead,
+            scope: "background://registry".to_string(),
+        };
+        let write = CapabilityGrant {
+            capability: WorkerCapability::BackgroundWrite,
+            scope: "background://registry".to_string(),
+        };
+
+        assert_eq!(
+            serde_json::to_value(read).expect("grant should serialize"),
+            json!({
+                "capability": "background.read",
+                "scope": "background://registry"
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(write).expect("grant should serialize"),
+            json!({
+                "capability": "background.write",
+                "scope": "background://registry"
             })
         );
     }

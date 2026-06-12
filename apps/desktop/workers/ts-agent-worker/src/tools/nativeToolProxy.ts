@@ -1,4 +1,5 @@
 import type { JsonObject } from "../protocol/messages.ts";
+import type { BackgroundRunRegistry } from "../background/backgroundRegistryBridge.ts";
 import { NativeCronBridge } from "../cron/cronBridge.ts";
 import { createCronTool } from "../cron/cronTool.ts";
 import { formatKnowledgeQueryResults, normalizeKnowledgeQueryResults } from "../knowledge/knowledgeFormatting.ts";
@@ -65,7 +66,7 @@ export function createNativeCronTools(rpcClient: NativeRpcClient): Tool[] {
 
 export function createNativeTaskTools(
   rpcClient: NativeRpcClient,
-  options: { provider?: ModelProvider; model?: string; workspace?: string } = {},
+  options: { provider?: ModelProvider; model?: string; workspace?: string; backgroundRegistry?: BackgroundRunRegistry } = {},
 ): Tool[] {
   const planner = options.provider
     ? new TaskPlanner({
@@ -79,6 +80,7 @@ export function createNativeTaskTools(
       provider: options.provider,
       model: options.model,
       runnerTools: createNativeSubagentToolRegistry(rpcClient),
+      registry: options.backgroundRegistry,
     })
     : undefined;
   return [createTaskTool({ store: new NativeTaskStoreBridge(rpcClient), planner, executor })];
