@@ -738,6 +738,43 @@ describe("gateway HTTP client", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
+  test("prefers native WebUI session temporary file upload when available", async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
+    const nativeWebui = {
+      route: vi.fn(async (request: { method: string; path: string; body?: unknown }) => ({
+        id: "session_doc_1",
+        name: "context.md",
+        file_type: "md",
+        temporary: true,
+        request,
+      })),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeWebui,
+    });
+    const form = new FormData();
+    form.append("file", new File(["hello native"], "context.md", { type: "text/markdown" }));
+
+    await expect(client.sessions.uploadTemporaryFile("websocket:chat-1", form)).resolves.toMatchObject({
+      id: "session_doc_1",
+      name: "context.md",
+      file_type: "md",
+    });
+    expect(nativeWebui.route).toHaveBeenCalledWith({
+      method: "POST",
+      path: "/api/sessions/websocket%3Achat-1/temporary-files",
+      body: {
+        name: "context.md",
+        file_type: "md",
+        content: "hello native",
+        size_bytes: 12,
+      },
+    });
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
   test("prefers native WebUI skills read routes when available", async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
     const nativeWebui = {

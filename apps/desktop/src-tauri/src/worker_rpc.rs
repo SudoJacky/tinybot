@@ -237,6 +237,16 @@ impl WorkerRpcRouter {
                 )
                 .map_err(serialization_error)
             }
+            "session.temporary_file.upload" => {
+                let params: SessionTemporaryFileUploadParams = parse_params(request)?;
+                self.session.upload_temporary_file(
+                    &params.session_id,
+                    &params.name,
+                    &params.file_type,
+                    &params.content,
+                    params.size_bytes.unwrap_or_else(|| params.content.len() as u64),
+                )
+            }
             "session.append_messages" => {
                 let params: SessionAppendMessagesParams = parse_params(request)?;
                 serde_json::to_value(
@@ -2056,6 +2066,15 @@ struct SessionCheckpointParams {
 struct SessionPatchMetadataParams {
     session_id: String,
     metadata: Value,
+}
+
+#[derive(Deserialize)]
+struct SessionTemporaryFileUploadParams {
+    session_id: String,
+    name: String,
+    file_type: String,
+    content: String,
+    size_bytes: Option<u64>,
 }
 
 #[derive(Deserialize)]

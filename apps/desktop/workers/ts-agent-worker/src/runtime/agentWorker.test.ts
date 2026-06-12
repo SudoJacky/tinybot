@@ -1286,6 +1286,74 @@ describe("AgentWorker", () => {
     ]);
   });
 
+  test("serves WebUI session temporary file upload route through TS worker RPC", async () => {
+    const uploadRequests: Array<{
+      sessionId: string;
+      upload: { name: string; fileType: string; content: string; sizeBytes: number };
+      traceId: string;
+    }> = [];
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      webuiSessionProvider: {
+        listSessions: () => [],
+        uploadTemporaryFile: (
+          sessionId: string,
+          upload: { name: string; fileType: string; content: string; sizeBytes: number },
+          traceId: string,
+        ) => {
+          uploadRequests.push({ sessionId, upload, traceId });
+          return {
+            id: "session_doc_1",
+            name: upload.name,
+            file_type: upload.fileType,
+            chunk_count: 1,
+            size_bytes: upload.sizeBytes,
+            temporary: true,
+          };
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(webuiRequest("webui.route_specs"))).resolves.toMatchObject({
+      result: {
+        routes: expect.arrayContaining([
+          { key: "upload_temporary_file", method: "POST", path: "/api/sessions/{key}/temporary-files", public: false },
+        ]),
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/api/sessions/websocket%3Achat-1/temporary-files",
+      body: {
+        name: "note.txt",
+        content: "hello",
+        file_type: "txt",
+        size_bytes: 5,
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          id: "session_doc_1",
+          name: "note.txt",
+          file_type: "txt",
+          chunk_count: 1,
+          size_bytes: 5,
+          temporary: true,
+        },
+      },
+    });
+    expect(uploadRequests).toEqual([
+      {
+        sessionId: "websocket:chat-1",
+        upload: { name: "note.txt", fileType: "txt", content: "hello", sizeBytes: 5 },
+        traceId: "trace-webui.handle_request",
+      },
+    ]);
+  });
+
   test("returns Python-compatible cowork route unavailable errors", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),

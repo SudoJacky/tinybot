@@ -295,8 +295,17 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         () => request(`/api/sessions/${encodePathSegment(key)}/temporary-files`),
         "webui.sessions.temporaryFiles",
       ),
-      uploadTemporaryFile: (key: string, body: FormData) =>
-        request(`/api/sessions/${encodePathSegment(key)}/temporary-files`, formRequest("POST", body)),
+      uploadTemporaryFile: (key: string, body: FormData) => nativeOrGateway(
+        () => options.nativeWebui
+          ? nativeTemporaryFileUploadBody(body).then((uploadBody) => options.nativeWebui?.route({
+            method: "POST",
+            path: `/api/sessions/${encodePathSegment(key)}/temporary-files`,
+            body: uploadBody,
+          }))
+          : undefined,
+        () => request(`/api/sessions/${encodePathSegment(key)}/temporary-files`, formRequest("POST", body)),
+        "webui.sessions.uploadTemporaryFile",
+      ),
       delete: (key: string) => nativeOrGateway(
         () => options.nativeWebui?.route({ method: "DELETE", path: `/api/sessions/${encodePathSegment(key)}` }),
         () => request(`/api/sessions/${encodePathSegment(key)}`, { method: "DELETE" }),
@@ -1098,6 +1107,24 @@ function formRequest(method: string, body: FormData): RequestInit {
     method,
     body,
   };
+}
+
+async function nativeTemporaryFileUploadBody(body: FormData): Promise<Record<string, unknown>> {
+  const file = body.get("file");
+  if (!(file instanceof File)) {
+    return {};
+  }
+  return {
+    name: file.name,
+    file_type: extensionFromName(file.name),
+    content: await file.text(),
+    size_bytes: file.size,
+  };
+}
+
+function extensionFromName(name: string): string {
+  const match = /\.([^.\\/]+)$/.exec(name);
+  return match?.[1]?.toLowerCase() ?? "";
 }
 
 function encodePathSegment(value: string): string {

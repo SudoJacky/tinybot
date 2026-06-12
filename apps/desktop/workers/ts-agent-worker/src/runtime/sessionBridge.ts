@@ -8,6 +8,7 @@ import type {
   WebuiSessionMetadata,
   WebuiSessionProfile,
   WebuiSessionTemporaryFiles,
+  WebuiTemporaryFileUpload,
   WebuiSessionProvider,
 } from "../webui/webuiRoutes.ts";
 import type { ClearSessionResult, PersistTurnRequest, PersistTurnResult, SessionBridge } from "./agentWorker.ts";
@@ -66,6 +67,21 @@ export class NativeSessionBridge implements SessionBridge, WebuiSessionProvider 
       session_id: sessionId,
     });
     return normalizeWebuiTemporaryFiles(result, sessionId);
+  }
+
+  async uploadTemporaryFile(
+    sessionId: string,
+    upload: WebuiTemporaryFileUpload,
+    traceId: string,
+  ): Promise<Record<string, unknown>> {
+    const result = await this.rpcClient.request(traceId, "session.temporary_file.upload", {
+      session_id: sessionId,
+      name: upload.name,
+      file_type: upload.fileType,
+      content: upload.content,
+      size_bytes: upload.sizeBytes,
+    });
+    return isJsonObject(result) ? result : {};
   }
 
   async deleteSession(sessionId: string, traceId: string): Promise<WebuiDeleteSessionResult> {

@@ -77,6 +77,13 @@ export type WebuiSessionTemporaryFiles = {
   items: Record<string, unknown>[];
 };
 
+export type WebuiTemporaryFileUpload = {
+  name: string;
+  fileType: string;
+  content: string;
+  sizeBytes: number;
+};
+
 export type WebuiClearSessionResult = {
   sessionId: string;
   messagesBefore: number;
@@ -109,6 +116,11 @@ export type WebuiSessionProvider = {
     sessionId: string,
     traceId: string,
   ): Promise<WebuiSessionTemporaryFiles> | WebuiSessionTemporaryFiles;
+  uploadTemporaryFile?(
+    sessionId: string,
+    upload: WebuiTemporaryFileUpload,
+    traceId: string,
+  ): Promise<Record<string, unknown>> | Record<string, unknown>;
   clearSession?(
     sessionId: string,
     traceId: string,
@@ -232,6 +244,7 @@ const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
   { key: "delete_session", method: "DELETE", path: "/api/sessions/{key}", public: false },
   { key: "clear_session", method: "POST", path: "/api/sessions/{key}/clear", public: false },
   { key: "list_temporary_files", method: "GET", path: "/api/sessions/{key}/temporary-files", public: false },
+  { key: "upload_temporary_file", method: "POST", path: "/api/sessions/{key}/temporary-files", public: false },
   { key: "get_skills", method: "GET", path: "/api/skills", public: false },
   { key: "create_skill", method: "POST", path: "/api/skills", public: false },
   { key: "get_skill_detail", method: "GET", path: "/api/skills/{name}", public: false },
@@ -415,6 +428,9 @@ export async function handleWebuiRouteRequest(
   }
   const temporaryFilesKey = temporaryFilesPathKey(method, path);
   if (temporaryFilesKey !== undefined) {
+    if (method === "POST") {
+      return webuiTemporaryFileUploadResponse(temporaryFilesKey, request.body, sessionProvider, traceId);
+    }
     if (!sessionProvider?.listTemporaryFiles) {
       return { status: 200, body: { items: [] } };
     }
@@ -910,6 +926,61 @@ function webuiTemporaryFilesBody(session: WebuiSessionTemporaryFiles): Record<st
   };
 }
 
+async function webuiTemporaryFileUploadResponse(
+  sessionId: string,
+  body: unknown,
+  sessionProvider: WebuiSessionProvider | undefined,
+  traceId: string,
+): Promise<WebuiRouteResponse> {
+  if (!sessionId.startsWith("websocket:")) {
+    return { status: 400, body: { error: "temporary files are only supported for websocket sessions" } };
+  }
+  if (!sessionProvider?.uploadTemporaryFile) {
+    return { status: 503, body: { error: "temporary knowledge store is not available" } };
+  }
+  if (!isJsonObject(body)) {
+    return { status: 400, body: { error: "file is required" } };
+  }
+  const upload = temporaryFileUploadFromBody(body);
+  if (!upload) {
+    return { status: 400, body: { error: "file is required" } };
+  }
+  if (!isSupportedTemporaryFileType(upload.fileType)) {
+    return { status: 400, body: { error: "supported temporary file types: txt, md, pdf" } };
+  }
+  try {
+    return { status: 200, body: await sessionProvider.uploadTemporaryFile(sessionId, upload, traceId) };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const status = message.startsWith("supported temporary file types:")
+      || message === "file is required"
+      || message.includes("no extractable text")
+      ? 400
+      : 500;
+    return { status, body: { error: status === 500 ? `failed to upload temporary file: ${message}` : message } };
+  }
+}
+
+function temporaryFileUploadFromBody(body: Record<string, unknown>): WebuiTemporaryFileUpload | undefined {
+  const name = stringValue(body.name) ?? stringValue(body.filename) ?? stringValue(body.file_name);
+  const content = stringValue(body.content);
+  if (!name || content === undefined) {
+    return undefined;
+  }
+  const fileType = (stringValue(body.file_type) ?? stringValue(body.fileType) ?? extensionFromName(name)).toLowerCase().replace(/^\./, "");
+  const sizeBytes = numberValue(body.size_bytes) ?? numberValue(body.sizeBytes) ?? new TextEncoder().encode(content).length;
+  return { name, fileType, content, sizeBytes };
+}
+
+function extensionFromName(name: string): string {
+  const match = /\.([^.\\/]+)$/.exec(name);
+  return match?.[1] ?? "";
+}
+
+function isSupportedTemporaryFileType(fileType: string): boolean {
+  return fileType === "txt" || fileType === "md" || fileType === "pdf";
+}
+
 function serializeWebuiMessage(message: Record<string, unknown>): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     role: typeof message.role === "string" ? message.role : "",
@@ -978,7 +1049,7 @@ function routeKey(method: string, path: string): string {
     return "patch_session";
   }
   if (temporaryFilesPathKey(method, path) !== undefined) {
-    return "list_temporary_files";
+    return method === "POST" ? "upload_temporary_file" : "list_temporary_files";
   }
   if (clearSessionPathKey(method, path) !== undefined) {
     return "clear_session";
@@ -1015,7 +1086,7 @@ function patchSessionPathKey(method: string, path: string): string | undefined {
 }
 
 function temporaryFilesPathKey(method: string, path: string): string | undefined {
-  if (method !== "GET") {
+  if (method !== "GET" && method !== "POST") {
     return undefined;
   }
   const match = /^\/api\/sessions\/([^/]+)\/temporary-files$/.exec(path);
@@ -1109,6 +1180,10 @@ function stringParam(value: unknown): string | undefined {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 const WEBUI_MESSAGE_METADATA_KEYS = [

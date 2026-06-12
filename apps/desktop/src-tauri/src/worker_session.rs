@@ -133,6 +133,7 @@ impl WorkerSessionRpc {
             extra.insert("messages".to_string(), serde_json::json!([]));
             extra.insert("last_consolidated".to_string(), serde_json::json!(0));
             extra.insert("user_profile".to_string(), serde_json::json!({}));
+            extra.remove("temporary_files");
             extra.remove("runtime_checkpoint");
             extra.remove("last_context_metadata");
             extra.remove("last_persisted_run_id");
@@ -207,6 +208,85 @@ impl WorkerSessionRpc {
         }
         session.updated_at = now_session_timestamp();
         Ok(session.clone())
+    }
+
+    pub fn upload_temporary_file(
+        &mut self,
+        session_id: &str,
+        name: &str,
+        file_type: &str,
+        content: &str,
+        size_bytes: u64,
+    ) -> Result<Value, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionWrite)?;
+        validate_session_id(session_id)?;
+        if !session_id.starts_with("websocket:") {
+            return Err(WorkerProtocolError::new(
+                WorkerProtocolErrorCode::InvalidProtocol,
+                "temporary files are only supported for websocket sessions",
+                serde_json::json!({ "session_id": session_id }),
+                false,
+                WorkerProtocolErrorSource::RustCore,
+            ));
+        }
+        let clean_name = name.trim();
+        if clean_name.is_empty() {
+            return Err(WorkerProtocolError::new(
+                WorkerProtocolErrorCode::InvalidProtocol,
+                "file is required",
+                serde_json::json!({ "session_id": session_id }),
+                false,
+                WorkerProtocolErrorSource::RustCore,
+            ));
+        }
+        let clean_file_type = file_type.trim().trim_start_matches('.').to_lowercase();
+        if !matches!(clean_file_type.as_str(), "txt" | "md" | "pdf") {
+            return Err(WorkerProtocolError::new(
+                WorkerProtocolErrorCode::InvalidProtocol,
+                "supported temporary file types: txt, md, pdf",
+                serde_json::json!({ "file_type": clean_file_type }),
+                false,
+                WorkerProtocolErrorSource::RustCore,
+            ));
+        }
+        if content.trim().is_empty() {
+            return Err(WorkerProtocolError::new(
+                WorkerProtocolErrorCode::InvalidProtocol,
+                "Uploaded file contains no extractable text",
+                serde_json::json!({ "session_id": session_id, "name": clean_name }),
+                false,
+                WorkerProtocolErrorSource::RustCore,
+            ));
+        }
+
+        let session = self.session_mut_or_create(session_id);
+        ensure_extra_object(session);
+        if !session.extra.get("temporary_files").is_some_and(Value::is_array) {
+            session.extra["temporary_files"] = serde_json::json!([]);
+        }
+        let timestamp = now_session_timestamp();
+        let digest = stable_upload_digest(session_id, clean_name, &timestamp, content);
+        let chunk_count = temporary_chunk_count(content);
+        let document = serde_json::json!({
+            "id": format!("session_doc_{digest}"),
+            "name": clean_name,
+            "file_type": clean_file_type,
+            "content": content,
+            "created_at": timestamp,
+            "chunk_count": chunk_count,
+            "metadata": { "size_bytes": size_bytes },
+            "size_bytes": size_bytes,
+            "temporary": true,
+        });
+        if let Some(files) = session
+            .extra
+            .get_mut("temporary_files")
+            .and_then(Value::as_array_mut)
+        {
+            files.push(document.clone());
+        }
+        session.updated_at = timestamp;
+        Ok(document)
     }
 
     pub fn append_messages(
@@ -502,6 +582,25 @@ fn session_last_consolidated(session: &SessionMetadata) -> usize {
         .and_then(Value::as_u64)
         .map(|value| value as usize)
         .unwrap_or_default()
+}
+
+fn temporary_chunk_count(content: &str) -> usize {
+    let len = content.chars().count();
+    if len == 0 {
+        0
+    } else {
+        len.div_ceil(900)
+    }
+}
+
+fn stable_upload_digest(session_id: &str, name: &str, timestamp: &str, content: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    session_id.hash(&mut hasher);
+    name.hash(&mut hasher);
+    timestamp.hash(&mut hasher);
+    content.chars().take(200).collect::<String>().hash(&mut hasher);
+    format!("{:010x}", hasher.finish())[..10].to_string()
 }
 
 fn find_legal_message_start(messages: &[Value]) -> usize {
@@ -1208,6 +1307,39 @@ mod tests {
 
         assert_eq!(error.code, WorkerProtocolErrorCode::CapabilityDenied);
         assert_eq!(error.details["capability"], "session.write");
+    }
+
+    #[test]
+    fn upload_temporary_file_adds_python_shaped_session_document() {
+        let mut session = session_fixture();
+        session.session_id = "websocket:chat-1".to_string();
+        let mut rpc = WorkerSessionRpc::new(
+            vec![session],
+            CapabilityPolicy::new([
+                WorkerCapability::SessionWrite,
+                WorkerCapability::SessionMetadataRead,
+            ]),
+        );
+
+        let doc = rpc
+            .upload_temporary_file(
+                "websocket:chat-1",
+                "context.md",
+                "md",
+                "hello native",
+                12,
+            )
+            .expect("temporary upload should be stored");
+
+        assert_eq!(doc["name"], "context.md");
+        assert_eq!(doc["file_type"], "md");
+        assert_eq!(doc["content"], "hello native");
+        assert_eq!(doc["chunk_count"], 1);
+        assert_eq!(doc["size_bytes"], 12);
+        assert_eq!(doc["temporary"], true);
+
+        let updated = rpc.get_metadata("websocket:chat-1").expect("session should exist");
+        assert_eq!(updated.extra["temporary_files"][0], doc);
     }
 
     #[test]
