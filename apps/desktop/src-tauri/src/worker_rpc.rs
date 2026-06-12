@@ -244,7 +244,9 @@ impl WorkerRpcRouter {
                     &params.name,
                     &params.file_type,
                     &params.content,
-                    params.size_bytes.unwrap_or_else(|| params.content.len() as u64),
+                    params
+                        .size_bytes
+                        .unwrap_or_else(|| params.content.len() as u64),
                 )
             }
             "session.append_messages" => {
@@ -1067,16 +1069,26 @@ impl WorkerMemoryRpc {
         let pending_evidence = self.pending_conversation_evidence(evidence_cursor, 50)?;
         if !pending_evidence.is_empty() {
             let pending_count = pending_evidence.len();
+            let extraction = self.extract_dream_notes_from_evidence(&pending_evidence)?;
+            let content = if extraction.captured_notes > 0 {
+                format!(
+                    "Dream captured {} memory note(s) from {pending_count} conversation evidence record(s).",
+                    extraction.captured_notes
+                )
+            } else {
+                format!(
+                    "Dream processed {pending_count} conversation evidence record(s), but found no explicit memory-worthy notes."
+                )
+            };
             return Ok(memory_dream_result_with_metadata(
-                &format!(
-                    "Dream has {pending_count} pending conversation evidence record(s).\n\nNative Dream extraction is not migrated yet."
-                ),
-                false,
+                &content,
+                true,
                 serde_json::json!({
-                    "changed": false,
+                    "changed": extraction.captured_notes > 0,
                     "pending_evidence": pending_count,
-                    "last_evidence_cursor": evidence_cursor,
-                    "deferred": "dream_extraction"
+                    "captured_notes": extraction.captured_notes,
+                    "skipped_evidence": extraction.skipped_evidence,
+                    "last_evidence_cursor": extraction.last_evidence_cursor
                 }),
             ));
         }
@@ -1106,6 +1118,87 @@ impl WorkerMemoryRpc {
                 "pending_evidence": 0
             }),
         ))
+    }
+
+    fn extract_dream_notes_from_evidence(
+        &self,
+        evidence: &[Value],
+    ) -> Result<DreamExtractionResult, crate::worker_protocol::WorkerProtocolError> {
+        let mut notes = self.read_notes()?;
+        let mut captured_notes = 0usize;
+        let mut skipped_evidence = 0usize;
+        let mut last_evidence_cursor = self.last_evidence_cursor();
+        let timestamp = memory_timestamp();
+
+        for record in evidence {
+            let cursor = record
+                .get("cursor")
+                .and_then(Value::as_u64)
+                .map(|value| value as usize)
+                .unwrap_or(last_evidence_cursor);
+            last_evidence_cursor = last_evidence_cursor.max(cursor);
+
+            let Some(content) = dream_note_content(record) else {
+                skipped_evidence += 1;
+                continue;
+            };
+            let note_type = dream_note_type(&content);
+            let scope = default_memory_scope(note_type);
+            let evidence_id = record
+                .get("id")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or("unknown");
+            let mut source = serde_json::json!({
+                "capture_origin": "dream",
+                "evidence_ids": [evidence_id],
+                "history_start_cursor": cursor,
+                "history_end_cursor": cursor
+            });
+            if let Some(session_key) = record
+                .get("session_key")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+            {
+                source["session_key"] = Value::String(session_key.to_string());
+            }
+            if let Some(turn_id) = record
+                .get("turn_id")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+            {
+                source["turn_id"] = Value::String(turn_id.to_string());
+            }
+
+            let note_id = generate_memory_note_id(note_type, scope, &content, &source);
+            let note = serde_json::json!({
+                "id": note_id,
+                "scope": scope,
+                "type": note_type,
+                "status": "active",
+                "content": content,
+                "priority": 0.6,
+                "confidence": 0.6,
+                "sources": [source],
+                "created_at": timestamp,
+                "updated_at": timestamp,
+                "metadata": {
+                    "extractor": "native_dream_heuristic"
+                }
+            });
+            notes.retain(|existing| existing.get("id") != note.get("id"));
+            notes.push(note);
+            captured_notes += 1;
+        }
+
+        self.write_notes(&notes)?;
+        self.refresh_memory_views(&notes)?;
+        self.write_evidence_cursor(last_evidence_cursor)?;
+        Ok(DreamExtractionResult {
+            captured_notes,
+            skipped_evidence,
+            last_evidence_cursor,
+        })
     }
 
     fn dream_log(
@@ -1802,6 +1895,17 @@ impl WorkerMemoryRpc {
         self.workspace_root.join("memory").join(".evidence_cursor")
     }
 
+    fn write_evidence_cursor(
+        &self,
+        cursor: usize,
+    ) -> Result<(), crate::worker_protocol::WorkerProtocolError> {
+        let path = self.evidence_cursor_path();
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(memory_io_error)?;
+        }
+        fs::write(path, cursor.to_string()).map_err(memory_io_error)
+    }
+
     fn conversations_dir(&self) -> PathBuf {
         self.workspace_root.join("memory").join("conversations")
     }
@@ -2202,6 +2306,13 @@ struct DreamCommitInfo {
     timestamp: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct DreamExtractionResult {
+    captured_notes: usize,
+    skipped_evidence: usize,
+    last_evidence_cursor: usize,
+}
+
 #[derive(Deserialize)]
 struct MemoryCaptureEvidenceParams {
     session_key: String,
@@ -2453,6 +2564,60 @@ fn memory_dream_result_with_metadata(
         "content": content,
         "metadata": metadata
     })
+}
+
+fn dream_note_content(record: &Value) -> Option<String> {
+    let role = record
+        .get("role")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    if role != "user" && role != "assistant" {
+        return None;
+    }
+    let content = record
+        .get("content")
+        .and_then(Value::as_str)?
+        .trim()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    if content.len() < 8 || content.len() > 2_000 {
+        return None;
+    }
+    let lower = content.to_ascii_lowercase();
+    let has_memory_intent = [
+        "remember",
+        "persist",
+        "save this",
+        "keep this",
+        "note that",
+        "preference",
+        "prefer",
+        "decided",
+        "decision",
+        "follow up",
+        "follow-up",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker));
+    has_memory_intent.then_some(content)
+}
+
+fn dream_note_type(content: &str) -> &'static str {
+    let lower = content.to_ascii_lowercase();
+    if lower.contains("prefer") || lower.contains("preference") {
+        "preference"
+    } else if lower.contains("decided") || lower.contains("decision") {
+        "decision"
+    } else if lower.contains("fix") || lower.contains("bug") || lower.contains("regression") {
+        "fix"
+    } else if lower.contains("follow up") || lower.contains("follow-up") || lower.contains("todo") {
+        "followup"
+    } else {
+        "project"
+    }
 }
 
 fn dream_log_content(commit: &DreamCommitInfo, diff: &str, requested_sha: Option<&str>) -> String {
@@ -4661,7 +4826,7 @@ mod tests {
     }
 
     #[test]
-    fn dispatches_memory_dream_run_reports_pending_evidence_deferred() {
+    fn dispatches_memory_dream_run_extracts_pending_conversation_evidence() {
         let fixture = WorkspaceFixture::new();
         fixture.write(
             "memory/conversations/2026-06-12.jsonl",
@@ -4672,7 +4837,7 @@ mod tests {
                     "turn_id": "turn_1",
                     "session_key": "desktop:session-1",
                     "role": "user",
-                    "content": "Persist this as memory.",
+                    "content": "Remember that I prefer uv for Python commands.",
                     "timestamp": "2026-06-12T03:00:00Z",
                     "message_index": 1,
                     "cursor": 3
@@ -4701,12 +4866,19 @@ mod tests {
             .expect("dream run content should be text");
 
         assert!(response.error.is_none());
-        assert!(content.contains("Dream has 1 pending conversation evidence record(s)."));
-        assert!(content.contains("Native Dream extraction is not migrated yet."));
+        assert!(content
+            .contains("Dream captured 1 memory note(s) from 1 conversation evidence record(s)."));
         assert_eq!(result["metadata"]["render_as"], json!("text"));
-        assert_eq!(result["metadata"]["available"], json!(false));
+        assert_eq!(result["metadata"]["available"], json!(true));
+        assert_eq!(result["metadata"]["changed"], json!(true));
         assert_eq!(result["metadata"]["pending_evidence"], json!(1));
-        assert_eq!(fixture.read("memory/.evidence_cursor"), "2");
+        assert_eq!(result["metadata"]["captured_notes"], json!(1));
+        assert_eq!(result["metadata"]["last_evidence_cursor"], json!(3));
+        assert_eq!(fixture.read("memory/.evidence_cursor"), "3");
+        let notes = fixture.read("memory/notes.jsonl");
+        assert!(notes.contains("\"capture_origin\":\"dream\""));
+        assert!(notes.contains("\"evidence_ids\":[\"ev_1\"]"));
+        assert!(notes.contains("Remember that I prefer uv for Python commands."));
     }
 
     #[test]
