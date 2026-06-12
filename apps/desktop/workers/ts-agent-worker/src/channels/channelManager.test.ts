@@ -19,6 +19,7 @@ function adapter(overrides: Partial<ChannelAdapter> = {}): ChannelAdapter {
   return {
     name: "websocket",
     displayName: "WebSocket",
+    supportsStreaming: true,
     send: vi.fn(async () => undefined),
     sendDelta: vi.fn(async () => undefined),
     sendUsage: vi.fn(async () => undefined),
@@ -27,6 +28,38 @@ function adapter(overrides: Partial<ChannelAdapter> = {}): ChannelAdapter {
 }
 
 describe("ChannelManager", () => {
+  test("starts, stops, and reports registered channel status", async () => {
+    const bus = new MessageBus();
+    const websocket = adapter({
+      start: vi.fn(async () => undefined),
+      stop: vi.fn(async () => undefined),
+    });
+    const cli = adapter({
+      name: "cli",
+      displayName: "CLI",
+      supportsStreaming: false,
+      start: vi.fn(async () => undefined),
+      stop: vi.fn(async () => undefined),
+    });
+    const manager = new ChannelManager({ bus, channels: [websocket, cli] });
+
+    await manager.startAll();
+    await manager.stopAll();
+
+    expect(websocket.start).toHaveBeenCalledOnce();
+    expect(cli.start).toHaveBeenCalledOnce();
+    expect(websocket.stop).toHaveBeenCalledOnce();
+    expect(cli.stop).toHaveBeenCalledOnce();
+    expect(manager.enabledChannels()).toEqual(["websocket", "cli"]);
+    expect(manager.status()).toMatchObject({
+      running: false,
+      channels: [
+        { name: "websocket", displayName: "WebSocket", supportsStreaming: true, running: false },
+        { name: "cli", displayName: "CLI", supportsStreaming: false, running: false },
+      ],
+    });
+  });
+
   test("dispatches ordinary outbound messages to their channel adapter", async () => {
     const bus = new MessageBus();
     const websocket = adapter();

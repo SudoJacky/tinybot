@@ -26,7 +26,7 @@
 
 - Cowork Phase 10 desktop default-route coverage continues: desktop Cowork action controls now emit budget update plus source-branch derive/final-result select/final-result merge events, and `handleNativeCoworkAction()` dispatches them through the native-first `gatewayApi.cowork` facade instead of leaving those TS-native mutation routes as request-builder-only coverage.
 
-- Channel Bus Phase 1 has started with TS-native `InboundMessage` / `OutboundMessage` envelopes, Python-compatible session key derivation, an async in-memory `MessageBus`, inbound/outbound publish-consume, batch consumption with timeout, close/unblock semantics, queue backlog diagnostics, and a small exported `bus` module surface. The first TS-native `ChannelManager` outbound dispatcher now covers Python-compatible ordinary sends, usage sends, stream/reasoning/end delta sends, progress/tool-hint filtering, consecutive stream-delta coalescing, unknown-channel diagnostics, and retry/final-failure diagnostics.
+- Channel Bus Phase 1/2 has started with TS-native `InboundMessage` / `OutboundMessage` envelopes, Python-compatible session key derivation, an async in-memory `MessageBus`, inbound/outbound publish-consume, batch consumption with timeout, close/unblock semantics, queue backlog diagnostics, and a small exported `bus` module surface. The first TS-native `BaseChannel` now covers Python-compatible `allow_from` semantics, streaming intent metadata, and inbound envelope publication. `ChannelManager` outbound dispatcher now covers Python-compatible ordinary sends, usage sends, stream/reasoning/end delta sends, progress/tool-hint filtering, consecutive stream-delta coalescing, unknown-channel diagnostics, retry/final-failure diagnostics, start/stop lifecycle, enabled channel listing, and status projection.
 
 - 当前批次：Batch 5：commands、task/cron/background 已具备 TS/native 起点；Cowork runtime 已开始推进，blueprint validate/preview 已接入 worker RPC；Phase 1 已补上 TS session types、legacy serde/default hydration、`cowork_store.*` native bridge contract，以及 read-only `coworkSessionSnapshot()`/graph/trace/task DAG/artifact index projection；Phase 2 已启动 architecture normalize/label/fallback diagnostic、default policy registry 与 projection-only topology/organization capability，并接入 snapshot projection。
 - 当前业务优先级：`add-source-traceable-knowledge-indexing` 与 knowledge/RAG 相关，但应在 tool/context/session/approval 等前置层稳定后再完整接入。
@@ -95,6 +95,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 
 | Date | Update |
 | --- | --- |
+| 2026-06-13 | Continued Channel Bus Phase 2: added TS-native `BaseChannel` allow-list enforcement, streaming `_wants_stream` injection, inbound message normalization/publication, and `ChannelManager` start/stop plus enabled-channel/status projection. |
 | 2026-06-13 | Continued Channel Bus Phase 1: added the TS-native `ChannelManager` outbound dispatch core with ordinary/usage/delta send routing, progress/tool-hint filtering, stream delta coalescing, unknown-channel diagnostics, send retry, and final-failure diagnostics. |
 | 2026-06-13 | Started Channel Bus Phase 1: added TS-native `InboundMessage` / `OutboundMessage` envelopes, Python-compatible session key derivation, async inbound/outbound `MessageBus` queues, batch/timeout consumption, close/unblock behavior, backlog diagnostics, and an exported bus module surface. |
 | 2026-06-13 | Continued API Runtime Phase 1: TS worker `GET /v1/knowledge/graph` now returns a Python-compatible native graph readiness/empty projection over Knowledge stats, and desktop `knowledge.graph()` prefers the native WebUI route before HTTP fallback. |
@@ -503,6 +504,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue WebUI transport Batch 6: project TS worker cancellation events through the root-WebUI native WebSocket shim as legacy `interrupted` frames.
 - [x] Start Channel Bus Phase 1: add TS-native message envelopes, Python-compatible session keys, async inbound/outbound queues, batch/timeout consumption, close semantics, and backlog diagnostics.
 - [x] Continue Channel Bus Phase 1: add TS-native ChannelManager outbound dispatch with send routing, progress filtering, stream coalescing, and retry diagnostics.
+- [x] Continue Channel Bus Phase 2: add TS-native BaseChannel allow-list/inbound normalization and ChannelManager lifecycle/status projection.
 - [x] Start API Runtime Phase 1: expose TS-native public `GET /health` and OpenAI-compatible `GET /v1/models` through the worker route bridge.
 - [x] Continue API Runtime Phase 1: expose TS-native non-stream `POST /v1/chat/completions` through the worker route bridge and existing AgentRunner path.
 - [x] Continue API Runtime Phase 1: apply `api.timeout` and OpenAI-shaped 504 handling to TS-native chat completions.

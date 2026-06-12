@@ -4,9 +4,25 @@ import type { OutboundMessage } from "../bus/messageTypes.ts";
 export type ChannelAdapter = {
   name: string;
   displayName: string;
+  supportsStreaming?: boolean;
+  start?: () => Promise<void>;
+  stop?: () => Promise<void>;
   send: (message: OutboundMessage) => Promise<void>;
   sendDelta?: (chatId: string, delta: string, metadata: Record<string, unknown>) => Promise<void>;
   sendUsage?: (chatId: string, usage: Record<string, unknown>) => Promise<void>;
+};
+
+export type ChannelStatus = {
+  name: string;
+  displayName: string;
+  supportsStreaming: boolean;
+  running: boolean;
+};
+
+export type ChannelManagerStatus = {
+  running: boolean;
+  channels: ChannelStatus[];
+  diagnostics: ChannelDispatchDiagnostic[];
 };
 
 export type ChannelDispatchDiagnostic = {
@@ -37,6 +53,8 @@ export class ChannelManager {
   private readonly sleep: (delayMs: number) => Promise<void>;
   private readonly dispatchDiagnostics: ChannelDispatchDiagnostic[] = [];
   private readonly pendingOutbound: OutboundMessage[] = [];
+  private readonly runningChannels = new Set<string>();
+  private running = false;
 
   constructor(options: ChannelManagerOptions) {
     this.bus = options.bus;
@@ -51,6 +69,39 @@ export class ChannelManager {
 
   diagnostics(): ChannelDispatchDiagnostic[] {
     return this.dispatchDiagnostics.map((diagnostic) => ({ ...diagnostic }));
+  }
+
+  enabledChannels(): string[] {
+    return [...this.channels.keys()];
+  }
+
+  status(): ChannelManagerStatus {
+    return {
+      running: this.running,
+      channels: [...this.channels.values()].map((channel) => ({
+        name: channel.name,
+        displayName: channel.displayName,
+        supportsStreaming: channel.supportsStreaming === true,
+        running: this.runningChannels.has(channel.name),
+      })),
+      diagnostics: this.diagnostics(),
+    };
+  }
+
+  async startAll(): Promise<void> {
+    this.running = true;
+    for (const channel of this.channels.values()) {
+      await channel.start?.();
+      this.runningChannels.add(channel.name);
+    }
+  }
+
+  async stopAll(): Promise<void> {
+    for (const channel of this.channels.values()) {
+      await channel.stop?.();
+      this.runningChannels.delete(channel.name);
+    }
+    this.running = false;
   }
 
   async dispatchAvailable(maxMessages = 100): Promise<number> {
