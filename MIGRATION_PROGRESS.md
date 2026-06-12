@@ -497,6 +497,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Start API Runtime Phase 1: expose TS-native public `GET /health` and OpenAI-compatible `GET /v1/models` through the worker route bridge.
 - [x] Continue API Runtime Phase 1: expose TS-native non-stream `POST /v1/chat/completions` through the worker route bridge and existing AgentRunner path.
 - [x] Continue API Runtime Phase 1: apply `api.timeout` and OpenAI-shaped 504 handling to TS-native chat completions.
+- [x] Continue API Runtime Phase 1: expose desktop gateway `openAi` facade methods for `/health`, `/v1/models`, and `/v1/chat/completions` with native WebUI route preference and HTTP gateway fallback.
 - [x] Continue Cowork Phase 10: expose desktop native action requests for TS-native Cowork blueprint, trace, DAG, artifact, organization, queue, and branch read-only routes.
 - [x] Continue Cowork Phase 10: wire desktop Cowork action controls and handler dispatch for TS-native blueprint, trace, DAG, artifact, organization, queue, and branch read-only routes.
 - [x] Continue Cowork Phase 10: expose desktop native action requests for TS-native budget update, source-branch derive, final-result select, and final-result merge routes.

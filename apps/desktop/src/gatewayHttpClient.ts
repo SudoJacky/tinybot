@@ -271,6 +271,23 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         "webui.status",
       ),
     },
+    openAi: {
+      health: () => nativeOrGateway(
+        () => options.nativeWebui?.route({ method: "GET", path: "/health" }),
+        () => request("/health"),
+        "openai.health",
+      ),
+      models: () => nativeOrGateway(
+        () => options.nativeWebui?.route({ method: "GET", path: "/v1/models" }),
+        () => request("/v1/models"),
+        "openai.models",
+      ),
+      chatCompletions: (body: unknown) => nativeOrGateway(
+        () => options.nativeWebui?.route({ method: "POST", path: "/v1/chat/completions", body }),
+        () => request("/v1/chat/completions", jsonRequest("POST", body)),
+        "openai.chatCompletions",
+      ),
+    },
     sessions: {
       list: () => nativeOrGateway(
         () => options.nativeWebui?.route({ method: "GET", path: "/api/sessions" }),

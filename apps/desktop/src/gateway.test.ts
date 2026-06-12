@@ -164,6 +164,13 @@ describe("gateway HTTP client", () => {
       content: "# Readme\n",
       expected_updated_at: "2026-05-31T10:00:00+00:00",
     });
+    await client.openAi.health();
+    await client.openAi.models();
+    await client.openAi.chatCompletions({
+      model: "tinybot",
+      messages: [{ role: "user", content: "hello" }],
+      session_id: "desktop-chat",
+    });
     await client.cowork.summary("cowork-1");
     await client.skills.create({ name: "planner" });
     await client.skills.update("planner/phase", { content: "# Updated" });
@@ -201,6 +208,9 @@ describe("gateway HTTP client", () => {
       "http://127.0.0.1:18790/v1/knowledge/query",
       "http://127.0.0.1:18790/api/workspace/files/docs%2Freadme.md",
       "http://127.0.0.1:18790/api/workspace/files/docs%2Freadme.md",
+      "http://127.0.0.1:18790/health",
+      "http://127.0.0.1:18790/v1/models",
+      "http://127.0.0.1:18790/v1/chat/completions",
       "http://127.0.0.1:18790/api/cowork/sessions/cowork-1/summary",
       "http://127.0.0.1:18790/api/skills",
       "http://127.0.0.1:18790/api/skills/planner%2Fphase",
@@ -258,6 +268,18 @@ describe("gateway HTTP client", () => {
       }),
     });
     expect(fetchFn.mock.calls[18][1]).toMatchObject({
+      method: "POST",
+      headers: expect.objectContaining({
+        Authorization: "Bearer token-1",
+        "Content-Type": "application/json",
+      }),
+      body: JSON.stringify({
+        model: "tinybot",
+        messages: [{ role: "user", content: "hello" }],
+        session_id: "desktop-chat",
+      }),
+    });
+    expect(fetchFn.mock.calls[21][1]).toMatchObject({
       method: "PATCH",
       headers: expect.objectContaining({
         Authorization: "Bearer token-1",
@@ -265,13 +287,13 @@ describe("gateway HTTP client", () => {
       }),
       body: JSON.stringify({ content: "# Updated" }),
     });
-    expect(fetchFn.mock.calls[19][1]).toMatchObject({ method: "POST" });
-    expect(fetchFn.mock.calls[20][1]).toMatchObject({ method: "DELETE" });
-    expect(fetchFn.mock.calls[22][1]).toMatchObject({
+    expect(fetchFn.mock.calls[22][1]).toMatchObject({ method: "POST" });
+    expect(fetchFn.mock.calls[23][1]).toMatchObject({ method: "DELETE" });
+    expect(fetchFn.mock.calls[25][1]).toMatchObject({
       method: "POST",
       body: JSON.stringify({ goal: "Ship desktop" }),
     });
-    expect(fetchFn.mock.calls[34][1]).toMatchObject({
+    expect(fetchFn.mock.calls[37][1]).toMatchObject({
       method: "POST",
       body: JSON.stringify({ blueprint: {} }),
     });
@@ -967,6 +989,40 @@ describe("gateway HTTP client", () => {
           expected_updated_at: null,
         },
       },
+    });
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  test("prefers native WebUI OpenAI-compatible routes when available", async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
+    const nativeWebui = {
+      route: vi.fn(async (request: { method: string; path: string; body?: unknown }) => ({
+        native: true,
+        request,
+      })),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeWebui,
+    });
+    const body = {
+      model: "tinybot",
+      messages: [{ role: "user", content: "hello" }],
+      session_id: "desktop-chat",
+    };
+
+    await expect(client.openAi.health()).resolves.toEqual({
+      native: true,
+      request: { method: "GET", path: "/health" },
+    });
+    await expect(client.openAi.models()).resolves.toEqual({
+      native: true,
+      request: { method: "GET", path: "/v1/models" },
+    });
+    await expect(client.openAi.chatCompletions(body)).resolves.toEqual({
+      native: true,
+      request: { method: "POST", path: "/v1/chat/completions", body },
     });
     expect(fetchFn).not.toHaveBeenCalled();
   });
