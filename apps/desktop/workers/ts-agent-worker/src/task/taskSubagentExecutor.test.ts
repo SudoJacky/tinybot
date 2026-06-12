@@ -150,6 +150,32 @@ describe("TaskProviderSubagentExecutor", () => {
     ]);
     expect(completions).toEqual([{ status: "completed", result: "inspection used tool result" }]);
   });
+
+  test("cancels queued and active subagents for a task plan", async () => {
+    const first = deferred<ModelResponse>();
+    const provider = new QueueProvider([first.promise]);
+    const executor = new TaskProviderSubagentExecutor({
+      provider,
+      maxConcurrent: 1,
+      timeoutMs: 1000,
+      idGenerator: (() => {
+        let index = 0;
+        return () => `subagent-${index += 1}`;
+      })(),
+    });
+    const completions: Array<{ status: string; result?: string | null; error?: string | null }> = [];
+
+    await executor.spawnSubtask(requestFor("a", "Inspect", completions), "trace-1");
+    await executor.spawnSubtask(requestFor("b", "Implement", completions), "trace-1");
+    await waitFor(() => provider.requests.length === 1);
+
+    await expect(executor.cancelPlan(plan())).resolves.toBe(2);
+    await waitFor(() => completions.length === 1);
+
+    expect(completions).toEqual([
+      { status: "failed", result: "Subagent cancelled.", error: "Subagent cancelled." },
+    ]);
+  });
 });
 
 class QueueProvider implements ModelProvider {

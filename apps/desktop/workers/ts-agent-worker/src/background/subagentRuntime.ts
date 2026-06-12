@@ -14,6 +14,7 @@ export interface SubagentRunRequest {
   label: string;
   sessionKey?: string;
   metadata?: Record<string, unknown>;
+  signal: AbortSignal;
 }
 
 export interface SubagentRunResult {
@@ -49,6 +50,7 @@ type QueuedSubagent = {
   request: SubagentSpawnRequest;
   id: string;
   label: string;
+  controller: AbortController;
 };
 
 const DEFAULT_MAX_CONCURRENT = 3;
@@ -73,7 +75,7 @@ export class SubagentRuntime {
   async spawn(request: SubagentSpawnRequest): Promise<SubagentSpawnResult> {
     const id = this.idGenerator();
     const label = request.label || shortLabel(request.task);
-    const queued: QueuedSubagent = { request, id, label };
+    const queued: QueuedSubagent = { request, id, label, controller: new AbortController() };
     this.trackSession(request.sessionKey, id);
     const shouldQueue = this.active.size >= this.maxConcurrent;
     if (shouldQueue) {
@@ -108,21 +110,11 @@ export class SubagentRuntime {
     if (!ids) {
       return 0;
     }
-    let cancelled = 0;
-    for (const id of ids) {
-      const queuedIndex = this.queue.findIndex((candidate) => candidate.id === id);
-      if (queuedIndex >= 0) {
-        this.queue.splice(queuedIndex, 1);
-        cancelled += 1;
-      }
-    }
-    if (cancelled > 0) {
-      this.sessions.set(sessionKey, new Set([...ids].filter((id) => this.active.has(id))));
-      if (this.sessions.get(sessionKey)?.size === 0) {
-        this.sessions.delete(sessionKey);
-      }
-    }
-    return cancelled;
+    return this.cancelWhere((entry) => ids.has(entry.id));
+  }
+
+  cancelPlan(planId: string): number {
+    return this.cancelWhere((entry) => entry.request.metadata?.planId === planId);
   }
 
   private start(entry: QueuedSubagent): void {
@@ -135,16 +127,19 @@ export class SubagentRuntime {
     const startedAt = Date.now();
     let completion: SubagentRunResult;
     try {
-      completion = await withTimeout(
+      completion = await withTimeoutOrAbort(
         this.runner({
           id,
           label,
           task: request.task,
           sessionKey: request.sessionKey,
           metadata: request.metadata,
+          signal: entry.controller.signal,
         }),
         this.timeoutMs,
         () => timeoutResult(startedAt, this.timeoutMs),
+        entry.controller.signal,
+        () => cancelledResult(),
       );
     } catch (error) {
       completion = {
@@ -202,6 +197,25 @@ export class SubagentRuntime {
       this.sessions.delete(sessionKey);
     }
   }
+
+  private cancelWhere(predicate: (entry: QueuedSubagent) => boolean): number {
+    let cancelled = 0;
+    for (let index = this.queue.length - 1; index >= 0; index -= 1) {
+      const queued = this.queue[index];
+      if (predicate(queued)) {
+        this.queue.splice(index, 1);
+        this.untrackSession(queued.request.sessionKey, queued.id);
+        cancelled += 1;
+      }
+    }
+    for (const active of this.active.values()) {
+      if (predicate(active) && !active.controller.signal.aborted) {
+        active.controller.abort();
+        cancelled += 1;
+      }
+    }
+    return cancelled;
+  }
 }
 
 function shortLabel(task: string): string {
@@ -220,22 +234,42 @@ function timeoutResult(startedAt: number, timeoutMs: number): SubagentRunResult 
   return { status: "failed", result: message, error: message };
 }
 
-function withTimeout<T>(
+function cancelledResult(): SubagentRunResult {
+  const message = "Subagent cancelled.";
+  return { status: "failed", result: message, error: message };
+}
+
+function withTimeoutOrAbort<T>(
   promise: Promise<T>,
   timeoutMs: number,
   onTimeout: () => T,
+  signal: AbortSignal,
+  onAbort: () => T,
 ): Promise<T> {
+  if (signal.aborted) {
+    return Promise.resolve(onAbort());
+  }
   return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", abort);
+    };
+    const abort = () => {
+      cleanup();
+      resolve(onAbort());
+    };
     const timer = setTimeout(() => {
+      cleanup();
       resolve(onTimeout());
     }, timeoutMs);
+    signal.addEventListener("abort", abort, { once: true });
     promise.then(
       (value) => {
-        clearTimeout(timer);
+        cleanup();
         resolve(value);
       },
       (error) => {
-        clearTimeout(timer);
+        cleanup();
         reject(error);
       },
     );

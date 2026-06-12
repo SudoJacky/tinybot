@@ -89,6 +89,29 @@ describe("TaskRuntime", () => {
     expect(saves.map((plan) => plan.status)).toEqual(["paused", "paused"]);
   });
 
+  test("cancels active executor subagents when cancelling a plan", async () => {
+    const plan = basePlan();
+    plan.currentSubtaskIds = ["b"];
+    plan.subtasks[1].status = "in_progress";
+    const { bridge, saves } = memoryBridge([plan]);
+    const cancelledPlans: Array<{ planId: string; traceId: string }> = [];
+    const runtime = new TaskRuntime({
+      store: bridge,
+      executor: {
+        spawnSubtask: async () => {},
+        cancelPlan: async (candidate, traceId) => {
+          cancelledPlans.push({ planId: candidate.id, traceId });
+          return 2;
+        },
+      },
+    });
+
+    await expect(runtime.cancelPlan("plan-1", "trace-cancel")).resolves.toMatchObject({ status: "paused" });
+
+    expect(cancelledPlans).toEqual([{ planId: "plan-1", traceId: "trace-cancel" }]);
+    expect(saves.at(-1)).toMatchObject({ id: "plan-1", status: "paused" });
+  });
+
   test("adds and removes pending subtasks while maintaining DAG errors", async () => {
     const { bridge, saves } = memoryBridge([basePlan()]);
     const runtime = new TaskRuntime({ store: bridge, idGenerator: () => "new1" });
@@ -249,6 +272,52 @@ describe("TaskRuntime", () => {
       subtasks: [
         expect.objectContaining({ id: "a", status: "completed", result: "foundation complete" }),
         expect.objectContaining({ id: "b", status: "in_progress", startedAt: "2026-06-12T00:00:00.000Z" }),
+      ],
+    });
+  });
+
+  test("keeps paused plans paused when cancelled subagents complete later", async () => {
+    const plan = basePlan();
+    plan.status = "paused";
+    plan.currentSubtaskIds = ["b"];
+    plan.subtasks[1].status = "in_progress";
+    const { bridge, saves } = memoryBridge([plan]);
+    const spawned: string[] = [];
+    const runtime = new TaskRuntime({
+      store: bridge,
+      now: () => "2026-06-12T00:00:00.000Z",
+      executor: {
+        spawnSubtask: async ({ subtask }) => {
+          spawned.push(subtask.id);
+        },
+      },
+    });
+
+    const result = await runtime.completeSubtask(
+      "plan-1",
+      "b",
+      { status: "failed", result: "Subagent cancelled.", error: "Subagent cancelled." },
+      { parallel: true },
+      "trace-complete",
+    );
+
+    expect(result).toMatchObject({
+      plan: expect.objectContaining({ id: "plan-1", status: "paused" }),
+      spawnedCount: 0,
+    });
+    expect(spawned).toEqual([]);
+    expect(saves.at(-1)).toMatchObject({
+      status: "paused",
+      currentSubtaskIds: [],
+      subtasks: [
+        expect.objectContaining({ id: "a", status: "completed" }),
+        expect.objectContaining({
+          id: "b",
+          status: "failed",
+          result: "Subagent cancelled.",
+          error: "Subagent cancelled.",
+          completedAt: "2026-06-12T00:00:00.000Z",
+        }),
       ],
     });
   });

@@ -4,6 +4,7 @@ import { SubagentRuntime, type SubagentRunRequest } from "../background/subagent
 import type { ModelProvider } from "../model/provider.ts";
 import { ToolRegistry } from "../tools/toolRegistry.ts";
 import type { SpawnSubtaskRequest } from "./taskRuntime.ts";
+import type { TaskPlan } from "./taskTypes.ts";
 
 export interface TaskProviderSubagentExecutorOptions {
   provider: ModelProvider;
@@ -54,6 +55,10 @@ export class TaskProviderSubagentExecutor {
     });
   }
 
+  async cancelPlan(plan: TaskPlan): Promise<number> {
+    return this.runtime.cancelPlan(plan.id);
+  }
+
   private async runSubagent(request: SubagentRunRequest) {
     if (this.runnerTools) {
       return this.runAgentSubagent(request);
@@ -74,7 +79,11 @@ export class TaskProviderSubagentExecutor {
   }
 
   private async runAgentSubagent(request: SubagentRunRequest) {
-    const runner = new AgentRunner({ provider: this.provider, tools: this.runnerTools ?? new ToolRegistry() });
+    const runner = new AgentRunner({
+      provider: this.provider,
+      tools: this.runnerTools ?? new ToolRegistry(),
+      isCancelled: () => request.signal.aborted,
+    });
     const result = await runner.run({
       runId: request.id,
       traceId: typeof request.metadata?.traceId === "string" ? request.metadata.traceId : undefined,

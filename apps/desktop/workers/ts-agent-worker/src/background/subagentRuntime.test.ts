@@ -129,6 +129,104 @@ describe("SubagentRuntime", () => {
 
     expect(started).toEqual(["subagent-1", "subagent-2"]);
   });
+
+  test("cancels active subagents for a session and reports failed completion", async () => {
+    const completions: Array<{ id: string; status: string; result: string; error?: string }> = [];
+    const runtime = new SubagentRuntime({
+      maxConcurrent: 1,
+      timeoutMs: 1000,
+      idGenerator: () => "subagent-active",
+      runner: async (request: SubagentRunRequest) => new Promise((resolve) => {
+        request.signal.addEventListener("abort", () => {
+          resolve({ status: "failed", result: "cancelled by session", error: "cancelled by session" });
+        });
+      }),
+    });
+
+    await runtime.spawn({
+      task: "Long running",
+      label: "Active",
+      sessionKey: "desktop:chat-3",
+      onComplete: async (completion) => {
+        completions.push({
+          id: completion.id,
+          status: completion.status,
+          result: completion.result,
+          error: completion.error,
+        });
+      },
+    });
+    await waitFor(() => runtime.getSessionSubagentIds("desktop:chat-3").length === 1);
+
+    expect(runtime.cancelSession("desktop:chat-3")).toBe(1);
+    await waitFor(() => completions.length === 1);
+
+    expect(completions).toEqual([
+      {
+        id: "subagent-active",
+        status: "failed",
+        result: "Subagent cancelled.",
+        error: "Subagent cancelled.",
+      },
+    ]);
+    expect(runtime.getSessionSubagentIds("desktop:chat-3")).toEqual([]);
+  });
+
+  test("cancels queued and active subagents by plan metadata", async () => {
+    const completions: Array<{ id: string; status: string; result: string; error?: string }> = [];
+    const runtime = new SubagentRuntime({
+      maxConcurrent: 1,
+      timeoutMs: 1000,
+      idGenerator: (() => {
+        let index = 0;
+        return () => `subagent-${index += 1}`;
+      })(),
+      runner: async () => new Promise(() => {}),
+    });
+
+    await runtime.spawn({
+      task: "Active",
+      label: "Active",
+      sessionKey: "desktop:chat-4",
+      metadata: { planId: "plan-1", subtaskId: "a" },
+      onComplete: async (completion) => {
+        completions.push({
+          id: completion.id,
+          status: completion.status,
+          result: completion.result,
+          error: completion.error,
+        });
+      },
+    });
+    await runtime.spawn({
+      task: "Queued",
+      label: "Queued",
+      sessionKey: "desktop:chat-4",
+      metadata: { planId: "plan-1", subtaskId: "b" },
+      onComplete: async (completion) => {
+        completions.push({
+          id: completion.id,
+          status: completion.status,
+          result: completion.result,
+          error: completion.error,
+        });
+      },
+    });
+
+    expect(runtime.cancelPlan("plan-1")).toBe(2);
+    await waitFor(() => completions.length === 1);
+
+    expect(completions).toEqual([
+      {
+        id: "subagent-1",
+        status: "failed",
+        result: "Subagent cancelled.",
+        error: "Subagent cancelled.",
+      },
+    ]);
+    expect(runtime.getSessionSubagentIds("desktop:chat-4")).toEqual([]);
+    expect(runtime.getRunningCount()).toBe(0);
+  });
 });
 
 async function waitFor(condition: () => boolean, attempts = 20): Promise<void> {

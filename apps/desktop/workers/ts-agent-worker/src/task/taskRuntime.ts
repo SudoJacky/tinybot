@@ -31,6 +31,7 @@ export interface TaskRuntimeOptions {
   };
   executor?: {
     spawnSubtask(request: SpawnSubtaskRequest, traceId: string): Promise<void>;
+    cancelPlan?(plan: TaskPlan, traceId: string): Promise<number>;
   };
   idGenerator?: () => string;
   now?: () => string;
@@ -167,6 +168,10 @@ export class TaskRuntime {
       const saved = await this.store.savePlan(plan, traceId);
       return { plan: saved, spawnedCount: 0 };
     }
+    if (plan.status === "paused") {
+      const saved = await this.store.savePlan(plan, traceId);
+      return { plan: saved, spawnedCount: 0 };
+    }
     plan.status = "executing";
     const ready = readySubtasks(plan);
     const toSpawn = options.parallel === false ? ready.slice(0, 1) : ready;
@@ -200,7 +205,13 @@ export class TaskRuntime {
   }
 
   async cancelPlan(planId: string, traceId: string): Promise<TaskPlan | null> {
-    return this.pausePlan(planId, traceId);
+    const plan = await this.store.getPlan(planId, traceId);
+    if (!plan || plan.status === "completed") {
+      return plan;
+    }
+    await this.executor?.cancelPlan?.(plan, traceId);
+    plan.status = "paused";
+    return this.store.savePlan(plan, traceId);
   }
 
   deletePlan(planId: string, traceId: string): Promise<boolean> {
