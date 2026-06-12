@@ -410,6 +410,46 @@ describe("AgentWorker", () => {
     expect(deleteRequests).toEqual([{ sessionId: "websocket:chat-1", traceId: "trace-webui.handle_request" }]);
   });
 
+  test("serves WebUI session profile control route through TS worker RPC", async () => {
+    const profileRequests: Array<{ sessionId: string; traceId: string }> = [];
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      webuiSessionProvider: {
+        listSessions: () => [],
+        getSessionProfile: (sessionId: string, traceId: string) => {
+          profileRequests.push({ sessionId, traceId });
+          return {
+            sessionId,
+            profile: { display_name: "Ada", role: "developer" },
+          };
+        },
+      },
+    } as any);
+
+    await expect(worker.handleRequest(webuiRequest("webui.route_specs"))).resolves.toMatchObject({
+      result: {
+        routes: expect.arrayContaining([
+          { key: "get_profile", method: "GET", path: "/api/sessions/{key}/profile", public: false },
+        ]),
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
+      path: "/api/sessions/websocket%3Achat-1/profile",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          key: "websocket:chat-1",
+          profile: { display_name: "Ada", role: "developer" },
+        },
+      },
+    });
+    expect(profileRequests).toEqual([{ sessionId: "websocket:chat-1", traceId: "trace-webui.handle_request" }]);
+  });
+
   test("returns Python-compatible cowork route unavailable errors", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),

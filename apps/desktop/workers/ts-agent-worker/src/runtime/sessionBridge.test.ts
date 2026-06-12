@@ -59,6 +59,33 @@ describe("NativeSessionBridge", () => {
     ]);
   });
 
+  test("loads WebUI session profile through native session.get_metadata", async () => {
+    const requests: Array<{ traceId: string; method: string; params: Record<string, unknown> }> = [];
+    const bridge = new NativeSessionBridge({
+      request: async (traceId, method, params) => {
+        requests.push({ traceId, method, params });
+        return {
+          session_id: "websocket:chat-1",
+          extra: {
+            user_profile: { display_name: "Ada", role: "developer" },
+          },
+        };
+      },
+    });
+
+    await expect((bridge as any).getWebuiSessionProfile("websocket:chat-1", "trace-webui")).resolves.toEqual({
+      sessionId: "websocket:chat-1",
+      profile: { display_name: "Ada", role: "developer" },
+    });
+    expect(requests).toEqual([
+      {
+        traceId: "trace-webui",
+        method: "session.get_metadata",
+        params: { session_id: "websocket:chat-1" },
+      },
+    ]);
+  });
+
   test("lists WebUI session metadata through native session.list_metadata", async () => {
     const requests: Array<{ traceId: string; method: string; params: Record<string, unknown> }> = [];
     const bridge = new NativeSessionBridge({

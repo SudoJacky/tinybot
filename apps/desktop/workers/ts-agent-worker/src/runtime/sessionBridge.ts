@@ -5,6 +5,7 @@ import type {
   WebuiDeleteSessionResult,
   WebuiSessionMessages,
   WebuiSessionMetadata,
+  WebuiSessionProfile,
   WebuiSessionProvider,
 } from "../webui/webuiRoutes.ts";
 import type { ClearSessionResult, PersistTurnRequest, PersistTurnResult, SessionBridge } from "./agentWorker.ts";
@@ -33,6 +34,17 @@ export class NativeSessionBridge implements SessionBridge, WebuiSessionProvider 
 
   async getWebuiSessionMessages(sessionId: string, traceId: string): Promise<WebuiSessionMessages | null> {
     return this.getSessionMessages(sessionId, traceId);
+  }
+
+  async getSessionProfile(sessionId: string, traceId: string): Promise<WebuiSessionProfile | null> {
+    const result = await this.rpcClient.request(traceId, "session.get_metadata", {
+      session_id: sessionId,
+    });
+    return normalizeWebuiSessionProfile(result);
+  }
+
+  async getWebuiSessionProfile(sessionId: string, traceId: string): Promise<WebuiSessionProfile | null> {
+    return this.getSessionProfile(sessionId, traceId);
   }
 
   async deleteSession(sessionId: string, traceId: string): Promise<WebuiDeleteSessionResult> {
@@ -152,6 +164,22 @@ function normalizeWebuiSessionMessages(result: unknown): WebuiSessionMessages | 
   return {
     sessionId,
     messages: Array.isArray(extra.messages) ? extra.messages.filter(isJsonObject) : [],
+  };
+}
+
+function normalizeWebuiSessionProfile(result: unknown): WebuiSessionProfile | null {
+  if (!isJsonObject(result)) {
+    return null;
+  }
+  const sessionId = stringField(result, "sessionId", "session_id");
+  if (!sessionId) {
+    return null;
+  }
+  const extra = isJsonObject(result.extra) ? result.extra : {};
+  const profile = extra.user_profile ?? extra.userProfile ?? result.user_profile ?? result.userProfile;
+  return {
+    sessionId,
+    profile: isJsonObject(profile) ? profile : {},
   };
 }
 
