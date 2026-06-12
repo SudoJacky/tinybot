@@ -207,6 +207,32 @@ struct WorkerTransportWebSocketMessageInput {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct WorkerTransportWebSocketDispatchInput {
+    client_id: String,
+    frame: serde_json::Value,
+    #[serde(default)]
+    attached_chat_id: Option<String>,
+    #[serde(default)]
+    session_exists: Option<bool>,
+    #[serde(default)]
+    editable_paths: Option<Vec<String>>,
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    max_iterations: Option<u32>,
+    #[serde(default)]
+    stream: Option<bool>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct WorkerTransportWebSocketDispatchOptions {
+    model: Option<String>,
+    max_iterations: Option<u32>,
+    stream: Option<bool>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct WorkerCancelAgentInput {
     run_id: String,
 }
@@ -640,6 +666,20 @@ fn worker_transport_websocket_message(
         ts_agent_worker_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_transport_dispatch_websocket_message(
+    input: WorkerTransportWebSocketDispatchInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_transport_dispatch_websocket_message_with_options(
+        state.inner(),
+        input,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(60),
     )
 }
 
@@ -2077,6 +2117,158 @@ fn build_worker_transport_websocket_message_request(
     )
 }
 
+fn worker_transport_dispatch_websocket_message_with_options(
+    shared: &SharedGateway,
+    input: WorkerTransportWebSocketDispatchInput,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let worker = {
+        let runtime = lock_runtime(shared);
+        runtime.experimental_worker.clone()
+    };
+
+    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot)?;
+
+    let transport_request = build_worker_transport_websocket_message_request(
+        now_unix_ms(),
+        WorkerTransportWebSocketMessageInput {
+            client_id: input.client_id,
+            frame: input.frame,
+            attached_chat_id: input.attached_chat_id,
+            session_exists: input.session_exists,
+            editable_paths: input.editable_paths,
+        },
+    );
+    let transport_response = worker
+        .send_stdio_request(&transport_request, timeout)
+        .map_err(|error| {
+            format!(
+                "worker transport websocket dispatch mapper request failed: {}",
+                error.message
+            )
+        })?;
+
+    if let Some(error) = transport_response.error {
+        return Err(format!(
+            "worker transport websocket dispatch mapper returned error: {}",
+            error.message
+        ));
+    }
+    let transport_result = transport_response.result.ok_or_else(|| {
+        "worker transport websocket dispatch mapper response missing result".to_string()
+    })?;
+
+    let dispatch_options = WorkerTransportWebSocketDispatchOptions {
+        model: input.model,
+        max_iterations: input.max_iterations,
+        stream: input.stream,
+    };
+    let Some(run_request) = build_worker_transport_websocket_run_input_request(
+        now_unix_ms(),
+        &transport_result,
+        dispatch_options,
+    ) else {
+        return Ok(serde_json::json!({ "transport": transport_result }));
+    };
+
+    let agent_response = worker
+        .send_stdio_request(&run_request, timeout)
+        .map_err(|error| {
+            format!(
+                "worker transport websocket dispatch agent request failed: {}",
+                error.message
+            )
+        })?;
+    if let Some(error) = agent_response.error {
+        return Err(format!(
+            "worker transport websocket dispatch agent returned error: {}",
+            error.message
+        ));
+    }
+    let agent_result = agent_response.result.ok_or_else(|| {
+        "worker transport websocket dispatch agent response missing result".to_string()
+    })?;
+
+    Ok(serde_json::json!({
+        "transport": transport_result,
+        "agent": agent_result,
+    }))
+}
+
+fn build_worker_transport_websocket_run_input_request(
+    request_id: u128,
+    transport_result: &serde_json::Value,
+    options: WorkerTransportWebSocketDispatchOptions,
+) -> Option<WorkerRequest> {
+    let inbound = transport_result.get("inbound")?.as_object()?;
+    let session_id = json_string_field(inbound, "session_key")?;
+    let content = json_string_field(inbound, "content")?;
+    let channel = json_string_field(inbound, "channel").unwrap_or("websocket");
+    let chat_id = json_string_field(inbound, "chat_id").unwrap_or("");
+    let mut metadata = inbound
+        .get("metadata")
+        .and_then(serde_json::Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    metadata.insert("_wants_stream".to_string(), serde_json::Value::Bool(true));
+
+    let mut input = serde_json::json!({
+        "runId": format!(
+            "websocket-{}-{request_id}",
+            sanitize_worker_run_id_part(if chat_id.is_empty() { session_id } else { chat_id })
+        ),
+        "sessionId": session_id,
+        "input": {
+            "role": "user",
+            "content": content,
+        },
+        "channel": channel,
+        "chatId": chat_id,
+        "stream": options.stream.unwrap_or(true),
+        "metadata": serde_json::Value::Object(metadata),
+    });
+    if let Some(model) = options.model {
+        input["model"] = serde_json::Value::String(model);
+    }
+    if let Some(max_iterations) = options.max_iterations {
+        input["maxIterations"] = serde_json::json!(max_iterations);
+    }
+
+    Some(WorkerRequest::new(
+        format!("transport-websocket-run-input-{request_id}"),
+        format!("trace-transport-websocket-run-input-{request_id}"),
+        "agent.run_input",
+        serde_json::json!({ "input": input }),
+    ))
+}
+
+fn json_string_field<'a>(
+    object: &'a serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Option<&'a str> {
+    object.get(key).and_then(serde_json::Value::as_str)
+}
+
+fn sanitize_worker_run_id_part(value: &str) -> String {
+    let sanitized: String = value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | ':' | '.') {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    if sanitized.is_empty() {
+        "chat".to_string()
+    } else {
+        sanitized
+    }
+}
+
 fn send_skills_worker_request(
     shared: &SharedGateway,
     workspace_root: PathBuf,
@@ -2585,6 +2777,7 @@ pub fn run() {
             worker_webui_route,
             worker_transport_gateway_frame,
             worker_transport_websocket_message,
+            worker_transport_dispatch_websocket_message,
             worker_cancel_agent,
             worker_restore_agent_checkpoint,
             worker_submit_agent_form,
@@ -3187,6 +3380,65 @@ mod tests {
                 "editablePaths": ["AGENTS.md"]
             })
         );
+    }
+
+    #[test]
+    fn worker_transport_websocket_inbound_result_builds_agent_run_input_request() {
+        let mapper_result = serde_json::json!({
+            "kind": "message",
+            "chatId": "chat-1",
+            "sessionId": "websocket:chat-1",
+            "frames": [],
+            "inbound": {
+                "channel": "websocket",
+                "sender_id": "client-1",
+                "chat_id": "chat-1",
+                "content": "hello",
+                "metadata": { "_use_persistent_rag": true },
+                "session_key": "websocket:chat-1"
+            }
+        });
+
+        let request = build_worker_transport_websocket_run_input_request(
+            42,
+            &mapper_result,
+            WorkerTransportWebSocketDispatchOptions {
+                model: Some("gpt-5".to_string()),
+                max_iterations: Some(6),
+                stream: None,
+            },
+        )
+        .expect("message mapper result should build a run request");
+
+        assert_eq!(request.id, "transport-websocket-run-input-42");
+        assert_eq!(request.trace_id, "trace-transport-websocket-run-input-42");
+        assert_eq!(request.method, "agent.run_input");
+        assert_eq!(
+            request.params,
+            serde_json::json!({
+                "input": {
+                    "runId": "websocket-chat-1-42",
+                    "sessionId": "websocket:chat-1",
+                    "input": { "role": "user", "content": "hello" },
+                    "channel": "websocket",
+                    "chatId": "chat-1",
+                    "model": "gpt-5",
+                    "maxIterations": 6,
+                    "stream": true,
+                    "metadata": {
+                        "_use_persistent_rag": true,
+                        "_wants_stream": true
+                    }
+                }
+            })
+        );
+
+        assert!(build_worker_transport_websocket_run_input_request(
+            43,
+            &serde_json::json!({ "kind": "ping", "frames": [{ "event": "pong" }] }),
+            WorkerTransportWebSocketDispatchOptions::default(),
+        )
+        .is_none());
     }
 
     #[test]
