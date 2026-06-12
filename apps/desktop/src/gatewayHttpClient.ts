@@ -326,7 +326,11 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         "webui.config.get",
       ),
       patch: (body: unknown) => request("/api/config", jsonRequest("PATCH", body)),
-      providers: () => request("/api/providers"),
+      providers: () => nativeOrGateway(
+        () => options.nativeWebui?.route({ method: "GET", path: "/api/providers" }),
+        () => request("/api/providers"),
+        "webui.providers",
+      ),
       providerModels: (body: unknown) => nativeOrGateway(
         () => options.nativeWebui?.route({ method: "POST", path: "/api/provider-models", body }),
         () => request("/api/provider-models", jsonRequest("POST", body)),

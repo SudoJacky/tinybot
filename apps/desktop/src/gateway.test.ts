@@ -442,6 +442,28 @@ describe("gateway HTTP client", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
+  test("prefers native WebUI providers route when available", async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
+    const nativeWebui = {
+      route: vi.fn(async (request: { method: string; path: string; body?: unknown }) => ({
+        providers: [{ id: "dashscope", displayName: "DashScope", status: "ready" }],
+        request,
+      })),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeWebui,
+    });
+
+    await expect(client.config.providers()).resolves.toEqual({
+      providers: [{ id: "dashscope", displayName: "DashScope", status: "ready" }],
+      request: { method: "GET", path: "/api/providers" },
+    });
+    expect(nativeWebui.route).toHaveBeenCalledWith({ method: "GET", path: "/api/providers" });
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
   test("prefers native WebUI provider models route when available", async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
     const nativeWebui = {

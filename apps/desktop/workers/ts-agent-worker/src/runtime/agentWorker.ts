@@ -34,6 +34,7 @@ import {
   parseWebuiRouteRequest,
   webuiRouteSpecs,
   type WebuiConfigProvider,
+  type WebuiProvidersProvider,
   type WebuiSessionProvider,
   type WebuiStatusProvider,
 } from "../webui/webuiRoutes.ts";
@@ -2551,6 +2552,7 @@ export class AgentWorker {
           this.webuiApprovalProvider(),
           this.webuiProviderModelsProvider(),
           this.webuiConfigProvider,
+          this.webuiProvidersProvider(),
           request.trace_id,
         ),
       };
@@ -2582,6 +2584,18 @@ export class AgentWorker {
     return {
       listProviderModels: async (params: ProviderModelsListRequest) => {
         const result = await this.listProviderModels!(params);
+        return isJsonObject(result) ? result : {};
+      },
+    };
+  }
+
+  private webuiProvidersProvider(): WebuiProvidersProvider | undefined {
+    if (!this.listProviderCatalog) {
+      return undefined;
+    }
+    return {
+      listProviders: async () => {
+        const result = await this.listProviderCatalog!();
         return isJsonObject(result) ? result : {};
       },
     };

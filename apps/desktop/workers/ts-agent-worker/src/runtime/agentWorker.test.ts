@@ -278,6 +278,48 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("serves WebUI providers route through TS worker RPC", async () => {
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      listProviderCatalog: async () => ({
+        providers: [
+          {
+            id: "dashscope",
+            displayName: "DashScope",
+            status: "ready",
+          },
+        ],
+      }),
+    });
+
+    await expect(worker.handleRequest(webuiRequest("webui.route_specs"))).resolves.toMatchObject({
+      result: {
+        routes: expect.arrayContaining([
+          { key: "providers", method: "GET", path: "/api/providers", public: false },
+        ]),
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
+      path: "/api/providers",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          providers: [
+            {
+              id: "dashscope",
+              displayName: "DashScope",
+              status: "ready",
+            },
+          ],
+        },
+      },
+    });
+  });
+
   test("serves WebUI provider models route through TS worker RPC", async () => {
     const requests: ProviderModelsListRequest[] = [];
     const worker = new AgentWorker({

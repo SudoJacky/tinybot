@@ -137,10 +137,15 @@ export type WebuiConfigProvider = {
   getConfig(traceId: string): Promise<Record<string, unknown>> | Record<string, unknown>;
 };
 
+export type WebuiProvidersProvider = {
+  listProviders(traceId: string): Promise<unknown> | unknown;
+};
+
 const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
   { key: "get_status", method: "GET", path: "/api/status", public: false },
   { key: "get_tools", method: "GET", path: "/api/tools", public: false },
   { key: "get_config", method: "GET", path: "/api/config", public: false },
+  { key: "providers", method: "GET", path: "/api/providers", public: false },
   { key: "provider_models", method: "POST", path: "/api/provider-models", public: false },
   { key: "get_approvals", method: "GET", path: "/api/approvals", public: false },
   { key: "approve_approval", method: "POST", path: "/api/approvals/{approval_id}/approve", public: false },
@@ -166,6 +171,7 @@ export async function handleWebuiRouteRequest(
   approvalProvider?: WebuiApprovalProvider,
   providerModelsProvider?: WebuiProviderModelsProvider,
   configProvider?: WebuiConfigProvider,
+  providersProvider?: WebuiProvidersProvider,
   traceId = "webui-route",
 ): Promise<WebuiRouteResponse> {
   const method = request.method.toUpperCase();
@@ -182,6 +188,12 @@ export async function handleWebuiRouteRequest(
       return { status: 503, body: { error: "webui control route unavailable", route: "get_config" } };
     }
     return { status: 200, body: await configProvider.getConfig(traceId) };
+  }
+  if (method === "GET" && path === "/api/providers") {
+    if (!providersProvider) {
+      return { status: 503, body: { error: "webui control route unavailable", route: "providers" } };
+    }
+    return { status: 200, body: await providersProvider.listProviders(traceId) };
   }
   if (method === "POST" && path === "/api/provider-models") {
     return webuiProviderModelsResponse(request.body, providerModelsProvider, traceId);
