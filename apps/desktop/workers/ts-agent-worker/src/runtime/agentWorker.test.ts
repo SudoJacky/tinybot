@@ -156,6 +156,16 @@ function skillsWebuiMutationRequest(method: string, params: Record<string, unkno
   };
 }
 
+function webuiRequest(method: string, params: Record<string, unknown> = {}): WorkerRequest {
+  return {
+    protocol_version: "1",
+    id: `${method}-1`,
+    trace_id: `trace-${method}`,
+    method,
+    params,
+  };
+}
+
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((innerResolve) => {
@@ -165,6 +175,40 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 }
 
 describe("AgentWorker", () => {
+  test("serves WebUI status control route through TS worker RPC", async () => {
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      statusProvider: {
+        channelRunning: true,
+        provider: { name: "openai", profile: "default" },
+        model: "gpt-test",
+      },
+    });
+
+    await expect(worker.handleRequest(webuiRequest("webui.route_specs"))).resolves.toMatchObject({
+      result: {
+        routes: expect.arrayContaining([
+          { key: "get_status", method: "GET", path: "/api/status", public: false },
+        ]),
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
+      path: "/api/status",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          channels: { websocket: { enabled: true, running: true } },
+          provider: { name: "openai", profile: "default" },
+          model: "gpt-test",
+        },
+      },
+    });
+  });
+
   test("returns Python-compatible cowork route unavailable errors", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),

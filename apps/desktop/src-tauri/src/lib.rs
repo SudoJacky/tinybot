@@ -168,6 +168,15 @@ struct WorkerCoworkRouteInput {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct WorkerWebuiRouteInput {
+    method: String,
+    path: String,
+    #[serde(default)]
+    body: Option<serde_json::Value>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct WorkerCancelAgentInput {
     run_id: String,
 }
@@ -559,6 +568,20 @@ fn worker_cowork_route(
         ts_agent_worker_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(30),
+    )
+}
+
+#[tauri::command]
+fn worker_webui_route(
+    input: WorkerWebuiRouteInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_webui_route_with_options(
+        state.inner(),
+        input,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
     )
 }
 
@@ -1821,6 +1844,55 @@ fn build_worker_cowork_route_request(
     )
 }
 
+fn worker_webui_route_with_options(
+    shared: &SharedGateway,
+    input: WorkerWebuiRouteInput,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let worker = {
+        let runtime = lock_runtime(shared);
+        runtime.experimental_worker.clone()
+    };
+
+    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot)?;
+
+    let request = build_worker_webui_route_request(now_unix_ms(), input);
+    let response = worker
+        .send_stdio_request(&request, timeout)
+        .map_err(|error| format!("worker webui route request failed: {}", error.message))?;
+
+    if let Some(error) = response.error {
+        return Err(format!(
+            "worker webui route returned error: {}",
+            error.message
+        ));
+    }
+    response
+        .result
+        .ok_or_else(|| "worker webui route response missing result".to_string())
+}
+
+fn build_worker_webui_route_request(
+    request_id: u128,
+    input: WorkerWebuiRouteInput,
+) -> WorkerRequest {
+    let mut params = serde_json::json!({
+        "method": input.method,
+        "path": input.path,
+    });
+    if let Some(body) = input.body {
+        params["body"] = body;
+    }
+    WorkerRequest::new(
+        format!("webui-route-{request_id}"),
+        format!("trace-webui-route-{request_id}"),
+        "webui.handle_request",
+        params,
+    )
+}
+
 fn send_skills_worker_request(
     shared: &SharedGateway,
     workspace_root: PathBuf,
@@ -2326,6 +2398,7 @@ pub fn run() {
             worker_skills_delete,
             worker_skills_validate,
             worker_cowork_route,
+            worker_webui_route,
             worker_cancel_agent,
             worker_restore_agent_checkpoint,
             worker_submit_agent_form,
@@ -2828,6 +2901,29 @@ mod tests {
                 "method": "POST",
                 "path": "/api/cowork/sessions/cw_1/tasks/task_1/retry",
                 "body": { "reason": "Retry" }
+            })
+        );
+    }
+
+    #[test]
+    fn worker_webui_route_request_targets_ts_route_bridge() {
+        let request = build_worker_webui_route_request(
+            42,
+            WorkerWebuiRouteInput {
+                method: "GET".to_string(),
+                path: "/api/status".to_string(),
+                body: None,
+            },
+        );
+
+        assert_eq!(request.id, "webui-route-42");
+        assert_eq!(request.trace_id, "trace-webui-route-42");
+        assert_eq!(request.method, "webui.handle_request");
+        assert_eq!(
+            request.params,
+            serde_json::json!({
+                "method": "GET",
+                "path": "/api/status"
             })
         );
     }

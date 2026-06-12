@@ -30,6 +30,12 @@ import {
 import type { ApprovalRequestPayload } from "../security/approvalTypes.ts";
 import type { ToolRegistry } from "../tools/toolRegistry.ts";
 import {
+  handleWebuiRouteRequest,
+  parseWebuiRouteRequest,
+  webuiRouteSpecs,
+  type WebuiStatusProvider,
+} from "../webui/webuiRoutes.ts";
+import {
   approvalOperationFromCheckpoint,
   canResumeApprovalCheckpoint,
   resumedSpecFromApprovedToolResult,
@@ -63,6 +69,7 @@ export type AgentWorkerOptions = {
   requestRestart?: RestartRequestHandler;
   coworkService?: CoworkService;
   coworkScheduler?: CoworkScheduler;
+  statusProvider?: WebuiStatusProvider;
 };
 
 export type PrepareToolsHandler = (traceId: string) => Promise<unknown> | unknown;
@@ -187,6 +194,7 @@ export class AgentWorker {
   private readonly contextBridge?: ContextBridge;
   private readonly coworkService?: CoworkService;
   private readonly coworkScheduler?: CoworkScheduler;
+  private readonly statusProvider?: WebuiStatusProvider;
   private readonly commandRouter: CommandRouter;
   private readonly turnLifecycle: TurnLifecycle;
   private readonly activeRuns = new Map<string, ActiveRun>();
@@ -210,6 +218,7 @@ export class AgentWorker {
     this.contextBridge = options.contextBridge;
     this.coworkService = options.coworkService;
     this.coworkScheduler = options.coworkScheduler;
+    this.statusProvider = options.statusProvider;
     this.commandRouter = options.commandRouter ?? createDefaultCommandRouter({
       cancelActiveRunsForSession: (sessionId) => this.cancelActiveRunsForSession(sessionId),
       getStatusSnapshot: (context) => this.statusSnapshot(context.sessionId),
@@ -421,6 +430,14 @@ export class AgentWorker {
 
     if (request.method === "cowork.route_request") {
       return this.handleCoworkRouteRequest(request);
+    }
+
+    if (request.method === "webui.route_specs") {
+      return this.handleWebuiRouteSpecsRequest(request);
+    }
+
+    if (request.method === "webui.handle_request") {
+      return this.handleWebuiHandleRequest(request);
     }
 
     if (request.method === "worker.provider.reload") {
@@ -2497,6 +2514,28 @@ export class AgentWorker {
         id: request.id,
         trace_id: request.trace_id,
         result: await this.validateProviderModel(parseProviderModelValidateRequest(request.params)),
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private handleWebuiRouteSpecsRequest(request: WorkerRequest): WorkerResponse {
+    return {
+      protocol_version: WORKER_PROTOCOL_VERSION,
+      id: request.id,
+      trace_id: request.trace_id,
+      result: { routes: webuiRouteSpecs() },
+    };
+  }
+
+  private async handleWebuiHandleRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    try {
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: await handleWebuiRouteRequest(parseWebuiRouteRequest(request.params), this.statusProvider),
       };
     } catch (error) {
       return this.failure(request, errorMessage(error), {}, "invalid_protocol");

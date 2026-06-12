@@ -8,6 +8,7 @@ type ClientOptions = {
   fetchFn?: FetchFn;
   nativeSkills?: NativeSkillsApi;
   nativeCowork?: NativeCoworkApi;
+  nativeWebui?: NativeWebuiApi;
   tsCoworkRuntime?: TsCoworkRuntimeRollout;
 };
 
@@ -73,6 +74,16 @@ export type NativeCoworkRouteRequest = {
 
 export type NativeCoworkApi = {
   route: (request: NativeCoworkRouteRequest) => Promise<unknown>;
+};
+
+export type NativeWebuiRouteRequest = {
+  method: string;
+  path: string;
+  body?: unknown;
+};
+
+export type NativeWebuiApi = {
+  route: (request: NativeWebuiRouteRequest) => Promise<unknown>;
 };
 
 type WebSocketProbe = (url: string, timeoutMs: number) => Promise<ProbeResult>;
@@ -247,7 +258,11 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
 
   return {
     runtime: {
-      status: () => request("/api/status"),
+      status: () => nativeOrGateway(
+        () => options.nativeWebui?.route({ method: "GET", path: "/api/status" }),
+        () => request("/api/status"),
+        "webui.status",
+      ),
     },
     sessions: {
       list: () => request("/api/sessions"),

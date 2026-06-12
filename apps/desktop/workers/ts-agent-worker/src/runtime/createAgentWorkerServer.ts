@@ -160,6 +160,15 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     contextBridge: new NativeContextBridge(rpcClient),
     coworkService,
     coworkScheduler,
+    statusProvider: async () => {
+      const runtime = await providerRuntimeFromNativeConfig(configBridge, options.env ?? process.env, {});
+      const providerId = stringValue(runtime.providerId);
+      return {
+        channelRunning: true,
+        provider: providerId ? { name: providerId, profile: stringValue(runtime.profileName) } : null,
+        model: stringValue(runtime.model) ?? null,
+      };
+    },
   });
   return new StdioServer({
     worker,
@@ -171,6 +180,10 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 const DEFAULT_NATIVE_TOOL_CAPABILITIES = [
