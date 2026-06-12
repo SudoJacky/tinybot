@@ -273,6 +273,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 rollout coverage: desktop gateway routing now treats work-unit, branch-result, and final-result routes as swarm-gated so `swarm=false` cleanly falls back to the Python gateway instead of using native TS. |
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: send-message success responses now include a Python-style `result` string and verbose snapshot session payload instead of exposing the raw persisted session map. |
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: add-task success responses now include a Python-style `result` string and verbose snapshot session payload while keeping the created task available for desktop callers. |
+| 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: task assign, retry, and review success responses now return Python-compatible result/review payloads with verbose snapshot sessions instead of raw persisted session maps. |
 
 ## Next Checklist
 
@@ -353,6 +354,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: gate desktop work-unit, branch-result, and final-result routes behind the swarm rollout flag with Python fallback.
 - [x] Continue Cowork Phase 10: return Python-shaped send-message success payloads with snapshot sessions.
 - [x] Continue Cowork Phase 10: return Python-shaped add-task success payloads with snapshot sessions.
+- [x] Continue Cowork Phase 10: return Python-shaped task assign, retry, and review success payloads with snapshot sessions.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 
 - [x] 复核 `ts_native_core.md` 对应实现和 `rust-native-core-worker-migration` 完成状态。

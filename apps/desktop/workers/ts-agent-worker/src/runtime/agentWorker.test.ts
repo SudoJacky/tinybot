@@ -367,6 +367,42 @@ describe("AgentWorker", () => {
     });
 
     await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(createdSession.id)}/tasks/task_1/assign`,
+      body: {
+        assigned_agent_id: "lead",
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          result: "Task 'Review' assigned to Lead.",
+          session: expect.objectContaining({
+            tasks: expect.arrayContaining([expect.objectContaining({ id: "task_1", assigned_agent_id: "lead" })]),
+            graph: expect.objectContaining({ schema_version: "cowork.graph.v2" }),
+          }),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(createdSession.id)}/tasks/task_1/review`,
+      body: {},
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          review_task_id: "task_2",
+          session: expect.objectContaining({
+            tasks: expect.arrayContaining([expect.objectContaining({ id: "task_2", title: "Review Review" })]),
+            graph: expect.objectContaining({ schema_version: "cowork.graph.v2" }),
+          }),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
       method: "GET",
       path: `/api/cowork/sessions/${encodeURIComponent(createdSession.id)}/summary`,
     }))).resolves.toMatchObject({
@@ -375,7 +411,7 @@ describe("AgentWorker", () => {
         body: {
           summary: expect.objectContaining({
             session_id: "cw_1",
-            counts: expect.objectContaining({ agents: 1, tasks: 2 }),
+            counts: expect.objectContaining({ agents: 1, tasks: 3 }),
           }),
         },
       },
@@ -545,10 +581,9 @@ describe("AgentWorker", () => {
       result: {
         status: 200,
         body: {
+          result: "Task 'Answer' assigned to Reviewer.",
           session: expect.objectContaining({
-            tasks: expect.objectContaining({
-              answer: expect.objectContaining({ assigned_agent_id: "reviewer" }),
-            }),
+            tasks: expect.arrayContaining([expect.objectContaining({ id: "answer", assigned_agent_id: "reviewer" })]),
           }),
         },
       },
@@ -569,10 +604,9 @@ describe("AgentWorker", () => {
       result: {
         status: 200,
         body: {
+          result: "Task 'Answer' queued for retry.",
           session: expect.objectContaining({
-            tasks: expect.objectContaining({
-              answer: expect.objectContaining({ status: "pending", error: null }),
-            }),
+            tasks: expect.arrayContaining([expect.objectContaining({ id: "answer", status: "pending", error: null })]),
           }),
         },
       },
@@ -598,6 +632,9 @@ describe("AgentWorker", () => {
           reviewTask: expect.objectContaining({
             title: "Review Answer",
             assigned_agent_id: "reviewer",
+          }),
+          session: expect.objectContaining({
+            tasks: expect.arrayContaining([expect.objectContaining({ id: "task_1", title: "Review Answer" })]),
           }),
         },
       },

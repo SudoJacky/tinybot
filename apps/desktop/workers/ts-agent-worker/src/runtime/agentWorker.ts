@@ -966,7 +966,13 @@ export class AgentWorker {
         taskId,
         agentId,
       });
-      return { status: result.result.startsWith("Error:") ? 400 : 200, body: result };
+      const status = result.result.startsWith("Error:") ? 400 : 200;
+      return {
+        status,
+        body: status === 200
+          ? { result: result.result, session: coworkSessionSnapshot(result.session) }
+          : result,
+      };
     }
     if (action === "retry") {
       const params = parseCoworkTaskMutationParams({ ...body, session_id: sessionId, task_id: taskId }, "cowork.route_request");
@@ -975,7 +981,13 @@ export class AgentWorker {
         sessionId: params.sessionId,
         taskId: params.taskId,
       });
-      return { status: result.result.startsWith("Error:") ? 400 : 200, body: result };
+      const status = result.result.startsWith("Error:") ? 400 : 200;
+      return {
+        status,
+        body: status === 200
+          ? { result: result.result, session: coworkSessionSnapshot(result.session) }
+          : result,
+      };
     }
     if (action === "review") {
       const params = parseCoworkTaskMutationParams({ ...body, session_id: sessionId, task_id: taskId }, "cowork.route_request");
@@ -986,7 +998,14 @@ export class AgentWorker {
           taskId: params.taskId,
           reviewerAgentId: params.reviewerAgentId,
         });
-        return { status: 200, body: result };
+        return {
+          status: 200,
+          body: {
+            review_task_id: result.review_task_id,
+            reviewTask: result.reviewTask,
+            session: coworkSessionSnapshot(result.session),
+          },
+        };
       } catch (error) {
         const message = errorMessage(error);
         if (message.startsWith("Error:")) {
