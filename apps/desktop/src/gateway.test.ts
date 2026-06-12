@@ -457,6 +457,7 @@ describe("gateway HTTP client", () => {
     await expect(client.cowork.create({ goal: "Native Cowork" })).resolves.toMatchObject({ native: true });
     await expect(client.cowork.run("cw_1", { max_rounds: 4 })).resolves.toMatchObject({ native: true });
     await expect(client.cowork.updateBudget("cw_1", { max_rounds: 4 })).resolves.toMatchObject({ native: true });
+    await expect(client.cowork.updateBudget("cw_1", { budgets: { max_tokens: 120 } }, { method: "PATCH" })).resolves.toMatchObject({ native: true });
     await expect(client.cowork.deriveBranch("cw_1", "branch 1", { target_architecture: "swarm" })).resolves.toMatchObject({ native: true });
     await expect(client.cowork.taskAction("cw_1", "task/1", "assign", { assigned_agent_id: "lead" })).resolves.toMatchObject({ native: true });
     await expect(client.cowork.workUnitAction("cw_1", "wu 1", "retry", { reason: "Retry" })).resolves.toMatchObject({ native: true });
@@ -518,6 +519,11 @@ describe("gateway HTTP client", () => {
       method: "POST",
       path: "/api/cowork/sessions/cw_1/budget",
       body: { max_rounds: 4 },
+    });
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "PATCH",
+      path: "/api/cowork/sessions/cw_1/budget",
+      body: { budgets: { max_tokens: 120 } },
     });
     expect(nativeCowork.route).toHaveBeenCalledWith({
       method: "POST",

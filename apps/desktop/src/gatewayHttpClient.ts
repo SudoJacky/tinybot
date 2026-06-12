@@ -491,11 +491,11 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         body,
         "cowork.run",
       ),
-      updateBudget: (sessionId: string, body: unknown) => coworkNativeOrGateway(
+      updateBudget: (sessionId: string, body: unknown, budgetOptions: { method?: "POST" | "PATCH" } = {}) => coworkNativeOrGateway(
         options.nativeCowork,
         options.tsCoworkRuntime,
         request,
-        "POST",
+        budgetOptions.method ?? "POST",
         `/api/cowork/sessions/${encodePathSegment(sessionId)}/budget`,
         body,
         "cowork.updateBudget",

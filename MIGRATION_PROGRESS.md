@@ -300,6 +300,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 | 2026-06-13 | Continued Batch 5 Cowork runtime Phase 10 route parity: branch-result merge routes now return Python-compatible route-level `400 {"error":"branch_ids must be a list"}` when `branch_ids` is missing or not a list instead of surfacing a worker protocol parameter error. |
 | 2026-06-13 | Continued Batch 5 Cowork runtime Phase 10 desktop facade coverage: gateway `cowork.agentActivity()` now forwards Python-compatible `limit` query parameters through the default native TS route path so desktop observability panels can request bounded activity without falling back to Python. |
 | 2026-06-13 | Continued Batch 5 Cowork runtime Phase 10 desktop facade coverage: gateway `cowork.observation()` now forwards Python-compatible requester `agent_id` query parameters through the default native TS route path so sensitive observation authorization can stay on the migrated Worker route. |
+| 2026-06-13 | Continued Batch 5 Cowork runtime Phase 10 desktop facade coverage: gateway `cowork.updateBudget()` can now explicitly dispatch documented `PATCH /budget` requests through the default native TS route while preserving the existing Python-compatible POST default. |
 
 ## Next Checklist
 
@@ -407,6 +408,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: return Python-compatible route-level branch-result merge errors for missing or non-list `branch_ids`.
 - [x] Continue Cowork Phase 10: pass agent activity `limit` query options through the desktop gateway native TS Cowork facade.
 - [x] Continue Cowork Phase 10: pass observation requester `agent_id` query options through the desktop gateway native TS Cowork facade.
+- [x] Continue Cowork Phase 10: expose documented PATCH budget updates through the desktop gateway native TS Cowork facade.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 
 - [x] 复核 `ts_native_core.md` 对应实现和 `rust-native-core-worker-migration` 完成状态。
