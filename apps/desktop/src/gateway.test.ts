@@ -712,6 +712,40 @@ describe("gateway HTTP client", () => {
     ]);
   });
 
+  test("uses the swarm rollout gate only for branch derivation targeting swarm architecture", async () => {
+    const fetchFn = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
+      if (String(url).endsWith("/webui/bootstrap")) {
+        return new Response(JSON.stringify({ token: "token-1" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ gateway: true }), { status: 200 });
+    });
+    const nativeCowork = {
+      route: vi.fn(async () => ({ native: true })),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeCowork,
+      tsCoworkRuntime: {
+        swarm: false,
+        fallbackToPython: true,
+      },
+    });
+
+    await expect(client.cowork.deriveBranch("cw_1", null, { target_architecture: "swarm" })).resolves.toEqual({ gateway: true });
+    await expect(client.cowork.deriveBranch("cw_1", "branch 1", { target_architecture: "team" })).resolves.toEqual({ native: true });
+
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "POST",
+      path: "/api/cowork/sessions/cw_1/branches/branch%201/derive",
+      body: { target_architecture: "team" },
+    });
+    expect(fetchFn.mock.calls.map((call) => String((call as unknown[])[0]))).toEqual([
+      "http://127.0.0.1:18790/webui/bootstrap",
+      "http://127.0.0.1:18790/api/cowork/sessions/cw_1/branches/derive",
+    ]);
+  });
+
   test("does not fall back to Python when cowork native fallback is disabled", async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
     const nativeCowork = {

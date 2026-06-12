@@ -667,6 +667,9 @@ function coworkRouteGroup(method: string, path: string, body: unknown): "readOnl
   if (recipientlessCoworkMessageRoute(method, path, body)) {
     return "swarm";
   }
+  if (swarmBranchDeriveRoute(method, path, body)) {
+    return "swarm";
+  }
   if (
     path.includes("/work-units/")
     || path.includes("/branch-results/")
@@ -685,6 +688,22 @@ function recipientlessCoworkMessageRoute(method: string, path: string, body: unk
   const payload = asRecord(body);
   const recipients = payload?.recipient_ids ?? payload?.recipientIds;
   return recipients === undefined || (Array.isArray(recipients) && recipients.length === 0);
+}
+
+function swarmBranchDeriveRoute(method: string, path: string, body: unknown): boolean {
+  if (
+    method !== "POST"
+    || !/\/api\/cowork\/sessions\/[^/]+\/branches(?:\/[^/]+)?\/derive(?:$|\?)/.test(path)
+  ) {
+    return false;
+  }
+  const payload = asRecord(body);
+  const targetArchitecture = payload?.target_architecture
+    ?? payload?.targetArchitecture
+    ?? payload?.workflow_mode
+    ?? payload?.workflowMode
+    ?? payload?.architecture;
+  return typeof targetArchitecture === "string" && targetArchitecture.trim().toLowerCase() === "swarm";
 }
 
 async function bootstrapGateway(
