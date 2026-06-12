@@ -1329,8 +1329,8 @@ describe("AgentWorker", () => {
           return {
             document: {
               id: docId,
-              name: "Desktop Knowledge",
-              file_path: "knowledge/files/doc-1.md",
+              name: docId === "doc-2" ? "Upload.md" : "Desktop Knowledge",
+              file_path: docId === "doc-2" ? "knowledge/files/doc-2.md" : "knowledge/files/doc-1.md",
               file_type: "md",
               category: "docs",
               tags: ["desktop"],
@@ -1374,6 +1374,7 @@ describe("AgentWorker", () => {
           { key: "knowledge_delete_document", method: "DELETE", path: "/v1/knowledge/documents/{doc_id}", public: true },
           { key: "knowledge_query", method: "POST", path: "/v1/knowledge/query", public: true },
           { key: "knowledge_stats", method: "GET", path: "/v1/knowledge/stats", public: true },
+          { key: "knowledge_job", method: "GET", path: "/v1/knowledge/jobs/{job_id}", public: true },
         ]),
       },
     });
@@ -1440,6 +1441,24 @@ describe("AgentWorker", () => {
     });
     await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
       method: "GET",
+      path: "/v1/knowledge/jobs/kjob_doc-2",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          id: "kjob_doc-2",
+          doc_id: "doc-2",
+          name: "Upload.md",
+          status: "completed",
+          stage: "completed",
+          retrieval_ready: true,
+          graph_ready: false,
+          partial_availability: true,
+        },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
       path: "/v1/knowledge/documents/doc-1",
     }))).resolves.toMatchObject({
       result: { status: 200, body: { id: "doc-1", content: "# Desktop Knowledge\n" } },
@@ -1487,6 +1506,7 @@ describe("AgentWorker", () => {
           source: "file_upload",
         },
       },
+      { method: "get", traceId: "trace-webui.handle_request", params: { docId: "doc-2" } },
       { method: "get", traceId: "trace-webui.handle_request", params: { docId: "doc-1" } },
       { method: "delete", traceId: "trace-webui.handle_request", params: { docId: "doc-1" } },
       { method: "query", traceId: "trace-webui.handle_request", params: { query: "native knowledge", mode: "sparse", top_k: 3 } },

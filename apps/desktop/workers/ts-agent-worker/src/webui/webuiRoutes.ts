@@ -280,6 +280,7 @@ const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
   { key: "knowledge_delete_document", method: "DELETE", path: "/v1/knowledge/documents/{doc_id}", public: true },
   { key: "knowledge_query", method: "POST", path: "/v1/knowledge/query", public: true },
   { key: "knowledge_stats", method: "GET", path: "/v1/knowledge/stats", public: true },
+  { key: "knowledge_job", method: "GET", path: "/v1/knowledge/jobs/{job_id}", public: true },
   { key: "bootstrap", method: "GET", path: "/webui/bootstrap", public: true },
   { key: "refresh_token", method: "POST", path: "/webui/refresh-token", public: true },
   { key: "get_status", method: "GET", path: "/api/status", public: false },
@@ -368,6 +369,10 @@ export async function handleWebuiRouteRequest(
       return { status: 503, body: { error: "Knowledge store not initialized" } };
     }
     return { status: 200, body: knowledgeStatsBody(await knowledgeProvider.stats(traceId)) };
+  }
+  const knowledgeJobId = knowledgeJobPath(method, path);
+  if (knowledgeJobId !== undefined) {
+    return knowledgeJobResponse(knowledgeJobId, knowledgeProvider, traceId);
   }
   if (method === "GET" && path === "/webui/bootstrap") {
     if (!bootstrapProvider) {
@@ -1003,6 +1008,27 @@ async function knowledgeDocumentResponse(
   };
 }
 
+async function knowledgeJobResponse(
+  jobId: string,
+  provider: WebuiKnowledgeProvider | undefined,
+  traceId: string,
+): Promise<WebuiRouteResponse> {
+  if (!provider) {
+    return { status: 503, body: { error: "Knowledge store not initialized" } };
+  }
+  const docId = knowledgeUploadJobDocumentId(jobId);
+  if (!docId) {
+    return { status: 404, body: { error: `Knowledge job ${jobId} not found` } };
+  }
+  const result = await provider.getDocument(docId, traceId);
+  const document = documentFromResult(result);
+  if (!document) {
+    return { status: 404, body: { error: `Knowledge job ${jobId} not found` } };
+  }
+  const name = stringValue(document.name) ?? docId;
+  return { status: 200, body: completedKnowledgeUploadJob(docId, name) };
+}
+
 async function knowledgeQueryResponse(
   body: unknown,
   provider: WebuiKnowledgeProvider | undefined,
@@ -1155,6 +1181,10 @@ function knowledgeTags(value: unknown): string[] {
 
 function booleanQuery(value: string | null): boolean {
   return value !== null && ["1", "true", "yes", "on"].includes(value.toLowerCase());
+}
+
+function knowledgeUploadJobDocumentId(jobId: string): string | undefined {
+  return jobId.startsWith("kjob_doc") ? jobId.slice("kjob_".length) : undefined;
 }
 
 function completedKnowledgeUploadJob(docId: string, name: string): Record<string, unknown> {
@@ -1639,6 +1669,14 @@ function knowledgeDocumentPath(method: string, path: string): { docId: string } 
   }
   const match = /^\/v1\/knowledge\/documents\/(.+)$/.exec(path);
   return match ? { docId: decodeURIComponent(match[1]) } : undefined;
+}
+
+function knowledgeJobPath(method: string, path: string): string | undefined {
+  if (method !== "GET") {
+    return undefined;
+  }
+  const match = /^\/v1\/knowledge\/jobs\/(.+)$/.exec(path);
+  return match ? decodeURIComponent(match[1]) : undefined;
 }
 
 function sessionMessagesPathKey(method: string, path: string): string | undefined {

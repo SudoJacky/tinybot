@@ -1104,6 +1104,13 @@ describe("gateway HTTP client", () => {
         },
       },
     });
+    await expect(client.knowledge.job("kjob_doc-2")).resolves.toEqual({
+      native: true,
+      request: {
+        method: "GET",
+        path: "/v1/knowledge/jobs/kjob_doc-2",
+      },
+    });
     expect(fetchFn).not.toHaveBeenCalled();
   });
 

@@ -516,7 +516,14 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
           "knowledge.deleteDocument",
         );
       },
-      job: (jobId: string) => request(`/v1/knowledge/jobs/${encodePathSegment(jobId)}`),
+      job: (jobId: string) => {
+        const path = `/v1/knowledge/jobs/${encodePathSegment(jobId)}`;
+        return nativeOrGateway(
+          () => options.nativeWebui?.route({ method: "GET", path }),
+          () => request(path),
+          "knowledge.job",
+        );
+      },
       rebuildIndex: (type: string = "all") =>
         request(`/v1/knowledge/rebuild-index?type=${encodeURIComponent(type)}&async_index=true`, { method: "POST" }),
       stats: () => nativeOrGateway(
