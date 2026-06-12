@@ -1,7 +1,9 @@
 use crate::config_store::{ConfigPatchBridgeResult, ConfigStore};
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_config::WorkerConfigRpc;
-use crate::worker_cron::{CronJobAddParams, CronJobRemoveParams, WorkerCronRpc};
+use crate::worker_cron::{
+    CronJobAddParams, CronJobDueParams, CronJobRecordRunsParams, CronJobRemoveParams, WorkerCronRpc,
+};
 use crate::worker_diagnostics::WorkerDiagnosticsRpc;
 use crate::worker_knowledge::{
     KnowledgeAddDocumentParams, KnowledgeContextParams, KnowledgeDocumentIdParams,
@@ -366,6 +368,14 @@ impl WorkerRpcRouter {
             }
             "cron.job.list" => {
                 serde_json::to_value(self.cron.list_jobs()?).map_err(serialization_error)
+            }
+            "cron.job.due" => {
+                let params: CronJobDueParams = parse_params(request)?;
+                serde_json::to_value(self.cron.due_jobs(params)?).map_err(serialization_error)
+            }
+            "cron.job.record_runs" => {
+                let params: CronJobRecordRunsParams = parse_params(request)?;
+                serde_json::to_value(self.cron.record_runs(params)?).map_err(serialization_error)
             }
             "cron.job.remove" => {
                 let params: CronJobRemoveParams = parse_params(request)?;
@@ -4950,6 +4960,139 @@ mod tests {
         );
         assert_eq!(error.details["capability"], "cron.write");
         assert!(response.result.is_none());
+    }
+
+    #[test]
+    fn dispatches_cron_due_and_record_run_updates_store() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write(
+            "cron/jobs.json",
+            &json!({
+                "version": 1,
+                "jobs": [
+                    {
+                        "id": "due-every",
+                        "name": "Every",
+                        "enabled": true,
+                        "schedule": { "kind": "every", "everyMs": 60000 },
+                        "payload": { "kind": "agent_turn", "message": "check", "deliver": true },
+                        "state": { "nextRunAtMs": 1000, "lastRunAtMs": null, "lastStatus": null, "lastError": null, "runHistory": [] },
+                        "createdAtMs": 1,
+                        "updatedAtMs": 1,
+                        "deleteAfterRun": false
+                    },
+                    {
+                        "id": "due-at",
+                        "name": "Once",
+                        "enabled": true,
+                        "schedule": { "kind": "at", "atMs": 1000 },
+                        "payload": { "kind": "agent_turn", "message": "once", "deliver": false },
+                        "state": { "nextRunAtMs": 1000, "lastRunAtMs": null, "lastStatus": null, "lastError": null, "runHistory": [] },
+                        "createdAtMs": 1,
+                        "updatedAtMs": 1,
+                        "deleteAfterRun": true
+                    },
+                    {
+                        "id": "future",
+                        "name": "Future",
+                        "enabled": true,
+                        "schedule": { "kind": "at", "atMs": 100000 },
+                        "payload": { "kind": "agent_turn", "message": "later", "deliver": false },
+                        "state": { "nextRunAtMs": 100000, "lastRunAtMs": null, "lastStatus": null, "lastError": null, "runHistory": [] },
+                        "createdAtMs": 1,
+                        "updatedAtMs": 1,
+                        "deleteAfterRun": true
+                    },
+                    {
+                        "id": "disabled",
+                        "name": "Disabled",
+                        "enabled": false,
+                        "schedule": { "kind": "every", "everyMs": 60000 },
+                        "payload": { "kind": "agent_turn", "message": "skip", "deliver": false },
+                        "state": { "nextRunAtMs": 1000, "lastRunAtMs": null, "lastStatus": null, "lastError": null, "runHistory": [] },
+                        "createdAtMs": 1,
+                        "updatedAtMs": 1,
+                        "deleteAfterRun": false
+                    }
+                ]
+            })
+            .to_string(),
+        );
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::CronRead, WorkerCapability::CronRun]),
+        );
+
+        let due_response = router.dispatch(&WorkerRequest::new(
+            "req-cron-due",
+            "trace-1",
+            "cron.job.due",
+            json!({ "now_ms": 2000 }),
+        ));
+
+        assert_eq!(due_response.error, None);
+        assert_eq!(
+            due_response.result.as_ref().unwrap()["jobs"],
+            json!([
+                {
+                    "id": "due-every",
+                    "name": "Every",
+                    "enabled": true,
+                    "schedule": { "kind": "every", "everyMs": 60000 },
+                    "payload": { "kind": "agent_turn", "message": "check", "deliver": true, "channel": null, "to": null },
+                    "state": { "nextRunAtMs": 1000, "lastRunAtMs": null, "lastStatus": null, "lastError": null, "runHistory": [] },
+                    "createdAtMs": 1,
+                    "updatedAtMs": 1,
+                    "deleteAfterRun": false
+                },
+                {
+                    "id": "due-at",
+                    "name": "Once",
+                    "enabled": true,
+                    "schedule": { "kind": "at", "atMs": 1000 },
+                    "payload": { "kind": "agent_turn", "message": "once", "deliver": false, "channel": null, "to": null },
+                    "state": { "nextRunAtMs": 1000, "lastRunAtMs": null, "lastStatus": null, "lastError": null, "runHistory": [] },
+                    "createdAtMs": 1,
+                    "updatedAtMs": 1,
+                    "deleteAfterRun": true
+                }
+            ])
+        );
+
+        let record_response = router.dispatch(&WorkerRequest::new(
+            "req-cron-record",
+            "trace-1",
+            "cron.job.record_runs",
+            json!({
+                "now_ms": 3000,
+                "records": [
+                    { "job_id": "due-every", "run_at_ms": 2000, "status": "ok", "duration_ms": 25 },
+                    { "job_id": "due-at", "run_at_ms": 2000, "status": "error", "duration_ms": 5, "error": "boom" }
+                ]
+            }),
+        ));
+
+        assert_eq!(record_response.error, None);
+        assert_eq!(
+            record_response.result,
+            Some(json!({ "updated": ["due-every"], "deleted": ["due-at"], "missing": [] }))
+        );
+        let store: Value = serde_json::from_str(&fixture.read("cron/jobs.json")).unwrap();
+        let every = store["jobs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|job| job["id"] == "due-every")
+            .unwrap();
+        assert_eq!(every["state"]["lastRunAtMs"], 2000);
+        assert_eq!(every["state"]["lastStatus"], "ok");
+        assert_eq!(every["state"]["lastError"], Value::Null);
+        assert_eq!(every["state"]["nextRunAtMs"], 63000);
+        assert_eq!(every["state"]["runHistory"][0]["durationMs"], 25);
+        assert!(!fixture.read("cron/jobs.json").contains("due-at"));
     }
 
     #[test]

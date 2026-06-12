@@ -43,6 +43,8 @@ pub enum WorkerCapability {
     CronRead,
     #[serde(rename = "cron.write")]
     CronWrite,
+    #[serde(rename = "cron.run")]
+    CronRun,
     #[serde(rename = "mcp.call")]
     McpCall,
     #[serde(rename = "shell.execute")]
@@ -94,6 +96,7 @@ mod tests {
         assert!(!policy.allows(&WorkerCapability::TaskWrite));
         assert!(!policy.allows(&WorkerCapability::CronRead));
         assert!(!policy.allows(&WorkerCapability::CronWrite));
+        assert!(!policy.allows(&WorkerCapability::CronRun));
         assert!(!policy.allows(&WorkerCapability::McpCall));
         assert!(!policy.allows(&WorkerCapability::ShellExecute));
     }
@@ -274,6 +277,10 @@ mod tests {
             capability: WorkerCapability::CronWrite,
             scope: "cron://jobs".to_string(),
         };
+        let run_grant = CapabilityGrant {
+            capability: WorkerCapability::CronRun,
+            scope: "cron://jobs".to_string(),
+        };
 
         assert_eq!(
             serde_json::to_value(read_grant).expect("grant should serialize"),
@@ -286,6 +293,13 @@ mod tests {
             serde_json::to_value(write_grant).expect("grant should serialize"),
             json!({
                 "capability": "cron.write",
+                "scope": "cron://jobs"
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(run_grant).expect("grant should serialize"),
+            json!({
+                "capability": "cron.run",
                 "scope": "cron://jobs"
             })
         );

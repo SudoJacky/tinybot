@@ -3,7 +3,6 @@ use crate::worker_protocol::{
     WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::{
     collections::hash_map::DefaultHasher,
     fs,
@@ -11,6 +10,8 @@ use std::{
     path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
+
+const MAX_RUN_HISTORY: usize = 20;
 
 #[derive(Clone, Debug)]
 pub struct WorkerCronRpc {
@@ -93,6 +94,86 @@ impl WorkerCronRpc {
         })
     }
 
+    pub fn due_jobs(
+        &self,
+        params: CronJobDueParams,
+    ) -> Result<CronJobListResult, WorkerProtocolError> {
+        self.require(WorkerCapability::CronRun)?;
+        let now = params.now_ms.unwrap_or_else(now_ms);
+        let jobs = self
+            .read_store()?
+            .jobs
+            .into_iter()
+            .filter(|job| {
+                job.enabled
+                    && job
+                        .state
+                        .next_run_at_ms
+                        .is_some_and(|next_run_at_ms| next_run_at_ms <= now)
+            })
+            .collect();
+        Ok(CronJobListResult { jobs })
+    }
+
+    pub fn record_runs(
+        &self,
+        params: CronJobRecordRunsParams,
+    ) -> Result<CronJobRecordRunsResult, WorkerProtocolError> {
+        self.require(WorkerCapability::CronRun)?;
+        let now = params.now_ms.unwrap_or_else(now_ms);
+        let mut store = self.read_store()?;
+        let mut updated = Vec::new();
+        let mut deleted = Vec::new();
+        let mut missing = Vec::new();
+
+        for record in params.records {
+            let Some(index) = store.jobs.iter().position(|job| job.id == record.job_id) else {
+                missing.push(record.job_id);
+                continue;
+            };
+
+            let job = &mut store.jobs[index];
+            job.state.last_run_at_ms = Some(record.run_at_ms);
+            job.state.last_status = Some(record.status.as_str().to_string());
+            job.state.last_error = record.error.clone();
+            job.state.run_history.push(CronRunRecord {
+                run_at_ms: record.run_at_ms,
+                status: record.status,
+                duration_ms: record.duration_ms,
+                error: record.error,
+            });
+            if job.state.run_history.len() > MAX_RUN_HISTORY {
+                let remove_count = job.state.run_history.len() - MAX_RUN_HISTORY;
+                job.state.run_history.drain(0..remove_count);
+            }
+            job.updated_at_ms = now;
+
+            match job.schedule {
+                CronSchedule::At { .. } => {
+                    if job.delete_after_run {
+                        let removed = store.jobs.remove(index);
+                        deleted.push(removed.id);
+                    } else {
+                        job.enabled = false;
+                        job.state.next_run_at_ms = None;
+                        updated.push(job.id.clone());
+                    }
+                }
+                _ => {
+                    job.state.next_run_at_ms = compute_next_run_at_ms(&job.schedule, now);
+                    updated.push(job.id.clone());
+                }
+            }
+        }
+
+        self.write_store(&store)?;
+        Ok(CronJobRecordRunsResult {
+            updated,
+            deleted,
+            missing,
+        })
+    }
+
     fn require(&self, capability: WorkerCapability) -> Result<(), WorkerProtocolError> {
         if self.policy.allows(&capability) {
             return Ok(());
@@ -152,6 +233,29 @@ pub struct CronJobAddParams {
 #[derive(Clone, Debug, Deserialize)]
 pub struct CronJobRemoveParams {
     pub job_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct CronJobDueParams {
+    pub now_ms: Option<i64>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct CronJobRecordRunsParams {
+    pub now_ms: Option<i64>,
+    pub records: Vec<CronJobRunRecordInput>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct CronJobRunRecordInput {
+    #[serde(alias = "jobId")]
+    pub job_id: String,
+    #[serde(alias = "runAtMs")]
+    pub run_at_ms: i64,
+    pub status: CronRunStatus,
+    #[serde(alias = "durationMs")]
+    pub duration_ms: i64,
+    pub error: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -232,10 +336,37 @@ pub enum CronPayload {
 pub struct CronJobState {
     pub next_run_at_ms: Option<i64>,
     pub last_run_at_ms: Option<i64>,
+    pub last_status: Option<String>,
     pub last_error: Option<String>,
-    pub run_count: usize,
     #[serde(default)]
-    pub history: Vec<Value>,
+    pub run_history: Vec<CronRunRecord>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CronRunRecord {
+    pub run_at_ms: i64,
+    pub status: CronRunStatus,
+    pub duration_ms: i64,
+    pub error: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CronRunStatus {
+    Ok,
+    Error,
+    Skipped,
+}
+
+impl CronRunStatus {
+    fn as_str(&self) -> &'static str {
+        match self {
+            CronRunStatus::Ok => "ok",
+            CronRunStatus::Error => "error",
+            CronRunStatus::Skipped => "skipped",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -251,6 +382,13 @@ pub struct CronJobAddResult {
 #[derive(Clone, Debug, Serialize)]
 pub struct CronJobRemoveResult {
     pub status: CronJobRemoveStatus,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct CronJobRecordRunsResult {
+    pub updated: Vec<String>,
+    pub deleted: Vec<String>,
+    pub missing: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
