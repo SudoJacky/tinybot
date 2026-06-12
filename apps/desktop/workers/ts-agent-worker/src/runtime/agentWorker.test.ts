@@ -615,6 +615,57 @@ describe("AgentWorker", () => {
     ]);
   });
 
+  test("serves OpenAI-compatible health and models routes through TS worker RPC", async () => {
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      webuiConfigProvider: {
+        getConfig: async () => ({
+          agents: { defaults: { provider: "openai", model: "openai/gpt-4o-mini" } },
+        }),
+        patchConfig: async () => ({ config: {}, updatedFields: [] }),
+      },
+    });
+
+    await expect(worker.handleRequest(webuiRequest("webui.route_specs"))).resolves.toMatchObject({
+      result: {
+        routes: expect.arrayContaining([
+          { key: "health", method: "GET", path: "/health", public: true },
+          { key: "openai_models", method: "GET", path: "/v1/models", public: true },
+        ]),
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
+      path: "/health",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: { status: "ok" },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
+      path: "/v1/models",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          object: "list",
+          data: [
+            {
+              id: "openai/gpt-4o-mini",
+              object: "model",
+              created: 0,
+              owned_by: "tinybot",
+            },
+          ],
+        },
+      },
+    });
+  });
+
   test("serves WebUI providers route through TS worker RPC", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),

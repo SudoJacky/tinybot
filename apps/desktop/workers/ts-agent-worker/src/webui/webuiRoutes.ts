@@ -231,6 +231,8 @@ export type WebuiWorkspaceProvider = {
 };
 
 const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
+  { key: "health", method: "GET", path: "/health", public: true },
+  { key: "openai_models", method: "GET", path: "/v1/models", public: true },
   { key: "bootstrap", method: "GET", path: "/webui/bootstrap", public: true },
   { key: "refresh_token", method: "POST", path: "/webui/refresh-token", public: true },
   { key: "get_status", method: "GET", path: "/api/status", public: false },
@@ -285,6 +287,13 @@ export async function handleWebuiRouteRequest(
   const method = request.method.toUpperCase();
   const url = new URL(request.path, "http://worker.local");
   const path = url.pathname;
+  if (method === "GET" && path === "/health") {
+    return { status: 200, body: { status: "ok" } };
+  }
+  if (method === "GET" && path === "/v1/models") {
+    const config = configProvider ? await configProvider.getConfig(traceId) : {};
+    return { status: 200, body: openAiModelsBody(config) };
+  }
   if (method === "GET" && path === "/webui/bootstrap") {
     if (!bootstrapProvider) {
       return { status: 503, body: { error: "webui control route unavailable", route: "bootstrap" } };
@@ -514,6 +523,23 @@ function webuiStatusBody(status: WebuiStatusSnapshot): Record<string, unknown> {
     channels: { websocket: { enabled: true, running: status.channelRunning } },
     provider: status.provider,
     model: status.model,
+  };
+}
+
+function openAiModelsBody(config: Record<string, unknown>): Record<string, unknown> {
+  const agents = isJsonObject(config.agents) ? config.agents : {};
+  const defaults = isJsonObject(agents.defaults) ? agents.defaults : {};
+  const model = stringParam(defaults.model) ?? stringParam(agents.model) ?? "tinybot";
+  return {
+    object: "list",
+    data: [
+      {
+        id: model,
+        object: "model",
+        created: 0,
+        owned_by: "tinybot",
+      },
+    ],
   };
 }
 
