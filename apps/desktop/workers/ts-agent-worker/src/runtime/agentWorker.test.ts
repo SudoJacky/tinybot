@@ -674,14 +674,25 @@ describe("AgentWorker", () => {
     branchSeed.tasks.answer.confidence = 0.6;
     await store.writeSnapshot(branchSeed, "seed-branch");
 
-    await worker.handleRequest(coworkRequest("cowork.route_request", {
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
       method: "POST",
       path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/branches/derive`,
       body: {
         target_architecture: "team",
         title: "Team branch",
       },
-    }));
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          branch: expect.objectContaining({ id: "br_1", current: true, architecture: "team" }),
+          session: expect.objectContaining({
+            branches: expect.arrayContaining([expect.objectContaining({ id: "br_1", current: true })]),
+            graph: expect.objectContaining({ schema_version: "cowork.graph.v2" }),
+          }),
+        },
+      },
+    });
     const derived = await store.readSnapshot(session.id, "seed-team-result");
     if (!derived) {
       throw new Error("missing derived desktop route session");
@@ -708,8 +719,12 @@ describe("AgentWorker", () => {
       result: {
         status: 200,
         body: {
-          branch: expect.objectContaining({ id: "default" }),
-          session: expect.objectContaining({ current_branch_id: "default" }),
+          branch: expect.objectContaining({ id: "default", current: true }),
+          session: expect.objectContaining({
+            current_branch_id: "default",
+            branches: expect.arrayContaining([expect.objectContaining({ id: "default", current: true })]),
+            graph: expect.objectContaining({ schema_version: "cowork.graph.v2" }),
+          }),
         },
       },
     });
