@@ -290,6 +290,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 rollout gates: branch derivation requests targeting `swarm` architecture are now classified under the swarm gate while non-swarm branch derivations remain mutation routes. |
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: session list route query parsing now accepts Python-compatible `include_completed=1/yes/true` aliases and trims `origin_chat_id` on both query and session runtime state. |
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: run-session route parsing now accepts Python-compatible `parallel_width` as a `max_agents` alias before dispatching to the TS scheduler. |
+| 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: create-session route parsing now accepts Python-compatible `architecture` and `mode` aliases for `workflow_mode`. |
 
 ## Next Checklist
 
@@ -387,6 +388,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: gate swarm-target branch derivation separately from non-swarm branch mutations.
 - [x] Continue Cowork Phase 10: accept Python-compatible session-list `include_completed` aliases and trimmed `origin_chat_id` filters.
 - [x] Continue Cowork Phase 10: accept Python-compatible run-session `parallel_width` as a `max_agents` alias.
+- [x] Continue Cowork Phase 10: accept Python-compatible create-session `architecture` and `mode` aliases for `workflow_mode`.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 
 - [x] 复核 `ts_native_core.md` 对应实现和 `rust-native-core-worker-migration` 完成状态。

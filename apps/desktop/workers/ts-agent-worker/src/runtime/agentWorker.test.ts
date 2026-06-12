@@ -490,6 +490,52 @@ describe("AgentWorker", () => {
     expect(items.map((session) => session.id)).toEqual([active.id, completed.id]);
   });
 
+  test("accepts Python route architecture aliases when creating cowork sessions", async () => {
+    const coworkService = new CoworkService({
+      store: createMemoryCoworkStore(),
+      now: () => "2026-06-12T08:00:00.000Z",
+      idGenerator: (() => {
+        const counters = new Map<string, number>();
+        return (prefix: string) => {
+          const next = (counters.get(prefix) ?? 0) + 1;
+          counters.set(prefix, next);
+          return `${prefix}_${next}`;
+        };
+      })(),
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      coworkService,
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: "/api/cowork/sessions",
+      body: { goal: "Architecture alias", architecture: "team" },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          session: expect.objectContaining({ workflow_mode: "team" }),
+        },
+      },
+    });
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: "/api/cowork/sessions",
+      body: { goal: "Mode alias", mode: "team" },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          session: expect.objectContaining({ workflow_mode: "team" }),
+        },
+      },
+    });
+  });
+
   test("routes Python-compatible cowork run requests through the injected CoworkScheduler", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = (() => {

@@ -3222,7 +3222,9 @@ function parseCoworkCreateSessionParams(params: Record<string, unknown> | undefi
   return {
     goal,
     title: stringParam(params, "title", "title"),
-    workflowMode: stringParam(params, "workflowMode", "workflow_mode"),
+    workflowMode: stringParam(params, "workflowMode", "workflow_mode")
+      ?? stringParam(params, "architecture", "architecture")
+      ?? stringParam(params, "mode", "mode"),
     agents: objectArrayParam(params.agents),
     tasks: objectArrayParam(params.tasks),
     budgets: isJsonObject(params.budgets) ? params.budgets : isJsonObject(params.budget) ? params.budget : undefined,
