@@ -11,13 +11,23 @@ export type NativeTransportGatewayFrameRequest = {
   metadata?: Record<string, unknown>;
 };
 
+export type NativeTransportWebSocketMessageRequest = {
+  clientId: string;
+  frame: Record<string, unknown>;
+  attachedChatId?: string;
+  sessionExists?: boolean;
+  editablePaths?: string[];
+};
+
 export type NativeTransportApi = {
   gatewayFrame(request: NativeTransportGatewayFrameRequest): Promise<unknown>;
+  websocketMessage(request: NativeTransportWebSocketMessageRequest): Promise<unknown>;
 };
 
 export function createDesktopNativeTransportApi(options: { invoke?: TauriInvoke } = {}): NativeTransportApi {
   const invoke = options.invoke ?? tauriInvoke;
   return {
     gatewayFrame: (request) => invoke("worker_transport_gateway_frame", { input: request }),
+    websocketMessage: (request) => invoke("worker_transport_websocket_message", { input: request }),
   };
 }

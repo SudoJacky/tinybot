@@ -194,6 +194,19 @@ struct WorkerTransportGatewayFrameInput {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct WorkerTransportWebSocketMessageInput {
+    client_id: String,
+    frame: serde_json::Value,
+    #[serde(default)]
+    attached_chat_id: Option<String>,
+    #[serde(default)]
+    session_exists: Option<bool>,
+    #[serde(default)]
+    editable_paths: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct WorkerCancelAgentInput {
     run_id: String,
 }
@@ -608,6 +621,20 @@ fn worker_transport_gateway_frame(
     state: State<'_, SharedGateway>,
 ) -> Result<serde_json::Value, String> {
     worker_transport_gateway_frame_with_options(
+        state.inner(),
+        input,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_transport_websocket_message(
+    input: WorkerTransportWebSocketMessageInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_transport_websocket_message_with_options(
         state.inner(),
         input,
         ts_agent_worker_workspace_root(),
@@ -1990,6 +2017,66 @@ fn build_worker_transport_gateway_frame_request(
     )
 }
 
+fn worker_transport_websocket_message_with_options(
+    shared: &SharedGateway,
+    input: WorkerTransportWebSocketMessageInput,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let worker = {
+        let runtime = lock_runtime(shared);
+        runtime.experimental_worker.clone()
+    };
+
+    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot)?;
+
+    let request = build_worker_transport_websocket_message_request(now_unix_ms(), input);
+    let response = worker
+        .send_stdio_request(&request, timeout)
+        .map_err(|error| {
+            format!(
+                "worker transport websocket message request failed: {}",
+                error.message
+            )
+        })?;
+
+    if let Some(error) = response.error {
+        return Err(format!(
+            "worker transport websocket message returned error: {}",
+            error.message
+        ));
+    }
+    response
+        .result
+        .ok_or_else(|| "worker transport websocket message response missing result".to_string())
+}
+
+fn build_worker_transport_websocket_message_request(
+    request_id: u128,
+    input: WorkerTransportWebSocketMessageInput,
+) -> WorkerRequest {
+    let mut params = serde_json::json!({
+        "clientId": input.client_id,
+        "frame": input.frame,
+    });
+    if let Some(attached_chat_id) = input.attached_chat_id {
+        params["attachedChatId"] = serde_json::Value::String(attached_chat_id);
+    }
+    if let Some(session_exists) = input.session_exists {
+        params["sessionExists"] = serde_json::Value::Bool(session_exists);
+    }
+    if let Some(editable_paths) = input.editable_paths {
+        params["editablePaths"] = serde_json::json!(editable_paths);
+    }
+    WorkerRequest::new(
+        format!("transport-websocket-message-{request_id}"),
+        format!("trace-transport-websocket-message-{request_id}"),
+        "transport.websocket_message",
+        params,
+    )
+}
+
 fn send_skills_worker_request(
     shared: &SharedGateway,
     workspace_root: PathBuf,
@@ -2497,6 +2584,7 @@ pub fn run() {
             worker_cowork_route,
             worker_webui_route,
             worker_transport_gateway_frame,
+            worker_transport_websocket_message,
             worker_cancel_agent,
             worker_restore_agent_checkpoint,
             worker_submit_agent_form,
@@ -3060,6 +3148,43 @@ mod tests {
                     "_progress": true,
                     "_tool_name": "read_file"
                 }
+            })
+        );
+    }
+
+    #[test]
+    fn worker_transport_websocket_message_request_targets_ts_inbound_mapper() {
+        let request = build_worker_transport_websocket_message_request(
+            42,
+            WorkerTransportWebSocketMessageInput {
+                client_id: "client-1".to_string(),
+                frame: serde_json::json!({
+                    "type": "message",
+                    "chat_id": "chat-1",
+                    "content": "hello",
+                    "use_persistent_rag": true
+                }),
+                attached_chat_id: Some("chat-1".to_string()),
+                session_exists: None,
+                editable_paths: Some(vec!["AGENTS.md".to_string()]),
+            },
+        );
+
+        assert_eq!(request.id, "transport-websocket-message-42");
+        assert_eq!(request.trace_id, "trace-transport-websocket-message-42");
+        assert_eq!(request.method, "transport.websocket_message");
+        assert_eq!(
+            request.params,
+            serde_json::json!({
+                "clientId": "client-1",
+                "frame": {
+                    "type": "message",
+                    "chat_id": "chat-1",
+                    "content": "hello",
+                    "use_persistent_rag": true
+                },
+                "attachedChatId": "chat-1",
+                "editablePaths": ["AGENTS.md"]
             })
         );
     }

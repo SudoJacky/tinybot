@@ -33,4 +33,49 @@ describe("desktop native transport", () => {
       },
     });
   });
+
+  test("maps websocket client messages through the native TS worker command", async () => {
+    const invoke = vi.fn(async () => ({
+      kind: "message",
+      chatId: "chat-1",
+      sessionId: "websocket:chat-1",
+      inbound: {
+        type: "message",
+        chatId: "chat-1",
+        content: "hello",
+      },
+      frames: [],
+    }));
+    const transport = createDesktopNativeTransportApi({ invoke });
+
+    await expect(transport.websocketMessage({
+      clientId: "client-1",
+      attachedChatId: "chat-1",
+      frame: {
+        type: "message",
+        chat_id: "chat-1",
+        content: "hello",
+        use_persistent_rag: true,
+      },
+      editablePaths: ["AGENTS.md"],
+    })).resolves.toMatchObject({
+      kind: "message",
+      chatId: "chat-1",
+      sessionId: "websocket:chat-1",
+    });
+
+    expect(invoke).toHaveBeenCalledWith("worker_transport_websocket_message", {
+      input: {
+        clientId: "client-1",
+        attachedChatId: "chat-1",
+        frame: {
+          type: "message",
+          chat_id: "chat-1",
+          content: "hello",
+          use_persistent_rag: true,
+        },
+        editablePaths: ["AGENTS.md"],
+      },
+    });
+  });
 });
