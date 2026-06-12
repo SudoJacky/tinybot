@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 
 import type { JsonObject } from "../protocol/messages";
+import type { AgentMessage } from "../agent/agentRunSpec";
+import type { ModelProvider, ModelRequestOptions, ModelResponse } from "../model/provider";
 import {
   createNativeApprovalTools,
   createNativeShellTools,
@@ -10,6 +12,7 @@ import {
   createNativeMemoryTools,
   createNativeRagTools,
   createNativeReadOnlyTools,
+  createNativeTaskTools,
 } from "./nativeToolProxy";
 
 class FakeRpcClient {
@@ -25,6 +28,21 @@ class FakeRpcClient {
     const response = this.responses.shift();
     if (response instanceof Error) {
       throw response;
+    }
+    return response;
+  }
+}
+
+class QueueProvider implements ModelProvider {
+  readonly requests: Array<{ messages: AgentMessage[]; options?: ModelRequestOptions }> = [];
+
+  constructor(private readonly responses: ModelResponse[]) {}
+
+  async complete(messages: AgentMessage[], options?: ModelRequestOptions): Promise<ModelResponse> {
+    this.requests.push({ messages, options });
+    const response = this.responses.shift();
+    if (!response) {
+      throw new Error("no queued model response");
     }
     return response;
   }
@@ -526,6 +544,61 @@ describe("createNativeMemoryTools", () => {
   });
 });
 
+describe("createNativeTaskTools", () => {
+  test("runs resumed subtasks through an isolated AgentRunner tool registry", async () => {
+    const plan = taskPlan({ status: "planning", subtaskStatus: "pending" });
+    const inProgressPlan = taskPlan({ status: "executing", subtaskStatus: "in_progress" });
+    const completedPlan = taskPlan({ status: "completed", subtaskStatus: "completed", result: "inspection used tools" });
+    const rpc = new FakeRpcClient([
+      { plan },
+      { plan: inProgressPlan },
+      { path: "AGENTS.md", content: "Use UV for Python." },
+      { plan: inProgressPlan },
+      { plan: completedPlan },
+    ]);
+    const provider = new QueueProvider([
+      {
+        content: "",
+        toolCalls: [{ id: "call-1", name: "read_file", argumentsJson: "{\"path\":\"AGENTS.md\"}" }],
+        stopReason: "tool_calls",
+      },
+      { content: "inspection used tools", toolCalls: [], stopReason: "stop" },
+    ]);
+    const [taskTool] = createNativeTaskTools(rpc, { provider, model: "test-model" });
+
+    const result = await taskTool.execute(
+      { action: "resume", plan_id: "plan-1", parallel: false },
+      { runId: "run-1", traceId: "trace-1", sessionId: "desktop:chat-1" },
+    );
+    await waitFor(() => rpc.requests.filter((request) => request.method === "task.plan.save").length === 2);
+
+    expect(result.content).toBe("Task plan plan-1 resumed. Spawned 1 ready subtask.");
+    expect(provider.requests[0]?.options?.tools?.map((tool) => tool.name)).toEqual([
+      "read_file",
+      "list_dir",
+      "write_file",
+      "edit_file",
+      "delete_file",
+      "exec",
+      "request_approval",
+    ]);
+    expect(provider.requests[0]?.options?.tools?.map((tool) => tool.name)).not.toContain("task");
+    expect(provider.requests[0]?.options?.tools?.map((tool) => tool.name)).not.toContain("cron");
+    expect(rpc.requests.map((request) => request.method)).toEqual([
+      "task.plan.get",
+      "task.plan.save",
+      "workspace.read_file",
+      "task.plan.get",
+      "task.plan.save",
+    ]);
+    expect(rpc.requests[2]).toMatchObject({
+      traceId: "trace-1",
+      method: "workspace.read_file",
+      params: { path: "AGENTS.md", format: "numbered_lines" },
+    });
+  });
+});
+
 describe("createNativeRagTools", () => {
   test("creates a query_knowledge tool backed by knowledge.query", async () => {
     const rpc = new FakeRpcClient([
@@ -711,3 +784,40 @@ describe("createNativeMcpTools", () => {
     ]);
   });
 });
+
+function taskPlan(options: { status: string; subtaskStatus: string; result?: string }) {
+  return {
+    id: "plan-1",
+    title: "Backend migration",
+    original_request: "Move backend runtime to TS",
+    status: options.status,
+    current_subtask_ids: options.subtaskStatus === "in_progress" ? ["a"] : [],
+    context: { session_key: "desktop:chat-1" },
+    subtasks: [
+      {
+        id: "a",
+        title: "Inspect",
+        description: "Inspect workspace instructions",
+        status: options.subtaskStatus,
+        dependencies: [],
+        parallel_safe: true,
+        result: options.result ?? null,
+        error: null,
+        started_at: null,
+        completed_at: null,
+        retry_count: 0,
+        max_retries: 2,
+      },
+    ],
+  };
+}
+
+async function waitFor(condition: () => boolean, attempts = 30): Promise<void> {
+  for (let index = 0; index < attempts; index += 1) {
+    if (condition()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  throw new Error("condition was not met");
+}

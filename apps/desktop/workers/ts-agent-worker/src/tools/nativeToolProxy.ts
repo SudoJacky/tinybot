@@ -8,6 +8,7 @@ import { TaskPlanner } from "../task/taskPlanner.ts";
 import { TaskProviderSubagentExecutor } from "../task/taskSubagentExecutor.ts";
 import { createTaskTool } from "../task/taskTool.ts";
 import type { Tool } from "./tool.ts";
+import { ToolRegistry } from "./toolRegistry.ts";
 
 export type NativeRpcClient = {
   request(traceId: string, method: string, params: JsonObject): Promise<unknown>;
@@ -74,9 +75,26 @@ export function createNativeTaskTools(
     })
     : undefined;
   const executor = options.provider
-    ? new TaskProviderSubagentExecutor({ provider: options.provider, model: options.model })
+    ? new TaskProviderSubagentExecutor({
+      provider: options.provider,
+      model: options.model,
+      runnerTools: createNativeSubagentToolRegistry(rpcClient),
+    })
     : undefined;
   return [createTaskTool({ store: new NativeTaskStoreBridge(rpcClient), planner, executor })];
+}
+
+function createNativeSubagentToolRegistry(rpcClient: NativeRpcClient): ToolRegistry {
+  const registry = new ToolRegistry();
+  for (const tool of [
+    ...createNativeReadOnlyTools(rpcClient),
+    ...createNativeWriteTools(rpcClient),
+    ...createNativeShellTools(rpcClient),
+    ...createNativeApprovalTools(rpcClient),
+  ]) {
+    registry.register(tool);
+  }
+  return registry;
 }
 
 function createReadFileTool(rpcClient: NativeRpcClient): Tool {

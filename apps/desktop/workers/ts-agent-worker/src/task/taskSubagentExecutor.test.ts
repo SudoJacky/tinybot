@@ -2,6 +2,8 @@ import { describe, expect, test } from "vitest";
 
 import type { AgentMessage } from "../agent/agentRunSpec";
 import type { ModelProvider, ModelRequestOptions, ModelResponse } from "../model/provider";
+import type { Tool } from "../tools/tool";
+import { ToolRegistry } from "../tools/toolRegistry";
 import { TaskProviderSubagentExecutor } from "./taskSubagentExecutor";
 import type { SpawnSubtaskRequest } from "./taskRuntime";
 import type { TaskPlan } from "./taskTypes";
@@ -101,6 +103,52 @@ describe("TaskProviderSubagentExecutor", () => {
       { status: "completed", result: "inspection complete" },
       { status: "completed", result: "implementation complete" },
     ]);
+  });
+
+  test("runs configured subagent tools through AgentRunner before completing", async () => {
+    const provider = new QueueProvider([
+      Promise.resolve({
+        content: "",
+        toolCalls: [{ id: "call-1", name: "inspect_file", argumentsJson: "{\"path\":\"AGENTS.md\"}" }],
+        stopReason: "tool_calls",
+      }),
+      Promise.resolve({ content: "inspection used tool result", toolCalls: [], stopReason: "stop" }),
+    ]);
+    const tools = new ToolRegistry();
+    const toolCalls: Array<Record<string, unknown>> = [];
+    tools.register({
+      name: "inspect_file",
+      description: "Inspect a workspace file",
+      parameters: {
+        type: "object",
+        properties: { path: { type: "string" } },
+        required: ["path"],
+      },
+      execute: async (args) => {
+        toolCalls.push(args);
+        return { content: "file contains migration instructions" };
+      },
+    } satisfies Tool);
+    const executor = new TaskProviderSubagentExecutor({
+      provider,
+      model: "test-model",
+      runnerTools: tools,
+      maxIterations: 3,
+    });
+    const completions: Array<{ status: string; result?: string | null }> = [];
+
+    await executor.spawnSubtask(requestFor("a", "Inspect", completions), "trace-1");
+    await waitFor(() => completions.length === 1);
+
+    expect(toolCalls).toEqual([{ path: "AGENTS.md" }]);
+    expect(provider.requests).toHaveLength(2);
+    expect(provider.requests[1]?.messages).toEqual([
+      expect.objectContaining({ role: "system", content: expect.stringContaining("focused task execution subagent") }),
+      expect.objectContaining({ role: "user", content: "Execute subtask: Inspect" }),
+      expect.objectContaining({ role: "assistant", toolCalls: expect.any(Array) }),
+      expect.objectContaining({ role: "tool", content: "file contains migration instructions", name: "inspect_file" }),
+    ]);
+    expect(completions).toEqual([{ status: "completed", result: "inspection used tool result" }]);
   });
 });
 

@@ -20,13 +20,17 @@ export class NativeCronBridge implements CronBridge {
   async addJob(job: Omit<CronJob, "id" | "createdAtMs" | "updatedAtMs" | "state" | "enabled">, traceId: string): Promise<CronJob> {
     const result = await this.rpcClient.request(traceId, "cron.job.add", { job: nativeCronJobRequest(job) });
     const payload = asObject(result);
-    return normalizeCronJob(payload?.job) ?? normalizeCronJob({
+    const normalized = normalizeCronJob(payload?.job) ?? normalizeCronJob({
       id: "",
       name: job.name,
       schedule: job.schedule,
       payload: job.payload,
       deleteAfterRun: job.deleteAfterRun,
     } as CronJobInput);
+    if (!normalized) {
+      throw new Error("cron.job.add returned invalid job");
+    }
+    return normalized;
   }
 
   async listJobs(traceId: string): Promise<CronJob[]> {

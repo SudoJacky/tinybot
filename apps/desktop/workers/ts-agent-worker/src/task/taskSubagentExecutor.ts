@@ -1,6 +1,8 @@
+import { AgentRunner } from "../agent/agentRunner.ts";
 import type { AgentMessage } from "../agent/agentRunSpec.ts";
 import { SubagentRuntime, type SubagentRunRequest } from "../background/subagentRuntime.ts";
 import type { ModelProvider } from "../model/provider.ts";
+import { ToolRegistry } from "../tools/toolRegistry.ts";
 import type { SpawnSubtaskRequest } from "./taskRuntime.ts";
 
 export interface TaskProviderSubagentExecutorOptions {
@@ -9,16 +11,25 @@ export interface TaskProviderSubagentExecutorOptions {
   maxConcurrent?: number;
   timeoutMs?: number;
   idGenerator?: () => string;
+  runnerTools?: ToolRegistry;
+  maxIterations?: number;
+  toolResultBudget?: number;
 }
 
 export class TaskProviderSubagentExecutor {
   private readonly provider: ModelProvider;
   private readonly model?: string;
   private readonly runtime: SubagentRuntime;
+  private readonly runnerTools?: ToolRegistry;
+  private readonly maxIterations: number;
+  private readonly toolResultBudget?: number;
 
   constructor(options: TaskProviderSubagentExecutorOptions) {
     this.provider = options.provider;
     this.model = options.model;
+    this.runnerTools = options.runnerTools;
+    this.maxIterations = options.maxIterations ?? 15;
+    this.toolResultBudget = options.toolResultBudget;
     this.runtime = new SubagentRuntime({
       maxConcurrent: options.maxConcurrent,
       timeoutMs: options.timeoutMs,
@@ -44,6 +55,9 @@ export class TaskProviderSubagentExecutor {
   }
 
   private async runSubagent(request: SubagentRunRequest) {
+    if (this.runnerTools) {
+      return this.runAgentSubagent(request);
+    }
     try {
       const response = await this.provider.complete(messagesFor(request), { model: this.model });
       return {
@@ -57,6 +71,29 @@ export class TaskProviderSubagentExecutor {
         error: errorMessage(error),
       } as const;
     }
+  }
+
+  private async runAgentSubagent(request: SubagentRunRequest) {
+    const runner = new AgentRunner({ provider: this.provider, tools: this.runnerTools ?? new ToolRegistry() });
+    const result = await runner.run({
+      runId: request.id,
+      traceId: typeof request.metadata?.traceId === "string" ? request.metadata.traceId : undefined,
+      sessionId: request.sessionKey,
+      messages: messagesFor(request),
+      model: this.model ?? "default",
+      maxIterations: this.maxIterations,
+      stream: false,
+      toolResultBudget: this.toolResultBudget,
+      failOnToolError: true,
+    });
+    if (result.stopReason === "tool_error" || result.stopReason === "error") {
+      const error = result.error || result.finalContent || "Error: subagent execution failed.";
+      return { status: "failed", result: error, error } as const;
+    }
+    return {
+      status: "completed",
+      result: result.finalContent || "Task completed but no final response was generated.",
+    } as const;
   }
 }
 

@@ -175,16 +175,22 @@ function normalizeProviderResult(value: ReturnType<PromptTokenCounter>): TokenEs
 }
 
 function iterMessageParts(message: AgentMessage | Record<string, unknown>): string[] {
+  const record = message as Record<string, unknown>;
   const parts: string[] = [];
-  appendContent(parts, message.content);
-  appendString(parts, message.name);
-  appendString(parts, message.toolCallId ?? message.tool_call_id);
-  const toolCalls = message.toolCalls ?? message.tool_calls;
+  appendContent(parts, record.content);
+  appendString(parts, typeof record.name === "string" ? record.name : undefined);
+  appendString(parts, stringField(record, "toolCallId") ?? stringField(record, "tool_call_id"));
+  const toolCalls = record.toolCalls ?? record.tool_calls;
   if (toolCalls !== undefined) {
     parts.push(JSON.stringify(toolCalls));
   }
-  appendString(parts, message.reasoningContent ?? message.reasoning_content);
+  appendString(parts, stringField(record, "reasoningContent") ?? stringField(record, "reasoning_content"));
   return parts;
+}
+
+function stringField(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === "string" ? value : undefined;
 }
 
 function appendContent(parts: string[], content: unknown): void {
