@@ -453,6 +453,7 @@ describe("gateway HTTP client", () => {
     await expect(client.cowork.queues("cw_1")).resolves.toMatchObject({ native: true });
     await expect(client.cowork.branches("cw_1")).resolves.toMatchObject({ native: true });
     await expect(client.cowork.agentActivity("cw_1", "lead", { limit: 5 })).resolves.toMatchObject({ native: true });
+    await expect(client.cowork.observation("cw_1", "detail 1", { requesterAgentId: "reviewer" })).resolves.toMatchObject({ native: true });
     await expect(client.cowork.create({ goal: "Native Cowork" })).resolves.toMatchObject({ native: true });
     await expect(client.cowork.run("cw_1", { max_rounds: 4 })).resolves.toMatchObject({ native: true });
     await expect(client.cowork.updateBudget("cw_1", { max_rounds: 4 })).resolves.toMatchObject({ native: true });
@@ -498,6 +499,10 @@ describe("gateway HTTP client", () => {
     expect(nativeCowork.route).toHaveBeenCalledWith({
       method: "GET",
       path: "/api/cowork/sessions/cw_1/agents/lead/activity?limit=5",
+    });
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "GET",
+      path: "/api/cowork/sessions/cw_1/observations/detail%201?agent_id=reviewer",
     });
     expect(nativeCowork.route).toHaveBeenCalledWith({
       method: "POST",
