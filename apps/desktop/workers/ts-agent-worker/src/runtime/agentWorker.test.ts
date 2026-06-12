@@ -209,6 +209,34 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("maps transport events to legacy gateway WebSocket frames through TS worker RPC", async () => {
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+    });
+
+    await expect(worker.handleRequest(webuiRequest("transport.gateway_frame", {
+      kind: "message",
+      chatId: "chat-1",
+      content: "reading file",
+      metadata: {
+        _stream_id: "msg-1",
+        _progress: true,
+        _tool_name: "read_file",
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        event: "message",
+        chat_id: "chat-1",
+        message_id: "msg-1",
+        text: "reading file",
+        _progress: true,
+        _tool_name: "read_file",
+      },
+    });
+  });
+
   test("serves WebUI tools control route through TS worker RPC", async () => {
     const tools = new ToolRegistry();
     tools.register({

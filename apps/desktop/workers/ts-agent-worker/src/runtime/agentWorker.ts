@@ -30,6 +30,10 @@ import {
 import type { ApprovalRequestPayload } from "../security/approvalTypes.ts";
 import type { ToolRegistry } from "../tools/toolRegistry.ts";
 import {
+  gatewayFrameFromTransportEvent,
+  parseTransportGatewayFrameEvent,
+} from "../transport/streamFrames.ts";
+import {
   handleWebuiRouteRequest,
   parseWebuiRouteRequest,
   webuiRouteSpecs,
@@ -458,6 +462,10 @@ export class AgentWorker {
 
     if (request.method === "webui.handle_request") {
       return this.handleWebuiHandleRequest(request);
+    }
+
+    if (request.method === "transport.gateway_frame") {
+      return this.handleTransportGatewayFrameRequest(request);
     }
 
     if (request.method === "worker.provider.reload") {
@@ -2570,6 +2578,19 @@ export class AgentWorker {
           this.workspaceBridge,
           request.trace_id,
         ),
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private handleTransportGatewayFrameRequest(request: WorkerRequest): WorkerResponse {
+    try {
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: gatewayFrameFromTransportEvent(parseTransportGatewayFrameEvent(request.params)),
       };
     } catch (error) {
       return this.failure(request, errorMessage(error), {}, "invalid_protocol");
