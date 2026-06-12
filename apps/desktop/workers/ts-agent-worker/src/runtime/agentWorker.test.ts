@@ -1851,6 +1851,32 @@ describe("AgentWorker", () => {
     await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
       method: "POST",
       path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/branch-results/merge`,
+      body: {},
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: {
+          error: "branch_ids must be a list",
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/final-result/merge`,
+      body: {},
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: {
+          error: "branch_ids must be a list",
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/branch-results/merge`,
       body: { branch_ids: ["default"] },
     }))).resolves.toMatchObject({
       result: {

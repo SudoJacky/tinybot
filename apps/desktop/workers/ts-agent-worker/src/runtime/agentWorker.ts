@@ -929,6 +929,9 @@ export class AgentWorker {
       if (!isJsonObject(route.body)) {
         return invalidCoworkJsonBodyRouteResponse();
       }
+      if (!hasCoworkMergeBranchIdsList(body)) {
+        return { status: 400, body: { error: "branch_ids must be a list" } };
+      }
       const params = parseCoworkMergeBranchResultsParams({ ...body, session_id: sessionId });
       const result = await this.coworkService.mergeBranchResults({
         traceId,
@@ -963,6 +966,9 @@ export class AgentWorker {
       return this.coworkFinalResultRouteResponse(result);
     }
     if (action === "merge") {
+      if (!hasCoworkMergeBranchIdsList(body)) {
+        return { status: 400, body: { error: "branch_ids must be a list" } };
+      }
       const params = parseCoworkMergeBranchResultsParams({ ...body, session_id: sessionId });
       const result = await this.coworkService.mergeBranchResults({
         traceId,
@@ -3246,6 +3252,10 @@ function invalidCoworkJsonBodyRouteResponse(): CoworkRouteResponse {
 
 function routeHasInvalidJsonBody(route: CoworkRouteRequest): boolean {
   return route.body !== undefined && !isJsonObject(route.body);
+}
+
+function hasCoworkMergeBranchIdsList(body: Record<string, unknown>): boolean {
+  return Array.isArray(body.branch_ids) || Array.isArray(body.branchIds);
 }
 
 function unavailableCoworkRouteResponse(): CoworkRouteResponse {
