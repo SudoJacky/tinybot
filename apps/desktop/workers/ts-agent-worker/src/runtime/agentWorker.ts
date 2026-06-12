@@ -45,6 +45,7 @@ import {
   type WebuiAgentUiFormProvider,
   type WebuiAgentUiFormRequest,
   type WebuiConfigProvider,
+  type WebuiOpenAiCompatProvider,
   type WebuiProvidersProvider,
   type WebuiSessionProvider,
   type WebuiSkillsProvider,
@@ -223,6 +224,8 @@ export class AgentWorker {
   private readonly turnLifecycle: TurnLifecycle;
   private readonly activeRuns = new Map<string, ActiveRun>();
   private readonly checkpointWrites = new Map<string, Promise<void>>();
+  private readonly openAiSessionLocks = new Map<string, Promise<void>>();
+  private openAiRunCounter = 0;
 
   constructor(options: AgentWorkerOptions) {
     this.provider = options.provider;
@@ -2584,6 +2587,7 @@ export class AgentWorker {
           this.webuiSkillsProvider(),
           this.webuiAgentUiFormProvider(),
           this.workspaceBridge,
+          this.webuiOpenAiCompatProvider(),
           request.trace_id,
         ),
       };
@@ -2681,6 +2685,57 @@ export class AgentWorker {
     return {
       continueForm: (form, traceId) => this.continueWebuiAgentUiForm(form, traceId),
     };
+  }
+
+  private webuiOpenAiCompatProvider(): WebuiOpenAiCompatProvider {
+    return {
+      completeChat: (chatRequest, traceId) => this.withOpenAiSessionLock(chatRequest.sessionKey, async () => {
+        const spec: AgentRunSpec = {
+          runId: `openai-chat-${Date.now().toString(36)}-${++this.openAiRunCounter}`,
+          traceId,
+          sessionId: chatRequest.sessionKey,
+          messages: [{ role: "user", content: chatRequest.content }],
+          model: chatRequest.model,
+          maxIterations: 20,
+          stream: false,
+          metadata: { channel: "api", chatId: chatRequest.chatId },
+        };
+        const response = await this.runSpecForRequest({
+          protocol_version: WORKER_PROTOCOL_VERSION,
+          id: `${traceId}:openai-chat`,
+          trace_id: traceId,
+          method: "agent.run",
+          params: { spec },
+        }, spec);
+        if (response.error) {
+          throw new Error(response.error.message);
+        }
+        const result = response.result as Partial<AgentRunResult> | undefined;
+        if (!result || typeof result.finalContent !== "string") {
+          throw new Error("agent run did not return final content");
+        }
+        return result.finalContent;
+      }),
+    };
+  }
+
+  private async withOpenAiSessionLock<T>(sessionKey: string, task: () => Promise<T>): Promise<T> {
+    const previous = this.openAiSessionLocks.get(sessionKey) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const next = previous.catch(() => undefined).then(() => current);
+    this.openAiSessionLocks.set(sessionKey, next);
+    await previous.catch(() => undefined);
+    try {
+      return await task();
+    } finally {
+      release();
+      if (this.openAiSessionLocks.get(sessionKey) === next) {
+        this.openAiSessionLocks.delete(sessionKey);
+      }
+    }
   }
 
   private async continueWebuiAgentUiForm(

@@ -666,6 +666,168 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("serves non-stream OpenAI-compatible chat completions through TS worker RPC", async () => {
+    const provider = new QueueProvider([{ content: "TS answer", toolCalls: [], stopReason: "stop" }]);
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      webuiConfigProvider: {
+        getConfig: async () => ({
+          agents: { defaults: { provider: "openai", model: "openai/gpt-4o-mini" } },
+        }),
+        patchConfig: async () => ({ config: {}, updatedFields: [] }),
+      },
+    });
+
+    await expect(worker.handleRequest(webuiRequest("webui.route_specs"))).resolves.toMatchObject({
+      result: {
+        routes: expect.arrayContaining([
+          { key: "openai_chat_completions", method: "POST", path: "/v1/chat/completions", public: true },
+        ]),
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/v1/chat/completions",
+      body: {
+        model: "openai/gpt-4o-mini",
+        messages: [{ role: "user", content: [{ type: "text", text: "Hello" }, { type: "text", text: "API" }] }],
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          id: expect.stringMatching(/^chatcmpl-/),
+          object: "chat.completion",
+          created: expect.any(Number),
+          model: "openai/gpt-4o-mini",
+          choices: [
+            {
+              index: 0,
+              message: { role: "assistant", content: "TS answer" },
+              finish_reason: "stop",
+            },
+          ],
+          usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+        },
+      },
+    });
+    expect(provider.messages.at(-1)).toEqual([{ role: "user", content: "Hello API" }]);
+
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/v1/chat/completions",
+      body: {
+        model: "other-model",
+        messages: [{ role: "user", content: "Hello" }],
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: {
+          error: {
+            message: "Only configured model 'openai/gpt-4o-mini' is available",
+            type: "invalid_request_error",
+            code: 400,
+          },
+        },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/v1/chat/completions",
+      body: {
+        stream: true,
+        messages: [{ role: "user", content: "Hello" }],
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: {
+          error: {
+            message: "stream=true is not supported yet. Set stream=false or omit it.",
+            type: "invalid_request_error",
+            code: 400,
+          },
+        },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/v1/chat/completions",
+      body: {
+        messages: [{ role: "system", content: "No" }, { role: "user", content: "Hello" }],
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: {
+          error: {
+            message: "Only a single user message is supported",
+            type: "invalid_request_error",
+            code: 400,
+          },
+        },
+      },
+    });
+  });
+
+  test("serializes OpenAI-compatible chat completions per API session", async () => {
+    const firstCompletion = deferred<ModelResponse>();
+    let providerCalls = 0;
+    const provider: ModelProvider = {
+      complete: async () => {
+        providerCalls += 1;
+        if (providerCalls === 1) {
+          return firstCompletion.promise;
+        }
+        return { content: "second answer", toolCalls: [], stopReason: "stop" };
+      },
+    };
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      webuiConfigProvider: {
+        getConfig: async () => ({
+          agents: { defaults: { provider: "openai", model: "openai/gpt-4o-mini" } },
+        }),
+        patchConfig: async () => ({ config: {}, updatedFields: [] }),
+      },
+    });
+    const chatRequest = (content: string) => worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/v1/chat/completions",
+      body: {
+        model: "openai/gpt-4o-mini",
+        session_id: "same-session",
+        messages: [{ role: "user", content }],
+      },
+    }));
+
+    const firstResponsePromise = chatRequest("first");
+    await Promise.resolve();
+    const secondResponsePromise = chatRequest("second");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(providerCalls).toBe(1);
+    firstCompletion.resolve({ content: "first answer", toolCalls: [], stopReason: "stop" });
+    await expect(firstResponsePromise).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: { choices: [{ message: { content: "first answer" } }] },
+      },
+    });
+    await expect(secondResponsePromise).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: { choices: [{ message: { content: "second answer" } }] },
+      },
+    });
+    expect(providerCalls).toBe(2);
+  });
+
   test("serves WebUI providers route through TS worker RPC", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),

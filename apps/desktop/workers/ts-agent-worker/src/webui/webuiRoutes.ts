@@ -230,9 +230,24 @@ export type WebuiWorkspaceProvider = {
   ): Promise<WebuiWorkspaceWriteResult> | WebuiWorkspaceWriteResult;
 };
 
+export type WebuiOpenAiChatRequest = {
+  content: string;
+  sessionKey: string;
+  chatId: string;
+  model: string;
+};
+
+export type WebuiOpenAiCompatProvider = {
+  completeChat(
+    request: WebuiOpenAiChatRequest,
+    traceId: string,
+  ): Promise<string> | string;
+};
+
 const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
   { key: "health", method: "GET", path: "/health", public: true },
   { key: "openai_models", method: "GET", path: "/v1/models", public: true },
+  { key: "openai_chat_completions", method: "POST", path: "/v1/chat/completions", public: true },
   { key: "bootstrap", method: "GET", path: "/webui/bootstrap", public: true },
   { key: "refresh_token", method: "POST", path: "/webui/refresh-token", public: true },
   { key: "get_status", method: "GET", path: "/api/status", public: false },
@@ -282,6 +297,7 @@ export async function handleWebuiRouteRequest(
   skillsProvider?: WebuiSkillsProvider,
   agentUiFormProvider?: WebuiAgentUiFormProvider,
   workspaceProvider?: WebuiWorkspaceProvider,
+  openAiCompatProvider?: WebuiOpenAiCompatProvider,
   traceId = "webui-route",
 ): Promise<WebuiRouteResponse> {
   const method = request.method.toUpperCase();
@@ -293,6 +309,10 @@ export async function handleWebuiRouteRequest(
   if (method === "GET" && path === "/v1/models") {
     const config = configProvider ? await configProvider.getConfig(traceId) : {};
     return { status: 200, body: openAiModelsBody(config) };
+  }
+  if (method === "POST" && path === "/v1/chat/completions") {
+    const config = configProvider ? await configProvider.getConfig(traceId) : {};
+    return openAiChatCompletionsResponse(request.body, config, openAiCompatProvider, traceId);
   }
   if (method === "GET" && path === "/webui/bootstrap") {
     if (!bootstrapProvider) {
@@ -527,9 +547,7 @@ function webuiStatusBody(status: WebuiStatusSnapshot): Record<string, unknown> {
 }
 
 function openAiModelsBody(config: Record<string, unknown>): Record<string, unknown> {
-  const agents = isJsonObject(config.agents) ? config.agents : {};
-  const defaults = isJsonObject(agents.defaults) ? agents.defaults : {};
-  const model = stringParam(defaults.model) ?? stringParam(agents.model) ?? "tinybot";
+  const model = openAiConfiguredModel(config);
   return {
     object: "list",
     data: [
@@ -540,6 +558,113 @@ function openAiModelsBody(config: Record<string, unknown>): Record<string, unkno
         owned_by: "tinybot",
       },
     ],
+  };
+}
+
+function openAiConfiguredModel(config: Record<string, unknown>): string {
+  const agents = isJsonObject(config.agents) ? config.agents : {};
+  const defaults = isJsonObject(agents.defaults) ? agents.defaults : {};
+  return stringParam(defaults.model) ?? stringParam(agents.model) ?? "tinybot";
+}
+
+async function openAiChatCompletionsResponse(
+  body: unknown,
+  config: Record<string, unknown>,
+  openAiCompatProvider: WebuiOpenAiCompatProvider | undefined,
+  traceId: string,
+): Promise<WebuiRouteResponse> {
+  if (!isJsonObject(body)) {
+    return openAiError(400, "Invalid JSON body");
+  }
+  const parsed = parseOpenAiChatRequest(body, openAiConfiguredModel(config));
+  if (!parsed.ok) {
+    return openAiError(400, parsed.message);
+  }
+  if (!openAiCompatProvider) {
+    return openAiError(503, "OpenAI-compatible runtime unavailable", "server_error");
+  }
+  try {
+    const content = await openAiCompatProvider.completeChat({
+      content: parsed.content,
+      sessionKey: parsed.sessionKey,
+      chatId: "default",
+      model: parsed.model,
+    }, traceId);
+    return { status: 200, body: openAiChatCompletionBody(content, parsed.model) };
+  } catch {
+    return openAiError(500, "Internal server error", "server_error");
+  }
+}
+
+function parseOpenAiChatRequest(
+  body: JsonObject,
+  configuredModel: string,
+): { ok: true; content: string; sessionKey: string; model: string } | { ok: false; message: string } {
+  const messages = Array.isArray(body.messages) ? body.messages : undefined;
+  if (!messages || messages.length !== 1 || !isJsonObject(messages[0]) || messages[0].role !== "user") {
+    return { ok: false, message: "Only a single user message is supported" };
+  }
+  if (body.stream === true) {
+    return { ok: false, message: "stream=true is not supported yet. Set stream=false or omit it." };
+  }
+  const requestedModel = stringParam(body.model);
+  if (requestedModel && requestedModel !== configuredModel) {
+    return { ok: false, message: `Only configured model '${configuredModel}' is available` };
+  }
+  const content = openAiMessageContent(messages[0].content);
+  const sessionId = stringParam(body.session_id) ?? stringParam(body.sessionId);
+  return {
+    ok: true,
+    content,
+    sessionKey: sessionId ? `api:${sessionId}` : "api:default",
+    model: configuredModel,
+  };
+}
+
+function openAiMessageContent(content: unknown): string {
+  if (typeof content === "string") {
+    return content;
+  }
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => isJsonObject(part) && part.type === "text" ? stringParam(part.text) : undefined)
+      .filter((text): text is string => text !== undefined)
+      .join(" ");
+  }
+  return "";
+}
+
+function openAiChatCompletionBody(content: string, model: string): Record<string, unknown> {
+  return {
+    id: `chatcmpl-${Math.random().toString(16).slice(2, 14).padEnd(12, "0")}`,
+    object: "chat.completion",
+    created: Math.floor(Date.now() / 1000),
+    model,
+    choices: [
+      {
+        index: 0,
+        message: { role: "assistant", content },
+        finish_reason: "stop",
+      },
+    ],
+    usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+  };
+}
+
+function openAiError(
+  status: number,
+  message: string,
+  type = "invalid_request_error",
+): WebuiRouteResponse {
+  return {
+    status,
+    body: {
+      error: {
+        message,
+        type,
+        code: status,
+      },
+    },
   };
 }
 
