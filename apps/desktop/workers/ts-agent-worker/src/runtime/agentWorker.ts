@@ -859,9 +859,7 @@ export class AgentWorker {
         branchIds: params.branchIds,
         summary: params.summary,
       });
-      return result.finalResult
-        ? { status: 200, body: result }
-        : { status: 400, body: { error: result.result, session: result.session } };
+      return this.coworkFinalResultRouteResponse(result);
     }
 
     return unsupportedCoworkRoute(route);
@@ -885,9 +883,7 @@ export class AgentWorker {
         branchId: params.branchId,
         resultId: params.resultId,
       });
-      return result.finalResult
-        ? { status: 200, body: result }
-        : { status: 400, body: { error: result.result, session: result.session } };
+      return this.coworkFinalResultRouteResponse(result);
     }
     if (action === "merge") {
       const params = parseCoworkMergeBranchResultsParams({ ...body, session_id: sessionId });
@@ -897,11 +893,23 @@ export class AgentWorker {
         branchIds: params.branchIds,
         summary: params.summary,
       });
-      return result.finalResult
-        ? { status: 200, body: result }
-        : { status: 400, body: { error: result.result, session: result.session } };
+      return this.coworkFinalResultRouteResponse(result);
     }
     return { status: 404, body: { error: "unsupported cowork final-result route", action } };
+  }
+
+  private coworkFinalResultRouteResponse(result: { finalResult?: unknown; session: CoworkSession; result: string }): CoworkRouteResponse {
+    if (!result.finalResult) {
+      return { status: 400, body: { error: result.result } };
+    }
+    return {
+      status: 200,
+      body: {
+        session_final_result: result.finalResult,
+        finalResult: result.finalResult,
+        session: coworkSessionSnapshot(result.session),
+      },
+    };
   }
 
   private async dispatchCoworkSessionControlRoute(
@@ -1180,9 +1188,7 @@ export class AgentWorker {
         branchId: segments[3],
         resultId: stringParam(body, "resultId", "result_id"),
       });
-      return result.finalResult
-        ? { status: 200, body: result }
-        : { status: 400, body: { error: result.result, session: result.session } };
+      return this.coworkFinalResultRouteResponse(result);
     }
 
     return unsupportedCoworkRoute(route);

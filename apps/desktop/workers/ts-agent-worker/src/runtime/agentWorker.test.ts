@@ -722,10 +722,14 @@ describe("AgentWorker", () => {
       result: {
         status: 200,
         body: {
-          finalResult: expect.objectContaining({
+          session_final_result: expect.objectContaining({
             source: "selected_branch_result",
             selected_branch_id: "br_1",
             selected_result_id: "brres_team",
+          }),
+          session: expect.objectContaining({
+            branches: expect.arrayContaining([expect.objectContaining({ id: "br_1" })]),
+            graph: expect.objectContaining({ schema_version: "cowork.graph.v2" }),
           }),
         },
       },
@@ -739,9 +743,13 @@ describe("AgentWorker", () => {
       result: {
         status: 200,
         body: {
-          finalResult: expect.objectContaining({
+          session_final_result: expect.objectContaining({
             source: "branch_merge",
             source_branch_ids: ["default", "br_1"],
+          }),
+          session: expect.objectContaining({
+            branches: expect.arrayContaining([expect.objectContaining({ id: "br_1" })]),
+            graph: expect.objectContaining({ schema_version: "cowork.graph.v2" }),
           }),
         },
       },
@@ -755,10 +763,14 @@ describe("AgentWorker", () => {
       result: {
         status: 200,
         body: {
-          finalResult: expect.objectContaining({
+          session_final_result: expect.objectContaining({
             source: "selected_branch_result",
             selected_branch_id: "br_1",
             selected_result_id: "brres_team",
+          }),
+          session: expect.objectContaining({
+            branches: expect.arrayContaining([expect.objectContaining({ id: "br_1" })]),
+            graph: expect.objectContaining({ schema_version: "cowork.graph.v2" }),
           }),
         },
       },
@@ -772,9 +784,13 @@ describe("AgentWorker", () => {
       result: {
         status: 200,
         body: {
-          finalResult: expect.objectContaining({
+          session_final_result: expect.objectContaining({
             source: "branch_merge",
             source_branch_ids: ["default", "br_1"],
+          }),
+          session: expect.objectContaining({
+            branches: expect.arrayContaining([expect.objectContaining({ id: "br_1" })]),
+            graph: expect.objectContaining({ schema_version: "cowork.graph.v2" }),
           }),
         },
       },
