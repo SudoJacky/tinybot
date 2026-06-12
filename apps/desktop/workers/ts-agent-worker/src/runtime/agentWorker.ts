@@ -693,7 +693,15 @@ export class AgentWorker {
         fanoutGroupId: params.fanoutGroupId,
         mergeTaskId: params.mergeTaskId,
       });
-      return { status: 200, body: result };
+      const taskId = result.task.id;
+      return {
+        status: 200,
+        body: {
+          result: `Added task ${taskId}: ${result.task.title}`,
+          task: result.task,
+          session: coworkSessionSnapshot(result.session),
+        },
+      };
     }
 
     if (resource === "work-units" && segments.length === 5 && route.method === "POST") {

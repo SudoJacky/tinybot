@@ -345,6 +345,28 @@ describe("AgentWorker", () => {
     });
 
     await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(createdSession.id)}/tasks`,
+      body: {
+        title: "Review",
+        description: "Review answer",
+        assigned_agent_id: "lead",
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          result: "Added task task_1: Review",
+          task: expect.objectContaining({ id: "task_1", title: "Review" }),
+          session: expect.objectContaining({
+            tasks: expect.arrayContaining([expect.objectContaining({ id: "task_1", title: "Review" })]),
+            graph: expect.objectContaining({ schema_version: "cowork.graph.v2" }),
+          }),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
       method: "GET",
       path: `/api/cowork/sessions/${encodeURIComponent(createdSession.id)}/summary`,
     }))).resolves.toMatchObject({
@@ -353,7 +375,7 @@ describe("AgentWorker", () => {
         body: {
           summary: expect.objectContaining({
             session_id: "cw_1",
-            counts: expect.objectContaining({ agents: 1, tasks: 1 }),
+            counts: expect.objectContaining({ agents: 1, tasks: 2 }),
           }),
         },
       },
