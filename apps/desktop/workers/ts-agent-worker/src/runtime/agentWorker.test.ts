@@ -573,7 +573,11 @@ describe("AgentWorker", () => {
       result: {
         status: 200,
         body: {
-          session: expect.objectContaining({ status: "paused" }),
+          result: "Paused cowork session cw_1.",
+          session: expect.objectContaining({
+            status: "paused",
+            tasks: expect.arrayContaining([expect.objectContaining({ id: "answer" })]),
+          }),
         },
       },
     });
@@ -585,7 +589,11 @@ describe("AgentWorker", () => {
       result: {
         status: 200,
         body: {
-          session: expect.objectContaining({ status: "active" }),
+          result: "Resumed cowork session cw_1.",
+          session: expect.objectContaining({
+            status: "active",
+            tasks: expect.arrayContaining([expect.objectContaining({ id: "answer" })]),
+          }),
         },
       },
     });
@@ -782,8 +790,12 @@ describe("AgentWorker", () => {
       result: {
         status: 200,
         body: {
-          agentStep: expect.objectContaining({ action_kind: "emergency_stop" }),
-          session: expect.objectContaining({ status: "paused", stop_reason: "emergency_stop" }),
+          agent_step: expect.objectContaining({ action_kind: "emergency_stop" }),
+          session: expect.objectContaining({
+            status: "paused",
+            stop_reason: "emergency_stop",
+            tasks: expect.arrayContaining([expect.objectContaining({ id: "answer" })]),
+          }),
         },
       },
     });

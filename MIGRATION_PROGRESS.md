@@ -277,6 +277,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: work-unit retry, skip, and cancel route success responses now return Python-compatible result payloads with verbose snapshot sessions instead of raw persisted session maps. |
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 fallback shrink: desktop TS Cowork runtime defaults now set `fallbackToPython=false` across gateway client, TS config schema, and Python config schema while preserving explicit opt-in fallback. |
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: `/api/cowork/sessions/{session_id}/run` now returns Python-compatible `result` plus verbose snapshot/null `session` payloads instead of raw scheduler session maps. |
+| 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: pause, resume, and emergency-stop session control routes now return Python-compatible result/agent-step payloads with verbose snapshot sessions. |
 
 ## Next Checklist
 
@@ -361,6 +362,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: return Python-shaped work-unit retry, skip, and cancel success payloads with snapshot sessions.
 - [x] Continue Cowork Phase 10: switch desktop TS Cowork runtime fallback to explicit opt-in instead of default Python fallback.
 - [x] Continue Cowork Phase 10: return Python-shaped run route payloads with snapshot/null sessions.
+- [x] Continue Cowork Phase 10: return Python-shaped pause, resume, and emergency-stop route payloads with snapshot sessions.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 
 - [x] 复核 `ts_native_core.md` 对应实现和 `rust-native-core-worker-migration` 完成状态。

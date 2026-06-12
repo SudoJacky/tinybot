@@ -903,14 +903,30 @@ export class AgentWorker {
       return { status: 503, body: { error: "cowork service is unavailable" } };
     }
     if (resource === "pause") {
-      return { status: 200, body: await this.coworkService.pauseSession({ traceId, sessionId }) };
+      const result = await this.coworkService.pauseSession({ traceId, sessionId });
+      return {
+        status: 200,
+        body: { result: result.result, session: coworkSessionSnapshot(result.session) },
+      };
     }
     if (resource === "resume") {
-      return { status: 200, body: await this.coworkService.resumeSession({ traceId, sessionId }) };
+      const result = await this.coworkService.resumeSession({ traceId, sessionId });
+      return {
+        status: 200,
+        body: { result: result.result, session: coworkSessionSnapshot(result.session) },
+      };
     }
     if (resource === "emergency-stop") {
       const reason = stringParam(body, "reason", "reason");
-      return { status: 200, body: await this.coworkService.emergencyStopSession({ traceId, sessionId, reason }) };
+      const result = await this.coworkService.emergencyStopSession({ traceId, sessionId, reason });
+      return {
+        status: 200,
+        body: {
+          agent_step: result.agentStep,
+          agentStep: result.agentStep,
+          session: coworkSessionSnapshot(result.session),
+        },
+      };
     }
     if (resource === "run") {
       if (!this.coworkScheduler) {
