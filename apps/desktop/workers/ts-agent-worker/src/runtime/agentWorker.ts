@@ -40,6 +40,7 @@ import {
 import {
   handleWebuiRouteRequest,
   parseWebuiRouteRequest,
+  WebuiOpenAiRequestTimeoutError,
   webuiRouteSpecs,
   type WebuiBootstrapProvider,
   type WebuiAgentUiFormProvider,
@@ -2700,13 +2701,13 @@ export class AgentWorker {
           stream: false,
           metadata: { channel: "api", chatId: chatRequest.chatId },
         };
-        const response = await this.runSpecForRequest({
+        const response = await this.runOpenAiChatSpec({
           protocol_version: WORKER_PROTOCOL_VERSION,
           id: `${traceId}:openai-chat`,
           trace_id: traceId,
           method: "agent.run",
           params: { spec },
-        }, spec);
+        }, spec, chatRequest.timeoutSeconds);
         if (response.error) {
           throw new Error(response.error.message);
         }
@@ -2717,6 +2718,29 @@ export class AgentWorker {
         return result.finalContent;
       }),
     };
+  }
+
+  private async runOpenAiChatSpec(
+    request: WorkerRequest,
+    spec: AgentRunSpec,
+    timeoutSeconds: number,
+  ): Promise<WorkerResponse> {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        this.runSpecForRequest(request, spec),
+        new Promise<WorkerResponse>((_, reject) => {
+          timeout = setTimeout(() => {
+            this.cancelActiveRun(spec.runId);
+            reject(new WebuiOpenAiRequestTimeoutError(timeoutSeconds));
+          }, Math.max(1, timeoutSeconds * 1000));
+        }),
+      ]);
+    } finally {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+    }
   }
 
   private async withOpenAiSessionLock<T>(sessionKey: string, task: () => Promise<T>): Promise<T> {

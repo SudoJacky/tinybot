@@ -828,6 +828,47 @@ describe("AgentWorker", () => {
     expect(providerCalls).toBe(2);
   });
 
+  test("returns OpenAI-compatible timeout errors for slow chat completions", async () => {
+    const provider: ModelProvider = {
+      complete: async () =>
+        new Promise((resolve) => {
+          setTimeout(() => resolve({ content: "late answer", toolCalls: [], stopReason: "stop" }), 20);
+        }),
+    };
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      webuiConfigProvider: {
+        getConfig: async () => ({
+          api: { timeout: 0.001 },
+          agents: { defaults: { provider: "openai", model: "openai/gpt-4o-mini" } },
+        }),
+        patchConfig: async () => ({ config: {}, updatedFields: [] }),
+      },
+    });
+
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/v1/chat/completions",
+      body: {
+        model: "openai/gpt-4o-mini",
+        messages: [{ role: "user", content: "slow" }],
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 504,
+        body: {
+          error: {
+            message: "Request timed out after 0.001s",
+            type: "invalid_request_error",
+            code: 504,
+          },
+        },
+      },
+    });
+  });
+
   test("serves WebUI providers route through TS worker RPC", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),

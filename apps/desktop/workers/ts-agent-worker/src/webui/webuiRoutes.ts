@@ -235,6 +235,7 @@ export type WebuiOpenAiChatRequest = {
   sessionKey: string;
   chatId: string;
   model: string;
+  timeoutSeconds: number;
 };
 
 export type WebuiOpenAiCompatProvider = {
@@ -243,6 +244,13 @@ export type WebuiOpenAiCompatProvider = {
     traceId: string,
   ): Promise<string> | string;
 };
+
+export class WebuiOpenAiRequestTimeoutError extends Error {
+  constructor(readonly timeoutSeconds: number) {
+    super(`Request timed out after ${formatOpenAiTimeoutSeconds(timeoutSeconds)}s`);
+    this.name = "WebuiOpenAiRequestTimeoutError";
+  }
+}
 
 const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
   { key: "health", method: "GET", path: "/health", public: true },
@@ -589,9 +597,13 @@ async function openAiChatCompletionsResponse(
       sessionKey: parsed.sessionKey,
       chatId: "default",
       model: parsed.model,
+      timeoutSeconds: openAiRequestTimeoutSeconds(config),
     }, traceId);
     return { status: 200, body: openAiChatCompletionBody(content, parsed.model) };
-  } catch {
+  } catch (error) {
+    if (error instanceof WebuiOpenAiRequestTimeoutError) {
+      return openAiError(504, error.message);
+    }
     return openAiError(500, "Internal server error", "server_error");
   }
 }
@@ -632,6 +644,18 @@ function openAiMessageContent(content: unknown): string {
       .join(" ");
   }
   return "";
+}
+
+function openAiRequestTimeoutSeconds(config: Record<string, unknown>): number {
+  const api = isJsonObject(config.api) ? config.api : {};
+  const timeout = typeof api.timeout === "number" && Number.isFinite(api.timeout) && api.timeout > 0
+    ? api.timeout
+    : 120.0;
+  return timeout;
+}
+
+function formatOpenAiTimeoutSeconds(timeoutSeconds: number): string {
+  return Number.isInteger(timeoutSeconds) ? timeoutSeconds.toFixed(1) : String(timeoutSeconds);
 }
 
 function openAiChatCompletionBody(content: string, model: string): Record<string, unknown> {
