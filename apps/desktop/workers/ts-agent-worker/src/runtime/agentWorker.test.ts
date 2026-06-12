@@ -281,6 +281,9 @@ describe("AgentWorker", () => {
           session: expect.objectContaining({
             id: "cw_1",
             title: "Route API",
+            agents: expect.arrayContaining([expect.objectContaining({ id: "lead", private_summary: "" })]),
+            messages: expect.arrayContaining([expect.objectContaining({ id: "msg_1", content: "Goal: Route Cowork API" })]),
+            graph: expect.objectContaining({ schema_version: "cowork.graph.v2" }),
           }),
         },
       },

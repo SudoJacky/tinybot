@@ -565,7 +565,19 @@ export class AgentWorker {
           blueprint: params.blueprint,
           runtimeState: params.runtimeState,
         });
-        return { status: result.session ? 200 : 400, body: result };
+        return result.session
+          ? {
+              status: 200,
+              body: {
+                result: `started ${result.session.id}`,
+                session: coworkSessionSnapshot(result.session),
+                diagnostics: result.diagnostics,
+              },
+            }
+          : {
+              status: 400,
+              body: { error: "blueprint validation failed", diagnostics: result.diagnostics },
+            };
       }
       const session = await this.coworkService.createSession({
         traceId,
@@ -577,7 +589,7 @@ export class AgentWorker {
         budgets: params.budgets,
         runtimeState: params.runtimeState,
       });
-      return { status: 200, body: { result: `started ${session.id}`, session } };
+      return { status: 200, body: { result: `started ${session.id}`, session: coworkSessionSnapshot(session) } };
     }
 
     if (segments.length >= 2 && segments[0] === "sessions") {
