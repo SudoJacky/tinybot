@@ -1,6 +1,6 @@
 import type { ModelProvider, ModelRequestOptions, ModelResponse } from "../model/provider.ts";
 import type { AgentMessage } from "../agent/agentRunSpec.ts";
-import type { WorkerEvent } from "../protocol/messages.ts";
+import { WORKER_PROTOCOL_VERSION, type WorkerEvent } from "../protocol/messages.ts";
 import type { JsonFetcher } from "../providers/modelDiscovery.ts";
 import { RpcClient } from "../protocol/rpcClient.ts";
 import { StdioServer } from "../protocol/stdioServer.ts";
@@ -88,6 +88,19 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
         notifier: capabilities.includes("session.write")
           ? new NativeTaskNotificationBridge(rpcClient)
           : undefined,
+        progressPublisher: {
+          publishTaskProgress: (event, traceId) => writeEvent({
+            protocol_version: WORKER_PROTOCOL_VERSION,
+            trace_id: traceId,
+            event: "agent.task_progress",
+            payload: {
+              ...event,
+              plan_id: event.planId,
+              subtask_id: event.subtaskId,
+              subtask_title: event.subtaskTitle,
+            },
+          }),
+        },
       }),
     ],
     {

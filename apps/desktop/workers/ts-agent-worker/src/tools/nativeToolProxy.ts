@@ -9,6 +9,7 @@ import type { TaskNotificationBridge } from "../task/taskNotificationBridge.ts";
 import { TaskPlanner } from "../task/taskPlanner.ts";
 import { TaskProviderSubagentExecutor } from "../task/taskSubagentExecutor.ts";
 import { createTaskTool } from "../task/taskTool.ts";
+import type { TaskProgressPublisher } from "../task/taskRuntime.ts";
 import type { Tool } from "./tool.ts";
 import { ToolRegistry } from "./toolRegistry.ts";
 
@@ -73,6 +74,7 @@ export function createNativeTaskTools(
     workspace?: string;
     backgroundRegistry?: BackgroundRunRegistry;
     notifier?: TaskNotificationBridge;
+    progressPublisher?: TaskProgressPublisher;
   } = {},
 ): Tool[] {
   const planner = options.provider
@@ -90,7 +92,13 @@ export function createNativeTaskTools(
       registry: options.backgroundRegistry,
     })
     : undefined;
-  return [createTaskTool({ store: new NativeTaskStoreBridge(rpcClient), planner, executor, notifier: options.notifier })];
+  return [createTaskTool({
+    store: new NativeTaskStoreBridge(rpcClient),
+    planner,
+    executor,
+    notifier: options.notifier,
+    progressPublisher: options.progressPublisher,
+  })];
 }
 
 function createNativeSubagentToolRegistry(rpcClient: NativeRpcClient): ToolRegistry {

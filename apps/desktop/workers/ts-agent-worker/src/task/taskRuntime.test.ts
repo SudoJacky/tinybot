@@ -236,6 +236,45 @@ describe("TaskRuntime", () => {
     });
   });
 
+  test("publishes task progress when resume starts ready subtasks", async () => {
+    const plan = basePlan();
+    plan.status = "planning";
+    plan.subtasks[0].status = "pending";
+    plan.subtasks[0].result = null;
+    const { bridge } = memoryBridge([plan]);
+    const events: Array<Record<string, unknown>> = [];
+    const runtime = new TaskRuntime({
+      store: bridge,
+      now: () => "2026-06-12T00:00:00.000Z",
+      executor: {
+        spawnSubtask: async () => {},
+      },
+      progressPublisher: {
+        publishTaskProgress: async (event, traceId) => {
+          events.push({ ...event, traceId });
+        },
+      },
+    });
+
+    await runtime.resumePlan("plan-1", { parallel: true }, "trace-resume");
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        event: "started",
+        planId: "plan-1",
+        subtaskId: "a",
+        subtaskTitle: "Foundation",
+        traceId: "trace-resume",
+        progress: expect.objectContaining({
+          plan_id: "plan-1",
+          in_progress: 1,
+          pending: 1,
+          current: "Foundation",
+        }),
+      }),
+    ]);
+  });
+
   test("completes a subtask and spawns the next ready subtask", async () => {
     const plan = basePlan();
     plan.status = "executing";
@@ -274,6 +313,55 @@ describe("TaskRuntime", () => {
         expect.objectContaining({ id: "b", status: "in_progress", startedAt: "2026-06-12T00:00:00.000Z" }),
       ],
     });
+  });
+
+  test("publishes task progress when subtasks complete and chain to ready work", async () => {
+    const plan = basePlan();
+    plan.status = "executing";
+    plan.currentSubtaskIds = ["a"];
+    plan.subtasks[0].status = "in_progress";
+    plan.subtasks[0].result = null;
+    const { bridge } = memoryBridge([plan]);
+    const events: Array<Record<string, unknown>> = [];
+    const runtime = new TaskRuntime({
+      store: bridge,
+      now: () => "2026-06-12T00:00:00.000Z",
+      executor: {
+        spawnSubtask: async () => {},
+      },
+      progressPublisher: {
+        publishTaskProgress: async (event, traceId) => {
+          events.push({ ...event, traceId });
+        },
+      },
+    });
+
+    await runtime.completeSubtask(
+      "plan-1",
+      "a",
+      { status: "completed", result: "foundation complete" },
+      { parallel: true },
+      "trace-complete",
+    );
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        event: "completed",
+        planId: "plan-1",
+        subtaskId: "a",
+        subtaskTitle: "Foundation",
+        traceId: "trace-complete",
+        progress: expect.objectContaining({ completed: 1, in_progress: 1, current: "Runtime" }),
+      }),
+      expect.objectContaining({
+        event: "started",
+        planId: "plan-1",
+        subtaskId: "b",
+        subtaskTitle: "Runtime",
+        traceId: "trace-complete",
+        progress: expect.objectContaining({ completed: 1, in_progress: 1, current: "Runtime" }),
+      }),
+    ]);
   });
 
   test("notifies the owning session when a task plan completes", async () => {

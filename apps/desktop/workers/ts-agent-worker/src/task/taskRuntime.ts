@@ -25,6 +25,19 @@ export interface UpdateSubtaskResultRequest {
   error?: string | null;
 }
 
+export interface TaskProgressEvent {
+  event: "started" | "completed" | "failed" | "skipped";
+  planId: string;
+  subtaskId: string;
+  subtaskTitle: string;
+  progress: TaskProgressPayload;
+  error?: string | null;
+}
+
+export interface TaskProgressPublisher {
+  publishTaskProgress(event: TaskProgressEvent, traceId: string): Promise<void> | void;
+}
+
 export interface TaskRuntimeOptions {
   store: TaskStoreBridge;
   planner?: {
@@ -35,6 +48,7 @@ export interface TaskRuntimeOptions {
     cancelPlan?(plan: TaskPlan, traceId: string): Promise<number>;
   };
   notifier?: TaskNotificationBridge;
+  progressPublisher?: TaskProgressPublisher;
   idGenerator?: () => string;
   now?: () => string;
 }
@@ -62,6 +76,7 @@ export class TaskRuntime {
   private readonly planner?: TaskRuntimeOptions["planner"];
   private readonly executor?: TaskRuntimeOptions["executor"];
   private readonly notifier?: TaskNotificationBridge;
+  private readonly progressPublisher?: TaskProgressPublisher;
   private readonly idGenerator: () => string;
   private readonly now: () => string;
 
@@ -70,6 +85,7 @@ export class TaskRuntime {
     this.planner = options.planner;
     this.executor = options.executor;
     this.notifier = options.notifier;
+    this.progressPublisher = options.progressPublisher;
     this.idGenerator = options.idGenerator ?? randomTaskId;
     this.now = options.now ?? (() => new Date().toISOString());
   }
@@ -124,6 +140,7 @@ export class TaskRuntime {
       plan.currentSubtaskIds = [...new Set([...plan.currentSubtaskIds, subtask.id])];
     }
     const saved = await this.store.savePlan(plan, traceId);
+    await this.publishStartedSubtasks(saved, toSpawn, traceId);
     for (const subtask of toSpawn) {
       await this.executor.spawnSubtask({
         plan: saved,
@@ -170,11 +187,13 @@ export class TaskRuntime {
     if (isPlanCompleted(plan)) {
       plan.status = "completed";
       const saved = await this.store.savePlan(plan, traceId);
+      await this.publishCompletedSubtask(saved, subtask, request, traceId);
       await this.notifyPlanCompleted(saved, traceId);
       return { plan: saved, spawnedCount: 0 };
     }
     if (plan.status === "paused") {
       const saved = await this.store.savePlan(plan, traceId);
+      await this.publishCompletedSubtask(saved, subtask, request, traceId);
       return { plan: saved, spawnedCount: 0 };
     }
     plan.status = "executing";
@@ -186,6 +205,8 @@ export class TaskRuntime {
       plan.currentSubtaskIds = [...new Set([...plan.currentSubtaskIds, readySubtask.id])];
     }
     const saved = await this.store.savePlan(plan, traceId);
+    await this.publishCompletedSubtask(saved, subtask, request, traceId);
+    await this.publishStartedSubtasks(saved, toSpawn, traceId);
     for (const readySubtask of toSpawn) {
       await this.executor.spawnSubtask({
         plan: saved,
@@ -198,6 +219,37 @@ export class TaskRuntime {
       }, traceId);
     }
     return { plan: saved, spawnedCount: toSpawn.length };
+  }
+
+  private async publishStartedSubtasks(plan: TaskPlan, subtasks: SubTask[], traceId: string): Promise<void> {
+    for (const subtask of subtasks) {
+      await this.progressPublisher?.publishTaskProgress({
+        event: "started",
+        planId: plan.id,
+        subtaskId: subtask.id,
+        subtaskTitle: subtask.title,
+        progress: taskProgressPayload(plan),
+      }, traceId);
+    }
+  }
+
+  private async publishCompletedSubtask(
+    plan: TaskPlan,
+    subtask: SubTask,
+    request: UpdateSubtaskResultRequest,
+    traceId: string,
+  ): Promise<void> {
+    if (request.status !== "completed" && request.status !== "failed" && request.status !== "skipped") {
+      return;
+    }
+    await this.progressPublisher?.publishTaskProgress({
+      event: request.status,
+      planId: plan.id,
+      subtaskId: subtask.id,
+      subtaskTitle: subtask.title,
+      progress: taskProgressPayload(plan),
+      error: request.error,
+    }, traceId);
   }
 
   private async notifyPlanCompleted(plan: TaskPlan, traceId: string): Promise<void> {
