@@ -1032,6 +1032,10 @@ async function knowledgeJobResponse(
     const stats = knowledgeStatsBody(await provider.stats(traceId));
     return { status: 200, body: completedKnowledgeBm25RebuildJob(stats, knowledgeBm25RebuildResult(stats)) };
   }
+  if (jobId === "kjob_rebuild_all") {
+    const stats = knowledgeStatsBody(await provider.stats(traceId));
+    return { status: 200, body: completedKnowledgeAllRebuildJob(stats, knowledgeAllRebuildResult(stats)) };
+  }
   const docId = knowledgeUploadJobDocumentId(jobId);
   if (!docId) {
     return { status: 404, body: { error: `Knowledge job ${jobId} not found` } };
@@ -1054,7 +1058,7 @@ async function knowledgeRebuildIndexResponse(
     return { status: 503, body: { error: "Knowledge store not initialized" } };
   }
   const rebuildType = query.get("type") ?? "bm25";
-  if (rebuildType !== "bm25") {
+  if (rebuildType !== "bm25" && rebuildType !== "all") {
     return {
       status: 404,
       body: { error: `Knowledge rebuild type '${rebuildType}' not available natively` },
@@ -1062,25 +1066,32 @@ async function knowledgeRebuildIndexResponse(
   }
 
   const stats = knowledgeStatsBody(await provider.stats(traceId));
-  const result = knowledgeBm25RebuildResult(stats);
+  const result = rebuildType === "all" ? knowledgeAllRebuildResult(stats) : knowledgeBm25RebuildResult(stats);
   if (!booleanQuery(query.get("async_index"))) {
     return {
       status: 200,
-      body: {
-        message: "BM25 index rebuilt successfully",
-        ...result,
-      },
+      body: rebuildType === "all"
+        ? {
+            message: "All available native knowledge indexes rebuilt successfully",
+            ...result,
+          }
+        : {
+            message: "BM25 index rebuilt successfully",
+            ...result,
+          },
     };
   }
 
-  const job = completedKnowledgeBm25RebuildJob(stats, result);
+  const job = rebuildType === "all"
+    ? completedKnowledgeAllRebuildJob(stats, result)
+    : completedKnowledgeBm25RebuildJob(stats, result);
   return {
     status: 202,
     body: {
       message: "Knowledge index rebuild started",
       job,
       job_id: job.id,
-      type: "bm25",
+      type: rebuildType,
     },
   };
 }
@@ -1164,6 +1175,26 @@ function knowledgeBm25RebuildResult(stats: Record<string, unknown>): Record<stri
     chunks_indexed: numberValue(stats.total_chunks) ?? 0,
     terms_created: numberValue(stats.terms_created) ?? 0,
     total_docs: numberValue(stats.total_documents) ?? 0,
+  };
+}
+
+function knowledgeSemanticUnavailableResult(): Record<string, unknown> {
+  return {
+    skipped: true,
+    available: false,
+    entities: 0,
+    claims: 0,
+    relations: 0,
+    mentions: 0,
+    communities: 0,
+    community_reports: 0,
+  };
+}
+
+function knowledgeAllRebuildResult(stats: Record<string, unknown>): Record<string, unknown> {
+  return {
+    bm25: knowledgeBm25RebuildResult(stats),
+    semantic: knowledgeSemanticUnavailableResult(),
   };
 }
 
@@ -1454,6 +1485,33 @@ function completedKnowledgeBm25RebuildJob(
     message: "BM25 index is available in native TS worker",
     processed: chunksIndexed,
     total: chunksIndexed,
+    error: "",
+    stage_details: Array.isArray(stats.stage_details) ? stats.stage_details : [],
+    failed_stage_count: numberValue(stats.failed_stage_count) ?? 0,
+    stale_stage_count: numberValue(stats.stale_stage_count) ?? 0,
+    retrieval_ready: retrievalReady,
+    graph_ready: graphReady,
+    partial_availability: retrievalReady && !graphReady,
+    result,
+  };
+}
+
+function completedKnowledgeAllRebuildJob(
+  stats: Record<string, unknown>,
+  result: Record<string, unknown>,
+): Record<string, unknown> {
+  const bm25 = asObject(result.bm25) ?? {};
+  const chunksIndexed = numberValue(bm25.chunks_indexed) ?? 0;
+  const retrievalReady = Boolean(stats.retrieval_ready) || chunksIndexed > 0;
+  const graphReady = Boolean(stats.graph_ready);
+  return {
+    id: "kjob_rebuild_all",
+    name: "rebuild:all",
+    status: "completed",
+    stage: "completed",
+    message: "Native available knowledge indexes are rebuilt; semantic index is not available natively",
+    processed: 3,
+    total: 3,
     error: "",
     stage_details: Array.isArray(stats.stage_details) ? stats.stage_details : [],
     failed_stage_count: numberValue(stats.failed_stage_count) ?? 0,
