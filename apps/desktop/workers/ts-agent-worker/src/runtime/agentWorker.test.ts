@@ -298,6 +298,78 @@ describe("AgentWorker", () => {
     ]);
   });
 
+  test("serves WebUI skills mutation routes through TS worker RPC", async () => {
+    const calls: Array<{ type: string; traceId: string; name?: string; body?: unknown }> = [];
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      skillsBridge: {
+        listWebuiSkills: async () => ({}),
+        getWebuiSkillDetail: async () => ({}),
+        createWebuiSkill: async (body, traceId) => {
+          calls.push({ type: "create", traceId, body });
+          return { created: true, name: "planner" };
+        },
+        updateWebuiSkill: async (name, body, traceId) => {
+          calls.push({ type: "update", traceId, name, body });
+          return { updated: true, name };
+        },
+        deleteWebuiSkill: async (name, traceId) => {
+          calls.push({ type: "delete", traceId, name });
+          return { deleted: true, name };
+        },
+        validateWebuiSkill: async (name, traceId) => {
+          calls.push({ type: "validate", traceId, name });
+          return { valid: true, name };
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(webuiRequest("webui.route_specs"))).resolves.toMatchObject({
+      result: {
+        routes: expect.arrayContaining([
+          { key: "create_skill", method: "POST", path: "/api/skills", public: false },
+          { key: "update_skill", method: "PATCH", path: "/api/skills/{name}", public: false },
+          { key: "delete_skill", method: "DELETE", path: "/api/skills/{name}", public: false },
+          { key: "validate_skill", method: "POST", path: "/api/skills/{name}/validate", public: false },
+        ]),
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/api/skills",
+      body: { name: "planner", content: "Plan." },
+    }))).resolves.toMatchObject({
+      result: { status: 200, body: { created: true, name: "planner" } },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "PATCH",
+      path: "/api/skills/planner%2Fphase",
+      body: { content: "Updated." },
+    }))).resolves.toMatchObject({
+      result: { status: 200, body: { updated: true, name: "planner/phase" } },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "DELETE",
+      path: "/api/skills/planner%2Fphase",
+    }))).resolves.toMatchObject({
+      result: { status: 200, body: { deleted: true, name: "planner/phase" } },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/api/skills/planner%2Fphase/validate",
+    }))).resolves.toMatchObject({
+      result: { status: 200, body: { valid: true, name: "planner/phase" } },
+    });
+    expect(calls).toEqual([
+      { type: "create", traceId: "trace-webui.handle_request", body: { name: "planner", content: "Plan." } },
+      { type: "update", traceId: "trace-webui.handle_request", name: "planner/phase", body: { content: "Updated." } },
+      { type: "delete", traceId: "trace-webui.handle_request", name: "planner/phase" },
+      { type: "validate", traceId: "trace-webui.handle_request", name: "planner/phase" },
+    ]);
+  });
+
   test("serves WebUI bootstrap route through TS worker RPC", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),

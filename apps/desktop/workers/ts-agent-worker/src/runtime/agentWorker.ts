@@ -2615,6 +2615,12 @@ export class AgentWorker {
     return {
       listSkills: (traceId: string) => this.skillsBridge!.listWebuiSkills(traceId),
       getSkillDetail: (name: string, traceId: string) => this.skillsBridge!.getWebuiSkillDetail(name, traceId),
+      createSkill: (body: Record<string, unknown>, traceId: string) =>
+        this.skillsBridge!.createWebuiSkill(body, traceId),
+      updateSkill: (name: string, body: Record<string, unknown>, traceId: string) =>
+        this.skillsBridge!.updateWebuiSkill(name, body, traceId),
+      deleteSkill: (name: string, traceId: string) => this.skillsBridge!.deleteWebuiSkill(name, traceId),
+      validateSkill: (name: string, traceId: string) => this.skillsBridge!.validateWebuiSkill(name, traceId),
     };
   }
 

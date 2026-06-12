@@ -158,6 +158,10 @@ export type WebuiProvidersProvider = {
 export type WebuiSkillsProvider = {
   listSkills(traceId: string): Promise<unknown> | unknown;
   getSkillDetail(name: string, traceId: string): Promise<unknown> | unknown;
+  createSkill(body: Record<string, unknown>, traceId: string): Promise<unknown> | unknown;
+  updateSkill(name: string, body: Record<string, unknown>, traceId: string): Promise<unknown> | unknown;
+  deleteSkill(name: string, traceId: string): Promise<unknown> | unknown;
+  validateSkill(name: string, traceId: string): Promise<unknown> | unknown;
 };
 
 const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
@@ -178,7 +182,11 @@ const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
   { key: "clear_session", method: "POST", path: "/api/sessions/{key}/clear", public: false },
   { key: "list_temporary_files", method: "GET", path: "/api/sessions/{key}/temporary-files", public: false },
   { key: "get_skills", method: "GET", path: "/api/skills", public: false },
+  { key: "create_skill", method: "POST", path: "/api/skills", public: false },
   { key: "get_skill_detail", method: "GET", path: "/api/skills/{name}", public: false },
+  { key: "update_skill", method: "PATCH", path: "/api/skills/{name}", public: false },
+  { key: "delete_skill", method: "DELETE", path: "/api/skills/{name}", public: false },
+  { key: "validate_skill", method: "POST", path: "/api/skills/{name}/validate", public: false },
 ];
 
 export function webuiRouteSpecs(): WebuiRouteSpec[] {
@@ -230,6 +238,35 @@ export async function handleWebuiRouteRequest(
       return { status: 503, body: { error: "webui control route unavailable", route: "get_skills" } };
     }
     return { status: 200, body: await skillsProvider.listSkills(traceId) };
+  }
+  if (method === "POST" && path === "/api/skills") {
+    if (!skillsProvider) {
+      return { status: 503, body: { error: "webui control route unavailable", route: "create_skill" } };
+    }
+    const body = isJsonObject(request.body) ? request.body : {};
+    return { status: 200, body: await skillsProvider.createSkill(body, traceId) };
+  }
+  const skillValidationName = skillValidatePath(method, path);
+  if (skillValidationName !== undefined) {
+    if (!skillsProvider) {
+      return { status: 503, body: { error: "webui control route unavailable", route: "validate_skill" } };
+    }
+    return { status: 200, body: await skillsProvider.validateSkill(skillValidationName, traceId) };
+  }
+  const skillUpdateName = skillUpdatePath(method, path);
+  if (skillUpdateName !== undefined) {
+    if (!skillsProvider) {
+      return { status: 503, body: { error: "webui control route unavailable", route: "update_skill" } };
+    }
+    const body = isJsonObject(request.body) ? request.body : {};
+    return { status: 200, body: await skillsProvider.updateSkill(skillUpdateName, body, traceId) };
+  }
+  const skillDeleteName = skillDeletePath(method, path);
+  if (skillDeleteName !== undefined) {
+    if (!skillsProvider) {
+      return { status: 503, body: { error: "webui control route unavailable", route: "delete_skill" } };
+    }
+    return { status: 200, body: await skillsProvider.deleteSkill(skillDeleteName, traceId) };
   }
   const skillName = skillDetailPath(method, path);
   if (skillName !== undefined) {
@@ -763,6 +800,30 @@ function skillDetailPath(method: string, path: string): string | undefined {
     return undefined;
   }
   const match = /^\/api\/skills\/(.+)$/.exec(path);
+  return match ? decodeURIComponent(match[1]) : undefined;
+}
+
+function skillUpdatePath(method: string, path: string): string | undefined {
+  if (method !== "PATCH") {
+    return undefined;
+  }
+  const match = /^\/api\/skills\/(.+)$/.exec(path);
+  return match ? decodeURIComponent(match[1]) : undefined;
+}
+
+function skillDeletePath(method: string, path: string): string | undefined {
+  if (method !== "DELETE") {
+    return undefined;
+  }
+  const match = /^\/api\/skills\/(.+)$/.exec(path);
+  return match ? decodeURIComponent(match[1]) : undefined;
+}
+
+function skillValidatePath(method: string, path: string): string | undefined {
+  if (method !== "POST") {
+    return undefined;
+  }
+  const match = /^\/api\/skills\/(.+)\/validate$/.exec(path);
   return match ? decodeURIComponent(match[1]) : undefined;
 }
 

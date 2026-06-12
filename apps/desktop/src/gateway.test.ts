@@ -780,6 +780,60 @@ describe("gateway HTTP client", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
+  test("prefers native WebUI skills mutation routes when available", async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
+    const nativeWebui = {
+      route: vi.fn(async (request: { method: string; path: string; body?: unknown }) => ({
+        native: true,
+        request,
+      })),
+    };
+    const nativeSkills = {
+      list: vi.fn(async () => ({})),
+      detail: vi.fn(async () => ({})),
+      create: vi.fn(async () => {
+        throw new Error("legacy native skills should not be used");
+      }),
+      update: vi.fn(async () => {
+        throw new Error("legacy native skills should not be used");
+      }),
+      delete: vi.fn(async () => {
+        throw new Error("legacy native skills should not be used");
+      }),
+      validate: vi.fn(async () => {
+        throw new Error("legacy native skills should not be used");
+      }),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeWebui,
+      nativeSkills,
+    });
+
+    await expect(client.skills.create({ name: "planner", content: "Plan." })).resolves.toEqual({
+      native: true,
+      request: { method: "POST", path: "/api/skills", body: { name: "planner", content: "Plan." } },
+    });
+    await expect(client.skills.update("planner/phase", { content: "Updated." })).resolves.toEqual({
+      native: true,
+      request: { method: "PATCH", path: "/api/skills/planner%2Fphase", body: { content: "Updated." } },
+    });
+    await expect(client.skills.delete("planner/phase")).resolves.toEqual({
+      native: true,
+      request: { method: "DELETE", path: "/api/skills/planner%2Fphase" },
+    });
+    await expect(client.skills.validate("planner/phase")).resolves.toEqual({
+      native: true,
+      request: { method: "POST", path: "/api/skills/planner%2Fphase/validate" },
+    });
+    expect(nativeSkills.create).not.toHaveBeenCalled();
+    expect(nativeSkills.update).not.toHaveBeenCalled();
+    expect(nativeSkills.delete).not.toHaveBeenCalled();
+    expect(nativeSkills.validate).not.toHaveBeenCalled();
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
   test("falls back to gateway skills operations when native skills are unavailable", async () => {
     const fetchFn = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
       if (String(url).endsWith("/webui/bootstrap")) {

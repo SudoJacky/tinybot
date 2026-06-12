@@ -383,23 +383,34 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         "skills.detail",
       ),
       create: (body: unknown) => nativeOrGateway(
-        () => options.nativeSkills?.create(body),
+        () => options.nativeWebui?.route({ method: "POST", path: "/api/skills", body })
+          ?? options.nativeSkills?.create(body),
         () => request("/api/skills", jsonRequest("POST", body)),
         "skills.create",
       ),
       update: (name: string, body: unknown) =>
         nativeOrGateway(
-          () => options.nativeSkills?.update(name, body),
+          () => options.nativeWebui?.route({
+            method: "PATCH",
+            path: `/api/skills/${encodePathSegment(name)}`,
+            body,
+          }) ?? options.nativeSkills?.update(name, body),
           () => request(`/api/skills/${encodePathSegment(name)}`, jsonRequest("PATCH", body)),
           "skills.update",
         ),
       delete: (name: string) => nativeOrGateway(
-        () => options.nativeSkills?.delete(name),
+        () => options.nativeWebui?.route({
+          method: "DELETE",
+          path: `/api/skills/${encodePathSegment(name)}`,
+        }) ?? options.nativeSkills?.delete(name),
         () => request(`/api/skills/${encodePathSegment(name)}`, { method: "DELETE" }),
         "skills.delete",
       ),
       validate: (name: string) => nativeOrGateway(
-        () => options.nativeSkills?.validate(name),
+        () => options.nativeWebui?.route({
+          method: "POST",
+          path: `/api/skills/${encodePathSegment(name)}/validate`,
+        }) ?? options.nativeSkills?.validate(name),
         () => request(`/api/skills/${encodePathSegment(name)}/validate`, { method: "POST" }),
         "skills.validate",
       ),
