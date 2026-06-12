@@ -1125,6 +1125,13 @@ describe("gateway HTTP client", () => {
         path: "/v1/knowledge/graph",
       },
     });
+    await expect(client.knowledge.graphrag()).resolves.toEqual({
+      native: true,
+      request: {
+        method: "GET",
+        path: "/v1/knowledge/graphrag?min_confidence=0&include_reports=true&include_covariates=true",
+      },
+    });
     expect(fetchFn).not.toHaveBeenCalled();
   });
 

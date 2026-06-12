@@ -283,6 +283,7 @@ const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
   { key: "knowledge_job", method: "GET", path: "/v1/knowledge/jobs/{job_id}", public: true },
   { key: "knowledge_rebuild_index", method: "POST", path: "/v1/knowledge/rebuild-index", public: true },
   { key: "knowledge_graph", method: "GET", path: "/v1/knowledge/graph", public: true },
+  { key: "knowledge_graphrag", method: "GET", path: "/v1/knowledge/graphrag", public: true },
   { key: "bootstrap", method: "GET", path: "/webui/bootstrap", public: true },
   { key: "refresh_token", method: "POST", path: "/webui/refresh-token", public: true },
   { key: "get_status", method: "GET", path: "/api/status", public: false },
@@ -381,6 +382,9 @@ export async function handleWebuiRouteRequest(
   }
   if (method === "GET" && path === "/v1/knowledge/graph") {
     return knowledgeGraphResponse(url.searchParams, knowledgeProvider, traceId);
+  }
+  if (method === "GET" && path === "/v1/knowledge/graphrag") {
+    return knowledgeGraphRagResponse(url.searchParams, knowledgeProvider, traceId);
   }
   if (method === "GET" && path === "/webui/bootstrap") {
     if (!bootstrapProvider) {
@@ -1171,6 +1175,14 @@ type KnowledgeGraphQuery = {
   includeOrphans: boolean;
 };
 
+type KnowledgeGraphRagQuery = {
+  docId: string;
+  minConfidence: number;
+  level: number;
+  includeReports: boolean;
+  includeCovariates: boolean;
+};
+
 function parseKnowledgeGraphQuery(query: URLSearchParams): { ok: true; value: KnowledgeGraphQuery } | { ok: false } {
   const limit = clampedNumberQuery(query.get("limit"), 80, 1, 500, true);
   if (limit === undefined) {
@@ -1192,6 +1204,24 @@ function parseKnowledgeGraphQuery(query: URLSearchParams): { ok: true; value: Kn
       edgeLimit,
       minConfidence,
       includeOrphans: booleanQuery(query.get("include_orphans")),
+    },
+  };
+}
+
+function parseKnowledgeGraphRagQuery(query: URLSearchParams): { ok: true; value: KnowledgeGraphRagQuery } | { ok: false } {
+  const minConfidence = clampedNumberQuery(query.get("min_confidence"), 0, 0, 1, false);
+  const level = clampedNumberQuery(query.get("level"), 0, 0, 3, true);
+  if (minConfidence === undefined || level === undefined) {
+    return { ok: false };
+  }
+  return {
+    ok: true,
+    value: {
+      docId: query.get("doc_id") ?? "",
+      minConfidence,
+      level,
+      includeReports: booleanQueryDefault(query.get("include_reports"), true),
+      includeCovariates: booleanQueryDefault(query.get("include_covariates"), true),
     },
   };
 }
@@ -1231,6 +1261,54 @@ function knowledgeGraphBody(
     },
     stage_readiness: isJsonObject(stats.stage_readiness) ? stats.stage_readiness : {},
     stage_coverage: isJsonObject(stats.stage_coverage) ? stats.stage_coverage : {},
+  };
+}
+
+async function knowledgeGraphRagResponse(
+  query: URLSearchParams,
+  provider: WebuiKnowledgeProvider | undefined,
+  traceId: string,
+): Promise<WebuiRouteResponse> {
+  if (!provider) {
+    return { status: 503, body: { error: "Knowledge store not initialized" } };
+  }
+  const params = parseKnowledgeGraphRagQuery(query);
+  if (!params.ok) {
+    return { status: 400, body: { error: "Invalid GraphRAG query params" } };
+  }
+  const stats = knowledgeStatsBody(await provider.stats(traceId));
+  return { status: 200, body: knowledgeGraphRagBody(stats, params.value) };
+}
+
+function knowledgeGraphRagBody(
+  stats: Record<string, unknown>,
+  query: KnowledgeGraphRagQuery,
+): Record<string, unknown> {
+  const covariates: unknown[] = [];
+  const communityReports: unknown[] = [];
+  return {
+    object: "graphrag_index",
+    documents: [],
+    text_units: [],
+    entities: [],
+    relationships: [],
+    covariates: query.includeCovariates ? covariates : [],
+    communities: [],
+    community_reports: query.includeReports ? communityReports : [],
+    stats: {
+      document_count: numberValue(stats.total_documents) ?? 0,
+      text_unit_count: numberValue(stats.total_chunks) ?? 0,
+      entity_count: numberValue(stats.entity_count) ?? 0,
+      relationship_count: numberValue(stats.relation_count) ?? 0,
+      covariate_count: query.includeCovariates ? covariates.length : 0,
+      community_count: numberValue(stats.community_count) ?? 0,
+      community_report_count: query.includeReports ? numberValue(stats.community_report_count) ?? 0 : 0,
+      doc_id: query.docId,
+      min_confidence: query.minConfidence,
+      level: query.level,
+      include_reports: query.includeReports,
+      include_covariates: query.includeCovariates,
+    },
   };
 }
 
@@ -1328,6 +1406,13 @@ function knowledgeTags(value: unknown): string[] {
 
 function booleanQuery(value: string | null): boolean {
   return value !== null && ["1", "true", "yes", "on"].includes(value.toLowerCase());
+}
+
+function booleanQueryDefault(value: string | null, fallback: boolean): boolean {
+  if (value === null) {
+    return fallback;
+  }
+  return ["1", "true", "yes", "on"].includes(value.toLowerCase());
 }
 
 function knowledgeUploadJobDocumentId(jobId: string): string | undefined {
