@@ -1104,6 +1104,36 @@ describe("gateway HTTP client", () => {
         },
       },
     });
+    const jsonForm = new FormData();
+    jsonForm.append("file", new File(["{\"topic\":\"desktop\"}\n"], "native.json", { type: "application/json" }));
+    await expect(client.knowledge.uploadDocument(jsonForm)).resolves.toEqual({
+      native: true,
+      request: {
+        method: "POST",
+        path: "/v1/knowledge/documents/upload?async_index=true",
+        body: {
+          name: "native.json",
+          file_type: "json",
+          content: "{\"topic\":\"desktop\"}\n",
+          size_bytes: 20,
+        },
+      },
+    });
+    const csvForm = new FormData();
+    csvForm.append("file", new File(["name,value\nnative,true\n"], "native.csv", { type: "text/csv" }));
+    await expect(client.knowledge.uploadDocument(csvForm)).resolves.toEqual({
+      native: true,
+      request: {
+        method: "POST",
+        path: "/v1/knowledge/documents/upload?async_index=true",
+        body: {
+          name: "native.csv",
+          file_type: "csv",
+          content: "name,value\nnative,true\n",
+          size_bytes: 23,
+        },
+      },
+    });
     await expect(client.knowledge.job("kjob_doc-2")).resolves.toEqual({
       native: true,
       request: {

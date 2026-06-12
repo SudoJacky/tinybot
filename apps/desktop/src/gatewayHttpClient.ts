@@ -1229,7 +1229,7 @@ function nativeKnowledgeUploadBody(body: FormData): Promise<Record<string, unkno
     return undefined;
   }
   const fileType = extensionFromName(file.name);
-  if (fileType !== "txt" && fileType !== "md") {
+  if (!["txt", "md", "json", "csv"].includes(fileType)) {
     return undefined;
   }
   return file.text().then((content) => {
