@@ -19,6 +19,8 @@ export type DesktopNativeWebSocketAgentEventName =
   | "agent.usage"
   | "agent.awaiting_form"
   | "agent.awaiting_approval"
+  | "agent.memory_reference"
+  | "agent.task_progress"
   | "agent.done"
   | "agent.error";
 export type DesktopNativeWebSocketAgentEventHandler = (payload: unknown) => void;
@@ -36,6 +38,8 @@ const AGENT_EVENT_NAMES: DesktopNativeWebSocketAgentEventName[] = [
   "agent.usage",
   "agent.awaiting_form",
   "agent.awaiting_approval",
+  "agent.memory_reference",
+  "agent.task_progress",
   "agent.done",
   "agent.error",
 ];
@@ -327,6 +331,28 @@ class DesktopNativeWebSocket extends EventTarget {
       });
       return;
     }
+    if (eventName === "agent.memory_reference") {
+      const references = arrayValue(payload.references);
+      if (references.length === 0) {
+        return;
+      }
+      this.emitJson({
+        event: "message",
+        chat_id: run.chatId,
+        message_id: run.messageId,
+        text: "",
+        _memory_references: references,
+      });
+      return;
+    }
+    if (eventName === "agent.task_progress") {
+      const progress = payload.progress ?? payload.taskProgress ?? payload.task_progress;
+      const toolCallId = stringValue(payload.toolCallId) || stringValue(payload.tool_call_id) || `${runId}:task-progress`;
+      const toolName = stringValue(payload.toolName) || stringValue(payload.tool_name) || "task_progress";
+      const planId = stringValue(payload.planId) || stringValue(payload.plan_id) || (isRecord(progress) ? stringValue(progress.plan_id) : "");
+      this.emitTaskProgressFrame(run.chatId, `${runId}:${toolCallId}:task-progress`, toolName, toolCallId, progress, planId);
+      return;
+    }
     if (eventName === "agent.error") {
       run.streamed = true;
       this.emitJson({
@@ -379,6 +405,29 @@ class DesktopNativeWebSocket extends EventTarget {
         chat_id: run.chatId,
         payload: agentUiPayload,
       },
+    });
+  }
+
+  private emitTaskProgressFrame(
+    chatId: string,
+    messageId: string,
+    toolName: string,
+    toolCallId: string,
+    progress: unknown,
+    planId: string,
+  ): void {
+    this.emitJson({
+      event: "message",
+      chat_id: chatId,
+      message_id: messageId,
+      text: "Task progress updated.",
+      _progress: true,
+      _tool_call_id: toolCallId,
+      _tool_name: toolName,
+      _tool_result: true,
+      _task_event: true,
+      ...(planId ? { _task_plan_id: planId } : {}),
+      _task_progress: progress,
     });
   }
 

@@ -256,6 +256,78 @@ describe("desktop native WebSocket bridge", () => {
       approval_id: "approval-1",
     });
   });
+
+  test("projects TS worker memory references and task progress into legacy WebUI message frames", async () => {
+    const handlers = new Map<DesktopNativeWebSocketAgentEventName, (payload: unknown) => void>();
+    const nativeTransport: NativeTransportApi = {
+      gatewayFrame: vi.fn(),
+      websocketMessage: vi.fn(),
+      dispatchWebsocketMessage: vi.fn(async () => ({
+        transport: {
+          kind: "message",
+          chatId: "chat-native",
+          sessionId: "websocket:chat-native",
+          frames: [],
+        },
+        agent: {
+          runId: "run-4",
+          stopReason: "final_response",
+        },
+      })),
+    };
+    const socket = createDesktopNativeWebSocket({
+      url: "/ws",
+      nativeTransport,
+      listenToAgentEvent: (eventName, handler) => {
+        handlers.set(eventName, handler);
+      },
+    });
+    const events: Array<Record<string, unknown>> = [];
+    socket.addEventListener("message", (event) => {
+      events.push(JSON.parse(String((event as MessageEvent).data)) as Record<string, unknown>);
+    });
+
+    await flushMicrotasks();
+    socket.send(JSON.stringify({ type: "message", chat_id: "chat-native", content: "hello" }));
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(handlers.get("agent.memory_reference")).toBeDefined();
+    expect(handlers.get("agent.task_progress")).toBeDefined();
+
+    handlers.get("agent.memory_reference")?.({
+      runId: "run-4",
+      references: [{ note_id: "note-1", content: "Remembered preference" }],
+    });
+    handlers.get("agent.task_progress")?.({
+      runId: "run-4",
+      toolCallId: "task-call",
+      toolName: "task",
+      planId: "plan-1",
+      progress: { plan_id: "plan-1", completed: 1, total: 2 },
+    });
+
+    expect(events).toContainEqual({
+      event: "message",
+      chat_id: "chat-native",
+      message_id: "run-4",
+      text: "",
+      _memory_references: [{ note_id: "note-1", content: "Remembered preference" }],
+    });
+    expect(events).toContainEqual({
+      event: "message",
+      chat_id: "chat-native",
+      message_id: "run-4:task-call:task-progress",
+      text: "Task progress updated.",
+      _progress: true,
+      _tool_call_id: "task-call",
+      _tool_name: "task",
+      _tool_result: true,
+      _task_event: true,
+      _task_plan_id: "plan-1",
+      _task_progress: { plan_id: "plan-1", completed: 1, total: 2 },
+    });
+  });
 });
 
 async function flushMicrotasks(): Promise<void> {
