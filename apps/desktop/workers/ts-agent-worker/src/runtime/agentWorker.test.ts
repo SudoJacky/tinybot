@@ -536,6 +536,59 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("auto-runs cowork sessions created through the Python-compatible route when requested", async () => {
+    const store = createMemoryCoworkStore();
+    const idGenerator = (() => {
+      const counters = new Map<string, number>();
+      return (prefix: string) => {
+        const next = (counters.get(prefix) ?? 0) + 1;
+        counters.set(prefix, next);
+        return `${prefix}_${next}`;
+      };
+    })();
+    const coworkService = new CoworkService({
+      store,
+      now: () => "2026-06-12T08:00:00.000Z",
+      idGenerator,
+    });
+    const coworkScheduler = new CoworkScheduler({
+      store,
+      now: () => "2026-06-12T08:00:00.000Z",
+      idGenerator,
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      coworkService,
+      coworkScheduler,
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: "/api/cowork/sessions",
+      body: {
+        goal: "Auto-run route",
+        workflow_mode: "team",
+        auto_run: true,
+        max_rounds: 1,
+        parallel_width: 2,
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          result: "started cw_1",
+          session: expect.objectContaining({
+            id: "cw_1",
+            stop_reason: "idle",
+            run_metrics: [expect.objectContaining({ status: "stopped", stop_reason: "idle" })],
+          }),
+        },
+      },
+    });
+  });
+
   test("routes Python-compatible cowork run requests through the injected CoworkScheduler", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = (() => {

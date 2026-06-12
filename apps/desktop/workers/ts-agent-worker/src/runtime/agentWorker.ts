@@ -565,12 +565,15 @@ export class AgentWorker {
           blueprint: params.blueprint,
           runtimeState: params.runtimeState,
         });
+        const session = result.session
+          ? await this.maybeAutoRunCoworkSession(result.session, body, traceId)
+          : null;
         return result.session
           ? {
               status: 200,
               body: {
                 result: `started ${result.session.id}`,
-                session: coworkSessionSnapshot(result.session),
+                session: coworkSessionSnapshot(session ?? result.session),
                 diagnostics: result.diagnostics,
               },
             }
@@ -589,7 +592,8 @@ export class AgentWorker {
         budgets: params.budgets,
         runtimeState: params.runtimeState,
       });
-      return { status: 200, body: { result: `started ${session.id}`, session: coworkSessionSnapshot(session) } };
+      const routedSession = await this.maybeAutoRunCoworkSession(session, body, traceId);
+      return { status: 200, body: { result: `started ${session.id}`, session: coworkSessionSnapshot(routedSession) } };
     }
 
     if (segments.length >= 2 && segments[0] === "sessions") {
@@ -598,6 +602,24 @@ export class AgentWorker {
     }
 
     return unsupportedCoworkRoute(route);
+  }
+
+  private async maybeAutoRunCoworkSession(session: CoworkSession, body: Record<string, unknown>, traceId: string): Promise<CoworkSession> {
+    const autoRun = booleanParam(body, "autoRun", "auto_run") === true;
+    if (!autoRun || !this.coworkScheduler) {
+      return session;
+    }
+    const params = parseCoworkRunSessionParams({ ...body, session_id: session.id });
+    const result = await this.coworkScheduler.runSession({
+      traceId,
+      sessionId: params.sessionId,
+      maxRounds: params.maxRounds,
+      maxAgents: params.maxAgents,
+      maxAgentCalls: params.maxAgentCalls,
+      runUntilIdle: params.runUntilIdle,
+      stopOnBlocker: params.stopOnBlocker,
+    });
+    return result.session ?? session;
   }
 
   private dispatchCoworkBlueprintRoute(segments: string[], body: Record<string, unknown>): CoworkRouteResponse {
