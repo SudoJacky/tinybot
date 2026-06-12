@@ -378,15 +378,22 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         undefined,
         "cowork.graph",
       ),
-      agentActivity: (sessionId: string, agentId: string) => coworkNativeOrGateway(
-        options.nativeCowork,
-        options.tsCoworkRuntime,
-        request,
-        "GET",
-        `/api/cowork/sessions/${encodePathSegment(sessionId)}/agents/${encodePathSegment(agentId)}/activity`,
-        undefined,
-        "cowork.agentActivity",
-      ),
+      agentActivity: (sessionId: string, agentId: string, activityOptions: { limit?: number } = {}) => {
+        const params = new URLSearchParams();
+        if (activityOptions.limit !== undefined) {
+          params.set("limit", String(activityOptions.limit));
+        }
+        const path = `/api/cowork/sessions/${encodePathSegment(sessionId)}/agents/${encodePathSegment(agentId)}/activity${params.toString() ? `?${params}` : ""}`;
+        return coworkNativeOrGateway(
+          options.nativeCowork,
+          options.tsCoworkRuntime,
+          request,
+          "GET",
+          path,
+          undefined,
+          "cowork.agentActivity",
+        );
+      },
       observation: (sessionId: string, detailRef: string) => coworkNativeOrGateway(
         options.nativeCowork,
         options.tsCoworkRuntime,
