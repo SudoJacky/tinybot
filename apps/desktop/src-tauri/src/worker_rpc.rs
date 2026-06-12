@@ -229,6 +229,14 @@ impl WorkerRpcRouter {
                 serde_json::to_value(self.session.delete_session(&params.session_id)?)
                     .map_err(serialization_error)
             }
+            "session.patch_metadata" => {
+                let params: SessionPatchMetadataParams = parse_params(request)?;
+                serde_json::to_value(
+                    self.session
+                        .patch_metadata(&params.session_id, params.metadata)?,
+                )
+                .map_err(serialization_error)
+            }
             "session.append_messages" => {
                 let params: SessionAppendMessagesParams = parse_params(request)?;
                 serde_json::to_value(
@@ -2042,6 +2050,12 @@ struct SessionHistoryParams {
 struct SessionCheckpointParams {
     session_id: String,
     checkpoint: Value,
+}
+
+#[derive(Deserialize)]
+struct SessionPatchMetadataParams {
+    session_id: String,
+    metadata: Value,
 }
 
 #[derive(Deserialize)]
@@ -3859,6 +3873,40 @@ mod tests {
                 "session_id": "session-1",
                 "deleted": true
             }))
+        );
+        assert!(response.error.is_none());
+    }
+
+    #[test]
+    fn dispatches_session_patch_metadata_request() {
+        let fixture = WorkspaceFixture::new();
+        let mut session = session_fixture();
+        session.extra = json!({ "metadata": { "pinned": false, "topic": "old" } });
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![session],
+            20,
+            CapabilityPolicy::new([WorkerCapability::SessionWrite]),
+        );
+        let request = WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "session.patch_metadata",
+            json!({
+                "session_id": "session-1",
+                "metadata": { "pinned": true }
+            }),
+        );
+
+        let response = router.dispatch(&request);
+
+        assert_eq!(
+            response.result.as_ref().unwrap()["extra"]["metadata"],
+            json!({
+                "pinned": true,
+                "topic": "old"
+            })
         );
         assert!(response.error.is_none());
     }

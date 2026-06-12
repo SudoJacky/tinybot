@@ -523,6 +523,35 @@ describe("gateway HTTP client", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
+  test("prefers native WebUI session patch route when available", async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
+    const nativeWebui = {
+      route: vi.fn(async (request: { method: string; path: string; body?: unknown }) => ({
+        key: "websocket:chat-1",
+        metadata: { pinned: true },
+        updated_at: "2026-06-13T10:00:00.000Z",
+        request,
+      })),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeWebui,
+    });
+
+    await expect(client.sessions.patch("websocket:chat-1", { metadata: { pinned: true } })).resolves.toMatchObject({
+      key: "websocket:chat-1",
+      metadata: { pinned: true },
+      updated_at: "2026-06-13T10:00:00.000Z",
+    });
+    expect(nativeWebui.route).toHaveBeenCalledWith({
+      method: "PATCH",
+      path: "/api/sessions/websocket%3Achat-1",
+      body: { metadata: { pinned: true } },
+    });
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
   test("falls back to gateway skills operations when native skills are unavailable", async () => {
     const fetchFn = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
       if (String(url).endsWith("/webui/bootstrap")) {

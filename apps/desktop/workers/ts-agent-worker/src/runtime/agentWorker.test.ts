@@ -450,6 +450,59 @@ describe("AgentWorker", () => {
     expect(profileRequests).toEqual([{ sessionId: "websocket:chat-1", traceId: "trace-webui.handle_request" }]);
   });
 
+  test("serves WebUI session metadata patch control route through TS worker RPC", async () => {
+    const patchRequests: Array<{ sessionId: string; metadata: Record<string, unknown>; traceId: string }> = [];
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      webuiSessionProvider: {
+        listSessions: () => [],
+        patchSessionMetadata: (
+          sessionId: string,
+          metadata: Record<string, unknown>,
+          traceId: string,
+        ) => {
+          patchRequests.push({ sessionId, metadata, traceId });
+          return {
+            sessionId,
+            metadata: { pinned: true, topic: "native-route" },
+            updatedAt: "2026-06-13T10:00:00.000Z",
+          };
+        },
+      },
+    } as any);
+
+    await expect(worker.handleRequest(webuiRequest("webui.route_specs"))).resolves.toMatchObject({
+      result: {
+        routes: expect.arrayContaining([
+          { key: "patch_session", method: "PATCH", path: "/api/sessions/{key}", public: false },
+        ]),
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "PATCH",
+      path: "/api/sessions/websocket%3Achat-1",
+      body: { metadata: { pinned: true } },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          key: "websocket:chat-1",
+          metadata: { pinned: true, topic: "native-route" },
+          updated_at: "2026-06-13T10:00:00.000Z",
+        },
+      },
+    });
+    expect(patchRequests).toEqual([
+      {
+        sessionId: "websocket:chat-1",
+        metadata: { pinned: true },
+        traceId: "trace-webui.handle_request",
+      },
+    ]);
+  });
+
   test("returns Python-compatible cowork route unavailable errors", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),

@@ -2,6 +2,7 @@ import type { AgentMessage } from "../agent/agentRunSpec.ts";
 import type { JsonObject } from "../protocol/messages.ts";
 import type { NativeRpcClient } from "../tools/nativeToolProxy.ts";
 import type {
+  WebuiPatchSessionResult,
   WebuiDeleteSessionResult,
   WebuiSessionMessages,
   WebuiSessionMetadata,
@@ -45,6 +46,18 @@ export class NativeSessionBridge implements SessionBridge, WebuiSessionProvider 
 
   async getWebuiSessionProfile(sessionId: string, traceId: string): Promise<WebuiSessionProfile | null> {
     return this.getSessionProfile(sessionId, traceId);
+  }
+
+  async patchSessionMetadata(
+    sessionId: string,
+    metadata: Record<string, unknown>,
+    traceId: string,
+  ): Promise<WebuiPatchSessionResult | null> {
+    const result = await this.rpcClient.request(traceId, "session.patch_metadata", {
+      session_id: sessionId,
+      metadata,
+    });
+    return normalizeWebuiPatchSessionResult(result);
   }
 
   async deleteSession(sessionId: string, traceId: string): Promise<WebuiDeleteSessionResult> {
@@ -180,6 +193,23 @@ function normalizeWebuiSessionProfile(result: unknown): WebuiSessionProfile | nu
   return {
     sessionId,
     profile: isJsonObject(profile) ? profile : {},
+  };
+}
+
+function normalizeWebuiPatchSessionResult(result: unknown): WebuiPatchSessionResult | null {
+  if (!isJsonObject(result)) {
+    return null;
+  }
+  const sessionId = stringField(result, "sessionId", "session_id");
+  if (!sessionId) {
+    return null;
+  }
+  const extra = isJsonObject(result.extra) ? result.extra : {};
+  const metadata = extra.metadata ?? result.metadata;
+  return {
+    sessionId,
+    metadata: isJsonObject(metadata) ? metadata : {},
+    updatedAt: stringField(result, "updatedAt", "updated_at") ?? "",
   };
 }
 

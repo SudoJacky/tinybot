@@ -46,6 +46,12 @@ export type WebuiSessionProfile = {
   profile: Record<string, unknown>;
 };
 
+export type WebuiPatchSessionResult = {
+  sessionId: string;
+  metadata: Record<string, unknown>;
+  updatedAt: string;
+};
+
 export type WebuiClearSessionResult = {
   sessionId: string;
   messagesBefore: number;
@@ -69,6 +75,11 @@ export type WebuiSessionProvider = {
     sessionId: string,
     traceId: string,
   ): Promise<WebuiSessionProfile | null> | WebuiSessionProfile | null;
+  patchSessionMetadata?(
+    sessionId: string,
+    metadata: Record<string, unknown>,
+    traceId: string,
+  ): Promise<WebuiPatchSessionResult | null> | WebuiPatchSessionResult | null;
   clearSession?(
     sessionId: string,
     traceId: string,
@@ -84,6 +95,7 @@ const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
   { key: "list_sessions", method: "GET", path: "/api/sessions", public: false },
   { key: "get_messages", method: "GET", path: "/api/sessions/{key}/messages", public: false },
   { key: "get_profile", method: "GET", path: "/api/sessions/{key}/profile", public: false },
+  { key: "patch_session", method: "PATCH", path: "/api/sessions/{key}", public: false },
   { key: "delete_session", method: "DELETE", path: "/api/sessions/{key}", public: false },
   { key: "clear_session", method: "POST", path: "/api/sessions/{key}/clear", public: false },
 ];
@@ -133,6 +145,21 @@ export async function handleWebuiRouteRequest(
       return { status: 404, body: { error: "session not found" } };
     }
     return { status: 200, body: webuiSessionProfileBody(session) };
+  }
+  const patchSessionKey = patchSessionPathKey(method, path);
+  if (patchSessionKey !== undefined) {
+    if (!sessionProvider?.patchSessionMetadata) {
+      return { status: 503, body: { error: "session manager not available" } };
+    }
+    if (!isJsonObject(request.body)) {
+      return { status: 400, body: { error: "invalid json body" } };
+    }
+    const metadata = isJsonObject(request.body.metadata) ? request.body.metadata : {};
+    const session = await sessionProvider.patchSessionMetadata(patchSessionKey, metadata, traceId);
+    if (!session) {
+      return { status: 404, body: { error: "session not found" } };
+    }
+    return { status: 200, body: webuiPatchSessionBody(session) };
   }
   const clearSessionKey = clearSessionPathKey(method, path);
   if (clearSessionKey !== undefined) {
@@ -243,6 +270,14 @@ function webuiSessionProfileBody(session: WebuiSessionProfile): Record<string, u
   };
 }
 
+function webuiPatchSessionBody(session: WebuiPatchSessionResult): Record<string, unknown> {
+  return {
+    key: session.sessionId,
+    metadata: session.metadata,
+    updated_at: session.updatedAt,
+  };
+}
+
 function serializeWebuiMessage(message: Record<string, unknown>): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     role: typeof message.role === "string" ? message.role : "",
@@ -303,6 +338,9 @@ function routeKey(method: string, path: string): string {
   if (sessionProfilePathKey(method, path) !== undefined) {
     return "get_profile";
   }
+  if (patchSessionPathKey(method, path) !== undefined) {
+    return "patch_session";
+  }
   if (clearSessionPathKey(method, path) !== undefined) {
     return "clear_session";
   }
@@ -326,6 +364,14 @@ function sessionProfilePathKey(method: string, path: string): string | undefined
     return undefined;
   }
   const match = /^\/api\/sessions\/([^/]+)\/profile$/.exec(path);
+  return match ? decodeURIComponent(match[1]) : undefined;
+}
+
+function patchSessionPathKey(method: string, path: string): string | undefined {
+  if (method !== "PATCH") {
+    return undefined;
+  }
+  const match = /^\/api\/sessions\/([^/]+)$/.exec(path);
   return match ? decodeURIComponent(match[1]) : undefined;
 }
 

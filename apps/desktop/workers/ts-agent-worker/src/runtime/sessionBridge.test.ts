@@ -86,6 +86,39 @@ describe("NativeSessionBridge", () => {
     ]);
   });
 
+  test("patches WebUI session metadata through native session.patch_metadata", async () => {
+    const requests: Array<{ traceId: string; method: string; params: Record<string, unknown> }> = [];
+    const bridge = new NativeSessionBridge({
+      request: async (traceId, method, params) => {
+        requests.push({ traceId, method, params });
+        return {
+          session_id: "websocket:chat-1",
+          updated_at: "2026-06-13T10:00:00.000Z",
+          extra: {
+            metadata: { pinned: true, topic: "native-route" },
+          },
+        };
+      },
+    });
+
+    await expect((bridge as any).patchSessionMetadata(
+      "websocket:chat-1",
+      { pinned: true },
+      "trace-webui",
+    )).resolves.toEqual({
+      sessionId: "websocket:chat-1",
+      metadata: { pinned: true, topic: "native-route" },
+      updatedAt: "2026-06-13T10:00:00.000Z",
+    });
+    expect(requests).toEqual([
+      {
+        traceId: "trace-webui",
+        method: "session.patch_metadata",
+        params: { session_id: "websocket:chat-1", metadata: { pinned: true } },
+      },
+    ]);
+  });
+
   test("lists WebUI session metadata through native session.list_metadata", async () => {
     const requests: Array<{ traceId: string; method: string; params: Record<string, unknown> }> = [];
     const bridge = new NativeSessionBridge({

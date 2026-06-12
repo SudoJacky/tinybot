@@ -169,6 +169,46 @@ impl WorkerSessionRpc {
         })
     }
 
+    pub fn patch_metadata(
+        &mut self,
+        session_id: &str,
+        metadata: Value,
+    ) -> Result<SessionMetadata, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionWrite)?;
+        validate_session_id(session_id)?;
+        let Some(session) = self
+            .sessions
+            .iter_mut()
+            .find(|session| session.session_id == session_id)
+        else {
+            return Err(unknown_session_error(session_id));
+        };
+        let Some(patch) = metadata.as_object() else {
+            return Err(WorkerProtocolError::new(
+                WorkerProtocolErrorCode::InvalidProtocol,
+                "session metadata patch must be a JSON object",
+                serde_json::json!({ "session_id": session_id }),
+                false,
+                WorkerProtocolErrorSource::RustCore,
+            ));
+        };
+        ensure_extra_object(session);
+        if !session.extra.get("metadata").is_some_and(Value::is_object) {
+            session.extra["metadata"] = serde_json::json!({});
+        }
+        if let Some(existing) = session
+            .extra
+            .get_mut("metadata")
+            .and_then(Value::as_object_mut)
+        {
+            for (key, value) in patch {
+                existing.insert(key.clone(), value.clone());
+            }
+        }
+        session.updated_at = now_session_timestamp();
+        Ok(session.clone())
+    }
+
     pub fn append_messages(
         &mut self,
         session_id: &str,
@@ -760,6 +800,33 @@ mod tests {
     }
 
     #[test]
+    fn patch_metadata_merges_existing_metadata_with_write_capability() {
+        let mut session = session_fixture();
+        session.extra = json!({
+            "metadata": {
+                "pinned": false,
+                "topic": "old"
+            },
+            "messages": [
+                { "role": "user", "content": "hello" }
+            ]
+        });
+        let mut rpc = WorkerSessionRpc::new(vec![session], write_policy());
+
+        let updated = rpc
+            .patch_metadata("session-1", json!({ "pinned": true }))
+            .expect("metadata should patch");
+
+        assert_eq!(updated.session_id, "session-1");
+        assert_eq!(updated.extra["metadata"]["pinned"], json!(true));
+        assert_eq!(updated.extra["metadata"]["topic"], json!("old"));
+        assert_eq!(
+            updated.extra["messages"],
+            json!([{ "role": "user", "content": "hello" }])
+        );
+    }
+
+    #[test]
     fn get_checkpoint_returns_runtime_checkpoint_with_read_capability() {
         let mut session = session_fixture();
         session.extra = json!({
@@ -1007,7 +1074,10 @@ mod tests {
             .as_array()
             .expect("messages should be an array");
         assert_eq!(messages.len(), 2);
-        assert_eq!(messages[0], json!({ "role": "user", "content": "existing" }));
+        assert_eq!(
+            messages[0],
+            json!({ "role": "user", "content": "existing" })
+        );
         assert_eq!(messages[1]["role"], "progress");
         assert_eq!(messages[1]["content"], "new progress");
         assert_eq!(messages[1]["_progress"], true);
