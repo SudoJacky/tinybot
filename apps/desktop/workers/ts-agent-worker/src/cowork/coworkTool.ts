@@ -239,9 +239,9 @@ async function summaryResult(service: CoworkService, args: Record<string, unknow
   if (typeof sessionId !== "string") {
     return sessionId;
   }
-  const summary = await service.getSummary({ traceId: traceIdFrom(context), sessionId });
+  const summary = await service.formatSummary({ traceId: traceIdFrom(context), sessionId });
   return {
-    content: JSON.stringify(summary, null, 2),
+    content: summary,
     metadata: { session_id: sessionId, action: "summary" },
   };
 }

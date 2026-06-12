@@ -350,6 +350,33 @@ export class CoworkService {
     };
   }
 
+  async formatSummary(request: CoworkReadOnlyRequest): Promise<string> {
+    const session = await this.requireSession(request.sessionId, request.traceId ?? "");
+    if (cleanString(session.final_draft)) {
+      return session.final_draft;
+    }
+    const completed = Object.values(session.tasks).filter((task) => task.status === "completed");
+    const lines = [
+      `## ${session.title} (${session.id})`,
+      `Status: ${session.status}`,
+      "",
+      "### Completed Work",
+    ];
+    if (completed.length > 0) {
+      for (const task of completed) {
+        lines.push(`- ${task.title}: ${cleanString(task.result) || "Completed"}`);
+      }
+    } else {
+      lines.push("- No completed tasks yet.");
+    }
+    lines.push("", "### Agent Notes");
+    for (const agent of Object.values(session.agents)) {
+      const note = cleanString(agent.private_summary) ? agent.private_summary.slice(-500) : "(no note yet)";
+      lines.push(`- ${agent.name}: ${note}`);
+    }
+    return lines.join("\n");
+  }
+
   async getTaskDag(request: CoworkReadOnlyRequest): Promise<JsonObject> {
     const session = await this.requireSession(request.sessionId, request.traceId ?? "");
     const snapshot = coworkSessionSnapshot(session);

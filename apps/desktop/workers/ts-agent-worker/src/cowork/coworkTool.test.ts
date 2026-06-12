@@ -69,7 +69,7 @@ describe("createCoworkTool", () => {
       content: expect.stringContaining("## Cowork facade (cw_1)"),
     });
     await expect(tool.execute({ action: "summary", session_id: "cw_1" }, context)).resolves.toMatchObject({
-      content: expect.stringContaining('"session_id": "cw_1"'),
+      content: expect.stringContaining("## Cowork facade (cw_1)"),
     });
     await expect(tool.execute({ action: "export_blueprint", session_id: "cw_1" }, context)).resolves.toMatchObject({
       content: expect.stringContaining('"schema_version": "cowork.blueprint.v1"'),

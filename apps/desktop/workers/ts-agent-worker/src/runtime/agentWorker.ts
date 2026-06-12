@@ -730,7 +730,7 @@ export class AgentWorker {
     }
 
     if (resource === "summary" && segments.length === 3 && route.method === "GET") {
-      const summary = await this.coworkService.getSummary({ traceId, sessionId });
+      const summary = await this.coworkService.formatSummary({ traceId, sessionId });
       return { status: 200, body: { summary } };
     }
 

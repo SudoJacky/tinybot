@@ -402,20 +402,15 @@ describe("AgentWorker", () => {
       },
     });
 
-    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+    const summaryResponse = await worker.handleRequest(coworkRequest("cowork.route_request", {
       method: "GET",
       path: `/api/cowork/sessions/${encodeURIComponent(createdSession.id)}/summary`,
-    }))).resolves.toMatchObject({
-      result: {
-        status: 200,
-        body: {
-          summary: expect.objectContaining({
-            session_id: "cw_1",
-            counts: expect.objectContaining({ agents: 1, tasks: 3 }),
-          }),
-        },
-      },
-    });
+    }));
+    expect(summaryResponse.result).toMatchObject({ status: 200 });
+    const summaryBody = summaryResponse.result.body as { summary?: unknown };
+    expect(typeof summaryBody.summary).toBe("string");
+    expect(summaryBody.summary).toContain("## Route API (cw_1)");
+    expect(summaryBody.summary).toContain("Status: active");
 
     await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
       method: "POST",
