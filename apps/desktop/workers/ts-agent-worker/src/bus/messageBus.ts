@@ -82,6 +82,10 @@ export class MessageBus {
     return this.consumeBatch(this.outbound, options);
   }
 
+  tryConsumeOutbound(): OutboundMessage | null {
+    return this.outbound.shiftNow() ?? null;
+  }
+
   drainOutboundForTest(): OutboundMessage[] {
     const messages: OutboundMessage[] = [];
     let message = this.outbound.shiftNow();

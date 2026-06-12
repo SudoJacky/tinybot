@@ -50,6 +50,18 @@ describe("MessageBus", () => {
     expect(bus.stats()).toMatchObject({ inboundSize: 0, outboundSize: 0 });
   });
 
+  test("non-blocking outbound consumption returns immediately in FIFO order", async () => {
+    const bus = new MessageBus();
+
+    expect(bus.tryConsumeOutbound()).toBeNull();
+    await bus.publishOutbound(outbound({ content: "reply-one" }));
+    await bus.publishOutbound(outbound({ content: "reply-two" }));
+
+    expect(bus.tryConsumeOutbound()).toMatchObject({ content: "reply-one" });
+    expect(bus.tryConsumeOutbound()).toMatchObject({ content: "reply-two" });
+    expect(bus.tryConsumeOutbound()).toBeNull();
+  });
+
   test("waits for the first batch item then drains immediately available messages", async () => {
     const bus = new MessageBus();
 
