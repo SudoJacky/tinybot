@@ -834,6 +834,47 @@ describe("gateway HTTP client", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
+  test("prefers native WebUI Agent UI form routes when available", async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
+    const nativeWebui = {
+      route: vi.fn(async (request: { method: string; path: string; body?: unknown }) => ({
+        native: true,
+        request,
+      })),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeWebui,
+    });
+
+    await expect(client.agentUi.submitForm("travel/plan", {
+      correlation: { session_key: "websocket:chat-1" },
+      values: { destination: "Paris" },
+    })).resolves.toEqual({
+      native: true,
+      request: {
+        method: "POST",
+        path: "/api/agent-ui/forms/travel%2Fplan/submit",
+        body: {
+          correlation: { session_key: "websocket:chat-1" },
+          values: { destination: "Paris" },
+        },
+      },
+    });
+    await expect(client.agentUi.cancelForm("travel/plan", {
+      correlation: { session_key: "websocket:chat-1" },
+    })).resolves.toEqual({
+      native: true,
+      request: {
+        method: "POST",
+        path: "/api/agent-ui/forms/travel%2Fplan/cancel",
+        body: { correlation: { session_key: "websocket:chat-1" } },
+      },
+    });
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
   test("falls back to gateway skills operations when native skills are unavailable", async () => {
     const fetchFn = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
       if (String(url).endsWith("/webui/bootstrap")) {

@@ -416,10 +416,22 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
       ),
     },
     agentUi: {
-      submitForm: (formId: string, body: unknown) =>
-        request(`/api/agent-ui/forms/${encodePathSegment(formId)}/submit`, jsonRequest("POST", body)),
-      cancelForm: (formId: string, body: unknown) =>
-        request(`/api/agent-ui/forms/${encodePathSegment(formId)}/cancel`, jsonRequest("POST", body)),
+      submitForm: (formId: string, body: unknown) => {
+        const path = `/api/agent-ui/forms/${encodePathSegment(formId)}/submit`;
+        return nativeOrGateway(
+          () => options.nativeWebui?.route({ method: "POST", path, body }),
+          () => request(path, jsonRequest("POST", body)),
+          "webui.agentUi.submitForm",
+        );
+      },
+      cancelForm: (formId: string, body: unknown) => {
+        const path = `/api/agent-ui/forms/${encodePathSegment(formId)}/cancel`;
+        return nativeOrGateway(
+          () => options.nativeWebui?.route({ method: "POST", path, body }),
+          () => request(path, jsonRequest("POST", body)),
+          "webui.agentUi.cancelForm",
+        );
+      },
     },
     knowledge: {
       documents: () => request("/v1/knowledge/documents"),

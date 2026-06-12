@@ -34,6 +34,8 @@ import {
   parseWebuiRouteRequest,
   webuiRouteSpecs,
   type WebuiBootstrapProvider,
+  type WebuiAgentUiFormProvider,
+  type WebuiAgentUiFormRequest,
   type WebuiConfigProvider,
   type WebuiProvidersProvider,
   type WebuiSessionProvider,
@@ -2560,6 +2562,7 @@ export class AgentWorker {
           this.webuiConfigProvider,
           this.webuiProvidersProvider(),
           this.webuiSkillsProvider(),
+          this.webuiAgentUiFormProvider(),
           request.trace_id,
         ),
       };
@@ -2621,6 +2624,47 @@ export class AgentWorker {
         this.skillsBridge!.updateWebuiSkill(name, body, traceId),
       deleteSkill: (name: string, traceId: string) => this.skillsBridge!.deleteWebuiSkill(name, traceId),
       validateSkill: (name: string, traceId: string) => this.skillsBridge!.validateWebuiSkill(name, traceId),
+    };
+  }
+
+  private webuiAgentUiFormProvider(): WebuiAgentUiFormProvider | undefined {
+    if (!this.sessionBridge) {
+      return undefined;
+    }
+    return {
+      continueForm: (form, traceId) => this.continueWebuiAgentUiForm(form, traceId),
+    };
+  }
+
+  private async continueWebuiAgentUiForm(
+    form: WebuiAgentUiFormRequest,
+    traceId: string,
+  ): Promise<Record<string, unknown>> {
+    if (!this.sessionBridge) {
+      throw new Error("agent ui form continuation requires a session bridge");
+    }
+    const checkpoint = await this.sessionBridge.getCheckpoint(form.sessionId, traceId);
+    if (!checkpoint) {
+      throw new Error("agent ui form continuation requires a checkpoint");
+    }
+    const result = await this.resumeSubmittedFormCheckpoint(traceId, {
+      sessionId: form.sessionId,
+      formId: form.formId,
+      action: form.action,
+      values: form.values,
+    }, checkpoint);
+    const event = webuiAgentUiFormEvent(form);
+    return {
+      ...(form.action === "cancelled" ? { cancelled: true } : { submitted: true }),
+      form_id: form.formId,
+      ...(form.action === "submitted" ? { values: form.values } : {}),
+      event,
+      continuation: {
+        mode: "resume",
+        delivered: true,
+        target: "agent_loop",
+      },
+      result,
     };
   }
 
@@ -3119,6 +3163,18 @@ function parseSubmitFormParams(params: Record<string, unknown> | undefined): For
     formId,
     values: isJsonObject(object.values) ? object.values : {},
     action,
+  };
+}
+
+function webuiAgentUiFormEvent(form: WebuiAgentUiFormRequest): Record<string, unknown> {
+  return {
+    event_type: form.action === "cancelled" ? "ui.form.cancelled" : "ui.form.submitted",
+    payload: {
+      form_id: form.formId,
+      status: form.action,
+      correlation: form.correlation,
+      ...(form.action === "submitted" ? { values: form.values } : {}),
+    },
   };
 }
 

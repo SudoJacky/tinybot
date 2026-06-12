@@ -164,6 +164,23 @@ export type WebuiSkillsProvider = {
   validateSkill(name: string, traceId: string): Promise<unknown> | unknown;
 };
 
+export type WebuiAgentUiFormAction = "submitted" | "cancelled";
+
+export type WebuiAgentUiFormRequest = {
+  formId: string;
+  sessionId: string;
+  action: WebuiAgentUiFormAction;
+  values: Record<string, unknown>;
+  correlation: Record<string, unknown>;
+};
+
+export type WebuiAgentUiFormProvider = {
+  continueForm(
+    request: WebuiAgentUiFormRequest,
+    traceId: string,
+  ): Promise<Record<string, unknown>> | Record<string, unknown>;
+};
+
 const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
   { key: "bootstrap", method: "GET", path: "/webui/bootstrap", public: true },
   { key: "get_status", method: "GET", path: "/api/status", public: false },
@@ -187,6 +204,8 @@ const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
   { key: "update_skill", method: "PATCH", path: "/api/skills/{name}", public: false },
   { key: "delete_skill", method: "DELETE", path: "/api/skills/{name}", public: false },
   { key: "validate_skill", method: "POST", path: "/api/skills/{name}/validate", public: false },
+  { key: "submit_agent_ui_form", method: "POST", path: "/api/agent-ui/forms/{form_id}/submit", public: false },
+  { key: "cancel_agent_ui_form", method: "POST", path: "/api/agent-ui/forms/{form_id}/cancel", public: false },
 ];
 
 export function webuiRouteSpecs(): WebuiRouteSpec[] {
@@ -204,6 +223,7 @@ export async function handleWebuiRouteRequest(
   configProvider?: WebuiConfigProvider,
   providersProvider?: WebuiProvidersProvider,
   skillsProvider?: WebuiSkillsProvider,
+  agentUiFormProvider?: WebuiAgentUiFormProvider,
   traceId = "webui-route",
 ): Promise<WebuiRouteResponse> {
   const method = request.method.toUpperCase();
@@ -291,6 +311,10 @@ export async function handleWebuiRouteRequest(
       approvalProvider,
       traceId,
     );
+  }
+  const agentUiFormAction = agentUiFormActionPath(method, path);
+  if (agentUiFormAction) {
+    return webuiAgentUiFormResponse(request.body, agentUiFormAction, agentUiFormProvider, traceId);
   }
   if (method === "GET" && path === "/api/sessions") {
     if (!sessionProvider) {
@@ -617,6 +641,71 @@ function webuiApprovalFromResult(result: Record<string, unknown>, fallbackId: st
   };
 }
 
+async function webuiAgentUiFormResponse(
+  body: unknown,
+  formAction: { formId: string; action: WebuiAgentUiFormAction },
+  agentUiFormProvider: WebuiAgentUiFormProvider | undefined,
+  traceId: string,
+): Promise<WebuiRouteResponse> {
+  const payload = body === undefined ? {} : body;
+  if (!isJsonObject(payload)) {
+    return { status: 400, body: { error: "payload must be a dict" } };
+  }
+  const correlation = payload.correlation === undefined ? {} : payload.correlation;
+  if (!isJsonObject(correlation)) {
+    return { status: 400, body: { error: "correlation must be a dict" } };
+  }
+  const sessionId = agentUiFormSessionId(payload, correlation);
+  if (!sessionId) {
+    return { status: 400, body: { error: "session_key or session_id is required" } };
+  }
+  const values = payload.values === undefined ? {} : payload.values;
+  if (!isJsonObject(values)) {
+    return { status: 400, body: { error: "values must be a dict" } };
+  }
+  if (!agentUiFormProvider) {
+    return { status: 503, body: { error: "webui control route unavailable", route: agentUiFormRouteKey(formAction.action) } };
+  }
+  try {
+    return {
+      status: 200,
+      body: await agentUiFormProvider.continueForm(
+        {
+          formId: formAction.formId,
+          sessionId,
+          action: formAction.action,
+          values,
+          correlation,
+        },
+        traceId,
+      ),
+    };
+  } catch (error) {
+    return {
+      status: 409,
+      body: {
+        error: "form continuation unavailable",
+        detail: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+}
+
+function agentUiFormSessionId(payload: Record<string, unknown>, correlation: Record<string, unknown>): string | undefined {
+  return stringValue(correlation.session_id)
+    ?? stringValue(correlation.sessionId)
+    ?? stringValue(correlation.session_key)
+    ?? stringValue(correlation.sessionKey)
+    ?? stringValue(payload.session_id)
+    ?? stringValue(payload.sessionId)
+    ?? stringValue(payload.session_key)
+    ?? stringValue(payload.sessionKey);
+}
+
+function agentUiFormRouteKey(action: WebuiAgentUiFormAction): string {
+  return action === "cancelled" ? "cancel_agent_ui_form" : "submit_agent_ui_form";
+}
+
 function webuiSessionListBody(
   sessions: WebuiSessionMetadata[],
   channelName: string,
@@ -825,6 +914,23 @@ function skillValidatePath(method: string, path: string): string | undefined {
   }
   const match = /^\/api\/skills\/(.+)\/validate$/.exec(path);
   return match ? decodeURIComponent(match[1]) : undefined;
+}
+
+function agentUiFormActionPath(
+  method: string,
+  path: string,
+): { formId: string; action: WebuiAgentUiFormAction } | undefined {
+  if (method !== "POST") {
+    return undefined;
+  }
+  const match = /^\/api\/agent-ui\/forms\/([^/]+)\/(submit|cancel)$/.exec(path);
+  if (!match) {
+    return undefined;
+  }
+  return {
+    formId: decodeURIComponent(match[1]),
+    action: match[2] === "cancel" ? "cancelled" : "submitted",
+  };
 }
 
 function clearSessionPathKey(method: string, path: string): string | undefined {

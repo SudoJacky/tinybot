@@ -673,6 +673,126 @@ describe("AgentWorker", () => {
     ]);
   });
 
+  test("serves WebUI Agent UI form continuation routes through TS worker RPC", async () => {
+    const clearedSessions: string[] = [];
+    const appendedMessages: AgentMessage[][] = [];
+    const checkpointForForm = (sessionId: string, formId: string) => ({
+      sessionId,
+      runId: `run-${formId}`,
+      phase: "tools_completed",
+      model: "test-model",
+      maxIterations: 2,
+      stream: false,
+      messages: [
+        { role: "user", content: "collect preferences" },
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [{ id: `form-call-${formId}`, name: "request_form", argumentsJson: "{}" }],
+        },
+        {
+          role: "tool",
+          content: "Waiting for form submission.",
+          toolCallId: `form-call-${formId}`,
+          name: "request_form",
+          metadata: {
+            awaitingUserInput: true,
+            stopReason: "awaiting_form",
+            formId,
+          },
+        },
+      ],
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([
+        { content: "Submitted values received.", toolCalls: [], stopReason: "stop" },
+        { content: "Cancelled form acknowledged.", toolCalls: [], stopReason: "stop" },
+      ]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      sessionBridge: {
+        setCheckpoint: async () => undefined,
+        clearCheckpoint: async (sessionId) => {
+          clearedSessions.push(sessionId);
+        },
+        appendMessages: async (_sessionId, messages) => {
+          appendedMessages.push(messages);
+        },
+        getCheckpoint: async (sessionId) =>
+          checkpointForForm(sessionId, sessionId.endsWith("cancel") ? "travel_cancel" : "travel_plan"),
+      },
+    });
+
+    await expect(worker.handleRequest(webuiRequest("webui.route_specs"))).resolves.toMatchObject({
+      result: {
+        routes: expect.arrayContaining([
+          { key: "submit_agent_ui_form", method: "POST", path: "/api/agent-ui/forms/{form_id}/submit", public: false },
+          { key: "cancel_agent_ui_form", method: "POST", path: "/api/agent-ui/forms/{form_id}/cancel", public: false },
+        ]),
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/api/agent-ui/forms/travel_plan/submit",
+      body: {
+        correlation: { session_key: "websocket:chat-forms" },
+        values: { destination: "Paris", nights: 3 },
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          submitted: true,
+          form_id: "travel_plan",
+          values: { destination: "Paris", nights: 3 },
+          event: {
+            event_type: "ui.form.submitted",
+            payload: {
+              form_id: "travel_plan",
+              values: { destination: "Paris", nights: 3 },
+            },
+          },
+          continuation: {
+            mode: "resume",
+            delivered: true,
+            target: "agent_loop",
+          },
+        },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/api/agent-ui/forms/travel_cancel/cancel",
+      body: {
+        correlation: { session_id: "websocket:chat-cancel" },
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          cancelled: true,
+          form_id: "travel_cancel",
+          event: {
+            event_type: "ui.form.cancelled",
+            payload: {
+              form_id: "travel_cancel",
+            },
+          },
+          continuation: {
+            mode: "resume",
+            delivered: true,
+            target: "agent_loop",
+          },
+        },
+      },
+    });
+    expect(clearedSessions).toEqual(["websocket:chat-forms", "websocket:chat-cancel"]);
+    expect(appendedMessages.flat()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "assistant", content: "Submitted values received." }),
+      expect.objectContaining({ role: "assistant", content: "Cancelled form acknowledged." }),
+    ]));
+  });
+
   test("serves WebUI session list control route through TS worker RPC", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),
