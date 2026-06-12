@@ -288,6 +288,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 rollout gates: blueprint validate/preview routes are now classified as read-only native TS routes, so disabling mutation routes no longer sends pure blueprint validation back to Python. |
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 rollout gates: recipient-less message routes are now classified under the swarm gate while directed messages remain mutation routes, so disabling swarm routing cleanly falls back to Python for user steering. |
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 rollout gates: branch derivation requests targeting `swarm` architecture are now classified under the swarm gate while non-swarm branch derivations remain mutation routes. |
+| 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: session list route query parsing now accepts Python-compatible `include_completed=1/yes/true` aliases and trims `origin_chat_id` on both query and session runtime state. |
 
 ## Next Checklist
 
@@ -383,6 +384,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: keep blueprint validate/preview under the read-only native route gate when mutation routes are disabled.
 - [x] Continue Cowork Phase 10: gate recipient-less swarm message steering separately from directed message mutations.
 - [x] Continue Cowork Phase 10: gate swarm-target branch derivation separately from non-swarm branch mutations.
+- [x] Continue Cowork Phase 10: accept Python-compatible session-list `include_completed` aliases and trimmed `origin_chat_id` filters.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 
 - [x] 复核 `ts_native_core.md` 对应实现和 `rust-native-core-worker-migration` 完成状态。

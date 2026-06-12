@@ -542,15 +542,15 @@ export class AgentWorker {
 
     if (segments.length === 1 && segments[0] === "sessions" && route.method === "GET") {
       const sessions = await this.coworkService.listSessions(traceId, {
-        includeCompleted: route.query.get("include_completed") === "true" || route.query.get("includeCompleted") === "true",
+        includeCompleted: queryBoolParam(route.query, "include_completed", "includeCompleted"),
       });
-      const originChatId = route.query.get("origin_chat_id") ?? route.query.get("originChatId");
+      const originChatId = queryStringParam(route.query, "origin_chat_id", "originChatId");
       return {
         status: 200,
         body: {
           items: originChatId
             ? sessions
-              .filter((session) => session.runtime_state?.origin_chat_id === originChatId)
+              .filter((session) => String(session.runtime_state?.origin_chat_id ?? "").trim() === originChatId)
               .map((session) => coworkSessionSnapshot(session, { verbose: false }))
             : sessions.map((session) => coworkSessionSnapshot(session, { verbose: false })),
         },
@@ -2924,6 +2924,15 @@ function stringParam(params: Record<string, unknown> | undefined, camelKey: stri
   }
   const value = params[camelKey] ?? params[snakeKey];
   return typeof value === "string" ? value : undefined;
+}
+
+function queryStringParam(query: URLSearchParams, snakeKey: string, camelKey: string): string {
+  return (query.get(snakeKey) ?? query.get(camelKey) ?? "").trim();
+}
+
+function queryBoolParam(query: URLSearchParams, snakeKey: string, camelKey: string): boolean {
+  const value = queryStringParam(query, snakeKey, camelKey).toLowerCase();
+  return value === "1" || value === "true" || value === "yes";
 }
 
 function protocolEventName(event: AgentRunnerEvent): string {

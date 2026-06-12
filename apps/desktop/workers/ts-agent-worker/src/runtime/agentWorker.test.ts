@@ -443,6 +443,53 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("filters cowork session list with Python-compatible include_completed aliases and trimmed origin chat ids", async () => {
+    const store = createMemoryCoworkStore();
+    const coworkService = new CoworkService({
+      store,
+      now: () => "2026-06-12T08:00:00.000Z",
+      idGenerator: (() => {
+        const counters = new Map<string, number>();
+        return (prefix: string) => {
+          const next = (counters.get(prefix) ?? 0) + 1;
+          counters.set(prefix, next);
+          return `${prefix}_${next}`;
+        };
+      })(),
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      coworkService,
+    });
+
+    const active = await coworkService.createSession({
+      traceId: "trace-1",
+      goal: "Active chat",
+      runtimeState: { origin_chat_id: "chat-1" },
+    });
+    const completed = await coworkService.createSession({
+      traceId: "trace-1",
+      goal: "Completed chat",
+      runtimeState: { origin_chat_id: " chat-1 " },
+    });
+    await coworkService.createSession({
+      traceId: "trace-1",
+      goal: "Other chat",
+      runtimeState: { origin_chat_id: "chat-2" },
+    });
+    await store.writeSnapshot({ ...completed, status: "completed" });
+
+    const response = await worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "GET",
+      path: "/api/cowork/sessions?include_completed=yes&origin_chat_id=%20chat-1%20",
+    }));
+    const items = (((response.result as Record<string, unknown>).body as Record<string, unknown>).items as Array<{ id: string }>);
+
+    expect(items.map((session) => session.id)).toEqual([active.id, completed.id]);
+  });
+
   test("routes Python-compatible cowork run requests through the injected CoworkScheduler", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = (() => {
