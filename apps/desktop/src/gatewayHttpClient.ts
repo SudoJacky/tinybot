@@ -627,7 +627,7 @@ function coworkNativeOrGateway(
     : body === undefined
       ? { method }
       : jsonRequest(method, body);
-  if (!coworkRouteEnabledByRollout(method, path, effectiveRollout)) {
+  if (!coworkRouteEnabledByRollout(method, path, body, effectiveRollout)) {
     return request(path, gatewayInit);
   }
   return nativeOrGateway(
@@ -638,18 +638,23 @@ function coworkNativeOrGateway(
   );
 }
 
-function coworkRouteEnabledByRollout(method: string, path: string, rollout: TsCoworkRuntimeRollout | undefined): boolean {
+function coworkRouteEnabledByRollout(
+  method: string,
+  path: string,
+  body: unknown,
+  rollout: TsCoworkRuntimeRollout | undefined,
+): boolean {
   if (!rollout) {
     return true;
   }
   if (rollout.enabled === false) {
     return false;
   }
-  const group = coworkRouteGroup(method, path);
+  const group = coworkRouteGroup(method, path, body);
   return rollout[group] !== false;
 }
 
-function coworkRouteGroup(method: string, path: string): "readOnlySnapshot" | "mutations" | "scheduler" | "swarm" {
+function coworkRouteGroup(method: string, path: string, body: unknown): "readOnlySnapshot" | "mutations" | "scheduler" | "swarm" {
   if (method === "GET") {
     return "readOnlySnapshot";
   }
@@ -658,6 +663,9 @@ function coworkRouteGroup(method: string, path: string): "readOnlySnapshot" | "m
   }
   if (/\/api\/cowork\/sessions\/[^/]+\/run(?:$|\?)/.test(path)) {
     return "scheduler";
+  }
+  if (recipientlessCoworkMessageRoute(method, path, body)) {
+    return "swarm";
   }
   if (
     path.includes("/work-units/")
@@ -668,6 +676,15 @@ function coworkRouteGroup(method: string, path: string): "readOnlySnapshot" | "m
     return "swarm";
   }
   return "mutations";
+}
+
+function recipientlessCoworkMessageRoute(method: string, path: string, body: unknown): boolean {
+  if (method !== "POST" || !/\/api\/cowork\/sessions\/[^/]+\/messages(?:$|\?)/.test(path)) {
+    return false;
+  }
+  const payload = asRecord(body);
+  const recipients = payload?.recipient_ids ?? payload?.recipientIds;
+  return recipients === undefined || (Array.isArray(recipients) && recipients.length === 0);
 }
 
 async function bootstrapGateway(
