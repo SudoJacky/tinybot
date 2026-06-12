@@ -20,6 +20,8 @@
 
 - Cowork Phase 10 desktop action parity continues: `buildDesktopCoworkActionRequest()` and the desktop Cowork action UI now expose native route shapes for blueprint export, trace, DAG, artifacts, organization, queues, and branch listing; `handleNativeCoworkAction()` dispatches those read-only actions through the native-first `gatewayApi.cowork` facade so root/native desktop actions can target the migrated TS `cowork.route_request` observability endpoints without Python-only request construction.
 
+- Cowork Phase 10 desktop route parity continues: `buildDesktopCoworkActionRequest()` now also covers the migrated TS-native budget update, source-branch derive, final-result select, and final-result merge route shapes, matching the native-first `gatewayHttpClient` Cowork facade paths.
+
 - 当前批次：Batch 5：commands、task/cron/background 已具备 TS/native 起点；Cowork runtime 已开始推进，blueprint validate/preview 已接入 worker RPC；Phase 1 已补上 TS session types、legacy serde/default hydration、`cowork_store.*` native bridge contract，以及 read-only `coworkSessionSnapshot()`/graph/trace/task DAG/artifact index projection；Phase 2 已启动 architecture normalize/label/fallback diagnostic、default policy registry 与 projection-only topology/organization capability，并接入 snapshot projection。
 - 当前业务优先级：`add-source-traceable-knowledge-indexing` 与 knowledge/RAG 相关，但应在 tool/context/session/approval 等前置层稳定后再完整接入。
 - 总体路径：`native core -> shared/config -> agent/tool/session/context -> approval/provider -> skills/memory/knowledge/MCP -> command/task -> cowork -> webui/channel/API -> heartbeat`
@@ -87,6 +89,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 
 | Date | Update |
 | --- | --- |
+| 2026-06-13 | Continued Cowork Phase 10 desktop route parity: `buildDesktopCoworkActionRequest()` now covers budget update, source-branch derive, final-result select, and final-result merge action requests, matching the TS-native `gatewayHttpClient` Cowork facade paths. |
 | 2026-06-13 | Continued Cowork Phase 10 desktop route parity: desktop Cowork action controls now emit blueprint, trace, DAG, artifacts, organization, queues, and branch read-only actions, and `handleNativeCoworkAction()` dispatches them through native-first `gatewayApi.cowork` methods. |
 | 2026-06-13 | Continued Cowork Phase 10 desktop route parity: `buildDesktopCoworkActionRequest()` now covers blueprint export, trace, DAG, artifacts, organization, queues, and branch-list read-only action requests, matching the TS-native `gatewayHttpClient` Cowork facade paths. |
 | 2026-06-13 | Continued Batch 6 WebUI transport migration: the desktop native WebSocket shim now projects TS worker `agent.cancelled` events into legacy `interrupted` frames and suppresses dispatch-result final-message fallback after cancellation. |
@@ -485,6 +488,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue WebUI transport Batch 6: project TS worker cancellation events through the root-WebUI native WebSocket shim as legacy `interrupted` frames.
 - [x] Continue Cowork Phase 10: expose desktop native action requests for TS-native Cowork blueprint, trace, DAG, artifact, organization, queue, and branch read-only routes.
 - [x] Continue Cowork Phase 10: wire desktop Cowork action controls and handler dispatch for TS-native blueprint, trace, DAG, artifact, organization, queue, and branch read-only routes.
+- [x] Continue Cowork Phase 10: expose desktop native action requests for TS-native budget update, source-branch derive, final-result select, and final-result merge routes.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 
 - [x] 复核 `ts_native_core.md` 对应实现和 `rust-native-core-worker-migration` 完成状态。

@@ -270,9 +270,13 @@ export type DesktopCoworkActionInput =
   | { action: "addTask"; sessionId: string; title: string; assignedAgentId: string }
   | { action: "task"; sessionId: string; taskId: string; taskAction: "assign" | "retry" | "review"; assignedAgentId?: string }
   | { action: "workUnit"; sessionId: string; workUnitId: string; workUnitAction: "retry" | "skip" | "cancel"; reason?: string }
+  | { action: "updateBudget"; sessionId: string; body: UnknownRecord }
+  | { action: "deriveBranch"; sessionId: string; sourceBranchId?: string | null; body: UnknownRecord }
   | { action: "selectBranch"; sessionId: string; branchId: string }
   | { action: "selectBranchResult"; sessionId: string; branchId: string; resultId: string }
   | { action: "mergeBranchResults"; sessionId: string; branchIds: string[] }
+  | { action: "selectFinalResult"; sessionId: string; body: UnknownRecord }
+  | { action: "mergeFinalResult"; sessionId: string; body: UnknownRecord }
   | { action: "validateBlueprint"; preview?: boolean; blueprint: unknown };
 
 type UnknownRecord = Record<string, unknown>;
@@ -576,6 +580,20 @@ export function buildDesktopCoworkActionRequest(input: DesktopCoworkActionInput)
         path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/work-units/${encodePathSegment(input.workUnitId)}/${input.workUnitAction}`,
         body: { reason: input.reason ?? `${input.workUnitAction} from desktop` },
       };
+    case "updateBudget":
+      return {
+        method: "POST",
+        path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/budget`,
+        body: input.body,
+      };
+    case "deriveBranch":
+      return {
+        method: "POST",
+        path: input.sourceBranchId
+          ? `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/branches/${encodePathSegment(input.sourceBranchId)}/derive`
+          : `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/branches/derive`,
+        body: input.body,
+      };
     case "selectBranch":
       return {
         method: "POST",
@@ -592,6 +610,18 @@ export function buildDesktopCoworkActionRequest(input: DesktopCoworkActionInput)
         method: "POST",
         path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/branch-results/merge`,
         body: { branch_ids: input.branchIds },
+      };
+    case "selectFinalResult":
+      return {
+        method: "POST",
+        path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/final-result/select`,
+        body: input.body,
+      };
+    case "mergeFinalResult":
+      return {
+        method: "POST",
+        path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/final-result/merge`,
+        body: input.body,
       };
     case "validateBlueprint":
       return {

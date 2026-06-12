@@ -517,6 +517,16 @@ describe("desktop Cowork helpers", () => {
       path: "/api/cowork/sessions/cowork%2F1/work-units/wu%2F1/retry",
       body: { reason: "retry from desktop" },
     });
+    expect(buildDesktopCoworkActionRequest({ action: "updateBudget", sessionId: "cowork/1", body: { max_rounds: 4 } })).toEqual({
+      method: "POST",
+      path: "/api/cowork/sessions/cowork%2F1/budget",
+      body: { max_rounds: 4 },
+    });
+    expect(buildDesktopCoworkActionRequest({ action: "deriveBranch", sessionId: "cowork/1", sourceBranchId: "branch/1", body: { target_architecture: "swarm" } })).toEqual({
+      method: "POST",
+      path: "/api/cowork/sessions/cowork%2F1/branches/branch%2F1/derive",
+      body: { target_architecture: "swarm" },
+    });
     expect(buildDesktopCoworkActionRequest({ action: "selectBranchResult", sessionId: "cowork/1", branchId: "branch/1", resultId: "result-1" })).toEqual({
       method: "POST",
       path: "/api/cowork/sessions/cowork%2F1/branches/branch%2F1/result/select-final",
@@ -526,6 +536,16 @@ describe("desktop Cowork helpers", () => {
       method: "POST",
       path: "/api/cowork/sessions/cowork%2F1/branch-results/merge",
       body: { branch_ids: ["a", "b"] },
+    });
+    expect(buildDesktopCoworkActionRequest({ action: "selectFinalResult", sessionId: "cowork/1", body: { branch_id: "branch/1", result_id: "result-1" } })).toEqual({
+      method: "POST",
+      path: "/api/cowork/sessions/cowork%2F1/final-result/select",
+      body: { branch_id: "branch/1", result_id: "result-1" },
+    });
+    expect(buildDesktopCoworkActionRequest({ action: "mergeFinalResult", sessionId: "cowork/1", body: { branch_ids: ["branch/1", "branch/2"] } })).toEqual({
+      method: "POST",
+      path: "/api/cowork/sessions/cowork%2F1/final-result/merge",
+      body: { branch_ids: ["branch/1", "branch/2"] },
     });
     expect(buildDesktopCoworkActionRequest({ action: "validateBlueprint", preview: true, blueprint: { agents: [] } })).toEqual({
       method: "POST",
