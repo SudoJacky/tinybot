@@ -1239,6 +1239,44 @@ describe("AgentWorker", () => {
         },
       },
     });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "DELETE",
+      path: "/api/cowork/sessions/missing-session",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 404,
+        body: {
+          error: "cowork session not found",
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/final-result/select`,
+      body: { branch_id: "missing-branch" },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: {
+          error: "Error: branch 'missing-branch' not found.",
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/branch-results/merge`,
+      body: { branch_ids: ["default"] },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: {
+          error: "Error: at least two existing branches are required to merge branch results.",
+        },
+      },
+    });
   });
 
   test("routes cowork message and task mutation requests through the injected CoworkService", async () => {

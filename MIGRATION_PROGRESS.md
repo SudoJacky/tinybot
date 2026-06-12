@@ -263,6 +263,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: `POST /api/cowork/sessions/{session_id}/tasks/{task_id}/assign` now returns Python-compatible 400 API responses for missing assignees instead of surfacing a worker protocol error. |
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: read-only observability routes now return Python-compatible HTTP status codes for missing agent activity, unavailable observation details, and unauthorized sensitive observation details while keeping the TS route body shape aligned. |
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: read-only graph, DAG, artifacts, organization, and queues routes now expose Python-compatible response keys while preserving existing TS route aliases for desktop callers. |
+| 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: delete-session and final-result select/merge route errors now return Python-compatible 404/400 responses with `error` payloads instead of successful TS service result wrappers. |
 
 ## Next Checklist
 
@@ -333,6 +334,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: return Python-compatible 400 responses for missing assign-task assignees.
 - [x] Continue Cowork Phase 10: return Python-compatible read-only observability route status codes for missing agent activity and unavailable/unauthorized observation details.
 - [x] Continue Cowork Phase 10: expose Python-compatible read-only route response keys for graph, DAG, artifacts, organization, and queues while preserving TS aliases.
+- [x] Continue Cowork Phase 10: return Python-compatible 404/400 responses for delete-session and final-result select/merge route errors.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 
 - [x] 复核 `ts_native_core.md` 对应实现和 `rust-native-core-worker-migration` 完成状态。

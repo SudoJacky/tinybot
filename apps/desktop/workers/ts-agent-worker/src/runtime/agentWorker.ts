@@ -611,7 +611,7 @@ export class AgentWorker {
 
     if (segments.length === 2 && route.method === "DELETE") {
       const deleted = await this.coworkService.deleteSession(sessionId, traceId);
-      return { status: 200, body: { deleted } };
+      return deleted ? { status: 200, body: { deleted } } : { status: 404, body: { error: "cowork session not found" } };
     }
 
     const resource = segments[2];
@@ -812,7 +812,9 @@ export class AgentWorker {
         branchIds: params.branchIds,
         summary: params.summary,
       });
-      return { status: 200, body: result };
+      return result.finalResult
+        ? { status: 200, body: result }
+        : { status: 400, body: { error: result.result, session: result.session } };
     }
 
     return unsupportedCoworkRoute(route);
@@ -836,7 +838,9 @@ export class AgentWorker {
         branchId: params.branchId,
         resultId: params.resultId,
       });
-      return { status: 200, body: result };
+      return result.finalResult
+        ? { status: 200, body: result }
+        : { status: 400, body: { error: result.result, session: result.session } };
     }
     if (action === "merge") {
       const params = parseCoworkMergeBranchResultsParams({ ...body, session_id: sessionId });
@@ -846,7 +850,9 @@ export class AgentWorker {
         branchIds: params.branchIds,
         summary: params.summary,
       });
-      return { status: 200, body: result };
+      return result.finalResult
+        ? { status: 200, body: result }
+        : { status: 400, body: { error: result.result, session: result.session } };
     }
     return { status: 404, body: { error: "unsupported cowork final-result route", action } };
   }
