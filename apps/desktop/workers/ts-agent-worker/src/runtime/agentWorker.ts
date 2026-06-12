@@ -740,7 +740,7 @@ export class AgentWorker {
         sessionId: params.sessionId,
         budgets: params.budgets,
       });
-      return { status: 200, body: result };
+      return { status: 200, body: { budget: result.budget, session: coworkSessionSnapshot(result.session) } };
     }
 
     if (resource === "summary" && segments.length === 3 && route.method === "GET") {

@@ -985,7 +985,11 @@ describe("AgentWorker", () => {
             limits: expect.objectContaining({ max_tokens: 250 }),
           }),
           session: expect.objectContaining({
-            budget_limits: expect.objectContaining({ max_tokens: 250 }),
+            agents: expect.arrayContaining([expect.objectContaining({ id: "lead" })]),
+            budget_state: expect.objectContaining({
+              limits: expect.objectContaining({ max_tokens: 250 }),
+            }),
+            graph: expect.objectContaining({ schema_version: "cowork.graph.v2" }),
           }),
         },
       },
@@ -1003,7 +1007,11 @@ describe("AgentWorker", () => {
             limits: expect.objectContaining({ max_tokens: 275 }),
           }),
           session: expect.objectContaining({
-            budget_limits: expect.objectContaining({ max_tokens: 275 }),
+            agents: expect.arrayContaining([expect.objectContaining({ id: "lead" })]),
+            budget_state: expect.objectContaining({
+              limits: expect.objectContaining({ max_tokens: 275 }),
+            }),
+            graph: expect.objectContaining({ schema_version: "cowork.graph.v2" }),
           }),
         },
       },

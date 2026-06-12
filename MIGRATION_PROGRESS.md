@@ -283,6 +283,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: final-result select and branch-result merge routes now return Python-compatible `session_final_result` payloads with verbose snapshot sessions instead of raw TS service wrappers. |
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: branch derive/select routes now return Python-compatible branch snapshots and verbose session snapshots instead of raw TS service wrappers. |
 | 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 swarm route parity: recipient-less swarm message steering now returns Python-compatible result plus verbose snapshot session payloads instead of raw TS service sessions. |
+| 2026-06-12 | Continued Batch 5 Cowork runtime Phase 10 route parity: budget update routes now return Python-compatible budget payloads with verbose snapshot sessions instead of raw TS service sessions. |
 
 ## Next Checklist
 
@@ -373,6 +374,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: return Python-shaped final-result select and branch-result merge route payloads with snapshot sessions.
 - [x] Continue Cowork Phase 10: return Python-shaped branch derive/select route payloads with branch and session snapshots.
 - [x] Continue Cowork Phase 10: return Python-shaped recipient-less swarm message steering payloads with snapshot sessions.
+- [x] Continue Cowork Phase 10: return Python-shaped budget update payloads with snapshot sessions.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 
 - [x] 复核 `ts_native_core.md` 对应实现和 `rust-native-core-worker-migration` 完成状态。
