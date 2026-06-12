@@ -5,6 +5,7 @@ import { createCronTool } from "../cron/cronTool.ts";
 import { formatKnowledgeQueryResults, normalizeKnowledgeQueryResults } from "../knowledge/knowledgeFormatting.ts";
 import type { ModelProvider } from "../model/provider.ts";
 import { NativeTaskStoreBridge } from "../task/taskStoreBridge.ts";
+import type { TaskNotificationBridge } from "../task/taskNotificationBridge.ts";
 import { TaskPlanner } from "../task/taskPlanner.ts";
 import { TaskProviderSubagentExecutor } from "../task/taskSubagentExecutor.ts";
 import { createTaskTool } from "../task/taskTool.ts";
@@ -66,7 +67,13 @@ export function createNativeCronTools(rpcClient: NativeRpcClient): Tool[] {
 
 export function createNativeTaskTools(
   rpcClient: NativeRpcClient,
-  options: { provider?: ModelProvider; model?: string; workspace?: string; backgroundRegistry?: BackgroundRunRegistry } = {},
+  options: {
+    provider?: ModelProvider;
+    model?: string;
+    workspace?: string;
+    backgroundRegistry?: BackgroundRunRegistry;
+    notifier?: TaskNotificationBridge;
+  } = {},
 ): Tool[] {
   const planner = options.provider
     ? new TaskPlanner({
@@ -83,7 +90,7 @@ export function createNativeTaskTools(
       registry: options.backgroundRegistry,
     })
     : undefined;
-  return [createTaskTool({ store: new NativeTaskStoreBridge(rpcClient), planner, executor })];
+  return [createTaskTool({ store: new NativeTaskStoreBridge(rpcClient), planner, executor, notifier: options.notifier })];
 }
 
 function createNativeSubagentToolRegistry(rpcClient: NativeRpcClient): ToolRegistry {

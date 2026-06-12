@@ -276,6 +276,51 @@ describe("TaskRuntime", () => {
     });
   });
 
+  test("notifies the owning session when a task plan completes", async () => {
+    const plan = basePlan();
+    plan.status = "executing";
+    plan.currentSubtaskIds = ["b"];
+    plan.context = { sessionKey: "desktop:chat-1" };
+    plan.subtasks[0].result = "Foundation done";
+    plan.subtasks[1].status = "in_progress";
+    const { bridge } = memoryBridge([plan]);
+    const notifications: Array<{ sessionKey: string; content: string; metadata: Record<string, unknown>; traceId: string }> = [];
+    const runtime = new TaskRuntime({
+      store: bridge,
+      now: () => "2026-06-12T00:00:00.000Z",
+      executor: {
+        spawnSubtask: async () => {},
+      },
+      notifier: {
+        notifyPlanCompleted: async (sessionKey, completedPlan, summary, traceId) => {
+          notifications.push({
+            sessionKey,
+            content: summary,
+            metadata: { planId: completedPlan.id, status: completedPlan.status },
+            traceId,
+          });
+        },
+      },
+    });
+
+    await runtime.completeSubtask(
+      "plan-1",
+      "b",
+      { status: "completed", result: "runtime complete" },
+      { parallel: true },
+      "trace-complete",
+    );
+
+    expect(notifications).toEqual([
+      {
+        sessionKey: "desktop:chat-1",
+        content: "[Foundation] Foundation done\n\n[Runtime] runtime complete",
+        metadata: { planId: "plan-1", status: "completed" },
+        traceId: "trace-complete",
+      },
+    ]);
+  });
+
   test("keeps paused plans paused when cancelled subagents complete later", async () => {
     const plan = basePlan();
     plan.status = "paused";

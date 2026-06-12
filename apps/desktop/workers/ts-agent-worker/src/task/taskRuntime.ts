@@ -1,6 +1,7 @@
 import { isPlanCompleted, readySubtasks, validateTaskDag } from "./taskDag";
 import { taskProgressPayload, type TaskProgressPayload } from "./taskProgress";
 import type { TaskPlanContext } from "./taskPlanner";
+import type { TaskNotificationBridge } from "./taskNotificationBridge";
 import type { SubTask, SubTaskStatus, TaskPlan } from "./taskTypes";
 
 export interface TaskStoreBridge {
@@ -33,6 +34,7 @@ export interface TaskRuntimeOptions {
     spawnSubtask(request: SpawnSubtaskRequest, traceId: string): Promise<void>;
     cancelPlan?(plan: TaskPlan, traceId: string): Promise<number>;
   };
+  notifier?: TaskNotificationBridge;
   idGenerator?: () => string;
   now?: () => string;
 }
@@ -59,6 +61,7 @@ export class TaskRuntime {
   private readonly store: TaskStoreBridge;
   private readonly planner?: TaskRuntimeOptions["planner"];
   private readonly executor?: TaskRuntimeOptions["executor"];
+  private readonly notifier?: TaskNotificationBridge;
   private readonly idGenerator: () => string;
   private readonly now: () => string;
 
@@ -66,6 +69,7 @@ export class TaskRuntime {
     this.store = options.store;
     this.planner = options.planner;
     this.executor = options.executor;
+    this.notifier = options.notifier;
     this.idGenerator = options.idGenerator ?? randomTaskId;
     this.now = options.now ?? (() => new Date().toISOString());
   }
@@ -166,6 +170,7 @@ export class TaskRuntime {
     if (isPlanCompleted(plan)) {
       plan.status = "completed";
       const saved = await this.store.savePlan(plan, traceId);
+      await this.notifyPlanCompleted(saved, traceId);
       return { plan: saved, spawnedCount: 0 };
     }
     if (plan.status === "paused") {
@@ -193,6 +198,15 @@ export class TaskRuntime {
       }, traceId);
     }
     return { plan: saved, spawnedCount: toSpawn.length };
+  }
+
+  private async notifyPlanCompleted(plan: TaskPlan, traceId: string): Promise<void> {
+    const sessionKey = typeof plan.context.sessionKey === "string" ? plan.context.sessionKey : undefined;
+    if (!sessionKey || !this.notifier) {
+      return;
+    }
+    const summary = taskResultSummary(plan);
+    await this.notifier.notifyPlanCompleted(sessionKey, plan, summary, traceId);
   }
 
   async pausePlan(planId: string, traceId: string): Promise<TaskPlan | null> {
@@ -330,4 +344,11 @@ function buildTaskDescription(plan: TaskPlan, subtask: SubTask): string {
     "2. Use available tools to gather information and produce results",
     "3. Provide a clear, concise summary of what was accomplished",
   ].join("\n");
+}
+
+function taskResultSummary(plan: TaskPlan): string {
+  const results = plan.subtasks
+    .filter((subtask) => subtask.status === "completed" && !!subtask.result)
+    .map((subtask) => `[${subtask.title}] ${subtask.result}`);
+  return results.length > 0 ? results.join("\n\n") : "No completed subtasks.";
 }

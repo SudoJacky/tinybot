@@ -36,6 +36,7 @@ import { NativeMemoryBridge } from "./memoryBridge.ts";
 import { createModelProvider, type ModelProviderConfig } from "./providerFactory.ts";
 import { NativeSessionBridge } from "./sessionBridge.ts";
 import { NativeSkillsBridge } from "./skillsBridge.ts";
+import { NativeTaskNotificationBridge } from "../task/taskNotificationBridge.ts";
 
 export type CreateAgentWorkerServerOptions = {
   provider?: ModelProvider;
@@ -83,6 +84,9 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
         provider,
         backgroundRegistry: capabilities.includes("background.write")
           ? new NativeBackgroundRegistryBridge(rpcClient)
+          : undefined,
+        notifier: capabilities.includes("session.write")
+          ? new NativeTaskNotificationBridge(rpcClient)
           : undefined,
       }),
     ],
@@ -145,6 +149,7 @@ const DEFAULT_NATIVE_TOOL_CAPABILITIES = [
   "cron.write",
   "background.read",
   "background.write",
+  "session.write",
   "task.read",
   "task.write",
 ];
