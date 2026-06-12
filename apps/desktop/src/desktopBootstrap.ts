@@ -1039,6 +1039,41 @@ async function handleNativeCoworkAction(event: DesktopCoworkActionEvent): Promis
       }));
       return;
     }
+    if (event.action === "loadBlueprint") {
+      await gatewayApi.cowork.blueprint(sessionId);
+      setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork blueprint loaded." }));
+      return;
+    }
+    if (event.action === "loadTrace") {
+      await gatewayApi.cowork.trace(sessionId);
+      setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork trace loaded." }));
+      return;
+    }
+    if (event.action === "loadDag") {
+      await gatewayApi.cowork.dag(sessionId);
+      setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork DAG loaded." }));
+      return;
+    }
+    if (event.action === "loadArtifacts") {
+      await gatewayApi.cowork.artifacts(sessionId);
+      setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork artifacts loaded." }));
+      return;
+    }
+    if (event.action === "loadOrganization") {
+      await gatewayApi.cowork.organization(sessionId);
+      setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork organization loaded." }));
+      return;
+    }
+    if (event.action === "loadQueues") {
+      await gatewayApi.cowork.queues(sessionId);
+      setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork queues loaded." }));
+      return;
+    }
+    if (event.action === "loadBranches") {
+      await gatewayApi.cowork.branches(sessionId);
+      setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork branches loaded." }));
+      return;
+    }
     if (event.action === "addTask") {
       const request = buildDesktopCoworkActionRequest({
         action: "addTask",

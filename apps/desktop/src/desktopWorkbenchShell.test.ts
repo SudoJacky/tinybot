@@ -3023,9 +3023,16 @@ describe("desktop workbench shell", () => {
       "delete",
       "message",
       "summary",
+      "blueprint",
+      "trace",
+      "dag",
+      "artifacts",
+      "organization",
+      "queues",
+      "branches",
       "addTask",
     ]);
-    for (const action of ["create", "run", "pause", "resume", "emergencyStop", "delete", "message", "summary"]) {
+    for (const action of ["create", "run", "pause", "resume", "emergencyStop", "delete", "message", "summary", "blueprint", "trace", "dag", "artifacts", "organization", "queues", "branches"]) {
       pane?.querySelector(`[data-desktop-cowork-action="${action}"]`)?.click();
     }
     expect(actionEvents).toEqual([
@@ -3037,6 +3044,13 @@ describe("desktop workbench shell", () => {
       { action: "deleteSession", sessionId: "cowork-1", goal: "", message: "" },
       { action: "sendMessage", sessionId: "cowork-1", goal: "", message: "Continue with the next unit" },
       { action: "loadSummary", sessionId: "cowork-1", goal: "", message: "" },
+      { action: "loadBlueprint", sessionId: "cowork-1", goal: "", message: "" },
+      { action: "loadTrace", sessionId: "cowork-1", goal: "", message: "" },
+      { action: "loadDag", sessionId: "cowork-1", goal: "", message: "" },
+      { action: "loadArtifacts", sessionId: "cowork-1", goal: "", message: "" },
+      { action: "loadOrganization", sessionId: "cowork-1", goal: "", message: "" },
+      { action: "loadQueues", sessionId: "cowork-1", goal: "", message: "" },
+      { action: "loadBranches", sessionId: "cowork-1", goal: "", message: "" },
     ]);
     expect(pane?.querySelector(".desktop-cowork-task-feed")?.textContent).toContain("1 blocker");
   });

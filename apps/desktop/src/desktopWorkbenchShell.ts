@@ -284,6 +284,13 @@ export type DesktopCoworkActionId = Extract<
   | "deleteSession"
   | "sendMessage"
   | "loadSummary"
+  | "loadBlueprint"
+  | "loadTrace"
+  | "loadDag"
+  | "loadArtifacts"
+  | "loadOrganization"
+  | "loadQueues"
+  | "loadBranches"
   | "validateBlueprint"
   | "addTask"
   | "task"
@@ -4204,6 +4211,13 @@ function createCoworkActionControls(
     ["delete", "Delete", "deleteSession", Boolean(sessionId)],
     ["message", "Message", "sendMessage", Boolean(sessionId)],
     ["summary", "Summary", "loadSummary", Boolean(sessionId)],
+    ["blueprint", "Blueprint", "loadBlueprint", Boolean(sessionId)],
+    ["trace", "Trace", "loadTrace", Boolean(sessionId)],
+    ["dag", "DAG", "loadDag", Boolean(sessionId)],
+    ["artifacts", "Artifacts", "loadArtifacts", Boolean(sessionId)],
+    ["organization", "Organization", "loadOrganization", Boolean(sessionId)],
+    ["queues", "Queues", "loadQueues", Boolean(sessionId)],
+    ["branches", "Branches", "loadBranches", Boolean(sessionId)],
   ];
   actions.append(goal, message, blueprint, taskTitle, assignedAgentId);
   if (pane.actionStatus) {

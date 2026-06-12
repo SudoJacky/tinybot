@@ -58,6 +58,13 @@ describe("cowork actions Vue island", () => {
       "delete",
       "message",
       "summary",
+      "blueprint",
+      "trace",
+      "dag",
+      "artifacts",
+      "organization",
+      "queues",
+      "branches",
       "addTask",
     ]);
 
@@ -78,6 +85,13 @@ describe("cowork actions Vue island", () => {
     host.querySelector<HTMLButtonElement>('[data-desktop-cowork-action="create"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-desktop-cowork-action="message"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-desktop-cowork-action="run"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-cowork-action="blueprint"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-cowork-action="trace"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-cowork-action="dag"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-cowork-action="artifacts"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-cowork-action="organization"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-cowork-action="queues"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-cowork-action="branches"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-desktop-cowork-action="addTask"]')?.click();
 
     expect(events).toEqual([
@@ -86,6 +100,13 @@ describe("cowork actions Vue island", () => {
       { action: "createSession", goal: "Create a desktop run" },
       { action: "sendMessage", sessionId: "cowork-1", message: "Continue with next unit" },
       { action: "runSession", sessionId: "cowork-1" },
+      { action: "loadBlueprint", sessionId: "cowork-1" },
+      { action: "loadTrace", sessionId: "cowork-1" },
+      { action: "loadDag", sessionId: "cowork-1" },
+      { action: "loadArtifacts", sessionId: "cowork-1" },
+      { action: "loadOrganization", sessionId: "cowork-1" },
+      { action: "loadQueues", sessionId: "cowork-1" },
+      { action: "loadBranches", sessionId: "cowork-1" },
       { action: "addTask", sessionId: "cowork-1", taskTitle: "Write migration notes", assignedAgentId: "agent-1" },
     ]);
 

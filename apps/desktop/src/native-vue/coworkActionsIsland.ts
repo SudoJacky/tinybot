@@ -6,7 +6,23 @@ import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 export type CoworkActionsIslandEvent =
   | { action: "validateBlueprint"; blueprintText: string; preview: boolean }
   | { action: "createSession"; goal: string }
-  | { action: "runSession" | "pauseSession" | "resumeSession" | "emergencyStopSession" | "deleteSession" | "loadSummary"; sessionId: string }
+  | {
+      action:
+        | "runSession"
+        | "pauseSession"
+        | "resumeSession"
+        | "emergencyStopSession"
+        | "deleteSession"
+        | "loadSummary"
+        | "loadBlueprint"
+        | "loadTrace"
+        | "loadDag"
+        | "loadArtifacts"
+        | "loadOrganization"
+        | "loadQueues"
+        | "loadBranches";
+      sessionId: string;
+    }
   | { action: "sendMessage"; sessionId: string; message: string }
   | { action: "addTask"; sessionId: string; taskTitle: string; assignedAgentId: string };
 
@@ -118,6 +134,13 @@ function renderButtons(
     ["delete", "Delete", "deleteSession", Boolean(sessionId)],
     ["message", "Message", "sendMessage", Boolean(sessionId)],
     ["summary", "Summary", "loadSummary", Boolean(sessionId)],
+    ["blueprint", "Blueprint", "loadBlueprint", Boolean(sessionId)],
+    ["trace", "Trace", "loadTrace", Boolean(sessionId)],
+    ["dag", "DAG", "loadDag", Boolean(sessionId)],
+    ["artifacts", "Artifacts", "loadArtifacts", Boolean(sessionId)],
+    ["organization", "Organization", "loadOrganization", Boolean(sessionId)],
+    ["queues", "Queues", "loadQueues", Boolean(sessionId)],
+    ["branches", "Branches", "loadBranches", Boolean(sessionId)],
   ] as const;
 
   return h(NSpace, { size: 8, wrap: true }, {
