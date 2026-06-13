@@ -1018,7 +1018,7 @@ function recipientlessCoworkMessageRoute(method: string, path: string, body: unk
   }
   const payload = asRecord(body);
   const recipients = payload?.recipientIds ?? payload?.recipient_ids;
-  return recipients === undefined || (Array.isArray(recipients) && recipients.length === 0);
+  return !pythonTruthyJsonValue(recipients);
 }
 
 function swarmBranchDeriveRoute(method: string, path: string, body: unknown): boolean {

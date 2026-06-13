@@ -8,6 +8,8 @@
 
 - Continued Cowork Phase 10 desktop rollout parity: desktop gateway swarm rollout gates now mirror Python truthiness when selecting create and branch-derive architecture aliases, so falsy primary fields fall through to Python-compatible fallback aliases before deciding TS-native versus Python routing.
 
+- Continued Cowork Phase 10 desktop rollout parity: desktop gateway recipient-less swarm message gates now mirror Python truthiness for `recipient_ids`, keeping null/empty recipient payloads on the Python fallback path when swarm routing is disabled instead of misclassifying them as direct native messages.
+
 - Continued Cowork Phase 10 summary route parity: TS-native summary routes now mirror Python `CoworkTool` missing-session responses by returning a `summary` error string with HTTP 200 instead of a route-level 404.
 
 - Continued Cowork Phase 10 message route parity: TS-native message routes now mirror Python `CoworkTool` missing-session responses after JSON/content validation, returning a Python-shaped `result` error with `session: null` instead of a route-level 404.
@@ -914,6 +916,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: accept Python blueprint create auto-run `rounds` as a `max_rounds` alias.
 - [x] Continue Cowork Phase 10: mirror Python truthiness for desktop gateway auto-run create scheduler rollout gates.
 - [x] Continue Cowork Phase 10: mirror Python truthiness for desktop gateway create and branch-derive swarm rollout mode selection.
+- [x] Continue Cowork Phase 10: mirror Python truthiness for desktop gateway recipient-less swarm message rollout gates.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.

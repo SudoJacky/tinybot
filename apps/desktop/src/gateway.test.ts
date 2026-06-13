@@ -1811,6 +1811,7 @@ describe("gateway HTTP client", () => {
     });
 
     await expect(client.cowork.message("cw_1", { content: "Prioritize evidence", recipient_ids: [] })).resolves.toEqual({ gateway: true });
+    await expect(client.cowork.message("cw_1", { content: "No recipients", recipient_ids: null })).resolves.toEqual({ gateway: true });
     await expect(client.cowork.message("cw_1", { content: "Direct note", recipient_ids: ["lead"] })).resolves.toEqual({ native: true });
     await expect(client.cowork.workUnitAction("cw_1", "wu 1", "retry", { reason: "Retry" })).resolves.toEqual({ gateway: true });
     await expect(client.cowork.selectBranch("cw_1", "branch 1")).resolves.toEqual({ gateway: true });
@@ -1826,6 +1827,7 @@ describe("gateway HTTP client", () => {
     });
     expect(fetchFn.mock.calls.map((call) => String((call as unknown[])[0]))).toEqual([
       "http://127.0.0.1:18790/webui/bootstrap",
+      "http://127.0.0.1:18790/api/cowork/sessions/cw_1/messages",
       "http://127.0.0.1:18790/api/cowork/sessions/cw_1/messages",
       "http://127.0.0.1:18790/api/cowork/sessions/cw_1/work-units/wu%201/retry",
       "http://127.0.0.1:18790/api/cowork/sessions/cw_1/branches/branch%201/select",
