@@ -638,7 +638,13 @@ function refreshMailboxCompletionDecision(session: CoworkSession, now: () => str
     .map(jsonSafeObject)
     .filter((record) => record.requires_reply === true && ["delivered", "read"].includes(stringValue(record.status)));
   const unreadMessageCount = countUnreadInboxMessages(session);
-  const failedTaskCount = Object.values(session.tasks).filter((task) => stringValue(task.status) === "failed").length;
+  const tasks = Object.values(session.tasks);
+  const failedTaskCount = tasks.filter((task) => stringValue(task.status) === "failed").length;
+  const pendingOrActiveTaskCount = tasks.filter((task) => {
+    const status = stringValue(task.status);
+    return status === "pending" || status === "in_progress";
+  }).length;
+  const goalReview = reviewMailboxGoalCompletion(session, tasks);
   let nextAction = "plan";
   let reason = "No tasks exist yet.";
   if (session.status === "completed") {
@@ -656,15 +662,15 @@ function refreshMailboxCompletionDecision(session: CoworkSession, now: () => str
   } else if (unreadMessageCount > 0) {
     nextAction = "run_next_round";
     reason = `${unreadMessageCount} unread message(s) need agent attention.`;
-  } else {
-    const pendingOrActiveTasks = Object.values(session.tasks).filter((task) => {
-      const status = stringValue(task.status);
-      return status === "pending" || status === "in_progress";
-    }).length;
-    if (pendingOrActiveTasks > 0) {
-      nextAction = "run_next_round";
-      reason = `${pendingOrActiveTasks} task(s) still need progress.`;
-    }
+  } else if (pendingOrActiveTaskCount > 0) {
+    nextAction = "run_next_round";
+    reason = `${pendingOrActiveTaskCount} task(s) still need progress.`;
+  } else if (tasks.length > 0 && goalReview.ready === true) {
+    nextAction = "summarize";
+    reason = "All known tasks are complete or skipped.";
+  } else if (tasks.length > 0) {
+    nextAction = "review_goal_completion";
+    reason = stringValue(goalReview.reason);
   }
   session.completion_decision = {
     ...jsonSafeObject(session.completion_decision),
@@ -678,11 +684,66 @@ function refreshMailboxCompletionDecision(session: CoworkSession, now: () => str
       blocking_task_id: nullableString(record.blocking_task_id),
       content: stringValue(record.content).slice(0, 240),
     })),
-    ready_to_finish: false,
+    ready_to_finish: nextAction === "summarize",
     no_progress_rounds: session.no_progress_rounds,
     convergence_limit: CONVERGENCE_IDLE_ROUNDS,
+    goal_review: goalReview,
     updated_at: now(),
   };
+}
+
+function reviewMailboxGoalCompletion(session: CoworkSession, tasks: JsonObject[]): JsonObject {
+  const completed = tasks.filter((task) => stringValue(task.status) === "completed");
+  const openQuestions = completed.flatMap((task) => arrayValue(jsonSafeObject(task.result_data).open_questions).map(stringValue).filter(Boolean));
+  if (openQuestions.length > 0) {
+    return { ready: false, reason: "Completed work still contains open questions.", missing: ["open_questions"] };
+  }
+  const goalText = session.goal.toLowerCase();
+  const deliveryMarkers = [
+    "code",
+    "implement",
+    "build",
+    "edit",
+    "write file",
+    "create file",
+    "fix",
+    "test",
+    "docs",
+    "document",
+    "app",
+    "page",
+    "代码",
+    "实现",
+    "修复",
+    "文件",
+    "页面",
+    "文档",
+  ];
+  const likelyDeliveryGoal = deliveryMarkers.some((marker) => goalText.includes(marker));
+  if (likelyDeliveryGoal && session.artifacts.length === 0) {
+    return {
+      ready: false,
+      reason: "The goal appears to require concrete deliverables, but no artifact paths are confirmed yet.",
+      missing: ["artifacts"],
+    };
+  }
+  const hasStructuredAnswer = completed.some((task) => {
+    const data = jsonSafeObject(task.result_data);
+    return Boolean(data.answer || data.findings);
+  });
+  const hasVisibleResult = Object.values(session.messages).map(jsonSafeObject).some((message) => (
+    stringValue(message.sender_id) !== "user"
+    && arrayValue(message.recipient_ids).map(stringValue).includes("user")
+    && Boolean(stringValue(message.content).trim())
+  ));
+  if (completed.length > 0 && !hasStructuredAnswer && !hasVisibleResult && !stringValue(session.final_draft)) {
+    return {
+      ready: false,
+      reason: "Tasks are marked complete, but there is no structured answer or user-facing result yet.",
+      missing: ["final_answer"],
+    };
+  }
+  return { ready: completed.length > 0, reason: "Known task results appear sufficient.", missing: [] };
 }
 
 function countUnreadInboxMessages(session: CoworkSession): number {

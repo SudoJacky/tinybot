@@ -247,6 +247,55 @@ describe("CoworkMailbox", () => {
     });
   });
 
+  it("marks completed task results ready to summarize when no inbox work remains", async () => {
+    const session = await createTeamSession();
+    session.agents.coordinator.inbox = [];
+    session.tasks = {
+      task_1: {
+        id: "task_1",
+        title: "Answer question",
+        description: "Provide the recommendation.",
+        assigned_agent_id: "researcher",
+        status: "completed",
+        dependencies: [],
+        result: "Recommend option A.",
+        result_data: { answer: "Recommend option A." },
+        confidence: 0.9,
+        error: null,
+        priority: 0,
+        expected_output: "",
+        review_required: false,
+        reviewer_agent_ids: [],
+        review_status: "",
+        fanout_group_id: "",
+        merge_task_id: "",
+        source_blueprint_id: "",
+        source_event_id: "",
+        runtime_created: false,
+        created_at: fixedNow,
+        updated_at: fixedNow,
+      },
+    };
+
+    deliver(session, {
+      sender_id: "coordinator",
+      recipient_ids: ["researcher"],
+      content: "Thanks for the completed answer.",
+      wake_recipients: false,
+    });
+
+    expect(session.completion_decision).toMatchObject({
+      next_action: "summarize",
+      reason: "All known tasks are complete or skipped.",
+      ready_to_finish: true,
+      goal_review: {
+        ready: true,
+        reason: "Known task results appear sufficient.",
+        missing: [],
+      },
+    });
+  });
+
   it("deduplicates active correlation requests and returns the original message", async () => {
     const session = await createTeamSession();
     const box = mailbox();
