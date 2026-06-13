@@ -4,6 +4,8 @@
 
 - Continued Cowork internal delegation parity: TS `cowork_internal` `spawn_agent` and `spawn_subteam` now honor explicit spawned-agent budget exhaustion with Python-compatible guardrail records, `spawn_budget_exhausted` stop state, delegation-denied events, and no accidental sub-agent creation.
 
+- Continued Cowork Phase 10 desktop route parity: the native Vue Cowork inspector now emits derive-branch, select-final-result, and merge-final-result events for selected branches, keeping the Vue island action surface aligned with the migrated TS-native route facade.
+
 - Continued session turn lifecycle evidence durability: native `session.persist_turn` now returns the exact `saved_messages` it appended, and TS `TurnLifecycle` uses that contract for memory evidence capture instead of guessing from `savedMessageCount`, so partial duplicate turns capture only newly persisted messages.
 
 - Continued Cowork Phase 10 desktop route parity: desktop `buildDesktopCoworkActionRequest()` now preserves Python-compatible `limit` query options for agent-activity requests, keeping root/native action requests aligned with the native-first gateway facade.
@@ -169,6 +171,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 
 | Date | Update |
 | --- | --- |
+| 2026-06-13 | Continued Cowork Phase 10 desktop route parity: native Vue Cowork inspector branch controls now dispatch derive-branch, select-final-result, and merge-final-result events into the existing native-first handler/facade paths. |
 | 2026-06-13 | Continued session turn lifecycle evidence durability: Rust `session.persist_turn` now returns exact `saved_messages`, TS `NativeSessionBridge` normalizes them, and `TurnLifecycle` captures evidence from those messages for partial-duplicate persisted turns. |
 | 2026-06-13 | Continued session turn lifecycle evidence durability: duplicate-only append fallback results now skip memory evidence capture just like native persist-turn results. |
 | 2026-06-13 | Continued session turn lifecycle evidence durability: duplicate-only native persist-turn results now skip memory evidence capture instead of recording evidence for messages that were not saved. |
@@ -677,6 +680,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: align TS scheduler budget-stop events and trace status with Python Cowork observability semantics.
 - [x] Continue Cowork Phase 10: block TS `cowork_internal` spawn_agent/spawn_subteam when explicit spawned-agent budget guardrails are exhausted.
 - [x] Continue Cowork Phase 10: preserve agent-activity `limit` query options in desktop action request builders.
+- [x] Continue Cowork Phase 10: align native Vue inspector branch/final-result controls with migrated TS-native desktop route actions.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.

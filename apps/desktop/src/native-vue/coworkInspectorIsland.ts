@@ -7,8 +7,11 @@ export type CoworkInspectorActionEvent =
   | { action: "task"; sessionId: string; taskId: string; taskAction: "assign" | "retry" | "review"; assignedAgentId?: string }
   | { action: "workUnit"; sessionId: string; workUnitId: string; workUnitAction: "retry" | "skip" | "cancel" }
   | { action: "selectBranch"; sessionId: string; branchId: string }
+  | { action: "deriveBranch"; sessionId: string; sourceBranchId: string; targetArchitecture: string }
   | { action: "selectBranchResult"; sessionId: string; branchId: string; resultId?: string }
-  | { action: "mergeBranchResults"; sessionId: string; branchIds: string[] };
+  | { action: "mergeBranchResults"; sessionId: string; branchIds: string[] }
+  | { action: "selectFinalResult"; sessionId: string; branchId: string; resultId?: string }
+  | { action: "mergeFinalResult"; sessionId: string; branchIds: string[] };
 
 export interface CoworkInspectorIslandOptions {
   view: DesktopCoworkCockpitView;
@@ -147,6 +150,12 @@ function selectedActionControls(
         sessionId,
         branchId: branch?.branchId || id,
       })),
+      renderActionButton("deriveBranch", "Derive branch", () => options.onAction?.({
+        action: "deriveBranch",
+        sessionId,
+        sourceBranchId: branch?.branchId || id,
+        targetArchitecture: "swarm",
+      })),
       renderActionButton("selectBranchResult", "Set final", () => options.onAction?.({
         action: "selectBranchResult",
         sessionId,
@@ -155,6 +164,17 @@ function selectedActionControls(
       })),
       renderActionButton("mergeBranchResults", "Merge results", () => options.onAction?.({
         action: "mergeBranchResults",
+        sessionId,
+        branchIds: view.branches.map((item) => item.branchId).filter(Boolean),
+      })),
+      renderActionButton("selectFinalResult", "Select final", () => options.onAction?.({
+        action: "selectFinalResult",
+        sessionId,
+        branchId: branch?.branchId || id,
+        resultId: branch?.resultId,
+      })),
+      renderActionButton("mergeFinalResult", "Merge final", () => options.onAction?.({
+        action: "mergeFinalResult",
         sessionId,
         branchIds: view.branches.map((item) => item.branchId).filter(Boolean),
       })),

@@ -124,16 +124,22 @@ describe("cowork inspector Vue island", () => {
     });
 
     host.querySelector<HTMLButtonElement>('[data-desktop-cowork-entity-action="selectBranch"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-cowork-entity-action="deriveBranch"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-desktop-cowork-entity-action="selectBranchResult"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-desktop-cowork-entity-action="mergeBranchResults"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-cowork-entity-action="selectFinalResult"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-cowork-entity-action="mergeFinalResult"]')?.click();
 
     expect(events).toEqual([
       { action: "workUnit", sessionId: "cowork-1", workUnitId: "wu-1", workUnitAction: "retry" },
       { action: "workUnit", sessionId: "cowork-1", workUnitId: "wu-1", workUnitAction: "skip" },
       { action: "workUnit", sessionId: "cowork-1", workUnitId: "wu-1", workUnitAction: "cancel" },
       { action: "selectBranch", sessionId: "cowork-1", branchId: "branch-a" },
+      { action: "deriveBranch", sessionId: "cowork-1", sourceBranchId: "branch-a", targetArchitecture: "swarm" },
       { action: "selectBranchResult", sessionId: "cowork-1", branchId: "branch-a", resultId: "result-a" },
       { action: "mergeBranchResults", sessionId: "cowork-1", branchIds: ["branch-a", "branch-b"] },
+      { action: "selectFinalResult", sessionId: "cowork-1", branchId: "branch-a", resultId: "result-a" },
+      { action: "mergeFinalResult", sessionId: "cowork-1", branchIds: ["branch-a", "branch-b"] },
     ]);
   });
 });
