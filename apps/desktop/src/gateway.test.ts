@@ -2025,12 +2025,17 @@ describe("gateway HTTP client", () => {
       architecture: "adaptive_starter",
     })).resolves.toEqual({ native: true });
     await expect(client.cowork.create({
+      goal: "Numeric architecture wins",
+      workflow_mode: "swarm",
+      architecture: 404,
+    })).resolves.toEqual({ native: true });
+    await expect(client.cowork.create({
       goal: "Architecture swarm",
       workflow_mode: "adaptive_starter",
       architecture: "swarm",
     })).resolves.toEqual({ gateway: true });
 
-    expect(nativeCowork.route).toHaveBeenCalledTimes(1);
+    expect(nativeCowork.route).toHaveBeenCalledTimes(2);
     expect(nativeCowork.route).toHaveBeenCalledWith({
       method: "POST",
       path: "/api/cowork/sessions",
@@ -2038,6 +2043,15 @@ describe("gateway HTTP client", () => {
         goal: "Architecture wins",
         workflow_mode: "swarm",
         architecture: "adaptive_starter",
+      },
+    });
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "POST",
+      path: "/api/cowork/sessions",
+      body: {
+        goal: "Numeric architecture wins",
+        workflow_mode: "swarm",
+        architecture: 404,
       },
     });
     expect(fetchFn.mock.calls.map((call) => String((call as unknown[])[0]))).toEqual([
