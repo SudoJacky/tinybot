@@ -4157,7 +4157,9 @@ describe("AgentWorker", () => {
       tasks: [
         { id: "wu_retry_task", title: "Retry task", assigned_agent_id: "lead" },
         { id: "wu_retry_route_task", title: "Retry route task", assigned_agent_id: "lead" },
+        { id: "wu_skip_invalid_task", title: "Skip invalid task", assigned_agent_id: "lead" },
         { id: "wu_skip_task", title: "Skip task", assigned_agent_id: "lead" },
+        { id: "wu_cancel_invalid_task", title: "Cancel invalid task", assigned_agent_id: "lead" },
         { id: "wu_cancel_task", title: "Cancel task", assigned_agent_id: "lead" },
       ],
     });
@@ -4194,11 +4196,27 @@ describe("AgentWorker", () => {
           error: "Needs route retry",
         },
         {
+          id: "wu_skip_invalid",
+          title: "Skip invalid unit",
+          source_task_id: "wu_skip_invalid_task",
+          status: "ready",
+          attempts: 0,
+          max_attempts: 2,
+        },
+        {
           id: "wu_skip",
           title: "Skip unit",
           source_task_id: "wu_skip_task",
           status: "ready",
           attempts: 0,
+          max_attempts: 2,
+        },
+        {
+          id: "wu_cancel_invalid",
+          title: "Cancel invalid unit",
+          source_task_id: "wu_cancel_invalid_task",
+          status: "in_progress",
+          attempts: 1,
           max_attempts: 2,
         },
         {
@@ -4270,6 +4288,16 @@ describe("AgentWorker", () => {
 
     await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
       method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/work-units/wu_skip_invalid/skip`,
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: { error: "invalid json body" },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
       path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/work-units/wu_skip/skip`,
       body: { reason: "Out of scope" },
     }))).resolves.toMatchObject({
@@ -4292,6 +4320,17 @@ describe("AgentWorker", () => {
             }),
           }),
         },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/work-units/wu_cancel_invalid/cancel`,
+      body: ["not", "an", "object"],
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: { error: "invalid json body" },
       },
     });
 

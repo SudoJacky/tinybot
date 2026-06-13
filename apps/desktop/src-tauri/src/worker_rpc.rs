@@ -1125,7 +1125,7 @@ impl WorkerMemoryRpc {
                 )
             } else {
                 format!(
-                    "Dream processed {pending_count} conversation evidence record(s), but found no explicit memory-worthy notes."
+                    "Dream deferred {pending_count} conversation evidence record(s) for provider-backed memory extraction."
                 )
             };
             return Ok(memory_dream_result_with_metadata(
@@ -1133,6 +1133,7 @@ impl WorkerMemoryRpc {
                 true,
                 serde_json::json!({
                     "changed": extraction.captured_notes > 0,
+                    "deferred": extraction.captured_notes == 0,
                     "pending_evidence": pending_count,
                     "captured_notes": extraction.captured_notes,
                     "skipped_evidence": extraction.skipped_evidence,
@@ -1153,7 +1154,7 @@ impl WorkerMemoryRpc {
                 )
             } else {
                 format!(
-                    "Dream processed {pending_count} legacy history record(s), but found no explicit memory-worthy notes."
+                    "Dream deferred {pending_count} legacy history record(s) for provider-backed memory extraction."
                 )
             };
             return Ok(memory_dream_result_with_metadata(
@@ -1161,6 +1162,7 @@ impl WorkerMemoryRpc {
                 true,
                 serde_json::json!({
                     "changed": extraction.captured_notes > 0,
+                    "deferred": extraction.captured_notes == 0,
                     "pending_evidence": 0,
                     "pending_legacy_history": pending_count,
                     "captured_notes": extraction.captured_notes,
@@ -1251,9 +1253,13 @@ impl WorkerMemoryRpc {
             captured_notes += 1;
         }
 
-        self.write_notes(&notes)?;
-        self.refresh_memory_views(&notes)?;
-        self.write_evidence_cursor(last_evidence_cursor)?;
+        if captured_notes > 0 {
+            self.write_notes(&notes)?;
+            self.refresh_memory_views(&notes)?;
+            self.write_evidence_cursor(last_evidence_cursor)?;
+        } else {
+            last_evidence_cursor = self.last_evidence_cursor();
+        }
         Ok(DreamExtractionResult {
             captured_notes,
             skipped_evidence,
@@ -1316,9 +1322,13 @@ impl WorkerMemoryRpc {
             captured_notes += 1;
         }
 
-        self.write_notes(&notes)?;
-        self.refresh_memory_views(&notes)?;
-        self.write_dream_cursor(last_dream_cursor)?;
+        if captured_notes > 0 {
+            self.write_notes(&notes)?;
+            self.refresh_memory_views(&notes)?;
+            self.write_dream_cursor(last_dream_cursor)?;
+        } else {
+            last_dream_cursor = self.last_dream_cursor();
+        }
         Ok(DreamLegacyExtractionResult {
             captured_notes,
             skipped_history,
@@ -4324,7 +4334,9 @@ mod tests {
 
         let result = response.result.expect("bootstrap result should be present");
         assert_eq!(result["missing"], json!(["TOOLS.md"]));
-        let files = result["files"].as_array().expect("files should be an array");
+        let files = result["files"]
+            .as_array()
+            .expect("files should be an array");
         assert_eq!(files.len(), 1);
         assert_eq!(files[0]["path"], "AGENTS.md");
         assert_eq!(files[0]["contents"], "agent rules");
@@ -5196,6 +5208,89 @@ mod tests {
         assert!(notes.contains("\"history_start_cursor\":3"));
         assert!(notes.contains("\"history_end_cursor\":3"));
         assert!(notes.contains("User prefers concise progress updates."));
+    }
+
+    #[test]
+    fn dispatches_memory_dream_run_defers_non_explicit_conversation_evidence() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write(
+            "memory/conversations/2026-06-12.jsonl",
+            &format!(
+                "{}\n",
+                json!({
+                    "id": "ev_1",
+                    "turn_id": "turn_1",
+                    "session_key": "desktop:session-1",
+                    "role": "user",
+                    "content": "We discussed the desktop runtime behavior.",
+                    "timestamp": "2026-06-12T03:00:00Z",
+                    "message_index": 1,
+                    "cursor": 3
+                })
+            ),
+        );
+        fixture.write("memory/.evidence_cursor", "2");
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::MemoryWrite]),
+        );
+
+        let response = router.dispatch(&WorkerRequest::new(
+            "req-run",
+            "trace-1",
+            "memory.dream_run",
+            json!({}),
+        ));
+        let result = response.result.expect("dream run should return content");
+
+        assert!(response.error.is_none());
+        assert_eq!(result["metadata"]["changed"], json!(false));
+        assert_eq!(result["metadata"]["deferred"], json!(true));
+        assert_eq!(result["metadata"]["pending_evidence"], json!(1));
+        assert_eq!(result["metadata"]["skipped_evidence"], json!(1));
+        assert_eq!(fixture.read("memory/.evidence_cursor"), "2");
+    }
+
+    #[test]
+    fn dispatches_memory_dream_run_defers_non_explicit_legacy_history() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write(
+            "memory/history.jsonl",
+            &format!(
+                "{}\n",
+                json!({
+                    "cursor": 3,
+                    "timestamp": "2026-06-12 03:00",
+                    "content": "We discussed the desktop runtime behavior."
+                })
+            ),
+        );
+        fixture.write("memory/.dream_cursor", "2");
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::MemoryWrite]),
+        );
+
+        let response = router.dispatch(&WorkerRequest::new(
+            "req-run",
+            "trace-1",
+            "memory.dream_run",
+            json!({}),
+        ));
+        let result = response.result.expect("dream run should return content");
+
+        assert!(response.error.is_none());
+        assert_eq!(result["metadata"]["changed"], json!(false));
+        assert_eq!(result["metadata"]["deferred"], json!(true));
+        assert_eq!(result["metadata"]["pending_legacy_history"], json!(1));
+        assert_eq!(result["metadata"]["skipped_history"], json!(1));
+        assert_eq!(fixture.read("memory/.dream_cursor"), "2");
     }
 
     #[test]
