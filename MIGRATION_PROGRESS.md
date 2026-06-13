@@ -8,6 +8,8 @@
 
 - Continued config/provider native handoff parity: TS WebUI `/api/provider-models` and worker `provider.models.list` now accept temporary `api_key` / `api_base` overrides and pass them only into live model discovery, matching the Python settings-preview flow without persisting or echoing secrets.
 
+- Continued session turn lifecycle durability: native Rust `session.append_messages` now shares the same Python-compatible user/assistant/tool duplicate-message protection as `session.persist_turn`, keeping checkpoint restore and fallback append paths from growing session history with already-saved messages.
+
 - Continued Batch 5 Task/Cron background runtime parity: TS `cron.run_due` now runs Python-compatible evaluator gating for `deliver=true` cron results, suppresses routine responses, emits `cron.delivery` for notify decisions, records delivery decisions in per-job run records, and preserves Python's fail-open notify behavior when evaluator calls fail.
 
 - Continued Heartbeat runtime Phase 2 worker bridge: TS worker now exposes `heartbeat.trigger_now` and `heartbeat.status` request methods over the worker protocol, delegating to the injected `HeartbeatRuntime` while preserving explicit unavailable-runtime errors for native host callers.
@@ -119,6 +121,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 
 | Date | Update |
 | --- | --- |
+| 2026-06-13 | Continued session turn lifecycle durability: Rust `session.append_messages` now skips duplicate user/assistant/tool messages with the same Python-compatible keys used by `session.persist_turn`. |
 | 2026-06-13 | Continued config/provider native handoff parity: TS `/api/provider-models` and `provider.models.list` now forward temporary `api_key` / `api_base` overrides to live model discovery like Python settings preview. |
 | 2026-06-13 | Continued session turn lifecycle durability: Rust `session.persist_turn` now skips duplicate persisted user/assistant/tool messages with Python-compatible keys and returns accurate saved/duplicate message counts. |
 | 2026-06-13 | Continued Heartbeat runtime Phase 3 config hot update: TS-native `/api/config` PATCH now refreshes the injected heartbeat runtime after native config-store apply, so heartbeat enabled/interval changes take effect on the worker without a gateway restart. |

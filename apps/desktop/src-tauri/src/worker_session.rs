@@ -354,7 +354,15 @@ impl WorkerSessionRpc {
             .get_mut("messages")
             .and_then(Value::as_array_mut)
         {
-            existing.extend(messages);
+            let mut seen: HashSet<String> = existing.iter().map(session_message_key).collect();
+            for message in messages {
+                let key = session_message_key(&message);
+                if seen.contains(&key) {
+                    continue;
+                }
+                seen.insert(key);
+                existing.push(message);
+            }
         }
         session.updated_at = now_session_timestamp();
         Ok(session.clone())
@@ -1284,6 +1292,40 @@ mod tests {
                 { "role": "user", "content": "existing" },
                 { "role": "assistant", "content": "hello" },
                 { "role": "tool", "content": "result", "toolCallId": "call-1" }
+            ])
+        );
+    }
+
+    #[test]
+    fn append_messages_skips_duplicate_session_messages_with_write_capability() {
+        let mut session = session_fixture();
+        session.extra = json!({
+            "messages": [
+                { "role": "user", "content": "hello" },
+                { "role": "assistant", "content": "done" },
+                { "role": "tool", "toolCallId": "call-1", "name": "lookup", "content": "old" }
+            ]
+        });
+        let mut rpc = WorkerSessionRpc::new(vec![session], write_policy());
+
+        let updated = rpc
+            .append_messages(
+                "session-1",
+                vec![
+                    json!({ "role": "user", "content": "hello" }),
+                    json!({ "role": "assistant", "content": "next" }),
+                    json!({ "role": "tool", "tool_call_id": "call-1", "name": "lookup", "content": "new" }),
+                ],
+            )
+            .expect("messages should append without duplicating existing session history");
+
+        assert_eq!(
+            updated.extra["messages"],
+            json!([
+                { "role": "user", "content": "hello" },
+                { "role": "assistant", "content": "done" },
+                { "role": "tool", "toolCallId": "call-1", "name": "lookup", "content": "old" },
+                { "role": "assistant", "content": "next" }
             ])
         );
     }
