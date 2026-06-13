@@ -4161,11 +4161,11 @@ function parseCoworkAddTaskParams(params: Record<string, unknown> | undefined): 
     assignedAgentId: pythonRouteTextParam(params, "assignedAgentId", "assigned_agent_id"),
     dependencies: stringListParam(params, "dependencies", "dependencies"),
     priority: numberParam(params, "priority", "priority"),
-    expectedOutput: stringParam(params, "expectedOutput", "expected_output"),
+    expectedOutput: pythonRouteTextParam(params, "expectedOutput", "expected_output"),
     reviewRequired: booleanParam(params, "reviewRequired", "review_required"),
     reviewerAgentIds: stringListParam(params, "reviewerAgentIds", "reviewer_agent_ids"),
-    fanoutGroupId: stringParam(params, "fanoutGroupId", "fanout_group_id"),
-    mergeTaskId: stringParam(params, "mergeTaskId", "merge_task_id"),
+    fanoutGroupId: pythonRouteTextParam(params, "fanoutGroupId", "fanout_group_id"),
+    mergeTaskId: pythonRouteTextParam(params, "mergeTaskId", "merge_task_id"),
   };
 }
 

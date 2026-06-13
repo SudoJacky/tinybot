@@ -5161,6 +5161,9 @@ describe("AgentWorker", () => {
       title: 42,
       description: 9001,
       assigned_agent_id: 123.5,
+      expected_output: 707,
+      fanout_group_id: 808,
+      merge_task_id: 909,
       dependencies: ["open"],
     }))).resolves.toMatchObject({
       result: {
@@ -5169,6 +5172,9 @@ describe("AgentWorker", () => {
           title: "42",
           description: "9001",
           assigned_agent_id: "123_5",
+          expected_output: "707",
+          fanout_group_id: "808",
+          merge_task_id: "909",
         }),
       },
     });
