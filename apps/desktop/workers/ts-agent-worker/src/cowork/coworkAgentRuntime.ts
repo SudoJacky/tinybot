@@ -1141,6 +1141,18 @@ function selectTeamReadyAgents(session: CoworkSession, limit: number): CoworkRea
 }
 
 function selectSwarmReadyAgents(session: CoworkSession, limit: number): CoworkReadyAgentSelection {
+  const parallelWidth = Math.max(1, Math.trunc(numberValue(session.budget_limits.parallel_width) ?? 1));
+  const activeAgentCount = Object.values(session.agents)
+    .filter((agent) => agent.status === "working" && agent.lifecycle_status !== "retired")
+    .length;
+  const slots = Math.max(0, Math.min(Math.max(1, Math.trunc(limit || 1)), parallelWidth) - activeAgentCount);
+  if (slots <= 0) {
+    return {
+      agents: [],
+      candidateScores: {},
+      reasonProfile: "swarm workstream readiness scoring",
+    };
+  }
   const orderedUnits = fairOrderByWorkstream(swarmReadyUnits(session));
   const agents: CoworkAgent[] = [];
   const candidateScores: JsonObject = {};
@@ -1166,7 +1178,7 @@ function selectSwarmReadyAgents(session: CoworkSession, limit: number): CoworkRe
       status: cleanString(unit.status) || "pending",
       priority: numberValue(unit.priority) ?? 0,
     };
-    if (agents.length >= limit) {
+    if (agents.length >= slots) {
       break;
     }
   }

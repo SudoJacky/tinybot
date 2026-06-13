@@ -197,6 +197,58 @@ describe("CoworkAgentRuntime", () => {
     expect(selection.reasonProfile).toBe("swarm workstream readiness scoring");
   });
 
+  it("does not select more swarm agents when parallel width is already saturated", async () => {
+    const provider = new QueueProvider([]);
+    const seeded = await seedRuntime(provider);
+    const session = await seeded.store.readSnapshot("cw_1", "test");
+    if (!session) {
+      throw new Error("missing seeded session");
+    }
+    session.workflow_mode = "swarm";
+    session.budget_limits = { ...session.budget_limits, parallel_width: 1 };
+    session.agents.lead.status = "working";
+    session.agents.researcher = {
+      ...session.agents.lead,
+      id: "researcher",
+      name: "Researcher",
+      role: "Research",
+      status: "waiting",
+      inbox: [],
+      current_task_id: null,
+      current_task_title: null,
+    };
+    session.tasks.research = {
+      ...session.tasks.draft,
+      id: "research",
+      title: "Research",
+      description: "Research the TS swarm scheduler",
+      assigned_agent_id: "researcher",
+      status: "pending",
+      dependencies: [],
+    };
+    session.swarm_plan = {
+      id: "swarm_1",
+      status: "running",
+      work_units: [{
+        id: "wu_research",
+        title: "Research",
+        description: "Research the TS swarm scheduler",
+        source_task_id: "research",
+        assigned_agent_id: "researcher",
+        workstream: "runtime",
+        status: "ready",
+        dependencies: [],
+        priority: 5,
+      }],
+    };
+
+    const selection = selectReadyCoworkAgentCandidates(session, 10);
+
+    expect(selection.agents).toEqual([]);
+    expect(selection.candidateScores).toEqual({});
+    expect(selection.reasonProfile).toBe("swarm workstream readiness scoring");
+  });
+
   it("runs one agent round and applies completed task progress", async () => {
     const provider = new QueueProvider([{
       content: JSON.stringify({
