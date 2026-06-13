@@ -33,7 +33,10 @@ export {
 export {
   createPythonChannelBridgeAdapter,
   parsePythonBridgeInboundMessage,
+  PythonChannelBridge,
   toPythonBridgeOutboundMessage,
+  type PythonChannelBridgeDiagnostic,
+  type PythonChannelBridgeOptions,
   type PythonBridgeOutboundJson,
   type PythonBridgeParseOptions,
   type PythonChannelBridgeAdapterOptions,

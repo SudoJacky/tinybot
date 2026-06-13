@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
   createPythonChannelBridgeAdapter,
   parsePythonBridgeInboundMessage,
+  PythonChannelBridge,
   toPythonBridgeOutboundMessage,
 } from "./index.ts";
 import { MessageBus } from "../bus/messageBus.ts";
@@ -154,5 +155,81 @@ describe("pythonChannelBridge", () => {
       sender_id: "ou_1",
       content: "hello",
     })).toThrow("python channel bridge message.chatId must be a string");
+  });
+
+  test("ingests Python inbound JSON into the TS bus and records queue pressure diagnostics", async () => {
+    const bus = new MessageBus({ warningThreshold: 0, now: () => "2026-06-13T04:00:00.000Z" });
+    const bridge = new PythonChannelBridge({
+      bus,
+      now: () => "2026-06-13T04:00:00.000Z",
+    });
+
+    await expect(bridge.ingestInbound({
+      channel: "feishu",
+      sender_id: "ou_1",
+      chat_id: "oc_1",
+      content: "hello",
+      metadata: { message_id: "mid-1" },
+      session_key_override: "thread:42",
+    })).resolves.toEqual({ ok: true });
+
+    expect(await bus.consumeInbound()).toEqual({
+      channel: "feishu",
+      senderId: "ou_1",
+      chatId: "oc_1",
+      content: "hello",
+      timestamp: "2026-06-13T04:00:00.000Z",
+      media: [],
+      metadata: { message_id: "mid-1" },
+      sessionKeyOverride: "thread:42",
+    });
+    expect(bridge.diagnostics()).toEqual([
+      {
+        kind: "backpressure",
+        queue: "inbound",
+        size: 1,
+        threshold: 0,
+        timestamp: "2026-06-13T04:00:00.000Z",
+      },
+    ]);
+  });
+
+  test("captures malformed and closed-bus inbound failures without throwing into the host", async () => {
+    const bus = new MessageBus();
+    const bridge = new PythonChannelBridge({ bus });
+
+    await expect(bridge.ingestInbound({
+      channel: "feishu",
+      sender_id: "ou_1",
+      content: "hello",
+    })).resolves.toEqual({
+      ok: false,
+      error: "python channel bridge message.chatId must be a string",
+    });
+
+    bus.close();
+
+    await expect(bridge.ingestInbound({
+      channel: "feishu",
+      sender_id: "ou_1",
+      chat_id: "oc_1",
+      content: "hello",
+    })).resolves.toEqual({
+      ok: false,
+      error: "message bus is closed",
+    });
+
+    expect(bridge.diagnostics()).toEqual([
+      {
+        kind: "invalid_inbound",
+        error: "python channel bridge message.chatId must be a string",
+      },
+      {
+        kind: "bus_closed",
+        channel: "feishu",
+        chatId: "oc_1",
+        error: "message bus is closed",
+      },
+    ]);
   });
 });
