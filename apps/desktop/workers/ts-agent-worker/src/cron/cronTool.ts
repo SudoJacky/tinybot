@@ -97,6 +97,14 @@ class CronToolRuntime {
     const cronExpr = stringArg(args, "cron_expr");
     const at = stringArg(args, "at");
     const tz = stringArg(args, "tz");
+    const scheduleSourceCount = [
+      everySeconds !== null && everySeconds > 0,
+      !!cronExpr,
+      !!at,
+    ].filter(Boolean).length;
+    if (scheduleSourceCount > 1) {
+      return "Error: exactly one of every_seconds, cron_expr, or at is required";
+    }
     if (everySeconds && everySeconds > 0) {
       return { schedule: { kind: "every", everyMs: everySeconds * 1000 }, deleteAfterRun: false };
     }

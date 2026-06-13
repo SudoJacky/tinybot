@@ -91,6 +91,29 @@ describe("createCronTool", () => {
     expect(bridge.addRequests).toEqual([]);
   });
 
+  test("rejects conflicting schedule sources", async () => {
+    const bridge = memoryBridge();
+    const tool = createCronTool({ bridge, defaultTimezone: "UTC" });
+
+    await expect(tool.execute({
+      action: "add",
+      message: "Ambiguous schedule",
+      every_seconds: 60,
+      cron_expr: "0 9 * * *",
+    }, context)).resolves.toEqual({
+      content: "Error: exactly one of every_seconds, cron_expr, or at is required",
+    });
+    await expect(tool.execute({
+      action: "add",
+      message: "Ambiguous schedule",
+      cron_expr: "0 9 * * *",
+      at: "2026-02-12T10:30:00Z",
+    }, context)).resolves.toEqual({
+      content: "Error: exactly one of every_seconds, cron_expr, or at is required",
+    });
+    expect(bridge.addRequests).toEqual([]);
+  });
+
   test("rejects add when no session delivery context is available", async () => {
     const bridge = memoryBridge();
     const tool = createCronTool({ bridge, defaultTimezone: "UTC" });
