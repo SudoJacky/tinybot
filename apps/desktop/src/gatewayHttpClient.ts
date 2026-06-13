@@ -1436,8 +1436,8 @@ function nativeTemporaryFileUploadBody(body: FormData): Promise<Record<string, u
   if (!(file instanceof File)) {
     return undefined;
   }
-  const fileType = extensionFromName(file.name);
-  if (!["txt", "md"].includes(fileType)) {
+  const fileType = canonicalNativeTextFileType(extensionFromName(file.name));
+  if (!fileType || !["txt", "md"].includes(fileType)) {
     return undefined;
   }
   return file.text().then((content) => ({
@@ -1453,8 +1453,8 @@ function nativeKnowledgeUploadBody(body: FormData): Promise<Record<string, unkno
   if (!(file instanceof File)) {
     return undefined;
   }
-  const fileType = extensionFromName(file.name);
-  if (!["txt", "md", "json", "csv"].includes(fileType)) {
+  const fileType = canonicalNativeTextFileType(extensionFromName(file.name));
+  if (!fileType) {
     return undefined;
   }
   return file.text().then((content) => {
@@ -1478,6 +1478,16 @@ function nativeKnowledgeUploadBody(body: FormData): Promise<Record<string, unkno
 
 function formString(value: FormDataEntryValue | null): string | undefined {
   return typeof value === "string" ? value.trim() : undefined;
+}
+
+function canonicalNativeTextFileType(fileType: string): string | undefined {
+  if (fileType === "markdown") {
+    return "md";
+  }
+  if (["txt", "md", "json", "csv"].includes(fileType)) {
+    return fileType;
+  }
+  return undefined;
 }
 
 function extensionFromName(name: string): string {

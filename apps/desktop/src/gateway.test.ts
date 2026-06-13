@@ -1167,6 +1167,21 @@ describe("gateway HTTP client", () => {
         },
       },
     });
+    const markdownForm = new FormData();
+    markdownForm.append("file", new File(["# Native Markdown\n"], "native.markdown", { type: "text/markdown" }));
+    await expect(client.knowledge.uploadDocument(markdownForm)).resolves.toEqual({
+      native: true,
+      request: {
+        method: "POST",
+        path: "/v1/knowledge/documents/upload?async_index=true",
+        body: {
+          name: "native.markdown",
+          file_type: "md",
+          content: "# Native Markdown\n",
+          size_bytes: 18,
+        },
+      },
+    });
     const jsonForm = new FormData();
     jsonForm.append("file", new File(["{\"topic\":\"desktop\"}\n"], "native.json", { type: "application/json" }));
     await expect(client.knowledge.uploadDocument(jsonForm)).resolves.toEqual({
