@@ -906,6 +906,8 @@ function mailboxAgentReadinessScore(session: CoworkSession, agentId: string, rea
     score -= reviewer && !hasPendingReview ? 8 : 0;
   } else if (profile === "message_bus") {
     score += agentSubscriptionPressure(session, agentId);
+  } else if (profile === "shared_state" && sharedMemoryTexts(session, "open_questions").length > 0) {
+    score += 10;
   }
   if (agentId === leadAgentId(session) && leadShouldSynthesize(session)) {
     score += 65;
@@ -1087,6 +1089,14 @@ function sharedMemoryCounts(session: CoworkSession): JsonObject {
     counts[bucket] = arrayValue(memory[bucket]).length;
   }
   return counts;
+}
+
+function sharedMemoryTexts(session: CoworkSession, bucket: string): string[] {
+  const memory = jsonSafeObject(session.shared_memory);
+  return arrayValue(memory[bucket])
+    .map(jsonSafeObject)
+    .map((entry) => stringValue(entry.text).trim())
+    .filter(Boolean);
 }
 
 function reviewMailboxGoalCompletion(

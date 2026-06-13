@@ -612,6 +612,34 @@ describe("CoworkMailbox", () => {
     });
   });
 
+  it("adds shared-state open-question pressure to readiness scores", async () => {
+    const session = await createTeamSession();
+    session.workflow_mode = "shared_state";
+    session.agents.coordinator.inbox = [];
+    session.agents.researcher.inbox = [];
+    session.agents.analyst.inbox = [];
+    session.shared_memory.open_questions = [
+      { text: "Need source traceability confirmation." },
+      { text: "   " },
+    ];
+
+    deliver(session, {
+      sender_id: "coordinator",
+      recipient_ids: ["analyst"],
+      content: "Refresh shared-state readiness.",
+      wake_recipients: false,
+    });
+
+    const researcherReadiness = session.completion_decision.readiness.find(
+      (entry: Record<string, unknown>) => entry.agent_id === "researcher",
+    );
+    expect(researcherReadiness).toMatchObject({
+      agent_id: "researcher",
+      score: 10,
+      activation_reasons: [],
+    });
+  });
+
   it("recomputes the session focus task from pending reply blockers after delivery", async () => {
     const session = await createTeamSession();
     session.current_focus_task = "Stale focus";

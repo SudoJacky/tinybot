@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued Cowork Phase 10 mailbox parity: TS mailbox readiness scoring now preserves Python shared-state open-question pressure, boosting shared-state agents when shared memory contains non-empty open-question text.
+
 - Continued Cowork Phase 10 mailbox parity: TS mailbox readiness scoring now preserves Python message-bus subscription pressure, boosting subscribed agents when live mailbox records match their topic/event/request/kind subscriptions.
 
 - Continued Cowork Phase 10 mailbox parity: TS mailbox readiness scores and activation reasons now preserve Python lead synthesis readiness, adding the lead-only synthesis boost when completed task work still needs user-visible finalization.
@@ -777,6 +779,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: include Python-compatible shared-task claim activation reasons in TS mailbox readiness payloads.
 - [x] Continue Cowork Phase 10: include Python-compatible lead synthesis score boosts and activation reasons in TS mailbox readiness payloads.
 - [x] Continue Cowork Phase 10: include Python-compatible message-bus subscription pressure in TS mailbox readiness scores.
+- [x] Continue Cowork Phase 10: include Python-compatible shared-state open-question pressure in TS mailbox readiness scores.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.
