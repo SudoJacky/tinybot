@@ -5256,6 +5256,16 @@ describe("AgentWorker", () => {
     expect(assignResult.result).toBe("Task 'Open' assigned to Numeric Reviewer.");
     expect(assignResult.session.tasks.open.assigned_agent_id).toBe("123_5");
 
+    await expect(worker.handleRequest(coworkRequest("cowork.assign_task", {
+      session_id: sessionId,
+      task_id: 404,
+      assigned_agent_id: 123.5,
+    }))).resolves.toMatchObject({
+      result: {
+        result: "Error: task '404' not found",
+      },
+    });
+
     await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
       method: "POST",
       path: `/api/cowork/sessions/${encodeURIComponent(String(sessionId))}/tasks/open/assign`,
@@ -5585,6 +5595,15 @@ describe("AgentWorker", () => {
 
     await expect(worker.handleRequest(coworkRequest("cowork.retry_task", {
       session_id: session.id,
+      task_id: 404,
+    }))).resolves.toMatchObject({
+      result: {
+        result: "Error: task '404' not found",
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.retry_task", {
+      session_id: session.id,
       task_id: "answer",
     }))).resolves.toMatchObject({
       result: {
@@ -5604,6 +5623,16 @@ describe("AgentWorker", () => {
     retried.tasks.answer.status = "completed";
     retried.tasks.answer.result = "answer";
     await store.writeSnapshot(retried, "seed-completed");
+
+    await expect(worker.handleRequest(coworkRequest("cowork.request_task_review", {
+      session_id: session.id,
+      task_id: 505,
+      reviewer_agent_id: 123.5,
+    }))).resolves.toMatchObject({
+      error: {
+        message: "Error: task '505' not found",
+      },
+    });
 
     await expect(worker.handleRequest(coworkRequest("cowork.request_task_review", {
       session_id: session.id,

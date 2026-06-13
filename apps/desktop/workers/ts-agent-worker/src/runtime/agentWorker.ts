@@ -4178,7 +4178,7 @@ function parseCoworkAssignTaskParams(params: Record<string, unknown> | undefined
     throw new Error("cowork.assign_task requires object params");
   }
   const sessionId = stringParam(params, "sessionId", "session_id");
-  const taskId = stringParam(params, "taskId", "task_id");
+  const taskId = pythonRouteTextParam(params, "taskId", "task_id");
   const agentId = pythonRouteTextParam(params, "agentId", "agent_id")
     || pythonRouteTextParam(params, "assignedAgentId", "assigned_agent_id");
   if (!sessionId || !taskId || !agentId) {
@@ -4196,7 +4196,7 @@ function parseCoworkTaskMutationParams(params: Record<string, unknown> | undefin
     throw new Error(`${method} requires object params`);
   }
   const sessionId = stringParam(params, "sessionId", "session_id");
-  const taskId = stringParam(params, "taskId", "task_id");
+  const taskId = pythonRouteTextParam(params, "taskId", "task_id");
   if (!sessionId || !taskId) {
     throw new Error(`${method} requires params.session_id and params.task_id`);
   }
