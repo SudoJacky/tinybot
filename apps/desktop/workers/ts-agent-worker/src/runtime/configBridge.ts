@@ -239,7 +239,13 @@ async function legacyModelProviderConfigFromNativeConfig(
       return modelProviderConfigFromEnv(env);
     }
 
-    const apiKey = env.OPENAI_API_KEY;
+    const secret = env.OPENAI_API_KEY
+      ? undefined
+      : await configBridge.resolveProviderSecret({
+        providerId: "openai",
+        apiKeyEnvVars: ["OPENAI_API_KEY"],
+      });
+    const apiKey = env.OPENAI_API_KEY ?? secret?.apiKey;
     if (!apiKey) {
       return {};
     }
