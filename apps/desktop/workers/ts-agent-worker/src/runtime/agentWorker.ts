@@ -4292,8 +4292,11 @@ function parseCoworkUpdateBudgetParams(params: Record<string, unknown> | undefin
 }
 
 function firstTruthyStringParam(params: Record<string, unknown> | undefined, ...keys: Array<[string, string]>): string | undefined {
+  if (!isJsonObject(params)) {
+    return undefined;
+  }
   for (const [camelKey, snakeKey] of keys) {
-    const value = stringParam(params, camelKey, snakeKey);
+    const value = pythonRouteTextParam(params, camelKey, snakeKey);
     if (value) {
       return value;
     }

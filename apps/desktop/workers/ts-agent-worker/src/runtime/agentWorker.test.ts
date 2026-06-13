@@ -3059,6 +3059,18 @@ describe("AgentWorker", () => {
         },
       },
     });
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: "/api/cowork/sessions",
+      body: { goal: "Numeric architecture alias", workflow_mode: "swarm", architecture: 404 },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          session: expect.objectContaining({ workflow_mode: "adaptive_starter" }),
+        },
+      },
+    });
   });
 
   test("returns Python-compatible create-session route error when goal is missing", async () => {
