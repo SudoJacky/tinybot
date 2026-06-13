@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued Cowork Phase 10 rollout parity: desktop gateway Cowork session creation that explicitly targets `swarm` via `workflow_mode` / `workflowMode` / `architecture` / `mode` now follows the swarm rollout gate, preserving Python fallback when TS swarm routing is disabled.
+
 - Continued Cowork Phase 10 rollout parity: desktop gateway Cowork session creation with `auto_run` / `autoRun` is now classified under the scheduler rollout gate, so disabling TS scheduler routing sends create-and-run requests to the Python fallback instead of accidentally invoking the native TS scheduler path.
 
 - Continued config/provider preview durability: TS provider-model preview now falls back to an empty public config when native snapshots are unavailable but request-scoped `api_key` / `api_base` / manual models are supplied, preserving live/manual model discovery without native secret resolution.
@@ -135,6 +137,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 
 | Date | Update |
 | --- | --- |
+| 2026-06-13 | Continued Cowork Phase 10 rollout parity: swarm-targeted session creation now follows the swarm rollout gate, preserving Python fallback when TS swarm routing is disabled. |
 | 2026-06-13 | Continued Cowork Phase 10 rollout parity: auto-run session creation now follows the scheduler rollout gate, preserving Python fallback when TS scheduler routing is disabled. |
 | 2026-06-13 | Continued config/provider preview durability: provider-model preview can use request-scoped key/base/manual model overrides when native public config snapshots are unavailable. |
 | 2026-06-13 | Continued config/provider bridge durability: legacy native config fallback now uses `provider.resolve_secret` for OpenAI secrets when env keys are absent, while keeping env keys higher priority. |
