@@ -22,6 +22,8 @@
 
 - Continued Cowork Phase 10 route parity: TS-native branch derive routes now accept Python-compatible `architecture` aliases as target architectures, so desktop/default-route branch derivation no longer silently falls back to `adaptive_starter` when callers use the Python body shape.
 
+- Continued Cowork Phase 10 route parity: TS-native branch derive routes now preserve Python-compatible `derivation_reason` aliases in branch, stage, and event records, keeping default-route branch derivation metadata aligned with Python fallback requests.
+
 - Continued Cowork Phase 10 desktop observability parity: selected-agent inspectors now expose the latest tool/browser observation detail action when agent activity includes a `detail_ref`, and both legacy and Vue desktop paths send `loadObservation` with requester `agent_id` into the existing TS-native observation route.
 
 - Continued Cowork Phase 10 desktop route parity: the native Vue Cowork inspector now emits derive-branch, select-final-result, and merge-final-result events for selected branches, keeping the Vue island action surface aligned with the migrated TS-native route facade.
@@ -511,6 +513,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 | 2026-06-13 | Continued Cowork Phase 10 rollout parity: desktop auto-run swarm session creation now checks both scheduler and swarm rollout gates before using the native route, so disabling either TS run scheduling or TS swarm routing preserves the Python create-and-run fallback. |
 | 2026-06-13 | Continued Cowork Phase 10 desktop route parity: desktop Cowork cockpit branch rows now fall back to Python/TS snapshot branches and nested branch_result payloads when branch_results is absent, so branch select/derive/merge action controls retain branch IDs for native-first route dispatch. |
 | 2026-06-13 | Continued Cowork Phase 10 route parity: TS-native branch derive routes now preserve Python-compatible `architecture` aliases as target architectures instead of defaulting alias-shaped requests to `adaptive_starter`. |
+| 2026-06-13 | Continued Cowork Phase 10 route parity: TS-native branch derive routes now preserve Python-compatible `derivation_reason` aliases through branch, stage, and event metadata. |
 | 2026-06-13 | Continued Channel Bus Phase 3: TS worker now exposes `channel.dispatch_inbound`, parses Python-compatible inbound envelopes, routes them through `ChannelRuntime` and the existing `agent.run_input` path, and returns outbound bus messages with camelCase and snake_case projections for native/Python bridges. |
 | 2026-06-13 | Continued Channel Bus Phase 3/4 bridge setup: Rust/Tauri now exposes `worker_channel_dispatch_inbound`, builds `channel.dispatch_inbound` worker requests from generic channel envelopes, and desktop `nativeTransport.dispatchChannelInbound()` can call the native TS channel bridge. |
 | 2026-06-13 | Continued Channel Bus Phase 4 bridge setup: added exported TS `pythonChannelBridge` schema helpers for Python-compatible inbound normalization and outbound snake_case projection, and made `channel.dispatch_inbound` reuse that shared bridge contract. |
@@ -725,6 +728,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: require both scheduler and swarm rollout gates for desktop auto-run swarm create-session requests.
 - [x] Continue Cowork Phase 10: project desktop branch rows from Python/TS snapshot branches when `branch_results` is absent.
 - [x] Continue Cowork Phase 10: accept Python-compatible `architecture` aliases on TS-native branch derive routes.
+- [x] Continue Cowork Phase 10: preserve Python-compatible `derivation_reason` aliases on TS-native branch derive routes.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.
