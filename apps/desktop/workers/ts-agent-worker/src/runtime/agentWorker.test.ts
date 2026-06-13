@@ -3095,6 +3095,54 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("accepts Python blueprint create auto-run rounds alias", async () => {
+    const store = createMemoryCoworkStore();
+    const idGenerator = (() => {
+      const counters = new Map<string, number>();
+      return (prefix: string) => {
+        const next = (counters.get(prefix) ?? 0) + 1;
+        counters.set(prefix, next);
+        return `${prefix}_${next}`;
+      };
+    })();
+    const coworkService = new CoworkService({
+      store,
+      now: () => "2026-06-12T08:00:00.000Z",
+      idGenerator,
+    });
+    const coworkScheduler = new CoworkScheduler({
+      store,
+      now: () => "2026-06-12T08:00:00.000Z",
+      idGenerator,
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      coworkService,
+      coworkScheduler,
+    });
+
+    await worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: "/api/cowork/sessions",
+      body: {
+        blueprint: {
+          goal: "Blueprint rounds alias",
+          agents: [{ id: "lead", role: "Lead", tools: ["cowork_internal"] }],
+        },
+        auto_run: true,
+        rounds: "2",
+        parallel_width: "2",
+        max_agent_calls: "3",
+      },
+    }));
+    const saved = await store.readSnapshot("cw_1", "trace-1");
+    const runSpan = saved?.trace_spans.find((span) => span.name === "Cowork run");
+
+    expect(runSpan?.input_ref).toBe("max_rounds=2, max_agents=2, max_agent_calls=3");
+  });
+
   test("accepts Python-compatible truthy strings for create-session auto-run flags", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = (() => {

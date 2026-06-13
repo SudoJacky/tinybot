@@ -710,7 +710,7 @@ export class AgentWorker {
           runtimeState: params.runtimeState,
         });
         const session = result.session
-          ? await this.maybeAutoRunCoworkSession(result.session, body, traceId)
+          ? await this.maybeAutoRunCoworkSession(result.session, body, traceId, { allowRoundsAlias: true })
           : null;
         return result.session
           ? {
@@ -765,12 +765,23 @@ export class AgentWorker {
     }
   }
 
-  private async maybeAutoRunCoworkSession(session: CoworkSession, body: Record<string, unknown>, traceId: string): Promise<CoworkSession> {
+  private async maybeAutoRunCoworkSession(
+    session: CoworkSession,
+    body: Record<string, unknown>,
+    traceId: string,
+    options: { allowRoundsAlias?: boolean } = {},
+  ): Promise<CoworkSession> {
     const autoRun = pythonRouteBoolParam(body, "autoRun", "auto_run") === true;
     if (!autoRun || !this.coworkScheduler) {
       return session;
     }
-    const params = parseCoworkRunSessionParams({ ...body, session_id: session.id });
+    const runBody = options.allowRoundsAlias
+      && body.maxRounds === undefined
+      && body.max_rounds === undefined
+      && body.rounds !== undefined
+      ? { ...body, max_rounds: body.rounds }
+      : body;
+    const params = parseCoworkRunSessionParams({ ...runBody, session_id: session.id });
     const result = await this.coworkScheduler.runSession({
       traceId,
       sessionId: params.sessionId,

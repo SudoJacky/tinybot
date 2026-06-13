@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued Cowork Phase 10 route parity: TS-native blueprint create auto-run now mirrors Python's `rounds` alias for `max_rounds`, keeping blueprint launch scheduling limits aligned with the fallback route.
+
 - Continued Cowork Phase 10 route parity: TS-native Cowork create-session routes now mirror Python truthiness for string-form `auto_run` flags before dispatching auto-run sessions through the migrated scheduler.
 
 - Continued Cowork Phase 10 route parity: TS-native Cowork run routes now mirror Python truthiness for `run_until_idle` and `stop_on_blocker` JSON values, preserving Python fallback behavior for string-form route flags on the default worker route.
@@ -885,6 +887,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: forward Python-compatible emergency-stop route bodies from the desktop gateway native-first client so `reason` reaches the TS route handler.
 - [x] Continue Cowork Phase 10: mirror Python truthiness for Cowork run-route `run_until_idle` and `stop_on_blocker` flags.
 - [x] Continue Cowork Phase 10: mirror Python truthiness for Cowork create-session `auto_run` flags.
+- [x] Continue Cowork Phase 10: accept Python blueprint create auto-run `rounds` as a `max_rounds` alias.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.
