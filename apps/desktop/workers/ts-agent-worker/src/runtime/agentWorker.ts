@@ -106,7 +106,7 @@ export type AgentWorkerOptions = {
   webuiConfigProvider?: WebuiConfigProvider;
   knowledgeProvider?: WebuiKnowledgeProvider;
   workspaceBridge?: WebuiWorkspaceProvider;
-  heartbeatRuntime?: Pick<HeartbeatRuntime, "triggerNow" | "getStatus">;
+  heartbeatRuntime?: Pick<HeartbeatRuntime, "start" | "stop" | "triggerNow" | "getStatus">;
 };
 
 export type PrepareToolsHandler = (traceId: string) => Promise<unknown> | unknown;
@@ -266,7 +266,7 @@ export class AgentWorker {
   private readonly webuiConfigProvider?: WebuiConfigProvider;
   private readonly knowledgeProvider?: WebuiKnowledgeProvider;
   private readonly workspaceBridge?: WebuiWorkspaceProvider;
-  private readonly heartbeatRuntime?: Pick<HeartbeatRuntime, "triggerNow" | "getStatus">;
+  private readonly heartbeatRuntime?: Pick<HeartbeatRuntime, "start" | "stop" | "triggerNow" | "getStatus">;
   private readonly commandRouter: CommandRouter;
   private readonly turnLifecycle: TurnLifecycle;
   private readonly activeRuns = new Map<string, ActiveRun>();
@@ -362,6 +362,14 @@ export class AgentWorker {
 
     if (request.method === "heartbeat.trigger_now") {
       return this.handleHeartbeatTriggerNowRequest(request);
+    }
+
+    if (request.method === "heartbeat.start") {
+      return this.handleHeartbeatStartRequest(request);
+    }
+
+    if (request.method === "heartbeat.stop") {
+      return this.handleHeartbeatStopRequest(request);
     }
 
     if (request.method === "heartbeat.status") {
@@ -2202,6 +2210,45 @@ export class AgentWorker {
         id: request.id,
         trace_id: request.trace_id,
         result: await this.heartbeatRuntime.triggerNow(),
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error));
+    }
+  }
+
+  private async handleHeartbeatStartRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.heartbeatRuntime) {
+      return this.failure(request, "heartbeat.start requires a heartbeat runtime");
+    }
+    try {
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: {
+          started: await this.heartbeatRuntime.start(),
+          status: this.heartbeatRuntime.getStatus(),
+        },
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error));
+    }
+  }
+
+  private handleHeartbeatStopRequest(request: WorkerRequest): WorkerResponse {
+    if (!this.heartbeatRuntime) {
+      return this.failure(request, "heartbeat.stop requires a heartbeat runtime");
+    }
+    try {
+      this.heartbeatRuntime.stop();
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: {
+          stopped: true,
+          status: this.heartbeatRuntime.getStatus(),
+        },
       };
     } catch (error) {
       return this.failure(request, errorMessage(error));

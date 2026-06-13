@@ -399,6 +399,64 @@ describe("createAgentWorkerServer", () => {
     });
   });
 
+  test("starts heartbeat scheduling from native heartbeat config", async () => {
+    const lines: string[] = [];
+    const server = createAgentWorkerServer({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const start = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "heartbeat-start",
+        trace_id: "trace-heartbeat-start",
+        method: "heartbeat.start",
+        params: {},
+      }),
+    );
+
+    await respondToWorkerRequest(server, lines, "config.snapshot_public", {
+      value: {
+        gateway: { heartbeat: { enabled: true, interval_s: 2, keep_recent_messages: 6 } },
+      },
+    });
+    await start;
+
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      protocol_version: "1",
+      id: "heartbeat-start",
+      trace_id: "trace-heartbeat-start",
+      result: {
+        started: true,
+        status: {
+          enabled: true,
+          running: true,
+          intervalMs: 2000,
+        },
+      },
+    });
+
+    await server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "heartbeat-stop",
+        trace_id: "trace-heartbeat-stop",
+        method: "heartbeat.stop",
+        params: {},
+      }),
+    );
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      id: "heartbeat-stop",
+      result: {
+        stopped: true,
+        status: { running: false },
+      },
+    });
+  });
+
   test("registers request_form tool that pauses the run through native form RPC", async () => {
     const form = {
       form_id: "travel_plan",

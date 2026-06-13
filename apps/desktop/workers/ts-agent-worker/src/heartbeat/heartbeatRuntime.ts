@@ -8,6 +8,12 @@ import type { HeartbeatTarget } from "./heartbeatTarget.ts";
 
 type HeartbeatTargetSelector = () => HeartbeatTarget | Promise<HeartbeatTarget>;
 type HeartbeatKeepRecentMessages = number | (() => number | Promise<number>);
+type HeartbeatRuntimeConfigResolver = () => Promise<HeartbeatRuntimeConfig> | HeartbeatRuntimeConfig;
+
+export type HeartbeatRuntimeConfig = {
+  enabled?: boolean;
+  intervalMs?: number;
+};
 
 export type HeartbeatRuntimeOptions = {
   model: string;
@@ -25,6 +31,7 @@ export type HeartbeatRuntimeOptions = {
   }) => Promise<void> | void;
   trimHeartbeatSession?: (keepRecentMessages: number) => Promise<void> | void;
   keepRecentMessages?: HeartbeatKeepRecentMessages;
+  config?: HeartbeatRuntimeConfigResolver;
   enabled?: boolean;
   intervalMs?: number;
   maxIterations?: number;
@@ -38,6 +45,7 @@ export class HeartbeatRuntime {
   private readonly notifyExternal?: HeartbeatRuntimeOptions["notifyExternal"];
   private readonly trimHeartbeatSession?: HeartbeatRuntimeOptions["trimHeartbeatSession"];
   private readonly keepRecentMessages: HeartbeatKeepRecentMessages;
+  private readonly config?: HeartbeatRuntimeConfigResolver;
   private readonly maxIterations: number;
   private readonly idGenerator: () => string;
   private readonly service: HeartbeatService;
@@ -49,6 +57,7 @@ export class HeartbeatRuntime {
     this.notifyExternal = options.notifyExternal;
     this.trimHeartbeatSession = options.trimHeartbeatSession;
     this.keepRecentMessages = options.keepRecentMessages ?? 8;
+    this.config = options.config;
     this.maxIterations = Math.max(1, options.maxIterations ?? 4);
     this.idGenerator = options.idGenerator ?? randomHeartbeatRunId;
     this.service = new HeartbeatService({
@@ -67,7 +76,8 @@ export class HeartbeatRuntime {
     });
   }
 
-  start(): boolean {
+  async start(): Promise<boolean> {
+    await this.refreshConfig();
     return this.service.start();
   }
 
@@ -84,6 +94,13 @@ export class HeartbeatRuntime {
   }
 
   getStatus(): HeartbeatStatus {
+    return this.service.getStatus();
+  }
+
+  async refreshConfig(): Promise<HeartbeatStatus> {
+    if (this.config) {
+      this.service.configure(await this.config());
+    }
     return this.service.getStatus();
   }
 

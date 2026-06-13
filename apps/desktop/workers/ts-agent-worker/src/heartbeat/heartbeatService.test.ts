@@ -199,6 +199,39 @@ describe("HeartbeatService", () => {
     expect(executeTasks).not.toHaveBeenCalled();
   });
 
+  test("reconfigures enabled state and interval before starting", async () => {
+    vi.useFakeTimers();
+    const executeTasks = vi.fn(async ({ tasks }: { tasks: string }) => `Completed ${tasks}`);
+    const service = new HeartbeatService({
+      enabled: false,
+      intervalMs: 10,
+      readHeartbeatFile: async () => "- [ ] Reconfigured heartbeat task.",
+      decide: async () => ({ action: "run", tasks: "Reconfigured heartbeat task." }),
+      executeTasks,
+    });
+
+    expect(service.start()).toBe(false);
+    service.configure({ enabled: true, intervalMs: 25 });
+    expect(service.start()).toBe(true);
+    expect(service.getStatus()).toMatchObject({
+      enabled: true,
+      running: true,
+      intervalMs: 25,
+    });
+
+    await vi.advanceTimersByTimeAsync(24);
+    expect(executeTasks).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(executeTasks).toHaveBeenCalledTimes(1);
+
+    service.configure({ enabled: false });
+    expect(service.getStatus()).toMatchObject({
+      enabled: false,
+      running: false,
+    });
+  });
+
   test("skips overlapping scheduled ticks while one heartbeat is executing", async () => {
     vi.useFakeTimers();
     let resolveExecute: ((value: string) => void) | undefined;

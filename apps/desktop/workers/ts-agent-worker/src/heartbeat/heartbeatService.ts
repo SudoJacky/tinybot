@@ -28,6 +28,11 @@ export type HeartbeatServiceOptions = {
   intervalMs?: number;
 };
 
+export type HeartbeatServiceConfig = {
+  enabled?: boolean;
+  intervalMs?: number;
+};
+
 const DEFAULT_INTERVAL_MS = 30 * 60 * 1000;
 
 export class HeartbeatService {
@@ -36,8 +41,8 @@ export class HeartbeatService {
   private readonly executeTasks?: HeartbeatServiceOptions["executeTasks"];
   private readonly evaluateResponse?: HeartbeatServiceOptions["evaluateResponse"];
   private readonly notify?: HeartbeatServiceOptions["notify"];
-  private readonly enabled: boolean;
-  private readonly intervalMs: number;
+  private enabled: boolean;
+  private intervalMs: number;
   private timer: ReturnType<typeof setInterval> | null = null;
   private executing = false;
   private lastResult: HeartbeatTickResult | null = null;
@@ -59,6 +64,7 @@ export class HeartbeatService {
     this.timer = setInterval(() => {
       void this.runScheduledTick();
     }, this.intervalMs);
+    this.timer.unref?.();
     return true;
   }
 
@@ -68,6 +74,22 @@ export class HeartbeatService {
     }
     clearInterval(this.timer);
     this.timer = null;
+  }
+
+  configure(config: HeartbeatServiceConfig): void {
+    const wasRunning = this.timer !== null;
+    if (wasRunning) {
+      this.stop();
+    }
+    if (config.enabled !== undefined) {
+      this.enabled = config.enabled;
+    }
+    if (config.intervalMs !== undefined) {
+      this.intervalMs = Math.max(1, config.intervalMs);
+    }
+    if (wasRunning && this.enabled) {
+      this.start();
+    }
   }
 
   async tick(): Promise<HeartbeatTickResult> {

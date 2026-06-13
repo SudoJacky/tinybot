@@ -148,6 +148,13 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     provider,
     runner: new AgentRunner({ provider, tools: options.tools }),
     readHeartbeatFile: async () => (await workspaceBridge.readFile("HEARTBEAT.md", "trace-heartbeat-read"))?.content,
+    config: async () => {
+      const config = await heartbeatConfigFromNativeConfig(configBridge);
+      return {
+        enabled: config.gateway.heartbeat.enabled,
+        intervalMs: config.gateway.heartbeat.intervalS * 1000,
+      };
+    },
     keepRecentMessages: async () => (await heartbeatConfigFromNativeConfig(configBridge)).gateway.heartbeat.keepRecentMessages,
     selectTarget: async () => {
       const [config, sessions] = await Promise.all([

@@ -5066,6 +5066,8 @@ describe("AgentWorker", () => {
         lastResult: null,
         lastError: null,
       })),
+      start: vi.fn(async () => true),
+      stop: vi.fn(() => undefined),
     };
     const worker = new AgentWorker({
       provider: new QueueProvider([]),
@@ -5094,8 +5096,36 @@ describe("AgentWorker", () => {
         lastError: null,
       },
     });
+    await expect(worker.handleRequest(heartbeatRequest("heartbeat.start"))).resolves.toMatchObject({
+      result: {
+        started: true,
+        status: {
+          enabled: true,
+          running: false,
+          executing: false,
+          intervalMs: 1800000,
+          lastResult: null,
+          lastError: null,
+        },
+      },
+    });
+    await expect(worker.handleRequest(heartbeatRequest("heartbeat.stop"))).resolves.toMatchObject({
+      result: {
+        stopped: true,
+        status: {
+          enabled: true,
+          running: false,
+          executing: false,
+          intervalMs: 1800000,
+          lastResult: null,
+          lastError: null,
+        },
+      },
+    });
     expect(heartbeatRuntime.triggerNow).toHaveBeenCalledTimes(1);
-    expect(heartbeatRuntime.getStatus).toHaveBeenCalledTimes(1);
+    expect(heartbeatRuntime.getStatus).toHaveBeenCalledTimes(3);
+    expect(heartbeatRuntime.start).toHaveBeenCalledTimes(1);
+    expect(heartbeatRuntime.stop).toHaveBeenCalledTimes(1);
   });
 
   test("returns an explicit error when heartbeat runtime is unavailable", async () => {
@@ -5109,6 +5139,12 @@ describe("AgentWorker", () => {
       error: {
         code: "worker_error",
         message: "heartbeat.status requires a heartbeat runtime",
+      },
+    });
+    await expect(worker.handleRequest(heartbeatRequest("heartbeat.start"))).resolves.toMatchObject({
+      error: {
+        code: "worker_error",
+        message: "heartbeat.start requires a heartbeat runtime",
       },
     });
   });
