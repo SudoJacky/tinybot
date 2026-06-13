@@ -98,6 +98,14 @@ export type KnowledgeDocumentsOptions = {
   limit?: number;
 };
 
+export type KnowledgeGraphRagOptions = {
+  docId?: string;
+  minConfidence?: number;
+  level?: number;
+  includeReports?: boolean;
+  includeCovariates?: boolean;
+};
+
 type WebSocketProbe = (url: string, timeoutMs: number) => Promise<ProbeResult>;
 
 type BootstrapSession = {
@@ -550,14 +558,17 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         () => request("/v1/knowledge/graph"),
         "knowledge.graph",
       ),
-      graphrag: () => nativeOrGateway(
-        () => options.nativeWebui?.route({
-          method: "GET",
-          path: "/v1/knowledge/graphrag?min_confidence=0&include_reports=true&include_covariates=true",
-        }),
-        () => request("/v1/knowledge/graphrag?min_confidence=0&include_reports=true&include_covariates=true"),
-        "knowledge.graphrag",
-      ),
+      graphrag: (graphRagOptions: KnowledgeGraphRagOptions = {}) => {
+        const path = knowledgeGraphRagPath(graphRagOptions);
+        return nativeOrGateway(
+          () => options.nativeWebui?.route({
+            method: "GET",
+            path,
+          }),
+          () => request(path),
+          "knowledge.graphrag",
+        );
+      },
       query: (body: unknown) => nativeOrGateway(
         () => options.nativeWebui?.route({ method: "POST", path: "/v1/knowledge/query", body }),
         () => request("/v1/knowledge/query", jsonRequest("POST", body)),
@@ -1297,6 +1308,23 @@ function knowledgeDocumentsPath(options: KnowledgeDocumentsOptions): string {
   }
   const query = params.toString();
   return query ? `/v1/knowledge/documents?${query}` : "/v1/knowledge/documents";
+}
+
+function knowledgeGraphRagPath(options: KnowledgeGraphRagOptions): string {
+  const params = new URLSearchParams();
+  if (options.docId) {
+    params.set("doc_id", options.docId);
+  }
+  const minConfidence = typeof options.minConfidence === "number" && Number.isFinite(options.minConfidence)
+    ? options.minConfidence
+    : 0;
+  params.set("min_confidence", String(minConfidence));
+  if (typeof options.level === "number" && Number.isFinite(options.level)) {
+    params.set("level", String(options.level));
+  }
+  params.set("include_reports", String(options.includeReports ?? true));
+  params.set("include_covariates", String(options.includeCovariates ?? true));
+  return `/v1/knowledge/graphrag?${params}`;
 }
 
 function stringifyError(error: unknown): string {

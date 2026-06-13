@@ -1207,6 +1207,19 @@ describe("gateway HTTP client", () => {
         path: "/v1/knowledge/graphrag?min_confidence=0&include_reports=true&include_covariates=true",
       },
     });
+    await expect(client.knowledge.graphrag({
+      docId: "docs/knowledge.md",
+      minConfidence: 0.2,
+      level: 1,
+      includeReports: false,
+      includeCovariates: true,
+    })).resolves.toEqual({
+      native: true,
+      request: {
+        method: "GET",
+        path: "/v1/knowledge/graphrag?doc_id=docs%2Fknowledge.md&min_confidence=0.2&level=1&include_reports=false&include_covariates=true",
+      },
+    });
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
