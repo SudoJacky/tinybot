@@ -4351,7 +4351,7 @@ function parseCoworkSelectBranchResultParams(params: Record<string, unknown> | u
   const parsed = parseCoworkBranchParams(params, "cowork.select_branch_result");
   return {
     ...parsed,
-    resultId: isJsonObject(params) ? stringParam(params, "resultId", "result_id") : undefined,
+    resultId: isJsonObject(params) ? pythonRouteTextParam(params, "resultId", "result_id") : undefined,
   };
 }
 

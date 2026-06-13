@@ -5755,6 +5755,17 @@ describe("AgentWorker", () => {
     await expect(worker.handleRequest(coworkRequest("cowork.select_branch_result", {
       session_id: session.id,
       branch_id: "br_1",
+      result_id: 505,
+    }))).resolves.toMatchObject({
+      result: {
+        finalResult: null,
+        result: "Error: branch result '505' not found on branch 'br_1'.",
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.select_branch_result", {
+      session_id: session.id,
+      branch_id: "br_1",
       result_id: "brres_team",
     }))).resolves.toMatchObject({
       result: {
