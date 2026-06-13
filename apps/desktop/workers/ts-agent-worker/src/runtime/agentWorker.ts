@@ -4267,8 +4267,8 @@ function parseCoworkRunSessionParams(params: Record<string, unknown> | undefined
     maxRounds: numberParam(params, "maxRounds", "max_rounds"),
     maxAgents,
     maxAgentCalls: positiveNumberParam(params, "maxAgentCalls", "max_agent_calls"),
-    runUntilIdle: pythonRouteBoolParam(params, "runUntilIdle", "run_until_idle"),
-    stopOnBlocker: pythonRouteBoolParam(params, "stopOnBlocker", "stop_on_blocker"),
+    runUntilIdle: pythonRouteAnyBoolParam(params, "runUntilIdle", "run_until_idle"),
+    stopOnBlocker: pythonRouteAnyBoolParam(params, "stopOnBlocker", "stop_on_blocker"),
   };
 }
 

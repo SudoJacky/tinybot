@@ -3587,6 +3587,32 @@ describe("AgentWorker", () => {
       run_until_idle: true,
       stop_on_blocker: true,
     });
+
+    const snakeAliasSession = await coworkService.createSession({
+      traceId: "seed-snake-alias",
+      goal: "Snake alias route flags",
+      workflowMode: "team",
+      agents: [{ id: "lead", name: "Lead", role: "Lead" }],
+    });
+    await worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(snakeAliasSession.id)}/run`,
+      body: {
+        max_rounds: 1,
+        runUntilIdle: "",
+        run_until_idle: "false",
+        stopOnBlocker: "",
+        stop_on_blocker: "false",
+      },
+    }));
+    const savedSnakeAlias = await store.readSnapshot(snakeAliasSession.id, "trace-1");
+    const snakeAliasRunSpan = savedSnakeAlias?.trace_spans.find((span) => span.name === "Cowork run");
+
+    expect(snakeAliasRunSpan?.input_ref).toBe("max_rounds=20, max_agents=3, max_agent_calls=30");
+    expect(snakeAliasRunSpan?.data).toMatchObject({
+      run_until_idle: true,
+      stop_on_blocker: true,
+    });
   });
 
   test("routes desktop cowork action API paths through the injected CoworkService", async () => {
