@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued Cowork Phase 10 direct RPC parity: direct TS `cowork.add_task` RPCs now mirror Python route text coercion for optional task `description`, preserving truthy numeric JSON descriptions instead of falling back to the task title.
+
 - Continued Cowork Phase 10 direct RPC parity: direct TS `cowork.add_task` RPCs now mirror Python route text coercion for required task `title`, accepting truthy numeric JSON values as task titles while still rejecting falsy/blank titles.
 
 - Continued Cowork Phase 10 direct RPC parity: direct TS `cowork.send_message` RPCs now mirror Python route text coercion for required message `content`, accepting truthy numeric JSON values as message text while still rejecting falsy/blank content.
@@ -992,6 +994,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS `cowork.send_message` metadata fields.
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS `cowork.send_message` content.
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS `cowork.add_task` titles.
+- [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS `cowork.add_task` descriptions.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.

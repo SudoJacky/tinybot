@@ -5095,7 +5095,7 @@ describe("AgentWorker", () => {
     await expect(worker.handleRequest(coworkRequest("cowork.add_task", {
       session_id: sessionId,
       title: 42,
-      description: "Check result",
+      description: 9001,
       assigned_agent_id: "reviewer",
       dependencies: ["open"],
     }))).resolves.toMatchObject({
@@ -5103,6 +5103,7 @@ describe("AgentWorker", () => {
         task: expect.objectContaining({
           id: "task_1",
           title: "42",
+          description: "9001",
           assigned_agent_id: "reviewer",
         }),
       },
