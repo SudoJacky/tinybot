@@ -766,6 +766,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: preserve Python fanout merge blocker decisions during TS mailbox completion-decision refresh.
 - [x] Continue Cowork Phase 10: preserve Python disagreement synthesis decisions during TS mailbox completion-decision refresh.
 - [x] Continue Cowork Phase 10: preserve Python completion-decision metadata for budget, workflow, focus, workspace, artifacts, and shared-memory counts during TS mailbox refresh.
+- [x] Continue Cowork Phase 10: preserve Python agent readiness score payloads during TS mailbox completion-decision refresh.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.

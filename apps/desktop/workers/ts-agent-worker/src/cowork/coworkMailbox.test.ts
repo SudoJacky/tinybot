@@ -389,6 +389,79 @@ describe("CoworkMailbox", () => {
     });
   });
 
+  it("refreshes Python-shaped agent readiness scores after mailbox delivery", async () => {
+    const session = await createTeamSession();
+    session.agents.coordinator.inbox = [];
+    session.agents.researcher.inbox = ["msg_existing"];
+    session.messages.msg_existing = {
+      id: "msg_existing",
+      thread_id: "thread_1",
+      sender_id: "coordinator",
+      recipient_ids: ["researcher"],
+      content: "Existing note",
+      created_at: fixedNow,
+      read_by: [],
+    };
+    session.tasks = {
+      task_1: {
+        id: "task_1",
+        title: "Ready research task",
+        description: "This task is ready for the researcher.",
+        assigned_agent_id: "researcher",
+        status: "pending",
+        dependencies: [],
+        result: "",
+        result_data: {},
+        confidence: null,
+        error: null,
+        priority: 0,
+        expected_output: "",
+        review_required: false,
+        reviewer_agent_ids: [],
+        review_status: "",
+        fanout_group_id: "",
+        merge_task_id: "",
+        source_blueprint_id: "",
+        source_event_id: "",
+        runtime_created: false,
+        created_at: fixedNow,
+        updated_at: fixedNow,
+      },
+    };
+
+    deliver(session, {
+      sender_id: "coordinator",
+      recipient_ids: ["researcher"],
+      content: "Please unblock this before we continue.",
+      requires_reply: true,
+      request_type: "unblock",
+      priority: 4,
+      wake_recipients: false,
+    });
+
+    expect(session.completion_decision.next_action).toBe("resolve_blockers");
+    expect(session.completion_decision.readiness).toEqual([
+      expect.objectContaining({
+        agent_id: "researcher",
+        name: "Researcher",
+        status: "waiting",
+        score: 105,
+        inbox_count: 2,
+        ready_tasks: ["task_1"],
+        pending_replies: ["env_1"],
+        activation_reasons: ["inbox_work", "ready_task", "pending_reply"],
+        team_id: "",
+        parent_agent_id: null,
+      }),
+      expect.any(Object),
+      expect.any(Object),
+    ]);
+    expect(session.completion_decision.readiness[0]).toMatchObject({
+      agent_id: "researcher",
+      score: 105,
+    });
+  });
+
   it("keeps review-required completed tasks behind review gates instead of summarizing", async () => {
     const session = await createTeamSession();
     session.agents.coordinator.inbox = [];

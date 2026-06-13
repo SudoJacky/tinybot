@@ -704,6 +704,7 @@ function refreshMailboxCompletionDecision(session: CoworkSession, now: () => str
     ready_to_finish: nextAction === "summarize",
     no_progress_rounds: session.no_progress_rounds,
     convergence_limit: CONVERGENCE_IDLE_ROUNDS,
+    readiness: mailboxAgentReadinessScores(session).slice(0, 6),
     budget: mailboxBudgetState(session),
     stop_reason: stringValue(session.stop_reason),
     workflow_mode: stringValue(session.workflow_mode),
@@ -803,6 +804,148 @@ function detectMailboxDisagreements(tasks: JsonObject[]): JsonObject[] {
     }
   }
   return signals.slice(0, 20);
+}
+
+function mailboxAgentReadinessScores(session: CoworkSession): JsonObject[] {
+  const scores = Object.values(session.agents)
+    .filter((agent) => !["done", "failed", "retired"].includes(stringValue(agent.status)))
+    .filter((agent) => stringValue(agent.lifecycle_status || "active") !== "retired")
+    .map((agent) => {
+      const agentId = stringValue(agent.id);
+      const readyTasks = readyTaskIdsFor(session, agentId);
+      const pendingReplies = pendingReplyRecordIdsFor(session, agentId);
+      const activationReasons = activationReasonsFor(session, agentId, readyTasks, pendingReplies);
+      return {
+        agent_id: agentId,
+        name: stringValue(agent.name),
+        status: stringValue(agent.status),
+        score: mailboxAgentReadinessScore(session, agentId, readyTasks, pendingReplies),
+        inbox_count: arrayValue(agent.inbox).length,
+        ready_tasks: readyTasks,
+        pending_replies: pendingReplies,
+        activation_reasons: activationReasons,
+        team_id: stringValue(agent.team_id),
+        parent_agent_id: nullableString(agent.parent_agent_id),
+      };
+    });
+  return scores.sort((left, right) => (numberOrNull(right.score) ?? 0) - (numberOrNull(left.score) ?? 0));
+}
+
+function mailboxAgentReadinessScore(session: CoworkSession, agentId: string, readyTasks: string[], pendingReplies: string[]): number {
+  const agent = jsonSafeObject(session.agents[agentId]);
+  let score = Math.min(arrayValue(agent.inbox).length, 5) * 8;
+  score += mailboxPressureFor(session, agentId);
+  if (readyTasks.length > 0) {
+    score += 45;
+  }
+  const status = stringValue(agent.status);
+  if (status === "blocked") {
+    score -= 25;
+  }
+  if (status === "waiting") {
+    score += 10;
+  }
+  if (stringValue(agent.current_task_id)) {
+    score += 8;
+  }
+  const rounds = numberOrNull(agent.rounds);
+  if (rounds !== null && rounds > 0) {
+    score -= Math.min(rounds, 8);
+  }
+  const profile = defaultPolicyRegistry().resolve(session.workflow_mode).runtimeProfile;
+  const leadId = leadAgentId(session);
+  if (profile === "team" && agentId !== leadId) {
+    score += 10;
+  } else if (profile === "orchestrator") {
+    score += agentId === leadId ? 25 : -12;
+  } else if (profile === "peer_handoff" && (stringValue(agent.current_task_id) || readyTasks.length > 0)) {
+    score += 30;
+  } else if (profile === "generator_verifier") {
+    const reviewer = isReviewerAgent(agent);
+    const hasPendingReview = Object.values(session.tasks).some((task) => (
+      stringValue(task.status) === "pending"
+      && stringValue(task.assigned_agent_id) === agentId
+      && looksLikeReviewTask(stringValue(task.title), stringValue(task.description))
+    ));
+    score += reviewer && hasPendingReview ? 40 : 0;
+    score -= reviewer && !hasPendingReview ? 8 : 0;
+  }
+  return score;
+}
+
+function readyTaskIdsFor(session: CoworkSession, agentId: string): string[] {
+  return Object.values(session.tasks)
+    .filter((task) => stringValue(task.assigned_agent_id) === agentId)
+    .filter((task) => stringValue(task.status) === "pending")
+    .filter((task) => taskDependenciesDone(session, task))
+    .map((task) => stringValue(task.id));
+}
+
+function taskDependenciesDone(session: CoworkSession, task: JsonObject): boolean {
+  return arrayValue(task.dependencies).map(stringValue).every((taskId) => {
+    const dependency = session.tasks[taskId];
+    return dependency && ["completed", "skipped"].includes(stringValue(dependency.status));
+  });
+}
+
+function pendingReplyRecordIdsFor(session: CoworkSession, agentId: string): string[] {
+  return Object.values(session.mailbox)
+    .map(jsonSafeObject)
+    .filter((record) => arrayValue(record.recipient_ids).map(stringValue).includes(agentId))
+    .filter((record) => record.requires_reply === true && ["delivered", "read"].includes(stringValue(record.status)))
+    .map((record) => stringValue(record.id));
+}
+
+function activationReasonsFor(session: CoworkSession, agentId: string, readyTasks: string[], pendingReplies: string[]): string[] {
+  const agent = jsonSafeObject(session.agents[agentId]);
+  const reasons: string[] = [];
+  if (arrayValue(agent.inbox).length > 0) {
+    reasons.push("inbox_work");
+  }
+  if (readyTasks.length > 0) {
+    reasons.push("ready_task");
+  }
+  if (pendingReplies.length > 0) {
+    reasons.push("pending_reply");
+  }
+  if (Object.values(session.tasks).some((task) => task.review_required === true
+    && stringValue(task.status) === "pending"
+    && arrayValue(task.reviewer_agent_ids).map(stringValue).includes(agentId))) {
+    reasons.push("review_gate");
+  }
+  return reasons;
+}
+
+function mailboxPressureFor(session: CoworkSession, agentId: string): number {
+  const agent = jsonSafeObject(session.agents[agentId]);
+  let pressure = 0;
+  for (const record of Object.values(session.mailbox).map(jsonSafeObject)) {
+    if (!arrayValue(record.recipient_ids).map(stringValue).includes(agentId) || ["replied", "expired"].includes(stringValue(record.status))) {
+      continue;
+    }
+    if (arrayValue(agent.inbox).map(stringValue).includes(stringValue(record.message_id))) {
+      pressure = Math.max(pressure, numberOrNull(record.priority) ?? 0);
+    }
+    if (record.requires_reply === true && ["delivered", "read"].includes(stringValue(record.status))) {
+      pressure = Math.max(pressure, (numberOrNull(record.priority) ?? 0) + 20);
+    }
+  }
+  return pressure;
+}
+
+function isReviewerAgent(agent: JsonObject): boolean {
+  const text = [
+    stringValue(agent.id),
+    stringValue(agent.name),
+    stringValue(agent.role),
+    ...arrayValue(agent.responsibilities).map(stringValue),
+  ].join(" ").toLowerCase();
+  return ["review", "verify", "quality", "risk"].some((marker) => text.includes(marker));
+}
+
+function looksLikeReviewTask(title: string, description: string): boolean {
+  const text = `${title} ${description}`.toLowerCase();
+  return ["review", "verify", "quality", "risk", "check"].some((marker) => text.includes(marker));
 }
 
 function mailboxBudgetState(session: CoworkSession): JsonObject {
