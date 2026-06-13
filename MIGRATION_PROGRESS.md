@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued Cowork Phase 10 rollout parity: desktop gateway recipient-less swarm message classification now follows the TS worker parser's `recipientIds` before `recipient_ids` alias precedence, keeping rollout fallback aligned with native route behavior.
+
 - Continued Cowork Phase 10 rollout parity: desktop gateway blueprint-based Cowork session creation now gives blueprint architecture precedence over top-level create mode while applying swarm rollout gates, matching Python create-session routing.
 
 - Continued Cowork Phase 10 rollout parity: desktop gateway auto-run swarm session creation now checks the swarm rollout gate before scheduler routing, so disabling TS swarm routing preserves Python fallback for create-and-run swarm starts.
@@ -145,6 +147,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 
 | Date | Update |
 | --- | --- |
+| 2026-06-13 | Continued Cowork Phase 10 rollout parity: recipient-less swarm message fallback classification now follows the worker recipient alias precedence. |
 | 2026-06-13 | Continued Cowork Phase 10 rollout parity: blueprint create architecture now takes precedence over top-level mode for swarm rollout fallback classification. |
 | 2026-06-13 | Continued Cowork Phase 10 rollout parity: auto-run swarm session creation now follows the swarm rollout gate before scheduler routing. |
 | 2026-06-13 | Continued Cowork Phase 10 rollout parity: normalized swarm create aliases now follow the swarm rollout gate for Python fallback when TS swarm routing is disabled. |
@@ -633,6 +636,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: normalize swarm create architecture aliases before applying desktop rollout fallback gates.
 - [x] Continue Cowork Phase 10: classify auto-run swarm session creation under the swarm rollout gate before scheduler routing.
 - [x] Continue Cowork Phase 10: prefer blueprint architecture over top-level create mode when applying swarm rollout fallback gates.
+- [x] Continue Cowork Phase 10: align recipient-less swarm message rollout gates with worker recipient alias precedence.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Start Heartbeat runtime Phase 1: add pure TS heartbeat decision parsing, target selection, manual trigger/status, and tick service orchestration.
 - [x] Continue Heartbeat runtime Phase 1: add start/stop interval lifecycle with disabled guard, first-delay scheduling, and no-overlap scheduled ticks.

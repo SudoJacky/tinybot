@@ -1718,6 +1718,39 @@ describe("gateway HTTP client", () => {
     ]);
   });
 
+  test("uses worker recipient alias precedence for swarm message rollout gates", async () => {
+    const fetchFn = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
+      if (String(url).endsWith("/webui/bootstrap")) {
+        return new Response(JSON.stringify({ token: "token-1" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ gateway: true }), { status: 200 });
+    });
+    const nativeCowork = {
+      route: vi.fn(async () => ({ native: true })),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeCowork,
+      tsCoworkRuntime: {
+        swarm: false,
+        fallbackToPython: true,
+      },
+    });
+
+    await expect(client.cowork.message("cw_1", {
+      content: "Prioritize evidence",
+      recipient_ids: ["lead"],
+      recipientIds: [],
+    })).resolves.toEqual({ gateway: true });
+
+    expect(nativeCowork.route).not.toHaveBeenCalled();
+    expect(fetchFn.mock.calls.map((call) => String((call as unknown[])[0]))).toEqual([
+      "http://127.0.0.1:18790/webui/bootstrap",
+      "http://127.0.0.1:18790/api/cowork/sessions/cw_1/messages",
+    ]);
+  });
+
   test("uses Python gateway for swarm cowork create when the swarm rollout gate is disabled", async () => {
     const fetchFn = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
       if (String(url).endsWith("/webui/bootstrap")) {

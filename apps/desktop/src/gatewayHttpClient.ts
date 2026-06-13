@@ -999,7 +999,7 @@ function recipientlessCoworkMessageRoute(method: string, path: string, body: unk
     return false;
   }
   const payload = asRecord(body);
-  const recipients = payload?.recipient_ids ?? payload?.recipientIds;
+  const recipients = payload?.recipientIds ?? payload?.recipient_ids;
   return recipients === undefined || (Array.isArray(recipients) && recipients.length === 0);
 }
 
