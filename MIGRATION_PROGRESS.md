@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Task/Cron background runtime parity: TS-native `cron.run_due` now routes the protected Dream system cron job through the existing Dream bridge instead of skipping all `system_event` jobs, while preserving skipped diagnostics for unknown system events.
+
 - Continued Task/Cron background runtime parity: TS-native `cron` add now rejects conflicting schedule sources instead of silently prioritizing one, matching the migration contract that exactly one of `every_seconds`, `cron_expr`, or `at` is required.
 
 - Continued Task/Cron background runtime parity: native Cron bridge normalization now preserves Python-compatible `run_history` / `runHistory` records instead of dropping job execution history from listed jobs.

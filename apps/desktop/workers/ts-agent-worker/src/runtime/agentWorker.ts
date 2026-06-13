@@ -2415,6 +2415,9 @@ export class AgentWorker {
         error: "job is disabled",
       });
     }
+    if (job.payload.kind === "system_event" && job.name === "dream") {
+      return this.runDreamCronJobForRequest(request, job, runAtMs);
+    }
     if (job.payload.kind !== "agent_turn") {
       return cronRunRecord(job, "skipped", runAtMs, Date.now() - runAtMs, {
         error: "system_event cron payloads are not handled by the TS worker yet",
@@ -2458,6 +2461,33 @@ export class AgentWorker {
         stopReason,
         ...(delivery ? { delivered: delivery.delivered, deliveryReason: delivery.deliveryReason } : {}),
         ...(typeof result.error === "string" ? { error: result.error } : {}),
+      });
+    } catch (error) {
+      return cronRunRecord(job, "error", runAtMs, Date.now() - runAtMs, {
+        runId,
+        error: errorMessage(error),
+      });
+    }
+  }
+
+  private async runDreamCronJobForRequest(
+    request: WorkerRequest,
+    job: CronRunDueJob,
+    runAtMs: number,
+  ): Promise<Record<string, unknown>> {
+    const runId = `cron-${sanitizeCronRunId(job.id)}-${sanitizeCronRunId(request.id)}`;
+    try {
+      if (!this.dreamBridge) {
+        throw new Error("Dream commands are unavailable in this runtime.");
+      }
+      const result = await this.dreamBridge.runDream({
+        traceId: request.trace_id,
+        sessionId: `cron:${job.id}`,
+      });
+      return cronRunRecord(job, "ok", runAtMs, Date.now() - runAtMs, {
+        runId,
+        finalContent: result.content,
+        ...(result.metadata ? { dreamMetadata: result.metadata } : {}),
       });
     } catch (error) {
       return cronRunRecord(job, "error", runAtMs, Date.now() - runAtMs, {

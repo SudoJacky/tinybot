@@ -7192,6 +7192,52 @@ describe("AgentWorker", () => {
     expect(events).not.toContainEqual(expect.objectContaining({ event: "cron.delivery" }));
   });
 
+  test("runs dream system cron jobs through the dream bridge", async () => {
+    const provider = new QueueProvider([]);
+    const dreamBridge = {
+      runDream: vi.fn(async () => ({ content: "Dream applied 1 provider memory note operation.", metadata: { changed: true } })),
+      getDreamLog: vi.fn(),
+      restoreDream: vi.fn(),
+    };
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: () => {},
+      dreamBridge,
+    });
+
+    const response = await worker.handleRequest(cronRunDueRequest({
+      model: "fixture-model",
+      jobs: [
+        {
+          id: "dream",
+          name: "dream",
+          enabled: true,
+          payload: { kind: "system_event", message: "dream" },
+        },
+      ],
+    }));
+
+    expect(response).toMatchObject({
+      result: {
+        records: [
+          expect.objectContaining({
+            jobId: "dream",
+            status: "ok",
+            runId: "cron-dream-cron-run-due-1",
+            finalContent: "Dream applied 1 provider memory note operation.",
+            dreamMetadata: { changed: true },
+          }),
+        ],
+      },
+    });
+    expect(dreamBridge.runDream).toHaveBeenCalledWith({
+      traceId: "trace-cron-run-due",
+      sessionId: "cron:dream",
+    });
+    expect(provider.messages).toEqual([]);
+  });
+
   test("reports skipped and failed cron job records without aborting the due batch", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),

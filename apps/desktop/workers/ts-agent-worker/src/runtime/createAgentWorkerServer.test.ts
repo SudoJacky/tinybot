@@ -2267,6 +2267,34 @@ describe("createAgentWorkerServer", () => {
 
   test("registers cron tool that calls native cron RPC", async () => {
     const lines: string[] = [];
+    const respondedRequestIds = new Set<string>();
+    const respondToRequest = async (request: ParsedLine, result: unknown): Promise<void> => {
+      if (typeof request.id !== "string" || typeof request.trace_id !== "string") {
+        throw new Error("missing worker request id");
+      }
+      respondedRequestIds.add(request.id);
+      await server.handleLine(
+        JSON.stringify({
+          protocol_version: "1",
+          id: request.id,
+          trace_id: request.trace_id,
+          result,
+        }),
+      );
+    };
+    const respondToNextRequest = async (method: string, result: unknown): Promise<ParsedLine> => {
+      await waitFor(() => parsedLines(lines).some((line) =>
+        line.method === method && typeof line.id === "string" && !respondedRequestIds.has(line.id)
+      ));
+      const request = parsedLines(lines).find((line) =>
+        line.method === method && typeof line.id === "string" && !respondedRequestIds.has(line.id)
+      );
+      if (!request) {
+        throw new Error(`missing ${method} request`);
+      }
+      await respondToRequest(request, result);
+      return request;
+    };
     const provider = new QueueProvider([
       {
         content: "",
@@ -2302,6 +2330,7 @@ describe("createAgentWorkerServer", () => {
         params: {
           spec: {
             runId: "run-1",
+            sessionId: "chat-1",
             messages: [{ role: "user", content: "schedule a status check" }],
             model: "test-model",
             maxIterations: 2,
@@ -2321,32 +2350,32 @@ describe("createAgentWorkerServer", () => {
         job: {
           name: "Check status",
           schedule: { kind: "every", everyMs: 60000 },
-          payload: { kind: "agent_turn", message: "Check status", deliver: true, channel: "native", to: "run-1" },
+          payload: { kind: "agent_turn", message: "Check status", deliver: true, channel: "native", to: "chat-1" },
           deleteAfterRun: false,
         },
       },
     });
+    await respondToNextRequest("session.set_checkpoint", { session_id: "chat-1" });
 
-    await server.handleLine(
-      JSON.stringify({
-        protocol_version: "1",
-        id: cronRequest?.id,
-        trace_id: "trace-1",
-        result: {
-          job: {
-            id: "job-1",
-            name: "Check status",
-            enabled: true,
-            schedule: { kind: "every", everyMs: 60000 },
-            payload: { kind: "agent_turn", message: "Check status", deliver: true, channel: "native", to: "run-1" },
-            state: { nextRunAtMs: 1775000060000 },
-            createdAtMs: 1775000000000,
-            updatedAtMs: 1775000000000,
-            deleteAfterRun: false,
-          },
-        },
-      }),
-    );
+    if (!cronRequest) {
+      throw new Error("missing cron.job.add request");
+    }
+    await respondToRequest(cronRequest, {
+      job: {
+        id: "job-1",
+        name: "Check status",
+        enabled: true,
+        schedule: { kind: "every", everyMs: 60000 },
+        payload: { kind: "agent_turn", message: "Check status", deliver: true, channel: "native", to: "chat-1" },
+        state: { nextRunAtMs: 1775000060000 },
+        createdAtMs: 1775000000000,
+        updatedAtMs: 1775000000000,
+        deleteAfterRun: false,
+      },
+    });
+    await respondToNextRequest("session.set_checkpoint", { session_id: "chat-1" });
+    await respondToNextRequest("session.set_checkpoint", { session_id: "chat-1" });
+    await respondToNextRequest("session.persist_turn", { session_id: "chat-1", message_count: 4 });
     await run;
 
     expect(provider.requests[1]).toContainEqual(expect.objectContaining({
