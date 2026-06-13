@@ -945,6 +945,9 @@ function coworkRouteGroup(method: string, path: string, body: unknown): "readOnl
   if (/\/api\/cowork\/sessions\/[^/]+\/run(?:$|\?)/.test(path)) {
     return "scheduler";
   }
+  if (autoRunCoworkCreateRoute(method, path, body)) {
+    return "scheduler";
+  }
   if (recipientlessCoworkMessageRoute(method, path, body)) {
     return "swarm";
   }
@@ -960,6 +963,14 @@ function coworkRouteGroup(method: string, path: string, body: unknown): "readOnl
     return "swarm";
   }
   return "mutations";
+}
+
+function autoRunCoworkCreateRoute(method: string, path: string, body: unknown): boolean {
+  if (method !== "POST" || !/\/api\/cowork\/sessions(?:$|\?)/.test(path)) {
+    return false;
+  }
+  const payload = asRecord(body);
+  return payload?.auto_run === true || payload?.autoRun === true;
 }
 
 function recipientlessCoworkMessageRoute(method: string, path: string, body: unknown): boolean {

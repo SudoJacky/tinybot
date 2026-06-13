@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued Cowork Phase 10 rollout parity: desktop gateway Cowork session creation with `auto_run` / `autoRun` is now classified under the scheduler rollout gate, so disabling TS scheduler routing sends create-and-run requests to the Python fallback instead of accidentally invoking the native TS scheduler path.
+
 - Continued config/provider preview durability: TS provider-model preview now falls back to an empty public config when native snapshots are unavailable but request-scoped `api_key` / `api_base` / manual models are supplied, preserving live/manual model discovery without native secret resolution.
 
 - Continued TS worker packaging/build boundary: `apps/desktop` now has a `typecheck:worker` gate backed by a dedicated `workers/ts-agent-worker/tsconfig.json` plus a Node source-runtime smoke check, and the main desktop build runs it before Vite packaging so worker type/runtime syntax regressions are no longer hidden by the app-only `tsconfig`.
@@ -133,6 +135,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 
 | Date | Update |
 | --- | --- |
+| 2026-06-13 | Continued Cowork Phase 10 rollout parity: auto-run session creation now follows the scheduler rollout gate, preserving Python fallback when TS scheduler routing is disabled. |
 | 2026-06-13 | Continued config/provider preview durability: provider-model preview can use request-scoped key/base/manual model overrides when native public config snapshots are unavailable. |
 | 2026-06-13 | Continued config/provider bridge durability: legacy native config fallback now uses `provider.resolve_secret` for OpenAI secrets when env keys are absent, while keeping env keys higher priority. |
 | 2026-06-13 | Continued session persistence dedupe parity: Rust `session.append_messages` and `session.persist_turn` now dedupe equivalent OpenAI `tool_calls` and TS `toolCalls` assistant messages. |
