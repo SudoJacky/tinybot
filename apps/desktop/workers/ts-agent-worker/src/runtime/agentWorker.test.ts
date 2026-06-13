@@ -3828,6 +3828,22 @@ describe("AgentWorker", () => {
         },
       },
     });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/emergency-stop`,
+      body: { reason: 404 },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          agent_step: expect.objectContaining({
+            action_kind: "emergency_stop",
+            scheduler_reason: "404",
+          }),
+        },
+      },
+    });
   });
 
   test("routes remaining non-run cowork API compatibility paths through the injected CoworkService", async () => {

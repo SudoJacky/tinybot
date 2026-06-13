@@ -1196,7 +1196,7 @@ export class AgentWorker {
       };
     }
     if (resource === "emergency-stop") {
-      const reason = stringParam(body, "reason", "reason");
+      const reason = pythonRouteTextParam(body, "reason", "reason");
       const result = await this.coworkService.emergencyStopSession({ traceId, sessionId, reason });
       return {
         status: 200,
