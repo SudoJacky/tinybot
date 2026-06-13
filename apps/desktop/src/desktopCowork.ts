@@ -260,7 +260,7 @@ export type DesktopCoworkActionInput =
   | { action: "loadOrganization"; sessionId: string }
   | { action: "loadQueues"; sessionId: string }
   | { action: "loadBranches"; sessionId: string }
-  | { action: "loadAgentActivity"; sessionId: string; agentId: string }
+  | { action: "loadAgentActivity"; sessionId: string; agentId: string; limit?: number }
   | { action: "loadObservation"; sessionId: string; detailRef: string; requesterAgentId?: string }
   | { action: "createSession"; goal?: string; blueprint?: unknown; architecture?: string; autoRun?: boolean }
   | { action: "runSession"; sessionId: string }
@@ -506,11 +506,16 @@ export function buildDesktopCoworkActionRequest(input: DesktopCoworkActionInput)
       return { method: "GET", path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/queues` };
     case "loadBranches":
       return { method: "GET", path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/branches` };
-    case "loadAgentActivity":
+    case "loadAgentActivity": {
+      const params = new URLSearchParams();
+      if (typeof input.limit === "number" && Number.isFinite(input.limit)) {
+        params.set("limit", String(input.limit));
+      }
       return {
         method: "GET",
-        path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/agents/${encodePathSegment(input.agentId)}/activity`,
+        path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/agents/${encodePathSegment(input.agentId)}/activity${params.toString() ? `?${params}` : ""}`,
       };
+    }
     case "loadObservation":
       const params = new URLSearchParams();
       if (input.requesterAgentId) {

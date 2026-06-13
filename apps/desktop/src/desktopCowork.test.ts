@@ -506,6 +506,10 @@ describe("desktop Cowork helpers", () => {
       method: "GET",
       path: "/api/cowork/sessions/cowork%2F1/agents/lead%20agent/activity",
     });
+    expect(buildDesktopCoworkActionRequest({ action: "loadAgentActivity", sessionId: "cowork/1", agentId: "lead agent", limit: 5 })).toEqual({
+      method: "GET",
+      path: "/api/cowork/sessions/cowork%2F1/agents/lead%20agent/activity?limit=5",
+    });
     expect(buildDesktopCoworkActionRequest({
       action: "loadObservation",
       sessionId: "cowork/1",
