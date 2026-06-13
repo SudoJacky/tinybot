@@ -6652,6 +6652,87 @@ describe("AgentWorker", () => {
     expect(heartbeatRuntime.stop).toHaveBeenCalledTimes(1);
   });
 
+  test("routes channel lifecycle requests to the native channel manager", async () => {
+    const channelManager = {
+      startAll: vi.fn(async () => undefined),
+      stopAll: vi.fn(async () => undefined),
+      status: vi.fn(() => ({
+        running: true,
+        channels: [
+          { name: "feishu", displayName: "Feishu", supportsStreaming: true, running: true },
+        ],
+        diagnostics: [],
+      })),
+    };
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => {},
+      channelManager,
+    });
+
+    await expect(worker.handleRequest(channelRequest("channel.start"))).resolves.toMatchObject({
+      protocol_version: "1",
+      id: "channel.start-1",
+      trace_id: "trace-channel.start",
+      result: {
+        started: true,
+        status: {
+          running: true,
+          channels: [
+            { name: "feishu", displayName: "Feishu", supportsStreaming: true, running: true },
+          ],
+          diagnostics: [],
+        },
+      },
+    });
+    await expect(worker.handleRequest(channelRequest("channel.status"))).resolves.toMatchObject({
+      result: {
+        running: true,
+        channels: [
+          { name: "feishu", displayName: "Feishu", supportsStreaming: true, running: true },
+        ],
+        diagnostics: [],
+      },
+    });
+    await expect(worker.handleRequest(channelRequest("channel.stop"))).resolves.toMatchObject({
+      result: {
+        stopped: true,
+        status: {
+          running: true,
+          channels: [
+            { name: "feishu", displayName: "Feishu", supportsStreaming: true, running: true },
+          ],
+          diagnostics: [],
+        },
+      },
+    });
+    expect(channelManager.startAll).toHaveBeenCalledTimes(1);
+    expect(channelManager.stopAll).toHaveBeenCalledTimes(1);
+    expect(channelManager.status).toHaveBeenCalledTimes(3);
+  });
+
+  test("returns an explicit error when channel manager is unavailable", async () => {
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => {},
+    });
+
+    await expect(worker.handleRequest(channelRequest("channel.status"))).resolves.toMatchObject({
+      error: {
+        code: "worker_error",
+        message: "channel.status requires a channel manager",
+      },
+    });
+    await expect(worker.handleRequest(channelRequest("channel.start"))).resolves.toMatchObject({
+      error: {
+        code: "worker_error",
+        message: "channel.start requires a channel manager",
+      },
+    });
+  });
+
   test("returns an explicit error when heartbeat runtime is unavailable", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),

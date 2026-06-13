@@ -2,6 +2,7 @@ import { AgentRunner, type AgentRunnerCheckpoint, type AgentRunnerEvent } from "
 import type { AgentMessage, AgentRunResult, AgentRunSpec } from "../agent/agentRunSpec.ts";
 import type { AgentRunInput, ContextBuildMetadata, ContextBridgeMetadata } from "../agent/contextTypes.ts";
 import { MessageBus } from "../bus/messageBus.ts";
+import type { ChannelManagerStatus } from "../channels/channelManager.ts";
 import { ChannelRuntime } from "../channels/channelRuntime.ts";
 import {
   parsePythonBridgeInboundMessage,
@@ -110,6 +111,13 @@ export type AgentWorkerOptions = {
   knowledgeProvider?: WebuiKnowledgeProvider;
   workspaceBridge?: WebuiWorkspaceProvider;
   heartbeatRuntime?: Pick<HeartbeatRuntime, "start" | "stop" | "triggerNow" | "getStatus"> & Partial<Pick<HeartbeatRuntime, "refreshConfig">>;
+  channelManager?: ChannelLifecycleManager;
+};
+
+export type ChannelLifecycleManager = {
+  startAll(): Promise<void>;
+  stopAll(): Promise<void>;
+  status(): ChannelManagerStatus;
 };
 
 export type PrepareToolsHandler = (traceId: string) => Promise<unknown> | unknown;
@@ -248,6 +256,7 @@ export class AgentWorker {
   private readonly knowledgeProvider?: WebuiKnowledgeProvider;
   private readonly workspaceBridge?: WebuiWorkspaceProvider;
   private readonly heartbeatRuntime?: Pick<HeartbeatRuntime, "start" | "stop" | "triggerNow" | "getStatus"> & Partial<Pick<HeartbeatRuntime, "refreshConfig">>;
+  private readonly channelManager?: ChannelLifecycleManager;
   private readonly commandRouter: CommandRouter;
   private readonly turnLifecycle: TurnLifecycle;
   private readonly activeRuns = new Map<string, ActiveRun>();
@@ -280,6 +289,7 @@ export class AgentWorker {
     this.knowledgeProvider = options.knowledgeProvider;
     this.workspaceBridge = options.workspaceBridge;
     this.heartbeatRuntime = options.heartbeatRuntime;
+    this.channelManager = options.channelManager;
     this.commandRouter = options.commandRouter ?? createDefaultCommandRouter({
       cancelActiveRunsForSession: (sessionId) => this.cancelActiveRunsForSession(sessionId),
       getStatusSnapshot: (context) => this.statusSnapshot(context.sessionId),
@@ -523,6 +533,18 @@ export class AgentWorker {
 
     if (request.method === "transport.websocket_message") {
       return this.handleTransportWebSocketMessageRequest(request);
+    }
+
+    if (request.method === "channel.start") {
+      return this.handleChannelStartRequest(request);
+    }
+
+    if (request.method === "channel.stop") {
+      return this.handleChannelStopRequest(request);
+    }
+
+    if (request.method === "channel.status") {
+      return this.handleChannelStatusRequest(request);
     }
 
     if (request.method === "channel.dispatch_inbound") {
@@ -2295,6 +2317,62 @@ export class AgentWorker {
         id: request.id,
         trace_id: request.trace_id,
         result: this.heartbeatRuntime.getStatus(),
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error));
+    }
+  }
+
+  private async handleChannelStartRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.channelManager) {
+      return this.failure(request, "channel.start requires a channel manager");
+    }
+    try {
+      await this.channelManager.startAll();
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: {
+          started: true,
+          status: this.channelManager.status(),
+        },
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error));
+    }
+  }
+
+  private async handleChannelStopRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.channelManager) {
+      return this.failure(request, "channel.stop requires a channel manager");
+    }
+    try {
+      await this.channelManager.stopAll();
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: {
+          stopped: true,
+          status: this.channelManager.status(),
+        },
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error));
+    }
+  }
+
+  private handleChannelStatusRequest(request: WorkerRequest): WorkerResponse {
+    if (!this.channelManager) {
+      return this.failure(request, "channel.status requires a channel manager");
+    }
+    try {
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: this.channelManager.status(),
       };
     } catch (error) {
       return this.failure(request, errorMessage(error));

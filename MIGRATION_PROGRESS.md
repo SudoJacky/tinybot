@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Channel Bus Phase 5 foundation: `AgentWorker` and the stdio worker server now accept an injected native `ChannelManager` and expose `channel.start`, `channel.status`, and `channel.stop` RPCs for TS-managed channel lifecycle control.
+
 - Continued Channel Bus Phase 5 foundation: native text channel adapters can now be instantiated from canonical enabled channel config plus host-provided connector registry, skipping channels without native connectors so Python bridge fallback can remain explicit during migration.
 
 - Continued Channel Bus Phase 5 foundation: added a reusable TS `NativeTextChannel` adapter boundary for native platform connectors, sharing `BaseChannel` allow-list/inbound normalization while forwarding outbound text, stream delta, usage, and lifecycle calls without the Python bridge.
@@ -471,12 +473,15 @@ Channel Bus row 18 update: Phase 5 foundation now has a reusable TS `NativeTextC
 
 Channel Bus row 18 update: Phase 5 native adapter assembly now creates `NativeTextChannel` adapters from enabled canonical channel config and host-provided connector registry, with explicit missing-connector skips for channels still served by the Python bridge during migration.
 
+Channel Bus row 18 update: Phase 5 worker lifecycle wiring now accepts an injected native `ChannelManager` and exposes `channel.start`, `channel.status`, and `channel.stop` worker RPCs so TS-managed adapters can be started, inspected, and stopped by the native host.
+
 Heartbeat row 20 update: Phase 4 now runs scheduled notifications through the shared Python-compatible evaluator, emits approved external notifications as `heartbeat.delivery` worker events, and projects those delivery events into target native desktop chats without requiring an active agent run.
 
 ## Work Log
 
 | Date | Update |
 | --- | --- |
+| 2026-06-14 | Continued Channel Bus Phase 5 foundation: wired injected native `ChannelManager` lifecycle through `AgentWorker` and the stdio server via `channel.start/status/stop` RPCs. |
 | 2026-06-14 | Continued Channel Bus Phase 5 foundation: added native text channel adapter factory from enabled channel config plus connector registry, preserving Python bridge fallback for channels without native connectors. |
 | 2026-06-14 | Continued Channel Bus Phase 5 foundation: added reusable TS `NativeTextChannel` connector boundary for native platform adapters with BaseChannel allow-list/inbound semantics and outbound text/delta/usage forwarding. |
 | 2026-06-14 | Continued Heartbeat runtime Phase 4: native desktop listens for `heartbeat.delivery` worker events and projects approved external heartbeat notifications into the target native chat without an active run id. |
@@ -995,6 +1000,7 @@ Heartbeat row 20 update: Phase 4 now runs scheduled notifications through the sh
 - [x] Continue Channel Bus lifecycle parity: isolate per-channel stop failures and continue stopping healthy adapters.
 - [x] Continue Channel Bus Phase 5 foundation: add reusable TS `NativeTextChannel` connector boundary for native platform adapters.
 - [x] Continue Channel Bus Phase 5 foundation: instantiate native text adapters from enabled channel config and connector registry.
+- [x] Continue Channel Bus Phase 5 foundation: expose injected native `ChannelManager` lifecycle through worker RPCs.
 - [x] Start API Runtime Phase 1: expose TS-native public `GET /health` and OpenAI-compatible `GET /v1/models` through the worker route bridge.
 - [x] Continue API Runtime Phase 1: expose TS-native non-stream `POST /v1/chat/completions` through the worker route bridge and existing AgentRunner path.
 - [x] Continue API Runtime Phase 1: apply `api.timeout` and OpenAI-shaped 504 handling to TS-native chat completions.

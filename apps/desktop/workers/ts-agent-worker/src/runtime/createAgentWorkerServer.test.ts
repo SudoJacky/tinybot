@@ -77,6 +77,58 @@ describe("createAgentWorkerServer", () => {
     );
   });
 
+  test("wires channel lifecycle requests to an injected native channel manager", async () => {
+    const lines: string[] = [];
+    let startCalls = 0;
+    const channelManager = {
+      startAll: async () => {
+        startCalls += 1;
+      },
+      stopAll: async () => undefined,
+      status: () => ({
+        running: true,
+        channels: [
+          { name: "feishu", displayName: "Feishu", supportsStreaming: true, running: true },
+        ],
+        diagnostics: [],
+      }),
+    };
+    const server = createAgentWorkerServer({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      channelManager,
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    await server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "channel-start",
+        trace_id: "trace-channel-start",
+        method: "channel.start",
+        params: {},
+      }),
+    );
+
+    expect(startCalls).toBe(1);
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      protocol_version: "1",
+      id: "channel-start",
+      trace_id: "trace-channel-start",
+      result: {
+        started: true,
+        status: {
+          running: true,
+          channels: [
+            { name: "feishu", displayName: "Feishu", supportsStreaming: true, running: true },
+          ],
+          diagnostics: [],
+        },
+      },
+    });
+  });
+
   test("routes dream slash commands through native memory dream RPC", async () => {
     const lines: string[] = [];
     const provider = new QueueProvider([{ content: "unused", toolCalls: [], stopReason: "stop" }]);

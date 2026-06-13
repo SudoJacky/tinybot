@@ -32,7 +32,7 @@ import { registerToolsByPolicy } from "../tools/toolPolicy.ts";
 import type { ToolRegistry } from "../tools/toolRegistry.ts";
 import { NativeBackgroundRegistryBridge } from "../background/backgroundRegistryBridge.ts";
 import { NativeApprovalBridge } from "./approvalBridge.ts";
-import { AgentWorker } from "./agentWorker.ts";
+import { AgentWorker, type ChannelLifecycleManager } from "./agentWorker.ts";
 import {
   NativeConfigBridge,
   modelProviderConfigFromNativeConfig,
@@ -61,6 +61,7 @@ export type CreateAgentWorkerServerOptions = {
   enableNativeMcpDiscovery?: boolean;
   createModelProvider?: (config: ModelProviderConfig) => ModelProvider;
   fetchProviderModelsJson?: JsonFetcher;
+  channelManager?: ChannelLifecycleManager;
   writeLine: (line: string) => void;
   writeLog: (line: string) => void;
 };
@@ -238,6 +239,7 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     coworkService,
     coworkScheduler,
     heartbeatRuntime,
+    channelManager: options.channelManager,
     statusProvider: async () => {
       const runtime = await providerRuntimeFromNativeConfig(configBridge, options.env ?? process.env, {});
       const providerId = stringValue(runtime.providerId);
