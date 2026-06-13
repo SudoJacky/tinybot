@@ -203,7 +203,7 @@ describe("cowork session snapshot", () => {
       return {
         id: `wu_${String(value).padStart(3, "0")}`,
         title: `Large unit ${String(value).padStart(3, "0")}`,
-        status: value <= 60 ? "completed" : "pending",
+        status: value <= 60 ? "completed" : value === 61 ? "in_progress" : "pending",
         kind: "fanout",
         assigned_agent_id: `worker_${((value - 1) % 8) + 1}`,
         fanout_group_id: `stream_${Math.floor((value - 1) / 15) + 1}`,
@@ -247,13 +247,19 @@ describe("cowork session snapshot", () => {
       unit_counts: { completed: 15 },
       sample_unit_ids: ["wu_001", "wu_002", "wu_003", "wu_004", "wu_005", "wu_006", "wu_007", "wu_008"],
     });
+    expect(snapshot.swarm_organization.workstreams.find((stream) => stream.id === "stream_5")).toMatchObject({
+      status: "active",
+      risk: "low",
+      unit_counts: { in_progress: 1, pending: 14 },
+      blockers: [],
+    });
     expect(snapshot.large_swarm_summary).toMatchObject({
       schema_version: "cowork.large_swarm.v1",
       generated_at: isoTimestamp,
       enabled: true,
       total_work_units: 120,
       render_limit: 60,
-      status_counts: { completed: 60, pending: 60 },
+      status_counts: { completed: 60, in_progress: 1, pending: 59 },
     });
     expect(snapshot.large_swarm_summary.workstreams).toHaveLength(8);
   });

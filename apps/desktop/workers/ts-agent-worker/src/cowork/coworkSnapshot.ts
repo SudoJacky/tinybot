@@ -1051,7 +1051,7 @@ function swarmWorkstreamGroups(units: JsonObject[]): JsonObject[] {
         agent_ids: [...group.agentIds].sort(),
         critical: group.critical || blocked > 0,
         coverage: Math.round((completed / Math.max(1, total)) * 1000) / 1000,
-        risk: blocked > 0 ? "high" : running > 0 || group.blockers.length > 0 ? "medium" : "low",
+        risk: blocked > 0 ? "high" : group.blockers.length > 0 ? "medium" : "low",
         blockers: group.blockers,
         sample_unit_ids: group.sampleUnitIds.filter(Boolean),
       };
