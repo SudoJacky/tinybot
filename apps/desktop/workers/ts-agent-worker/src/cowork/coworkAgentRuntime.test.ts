@@ -405,6 +405,91 @@ describe("CoworkAgentRuntime", () => {
     }));
   });
 
+  it("prefers ready swarm work before failed retry work", async () => {
+    const provider = new QueueProvider([]);
+    const seeded = await seedRuntime(provider);
+    const session = await seeded.store.readSnapshot("cw_1", "test");
+    if (!session) {
+      throw new Error("missing seeded session");
+    }
+    session.workflow_mode = "swarm";
+    session.budget_limits = { ...session.budget_limits, parallel_width: 1 };
+    session.agents.a = {
+      ...session.agents.lead,
+      id: "a",
+      name: "A",
+      role: "Worker",
+      status: "waiting",
+      inbox: [],
+      current_task_id: null,
+      current_task_title: null,
+    };
+    session.agents.b = {
+      ...session.agents.a,
+      id: "b",
+      name: "B",
+    };
+    session.tasks = {
+      ready: {
+        ...session.tasks.draft,
+        id: "ready",
+        title: "Ready lane",
+        description: "Fresh ready work",
+        assigned_agent_id: "a",
+        status: "pending",
+        dependencies: [],
+      },
+      retry: {
+        ...session.tasks.draft,
+        id: "retry",
+        title: "Retry lane",
+        description: "Retry failed work",
+        assigned_agent_id: "b",
+        status: "failed",
+        dependencies: [],
+        error: "model timeout",
+      },
+    };
+    session.swarm_plan = {
+      id: "swarm_1",
+      status: "running",
+      work_units: [
+        {
+          id: "wu_ready",
+          title: "Ready lane",
+          description: "Fresh ready work",
+          source_task_id: "ready",
+          assigned_agent_id: "a",
+          workstream: "runtime",
+          status: "ready",
+          dependencies: [],
+          priority: 1,
+        },
+        {
+          id: "wu_retry",
+          title: "Retry lane",
+          description: "Retry failed work",
+          source_task_id: "retry",
+          assigned_agent_id: "b",
+          workstream: "runtime",
+          status: "failed",
+          attempts: 1,
+          max_attempts: 3,
+          dependencies: [],
+          priority: 10,
+        },
+      ],
+    };
+
+    const selection = selectReadyCoworkAgentCandidates(session, 1);
+
+    expect(selection.agents.map((agent) => agent.id)).toEqual(["a"]);
+    expect(selection.candidateScores.a).toEqual(expect.objectContaining({
+      work_unit_id: "wu_ready",
+      status: "ready",
+    }));
+  });
+
   it("runs one agent round and applies completed task progress", async () => {
     const provider = new QueueProvider([{
       content: JSON.stringify({

@@ -1153,7 +1153,7 @@ function selectSwarmReadyAgents(session: CoworkSession, limit: number): CoworkRe
       reasonProfile: "swarm workstream readiness scoring",
     };
   }
-  const orderedUnits = fairOrderByWorkstream(swarmReadyUnits(session));
+  const orderedUnits = swarmReadyUnits(session);
   const runningSignatures = new Set(swarmWorkUnits(session)
     .filter((unit) => cleanString(unit.status) === "in_progress")
     .map(swarmUnitSignature));
@@ -1214,22 +1214,35 @@ function swarmReadyUnits(session: CoworkSession): JsonObject[] {
       .filter((task) => ["completed", "skipped"].includes(task.status))
       .map((task) => task.id),
   ]);
-  return units
-    .filter((unit) => {
-      const status = cleanString(unit.status) || "pending";
-      if (["failed", "needs_revision"].includes(status)) {
-        const attempts = Math.trunc(numberValue(unit.attempts) ?? 0);
-        const maxAttempts = Math.trunc(numberValue(unit.max_attempts) ?? 1);
-        return attempts < maxAttempts;
+  const ready: JsonObject[] = [];
+  const failedRetry: JsonObject[] = [];
+  for (const unit of units) {
+    const status = cleanString(unit.status) || "pending";
+    if (["failed", "needs_revision"].includes(status)) {
+      const attempts = Math.trunc(numberValue(unit.attempts) ?? 0);
+      const maxAttempts = Math.trunc(numberValue(unit.max_attempts) ?? 1);
+      if (attempts < maxAttempts) {
+        failedRetry.push(unit);
       }
-      if (!["pending", "ready"].includes(status)) {
-        return false;
-      }
-      return stringList(unit.dependencies).every((dependency) => completed.has(dependency));
-    })
-    .sort((left, right) => (numberValue(right.priority) ?? 0) - (numberValue(left.priority) ?? 0)
-      || cleanString(left.created_at).localeCompare(cleanString(right.created_at))
-      || cleanString(left.id).localeCompare(cleanString(right.id)));
+      continue;
+    }
+    if (
+      ["pending", "ready"].includes(status)
+      && stringList(unit.dependencies).every((dependency) => completed.has(dependency))
+    ) {
+      ready.push(unit);
+    }
+  }
+  return [
+    ...fairOrderByWorkstream(sortSwarmQueueUnits(ready)),
+    ...fairOrderByWorkstream(sortSwarmQueueUnits(failedRetry)),
+  ];
+}
+
+function sortSwarmQueueUnits(units: JsonObject[]): JsonObject[] {
+  return [...units].sort((left, right) => (numberValue(right.priority) ?? 0) - (numberValue(left.priority) ?? 0)
+    || cleanString(left.created_at).localeCompare(cleanString(right.created_at))
+    || cleanString(left.id).localeCompare(cleanString(right.id)));
 }
 
 function fairOrderByWorkstream(units: JsonObject[]): JsonObject[] {
