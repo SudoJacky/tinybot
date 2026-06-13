@@ -249,6 +249,87 @@ describe("CoworkAgentRuntime", () => {
     expect(selection.reasonProfile).toBe("swarm workstream readiness scoring");
   });
 
+  it("skips duplicate swarm work-unit signatures during agent selection", async () => {
+    const provider = new QueueProvider([]);
+    const seeded = await seedRuntime(provider);
+    const session = await seeded.store.readSnapshot("cw_1", "test");
+    if (!session) {
+      throw new Error("missing seeded session");
+    }
+    session.workflow_mode = "swarm";
+    session.budget_limits = { ...session.budget_limits, parallel_width: 2 };
+    session.agents.a = {
+      ...session.agents.lead,
+      id: "a",
+      name: "A",
+      role: "Worker",
+      status: "waiting",
+      inbox: [],
+      current_task_id: null,
+      current_task_title: null,
+    };
+    session.agents.b = {
+      ...session.agents.a,
+      id: "b",
+      name: "B",
+    };
+    session.tasks = {
+      same_a: {
+        ...session.tasks.draft,
+        id: "same_a",
+        title: "Same",
+        description: "same input",
+        assigned_agent_id: "a",
+        status: "pending",
+        dependencies: [],
+      },
+      same_b: {
+        ...session.tasks.draft,
+        id: "same_b",
+        title: "Same",
+        description: "same input",
+        assigned_agent_id: "b",
+        status: "pending",
+        dependencies: [],
+      },
+    };
+    session.swarm_plan = {
+      id: "swarm_1",
+      status: "running",
+      work_units: [
+        {
+          id: "same_a",
+          title: "Same",
+          description: "same input",
+          input: { topic: "x" },
+          expected_output_schema: { answer: "string" },
+          completion_criteria: ["answer"],
+          assigned_agent_id: "a",
+          dependencies: [],
+          status: "ready",
+          priority: 0,
+        },
+        {
+          id: "same_b",
+          title: "Same",
+          description: "same input",
+          input: { topic: "x" },
+          expected_output_schema: { answer: "string" },
+          completion_criteria: ["answer"],
+          assigned_agent_id: "b",
+          dependencies: [],
+          status: "ready",
+          priority: 0,
+        },
+      ],
+    };
+
+    const selection = selectReadyCoworkAgentCandidates(session, 2);
+
+    expect(selection.agents.map((agent) => agent.id)).toEqual(["a"]);
+    expect(Object.keys(selection.candidateScores)).toEqual(["a"]);
+  });
+
   it("runs one agent round and applies completed task progress", async () => {
     const provider = new QueueProvider([{
       content: JSON.stringify({

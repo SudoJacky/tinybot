@@ -1154,10 +1154,17 @@ function selectSwarmReadyAgents(session: CoworkSession, limit: number): CoworkRe
     };
   }
   const orderedUnits = fairOrderByWorkstream(swarmReadyUnits(session));
+  const runningSignatures = new Set(swarmWorkUnits(session)
+    .filter((unit) => cleanString(unit.status) === "in_progress")
+    .map(swarmUnitSignature));
   const agents: CoworkAgent[] = [];
   const candidateScores: JsonObject = {};
   const selectedAgentIds = new Set<string>();
   for (const unit of orderedUnits) {
+    const signature = swarmUnitSignature(unit);
+    if (runningSignatures.has(signature)) {
+      continue;
+    }
     const agentId = cleanString(unit.assigned_agent_id);
     const agent = session.agents[agentId];
     if (!agent || selectedAgentIds.has(agent.id) || !isSelectableAgentStatus(agent)) {
@@ -1178,6 +1185,7 @@ function selectSwarmReadyAgents(session: CoworkSession, limit: number): CoworkRe
       status: cleanString(unit.status) || "pending",
       priority: numberValue(unit.priority) ?? 0,
     };
+    runningSignatures.add(signature);
     if (agents.length >= slots) {
       break;
     }
@@ -1189,10 +1197,14 @@ function selectSwarmReadyAgents(session: CoworkSession, limit: number): CoworkRe
   };
 }
 
-function swarmReadyUnits(session: CoworkSession): JsonObject[] {
-  const units = Array.isArray(session.swarm_plan.work_units)
+function swarmWorkUnits(session: CoworkSession): JsonObject[] {
+  return Array.isArray(session.swarm_plan.work_units)
     ? session.swarm_plan.work_units.filter(isJsonObject).map(jsonSafeObject)
     : [];
+}
+
+function swarmReadyUnits(session: CoworkSession): JsonObject[] {
+  const units = swarmWorkUnits(session);
   const completed = new Set([
     ...units
       .filter((unit) => ["completed", "skipped"].includes(cleanString(unit.status)))
@@ -1234,6 +1246,17 @@ function fairOrderByWorkstream(units: JsonObject[]): JsonObject[] {
     }
   }
   return ordered;
+}
+
+function swarmUnitSignature(unit: JsonObject): string {
+  const title = cleanString(unit.title).toLowerCase().split(/\s+/).filter(Boolean).join(" ");
+  const description = cleanString(unit.description).toLowerCase().split(/\s+/).filter(Boolean).join(" ");
+  return stableStringify({
+    title,
+    description,
+    input: isJsonObject(unit.input) ? unit.input : {},
+    schema: isJsonObject(unit.expected_output_schema) ? unit.expected_output_schema : {},
+  });
 }
 
 function taskForSwarmUnit(session: CoworkSession, unit: JsonObject, agentId: string): CoworkTask | undefined {
@@ -2732,12 +2755,6 @@ function leadAgentId(session: CoworkSession): string {
   return Object.keys(session.agents)[0] ?? "";
 }
 
-function swarmWorkUnits(session: CoworkSession): JsonObject[] {
-  return Array.isArray(session.swarm_plan.work_units)
-    ? session.swarm_plan.work_units.filter(isJsonObject).map(jsonSafeObject)
-    : [];
-}
-
 function swarmWorkUnitForTask(session: CoworkSession, taskId: string): JsonObject | null {
   const units = Array.isArray(session.swarm_plan.work_units) ? session.swarm_plan.work_units : [];
   return units.find((unit) => {
@@ -3008,6 +3025,16 @@ function stringList(value: unknown): string[] {
 
 function jsonSafeObject(value: unknown): JsonObject {
   return isJsonObject(value) ? { ...value } : {};
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(",")}]`;
+  }
+  if (isJsonObject(value)) {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function stringValue(value: unknown): string {
