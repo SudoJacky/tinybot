@@ -159,6 +159,36 @@ describe("CoworkMailbox", () => {
     expect(session.events.some((event) => event.type === "mailbox.replied")).toBe(true);
   });
 
+  it("refreshes completion decisions with pending reply blockers after delivery", async () => {
+    const session = await createTeamSession();
+
+    const message = deliver(session, {
+      sender_id: "coordinator",
+      recipient_ids: ["researcher"],
+      content: "Please verify this claim before we finish.",
+      request_type: "verify",
+      blocking_task_id: "task_1",
+      requires_reply: true,
+    });
+
+    expect(message.recipient_ids).toEqual(["researcher"]);
+    expect(session.completion_decision).toMatchObject({
+      next_action: "resolve_blockers",
+      reason: "1 reply request(s) are still open.",
+      ready_to_finish: false,
+      blocked: [
+        {
+          id: "env_1",
+          from: "coordinator",
+          to: ["researcher"],
+          request_type: "verify",
+          blocking_task_id: "task_1",
+          content: "Please verify this claim before we finish.",
+        },
+      ],
+    });
+  });
+
   it("deduplicates active correlation requests and returns the original message", async () => {
     const session = await createTeamSession();
     const box = mailbox();

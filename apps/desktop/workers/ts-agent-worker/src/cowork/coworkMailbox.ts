@@ -141,6 +141,7 @@ export class CoworkMailbox {
     record.delivered_at = this.now();
     record.updated_at = record.delivered_at;
     this.markReplies(session, record);
+    refreshMailboxCompletionDecision(session, this.now);
     session.events = [
       ...session.events,
       this.event("mailbox.delivered", `Mailbox delivered ${normalized.kind} from ${normalized.sender_id} to ${recipients.join(", ")}`, {
@@ -619,16 +620,6 @@ function reopenForUserMessage(
     }
   }
   if (reopened) {
-    const unreadMessageCount = countUnreadInboxMessages(session);
-    session.completion_decision = {
-      ...jsonSafeObject(session.completion_decision),
-      next_action: "run_next_round",
-      reason: unreadMessageCount > 0
-        ? `${unreadMessageCount} unread message(s) need agent attention.`
-        : "Cowork session reopened for a new user message.",
-      ready_to_finish: false,
-      updated_at: now(),
-    };
     session.events = [
       ...session.events,
       event("session.reopened", "Cowork session reopened for a new user message", {
@@ -638,6 +629,49 @@ function reopenForUserMessage(
     ];
     session.updated_at = now();
   }
+}
+
+function refreshMailboxCompletionDecision(session: CoworkSession, now: () => string): void {
+  const pendingReplies = Object.values(session.mailbox)
+    .map(jsonSafeObject)
+    .filter((record) => record.requires_reply === true && ["delivered", "read"].includes(stringValue(record.status)));
+  const unreadMessageCount = countUnreadInboxMessages(session);
+  let nextAction = "plan";
+  let reason = "No tasks exist yet.";
+  if (session.status === "completed") {
+    nextAction = "complete";
+    reason = "The cowork session is complete.";
+  } else if (pendingReplies.length > 0) {
+    nextAction = "resolve_blockers";
+    reason = `${pendingReplies.length} reply request(s) are still open.`;
+  } else if (unreadMessageCount > 0) {
+    nextAction = "run_next_round";
+    reason = `${unreadMessageCount} unread message(s) need agent attention.`;
+  } else {
+    const pendingOrActiveTasks = Object.values(session.tasks).filter((task) => {
+      const status = stringValue(task.status);
+      return status === "pending" || status === "in_progress";
+    }).length;
+    if (pendingOrActiveTasks > 0) {
+      nextAction = "run_next_round";
+      reason = `${pendingOrActiveTasks} task(s) still need progress.`;
+    }
+  }
+  session.completion_decision = {
+    ...jsonSafeObject(session.completion_decision),
+    next_action: nextAction,
+    reason,
+    blocked: pendingReplies.map((record) => ({
+      id: stringValue(record.id),
+      from: stringValue(record.sender_id),
+      to: arrayValue(record.recipient_ids).map(stringValue),
+      request_type: stringValue(record.request_type) || (record.requires_reply === true ? "reply" : stringValue(record.kind)),
+      blocking_task_id: nullableString(record.blocking_task_id),
+      content: stringValue(record.content).slice(0, 240),
+    })),
+    ready_to_finish: false,
+    updated_at: now(),
+  };
 }
 
 function countUnreadInboxMessages(session: CoworkSession): number {
