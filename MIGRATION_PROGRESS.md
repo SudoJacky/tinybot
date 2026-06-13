@@ -14,6 +14,8 @@
 
 - Continued Cowork Phase 10 message/task route parity: TS-native message content and task title validation now mirror Python route `str(payload.get(...) or "").strip()` handling, accepting truthy numeric JSON values as text while still rejecting falsy/blank values.
 
+- Continued Cowork Phase 10 add-task route parity: TS-native add-task routes now apply the same Python route text coercion to optional `description` and assignee fields before invoking the migrated service, preserving numeric JSON descriptions instead of falling back to the task title.
+
 - Continued Cowork Phase 10 summary route parity: TS-native summary routes now mirror Python `CoworkTool` missing-session responses by returning a `summary` error string with HTTP 200 instead of a route-level 404.
 
 - Continued Cowork Phase 10 message route parity: TS-native message routes now mirror Python `CoworkTool` missing-session responses after JSON/content validation, returning a Python-shaped `result` error with `session: null` instead of a route-level 404.
@@ -923,6 +925,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: mirror Python truthiness for desktop gateway recipient-less swarm message rollout gates.
 - [x] Continue Cowork Phase 10: mirror Python `architecture` before `workflow_mode` precedence on TS-native create-session routes.
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for Cowork message content and task title validation.
+- [x] Continue Cowork Phase 10: mirror Python route text coercion for Cowork add-task optional description and assignee fields.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.

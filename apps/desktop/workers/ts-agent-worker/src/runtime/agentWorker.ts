@@ -911,7 +911,14 @@ export class AgentWorker {
       if (!session) {
         return { status: 200, body: { result: `Error: cowork session '${sessionId}' not found`, session: null } };
       }
-      const params = parseCoworkAddTaskParams({ ...body, session_id: sessionId, title });
+      const routeTaskBody = {
+        ...body,
+        session_id: sessionId,
+        title,
+        description: pythonRouteTextParam(body, "description", "description"),
+        assigned_agent_id: pythonRouteTextParam(body, "assignedAgentId", "assigned_agent_id"),
+      };
+      const params = parseCoworkAddTaskParams(routeTaskBody);
       const result = await this.coworkService.addTask({
         traceId,
         sessionId: params.sessionId,
