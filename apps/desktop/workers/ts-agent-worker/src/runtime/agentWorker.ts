@@ -57,6 +57,7 @@ import {
   handleWebuiRouteRequest,
   parseWebuiRouteRequest,
   WebuiOpenAiRequestTimeoutError,
+  webuiRouteMigrationDiagnostics,
   webuiRouteSpecs,
   type WebuiBootstrapProvider,
   type WebuiAgentUiFormProvider,
@@ -3027,7 +3028,10 @@ export class AgentWorker {
       protocol_version: WORKER_PROTOCOL_VERSION,
       id: request.id,
       trace_id: request.trace_id,
-      result: { routes: webuiRouteSpecs() },
+      result: {
+        routes: webuiRouteSpecs(),
+        route_diagnostics: webuiRouteMigrationDiagnostics(),
+      },
     };
   }
 

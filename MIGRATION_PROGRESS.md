@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued WebUI/API route diagnostics parity: TS `webui.route_specs` now returns `route_diagnostics` entries with `owner: "ts-worker"` and stable `route_group` values while preserving the legacy `routes` shape, giving the desktop/Rust gateway the route-owner visibility called out by the migration docs before Python fallback can be fully retired.
+
 - Continued Context Builder/Skills prompt parity: TS system prompts now omit the old `Active Skills` deferred placeholder by default when no skills context is available, matching Python's empty-skills behavior while preserving explicit opt-in coverage for the placeholder.
 
 - Continued Task/Cron background runtime parity: TS-native `task add_subtask` now returns Python-compatible dependency warnings after DAG validation, so newly introduced missing/cyclic dependency issues are visible immediately in the tool response.

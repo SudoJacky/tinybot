@@ -196,6 +196,43 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 }
 
 describe("AgentWorker", () => {
+  test("reports WebUI route migration owners and route groups", async () => {
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+    });
+
+    const response = await worker.handleRequest(webuiRequest("webui.route_specs"));
+    const routes = (response.result as { route_diagnostics: Array<Record<string, unknown>> }).route_diagnostics;
+    const route = (key: string, method: string) => routes.find((item) => item.key === key && item.method === method);
+
+    expect(route("get_status", "GET")).toMatchObject({
+      key: "get_status",
+      method: "GET",
+      path: "/api/status",
+      public: false,
+      owner: "ts-worker",
+      route_group: "status",
+    });
+    expect(route("openai_chat_completions", "POST")).toMatchObject({
+      key: "openai_chat_completions",
+      method: "POST",
+      path: "/v1/chat/completions",
+      public: true,
+      owner: "ts-worker",
+      route_group: "openai",
+    });
+    expect(route("cowork_route", "POST")).toMatchObject({
+      key: "cowork_route",
+      method: "POST",
+      path: "/api/cowork/{path:.+}",
+      public: false,
+      owner: "ts-worker",
+      route_group: "cowork",
+    });
+  });
+
   test("serves WebUI status control route through TS worker RPC", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),

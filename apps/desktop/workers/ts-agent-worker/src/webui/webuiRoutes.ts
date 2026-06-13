@@ -10,6 +10,29 @@ export type WebuiRouteSpec = {
   public: boolean;
 };
 
+export type WebuiRouteMigrationDiagnostic = {
+  key: string;
+  method: string;
+  path: string;
+  public: boolean;
+  owner: "ts-worker";
+  route_group:
+    | "health"
+    | "openai"
+    | "knowledge"
+    | "bootstrap"
+    | "status"
+    | "tools"
+    | "config"
+    | "providers"
+    | "approvals"
+    | "sessions"
+    | "skills"
+    | "agent-ui"
+    | "workspace"
+    | "cowork";
+};
+
 export type WebuiRouteRequest = {
   method: string;
   path: string;
@@ -352,6 +375,57 @@ const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
 
 export function webuiRouteSpecs(): WebuiRouteSpec[] {
   return WEBUI_ROUTE_SPECS.map((spec) => ({ ...spec }));
+}
+
+export function webuiRouteMigrationDiagnostics(): WebuiRouteMigrationDiagnostic[] {
+  return WEBUI_ROUTE_SPECS.map((spec) => ({
+    ...spec,
+    owner: "ts-worker",
+    route_group: webuiRouteGroup(spec),
+  }));
+}
+
+function webuiRouteGroup(spec: WebuiRouteSpec): WebuiRouteMigrationDiagnostic["route_group"] {
+  if (spec.path === "/health") {
+    return "health";
+  }
+  if (spec.path.startsWith("/v1/knowledge/")) {
+    return "knowledge";
+  }
+  if (spec.path.startsWith("/v1/")) {
+    return "openai";
+  }
+  if (spec.path.startsWith("/webui/")) {
+    return "bootstrap";
+  }
+  if (spec.path === "/api/status") {
+    return "status";
+  }
+  if (spec.path === "/api/tools") {
+    return "tools";
+  }
+  if (spec.path === "/api/config") {
+    return "config";
+  }
+  if (spec.path === "/api/providers" || spec.path === "/api/provider-models") {
+    return "providers";
+  }
+  if (spec.path.startsWith("/api/approvals")) {
+    return "approvals";
+  }
+  if (spec.path.startsWith("/api/sessions")) {
+    return "sessions";
+  }
+  if (spec.path.startsWith("/api/skills")) {
+    return "skills";
+  }
+  if (spec.path.startsWith("/api/agent-ui/")) {
+    return "agent-ui";
+  }
+  if (spec.path.startsWith("/api/workspace/")) {
+    return "workspace";
+  }
+  return "cowork";
 }
 
 export async function handleWebuiRouteRequest(
