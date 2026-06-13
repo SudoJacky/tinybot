@@ -585,6 +585,39 @@ describe("desktop native workbench runtime", () => {
     expect(runtime.chat.composerState).toBe("idle");
   });
 
+  test("projects TS heartbeat delivery events into native chat without an active run", async () => {
+    const runtime = createDesktopNativeWorkbenchRuntime({
+      api: {
+        listSessions: async () => ({
+          items: [{ key: "WebSocket:chat-heartbeat", chat_id: "chat-heartbeat", title: "Heartbeat target" }],
+        }),
+        loadMessages: async () => ({ messages: [] }),
+      },
+      sendSocketMessage: () => undefined,
+      agentRoute: "ts-agent",
+      now: () => "2026-06-03T08:18:00.000Z",
+    });
+    await runtime.loadInitialChatState();
+
+    runtime.handleTsAgentWorkerEvent("heartbeat.delivery", {
+      channel: "feishu",
+      chat_id: "chat-heartbeat",
+      content: "Heartbeat task completed.",
+      tasks: "Notify the user when the heartbeat task is done.",
+    });
+
+    expect(runtime.chat.messages).toMatchObject([
+      {
+        role: "assistant",
+        content: "Heartbeat task completed.",
+        messageId: "heartbeat:chat-heartbeat:2026-06-03T08:18:00.000Z",
+      },
+    ]);
+    expect(runtime.chat.status).toBe("Heartbeat notification delivered.");
+    expect(runtime.chat.responding).toBe(false);
+    expect(runtime.chat.composerState).toBe("idle");
+  });
+
   test("projects TS agent worker tool events into native chat activities", async () => {
     let resolveRun: ((value: {
       finalContent: string;

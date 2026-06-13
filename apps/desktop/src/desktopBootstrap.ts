@@ -387,6 +387,7 @@ function installNativeTsAgentEventListeners(): void {
     "agent.awaiting_approval",
     "agent.memory_reference",
     "agent.task_progress",
+    "heartbeat.delivery",
     "agent.cancelled",
     "agent.done",
     "agent.error",

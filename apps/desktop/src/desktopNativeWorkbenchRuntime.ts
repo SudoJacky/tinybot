@@ -95,6 +95,7 @@ export type DesktopTsAgentWorkerEventName =
   | "agent.awaiting_approval"
   | "agent.memory_reference"
   | "agent.task_progress"
+  | "heartbeat.delivery"
   | "agent.cancelled"
   | "agent.done"
   | "agent.error";
@@ -354,6 +355,10 @@ export function createDesktopNativeWorkbenchRuntime({
 
   function handleTsAgentWorkerEvent(eventName: DesktopTsAgentWorkerEventName, payload: unknown): void {
     const frame = isRecord(payload) ? payload : {};
+    if (eventName === "heartbeat.delivery") {
+      projectHeartbeatDelivery(frame);
+      return;
+    }
     const runId = stringValue(frame.runId ?? frame.run_id);
     const chatId = activeTsAgentRuns.get(runId) || chatController.state.activeChatId;
     if (!runId || !chatId) {
@@ -604,6 +609,33 @@ export function createDesktopNativeWorkbenchRuntime({
     keepTsAgentRunResponding(chatId);
     composerState = "sending";
     chatStatus = "TS agent task progress updated.";
+  }
+
+  function projectHeartbeatDelivery(frame: Record<string, unknown>): void {
+    const chatId = stringValue(frame.chatId ?? frame.chat_id) || chatController.state.activeChatId;
+    const content = stringValue(frame.content).trim();
+    if (!chatId || !content) {
+      return;
+    }
+    const timestamp = now?.() ?? new Date().toISOString();
+    const messageId = stringValue(frame.messageId ?? frame.message_id) || `heartbeat:${chatId}:${timestamp}`;
+    applyChatEvent(chatController.state, {
+      kind: "message.completed",
+      chatId,
+      messageId,
+      text: content,
+      raw: {
+        event: "heartbeat.delivery",
+        channel: stringValue(frame.channel),
+        chat_id: chatId,
+        content,
+        message_id: messageId,
+        source: "ts-agent-worker",
+        tasks: stringValue(frame.tasks),
+      },
+    });
+    composerState = "idle";
+    chatStatus = "Heartbeat notification delivered.";
   }
 
   function keepTsAgentRunResponding(chatId: string): void {

@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Heartbeat runtime Phase 4: native desktop now listens for TS worker `heartbeat.delivery` frontend events and projects approved external heartbeat notifications into the target chat as assistant messages without requiring an active agent run.
+
 - Continued Heartbeat runtime Phase 4: native stdio heartbeat scheduling now emits approved external heartbeat notifications as `heartbeat.delivery` worker events with Python-compatible channel/chat/content payloads, closing the server wiring gap with Python `on_heartbeat_notify`.
 
 - Continued Heartbeat runtime Phase 4: TS `HeartbeatRuntime` now uses the shared Python-compatible background evaluator by default before scheduled notifications, sharing the evaluator prompt/tool schema with Cron and preserving Python's failure-default-to-notify behavior.
@@ -461,10 +463,13 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 | 19 | active | [ts_api_runtime_migration_design.md](ts_api_runtime_migration_design.md) | 作为上层 facade 收口 | Phase 1 OpenAI-compatible API now has TS worker `GET /health`, `GET /v1/models`, and non-stream `POST /v1/chat/completions` parity over `webui.handle_request`, including model guard, content-array text extraction, OpenAI error/response shape, TS AgentRunner dispatch, same-session serialization, and `api.timeout` 504 handling; empty final retry/fallback is covered by the shared `AgentRunner` path. |
 | 20 | active | [ts_heartbeat_runtime_migration_design.md](ts_heartbeat_runtime_migration_design.md) | 最后接背景调度和通知组合能力 | Phase 1 pure core now has heartbeat decision parsing, target selection, start/stop interval lifecycle, manual trigger, status snapshots, and tick service orchestration; Phase 2 bridge foundation routes heartbeat tasks through `AgentRunner` with `sessionId="heartbeat"` and trim/notify callbacks; TS worker exposes `heartbeat.trigger_now`, `heartbeat.status`, `heartbeat.start`, and `heartbeat.stop`; `createAgentWorkerServer()` now injects a real runtime backed by native workspace/config/session RPCs, native `session.trim` retains Python-compatible legal heartbeat history suffixes using current `keep_recent_messages`, start refreshes native `gateway.heartbeat.enabled` / `interval_s`, `/api/status` exposes heartbeat scheduler diagnostics with a config refresh before returning, TS-native `/api/config` PATCH refreshes heartbeat enabled/interval after native config-store apply, native desktop host lifecycle starts/stops TS heartbeat scheduling, and heartbeat decision prompts use the configured `agents.defaults.timezone` for Python-compatible `Current Time` text. |
 
+Heartbeat row 20 update: Phase 4 now runs scheduled notifications through the shared Python-compatible evaluator, emits approved external notifications as `heartbeat.delivery` worker events, and projects those delivery events into target native desktop chats without requiring an active agent run.
+
 ## Work Log
 
 | Date | Update |
 | --- | --- |
+| 2026-06-14 | Continued Heartbeat runtime Phase 4: native desktop listens for `heartbeat.delivery` worker events and projects approved external heartbeat notifications into the target native chat without an active run id. |
 | 2026-06-13 | Continued Heartbeat runtime Phase 3 timezone parity: heartbeat provider decision prompts now derive `Current Time` from native `agents.defaults.timezone` via the shared TS current-time formatter. |
 | 2026-06-13 | Continued Command Runtime Phase 3 provider-backed Dream prompt parity: native pending Dream batches now expose current Memory Notes and rendered Memory Views, and TS provider prompts consume that context before producing JSON Memory Operations. |
 | 2026-06-13 | Continued Command Runtime Phase 3 provider-backed Dream extraction: `ProviderBackedDreamBridge` now handles native deferred Dream batches with provider JSON Memory Operations and native apply semantics for save/reject/supersede. |
@@ -1153,6 +1158,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Heartbeat runtime Phase 3: use native `agents.defaults.timezone` when formatting heartbeat decision `Current Time` prompts.
 - [x] Continue Heartbeat runtime Phase 4: use the shared Python-compatible background evaluator before scheduled heartbeat notifications.
 - [x] Continue Heartbeat runtime Phase 4: emit approved native heartbeat external notifications through worker events with Python-compatible channel targets.
+- [x] Continue Heartbeat runtime Phase 4: project native `heartbeat.delivery` worker events into desktop chat messages without requiring an active agent run.
 - [x] Add a dedicated TS worker typecheck/runtime smoke build boundary and run it from the desktop build.
 - [x] Continue Command Runtime Phase 3: migrate the first native `/dream` conversation-evidence extraction path for explicit memory-intent evidence.
 - [x] Continue Command Runtime Phase 3: migrate the first native `/dream` legacy-history extraction path for explicit memory-intent records.
