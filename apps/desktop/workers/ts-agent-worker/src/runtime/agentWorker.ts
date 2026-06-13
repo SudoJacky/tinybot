@@ -4010,7 +4010,10 @@ function setRouteTextParam(
   if (!Object.prototype.hasOwnProperty.call(source, camelKey) && !Object.prototype.hasOwnProperty.call(source, snakeKey)) {
     return;
   }
-  target[targetKey] = pythonRouteTextParam(source, camelKey, snakeKey);
+  const value = pythonRouteTextParam(source, snakeKey, snakeKey)
+    || pythonRouteTextParam(source, camelKey, camelKey);
+  target[targetKey] = value;
+  target[camelKey] = value;
 }
 
 function routeTextParamIfPresent(

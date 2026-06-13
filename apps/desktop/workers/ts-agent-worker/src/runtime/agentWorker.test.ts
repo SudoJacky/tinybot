@@ -5868,6 +5868,60 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("honors Python target_architecture precedence over blank targetArchitecture on branch derive routes", async () => {
+    const store = createMemoryCoworkStore();
+    const coworkService = new CoworkService({
+      store,
+      now: () => "2026-06-12T08:00:00.000Z",
+      idGenerator: (() => {
+        const counters = new Map<string, number>();
+        return (prefix: string) => {
+          const next = (counters.get(prefix) ?? 0) + 1;
+          counters.set(prefix, next);
+          return `${prefix}_${next}`;
+        };
+      })(),
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      coworkService,
+    });
+    const create = await worker.handleRequest(coworkRequest("cowork.create_session", {
+      goal: "Branch route alias precedence",
+      title: "Branch Route Alias",
+      agents: [{ id: "lead", name: "Lead", role: "Lead" }],
+      tasks: [{ id: "draft", title: "Draft", description: "Draft answer", assigned_agent_id: "lead" }],
+    }));
+    const session = ((create.result as Record<string, unknown>).session as CoworkSession);
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/branches/derive`,
+      body: {
+        targetArchitecture: "",
+        target_architecture: "team",
+        derivationReason: "",
+        derivation_reason: 404,
+        inheritedContextSummary: "",
+        inherited_context_summary: 505,
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          branch: expect.objectContaining({
+            id: "br_1",
+            architecture: "team",
+            derivation_reason: "404",
+            inherited_context_summary: "505",
+          }),
+        },
+      },
+    });
+  });
+
   test("routes cowork session control and budget requests through the injected CoworkService", async () => {
     const coworkService = new CoworkService({
       store: createMemoryCoworkStore(),
