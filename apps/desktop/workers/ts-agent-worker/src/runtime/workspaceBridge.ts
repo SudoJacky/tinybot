@@ -33,15 +33,24 @@ export class NativeWorkspaceBridge implements WebuiWorkspaceProvider {
       path: resolvedPath,
       content,
       exists: true,
-      updatedAt: null,
+      updatedAt: asString(result.updated_at) ?? asString(result.updatedAt) ?? null,
     };
   }
 
-  async writeFile(path: string, contents: string, traceId: string): Promise<WebuiWorkspaceWriteResult> {
-    const result = asObject(await this.rpcClient.request(traceId, "workspace.write_file", { path, contents }));
+  async writeFile(
+    path: string,
+    contents: string,
+    traceId: string,
+    expectedUpdatedAt?: string | null,
+  ): Promise<WebuiWorkspaceWriteResult> {
+    const params: Record<string, unknown> = { path, contents };
+    if (expectedUpdatedAt !== undefined) {
+      params.expected_updated_at = expectedUpdatedAt;
+    }
+    const result = asObject(await this.rpcClient.request(traceId, "workspace.write_file", params));
     return {
       path: asString(result?.path) ?? path,
-      updatedAt: null,
+      updatedAt: asString(result?.updated_at) ?? asString(result?.updatedAt) ?? null,
     };
   }
 }
@@ -55,7 +64,7 @@ function normalizeWorkspaceFileEntry(value: unknown): WebuiWorkspaceFileEntry | 
   return {
     path,
     exists: true,
-    updatedAt: null,
+    updatedAt: asString(object?.updated_at) ?? asString(object?.updatedAt) ?? null,
   };
 }
 

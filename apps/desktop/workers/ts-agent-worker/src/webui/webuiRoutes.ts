@@ -238,6 +238,7 @@ export type WebuiWorkspaceProvider = {
     path: string,
     contents: string,
     traceId: string,
+    expectedUpdatedAt?: string | null,
   ): Promise<WebuiWorkspaceWriteResult> | WebuiWorkspaceWriteResult;
 };
 
@@ -1814,11 +1815,32 @@ async function webuiWorkspaceFileResponse(
     if (typeof payload.content !== "string") {
       return { status: 400, body: { error: "content must be a string" } };
     }
-    const result = await workspaceProvider.writeFile(path, payload.content, traceId);
+    const result = await workspaceProvider.writeFile(
+      path,
+      payload.content,
+      traceId,
+      workspaceExpectedUpdatedAt(payload),
+    );
     return { status: 200, body: webuiWorkspaceWriteBody(result) };
   } catch (error) {
-    return { status: 404, body: { error: error instanceof Error ? error.message : String(error) } };
+    const message = error instanceof Error ? error.message : String(error);
+    if (message === "version conflict") {
+      return { status: 409, body: { error: message, path } };
+    }
+    return { status: 404, body: { error: message } };
   }
+}
+
+function workspaceExpectedUpdatedAt(payload: Record<string, unknown>): string | null | undefined {
+  if (Object.prototype.hasOwnProperty.call(payload, "expected_updated_at")) {
+    const value = payload.expected_updated_at;
+    return value === null || typeof value === "string" ? value : undefined;
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "expectedUpdatedAt")) {
+    const value = payload.expectedUpdatedAt;
+    return value === null || typeof value === "string" ? value : undefined;
+  }
+  return undefined;
 }
 
 function webuiWorkspaceFileListBody(files: WebuiWorkspaceFileEntry[]): Record<string, unknown> {

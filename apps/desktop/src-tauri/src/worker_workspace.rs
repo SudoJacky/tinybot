@@ -3,7 +3,10 @@ use crate::worker_protocol::{
     WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource,
 };
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    time::UNIX_EPOCH,
+};
 
 const BOOTSTRAP_FILES: &[&str] = &["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md"];
 const DEFAULT_READ_LIMIT: usize = 2000;
@@ -62,6 +65,7 @@ impl WorkerWorkspaceRpc {
         Ok(WorkspaceFileContent {
             path: resolved.relative_path,
             contents,
+            updated_at: workspace_updated_at(&resolved.absolute_path),
         })
     }
 
@@ -76,6 +80,7 @@ impl WorkerWorkspaceRpc {
                 path: file.path,
                 contents: file.contents.clone(),
                 content: file.contents,
+                updated_at: file.updated_at,
                 content_type: "text".to_string(),
                 line_start: None,
                 line_end: None,
@@ -89,6 +94,7 @@ impl WorkerWorkspaceRpc {
                         path: file.path,
                         contents: file.contents,
                         content: format!("(Empty file: {requested_path})"),
+                        updated_at: file.updated_at,
                         content_type: "text".to_string(),
                         line_start: Some(1),
                         line_end: Some(0),
@@ -131,6 +137,7 @@ impl WorkerWorkspaceRpc {
                     path: file.path,
                     contents: file.contents,
                     content,
+                    updated_at: file.updated_at,
                     content_type: "text".to_string(),
                     line_start: Some(offset),
                     line_end: Some(line_end),
@@ -240,10 +247,34 @@ impl WorkerWorkspaceRpc {
         requested_path: &str,
         contents: &str,
     ) -> Result<WorkspaceWriteResult, WorkerProtocolError> {
+        self.write_file_with_expected(requested_path, contents, None)
+    }
+
+    pub fn write_file_with_expected(
+        &self,
+        requested_path: &str,
+        contents: &str,
+        expected_updated_at: Option<&str>,
+    ) -> Result<WorkspaceWriteResult, WorkerProtocolError> {
         self.require(WorkerCapability::FsWorkspaceWrite)?;
         let relative_path = normalize_workspace_path(requested_path)?;
         let absolute_path = join_workspace_relative(&self.root, &relative_path);
         ensure_write_target_inside_workspace(&self.root, &absolute_path)?;
+        let current_updated_at = workspace_updated_at(&absolute_path);
+        if let Some(expected) = expected_updated_at {
+            if current_updated_at.as_deref() != Some(expected) {
+                return Err(WorkerProtocolError::new(
+                    WorkerProtocolErrorCode::InvalidProtocol,
+                    "version conflict",
+                    serde_json::json!({
+                        "path": relative_path,
+                        "updated_at": current_updated_at,
+                    }),
+                    false,
+                    WorkerProtocolErrorSource::RustCore,
+                ));
+            }
+        }
         if let Some(parent) = absolute_path.parent() {
             std::fs::create_dir_all(parent).map_err(|error| {
                 filesystem_error(
@@ -268,6 +299,7 @@ impl WorkerWorkspaceRpc {
         Ok(WorkspaceWriteResult {
             path: relative_path,
             bytes_written: contents.len() as u64,
+            updated_at: workspace_updated_at(&absolute_path),
         })
     }
 
@@ -387,6 +419,7 @@ pub struct WorkspaceResolvedPath {
 pub struct WorkspaceFileContent {
     pub path: String,
     pub contents: String,
+    pub updated_at: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
@@ -407,6 +440,7 @@ pub struct WorkspaceReadFileResult {
     pub path: String,
     pub contents: String,
     pub content: String,
+    pub updated_at: Option<String>,
     pub content_type: String,
     pub line_start: Option<usize>,
     pub line_end: Option<usize>,
@@ -418,6 +452,7 @@ pub struct WorkspaceReadFileResult {
 pub struct WorkspaceFileEntry {
     pub path: String,
     pub size_bytes: u64,
+    pub updated_at: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
@@ -458,6 +493,7 @@ pub struct WorkspaceSkillsList {
 pub struct WorkspaceWriteResult {
     pub path: String,
     pub bytes_written: u64,
+    pub updated_at: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
@@ -507,10 +543,17 @@ fn collect_workspace_files(
             entries.push(WorkspaceFileEntry {
                 path: workspace_relative_path(root, &path)?,
                 size_bytes: metadata.len(),
+                updated_at: workspace_updated_at(&path),
             });
         }
     }
     Ok(())
+}
+
+fn workspace_updated_at(path: &Path) -> Option<String> {
+    let modified = std::fs::metadata(path).ok()?.modified().ok()?;
+    let duration = modified.duration_since(UNIX_EPOCH).ok()?;
+    Some(duration.as_millis().to_string())
 }
 
 fn collect_workspace_dir_entries(
@@ -852,6 +895,7 @@ mod tests {
 
         assert_eq!(file.path, "AGENTS.md");
         assert_eq!(file.contents, "hello worker");
+        assert!(file.updated_at.is_some());
     }
 
     #[test]
@@ -862,9 +906,10 @@ mod tests {
         let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_policy());
 
         let files = rpc.list_files().expect("workspace files should list");
-        let paths: Vec<String> = files.into_iter().map(|file| file.path).collect();
+        let paths: Vec<String> = files.iter().map(|file| file.path.clone()).collect();
 
         assert_eq!(paths, vec!["AGENTS.md", "memory/MEMORY.md"]);
+        assert!(files.iter().all(|file| file.updated_at.is_some()));
     }
 
     #[test]
@@ -882,19 +927,13 @@ mod tests {
             ])
             .expect("bootstrap files should read");
 
-        assert_eq!(
-            result.files,
-            vec![
-                WorkspaceFileContent {
-                    path: "AGENTS.md".to_string(),
-                    contents: "agent rules".to_string()
-                },
-                WorkspaceFileContent {
-                    path: "USER.md".to_string(),
-                    contents: "user rules".to_string()
-                },
-            ]
-        );
+        assert_eq!(result.files.len(), 2);
+        assert_eq!(result.files[0].path, "AGENTS.md");
+        assert_eq!(result.files[0].contents, "agent rules");
+        assert!(result.files[0].updated_at.is_some());
+        assert_eq!(result.files[1].path, "USER.md");
+        assert_eq!(result.files[1].contents, "user rules");
+        assert!(result.files[1].updated_at.is_some());
         assert_eq!(result.missing, vec!["TOOLS.md"]);
     }
 

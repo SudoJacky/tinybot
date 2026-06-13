@@ -1503,7 +1503,7 @@ describe("AgentWorker", () => {
   });
 
   test("serves WebUI workspace file routes through TS worker RPC", async () => {
-    const calls: Array<{ method: string; path?: string; contents?: string }> = [];
+    const calls: Array<{ method: string; path?: string; contents?: string; expectedUpdatedAt?: string | null }> = [];
     const worker = new AgentWorker({
       provider: new QueueProvider([]),
       tools: new ToolRegistry(),
@@ -1520,8 +1520,11 @@ describe("AgentWorker", () => {
           calls.push({ method: `read:${traceId}`, path });
           return { path, content: `# ${path}\n`, exists: true, updatedAt: null };
         },
-        writeFile: async (path: string, contents: string, traceId: string) => {
-          calls.push({ method: `write:${traceId}`, path, contents });
+        writeFile: async (path: string, contents: string, traceId: string, expectedUpdatedAt?: string | null) => {
+          calls.push({ method: `write:${traceId}`, path, contents, expectedUpdatedAt });
+          if (expectedUpdatedAt === "stale") {
+            throw new Error("version conflict");
+          }
           return { path, updatedAt: null };
         },
       },
@@ -1578,10 +1581,23 @@ describe("AgentWorker", () => {
         },
       },
     });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "PUT",
+      path: "/api/workspace/files/docs%2Fnotes.md",
+      body: { content: "# Stale\n", expected_updated_at: "stale" },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 409,
+        body: {
+          error: "version conflict",
+        },
+      },
+    });
     expect(calls).toEqual([
       { method: "list:trace-webui.handle_request" },
       { method: "read:trace-webui.handle_request", path: "docs/notes.md" },
-      { method: "write:trace-webui.handle_request", path: "docs/notes.md", contents: "# Updated\n" },
+      { method: "write:trace-webui.handle_request", path: "docs/notes.md", contents: "# Updated\n", expectedUpdatedAt: null },
+      { method: "write:trace-webui.handle_request", path: "docs/notes.md", contents: "# Stale\n", expectedUpdatedAt: "stale" },
     ]);
   });
 

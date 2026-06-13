@@ -134,8 +134,12 @@ impl WorkerRpcRouter {
             }
             "workspace.write_file" => {
                 let params: WriteFileParams = parse_params(request)?;
-                serde_json::to_value(self.workspace.write_file(&params.path, &params.contents)?)
-                    .map_err(serialization_error)
+                serde_json::to_value(self.workspace.write_file_with_expected(
+                    &params.path,
+                    &params.contents,
+                    params.expected_updated_at.as_deref(),
+                )?)
+                .map_err(serialization_error)
             }
             "workspace.list_dir" => {
                 let params: ListDirParams = parse_params(request)?;
@@ -2293,6 +2297,8 @@ struct BootstrapFilesParams {
 struct WriteFileParams {
     path: String,
     contents: String,
+    #[serde(default, alias = "expectedUpdatedAt")]
+    expected_updated_at: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -3691,19 +3697,56 @@ mod tests {
 
         assert!(response.matches_request(&request));
         assert!(response.error.is_none());
-        assert_eq!(
-            response.result,
-            Some(json!({
-                "path": "notes/today.md",
-                "contents": "hello router",
-                "content": "hello router",
-                "content_type": "text",
-                "line_start": null,
-                "line_end": null,
-                "line_total": null,
-                "truncated": false
-            }))
+        let result = response.result.expect("read result should be present");
+        assert_eq!(result["path"], "notes/today.md");
+        assert_eq!(result["contents"], "hello router");
+        assert_eq!(result["content"], "hello router");
+        assert_eq!(result["content_type"], "text");
+        assert_eq!(result["line_start"], serde_json::Value::Null);
+        assert_eq!(result["line_end"], serde_json::Value::Null);
+        assert_eq!(result["line_total"], serde_json::Value::Null);
+        assert_eq!(result["truncated"], false);
+        assert!(result["updated_at"].is_string());
+    }
+
+    #[test]
+    fn dispatches_workspace_write_file_version_conflict() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("notes/today.md", "current");
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::FsWorkspaceWrite]),
         );
+        let request = WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "workspace.write_file",
+            json!({
+                "path": "notes/today.md",
+                "contents": "stale",
+                "expected_updated_at": "2000-01-01T00:00:00+00:00"
+            }),
+        );
+
+        let response = router.dispatch(&request);
+
+        let error = response.error.expect("stale write should conflict");
+        assert_eq!(
+            error.code,
+            crate::worker_protocol::WorkerProtocolErrorCode::InvalidProtocol
+        );
+        assert_eq!(error.message, "version conflict");
+        assert_eq!(error.details["path"], "notes/today.md");
+        assert!(error.details["updated_at"].is_string());
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("notes").join("today.md"))
+                .expect("fixture file should still read"),
+            "current"
+        );
+        assert!(response.result.is_none());
     }
 
     #[test]
@@ -4279,13 +4322,13 @@ mod tests {
 
         let response = router.dispatch(&request);
 
-        assert_eq!(
-            response.result,
-            Some(json!({
-                "files": [{ "path": "AGENTS.md", "contents": "agent rules" }],
-                "missing": ["TOOLS.md"]
-            }))
-        );
+        let result = response.result.expect("bootstrap result should be present");
+        assert_eq!(result["missing"], json!(["TOOLS.md"]));
+        let files = result["files"].as_array().expect("files should be an array");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0]["path"], "AGENTS.md");
+        assert_eq!(files[0]["contents"], "agent rules");
+        assert!(files[0]["updated_at"].is_string());
         assert!(response.error.is_none());
     }
 
