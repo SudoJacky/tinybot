@@ -97,6 +97,10 @@ export class TaskRuntime {
     return this.store.listPlans(traceId, options);
   }
 
+  getPlan(planId: string, traceId: string): Promise<TaskPlan | null> {
+    return this.store.getPlan(planId, traceId);
+  }
+
   async createPlan(request: string, context: TaskPlanContext, traceId: string): Promise<TaskPlan | null> {
     if (!this.planner) {
       return null;

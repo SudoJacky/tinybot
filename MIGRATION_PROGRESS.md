@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Task/Cron background runtime parity: TS-native task resume no longer depends on list-plan projections before validating DAG state, and native task-subagent coverage now verifies resumed subtasks run through the isolated AgentRunner tool registry to completion.
+
 - Continued Knowledge/RAG tool-output traceability parity: TS-native `query_knowledge` formatting now preserves Python-compatible source snippets, claims, relation evidence, conflict metadata, and derived projection sections after retrieved content while keeping evidence-first ordering.
 
 - Continued API Runtime OpenAI-compatible parity: TS-native `/v1/chat/completions` now retries an empty final agent response once at the API facade boundary with the original user content before returning the empty-response fallback, matching Python `handle_chat_completions`.

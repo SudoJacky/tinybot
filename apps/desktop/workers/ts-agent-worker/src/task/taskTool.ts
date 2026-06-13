@@ -159,20 +159,16 @@ async function resumeResult(runtime: TaskRuntime, args: Record<string, unknown>,
   if (typeof planId !== "string") {
     return { content: planId.content };
   }
-  const existingProgress = await runtime.getProgress(planId, traceId(context));
-  if (!existingProgress) {
-    return { content: `Error: Plan ${planId} not found` };
-  }
-  if (existingProgress.status === "completed") {
-    return { content: "Plan already completed. Use `task action=summary plan_id={plan_id}` to get the final results." };
-  }
-  if (existingProgress.status === "executing") {
-    return { content: `Plan is already executing.\n\n${formatProgress(existingProgress)}` };
-  }
-  const plans = await runtime.listPlans(traceId(context), { includeCompleted: true });
-  const plan = plans.find((candidate) => candidate.id === planId);
+  const plan = await runtime.getPlan(planId, traceId(context));
   if (!plan) {
     return { content: `Error: Plan ${planId} not found` };
+  }
+  const existingProgress = taskProgressPayload(plan);
+  if (plan.status === "completed") {
+    return { content: "Plan already completed. Use `task action=summary plan_id={plan_id}` to get the final results." };
+  }
+  if (plan.status === "executing") {
+    return { content: `Plan is already executing.\n\n${formatProgress(existingProgress)}` };
   }
   const dagErrors = dagErrorsFor(plan);
   if (dagErrors.length > 0) {

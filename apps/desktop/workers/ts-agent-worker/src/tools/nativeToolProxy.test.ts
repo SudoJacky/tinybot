@@ -551,6 +551,7 @@ describe("createNativeTaskTools", () => {
     const completedPlan = taskPlan({ status: "completed", subtaskStatus: "completed", result: "inspection used tools" });
     const rpc = new FakeRpcClient([
       { plan },
+      { plan },
       { plan: inProgressPlan },
       { path: "AGENTS.md", content: "Use UV for Python." },
       { plan: inProgressPlan },
@@ -572,7 +573,7 @@ describe("createNativeTaskTools", () => {
     );
     await waitFor(() => rpc.requests.filter((request) => request.method === "task.plan.save").length === 2);
 
-    expect(result.content).toBe("Task plan plan-1 resumed. Spawned 1 ready subtask.");
+    expect(result.content).toBe("任务已后台启动，SubAgent自动执行中。完成后会通知你。无需主动干预。（plan_id: plan-1，启动 1 个子任务）");
     expect(provider.requests[0]?.options?.tools?.map((tool) => tool.name)).toEqual([
       "read_file",
       "list_dir",
@@ -586,12 +587,13 @@ describe("createNativeTaskTools", () => {
     expect(provider.requests[0]?.options?.tools?.map((tool) => tool.name)).not.toContain("cron");
     expect(rpc.requests.map((request) => request.method)).toEqual([
       "task.plan.get",
+      "task.plan.get",
       "task.plan.save",
       "workspace.read_file",
       "task.plan.get",
       "task.plan.save",
     ]);
-    expect(rpc.requests[2]).toMatchObject({
+    expect(rpc.requests[3]).toMatchObject({
       traceId: "trace-1",
       method: "workspace.read_file",
       params: { path: "AGENTS.md", format: "numbered_lines" },
