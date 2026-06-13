@@ -64,7 +64,10 @@ class CronToolRuntime {
       return "Error: message is required for add";
     }
     const channel = stringArg(args, "channel") || "native";
-    const chatId = context.sessionId ?? context.runId;
+    const chatId = context.sessionId;
+    if (!chatId) {
+      return "Error: no session context (channel/chat_id)";
+    }
     const tz = stringArg(args, "tz");
     const cronExpr = stringArg(args, "cron_expr");
     if (tz && !cronExpr) {

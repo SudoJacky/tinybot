@@ -91,6 +91,20 @@ describe("createCronTool", () => {
     expect(bridge.addRequests).toEqual([]);
   });
 
+  test("rejects add when no session delivery context is available", async () => {
+    const bridge = memoryBridge();
+    const tool = createCronTool({ bridge, defaultTimezone: "UTC" });
+
+    await expect(tool.execute({
+      action: "add",
+      message: "Check status",
+      every_seconds: 60,
+    }, { runId: "run-1", traceId: "trace-1" })).resolves.toEqual({
+      content: "Error: no session context (channel/chat_id)",
+    });
+    expect(bridge.addRequests).toEqual([]);
+  });
+
   test("formats protected system jobs like Python", async () => {
     const tool = createCronTool({
       bridge: memoryBridge([
