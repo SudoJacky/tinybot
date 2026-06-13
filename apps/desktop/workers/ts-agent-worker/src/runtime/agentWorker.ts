@@ -4117,7 +4117,7 @@ function parseCoworkSendMessageParams(params: Record<string, unknown> | undefine
     throw new Error("cowork.send_message requires object params");
   }
   const sessionId = stringParam(params, "sessionId", "session_id");
-  const content = stringParam(params, "content", "content");
+  const content = pythonRouteTextParam(params, "content", "content");
   if (!sessionId || !content) {
     throw new Error("cowork.send_message requires params.session_id and params.content");
   }

@@ -4975,7 +4975,7 @@ describe("AgentWorker", () => {
       session_id: sessionId,
       sender_id: "lead",
       recipient_ids: ["reviewer"],
-      content: "Please review",
+      content: 12345,
       thread_id: 101.5,
       topic: 202,
       event_type: 303,
@@ -4983,7 +4983,7 @@ describe("AgentWorker", () => {
     const messageResult = messageResponse.result as { message: Record<string, unknown>; session: { agents: Record<string, { inbox: string[] }> } };
     expect(messageResult.message).toMatchObject({
       id: "msg_2",
-      content: "Please review",
+      content: "12345",
       thread_id: "101.5",
       topic: "202",
       event_type: "303",
