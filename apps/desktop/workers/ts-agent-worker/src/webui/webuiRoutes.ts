@@ -975,9 +975,7 @@ async function knowledgeUploadDocumentResponse(
   if (!name || content === undefined) {
     return { status: 400, body: { error: "No file uploaded" } };
   }
-  const fileType = (stringValue(body.file_type) ?? stringValue(body.fileType) ?? extensionFromName(name))
-    .toLowerCase()
-    .replace(/^\./, "");
+  const fileType = canonicalTextFileType(stringValue(body.file_type) ?? stringValue(body.fileType) ?? extensionFromName(name));
   if (!isTextLikeKnowledgeUploadType(fileType)) {
     return { status: 400, body: { error: `Unsupported file type '${fileType}'. Supported: csv, json, md, txt` } };
   }
@@ -1995,7 +1993,7 @@ function temporaryFileUploadFromBody(body: Record<string, unknown>): WebuiTempor
   if (!name || content === undefined) {
     return undefined;
   }
-  const fileType = (stringValue(body.file_type) ?? stringValue(body.fileType) ?? extensionFromName(name)).toLowerCase().replace(/^\./, "");
+  const fileType = canonicalTextFileType(stringValue(body.file_type) ?? stringValue(body.fileType) ?? extensionFromName(name));
   const sizeBytes = numberValue(body.size_bytes) ?? numberValue(body.sizeBytes) ?? new TextEncoder().encode(content).length;
   return { name, fileType, content, sizeBytes };
 }
@@ -2003,6 +2001,11 @@ function temporaryFileUploadFromBody(body: Record<string, unknown>): WebuiTempor
 function extensionFromName(name: string): string {
   const match = /\.([^.\\/]+)$/.exec(name);
   return match?.[1] ?? "";
+}
+
+function canonicalTextFileType(fileType: string | undefined): string {
+  const normalized = (fileType ?? "").toLowerCase().replace(/^\./, "");
+  return normalized === "markdown" ? "md" : normalized;
 }
 
 function isSupportedTemporaryFileType(fileType: string): boolean {

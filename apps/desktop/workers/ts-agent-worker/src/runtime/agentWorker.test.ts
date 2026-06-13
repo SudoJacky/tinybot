@@ -1817,6 +1817,26 @@ describe("AgentWorker", () => {
       method: "POST",
       path: "/v1/knowledge/documents/upload?async_index=true",
       body: {
+        name: "Upload.markdown",
+        content: "# Markdown Upload\n",
+        size_bytes: 18,
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 202,
+        body: {
+          id: expect.any(String),
+          name: "Upload.markdown",
+          file_type: "md",
+          size_bytes: 18,
+          job_id: expect.any(String),
+        },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/v1/knowledge/documents/upload?async_index=true",
+      body: {
         name: "Upload.json",
         content: "{\"topic\":\"desktop native\"}\n",
         file_type: "json",
@@ -2140,6 +2160,16 @@ describe("AgentWorker", () => {
           file_type: "md",
           category: "docs",
           tags: ["desktop", "native"],
+          source: "file_upload",
+        },
+      },
+      {
+        method: "add",
+        traceId: "trace-webui.handle_request",
+        params: {
+          name: "Upload.markdown",
+          content: "# Markdown Upload\n",
+          file_type: "md",
           source: "file_upload",
         },
       },
