@@ -162,6 +162,12 @@ async function resumeResult(runtime: TaskRuntime, args: Record<string, unknown>,
   if (!existingProgress) {
     return { content: `Error: Plan ${planId} not found` };
   }
+  if (existingProgress.status === "completed") {
+    return { content: "Plan already completed. Use `task action=summary plan_id={plan_id}` to get the final results." };
+  }
+  if (existingProgress.status === "executing") {
+    return { content: `Plan is already executing.\n\n${formatProgress(existingProgress)}` };
+  }
   const result = await runtime.resumePlan(planId, {
     parallel: booleanArg(args, "parallel", true),
   }, traceId(context));

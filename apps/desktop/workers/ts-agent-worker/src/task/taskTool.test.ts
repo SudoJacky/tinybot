@@ -153,7 +153,9 @@ describe("createTaskTool", () => {
   });
 
   test("reports deferred backend work for create and resume without configured backends", async () => {
-    const tool = createTaskTool({ store: memoryBridge([basePlan()]) });
+    const plan = basePlan();
+    plan.status = "planning";
+    const tool = createTaskTool({ store: memoryBridge([plan]) });
 
     await expect(tool.execute({ action: "create", request: "Do the work" }, context)).resolves.toMatchObject({
       content: "Task plan creation is not available in the native TS runtime yet.",
@@ -163,6 +165,51 @@ describe("createTaskTool", () => {
       content: "Task background execution is not available in the native TS runtime yet.",
       metadata: { available: false, deferred: "subagent_runtime" },
     });
+  });
+
+  test("preserves Python resume guards for completed and executing plans", async () => {
+    const completed = basePlan();
+    completed.status = "completed";
+    completed.subtasks[1] = {
+      ...completed.subtasks[1],
+      status: "completed",
+      result: "Runtime done",
+    };
+    const executing = basePlan();
+    executing.id = "running";
+    executing.subtasks[1] = {
+      ...executing.subtasks[1],
+      status: "in_progress",
+      result: null,
+    };
+    const spawned: string[] = [];
+    const tool = createTaskTool({
+      store: memoryBridge([completed, executing]),
+      executor: {
+        spawnSubtask: async ({ subtask }) => {
+          spawned.push(subtask.id);
+        },
+      },
+    });
+
+    await expect(tool.execute({ action: "resume", plan_id: "plan-1" }, context)).resolves.toEqual({
+      content: "Plan already completed. Use `task action=summary plan_id={plan_id}` to get the final results.",
+    });
+    await expect(tool.execute({ action: "resume", plan_id: "running" }, context)).resolves.toEqual({
+      content: [
+        "Plan is already executing.",
+        "",
+        "## Progress: Backend migration (running)",
+        "**Status:** executing",
+        "**Progress:** 1/2 completed",
+        "- In progress: 1",
+        "- Pending: 0",
+        "- Failed: 0",
+        "- Skipped: 0",
+        "**Currently executing:** Runtime",
+      ].join("\n"),
+    });
+    expect(spawned).toEqual([]);
   });
 
   test("returns final summary only for completed plans", async () => {
