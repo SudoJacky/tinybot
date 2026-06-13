@@ -916,6 +916,21 @@ function readyTaskIdsFor(session: CoworkSession, agentId: string): string[] {
     .map((task) => stringValue(task.id));
 }
 
+function claimableTaskIdsFor(session: CoworkSession, agentId: string): string[] {
+  if (!session.agents[agentId]) {
+    return [];
+  }
+  return Object.values(session.tasks)
+    .filter((task) => {
+      const assignedAgentId = stringValue(task.assigned_agent_id);
+      return assignedAgentId === "" || assignedAgentId === agentId;
+    })
+    .filter((task) => stringValue(task.status) === "pending")
+    .filter((task) => taskDependenciesDone(session, task))
+    .map((task) => stringValue(task.id))
+    .sort();
+}
+
 function taskDependenciesDone(session: CoworkSession, task: JsonObject): boolean {
   return arrayValue(task.dependencies).map(stringValue).every((taskId) => {
     const dependency = session.tasks[taskId];
@@ -942,6 +957,9 @@ function activationReasonsFor(session: CoworkSession, agentId: string, readyTask
   }
   if (pendingReplies.length > 0) {
     reasons.push("pending_reply");
+  }
+  if (claimableTaskIdsFor(session, agentId).length > 0) {
+    reasons.push("shared_task_claim");
   }
   if (Object.values(session.tasks).some((task) => task.review_required === true
     && stringValue(task.status) === "pending"

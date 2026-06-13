@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued Cowork Phase 10 mailbox parity: TS mailbox readiness activation reasons now include Python-compatible `shared_task_claim` for claimable pending tasks, including unassigned shared-pool tasks and tasks already assigned to the agent when dependencies are complete.
+
 - Continued Cowork Phase 10 mailbox parity: TS mailbox completion-decision refresh now preserves Python review gate blockers for review-required completed/failed tasks, returning `resolve_review_gates` before pending reply blockers or summarize readiness.
 
 - Continued Cowork Phase 10 mailbox parity: TS mailbox completion-decision refresh now mirrors Python goal-review readiness for completed task results, returning `summarize` with `ready_to_finish=true` when completed tasks have sufficient structured/user-visible output and no higher-priority blockers remain.
@@ -768,6 +770,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: preserve Python completion-decision metadata for budget, workflow, focus, workspace, artifacts, and shared-memory counts during TS mailbox refresh.
 - [x] Continue Cowork Phase 10: preserve Python agent readiness score payloads during TS mailbox completion-decision refresh.
 - [x] Continue Cowork Phase 10: recompute Python-compatible current focus tasks during TS mailbox completion-decision refresh.
+- [x] Continue Cowork Phase 10: include Python-compatible shared-task claim activation reasons in TS mailbox readiness payloads.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.

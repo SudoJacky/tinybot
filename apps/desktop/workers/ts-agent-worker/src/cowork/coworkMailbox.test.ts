@@ -449,7 +449,7 @@ describe("CoworkMailbox", () => {
         inbox_count: 2,
         ready_tasks: ["task_1"],
         pending_replies: ["env_1"],
-        activation_reasons: ["inbox_work", "ready_task", "pending_reply"],
+        activation_reasons: ["inbox_work", "ready_task", "pending_reply", "shared_task_claim"],
         team_id: "",
         parent_agent_id: null,
       }),
@@ -459,6 +459,80 @@ describe("CoworkMailbox", () => {
     expect(session.completion_decision.readiness[0]).toMatchObject({
       agent_id: "researcher",
       score: 105,
+    });
+  });
+
+  it("includes shared task claim readiness for unassigned pending tasks", async () => {
+    const session = await createTeamSession();
+    session.agents.coordinator.inbox = [];
+    session.agents.researcher.inbox = [];
+    session.agents.analyst.inbox = [];
+    session.tasks = {
+      dependency: {
+        id: "dependency",
+        title: "Dependency",
+        description: "Completed prerequisite.",
+        assigned_agent_id: "coordinator",
+        status: "completed",
+        dependencies: [],
+        result: "Done",
+        result_data: {},
+        confidence: null,
+        error: null,
+        priority: 0,
+        expected_output: "",
+        review_required: false,
+        reviewer_agent_ids: [],
+        review_status: "",
+        fanout_group_id: "",
+        merge_task_id: "",
+        source_blueprint_id: "",
+        source_event_id: "",
+        runtime_created: false,
+        created_at: fixedNow,
+        updated_at: fixedNow,
+      },
+      shared_task: {
+        id: "shared_task",
+        title: "Shared follow-up",
+        description: "Any active agent can claim this task.",
+        assigned_agent_id: null,
+        status: "pending",
+        dependencies: ["dependency"],
+        result: "",
+        result_data: {},
+        confidence: null,
+        error: null,
+        priority: 0,
+        expected_output: "",
+        review_required: false,
+        reviewer_agent_ids: [],
+        review_status: "",
+        fanout_group_id: "",
+        merge_task_id: "",
+        source_blueprint_id: "",
+        source_event_id: "",
+        runtime_created: false,
+        created_at: fixedNow,
+        updated_at: fixedNow,
+      },
+    };
+
+    deliver(session, {
+      sender_id: "coordinator",
+      recipient_ids: ["researcher"],
+      content: "Shared pool has work available.",
+      wake_recipients: false,
+    });
+
+    const researcherReadiness = session.completion_decision.readiness.find(
+      (entry: Record<string, unknown>) => entry.agent_id === "researcher",
+    );
+    expect(researcherReadiness).toMatchObject({
+      agent_id: "researcher",
+      ready_tasks: [],
+      pending_replies: [],
+      activation_reasons: ["shared_task_claim"],
     });
   });
 
