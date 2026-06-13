@@ -4158,7 +4158,7 @@ function parseCoworkAddTaskParams(params: Record<string, unknown> | undefined): 
     sessionId,
     title,
     description: pythonRouteTextParam(params, "description", "description"),
-    assignedAgentId: stringParam(params, "assignedAgentId", "assigned_agent_id"),
+    assignedAgentId: pythonRouteTextParam(params, "assignedAgentId", "assigned_agent_id"),
     dependencies: stringListParam(params, "dependencies", "dependencies"),
     priority: numberParam(params, "priority", "priority"),
     expectedOutput: stringParam(params, "expectedOutput", "expected_output"),

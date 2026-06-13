@@ -4966,7 +4966,11 @@ describe("AgentWorker", () => {
     const create = await worker.handleRequest(coworkRequest("cowork.create_session", {
       goal: "Mutate Cowork session",
       title: "Mutation",
-      agents: [{ id: "lead", name: "Lead" }, { id: "reviewer", name: "Reviewer" }],
+      agents: [
+        { id: "lead", name: "Lead" },
+        { id: "reviewer", name: "Reviewer" },
+        { id: "123_5", name: "Numeric Reviewer" },
+      ],
       tasks: [{ id: "open", title: "Open", description: "Open task" }],
     }));
     const sessionId = ((create.result as Record<string, unknown>).session as Record<string, unknown>).id;
@@ -5096,7 +5100,7 @@ describe("AgentWorker", () => {
       session_id: sessionId,
       title: 42,
       description: 9001,
-      assigned_agent_id: "reviewer",
+      assigned_agent_id: 123.5,
       dependencies: ["open"],
     }))).resolves.toMatchObject({
       result: {
@@ -5104,7 +5108,7 @@ describe("AgentWorker", () => {
           id: "task_1",
           title: "42",
           description: "9001",
-          assigned_agent_id: "reviewer",
+          assigned_agent_id: "123_5",
         }),
       },
     });

@@ -1,5 +1,9 @@
 # TS Runtime Migration Progress
 
+## 2026-06-14 Progress Note
+
+- Continued Cowork Phase 10 direct RPC parity: direct TS `cowork.add_task` RPCs now mirror Python route text coercion for optional `assigned_agent_id`, preserving truthy numeric assignee ids through service slug normalization instead of dropping assignment.
+
 ## 2026-06-13 Progress Note
 
 - Continued Cowork Phase 10 direct RPC parity: direct TS `cowork.add_task` RPCs now mirror Python route text coercion for optional task `description`, preserving truthy numeric JSON descriptions instead of falling back to the task title.
@@ -995,6 +999,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS `cowork.send_message` content.
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS `cowork.add_task` titles.
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS `cowork.add_task` descriptions.
+- [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS `cowork.add_task` assignee ids.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.
