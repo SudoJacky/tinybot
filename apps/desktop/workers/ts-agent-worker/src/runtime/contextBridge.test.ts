@@ -329,6 +329,66 @@ describe("NativeContextBridge", () => {
     expect(result.input.knowledgeReferences).toEqual(knowledgeReferences);
   });
 
+  test("loads session temporary knowledge context without enabling persistent retrieval", async () => {
+    const rpcClient = new FakeRpcClient({
+      "runtime.now": { current_time: "fixed now" },
+      "config.snapshot_public": { value: { agents: { defaults: { provider_retry_mode: "standard" } } } },
+      "session.get_history": { session_id: "session-1", messages: [] },
+      "workspace.read_bootstrap_files": { files: [], missing: [] },
+      "knowledge.context": {
+        context: [
+          "---",
+          "[RELEVANT KNOWLEDGE]",
+          "",
+          "[Current session temporary files]",
+          "- Session Notes.md: Uploaded notes.",
+          "---",
+        ].join("\n"),
+        persistent_results: [],
+        session_results: [{ id: "session_doc_temp1", temporary: true }],
+        references: [
+          {
+            doc_id: "session_doc_temp1",
+            doc_name: "Session Notes.md",
+            chunk_id: "session_doc_temp1",
+            file_path: "session://session-1/Session Notes.md",
+            line_start: 1,
+            line_end: 2,
+            retrieval_method: "session_temporary",
+            temporary: true,
+          },
+        ],
+      },
+    });
+    const bridge = new NativeContextBridge(rpcClient);
+
+    const result = await bridge.loadContextInput(runInput({ input: { content: "Summarize this" } }), "trace-1");
+
+    expect(rpcClient.calls).toContainEqual({
+      traceId: "trace-1",
+      method: "knowledge.context",
+      params: {
+        current_message: "Summarize this",
+        session_key: "session-1",
+        max_chunks: 5,
+        use_persistent_knowledge: false,
+      },
+    });
+    expect(result.input.knowledgeContext).toContain("[Current session temporary files]");
+    expect(result.input.knowledgeReferences).toEqual([
+      {
+        doc_id: "session_doc_temp1",
+        doc_name: "Session Notes.md",
+        chunk_id: "session_doc_temp1",
+        file_path: "session://session-1/Session Notes.md",
+        line_start: 1,
+        line_end: 2,
+        retrieval_method: "session_temporary",
+        temporary: true,
+      },
+    ]);
+  });
+
   test("loads enabled skills context from native skills list", async () => {
     const rpcClient = new FakeRpcClient({
       "runtime.now": { current_time: "fixed now" },

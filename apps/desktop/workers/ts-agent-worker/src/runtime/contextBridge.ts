@@ -205,7 +205,8 @@ export class NativeContextBridge implements ContextBridge {
     context?: string;
     references: KnowledgeReferenceMetadata[];
   }> {
-    if (!shouldLoadKnowledgeContext(input.input.content)) {
+    const usePersistentKnowledge = shouldLoadPersistentKnowledgeContext(input.input.content);
+    if (!usePersistentKnowledge && !shouldLoadSessionTemporaryKnowledgeContext(input.input.content)) {
       return { references: [] };
     }
     try {
@@ -213,7 +214,7 @@ export class NativeContextBridge implements ContextBridge {
         current_message: input.input.content,
         session_key: input.sessionId,
         max_chunks: 5,
-        use_persistent_knowledge: true,
+        use_persistent_knowledge: usePersistentKnowledge,
       }));
       const context = asString(result?.context);
       return {
@@ -412,12 +413,20 @@ function shouldLoadMemoryNotes(text: string): boolean {
   return trimmed.length > 12 || /memory|remember|prefer|preference|project|decision|fix|followup|implement/i.test(trimmed);
 }
 
-function shouldLoadKnowledgeContext(text: string): boolean {
+function shouldLoadPersistentKnowledgeContext(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) {
     return false;
   }
   return /\b(knowledge|evidence|retrieval|document|documents|docs|source|sources|reference|context)\b/i.test(trimmed);
+}
+
+function shouldLoadSessionTemporaryKnowledgeContext(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return false;
+  }
+  return /\b(upload|uploaded|attachment|attached|file|files|this|summari[sz]e|read|explain|analy[sz]e|review)\b/i.test(trimmed);
 }
 
 function normalizeStringArray(value: unknown): string[] {
