@@ -85,6 +85,7 @@ describe("ChannelManager", () => {
       media: [],
       metadata: { _restart_completed: true },
     });
+    await manager.stopAll();
   });
 
   test("dispatches ordinary outbound messages to their channel adapter", async () => {
@@ -96,6 +97,22 @@ describe("ChannelManager", () => {
 
     await expect(manager.dispatchAvailable()).resolves.toBe(1);
     expect(websocket.send).toHaveBeenCalledWith(expect.objectContaining({ content: "reply" }));
+  });
+
+  test("starts an outbound dispatcher loop with the channel lifecycle", async () => {
+    const bus = new MessageBus();
+    const websocket = adapter({
+      start: vi.fn(async () => undefined),
+      stop: vi.fn(async () => undefined),
+    });
+    const manager = new ChannelManager({ bus, channels: [websocket] });
+
+    await bus.publishOutbound(outbound({ content: "background reply" }));
+    await manager.startAll();
+
+    expect(websocket.send).toHaveBeenCalledWith(expect.objectContaining({ content: "background reply" }));
+
+    await manager.stopAll();
   });
 
   test("routes usage and streaming metadata through channel-specific methods", async () => {

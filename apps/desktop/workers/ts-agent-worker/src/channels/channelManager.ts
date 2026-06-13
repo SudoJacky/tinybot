@@ -54,6 +54,7 @@ export type ChannelManagerOptions = {
   sendToolHints?: boolean;
   sendMaxRetries?: number;
   retryDelaysMs?: number[];
+  dispatchPollMs?: number;
   sleep?: (delayMs: number) => Promise<void>;
   restartNotice?: ChannelRestartNotice | null | ChannelRestartNoticeSource;
   nowUnixSeconds?: () => number;
@@ -67,12 +68,15 @@ export class ChannelManager {
   private readonly sendToolHints: boolean;
   private readonly sendMaxRetries: number;
   private readonly retryDelaysMs: number[];
+  private readonly dispatchPollMs: number;
   private readonly sleep: (delayMs: number) => Promise<void>;
   private readonly restartNoticeSource: ChannelRestartNoticeSource;
   private readonly nowUnixSeconds: () => number;
   private readonly dispatchDiagnostics: ChannelDispatchDiagnostic[] = [];
   private readonly pendingOutbound: OutboundMessage[] = [];
   private readonly runningChannels = new Set<string>();
+  private dispatcherTask: Promise<void> | null = null;
+  private wakeDispatcher: (() => void) | null = null;
   private running = false;
 
   constructor(options: ChannelManagerOptions) {
@@ -81,6 +85,7 @@ export class ChannelManager {
     this.sendToolHints = options.sendToolHints ?? true;
     this.sendMaxRetries = normalizedSendMaxRetries(options.sendMaxRetries);
     this.retryDelaysMs = options.retryDelaysMs ?? [1000, 2000, 4000];
+    this.dispatchPollMs = normalizedDispatchPollMs(options.dispatchPollMs);
     this.sleep = options.sleep ?? ((delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)));
     this.restartNoticeSource = restartNoticeSource(options);
     this.nowUnixSeconds = options.nowUnixSeconds ?? (() => Date.now() / 1000);
@@ -112,6 +117,7 @@ export class ChannelManager {
 
   async startAll(): Promise<void> {
     this.running = true;
+    this.startOutboundDispatcher();
     for (const channel of this.channels.values()) {
       await channel.start?.();
       this.runningChannels.add(channel.name);
@@ -120,11 +126,56 @@ export class ChannelManager {
   }
 
   async stopAll(): Promise<void> {
+    this.running = false;
+    this.wakeDispatcher?.();
+    await this.dispatcherTask;
+    this.dispatcherTask = null;
     for (const channel of this.channels.values()) {
       await channel.stop?.();
       this.runningChannels.delete(channel.name);
     }
-    this.running = false;
+  }
+
+  private startOutboundDispatcher(): void {
+    if (this.dispatcherTask) {
+      return;
+    }
+    this.dispatcherTask = this.runOutboundDispatcher();
+  }
+
+  private async runOutboundDispatcher(): Promise<void> {
+    while (this.running) {
+      const dispatched = await this.dispatchAvailable();
+      if (!this.running) {
+        break;
+      }
+      if (dispatched === 0) {
+        await this.waitForDispatcherPoll();
+      }
+    }
+  }
+
+  private async waitForDispatcherPoll(): Promise<void> {
+    if (this.dispatchPollMs <= 0) {
+      await Promise.resolve();
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      const timeout = setTimeout(() => {
+        if (this.wakeDispatcher === wake) {
+          this.wakeDispatcher = null;
+        }
+        resolve();
+      }, this.dispatchPollMs);
+      const wake = () => {
+        clearTimeout(timeout);
+        if (this.wakeDispatcher === wake) {
+          this.wakeDispatcher = null;
+        }
+        resolve();
+      };
+      this.wakeDispatcher = wake;
+    });
   }
 
   async dispatchAvailable(maxMessages = 100): Promise<number> {
@@ -301,6 +352,13 @@ function normalizedSendMaxRetries(value: number | undefined): number {
     return 3;
   }
   return Math.max(1, Math.trunc(value));
+}
+
+function normalizedDispatchPollMs(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 1000;
+  }
+  return Math.max(0, Math.trunc(value));
 }
 
 function retryDelayMs(delays: number[], index: number): number | undefined {
