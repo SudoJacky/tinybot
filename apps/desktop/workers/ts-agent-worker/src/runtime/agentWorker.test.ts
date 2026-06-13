@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import type { AgentMessage } from "../agent/agentRunSpec";
 import { CoworkScheduler } from "../cowork/coworkScheduler";
@@ -52,6 +52,16 @@ function cronRunDueRequest(params: Record<string, unknown>): WorkerRequest {
     id: "cron-run-due-1",
     trace_id: "trace-cron-run-due",
     method: "cron.run_due",
+    params,
+  };
+}
+
+function heartbeatRequest(method: string, params: Record<string, unknown> = {}): WorkerRequest {
+  return {
+    protocol_version: "1",
+    id: `${method}-1`,
+    trace_id: `trace-${method}`,
+    method,
     params,
   };
 }
@@ -5039,6 +5049,68 @@ describe("AgentWorker", () => {
       event: "agent.done",
       payload: expect.objectContaining({ runId: "cron-job-1-cron-run-due-1" }),
     }));
+  });
+
+  test("routes heartbeat trigger and status requests to the heartbeat runtime", async () => {
+    const heartbeatRuntime = {
+      triggerNow: vi.fn(async () => ({
+        status: "executed" as const,
+        tasks: "Review heartbeat task.",
+        response: "Heartbeat complete.",
+      })),
+      getStatus: vi.fn(() => ({
+        enabled: true,
+        running: false,
+        executing: false,
+        intervalMs: 1800000,
+        lastResult: null,
+        lastError: null,
+      })),
+    };
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => {},
+      heartbeatRuntime,
+    });
+
+    await expect(worker.handleRequest(heartbeatRequest("heartbeat.trigger_now"))).resolves.toMatchObject({
+      protocol_version: "1",
+      id: "heartbeat.trigger_now-1",
+      trace_id: "trace-heartbeat.trigger_now",
+      result: {
+        status: "executed",
+        tasks: "Review heartbeat task.",
+        response: "Heartbeat complete.",
+      },
+    });
+    await expect(worker.handleRequest(heartbeatRequest("heartbeat.status"))).resolves.toMatchObject({
+      result: {
+        enabled: true,
+        running: false,
+        executing: false,
+        intervalMs: 1800000,
+        lastResult: null,
+        lastError: null,
+      },
+    });
+    expect(heartbeatRuntime.triggerNow).toHaveBeenCalledTimes(1);
+    expect(heartbeatRuntime.getStatus).toHaveBeenCalledTimes(1);
+  });
+
+  test("returns an explicit error when heartbeat runtime is unavailable", async () => {
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => {},
+    });
+
+    await expect(worker.handleRequest(heartbeatRequest("heartbeat.status"))).resolves.toMatchObject({
+      error: {
+        code: "worker_error",
+        message: "heartbeat.status requires a heartbeat runtime",
+      },
+    });
   });
 
   test("evaluates cron deliver jobs before emitting outbound delivery", async () => {

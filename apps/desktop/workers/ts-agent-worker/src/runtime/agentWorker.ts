@@ -24,6 +24,7 @@ import type { CoworkScheduler } from "../cowork/coworkScheduler.ts";
 import type { CoworkService } from "../cowork/coworkService.ts";
 import { coworkSessionSnapshot } from "../cowork/coworkSnapshot.ts";
 import type { CoworkBranch, CoworkSession, JsonObject } from "../cowork/coworkTypes.ts";
+import type { HeartbeatRuntime } from "../heartbeat/heartbeatRuntime.ts";
 import type { ModelProvider, ToolDefinition } from "../model/provider.ts";
 import {
   isJsonObject,
@@ -105,6 +106,7 @@ export type AgentWorkerOptions = {
   webuiConfigProvider?: WebuiConfigProvider;
   knowledgeProvider?: WebuiKnowledgeProvider;
   workspaceBridge?: WebuiWorkspaceProvider;
+  heartbeatRuntime?: Pick<HeartbeatRuntime, "triggerNow" | "getStatus">;
 };
 
 export type PrepareToolsHandler = (traceId: string) => Promise<unknown> | unknown;
@@ -264,6 +266,7 @@ export class AgentWorker {
   private readonly webuiConfigProvider?: WebuiConfigProvider;
   private readonly knowledgeProvider?: WebuiKnowledgeProvider;
   private readonly workspaceBridge?: WebuiWorkspaceProvider;
+  private readonly heartbeatRuntime?: Pick<HeartbeatRuntime, "triggerNow" | "getStatus">;
   private readonly commandRouter: CommandRouter;
   private readonly turnLifecycle: TurnLifecycle;
   private readonly activeRuns = new Map<string, ActiveRun>();
@@ -295,6 +298,7 @@ export class AgentWorker {
     this.webuiConfigProvider = options.webuiConfigProvider;
     this.knowledgeProvider = options.knowledgeProvider;
     this.workspaceBridge = options.workspaceBridge;
+    this.heartbeatRuntime = options.heartbeatRuntime;
     this.commandRouter = options.commandRouter ?? createDefaultCommandRouter({
       cancelActiveRunsForSession: (sessionId) => this.cancelActiveRunsForSession(sessionId),
       getStatusSnapshot: (context) => this.statusSnapshot(context.sessionId),
@@ -354,6 +358,14 @@ export class AgentWorker {
 
     if (request.method === "cron.run_due") {
       return this.handleCronRunDueRequest(request);
+    }
+
+    if (request.method === "heartbeat.trigger_now") {
+      return this.handleHeartbeatTriggerNowRequest(request);
+    }
+
+    if (request.method === "heartbeat.status") {
+      return this.handleHeartbeatStatusRequest(request);
     }
 
     if (request.method === "cowork.list_sessions") {
@@ -2177,6 +2189,38 @@ export class AgentWorker {
       };
     } catch (error) {
       return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleHeartbeatTriggerNowRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.heartbeatRuntime) {
+      return this.failure(request, "heartbeat.trigger_now requires a heartbeat runtime");
+    }
+    try {
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: await this.heartbeatRuntime.triggerNow(),
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error));
+    }
+  }
+
+  private handleHeartbeatStatusRequest(request: WorkerRequest): WorkerResponse {
+    if (!this.heartbeatRuntime) {
+      return this.failure(request, "heartbeat.status requires a heartbeat runtime");
+    }
+    try {
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: this.heartbeatRuntime.getStatus(),
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error));
     }
   }
 
