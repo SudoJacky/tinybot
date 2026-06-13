@@ -5,6 +5,7 @@ import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 
 export type CoworkInspectorActionEvent =
   | { action: "task"; sessionId: string; taskId: string; taskAction: "assign" | "retry" | "review"; assignedAgentId?: string }
+  | { action: "loadAgentActivity"; sessionId: string; agentId: string }
   | { action: "workUnit"; sessionId: string; workUnitId: string; workUnitAction: "retry" | "skip" | "cancel" }
   | { action: "selectBranch"; sessionId: string; branchId: string }
   | { action: "deriveBranch"; sessionId: string; sourceBranchId: string; targetArchitecture: string }
@@ -130,6 +131,16 @@ function selectedActionControls(
         sessionId,
         taskId: id,
         taskAction: "review",
+      })),
+    ];
+  }
+
+  if (type === "agent") {
+    return [
+      renderActionButton("loadAgentActivity", "Activity", () => options.onAction?.({
+        action: "loadAgentActivity",
+        sessionId,
+        agentId: id,
       })),
     ];
   }

@@ -2945,7 +2945,7 @@ describe("desktop workbench shell", () => {
 
   test("renders a desktop Cowork cockpit with session list, graph, inspector, actions, and task feed", () => {
     const targetDocument = new FakeDocument();
-    const actionEvents: Array<{ action: string; sessionId: string; goal: string; message: string; maxRounds?: number }> = [];
+    const actionEvents: Array<{ action: string; sessionId: string; goal: string; message: string; maxRounds?: number; agentId?: string }> = [];
     const session = {
       id: "cowork-1",
       title: "Desktop migration",
@@ -2984,7 +2984,8 @@ describe("desktop workbench shell", () => {
             sessionId: event.sessionId ?? "",
             goal: event.goal ?? "",
             message: event.message ?? "",
-            maxRounds: event.maxRounds,
+            ...(event.maxRounds ? { maxRounds: event.maxRounds } : {}),
+            ...(event.agentId ? { agentId: event.agentId } : {}),
           });
         },
       },
@@ -3017,7 +3018,8 @@ describe("desktop workbench shell", () => {
     pane?.querySelector('[data-desktop-cowork-entity="agent-1"]')?.click();
     expect(pane?.querySelector(".desktop-cowork-inspector")?.textContent).toContain("Selected: Planner");
     expect(pane?.querySelector(".desktop-cowork-inspector")?.textContent).toContain("Status: running");
-    expect(pane?.querySelectorAll(".desktop-cowork-action").map((row) => row.getAttribute("data-desktop-cowork-action"))).toEqual([
+    pane?.querySelector('[data-desktop-cowork-entity-action="loadAgentActivity"]')?.click();
+    expect(pane?.querySelectorAll(".desktop-cowork-action").map((row) => row.getAttribute("data-desktop-cowork-action")).filter(Boolean)).toEqual([
       "blueprintValidate",
       "blueprintPreview",
       "create",
@@ -3042,6 +3044,7 @@ describe("desktop workbench shell", () => {
       pane?.querySelector(`[data-desktop-cowork-action="${action}"]`)?.click();
     }
     expect(actionEvents).toEqual([
+      { action: "loadAgentActivity", sessionId: "cowork-1", goal: "", message: "", agentId: "agent-1" },
       { action: "createSession", sessionId: "", goal: "Create a desktop run", message: "" },
       { action: "runSession", sessionId: "cowork-1", goal: "", message: "" },
       { action: "pauseSession", sessionId: "cowork-1", goal: "", message: "" },

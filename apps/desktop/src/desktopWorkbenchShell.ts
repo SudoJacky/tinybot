@@ -4609,6 +4609,17 @@ function appendCoworkSelectedActions(
       });
       actions.append(button);
     }
+  } else if (type === "agent") {
+    const button = createCoworkSelectedActionButton(targetDocument, "loadAgentActivity", "Activity");
+    button.addEventListener("click", () => {
+      coworkActions.onCoworkAction?.({
+        action: "loadAgentActivity",
+        pane,
+        sessionId,
+        agentId: id,
+      });
+    });
+    actions.append(button);
   } else if (type === "workUnit") {
     for (const [action, label, workUnitAction] of [
       ["retryWorkUnit", "Retry", "retry"],

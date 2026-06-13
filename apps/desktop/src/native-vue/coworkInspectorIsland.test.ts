@@ -142,4 +142,23 @@ describe("cowork inspector Vue island", () => {
       { action: "mergeFinalResult", sessionId: "cowork-1", branchIds: ["branch-a", "branch-b"] },
     ]);
   });
+
+  test("dispatches agent activity action from selected agent details", () => {
+    const host = document.createElement("section");
+    const events: Array<Record<string, unknown>> = [];
+
+    mountCoworkInspectorIsland(host, {
+      view: {
+        ...baseView,
+        inspector: { ...baseView.inspector, type: "agent", id: "agent-1", title: "Planner", rows: [], payloadText: "" },
+      },
+      onAction: (event) => events.push(event),
+    });
+
+    host.querySelector<HTMLButtonElement>('[data-desktop-cowork-entity-action="loadAgentActivity"]')?.click();
+
+    expect(events).toEqual([
+      { action: "loadAgentActivity", sessionId: "cowork-1", agentId: "agent-1" },
+    ]);
+  });
 });
