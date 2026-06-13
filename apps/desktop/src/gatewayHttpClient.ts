@@ -987,7 +987,7 @@ function autoRunCoworkCreateRoute(method: string, path: string, body: unknown): 
     return false;
   }
   const payload = asRecord(body);
-  return payload?.auto_run === true || payload?.autoRun === true;
+  return pythonTruthyJsonValue(payload?.auto_run ?? payload?.autoRun);
 }
 
 function swarmCoworkCreateRoute(method: string, path: string, body: unknown): boolean {
@@ -1033,6 +1033,28 @@ function swarmBranchDeriveRoute(method: string, path: string, body: unknown): bo
 
 function isSwarmMode(value: unknown): boolean {
   return typeof value === "string" && value.trim().toLowerCase().replace(/-/g, "_") === "swarm";
+}
+
+function pythonTruthyJsonValue(value: unknown): boolean {
+  if (value === null || value === undefined) {
+    return false;
+  }
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    return value !== 0 && Number.isFinite(value);
+  }
+  if (typeof value === "string") {
+    return value.length > 0;
+  }
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+  if (typeof value === "object") {
+    return Object.keys(value).length > 0;
+  }
+  return true;
 }
 
 async function bootstrapGateway(
