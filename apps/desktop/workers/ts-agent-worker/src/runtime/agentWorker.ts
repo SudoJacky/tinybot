@@ -1105,7 +1105,7 @@ export class AgentWorker {
         traceId,
         sessionId: params.sessionId,
         branchIds: params.branchIds,
-        summary: params.summary,
+        summary: pythonRouteTextParam(body, "summary", "summary"),
       });
       return this.coworkFinalResultRouteResponse(result);
     }
@@ -1142,7 +1142,7 @@ export class AgentWorker {
         traceId,
         sessionId: params.sessionId,
         branchIds: params.branchIds,
-        summary: params.summary,
+        summary: pythonRouteTextParam(body, "summary", "summary"),
       });
       return this.coworkFinalResultRouteResponse(result);
     }

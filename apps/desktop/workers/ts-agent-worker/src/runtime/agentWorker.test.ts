@@ -3753,7 +3753,7 @@ describe("AgentWorker", () => {
     await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
       method: "POST",
       path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/branch-results/merge`,
-      body: { branch_ids: ["default", "br_1"] },
+      body: { branch_ids: ["default", "br_1"], summary: 404 },
     }))).resolves.toMatchObject({
       result: {
         status: 200,
@@ -3761,6 +3761,7 @@ describe("AgentWorker", () => {
           session_final_result: expect.objectContaining({
             source: "branch_merge",
             source_branch_ids: ["default", "br_1"],
+            summary: "404",
           }),
           session: expect.objectContaining({
             branches: expect.arrayContaining([expect.objectContaining({ id: "br_1" })]),
