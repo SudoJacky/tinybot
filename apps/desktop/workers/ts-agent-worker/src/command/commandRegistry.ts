@@ -156,6 +156,7 @@ async function newSessionResult(context: CommandContext, capabilities: CommandCa
       },
     };
   }
+  const archive = await capabilities.archiveSessionBeforeClear?.(context.sessionId, context.traceId);
   const result = await capabilities.clearSession(context.sessionId, context.traceId);
   const temporaryFiles = await capabilities.clearTemporaryFiles?.(context.sessionId, context.traceId);
   return {
@@ -169,6 +170,10 @@ async function newSessionResult(context: CommandContext, capabilities: CommandCa
       messages_before: result.messagesBefore,
       messages_after: result.messagesAfter,
       checkpoint_cleared: result.checkpointCleared,
+      ...(typeof archive?.evidenceCount === "number" ? { memory_archive_evidence_count: archive.evidenceCount } : {}),
+      ...(typeof archive?.messageCount === "number" ? { memory_archive_message_count: archive.messageCount } : {}),
+      ...(archive?.skippedReason ? { memory_archive_skipped_reason: archive.skippedReason } : {}),
+      ...(archive?.error ? { memory_archive_error: archive.error } : {}),
       ...(typeof temporaryFiles?.cleared === "number" ? { temporary_files_cleared: temporaryFiles.cleared } : {}),
     },
   };

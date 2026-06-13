@@ -7260,6 +7260,8 @@ describe("AgentWorker", () => {
   test("handles backend slash new by clearing the current session", async () => {
     const clearCalls: Array<{ sessionId: string; traceId: string }> = [];
     const temporaryFileClearCalls: Array<{ sessionId: string; traceId: string }> = [];
+    const archiveCalls: Array<{ sessionId: string; traceId: string; messages: Array<{ role: string; content: string }>; startIndex: number }> = [];
+    const operationOrder: string[] = [];
     let providerCalls = 0;
     const provider: ModelProvider = {
       complete: async () => {
@@ -7276,13 +7278,40 @@ describe("AgentWorker", () => {
         clearCheckpoint: async () => undefined,
         appendMessages: async () => undefined,
         getCheckpoint: async () => null,
+        getSessionMessages: async (sessionId: string, traceId: string) => {
+          operationOrder.push("archive-snapshot");
+          expect({ sessionId, traceId }).toEqual({ sessionId: "session-1", traceId: "trace-1" });
+          return {
+            sessionId,
+            messages: [
+              { role: "system", content: "runtime context" },
+              { role: "user", content: "Remember native preferences" },
+              { role: "assistant", content: "Noted." },
+              { role: "tool", content: "side effect" },
+            ],
+          };
+        },
         clearSession: async (sessionId, traceId) => {
+          operationOrder.push("clear-session");
           clearCalls.push({ sessionId, traceId });
           return { sessionId, messagesBefore: 3, messagesAfter: 0, checkpointCleared: true };
         },
         clearTemporaryFiles: async (sessionId, traceId) => {
+          operationOrder.push("clear-temporary-files");
           temporaryFileClearCalls.push({ sessionId, traceId });
           return { cleared: 2 };
+        },
+      },
+      memoryBridge: {
+        captureEvidence: async (sessionId, request, traceId) => {
+          operationOrder.push("capture-evidence");
+          archiveCalls.push({
+            sessionId,
+            traceId,
+            messages: request.messages.map((message) => ({ role: message.role, content: message.content })),
+            startIndex: request.startIndex,
+          });
+          return { evidence: [{ id: "ev-1" }, { id: "ev-2" }] };
         },
       },
     });
@@ -7301,6 +7330,16 @@ describe("AgentWorker", () => {
     );
 
     expect(providerCalls).toBe(0);
+    expect(operationOrder).toEqual(["archive-snapshot", "capture-evidence", "clear-session", "clear-temporary-files"]);
+    expect(archiveCalls).toEqual([{
+      sessionId: "session-1",
+      traceId: "trace-1",
+      messages: [
+        { role: "user", content: "Remember native preferences" },
+        { role: "assistant", content: "Noted." },
+      ],
+      startIndex: 0,
+    }]);
     expect(clearCalls).toEqual([{ sessionId: "session-1", traceId: "trace-1" }]);
     expect(temporaryFileClearCalls).toEqual([{ sessionId: "session-1", traceId: "trace-1" }]);
     expect(response).toMatchObject({
@@ -7315,6 +7354,8 @@ describe("AgentWorker", () => {
           messages_after: 0,
           checkpoint_cleared: true,
           temporary_files_cleared: 2,
+          memory_archive_evidence_count: 2,
+          memory_archive_message_count: 2,
         },
       },
     });

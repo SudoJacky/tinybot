@@ -44,6 +44,13 @@ export type ClearSessionCommandResult = {
   checkpointCleared: boolean;
 };
 
+export type ArchiveSessionCommandResult = {
+  messageCount: number;
+  evidenceCount: number;
+  skippedReason?: string;
+  error?: string;
+};
+
 export type ClearTemporaryFilesCommandResult = {
   cleared?: number;
 };
@@ -98,6 +105,10 @@ export type CommandCapabilities = {
   cancelActiveRunsForSession?: (sessionId: string | undefined) => Promise<CancelActiveRunsResult> | CancelActiveRunsResult;
   getStatusSnapshot?: (context: CommandContext) => Promise<CommandStatusSnapshot> | CommandStatusSnapshot;
   requestRestart?: (request: RestartCommandRequest) => Promise<void> | void;
+  archiveSessionBeforeClear?: (
+    sessionId: string | undefined,
+    traceId: string,
+  ) => Promise<ArchiveSessionCommandResult> | ArchiveSessionCommandResult;
   clearSession?: (sessionId: string | undefined, traceId: string) => Promise<ClearSessionCommandResult> | ClearSessionCommandResult;
   clearTemporaryFiles?: (
     sessionId: string | undefined,

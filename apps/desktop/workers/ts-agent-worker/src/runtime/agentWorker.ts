@@ -311,6 +311,9 @@ export class AgentWorker {
       cancelActiveRunsForSession: (sessionId) => this.cancelActiveRunsForSession(sessionId),
       getStatusSnapshot: (context) => this.statusSnapshot(context.sessionId),
       requestRestart: options.requestRestart,
+      ...(options.sessionBridge?.getSessionMessages && options.memoryBridge
+        ? { archiveSessionBeforeClear: (sessionId, traceId) => this.archiveSessionBeforeClearForCommand(sessionId, traceId) }
+        : {}),
       ...(options.sessionBridge?.clearSession
         ? { clearSession: (sessionId, traceId) => this.clearSessionForCommand(sessionId, traceId) }
         : {}),
@@ -2686,6 +2689,26 @@ export class AgentWorker {
     return this.sessionBridge.clearSession(sessionId, traceId);
   }
 
+  private async archiveSessionBeforeClearForCommand(
+    sessionId: string | undefined,
+    traceId: string,
+  ): Promise<{ messageCount: number; evidenceCount: number; skippedReason?: string; error?: string }> {
+    if (!sessionId || !this.sessionBridge?.getSessionMessages || !this.memoryBridge) {
+      return { messageCount: 0, evidenceCount: 0, skippedReason: "unavailable" };
+    }
+    try {
+      const snapshot = await this.sessionBridge.getSessionMessages(sessionId, traceId);
+      const messages = (snapshot?.messages ?? []).map(archivableSessionMessage).filter((message): message is AgentMessage => message !== undefined);
+      if (messages.length === 0) {
+        return { messageCount: 0, evidenceCount: 0, skippedReason: "empty" };
+      }
+      const result = await this.memoryBridge.captureEvidence(sessionId, { messages, startIndex: 0 }, traceId);
+      return { messageCount: messages.length, evidenceCount: result.evidence.length };
+    } catch (error) {
+      return { messageCount: 0, evidenceCount: 0, error: errorMessage(error) };
+    }
+  }
+
   private async clearTemporaryFilesForCommand(
     sessionId: string | undefined,
     traceId: string,
@@ -3688,6 +3711,16 @@ function lastUserMessage(messages: AgentMessage[]): AgentMessage | undefined {
 
 function hasCommandMessage(messages: AgentMessage[]): boolean {
   return lastUserMessage(messages)?.content.trim().startsWith("/") === true;
+}
+
+function archivableSessionMessage(value: Record<string, unknown>): AgentMessage | undefined {
+  const role = value.role;
+  if (role !== "user" && role !== "assistant") {
+    return undefined;
+  }
+  return typeof value.content === "string" && value.content.trim().length > 0
+    ? { role, content: value.content }
+    : undefined;
 }
 
 function isPendingApprovalSummary(value: unknown): value is {
