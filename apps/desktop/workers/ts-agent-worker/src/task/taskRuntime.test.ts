@@ -501,6 +501,57 @@ describe("TaskRuntime", () => {
     });
   });
 
+  test("notifies the owning session when retries pause a task plan", async () => {
+    const plan = basePlan();
+    plan.status = "executing";
+    plan.context = { sessionKey: "desktop:chat-1" };
+    plan.currentSubtaskIds = ["b"];
+    plan.subtasks[0].result = "Foundation done";
+    plan.subtasks[1].status = "in_progress";
+    plan.subtasks[1].retryCount = 2;
+    plan.subtasks[1].maxRetries = 2;
+    const { bridge } = memoryBridge([plan]);
+    const notifications: Array<{ sessionKey: string; content: string; metadata: Record<string, unknown>; traceId: string }> = [];
+    const runtime = new TaskRuntime({
+      store: bridge,
+      now: () => "2026-06-12T00:00:00.000Z",
+      executor: {
+        spawnSubtask: async () => {},
+      },
+      notifier: {
+        notifyPlanCompleted: async (sessionKey, completedPlan, summary, traceId) => {
+          notifications.push({
+            sessionKey,
+            content: summary,
+            metadata: { planId: completedPlan.id, status: completedPlan.status, error: completedPlan.context.error },
+            traceId,
+          });
+        },
+      },
+    });
+
+    await runtime.completeSubtask(
+      "plan-1",
+      "b",
+      { status: "failed", error: "permanent failure" },
+      { parallel: true },
+      "trace-paused",
+    );
+
+    expect(notifications).toEqual([
+      {
+        sessionKey: "desktop:chat-1",
+        content: "[Foundation] Foundation done",
+        metadata: {
+          planId: "plan-1",
+          status: "paused",
+          error: "Subtask 'Runtime' failed after 2 retries.",
+        },
+        traceId: "trace-paused",
+      },
+    ]);
+  });
+
   test("notifies the owning session when a task plan completes", async () => {
     const plan = basePlan();
     plan.status = "executing";

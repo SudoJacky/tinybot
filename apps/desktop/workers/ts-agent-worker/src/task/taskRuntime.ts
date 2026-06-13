@@ -217,6 +217,9 @@ export class TaskRuntime {
     if (plan.status === "paused") {
       const saved = await this.store.savePlan(plan, traceId);
       await this.publishCompletedSubtask(saved, subtask, request, traceId);
+      if (!wasPaused) {
+        await this.notifyPlanCompleted(saved, traceId);
+      }
       return { plan: saved, spawnedCount: 0 };
     }
     plan.status = "executing";
