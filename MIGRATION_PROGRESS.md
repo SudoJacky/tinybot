@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Task/Cron background runtime parity: TS-native task runtime now truncates stored subtask results with Python's 1500-character context cap before summaries and chained subagent context reuse.
+
 - Continued Task/Cron background runtime parity: TS-native task control now mirrors Python pause/cancel semantics, resetting in-progress subtasks on pause and marking unfinished subtasks skipped with failed/cancelled plan state on cancel.
 
 - Continued Task/Cron background runtime parity: TS-native subagent runtime now uses Python-compatible default concurrency of five background subagents before queueing, preserving Task auto-execution throughput when no explicit native limit is configured.

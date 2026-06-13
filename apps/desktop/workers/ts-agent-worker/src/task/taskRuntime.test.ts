@@ -230,6 +230,24 @@ describe("TaskRuntime", () => {
     });
   });
 
+  test("truncates manually updated subtask results like Python", async () => {
+    const { bridge, saves } = memoryBridge([basePlan()]);
+    const runtime = new TaskRuntime({
+      store: bridge,
+      now: () => "2026-06-12T00:00:00.000Z",
+    });
+    const longResult = "x".repeat(1501);
+
+    const updated = await runtime.updateSubtaskResult("plan-1", "b", {
+      status: "completed",
+      result: longResult,
+    }, "trace-update");
+
+    const expected = `${"x".repeat(1500)}\n...[truncated]`;
+    expect(updated?.result).toBe(expected);
+    expect(saves.at(-1)?.subtasks[1].result).toBe(expected);
+  });
+
   test("creates and persists a planner-generated task plan", async () => {
     const { bridge, saves } = memoryBridge([]);
     const runtime = new TaskRuntime({
@@ -428,6 +446,39 @@ describe("TaskRuntime", () => {
         expect.objectContaining({ id: "b", status: "in_progress", startedAt: "2026-06-12T00:00:00.000Z" }),
       ],
     });
+  });
+
+  test("truncates subagent completion results before storing and chaining context", async () => {
+    const plan = basePlan();
+    plan.status = "executing";
+    plan.currentSubtaskIds = ["a"];
+    plan.subtasks[0].status = "in_progress";
+    plan.subtasks[0].result = null;
+    const { bridge, saves } = memoryBridge([plan]);
+    const spawnedTasks: string[] = [];
+    const runtime = new TaskRuntime({
+      store: bridge,
+      now: () => "2026-06-12T00:00:00.000Z",
+      executor: {
+        spawnSubtask: async ({ task }) => {
+          spawnedTasks.push(task);
+        },
+      },
+    });
+    const longResult = "x".repeat(1501);
+
+    await runtime.completeSubtask(
+      "plan-1",
+      "a",
+      { status: "completed", result: longResult },
+      { parallel: true },
+      "trace-complete",
+    );
+
+    const expected = `${"x".repeat(1500)}\n...[truncated]`;
+    expect(saves.at(-1)?.subtasks[0].result).toBe(expected);
+    expect(spawnedTasks[0]).toContain(expected);
+    expect(spawnedTasks[0]).not.toContain("x".repeat(1501));
   });
 
   test("publishes task progress when subtasks complete and chain to ready work", async () => {

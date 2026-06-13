@@ -183,7 +183,7 @@ export class TaskRuntime {
     const wasPaused = plan.status === "paused";
     subtask.status = request.status;
     if (request.result !== undefined) {
-      subtask.result = request.result;
+      subtask.result = truncateSubtaskResult(request.result);
     }
     if (request.error !== undefined) {
       subtask.error = request.error;
@@ -419,7 +419,7 @@ export class TaskRuntime {
     }
     subtask.status = request.status;
     if (request.result !== undefined) {
-      subtask.result = request.result;
+      subtask.result = truncateSubtaskResult(request.result);
     }
     if (request.error !== undefined) {
       subtask.error = request.error;
@@ -440,6 +440,18 @@ export class TaskRuntime {
 
 function randomTaskId(): string {
   return Math.random().toString(16).slice(2, 6);
+}
+
+const MAX_CONTEXT_PER_SUBTASK = 1500;
+
+function truncateSubtaskResult(result: string | null | undefined): string | null {
+  if (!result) {
+    return null;
+  }
+  if (result.length <= MAX_CONTEXT_PER_SUBTASK) {
+    return result;
+  }
+  return `${result.slice(0, MAX_CONTEXT_PER_SUBTASK)}\n...[truncated]`;
 }
 
 function buildTaskDescription(plan: TaskPlan, subtask: SubTask): string {
