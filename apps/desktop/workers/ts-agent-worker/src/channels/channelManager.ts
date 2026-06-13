@@ -30,10 +30,10 @@ export type ChannelManagerStatus = {
 };
 
 export type ChannelDispatchDiagnostic = {
-  kind: "dropped" | "unknown_channel" | "send_failed";
+  kind: "dropped" | "unknown_channel" | "send_failed" | "start_failed";
   reason?: "progress_disabled" | "tool_hints_disabled";
   channel: string;
-  chatId: string;
+  chatId?: string;
   content?: string;
   attempts?: number;
   error?: string;
@@ -119,8 +119,16 @@ export class ChannelManager {
     this.running = true;
     this.startOutboundDispatcher();
     for (const channel of this.channels.values()) {
-      await channel.start?.();
-      this.runningChannels.add(channel.name);
+      try {
+        await channel.start?.();
+        this.runningChannels.add(channel.name);
+      } catch (error) {
+        this.dispatchDiagnostics.push({
+          kind: "start_failed",
+          channel: channel.name,
+          error: String(error instanceof Error ? error.message : error),
+        });
+      }
     }
     await this.sendRestartNoticeIfNeeded();
   }
