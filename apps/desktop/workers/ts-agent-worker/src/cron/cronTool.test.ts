@@ -5,8 +5,11 @@ import type { CronJob } from "./cronTypes";
 
 function memoryBridge(initialJobs: CronJob[] = []) {
   const jobs = new Map(initialJobs.map((job) => [job.id, structuredClone(job)]));
+  const addRequests: Array<Omit<CronJob, "id" | "createdAtMs" | "updatedAtMs" | "state" | "enabled">> = [];
   return {
+    addRequests,
     addJob: async (request: Omit<CronJob, "id" | "createdAtMs" | "updatedAtMs" | "state" | "enabled">) => {
+      addRequests.push(structuredClone(request));
       const now = 1_775_000_000_000;
       const job: CronJob = {
         ...structuredClone(request),
@@ -21,7 +24,7 @@ function memoryBridge(initialJobs: CronJob[] = []) {
     },
     listJobs: async () => [...jobs.values()].map((job) => structuredClone(job)),
     removeJob: async (jobId: string) => {
-      if (jobId === "protected") {
+      if (jobId === "protected" || jobId === "dream") {
         return "protected" as const;
       }
       return jobs.delete(jobId) ? "removed" as const : "not_found" as const;
@@ -71,6 +74,56 @@ describe("createCronTool", () => {
     });
     await expect(tool.execute({ action: "remove", job_id: "protected" }, context)).resolves.toEqual({
       content: "Cannot remove job `protected`.\nThis is a protected system-managed cron job.",
+    });
+  });
+
+  test("rejects scheduling new jobs from cron-triggered sessions", async () => {
+    const bridge = memoryBridge();
+    const tool = createCronTool({ bridge, defaultTimezone: "UTC" });
+
+    await expect(tool.execute({
+      action: "add",
+      message: "Nested reminder",
+      every_seconds: 60,
+    }, { ...context, sessionId: "cron:job-1" })).resolves.toEqual({
+      content: "Error: cannot schedule new jobs from within a cron job execution",
+    });
+    expect(bridge.addRequests).toEqual([]);
+  });
+
+  test("formats protected system jobs like Python", async () => {
+    const tool = createCronTool({
+      bridge: memoryBridge([
+        {
+          id: "dream",
+          name: "dream",
+          enabled: true,
+          schedule: { kind: "every", everyMs: 3_600_000 },
+          payload: { kind: "system_event", message: "dream", deliver: false },
+          state: { nextRunAtMs: 1_775_003_600_000 },
+          createdAtMs: 1_775_000_000_000,
+          updatedAtMs: 1_775_000_000_000,
+          deleteAfterRun: false,
+        },
+      ]),
+      defaultTimezone: "UTC",
+    });
+
+    await expect(tool.execute({ action: "list" }, context)).resolves.toEqual({
+      content: [
+        "Scheduled jobs:",
+        "- dream (id: dream, every 1h)",
+        "  Purpose: Dream memory consolidation for long-term memory.",
+        "  Protected: visible for inspection, but cannot be removed.",
+        "  Next run: 2026-04-01T00:33:20.000Z (UTC)",
+      ].join("\n"),
+    });
+    await expect(tool.execute({ action: "remove", job_id: "dream" }, context)).resolves.toEqual({
+      content: [
+        "Cannot remove job `dream`.",
+        "This is a system-managed Dream memory consolidation job for long-term memory.",
+        "It remains visible so you can inspect it, but it cannot be removed.",
+      ].join("\n"),
     });
   });
 });

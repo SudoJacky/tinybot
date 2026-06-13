@@ -44,6 +44,9 @@ class CronToolRuntime {
   async execute(args: Record<string, unknown>, context: ToolContext): Promise<ToolResult> {
     const action = stringArg(args, "action");
     if (action === "add") {
+      if (isCronExecutionContext(context)) {
+        return { content: "Error: cannot schedule new jobs from within a cron job execution" };
+      }
       return { content: await this.addJob(args, context) };
     }
     if (action === "list") {
@@ -120,7 +123,13 @@ class CronToolRuntime {
   }
 
   private formatJob(job: CronJob): string {
-    return `- ${job.name} (id: ${job.id}, ${this.formatTiming(job.schedule)})`;
+    const lines = [`- ${job.name} (id: ${job.id}, ${this.formatTiming(job.schedule)})`];
+    if (job.payload.kind === "system_event") {
+      lines.push(`  Purpose: ${systemJobPurpose(job)}`);
+      lines.push("  Protected: visible for inspection, but cannot be removed.");
+    }
+    lines.push(...this.formatState(job));
+    return lines.join("\n");
   }
 
   private formatTiming(schedule: CronSchedule): string {
@@ -145,6 +154,22 @@ class CronToolRuntime {
     return schedule.kind;
   }
 
+  private formatState(job: CronJob): string[] {
+    const lines: string[] = [];
+    const timezone = displayTimezone(job.schedule, this.defaultTimezone);
+    if (job.state.lastRunAtMs) {
+      let line = `  Last run: ${formatTimestamp(job.state.lastRunAtMs, timezone)} - ${job.state.lastStatus ?? "unknown"}`;
+      if (job.state.lastError) {
+        line += ` (${job.state.lastError})`;
+      }
+      lines.push(line);
+    }
+    if (job.state.nextRunAtMs) {
+      lines.push(`  Next run: ${formatTimestamp(job.state.nextRunAtMs, timezone)}`);
+    }
+    return lines;
+  }
+
   private async removeJob(args: Record<string, unknown>, context: ToolContext): Promise<string> {
     const jobId = stringArg(args, "job_id");
     if (!jobId) {
@@ -159,13 +184,39 @@ function removeStatusText(jobId: string, status: CronRemoveStatus): string {
     return `Removed job ${jobId}`;
   }
   if (status === "protected") {
+    if (jobId === "dream") {
+      return [
+        "Cannot remove job `dream`.",
+        "This is a system-managed Dream memory consolidation job for long-term memory.",
+        "It remains visible so you can inspect it, but it cannot be removed.",
+      ].join("\n");
+    }
     return `Cannot remove job \`${jobId}\`.\nThis is a protected system-managed cron job.`;
   }
   return `Job ${jobId} not found`;
 }
 
+function systemJobPurpose(job: CronJob): string {
+  if (job.name === "dream") {
+    return "Dream memory consolidation for long-term memory.";
+  }
+  return "System-managed internal job.";
+}
+
+function displayTimezone(schedule: CronSchedule, defaultTimezone: string): string {
+  return schedule.tz || defaultTimezone;
+}
+
+function formatTimestamp(ms: number, timezone: string): string {
+  return `${new Date(ms).toISOString()} (${timezone})`;
+}
+
 function traceId(context: ToolContext): string {
   return context.traceId ?? context.runId;
+}
+
+function isCronExecutionContext(context: ToolContext): boolean {
+  return context.sessionId?.startsWith("cron:") === true;
 }
 
 function stringArg(args: Record<string, unknown>, key: string): string {

@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Task/Cron background runtime parity: TS-native `cron` now blocks nested job creation from cron-triggered sessions and formats protected system jobs, including the Dream system job removal explanation, like the Python CronTool.
+
 - Continued Task/Cron background runtime parity: TS-native task resume no longer depends on list-plan projections before validating DAG state, and native task-subagent coverage now verifies resumed subtasks run through the isolated AgentRunner tool registry to completion.
 
 - Continued Knowledge/RAG tool-output traceability parity: TS-native `query_knowledge` formatting now preserves Python-compatible source snippets, claims, relation evidence, conflict metadata, and derived projection sections after retrieved content while keeping evidence-first ordering.
