@@ -4126,9 +4126,9 @@ function parseCoworkSendMessageParams(params: Record<string, unknown> | undefine
     senderId: stringParam(params, "senderId", "sender_id") ?? "user",
     recipientIds: stringListParam(params, "recipientIds", "recipient_ids"),
     content,
-    threadId: stringParam(params, "threadId", "thread_id"),
-    topic: stringParam(params, "topic", "topic"),
-    eventType: stringParam(params, "eventType", "event_type"),
+    threadId: pythonRouteTextParam(params, "threadId", "thread_id"),
+    topic: pythonRouteTextParam(params, "topic", "topic"),
+    eventType: pythonRouteTextParam(params, "eventType", "event_type"),
     wakeRecipients: booleanParam(params, "wakeRecipients", "wake_recipients"),
   };
 }

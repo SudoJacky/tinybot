@@ -4976,17 +4976,17 @@ describe("AgentWorker", () => {
       sender_id: "lead",
       recipient_ids: ["reviewer"],
       content: "Please review",
-      thread_id: "thread_1",
-      topic: "Review lane",
-      event_type: "review.requested",
+      thread_id: 101.5,
+      topic: 202,
+      event_type: 303,
     }));
     const messageResult = messageResponse.result as { message: Record<string, unknown>; session: { agents: Record<string, { inbox: string[] }> } };
     expect(messageResult.message).toMatchObject({
       id: "msg_2",
       content: "Please review",
-      thread_id: "thread_1",
-      topic: "Review lane",
-      event_type: "review.requested",
+      thread_id: "101.5",
+      topic: "202",
+      event_type: "303",
     });
     expect(messageResult.session.agents.reviewer.inbox).toEqual(["msg_2"]);
 
