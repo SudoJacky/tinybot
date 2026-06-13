@@ -616,6 +616,92 @@ describe("createAgentWorkerServer", () => {
     });
   });
 
+  test("reconnects native MCP discovery after WebUI config patch updates MCP servers", async () => {
+    const lines: string[] = [];
+    const server = createAgentWorkerServer({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      enableNativeMcpDiscovery: true,
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const patch = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "webui-mcp-config-patch",
+        trace_id: "trace-webui-mcp-config-patch",
+        method: "webui.handle_request",
+        params: {
+          method: "PATCH",
+          path: "/api/config",
+          body: { tools: { mcpServers: { docs: { command: "node", args: ["server.js"] } } } },
+        },
+      }),
+    );
+
+    await respondToWorkerRequest(server, lines, "config.snapshot_public", {
+      value: {
+        tools: { mcpServers: {} },
+        gateway: { heartbeat: { enabled: false, interval_s: 120, keep_recent_messages: 6 } },
+      },
+    });
+    await respondToWorkerRequest(server, lines, "config.apply_patch_result", {
+      ok: true,
+      config: {
+        tools: { mcpServers: { docs: { command: "node", args: ["server.js"] } } },
+        gateway: { heartbeat: { enabled: false, interval_s: 120, keep_recent_messages: 6 } },
+      },
+      updatedFields: ["tools.mcpServers.docs.command", "tools.mcpServers.docs.args"],
+      sideEffects: { applied: [], restartRequired: [], warnings: [] },
+    });
+    await waitFor(() => parsedLines(lines).filter((line) => line.method === "mcp.list_tools").length >= 1);
+    const listRequest = parsedLines(lines).find((line) => line.method === "mcp.list_tools");
+    if (!listRequest || typeof listRequest.id !== "string" || typeof listRequest.trace_id !== "string") {
+      throw new Error("missing mcp.list_tools request");
+    }
+    await server.handleLine(JSON.stringify({
+      protocol_version: "1",
+      id: listRequest.id,
+      trace_id: listRequest.trace_id,
+      result: {
+        servers: [{
+          name: "docs",
+          tools: [{ name: "search", description: "Search docs", input_schema: { type: "object" } }],
+        }],
+      },
+    }));
+    await waitFor(() => parsedLines(lines).filter((line) => line.method === "config.snapshot_public").length >= 2);
+    const refreshRequest = parsedLines(lines).filter((line) => line.method === "config.snapshot_public").at(-1);
+    if (!refreshRequest || typeof refreshRequest.id !== "string" || typeof refreshRequest.trace_id !== "string") {
+      throw new Error("missing heartbeat refresh config request");
+    }
+    await server.handleLine(JSON.stringify({
+      protocol_version: "1",
+      id: refreshRequest.id,
+      trace_id: refreshRequest.trace_id,
+      result: {
+        value: {
+          gateway: { heartbeat: { enabled: false, interval_s: 120, keep_recent_messages: 6 } },
+        },
+      },
+    }));
+    await patch;
+
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      protocol_version: "1",
+      id: "webui-mcp-config-patch",
+      trace_id: "trace-webui-mcp-config-patch",
+      result: {
+        status: 200,
+        body: {
+          ok: true,
+          updatedFields: ["tools.mcpServers.docs.command", "tools.mcpServers.docs.args"],
+        },
+      },
+    });
+  });
+
   test("registers request_form tool that pauses the run through native form RPC", async () => {
     const form = {
       form_id: "travel_plan",

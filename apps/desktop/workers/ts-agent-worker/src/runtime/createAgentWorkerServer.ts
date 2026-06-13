@@ -203,10 +203,17 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     webuiSessionProvider: sessionBridge,
     webuiConfigProvider: {
       getConfig: () => configBridge.snapshotPublic(),
-      patchConfig: async (body) => configBridge.applyPatch(
-        await configBridge.snapshotPublic(),
-        body,
-      ),
+      patchConfig: async (body, traceId = "trace-config-patch") => {
+        const result = await configBridge.applyPatch(
+          await configBridge.snapshotPublic(),
+          body,
+        );
+        if (mcpBridge && configPatchTouchesMcpServers(result.updatedFields)) {
+          await mcpBridge.close();
+          await mcpBridge.ensureConnected(traceId);
+        }
+        return result;
+      },
     },
     knowledgeProvider: new NativeKnowledgeBridge(rpcClient),
     memoryBridge: new NativeMemoryBridge(rpcClient),
@@ -238,6 +245,16 @@ function errorMessage(error: unknown): string {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function configPatchTouchesMcpServers(updatedFields: unknown): boolean {
+  return Array.isArray(updatedFields)
+    && updatedFields.some((field) => {
+      if (typeof field !== "string") {
+        return false;
+      }
+      return field.includes("tools.mcpServers") || field.includes("tools.mcp_servers");
+    });
 }
 
 async function heartbeatConfigFromNativeConfig(configBridge: NativeConfigBridge) {
