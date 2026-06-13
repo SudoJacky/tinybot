@@ -337,6 +337,25 @@ describe("cowork session snapshot", () => {
     });
   });
 
+  test("treats truthy swarm final deliverable readiness like Python", () => {
+    const snapshot = coworkSessionSnapshot(normalizeCoworkSession({
+      ...rawSession,
+      id: "cw-swarm-final-ready",
+      workflow_mode: "swarm",
+      completion_decision: {
+        ready_to_finish: 1,
+        next_action: "publish",
+        reason: "all required outputs are ready",
+      },
+    }));
+
+    expect(snapshot.swarm_organization.gates.final_deliverable).toMatchObject({
+      status: "ready",
+      next_action: "publish",
+      reason: "all required outputs are ready",
+    });
+  });
+
   test("projects Python-compatible swarm scheduler queues and metrics", () => {
     const snapshot = coworkSessionSnapshot(normalizeCoworkSession({
       ...rawSession,

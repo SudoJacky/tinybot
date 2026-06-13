@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued Cowork Phase 10 snapshot route parity: TS swarm gate final-deliverable summaries now mirror Python truthy `ready_to_finish` readiness semantics.
+
 - Continued Cowork Phase 10 snapshot route parity: TS swarm gate evaluation summaries now mirror Python `blocking_ids` placeholders by preserving empty ids from blocking/error evaluations.
 
 - Continued Cowork Phase 10 snapshot route parity: TS swarm gate projections now mirror Python truthy `required` handling for pending reviewer/reducer gate configuration.
@@ -843,6 +845,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: align TS large-swarm summary workstream ordering with Python equal-count semantics.
 - [x] Continue Cowork Phase 10: align TS swarm gate `required` projection with Python truthy configuration semantics.
 - [x] Continue Cowork Phase 10: align TS swarm gate blocking evaluation id placeholders with Python snapshot semantics.
+- [x] Continue Cowork Phase 10: align TS swarm final-deliverable readiness projection with Python truthy semantics.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.
