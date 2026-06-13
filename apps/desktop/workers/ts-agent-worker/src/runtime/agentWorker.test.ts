@@ -3516,7 +3516,14 @@ describe("AgentWorker", () => {
     await worker.handleRequest(coworkRequest("cowork.route_request", {
       method: "POST",
       path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/run`,
-      body: { max_rounds: "2", max_agents: "2", max_agent_calls: "3" },
+      body: {
+        maxRounds: "",
+        max_rounds: "2",
+        maxAgents: "",
+        max_agents: "2",
+        maxAgentCalls: "",
+        max_agent_calls: "3",
+      },
     }));
     const saved = await store.readSnapshot(session.id, "trace-1");
     const runSpan = saved?.trace_spans.find((span) => span.name === "Cowork run");

@@ -4688,7 +4688,14 @@ function parseNamedSkillMutation(
 }
 
 function numberParam(params: Record<string, unknown>, camelKey: string, snakeKey: string): number | undefined {
-  const value = params[camelKey] ?? params[snakeKey];
+  const camelValue = numberParamValue(params[camelKey]);
+  if (camelValue !== undefined) {
+    return camelValue;
+  }
+  return numberParamValue(params[snakeKey]);
+}
+
+function numberParamValue(value: unknown): number | undefined {
   if (typeof value === "number") {
     return Number.isFinite(value) ? value : undefined;
   }
