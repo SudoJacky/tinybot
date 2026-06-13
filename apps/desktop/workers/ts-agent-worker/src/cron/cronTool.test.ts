@@ -128,6 +128,25 @@ describe("createCronTool", () => {
     expect(bridge.addRequests).toEqual([]);
   });
 
+  test("derives cron delivery channel and chat id from session context", async () => {
+    const bridge = memoryBridge();
+    const tool = createCronTool({ bridge, defaultTimezone: "UTC" });
+
+    await expect(tool.execute({
+      action: "add",
+      message: "Check status",
+      every_seconds: 60,
+    }, { runId: "run-1", traceId: "trace-1", sessionId: "websocket:chat-1" })).resolves.toEqual({
+      content: "Created job 'Check status' (id: job-1)",
+    });
+
+    expect(bridge.addRequests[0]?.payload).toMatchObject({
+      kind: "agent_turn",
+      channel: "websocket",
+      to: "chat-1",
+    });
+  });
+
   test("interprets naive at schedules in the default timezone", async () => {
     const bridge = memoryBridge();
     const tool = createCronTool({ bridge, defaultTimezone: "America/Vancouver" });

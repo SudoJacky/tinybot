@@ -63,9 +63,8 @@ class CronToolRuntime {
     if (!message) {
       return "Error: message is required for add";
     }
-    const channel = stringArg(args, "channel") || "native";
-    const chatId = context.sessionId;
-    if (!chatId) {
+    const deliveryContext = cronDeliveryContext(args, context);
+    if (!deliveryContext) {
       return "Error: no session context (channel/chat_id)";
     }
     const tz = stringArg(args, "tz");
@@ -84,8 +83,8 @@ class CronToolRuntime {
         kind: "agent_turn",
         message,
         deliver: booleanArg(args, "deliver", true),
-        channel,
-        to: chatId,
+        channel: deliveryContext.channel,
+        to: deliveryContext.chatId,
       },
       deleteAfterRun: scheduleResult.deleteAfterRun,
     }, traceId(context));
@@ -268,6 +267,27 @@ function traceId(context: ToolContext): string {
 
 function isCronExecutionContext(context: ToolContext): boolean {
   return context.sessionId?.startsWith("cron:") === true;
+}
+
+function cronDeliveryContext(args: Record<string, unknown>, context: ToolContext): { channel: string; chatId: string } | null {
+  const sessionId = context.sessionId;
+  if (!sessionId) {
+    return null;
+  }
+  const explicitChannel = stringArg(args, "channel");
+  if (!explicitChannel) {
+    const separator = sessionId.indexOf(":");
+    if (separator > 0) {
+      return {
+        channel: sessionId.slice(0, separator),
+        chatId: sessionId.slice(separator + 1),
+      };
+    }
+  }
+  return {
+    channel: explicitChannel || "native",
+    chatId: sessionId,
+  };
 }
 
 function stringArg(args: Record<string, unknown>, key: string): string {

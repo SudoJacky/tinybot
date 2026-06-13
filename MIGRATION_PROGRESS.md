@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Task/Cron background runtime parity: TS-native cron job creation now derives channel/chat delivery context from active desktop/WebUI session keys, so scheduled agent-turn deliveries target the original session instead of storing a synthetic native channel with the full session key as chat id.
+
 - Continued Task/Cron background runtime parity: TS-native task completion now detects blocked plans after a completed/skipped subtask leaves only non-executable pending work, pausing the plan, recording a Python-compatible blocked-dependency error, and notifying the owning session instead of leaving the chain stuck in `executing`.
 
 - Continued Task/Cron background runtime parity: TS-native task completion callbacks now notify the owning session when retry exhaustion pauses a plan, matching Python's paused-plan announce path so the main agent can report failure context and completed results instead of silently stopping after the failed subagent.
