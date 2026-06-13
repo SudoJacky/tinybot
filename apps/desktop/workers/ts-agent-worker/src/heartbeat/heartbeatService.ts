@@ -23,7 +23,7 @@ export type HeartbeatServiceOptions = {
   decide: (input: HeartbeatDecisionInput) => Promise<HeartbeatDecision> | HeartbeatDecision;
   executeTasks?: (input: HeartbeatExecuteInput) => Promise<string> | string;
   evaluateResponse?: (input: HeartbeatEvaluationInput) => Promise<boolean> | boolean;
-  notify?: (input: HeartbeatNotifyInput) => Promise<void> | void;
+  notify?: (input: HeartbeatNotifyInput) => Promise<boolean | void> | boolean | void;
   enabled?: boolean;
   intervalMs?: number;
 };
@@ -123,8 +123,9 @@ export class HeartbeatService {
         return this.recordResult({ status, tasks: decision.tasks, response });
       }
       if (this.notify) {
-        await this.notify({ response, tasks: decision.tasks });
-        return this.recordResult({ status: "notified", tasks: decision.tasks, response });
+        const delivered = await this.notify({ response, tasks: decision.tasks });
+        const status = delivered === false ? "executed" : "notified";
+        return this.recordResult({ status, tasks: decision.tasks, response });
       }
       return this.recordResult({ status: "executed", tasks: decision.tasks, response });
     } catch (error) {
