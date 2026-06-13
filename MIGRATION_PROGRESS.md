@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued Cowork Phase 10 desktop default-route parity: desktop gateway `cowork.action("emergency-stop")` now forwards Python-compatible JSON bodies such as `reason` through native-first routes instead of dropping them before the TS worker route handler.
+
 - Continued session turn lifecycle parity cleanup: TS worker server integration coverage now matches the native `session.persist_turn` atomic checkpoint-clear contract instead of expecting a separate legacy `session.clear_checkpoint` RPC after final-response checkpoints.
 
 - Continued Batch 5 Task/Cron background runtime parity: TS native `cron` add now mirrors Python's `cron_expr` timezone validation by rejecting unknown IANA timezone names before creating jobs.
@@ -870,6 +872,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: align TS swarm gate `required` projection with Python truthy configuration semantics.
 - [x] Continue Cowork Phase 10: align TS swarm gate blocking evaluation id placeholders with Python snapshot semantics.
 - [x] Continue Cowork Phase 10: align TS swarm final-deliverable readiness projection with Python truthy semantics.
+- [x] Continue Cowork Phase 10: forward Python-compatible emergency-stop route bodies from the desktop gateway native-first client so `reason` reaches the TS route handler.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.

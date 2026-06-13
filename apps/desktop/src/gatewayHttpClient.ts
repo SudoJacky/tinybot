@@ -768,13 +768,13 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         body,
         "cowork.updateBudget",
       ),
-      action: (sessionId: string, action: "pause" | "resume" | "emergency-stop") => coworkNativeOrGateway(
+      action: (sessionId: string, action: "pause" | "resume" | "emergency-stop", body?: unknown) => coworkNativeOrGateway(
         options.nativeCowork,
         options.tsCoworkRuntime,
         request,
         "POST",
         `/api/cowork/sessions/${encodePathSegment(sessionId)}/${action}`,
-        undefined,
+        body,
         `cowork.${action}`,
       ),
       delete: (sessionId: string) => coworkNativeOrGateway(

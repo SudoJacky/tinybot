@@ -1342,6 +1342,7 @@ describe("gateway HTTP client", () => {
     await expect(client.cowork.updateBudget("cw_1", { max_rounds: 4 })).resolves.toMatchObject({ native: true });
     await expect(client.cowork.updateBudget("cw_1", { budgets: { max_tokens: 120 } }, { method: "PATCH" })).resolves.toMatchObject({ native: true });
     await expect(client.cowork.action("cw_1", "pause")).resolves.toMatchObject({ native: true });
+    await expect(client.cowork.action("cw_1", "emergency-stop", { reason: "runaway delegation" })).resolves.toMatchObject({ native: true });
     await expect(client.cowork.delete("cw_1")).resolves.toMatchObject({ native: true });
     await expect(client.cowork.message("cw_1", { content: "Direct note", recipient_ids: ["lead"] })).resolves.toMatchObject({ native: true });
     await expect(client.cowork.addTask("cw_1", { title: "Native task" })).resolves.toMatchObject({ native: true });
@@ -1432,6 +1433,11 @@ describe("gateway HTTP client", () => {
     expect(nativeCowork.route).toHaveBeenCalledWith({
       method: "POST",
       path: "/api/cowork/sessions/cw_1/pause",
+    });
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "POST",
+      path: "/api/cowork/sessions/cw_1/emergency-stop",
+      body: { reason: "runaway delegation" },
     });
     expect(nativeCowork.route).toHaveBeenCalledWith({
       method: "DELETE",
