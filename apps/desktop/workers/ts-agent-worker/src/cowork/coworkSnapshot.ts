@@ -904,7 +904,7 @@ function reducerCoverage(session: CoworkSession, completedUnits: JsonObject[]): 
     return 0;
   }
   const reducerIds = new Set(Object.values(session.tasks)
-    .filter((task) => task.status === "completed" && stringValue(task.source_event_id).startsWith("swarm_reducer:"))
+    .filter((task) => stringValue(task.source_event_id).startsWith("swarm_reducer:"))
     .flatMap((task) => arrayValue(task.result_data.source_work_unit_ids).map(stringValue).filter(Boolean)));
   if (reducerIds.size === 0) {
     return 0;

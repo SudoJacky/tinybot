@@ -414,4 +414,58 @@ describe("cowork session snapshot", () => {
       },
     });
   });
+
+  test("counts reducer source citations regardless of reducer task completion status", () => {
+    const snapshot = coworkSessionSnapshot(normalizeCoworkSession({
+      ...rawSession,
+      id: "cw-swarm-reducer-coverage",
+      workflow_mode: "swarm",
+      tasks: {
+        reducer: {
+          ...rawSession.tasks.task_1,
+          id: "reducer",
+          title: "Reduce swarm results",
+          status: "pending",
+          source_event_id: "swarm_reducer:swarm_reducer_coverage",
+          result_data: { source_work_unit_ids: ["wu_a"] },
+        },
+      },
+      swarm_plan: {
+        id: "swarm_reducer_coverage",
+        status: "reducing",
+        work_units: [
+          {
+            id: "wu_a",
+            title: "A",
+            status: "completed",
+            kind: "fanout",
+          },
+          {
+            id: "wu_b",
+            title: "B",
+            status: "completed",
+            kind: "fanout",
+          },
+          {
+            id: "reducer",
+            title: "Reduce swarm results",
+            status: "pending",
+            kind: "reducer",
+            source_task_id: "reducer",
+            source_work_unit_ids: ["wu_a", "wu_b"],
+          },
+        ],
+      },
+    }));
+
+    expect(snapshot.swarm_metrics).toMatchObject({
+      schema_version: "cowork.swarm_metrics.v1",
+      plan_id: "swarm_reducer_coverage",
+      reducer_coverage: 0.5,
+      counts: {
+        completed: 2,
+        reducer_units: 1,
+      },
+    });
+  });
 });
