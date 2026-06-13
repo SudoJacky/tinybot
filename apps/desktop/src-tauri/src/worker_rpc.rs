@@ -373,7 +373,23 @@ impl WorkerRpcRouter {
             }
             "knowledge.context" => {
                 let params: KnowledgeContextParams = parse_params(request)?;
-                serde_json::to_value(self.knowledge.context(params)?).map_err(serialization_error)
+                let session_files = params
+                    .session_key
+                    .as_deref()
+                    .and_then(|session_key| self.session.get_metadata(session_key).ok())
+                    .and_then(|session| {
+                        session
+                            .extra
+                            .get("temporary_files")
+                            .and_then(Value::as_array)
+                            .cloned()
+                    })
+                    .unwrap_or_default();
+                serde_json::to_value(
+                    self.knowledge
+                        .context_with_session_files(params, session_files)?,
+                )
+                .map_err(serialization_error)
             }
             "rag.query" => {
                 let params: RagQueryParams = parse_params(request)?;
@@ -6448,6 +6464,76 @@ mod tests {
                 "line_start": 1,
                 "line_end": 3,
                 "retrieval_method": "sparse"
+            })
+        );
+    }
+
+    #[test]
+    fn dispatches_knowledge_context_with_session_temporary_files() {
+        let fixture = WorkspaceFixture::new();
+        let mut session = session_fixture();
+        session.session_id = "websocket:chat-1".to_string();
+        session.extra["temporary_files"] = json!([
+            {
+                "id": "session_doc_temp1",
+                "name": "Session Notes.md",
+                "file_type": "md",
+                "content": "# Session Notes\n\nTemporary session evidence should be available without persistent retrieval.",
+                "created_at": "2026-06-13T10:00:00Z",
+                "chunk_count": 1,
+                "metadata": { "size_bytes": 86 },
+                "size_bytes": 86,
+                "temporary": true
+            }
+        ]);
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![session],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::SessionMetadataRead,
+            ]),
+        );
+
+        let context_response = router.dispatch(&WorkerRequest::new(
+            "req-temp-context",
+            "trace-temp-context",
+            "knowledge.context",
+            json!({
+                "current_message": "Please use the temporary session evidence",
+                "session_key": "websocket:chat-1",
+                "max_chunks": 3,
+                "use_persistent_knowledge": false
+            }),
+        ));
+
+        assert_eq!(context_response.error, None);
+        let result = context_response
+            .result
+            .as_ref()
+            .expect("knowledge.context should return result");
+        let context = result["context"]
+            .as_str()
+            .expect("context should be string");
+        assert!(context.contains("[RELEVANT KNOWLEDGE]"));
+        assert!(context.contains("[Current session temporary files]"));
+        assert!(context.contains("Session Notes.md"));
+        assert_eq!(result["persistent_results"], json!([]));
+        assert_eq!(result["session_results"][0]["id"], "session_doc_temp1");
+        assert_eq!(result["session_results"][0]["temporary"], true);
+        assert_eq!(
+            result["references"][0],
+            json!({
+                "doc_id": "session_doc_temp1",
+                "doc_name": "Session Notes.md",
+                "chunk_id": "session_doc_temp1",
+                "file_path": "session://websocket:chat-1/Session Notes.md",
+                "line_start": 1,
+                "line_end": 3,
+                "retrieval_method": "session_temporary",
+                "temporary": true
             })
         );
     }

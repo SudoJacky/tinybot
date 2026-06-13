@@ -280,6 +280,16 @@ describe("NativeContextBridge", () => {
         line_end: 3,
         retrieval_method: "sparse",
       },
+      {
+        doc_id: "session_doc_temp1",
+        doc_name: "Session Notes.md",
+        chunk_id: "session_doc_temp1",
+        file_path: "session://session-1/Session Notes.md",
+        line_start: 1,
+        line_end: 3,
+        retrieval_method: "session_temporary",
+        temporary: true,
+      },
     ];
     const rpcClient = new FakeRpcClient({
       "runtime.now": { current_time: "fixed now" },
@@ -297,7 +307,7 @@ describe("NativeContextBridge", () => {
           "---",
         ].join("\n"),
         persistent_results: [{ doc_id: "doc-1", doc_name: "Runtime Context Notes" }],
-        session_results: [],
+        session_results: [{ id: "session_doc_temp1", temporary: true }],
         references: knowledgeReferences,
       },
     });

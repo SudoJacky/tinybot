@@ -357,6 +357,7 @@ function normalizeKnowledgeReferences(value: unknown): KnowledgeReferenceMetadat
       line_start: lineStart,
       line_end: lineEnd,
       retrieval_method: retrievalMethod,
+      ...(object.temporary === true ? { temporary: true } : {}),
     };
   }).filter((reference): reference is KnowledgeReferenceMetadata => reference !== null);
 }

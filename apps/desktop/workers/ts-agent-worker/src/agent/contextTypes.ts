@@ -86,6 +86,7 @@ export type KnowledgeReferenceMetadata = {
   line_start: number;
   line_end: number;
   retrieval_method: string;
+  temporary?: boolean;
 };
 
 export type ContextBuildInput = {
