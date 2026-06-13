@@ -1,5 +1,6 @@
 import type { Tool, ToolContext, ToolResult } from "../tools/tool.ts";
 import { isPlanBlocked, isPlanCompleted, readySubtasks } from "./taskDag.ts";
+import type { TaskPlanContext } from "./taskPlanner.ts";
 import { TaskRuntime, type TaskRuntimeOptions } from "./taskRuntime.ts";
 import { taskProgressPayload } from "./taskProgress.ts";
 import type { SubTask, TaskPlan } from "./taskTypes.ts";
@@ -104,10 +105,7 @@ async function createResult(runtime: TaskRuntime, args: Record<string, unknown>,
   if (!request) {
     return { content: "Error: request is required for create action" };
   }
-  const plan = await runtime.createPlan(request, {
-    channel: stringArg(args, "channel") || "native",
-    chatId: context.sessionId ?? context.runId,
-  }, traceId(context));
+  const plan = await runtime.createPlan(request, taskPlanContext(args, context), traceId(context));
   if (!plan) {
     return deferredResult("Task plan creation is not available in the native TS runtime yet.", "task_planning");
   }
@@ -132,6 +130,27 @@ async function createResult(runtime: TaskRuntime, args: Record<string, unknown>,
       _task_plan_id: plan.id,
       _task_progress: progress,
     },
+  };
+}
+
+function taskPlanContext(args: Record<string, unknown>, context: ToolContext): TaskPlanContext {
+  const explicitChannel = stringArg(args, "channel");
+  const sessionId = context.sessionId;
+  if (sessionId && !explicitChannel) {
+    const separator = sessionId.indexOf(":");
+    if (separator > 0) {
+      return {
+        channel: sessionId.slice(0, separator),
+        chatId: sessionId.slice(separator + 1),
+        sessionKey: sessionId,
+      };
+    }
+  }
+  const channel = explicitChannel || "native";
+  return {
+    channel,
+    chatId: sessionId ?? context.runId,
+    ...(sessionId ? { sessionKey: sessionId } : {}),
   };
 }
 

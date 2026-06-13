@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { createTaskTool } from "./taskTool";
+import type { TaskPlanContext } from "./taskPlanner";
 import type { TaskPlan } from "./taskTypes";
 
 function basePlan(): TaskPlan {
@@ -349,6 +350,53 @@ describe("createTaskTool", () => {
     });
     await expect(tool.execute({ action: "status", plan_id: "plan-new" }, context)).resolves.toMatchObject({
       content: expect.stringContaining("## Created native plan (id: plan-new)"),
+    });
+  });
+
+  test("preserves session context when creating a task plan", async () => {
+    let capturedContext: TaskPlanContext | null = null;
+    const tool = createTaskTool({
+      store: memoryBridge([]),
+      planner: {
+        createPlan: async (request, planContext) => {
+          capturedContext = planContext;
+          return {
+            id: "plan-session",
+            title: "Session plan",
+            originalRequest: request,
+            status: "planning",
+            currentSubtaskIds: [],
+            context: planContext,
+            subtasks: [
+              {
+                id: "a",
+                title: "Inspect",
+                description: "Inspect Python",
+                status: "pending",
+                dependencies: [],
+                parallelSafe: true,
+                result: null,
+                error: null,
+                startedAt: null,
+                completedAt: null,
+                retryCount: 0,
+                maxRetries: 2,
+              },
+            ],
+          };
+        },
+      },
+    });
+
+    await tool.execute(
+      { action: "create", request: "Plan this" },
+      { runId: "run-1", traceId: "trace-1", sessionId: "websocket:chat-1" },
+    );
+
+    expect(capturedContext).toEqual({
+      channel: "websocket",
+      chatId: "chat-1",
+      sessionKey: "websocket:chat-1",
     });
   });
 
