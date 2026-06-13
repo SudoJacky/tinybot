@@ -65,7 +65,7 @@ describe("createTaskTool", () => {
     const tool = createTaskTool({ store: memoryBridge([basePlan()]) });
 
     await expect(tool.execute({ action: "list" }, context)).resolves.toMatchObject({
-      content: expect.stringContaining("Backend migration"),
+      content: "Active task plans:\n- plan-1: Backend migration [1/2] (executing)",
     });
     await expect(tool.execute({ action: "status", plan_id: "plan-1" }, context)).resolves.toMatchObject({
       content: expect.stringContaining("## Backend migration (id: plan-1)"),

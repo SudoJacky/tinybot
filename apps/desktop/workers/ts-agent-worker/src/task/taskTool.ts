@@ -274,8 +274,11 @@ function formatPlanList(plans: TaskPlan[]): string {
     return "No active task plans.";
   }
   return [
-    "## Task Plans",
-    ...plans.map((plan) => `- ${plan.id}: ${plan.title} (${plan.status})`),
+    "Active task plans:",
+    ...plans.map((plan) => {
+      const progress = taskProgressPayload(plan);
+      return `- ${plan.id}: ${plan.title} [${progress.completed}/${progress.total}] (${plan.status})`;
+    }),
   ].join("\n");
 }
 

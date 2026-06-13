@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued Batch 5 Task/Cron background runtime parity: TS native `task action=list` now mirrors Python's active-plan list output by showing `Active task plans:` entries with `[completed/total]` progress counts.
+
 - Continued Cowork Phase 10 route parity: TS-native Cowork run/create auto-run routes now parse Python-compatible numeric string limits for `max_rounds`, `max_agents` / `parallel_width`, and `max_agent_calls` instead of silently falling back to default scheduler budgets.
 
 - Continued Cowork Phase 10 snapshot route parity: TS swarm gate final-deliverable summaries now mirror Python truthy `ready_to_finish` readiness semantics.
