@@ -3929,6 +3929,26 @@ describe("AgentWorker", () => {
 
     await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
       method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(created.id)}/budget`,
+      body: { budgets: { max_tokens: 300 }, budget: "ignored" },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          budget: expect.objectContaining({
+            limits: expect.objectContaining({ max_tokens: 300 }),
+          }),
+          session: expect.objectContaining({
+            budget_state: expect.objectContaining({
+              limits: expect.objectContaining({ max_tokens: 300 }),
+            }),
+          }),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
       path: `/api/cowork/sessions/${encodeURIComponent(created.id)}/branches/default/derive`,
       body: {
         architecture: "team",

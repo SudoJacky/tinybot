@@ -943,9 +943,11 @@ export class AgentWorker {
       if (!isJsonObject(route.body)) {
         return invalidCoworkJsonBodyRouteResponse();
       }
+      const hasBudgets = Object.prototype.hasOwnProperty.call(body, "budgets");
+      const hasBudget = Object.prototype.hasOwnProperty.call(body, "budget");
       if (
-        (Object.prototype.hasOwnProperty.call(body, "budgets") && !isJsonObject(body.budgets))
-        || (Object.prototype.hasOwnProperty.call(body, "budget") && !isJsonObject(body.budget))
+        (hasBudgets && !isJsonObject(body.budgets))
+        || (!hasBudgets && hasBudget && !isJsonObject(body.budget))
       ) {
         return { status: 400, body: { error: "budgets must be an object" } };
       }
