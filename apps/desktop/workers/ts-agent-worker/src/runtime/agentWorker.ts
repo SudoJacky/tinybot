@@ -1124,7 +1124,7 @@ export class AgentWorker {
     }
     const action = segments[3];
     if (action === "select") {
-      const params = parseCoworkSelectBranchResultParams({ ...body, session_id: sessionId });
+      const params = parseCoworkSelectBranchResultParams(coworkSelectFinalResultRouteBody(body, sessionId));
       const result = await this.coworkService.selectSessionFinalResult({
         traceId,
         sessionId: params.sessionId,
@@ -1444,7 +1444,7 @@ export class AgentWorker {
         traceId,
         sessionId,
         branchId: segments[3],
-        resultId: stringParam(body, "resultId", "result_id"),
+        resultId: routeTextParamIfPresent(body, "resultId", "result_id"),
       });
       return this.coworkFinalResultRouteResponse(result);
     }
@@ -3935,6 +3935,19 @@ function coworkDeriveBranchRouteBody(
   return routeBody;
 }
 
+function coworkSelectFinalResultRouteBody(
+  body: Record<string, unknown>,
+  sessionId: string,
+): Record<string, unknown> {
+  const routeBody: Record<string, unknown> = {
+    ...body,
+    session_id: sessionId,
+  };
+  setRouteTextParam(routeBody, body, "branch_id", "branchId", "branch_id");
+  setRouteTextParam(routeBody, body, "result_id", "resultId", "result_id");
+  return routeBody;
+}
+
 function setRouteTextParam(
   target: Record<string, unknown>,
   source: Record<string, unknown>,
@@ -3946,6 +3959,17 @@ function setRouteTextParam(
     return;
   }
   target[targetKey] = pythonRouteTextParam(source, camelKey, snakeKey);
+}
+
+function routeTextParamIfPresent(
+  source: Record<string, unknown>,
+  camelKey: string,
+  snakeKey: string,
+): string | undefined {
+  if (!Object.prototype.hasOwnProperty.call(source, camelKey) && !Object.prototype.hasOwnProperty.call(source, snakeKey)) {
+    return undefined;
+  }
+  return pythonRouteTextParam(source, camelKey, snakeKey);
 }
 
 function unavailableCoworkRouteResponse(): CoworkRouteResponse {

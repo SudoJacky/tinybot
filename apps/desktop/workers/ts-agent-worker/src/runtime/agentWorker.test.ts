@@ -4850,12 +4850,12 @@ describe("AgentWorker", () => {
     await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
       method: "POST",
       path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/final-result/select`,
-      body: { branch_id: "missing-branch" },
+      body: { branch_id: 404, result_id: 505 },
     }))).resolves.toMatchObject({
       result: {
         status: 400,
         body: {
-          error: "Error: branch 'missing-branch' not found.",
+          error: "Error: branch '404' not found.",
         },
       },
     });
