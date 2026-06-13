@@ -222,7 +222,8 @@ function formatPendingApprovals(approvals: Array<{
 
 async function approveResult(context: CommandContext, capabilities: CommandCapabilities): Promise<CommandResult> {
   const parts = commandArgs(context);
-  if (parts.length !== 2 || (parts[1] !== "once" && parts[1] !== "session")) {
+  const scope = parts[1]?.toLocaleLowerCase();
+  if (parts.length !== 2 || (scope !== "once" && scope !== "session")) {
     return textCommandResult("/approve", "Usage: `/approve <id> once` or `/approve <id> session`.", {
       approved: false,
       resolved: false,
@@ -234,7 +235,7 @@ async function approveResult(context: CommandContext, capabilities: CommandCapab
       resolved: false,
     });
   }
-  const [approvalId, scope] = parts as [string, "once" | "session"];
+  const approvalId = parts[0];
   const resolution = await capabilities.resolvePendingApproval({
     traceId: context.traceId,
     sessionId: context.sessionId,

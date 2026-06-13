@@ -213,6 +213,43 @@ describe("createDefaultCommandRouter", () => {
     });
   });
 
+  test("normalizes approve scopes case-insensitively like Python", async () => {
+    const calls: unknown[] = [];
+    const router = createDefaultCommandRouter({
+      resolvePendingApproval: async (request) => {
+        calls.push(request);
+        return {
+          resolved: true,
+          approvalId: request.approvalId,
+          approved: true,
+          scope: request.scope,
+          summary: "write_file path=\"notes.md\"",
+        };
+      },
+    });
+
+    await expect(router.dispatch("/approve approval-1 SESSION", { traceId: "trace-1", sessionId: "session-1" })).resolves.toMatchObject({
+      handled: true,
+      output: "Approved `approval-1` for this session: write_file path=\"notes.md\"\n\nMatching operations in this session will not ask again. Retrying now.",
+      metadata: {
+        command: "/approve",
+        approval_id: "approval-1",
+        approved: true,
+        resolved: true,
+        scope: "session",
+      },
+    });
+    expect(calls).toEqual([
+      {
+        traceId: "trace-1",
+        sessionId: "session-1",
+        approvalId: "approval-1",
+        approved: true,
+        scope: "session",
+      },
+    ]);
+  });
+
   test("formats successful deny command results", async () => {
     const calls: unknown[] = [];
     const router = createDefaultCommandRouter({

@@ -26,6 +26,19 @@ describe("CommandRouter", () => {
     expect(router.isPriority("/stop")).toBe(true);
   });
 
+  test("requires exact input for priority commands", async () => {
+    const router = new CommandRouter();
+    router.priority("/stop", handler("priority"));
+    router.prefix("/stop", handler("prefix"));
+
+    expect(router.isPriority("/stop now")).toBe(false);
+    await expect(router.dispatch("/stop now", { traceId: "trace-1" })).resolves.toMatchObject({
+      handled: true,
+      output: "prefix:/stop:now",
+      metadata: { label: "prefix" },
+    });
+  });
+
   test("matches exact commands case-insensitively", async () => {
     const router = new CommandRouter();
     router.exact("/help", handler("help"));

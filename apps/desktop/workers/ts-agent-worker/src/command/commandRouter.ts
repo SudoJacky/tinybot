@@ -40,7 +40,7 @@ export class CommandRouter {
 
   isPriority(input: string): boolean {
     const parsed = parseCommandInput(input);
-    return parsed ? this.priorityHandlers.has(parsed.commandKey) : false;
+    return parsed ? this.priorityHandlers.has(parsed.rawKey) : false;
   }
 
   async dispatch(input: string, options: DispatchCommandOptions): Promise<CommandResult> {
@@ -49,7 +49,7 @@ export class CommandRouter {
       return { handled: false };
     }
 
-    const priority = this.priorityHandlers.get(parsed.commandKey);
+    const priority = this.priorityHandlers.get(parsed.rawKey);
     if (priority) {
       return priority.handler(contextFor(priority.command, parsed, options, true));
     }
