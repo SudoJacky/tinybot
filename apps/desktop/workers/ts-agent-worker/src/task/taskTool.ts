@@ -246,9 +246,9 @@ async function addSubtaskResult(runtime: TaskRuntime, args: Record<string, unkno
     after: optionalStringArg(args, "after_subtask"),
   }, traceId(context));
   if (!subtask) {
-    return { content: `Error: Plan ${planId} not found` };
+    return { content: `Error: Could not add subtask to plan ${planId}. Plan may be completed or not found.` };
   }
-  return { content: `Added subtask ${subtask.id}: ${subtask.title}` };
+  return { content: `Added subtask '${subtask.title}' (id: ${subtask.id}) to plan ${planId}.` };
 }
 
 async function removeSubtaskResult(runtime: TaskRuntime, args: Record<string, unknown>, context: ToolContext): Promise<ToolResult> {
@@ -264,7 +264,7 @@ async function removeSubtaskResult(runtime: TaskRuntime, args: Record<string, un
   return {
     content: removed
       ? `Removed subtask ${subtaskId} from plan ${planId}.`
-      : `Error: Subtask ${subtaskId} could not be removed from plan ${planId}`,
+      : `Error: Could not remove subtask ${subtaskId}. It may not be pending or not found.`,
   };
 }
 

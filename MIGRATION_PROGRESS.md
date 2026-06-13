@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued Batch 5 Task/Cron background runtime parity: TS native `task` add/remove subtask actions now mirror Python's user-facing success and failure messages for subtask mutation results.
+
 - Continued Batch 5 Task/Cron background runtime parity: TS native `task` pause/cancel actions now mirror Python's user-facing control messages, including plan titles and the pause resume hint.
 
 - Continued Batch 5 Task/Cron background runtime parity: TS native `task action=list` now mirrors Python's active-plan list output by showing `Active task plans:` entries with `[completed/total]` progress counts.

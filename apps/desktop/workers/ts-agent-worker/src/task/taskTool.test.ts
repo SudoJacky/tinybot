@@ -97,10 +97,13 @@ describe("createTaskTool", () => {
       subtask_dependencies: ["b"],
       subtask_parallel_safe: false,
     }, context)).resolves.toMatchObject({
-      content: expect.stringContaining("Added subtask new1"),
+      content: "Added subtask 'Review' (id: new1) to plan plan-1.",
     });
     await expect(tool.execute({ action: "remove_subtask", plan_id: "plan-1", subtask_id: "new1" }, context)).resolves.toMatchObject({
       content: "Removed subtask new1 from plan plan-1.",
+    });
+    await expect(tool.execute({ action: "remove_subtask", plan_id: "plan-1", subtask_id: "a" }, context)).resolves.toMatchObject({
+      content: "Error: Could not remove subtask a. It may not be pending or not found.",
     });
     await expect(tool.execute({ action: "delete", plan_id: "plan-1" }, context)).resolves.toMatchObject({
       content: "Deleted plan plan-1.",
