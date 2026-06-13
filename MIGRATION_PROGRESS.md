@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Cowork Phase 10 direct/default-route parity: TS-native blueprint validate/preview now mirror Python route text coercion for `default_goal`, preserving truthy numeric fallback goals before blueprint normalization.
+
 - Continued Cowork Phase 10 direct RPC parity: direct TS read-only observability RPCs now mirror Python route text coercion for agent activity and observation detail ids, preserving truthy numeric `agent_id`, `detail_id`, and requester aliases through Cowork service lookups.
 
 - Continued Cowork Phase 10 direct RPC parity: direct TS `cowork.deliver_envelope` RPCs now mirror Python route text coercion for envelope sender/content and metadata fields, preserving truthy numeric values through delivered mailbox records instead of failing at the worker protocol boundary.
@@ -1048,6 +1050,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS branch ids.
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS `cowork.deliver_envelope` fields.
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS read-only observability ids.
+- [x] Continue Cowork Phase 10: mirror Python route text coercion for TS-native blueprint default goals.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.

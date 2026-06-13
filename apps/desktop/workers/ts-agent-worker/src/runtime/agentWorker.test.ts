@@ -2592,6 +2592,27 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("preserves Python-compatible direct blueprint default goals", async () => {
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.preview_blueprint", {
+      blueprint: {},
+      default_goal: 404,
+    }))).resolves.toMatchObject({
+      result: {
+        ok: true,
+        blueprint: expect.objectContaining({
+          goal: "404",
+          title: "404",
+        }),
+      },
+    });
+  });
+
   test("routes cowork create/list/get/delete requests through the injected CoworkService", async () => {
     const coworkService = new CoworkService({
       store: createMemoryCoworkStore(),

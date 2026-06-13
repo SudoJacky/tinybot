@@ -3854,7 +3854,7 @@ function parseCoworkBlueprintParams(
   return {
     blueprint: params.blueprint,
     policy: isJsonObject(params.policy) ? params.policy : undefined,
-    defaultGoal: stringParam(params, "defaultGoal", "default_goal") ?? "",
+    defaultGoal: pythonRouteTextParam(params, "defaultGoal", "default_goal"),
   };
 }
 
