@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued WebUI transport Phase 5 Skills create parity: native TS skill creation now cleans up partially-created workspace skill directories when resource directory creation fails, matching Python's best-effort rollback before returning a create error.
+
 - Continued WebUI transport Phase 5 Skills create parity: native TS skill creation now creates requested `scripts/`, `references/`, and `assets/` resource directories through a dedicated `workspace.create_dir` bridge, matching Python's create route while ignoring unsupported resource names.
 
 - Continued WebUI transport Phase 5 Skills validation parity: native TS skill validation now allows root-level symlink entries like Python WebUI validation while continuing to reject ordinary unexpected root files or directories outside `SKILL.md`, `scripts/`, `references/`, and `assets/`.

@@ -44,10 +44,15 @@ export class NativeSkillsBridge implements SkillsBridge {
     const contents = createSkillContent(name, description, content, body.always === true);
     const path = skillFilePath(name);
     await this.rpcClient.request(traceId, "workspace.write_file", { path, contents });
-    for (const resource of normalizeSkillResources(body.resources)) {
-      await this.rpcClient.request(traceId, "workspace.create_dir", {
-        path: `${skillDirPath(name)}/${resource}`,
-      });
+    try {
+      for (const resource of normalizeSkillResources(body.resources)) {
+        await this.rpcClient.request(traceId, "workspace.create_dir", {
+          path: `${skillDirPath(name)}/${resource}`,
+        });
+      }
+    } catch (error) {
+      await this.cleanupCreatedSkill(name, traceId);
+      throw new NativeWebuiSkillError(`failed to create skill: ${errorMessage(error)}`, 500);
     }
     return {
       created: true,
@@ -128,6 +133,17 @@ export class NativeSkillsBridge implements SkillsBridge {
       return Array.isArray(skills?.enabled) ? normalizeStringArray(skills.enabled) : undefined;
     } catch {
       return undefined;
+    }
+  }
+
+  private async cleanupCreatedSkill(name: string, traceId: string): Promise<void> {
+    try {
+      await this.rpcClient.request(traceId, "workspace.delete_file", {
+        path: skillDirPath(name),
+        recursive: true,
+      });
+    } catch {
+      // Match Python's best-effort cleanup: creation still reports the original error.
     }
   }
 }
@@ -341,4 +357,8 @@ function asObject(value: unknown): JsonObject | undefined {
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
