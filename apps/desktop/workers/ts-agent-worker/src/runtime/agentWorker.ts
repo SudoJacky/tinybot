@@ -3196,33 +3196,52 @@ export class AgentWorker {
   private webuiOpenAiCompatProvider(): WebuiOpenAiCompatProvider {
     return {
       completeChat: (chatRequest, traceId) => this.withOpenAiSessionLock(chatRequest.sessionKey, async () => {
-        const spec: AgentRunSpec = {
-          runId: `openai-chat-${Date.now().toString(36)}-${++this.openAiRunCounter}`,
-          traceId,
-          sessionId: chatRequest.sessionKey,
-          messages: [{ role: "user", content: chatRequest.content }],
-          model: chatRequest.model,
-          maxIterations: 20,
-          stream: false,
-          metadata: { channel: "api", chatId: chatRequest.chatId },
+        const runAttempt = async (): Promise<Partial<AgentRunResult>> => {
+          const spec: AgentRunSpec = {
+            runId: `openai-chat-${Date.now().toString(36)}-${++this.openAiRunCounter}`,
+            traceId,
+            sessionId: chatRequest.sessionKey,
+            messages: [{ role: "user", content: chatRequest.content }],
+            model: chatRequest.model,
+            maxIterations: 20,
+            stream: false,
+            metadata: { channel: "api", chatId: chatRequest.chatId },
+          };
+          const response = await this.runOpenAiChatSpec({
+            protocol_version: WORKER_PROTOCOL_VERSION,
+            id: `${traceId}:openai-chat`,
+            trace_id: traceId,
+            method: "agent.run",
+            params: { spec },
+          }, spec, chatRequest.timeoutSeconds);
+          if (response.error) {
+            throw new Error(response.error.message);
+          }
+          const result = response.result as Partial<AgentRunResult> | undefined;
+          if (!result || typeof result.finalContent !== "string") {
+            throw new Error("agent run did not return final content");
+          }
+          return result;
         };
-        const response = await this.runOpenAiChatSpec({
-          protocol_version: WORKER_PROTOCOL_VERSION,
-          id: `${traceId}:openai-chat`,
-          trace_id: traceId,
-          method: "agent.run",
-          params: { spec },
-        }, spec, chatRequest.timeoutSeconds);
-        if (response.error) {
-          throw new Error(response.error.message);
+
+        const firstResult = await runAttempt();
+        if (this.isEmptyOpenAiChatResult(firstResult)) {
+          return this.openAiChatFinalContent(await runAttempt());
         }
-        const result = response.result as Partial<AgentRunResult> | undefined;
-        if (!result || typeof result.finalContent !== "string") {
-          throw new Error("agent run did not return final content");
-        }
-        return result.finalContent;
+        return this.openAiChatFinalContent(firstResult);
       }),
     };
+  }
+
+  private isEmptyOpenAiChatResult(result: Partial<AgentRunResult>): boolean {
+    return result.stopReason === "empty_final_response" || this.openAiChatFinalContent(result).trim().length === 0;
+  }
+
+  private openAiChatFinalContent(result: Partial<AgentRunResult>): string {
+    if (typeof result.finalContent !== "string") {
+      throw new Error("agent run did not return final content");
+    }
+    return result.finalContent;
   }
 
   private async runOpenAiChatSpec(

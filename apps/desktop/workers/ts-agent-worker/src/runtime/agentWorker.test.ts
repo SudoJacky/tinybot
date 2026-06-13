@@ -1166,6 +1166,48 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("retries empty OpenAI-compatible chat completions with original API content", async () => {
+    const provider = new QueueProvider([
+      { content: "   ", toolCalls: [], stopReason: "stop" },
+      { content: "", toolCalls: [], stopReason: "stop" },
+      { content: "Recovered answer", toolCalls: [], stopReason: "stop" },
+    ]);
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      webuiConfigProvider: {
+        getConfig: async () => ({
+          agents: { defaults: { provider: "openai", model: "openai/gpt-4o-mini" } },
+        }),
+        patchConfig: async () => ({ config: {}, updatedFields: [] }),
+      },
+    });
+
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/v1/chat/completions",
+      body: {
+        model: "openai/gpt-4o-mini",
+        messages: [{ role: "user", content: "Recover please" }],
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          choices: [
+            {
+              message: { role: "assistant", content: "Recovered answer" },
+            },
+          ],
+        },
+      },
+    });
+    expect(provider.messages).toHaveLength(3);
+    expect(provider.messages[0]).toEqual([{ role: "user", content: "Recover please" }]);
+    expect(provider.messages[2]).toEqual([{ role: "user", content: "Recover please" }]);
+  });
+
   test("serializes OpenAI-compatible chat completions per API session", async () => {
     const firstCompletion = deferred<ModelResponse>();
     let providerCalls = 0;

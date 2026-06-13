@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued API Runtime OpenAI-compatible parity: TS-native `/v1/chat/completions` now retries an empty final agent response once at the API facade boundary with the original user content before returning the empty-response fallback, matching Python `handle_chat_completions`.
+
 - Continued API Runtime OpenAI-compatible parity: TS-native `/v1/chat/completions` now mirrors Python truthiness for `session_id`, so truthy non-string API session ids map to distinct `api:<value>` locks instead of falling back to `api:default`.
 
 - Continued API Runtime OpenAI-compatible parity: TS-native `/v1/chat/completions` now mirrors Python `body.get("stream", False)` truthiness, rejecting truthy non-boolean stream requests with the same OpenAI-shaped 400 before agent execution.
