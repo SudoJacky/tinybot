@@ -2424,9 +2424,6 @@ export class AgentWorker {
     });
     const result = await this.runAndClearActiveState(runner, spec);
     await this.drainCheckpointWrites(spec.runId);
-    if (!isAwaitingInputResult(result)) {
-      await this.clearCheckpoint(request.trace_id, spec);
-    }
     const resultForLifecycle = contextMetadata ? { ...result, contextMetadata } : result;
     const lifecycle = await this.turnLifecycle.finalizeTurn(request.trace_id, spec, resultForLifecycle);
     this.emitAwaitingInput(request.trace_id, spec.runId, result);
@@ -3476,9 +3473,6 @@ export class AgentWorker {
     });
     const result = await this.runAndClearActiveState(runner, spec);
     await this.drainCheckpointWrites(spec.runId);
-    if (!isAwaitingInputResult(result)) {
-      await this.clearCheckpoint(traceId, spec);
-    }
     const lifecycle = await this.turnLifecycle.finalizeTurn(traceId, spec, result);
     this.emitAwaitingInput(traceId, spec.runId, result);
     this.emitUsage(traceId, spec, result);

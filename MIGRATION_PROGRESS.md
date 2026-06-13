@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued session turn lifecycle parity: `AgentWorker` now leaves completed-turn checkpoint clearing to `TurnLifecycle.finalizeTurn()` instead of clearing once before lifecycle finalization and again during append fallback, matching the Python lifecycle owner boundary and restoring full worker checkpoint-clear test coverage.
+
 - Continued Channel Bus command parity: TS `ChannelRuntime` now handles channel slash commands before ordinary agent dispatch, and the worker `channel.dispatch_inbound` path reuses the backend command router so `/stop` over external channels cancels active runs for the same session without loading agent context or calling the provider.
 
 - Continued Cowork internal delegation parity: TS `cowork_internal` `spawn_agent` and `spawn_subteam` now honor explicit spawned-agent budget exhaustion with Python-compatible guardrail records, `spawn_budget_exhausted` stop state, delegation-denied events, and no accidental sub-agent creation.
@@ -175,6 +177,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 
 | Date | Update |
 | --- | --- |
+| 2026-06-13 | Continued session turn lifecycle parity: removed duplicate pre-finalize checkpoint clearing from `AgentWorker` so `TurnLifecycle.finalizeTurn()` is the single checkpoint-clear owner for direct and resumed runs. |
 | 2026-06-13 | Continued Channel Bus command parity: channel slash commands now dispatch through the backend command router before ordinary agent context/provider execution, so `/stop` cancels same-session active runs over `channel.dispatch_inbound`. |
 | 2026-06-13 | Continued Cowork Phase 10 desktop route parity: legacy and Vue Cowork inspectors now expose selected-agent activity actions that dispatch through the migrated native-first agent-activity facade path. |
 | 2026-06-13 | Continued Cowork Phase 10 desktop route parity: native Vue Cowork inspector branch controls now dispatch derive-branch, select-final-result, and merge-final-result events into the existing native-first handler/facade paths. |
@@ -693,6 +696,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.
 - [x] Continue session turn lifecycle evidence durability: capture memory evidence from native `saved_messages` for partial-duplicate persisted turns.
+- [x] Continue session turn lifecycle parity: keep checkpoint clearing owned by `TurnLifecycle.finalizeTurn()` for direct and resumed completed runs.
 - [x] Start Heartbeat runtime Phase 1: add pure TS heartbeat decision parsing, target selection, manual trigger/status, and tick service orchestration.
 - [x] Continue Heartbeat runtime Phase 1: add start/stop interval lifecycle with disabled guard, first-delay scheduling, and no-overlap scheduled ticks.
 - [x] Continue Heartbeat runtime bridge foundation: route heartbeat tasks through TS `AgentRunner` with fixed heartbeat session, trim callback, and external-notify gating.
