@@ -51,6 +51,7 @@ export class CoworkMailbox {
   }
 
   deliver(session: CoworkSession, envelope: CoworkEnvelope): CoworkMailboxMessage {
+    this.expireRecords(session);
     const normalized = normalizeEnvelope(envelope);
     const recipients = this.resolveRecipients(session, normalized);
     const threadId = this.resolveThread(session, normalized, recipients);

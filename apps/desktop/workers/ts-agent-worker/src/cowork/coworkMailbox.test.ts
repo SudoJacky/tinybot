@@ -251,6 +251,34 @@ describe("CoworkMailbox", () => {
     });
   });
 
+  it("expires overdue mailbox records before delivering new envelopes", async () => {
+    const session = await createTeamSession();
+    const box = mailbox();
+    box.deliver(session, {
+      sender_id: "coordinator",
+      recipient_ids: ["researcher"],
+      content: "Please respond before the next round.",
+      requires_reply: true,
+      deadline_round: 1,
+      correlation_id: "deadline-before-deliver",
+    });
+    session.rounds = 2;
+
+    const followup = box.deliver(session, {
+      sender_id: "coordinator",
+      recipient_ids: ["analyst"],
+      content: "New request after deadline.",
+    });
+
+    expect(followup.id).toBe("msg_3");
+    expect(session.mailbox.env_1).toMatchObject({
+      status: "expired",
+      correlation_id: "deadline-before-deliver",
+    });
+    expect(session.events.some((event) => event.type === "mailbox.expired"
+      && event.data.envelope_id === "env_1")).toBe(true);
+  });
+
   it("escalates stale blockers to reviewer agents and marks records once", async () => {
     const session = await createTeamSession();
     session.agents.reviewer = {
