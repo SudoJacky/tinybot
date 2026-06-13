@@ -13,8 +13,13 @@ import { CoworkTeamPlanner } from "../cowork/coworkTeamPlanner.ts";
 import { createCoworkTool } from "../cowork/coworkTool.ts";
 import { MessageBus } from "../bus/messageBus.ts";
 import { ChannelManager } from "../channels/channelManager.ts";
-import { selectConfiguredChannelNames } from "../channels/channelConfig.ts";
+import { selectChannelDeliveryOptions, selectConfiguredChannelNames } from "../channels/channelConfig.ts";
+import {
+  createNativeTextChannelAdapters,
+  type NativeTextChannelConnectorRegistry,
+} from "../channels/nativeChannelFactory.ts";
 import { parseTinybotConfig } from "../config/configSchema.ts";
+import type { TinybotConfig } from "../config/configTypes.ts";
 import { HeartbeatRuntime } from "../heartbeat/heartbeatRuntime.ts";
 import { selectHeartbeatTarget } from "../heartbeat/heartbeatTarget.ts";
 import { currentTimeString } from "../support/messageHelpers.ts";
@@ -64,6 +69,7 @@ export type CreateAgentWorkerServerOptions = {
   createModelProvider?: (config: ModelProviderConfig) => ModelProvider;
   fetchProviderModelsJson?: JsonFetcher;
   channelManager?: ChannelLifecycleManager;
+  nativeChannelConnectors?: NativeTextChannelConnectorRegistry;
   writeLine: (line: string) => void;
   writeLog: (line: string) => void;
 };
@@ -148,7 +154,13 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
   const sessionBridge = new NativeSessionBridge(rpcClient);
   const workspaceBridge = new NativeWorkspaceBridge(rpcClient);
   const channelBus = new MessageBus();
-  const channelManager = options.channelManager ?? createDefaultChannelManager(channelBus, options.env ?? process.env);
+  const channelManager = options.channelManager ?? createDefaultChannelManager({
+    bus: channelBus,
+    configBridge,
+    connectors: options.nativeChannelConnectors ?? {},
+    env: options.env ?? process.env,
+    writeLog: options.writeLog,
+  });
   const heartbeatRuntime = new HeartbeatRuntime({
     model: options.env?.TINYBOT_MODEL ?? options.env?.OPENAI_MODEL ?? "default",
     provider,
@@ -264,15 +276,96 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
   });
 }
 
-function createDefaultChannelManager(
-  bus: MessageBus,
-  env: Record<string, string | undefined>,
-): ChannelManager {
-  return new ChannelManager({
-    bus,
+type DefaultChannelManagerOptions = {
+  bus: MessageBus;
+  configBridge: NativeConfigBridge;
+  connectors: NativeTextChannelConnectorRegistry;
+  env: Record<string, string | undefined>;
+  writeLog: (line: string) => void;
+};
+
+function createDefaultChannelManager(options: DefaultChannelManagerOptions): ChannelLifecycleManager {
+  return new DefaultNativeChannelLifecycleManager(options);
+}
+
+class DefaultNativeChannelLifecycleManager implements ChannelLifecycleManager {
+  private readonly bus: MessageBus;
+  private readonly configBridge: NativeConfigBridge;
+  private readonly connectors: NativeTextChannelConnectorRegistry;
+  private readonly env: Record<string, string | undefined>;
+  private readonly writeLog: (line: string) => void;
+  private manager: ChannelManager | null = null;
+
+  constructor(options: DefaultChannelManagerOptions) {
+    this.bus = options.bus;
+    this.configBridge = options.configBridge;
+    this.connectors = options.connectors;
+    this.env = options.env;
+    this.writeLog = options.writeLog;
+  }
+
+  async startAll(): Promise<void> {
+    const manager = await this.managerForCurrentConfig();
+    await manager.startAll();
+  }
+
+  async stopAll(): Promise<void> {
+    await this.manager?.stopAll();
+  }
+
+  status() {
+    return this.manager?.status() ?? emptyChannelManagerStatus();
+  }
+
+  private async managerForCurrentConfig(): Promise<ChannelManager> {
+    if (this.manager) {
+      return this.manager;
+    }
+    if (Object.keys(this.connectors).length === 0) {
+      this.manager = new ChannelManager({
+        bus: this.bus,
+        channels: [],
+        env: this.env,
+      });
+      return this.manager;
+    }
+    const config = await this.loadChannelConfig();
+    const deliveryOptions = selectChannelDeliveryOptions(config);
+    const { adapters, skipped } = createNativeTextChannelAdapters({
+      config,
+      bus: this.bus,
+      connectors: this.connectors,
+    });
+    for (const skip of skipped) {
+      this.writeLog(`native channel ${skip.name} skipped: ${skip.reason}`);
+    }
+    this.manager = new ChannelManager({
+      bus: this.bus,
+      channels: adapters,
+      sendProgress: deliveryOptions.sendProgress,
+      sendToolHints: deliveryOptions.sendToolHints,
+      sendMaxRetries: deliveryOptions.sendMaxRetries,
+      env: this.env,
+    });
+    return this.manager;
+  }
+
+  private async loadChannelConfig(): Promise<TinybotConfig> {
+    try {
+      return parseTinybotConfig(await this.configBridge.snapshotPublic());
+    } catch (error) {
+      this.writeLog(`failed to load native channel config: ${errorMessage(error)}`);
+      return parseTinybotConfig({});
+    }
+  }
+}
+
+function emptyChannelManagerStatus() {
+  return {
+    running: false,
     channels: [],
-    env,
-  });
+    diagnostics: [],
+  };
 }
 
 function errorMessage(error: unknown): string {

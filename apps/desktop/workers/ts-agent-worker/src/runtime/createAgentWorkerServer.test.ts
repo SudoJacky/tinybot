@@ -1,10 +1,11 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import type { AgentMessage } from "../agent/agentRunSpec";
 import type { ModelProvider, ModelRequestOptions, ModelResponse } from "../model/provider";
 import { ToolRegistry } from "../tools/toolRegistry";
 import { createAgentWorkerServer } from "./createAgentWorkerServer";
 import type { ModelProviderConfig } from "./providerFactory";
+import type { NativeTextChannelConnector } from "../channels/nativeTextChannel";
 
 type ParsedLine = {
   id?: unknown;
@@ -198,6 +199,66 @@ describe("createAgentWorkerServer", () => {
         status: {
           running: false,
           channels: [],
+          diagnostics: [],
+        },
+      },
+    });
+  });
+
+  test("builds default native channel adapters from config and host connectors", async () => {
+    const lines: string[] = [];
+    const feishuConnector: NativeTextChannelConnector = {
+      start: vi.fn(async () => undefined),
+      stop: vi.fn(async () => undefined),
+      sendText: vi.fn(async () => undefined),
+      sendDelta: vi.fn(async () => undefined),
+    };
+    const server = createAgentWorkerServer({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      nativeChannelConnectors: {
+        feishu: feishuConnector,
+      },
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const start = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "channel-start-native",
+        trace_id: "trace-channel-start-native",
+        method: "channel.start",
+        params: {},
+      }),
+    );
+    await respondToConfigSnapshot(server, lines, {
+      channels: {
+        feishu: {
+          enabled: true,
+          allow_from: ["ou_1"],
+          streaming: true,
+        },
+        dingtalk: {
+          enabled: true,
+          allow_from: ["ding-user"],
+        },
+      },
+    });
+    await start;
+
+    expect(feishuConnector.start).toHaveBeenCalledTimes(1);
+    expect(parsedLines(lines).find((line) => line.id === "channel-start-native")).toMatchObject({
+      protocol_version: "1",
+      id: "channel-start-native",
+      trace_id: "trace-channel-start-native",
+      result: {
+        started: true,
+        status: {
+          running: true,
+          channels: [
+            { name: "feishu", displayName: "Feishu", supportsStreaming: true, running: true },
+          ],
           diagnostics: [],
         },
       },
