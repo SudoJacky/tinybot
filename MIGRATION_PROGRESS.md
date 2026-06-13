@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Cowork Phase 10 desktop default-route parity: desktop gateway Cowork run rollout gates now treat explicit swarm architecture/mode aliases in run request bodies as swarm-bound, preserving Python fallback when the swarm rollout gate is disabled instead of routing those runs to the TS scheduler path.
+
 - Continued Channel Bus retry parity: TS `ChannelManager` now treats adapter `AbortError` / cancellation errors like Python `asyncio.CancelledError`, propagating cancellation out of send retry instead of converting it into a final `send_failed` diagnostic, while the background dispatcher exits cleanly on cancellation.
 
 - Continued Channel Bus lifecycle parity: TS `ChannelManager.stopAll()` now isolates per-channel stop failures like Python `stop_all()`, continues stopping healthy adapters, clears running status, and exposes `stop_failed` diagnostics instead of aborting shutdown.
@@ -1118,6 +1120,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: preserve branch final-result route `result_id` precedence with blank camel-case result aliases.
 - [x] Continue Cowork Phase 10: preserve final-result merge route `branch_ids` precedence with blank camel-case branch aliases.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
+- [x] Continue Cowork Phase 10: route explicitly swarm Cowork run requests through Python fallback when the desktop swarm rollout gate is disabled.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.
 - [x] Continue session turn lifecycle evidence durability: capture memory evidence from native `saved_messages` for partial-duplicate persisted turns.

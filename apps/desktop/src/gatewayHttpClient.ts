@@ -955,6 +955,9 @@ function coworkRouteGroup(method: string, path: string, body: unknown): "readOnl
   if (/\/api\/cowork\/blueprints\/(?:validate|preview)(?:$|\?)/.test(path)) {
     return "readOnlySnapshot";
   }
+  if (swarmCoworkRunRoute(method, path, body)) {
+    return "swarm";
+  }
   if (/\/api\/cowork\/sessions\/[^/]+\/run(?:$|\?)/.test(path)) {
     return "scheduler";
   }
@@ -1009,6 +1012,20 @@ function swarmCoworkCreateRoute(method: string, path: string, body: unknown): bo
       payload?.workflow_mode,
       payload?.mode,
     );
+  return isSwarmMode(mode);
+}
+
+function swarmCoworkRunRoute(method: string, path: string, body: unknown): boolean {
+  if (method !== "POST" || !/\/api\/cowork\/sessions\/[^/]+\/run(?:$|\?)/.test(path)) {
+    return false;
+  }
+  const payload = asRecord(body);
+  const mode = firstPythonTruthyTextValue(
+    payload?.architecture,
+    payload?.workflowMode,
+    payload?.workflow_mode,
+    payload?.mode,
+  );
   return isSwarmMode(mode);
 }
 
