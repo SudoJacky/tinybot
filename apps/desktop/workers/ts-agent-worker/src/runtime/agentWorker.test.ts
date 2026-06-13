@@ -205,6 +205,17 @@ describe("AgentWorker", () => {
         provider: { name: "openai", profile: "default" },
         model: "gpt-test",
       },
+      heartbeatRuntime: {
+        start: vi.fn(async () => true),
+        stop: vi.fn(() => undefined),
+        triggerNow: vi.fn(async () => ({ status: "skipped", reason: "no_active_tasks" })),
+        getStatus: vi.fn(() => ({
+          enabled: true,
+          running: false,
+          intervalMs: 120_000,
+          lastResult: { status: "skipped", tasks: "" },
+        })),
+      },
     });
 
     await expect(worker.handleRequest(webuiRequest("webui.route_specs"))).resolves.toMatchObject({
@@ -222,6 +233,12 @@ describe("AgentWorker", () => {
         status: 200,
         body: {
           channels: { websocket: { enabled: true, running: true } },
+          heartbeat: {
+            enabled: true,
+            running: false,
+            interval_ms: 120_000,
+            last_result: { status: "skipped", tasks: "" },
+          },
           provider: { name: "openai", profile: "default" },
           model: "gpt-test",
         },

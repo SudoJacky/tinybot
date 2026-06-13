@@ -1,5 +1,6 @@
 import { isJsonObject, type JsonObject } from "../protocol/messages.ts";
 import type { ToolRegistry } from "../tools/toolRegistry.ts";
+import type { HeartbeatStatus } from "../heartbeat/heartbeatTypes.ts";
 
 export type WebuiRouteSpec = {
   key: string;
@@ -22,6 +23,7 @@ export type WebuiRouteResponse = {
 
 export type WebuiStatusSnapshot = {
   channelRunning: boolean;
+  heartbeat?: HeartbeatStatus | null;
   provider: Record<string, unknown> | null;
   model: string | null;
 };
@@ -622,8 +624,20 @@ async function resolveStatus(provider: WebuiStatusProvider | undefined): Promise
 function webuiStatusBody(status: WebuiStatusSnapshot): Record<string, unknown> {
   return {
     channels: { websocket: { enabled: true, running: status.channelRunning } },
+    ...(status.heartbeat ? { heartbeat: heartbeatStatusBody(status.heartbeat) } : {}),
     provider: status.provider,
     model: status.model,
+  };
+}
+
+function heartbeatStatusBody(status: HeartbeatStatus): Record<string, unknown> {
+  return {
+    enabled: status.enabled,
+    running: status.running,
+    executing: status.executing,
+    interval_ms: status.intervalMs,
+    last_result: status.lastResult,
+    last_error: status.lastError,
   };
 }
 

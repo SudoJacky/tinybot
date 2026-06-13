@@ -404,6 +404,7 @@ describe("createAgentWorkerServer", () => {
     const server = createAgentWorkerServer({
       provider: new QueueProvider([]),
       tools: new ToolRegistry(),
+      env: { OPENAI_API_KEY: "test-key" },
       writeLine: (line) => lines.push(line),
       writeLog: () => undefined,
     });
@@ -453,6 +454,82 @@ describe("createAgentWorkerServer", () => {
       result: {
         stopped: true,
         status: { running: false },
+      },
+    });
+  });
+
+  test("exposes heartbeat diagnostics through native WebUI status route", async () => {
+    const lines: string[] = [];
+    const server = createAgentWorkerServer({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const status = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "webui-status",
+        trace_id: "trace-webui-status",
+        method: "webui.handle_request",
+        params: { method: "GET", path: "/api/status" },
+      }),
+    );
+
+    const handledRequests = new Set<unknown>();
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await waitFor(() => {
+        const messages = parsedLines(lines);
+        return messages.some((line) => line.id === "webui-status" && "result" in line)
+          || messages.some((line) => line.method === "config.snapshot_public" && !handledRequests.has(line.id))
+          || messages.some((line) => line.method === "provider.resolve_secret" && !handledRequests.has(line.id));
+      });
+      const response = parsedLines(lines).find((line) => line.id === "webui-status" && "result" in line);
+      if (response) {
+        break;
+      }
+      const request = parsedLines(lines).find((line) =>
+        (line.method === "config.snapshot_public" || line.method === "provider.resolve_secret")
+        && !handledRequests.has(line.id)
+      );
+      if (!request || typeof request.id !== "string" || typeof request.trace_id !== "string") {
+        throw new Error("missing native status request id");
+      }
+      handledRequests.add(request.id);
+      await server.handleLine(JSON.stringify({
+        protocol_version: "1",
+        id: request.id,
+        trace_id: request.trace_id,
+        result: request.method === "provider.resolve_secret"
+          ? { apiKey: "test-key", apiKeySource: "env" }
+          : {
+            value: {
+              agents: { defaults: { model: "gpt-heartbeat" } },
+              gateway: { heartbeat: { enabled: true, interval_s: 2, keep_recent_messages: 6 } },
+            },
+          },
+      }));
+    }
+    await status;
+
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      protocol_version: "1",
+      id: "webui-status",
+      trace_id: "trace-webui-status",
+      result: {
+        status: 200,
+        body: {
+          channels: { websocket: { enabled: true, running: true } },
+          heartbeat: {
+            enabled: true,
+            running: false,
+            interval_ms: 2_000,
+            last_result: null,
+            last_error: null,
+          },
+          model: "gpt-heartbeat",
+        },
       },
     });
   });

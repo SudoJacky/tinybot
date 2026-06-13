@@ -64,6 +64,7 @@ import {
   type WebuiSessionProvider,
   type WebuiSkillsProvider,
   type WebuiStatusProvider,
+  type WebuiStatusSnapshot,
   type WebuiWorkspaceProvider,
 } from "../webui/webuiRoutes.ts";
 import {
@@ -106,7 +107,7 @@ export type AgentWorkerOptions = {
   webuiConfigProvider?: WebuiConfigProvider;
   knowledgeProvider?: WebuiKnowledgeProvider;
   workspaceBridge?: WebuiWorkspaceProvider;
-  heartbeatRuntime?: Pick<HeartbeatRuntime, "start" | "stop" | "triggerNow" | "getStatus">;
+  heartbeatRuntime?: Pick<HeartbeatRuntime, "start" | "stop" | "triggerNow" | "getStatus"> & Partial<Pick<HeartbeatRuntime, "refreshConfig">>;
 };
 
 export type PrepareToolsHandler = (traceId: string) => Promise<unknown> | unknown;
@@ -266,7 +267,7 @@ export class AgentWorker {
   private readonly webuiConfigProvider?: WebuiConfigProvider;
   private readonly knowledgeProvider?: WebuiKnowledgeProvider;
   private readonly workspaceBridge?: WebuiWorkspaceProvider;
-  private readonly heartbeatRuntime?: Pick<HeartbeatRuntime, "start" | "stop" | "triggerNow" | "getStatus">;
+  private readonly heartbeatRuntime?: Pick<HeartbeatRuntime, "start" | "stop" | "triggerNow" | "getStatus"> & Partial<Pick<HeartbeatRuntime, "refreshConfig">>;
   private readonly commandRouter: CommandRouter;
   private readonly turnLifecycle: TurnLifecycle;
   private readonly activeRuns = new Map<string, ActiveRun>();
@@ -2775,7 +2776,7 @@ export class AgentWorker {
         trace_id: request.trace_id,
         result: await handleWebuiRouteRequest(
           parseWebuiRouteRequest(request.params),
-          this.statusProvider,
+          this.webuiStatusProvider(),
           this.webuiBootstrapProvider,
           this.webuiSessionProvider,
           this.tools,
@@ -2794,6 +2795,24 @@ export class AgentWorker {
     } catch (error) {
       return this.failure(request, errorMessage(error), {}, "invalid_protocol");
     }
+  }
+
+  private webuiStatusProvider(): WebuiStatusProvider | undefined {
+    if (!this.heartbeatRuntime) {
+      return this.statusProvider;
+    }
+    const baseProvider = this.statusProvider;
+    const heartbeatRuntime = this.heartbeatRuntime;
+    return async () => {
+      const [base, heartbeat] = await Promise.all([
+        resolveWebuiStatusSnapshot(baseProvider),
+        heartbeatRuntime.refreshConfig?.() ?? heartbeatRuntime.getStatus(),
+      ]);
+      return {
+        ...base,
+        heartbeat,
+      };
+    };
   }
 
   private handleTransportGatewayFrameRequest(request: WorkerRequest): WorkerResponse {
@@ -4553,6 +4572,13 @@ function parseToolCallRequest(value: unknown): { id: string; name: string; argum
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function resolveWebuiStatusSnapshot(provider: WebuiStatusProvider | undefined): Promise<WebuiStatusSnapshot> {
+  if (!provider) {
+    return { channelRunning: true, provider: null, model: null };
+  }
+  return typeof provider === "function" ? provider() : provider;
 }
 
 function isAwaitingInputResult(result: AgentRunResult): boolean {
