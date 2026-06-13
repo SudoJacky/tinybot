@@ -287,14 +287,20 @@ async function sendMessageResult(service: CoworkService, args: Record<string, un
   if (!content) {
     return { content: "Error: content is required" };
   }
-  const result = await service.sendMessage({
+  const recipientIds = stringListArg(args, "recipient_ids");
+  const result = await service.deliverEnvelope({
     traceId: traceIdFrom(context),
     sessionId,
-    senderId: "user",
-    recipientIds: stringListArg(args, "recipient_ids"),
-    content,
-    threadId: stringArg(args, "thread_id"),
-    topic: stringArg(args, "topic"),
+    envelope: {
+      sender_id: "user",
+      recipient_ids: recipientIds,
+      content,
+      thread_id: stringArg(args, "thread_id"),
+      visibility: recipientIds.length > 0 ? "direct" : "group",
+      kind: "message",
+      topic: stringArg(args, "topic"),
+      event_type: stringArg(args, "event_type"),
+    },
   });
   const messageId = typeof result.message.id === "string" ? result.message.id : "";
   return {

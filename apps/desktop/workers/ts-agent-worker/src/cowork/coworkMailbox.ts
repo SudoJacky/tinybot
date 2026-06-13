@@ -360,10 +360,10 @@ export class CoworkMailbox {
     if (existing) {
       return existing;
     }
-    const threadId = nextMapId("thread", session.threads, this.idGenerator);
+    const threadId = envelope.thread_id || nextMapId("thread", session.threads, this.idGenerator);
     session.threads[threadId] = {
       id: threadId,
-      topic: "General discussion",
+      topic: envelope.topic || "General discussion",
       status: "open",
       summary: "",
       participant_ids: unique([envelope.sender_id, ...recipients]),

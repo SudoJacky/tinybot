@@ -849,15 +849,20 @@ export class AgentWorker {
             : { status: 200, body: { result: result.result, session: coworkSessionSnapshot(result.session) } };
         }
       }
-      const result = await this.coworkService.sendMessage({
+      const result = await this.coworkService.deliverEnvelope({
         traceId,
         sessionId: params.sessionId,
-        senderId: params.senderId,
-        recipientIds: params.recipientIds,
-        content: params.content,
-        threadId: params.threadId,
-        topic: params.topic,
-        wakeRecipients: params.wakeRecipients,
+        envelope: {
+          sender_id: params.senderId,
+          recipient_ids: params.recipientIds,
+          content: params.content,
+          thread_id: params.threadId,
+          visibility: params.recipientIds.length > 0 ? "direct" : "group",
+          kind: "message",
+          topic: params.topic,
+          event_type: params.eventType,
+          wake_recipients: params.wakeRecipients,
+        },
       });
       const messageId = typeof result.message.id === "string" ? result.message.id : "";
       return {
@@ -3944,6 +3949,7 @@ function parseCoworkSendMessageParams(params: Record<string, unknown> | undefine
   content: string;
   threadId?: string;
   topic?: string;
+  eventType?: string;
   wakeRecipients?: boolean;
 } {
   if (!isJsonObject(params)) {
@@ -3961,6 +3967,7 @@ function parseCoworkSendMessageParams(params: Record<string, unknown> | undefine
     content,
     threadId: stringParam(params, "threadId", "thread_id"),
     topic: stringParam(params, "topic", "topic"),
+    eventType: stringParam(params, "eventType", "event_type"),
     wakeRecipients: booleanParam(params, "wakeRecipients", "wake_recipients"),
   };
 }
