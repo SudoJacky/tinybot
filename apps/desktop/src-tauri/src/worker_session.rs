@@ -261,7 +261,11 @@ impl WorkerSessionRpc {
 
         let session = self.session_mut_or_create(session_id);
         ensure_extra_object(session);
-        if !session.extra.get("temporary_files").is_some_and(Value::is_array) {
+        if !session
+            .extra
+            .get("temporary_files")
+            .is_some_and(Value::is_array)
+        {
             session.extra["temporary_files"] = serde_json::json!([]);
         }
         let timestamp = now_session_timestamp();
@@ -276,6 +280,7 @@ impl WorkerSessionRpc {
             "chunk_count": chunk_count,
             "metadata": { "size_bytes": size_bytes },
             "size_bytes": size_bytes,
+            "source": "session_upload",
             "temporary": true,
         });
         if let Some(files) = session
@@ -287,6 +292,50 @@ impl WorkerSessionRpc {
         }
         session.updated_at = timestamp;
         Ok(document)
+    }
+
+    pub fn list_temporary_files(&self, session_id: &str) -> Result<Value, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionMetadataRead)?;
+        validate_session_id(session_id)?;
+        let session = self
+            .sessions
+            .iter()
+            .find(|session| session.session_id == session_id)
+            .ok_or_else(|| unknown_session_error(session_id))?;
+        let temporary_files = session
+            .extra
+            .get("temporary_files")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        Ok(serde_json::json!({
+            "session_id": session_id,
+            "temporary_files": temporary_files,
+        }))
+    }
+
+    pub fn clear_temporary_files(
+        &mut self,
+        session_id: &str,
+    ) -> Result<Value, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionWrite)?;
+        validate_session_id(session_id)?;
+        let session = self.session_mut_or_create(session_id);
+        ensure_extra_object(session);
+        let cleared = session
+            .extra
+            .get("temporary_files")
+            .and_then(Value::as_array)
+            .map_or(0, Vec::len);
+        if let Some(extra) = session.extra.as_object_mut() {
+            extra.insert("temporary_files".to_string(), serde_json::json!([]));
+        }
+        session.updated_at = now_session_timestamp();
+        Ok(serde_json::json!({
+            "session_id": session_id,
+            "cleared": cleared,
+            "temporary_files": [],
+        }))
     }
 
     pub fn append_messages(
@@ -599,7 +648,11 @@ fn stable_upload_digest(session_id: &str, name: &str, timestamp: &str, content: 
     session_id.hash(&mut hasher);
     name.hash(&mut hasher);
     timestamp.hash(&mut hasher);
-    content.chars().take(200).collect::<String>().hash(&mut hasher);
+    content
+        .chars()
+        .take(200)
+        .collect::<String>()
+        .hash(&mut hasher);
     format!("{:010x}", hasher.finish())[..10].to_string()
 }
 
@@ -1322,13 +1375,7 @@ mod tests {
         );
 
         let doc = rpc
-            .upload_temporary_file(
-                "websocket:chat-1",
-                "context.md",
-                "md",
-                "hello native",
-                12,
-            )
+            .upload_temporary_file("websocket:chat-1", "context.md", "md", "hello native", 12)
             .expect("temporary upload should be stored");
 
         assert_eq!(doc["name"], "context.md");
@@ -1338,7 +1385,9 @@ mod tests {
         assert_eq!(doc["size_bytes"], 12);
         assert_eq!(doc["temporary"], true);
 
-        let updated = rpc.get_metadata("websocket:chat-1").expect("session should exist");
+        let updated = rpc
+            .get_metadata("websocket:chat-1")
+            .expect("session should exist");
         assert_eq!(updated.extra["temporary_files"][0], doc);
     }
 

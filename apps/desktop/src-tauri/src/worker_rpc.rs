@@ -391,6 +391,26 @@ impl WorkerRpcRouter {
                 )
                 .map_err(serialization_error)
             }
+            "knowledge.session_upload" => {
+                let params: SessionTemporaryFileUploadParams = parse_params(request)?;
+                self.session.upload_temporary_file(
+                    &params.session_id,
+                    &params.name,
+                    &params.file_type,
+                    &params.content,
+                    params
+                        .size_bytes
+                        .unwrap_or_else(|| params.content.len() as u64),
+                )
+            }
+            "knowledge.session_list" => {
+                let params: SessionIdParams = parse_params(request)?;
+                self.session.list_temporary_files(&params.session_id)
+            }
+            "knowledge.session_clear" => {
+                let params: SessionIdParams = parse_params(request)?;
+                self.session.clear_temporary_files(&params.session_id)
+            }
             "rag.query" => {
                 let params: RagQueryParams = parse_params(request)?;
                 self.query_rag(params)
@@ -6535,6 +6555,81 @@ mod tests {
                 "retrieval_method": "session_temporary",
                 "temporary": true
             })
+        );
+    }
+
+    #[test]
+    fn dispatches_knowledge_session_temporary_file_lifecycle() {
+        let fixture = WorkspaceFixture::new();
+        let mut session = session_fixture();
+        session.session_id = "websocket:chat-1".to_string();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![session],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::SessionMetadataRead,
+                WorkerCapability::SessionWrite,
+            ]),
+        );
+
+        let upload_response = router.dispatch(&WorkerRequest::new(
+            "req-knowledge-session-upload",
+            "trace-knowledge-session-upload",
+            "knowledge.session_upload",
+            json!({
+                "session_id": "websocket:chat-1",
+                "name": "Session Notes.md",
+                "file_type": "md",
+                "content": "# Session Notes\n\nTemporary evidence for this chat.",
+                "size_bytes": 50
+            }),
+        ));
+
+        assert_eq!(upload_response.error, None);
+        let upload_result = upload_response
+            .result
+            .as_ref()
+            .expect("knowledge.session_upload should return result");
+        assert_eq!(upload_result["name"], "Session Notes.md");
+        assert_eq!(upload_result["temporary"], true);
+        assert_eq!(upload_result["source"], "session_upload");
+
+        let list_response = router.dispatch(&WorkerRequest::new(
+            "req-knowledge-session-list",
+            "trace-knowledge-session-list",
+            "knowledge.session_list",
+            json!({ "session_id": "websocket:chat-1" }),
+        ));
+
+        assert_eq!(list_response.error, None);
+        assert_eq!(
+            list_response.result.as_ref().unwrap()["session_id"],
+            "websocket:chat-1"
+        );
+        assert_eq!(
+            list_response.result.as_ref().unwrap()["temporary_files"][0]["name"],
+            "Session Notes.md"
+        );
+
+        let clear_response = router.dispatch(&WorkerRequest::new(
+            "req-knowledge-session-clear",
+            "trace-knowledge-session-clear",
+            "knowledge.session_clear",
+            json!({ "session_id": "websocket:chat-1" }),
+        ));
+
+        assert_eq!(clear_response.error, None);
+        assert_eq!(
+            clear_response.result.as_ref().unwrap()["session_id"],
+            "websocket:chat-1"
+        );
+        assert_eq!(clear_response.result.as_ref().unwrap()["cleared"], 1);
+        assert_eq!(
+            clear_response.result.as_ref().unwrap()["temporary_files"],
+            json!([])
         );
     }
 
