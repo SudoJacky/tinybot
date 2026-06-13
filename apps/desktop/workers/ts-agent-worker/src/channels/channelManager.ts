@@ -52,6 +52,7 @@ export type ChannelManagerOptions = {
   channels: ChannelAdapter[];
   sendProgress?: boolean;
   sendToolHints?: boolean;
+  sendMaxRetries?: number;
   retryDelaysMs?: number[];
   sleep?: (delayMs: number) => Promise<void>;
   restartNotice?: ChannelRestartNotice | null | ChannelRestartNoticeSource;
@@ -64,6 +65,7 @@ export class ChannelManager {
   private readonly channels = new Map<string, ChannelAdapter>();
   private readonly sendProgress: boolean;
   private readonly sendToolHints: boolean;
+  private readonly sendMaxRetries: number;
   private readonly retryDelaysMs: number[];
   private readonly sleep: (delayMs: number) => Promise<void>;
   private readonly restartNoticeSource: ChannelRestartNoticeSource;
@@ -77,6 +79,7 @@ export class ChannelManager {
     this.bus = options.bus;
     this.sendProgress = options.sendProgress ?? true;
     this.sendToolHints = options.sendToolHints ?? true;
+    this.sendMaxRetries = normalizedSendMaxRetries(options.sendMaxRetries);
     this.retryDelaysMs = options.retryDelaysMs ?? [1000, 2000, 4000];
     this.sleep = options.sleep ?? ((delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)));
     this.restartNoticeSource = restartNoticeSource(options);
@@ -224,7 +227,7 @@ export class ChannelManager {
   ): Promise<{ ok: true; attempts: number } | { ok: false; attempts: number; error: unknown }> {
     let attempts = 0;
     let lastError: unknown;
-    const maxAttempts = this.retryDelaysMs.length + 1;
+    const maxAttempts = this.sendMaxRetries;
     while (attempts < maxAttempts) {
       attempts += 1;
       try {
@@ -232,11 +235,12 @@ export class ChannelManager {
         return { ok: true, attempts };
       } catch (error) {
         lastError = error;
-        const delay = this.retryDelaysMs[attempts - 1];
-        if (delay === undefined) {
-          break;
+        if (attempts < maxAttempts) {
+          const delay = retryDelayMs(this.retryDelaysMs, attempts - 1);
+          if (delay !== undefined) {
+            await this.sleep(delay);
+          }
         }
-        await this.sleep(delay);
       }
     }
     return { ok: false, attempts, error: lastError };
@@ -290,6 +294,20 @@ function metadataRecord(value: unknown): Record<string, unknown> {
     return value as Record<string, unknown>;
   }
   return {};
+}
+
+function normalizedSendMaxRetries(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 3;
+  }
+  return Math.max(1, Math.trunc(value));
+}
+
+function retryDelayMs(delays: number[], index: number): number | undefined {
+  if (delays.length === 0) {
+    return undefined;
+  }
+  return delays[Math.min(index, delays.length - 1)];
 }
 
 function restartNoticeSource(options: ChannelManagerOptions): ChannelRestartNoticeSource {

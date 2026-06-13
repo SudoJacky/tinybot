@@ -203,4 +203,32 @@ describe("ChannelManager", () => {
       expect.objectContaining({ kind: "send_failed", channel: "broken", attempts: 3 }),
     ]);
   });
+
+  test("treats sendMaxRetries as total delivery attempts including the first send", async () => {
+    const bus = new MessageBus();
+    const delays: number[] = [];
+    const broken = adapter({
+      send: vi.fn(async () => {
+        throw new Error("permanent");
+      }),
+    });
+    const manager = new ChannelManager({
+      bus,
+      channels: [broken],
+      sendMaxRetries: 2,
+      retryDelaysMs: [10, 20, 40],
+      sleep: async (delay) => {
+        delays.push(delay);
+      },
+    });
+
+    await bus.publishOutbound(outbound({ content: "lost" }));
+
+    await expect(manager.dispatchAvailable()).resolves.toBe(0);
+    expect(broken.send).toHaveBeenCalledTimes(2);
+    expect(delays).toEqual([10]);
+    expect(manager.diagnostics()).toEqual([
+      expect.objectContaining({ kind: "send_failed", attempts: 2 }),
+    ]);
+  });
 });
