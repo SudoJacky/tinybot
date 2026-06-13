@@ -330,6 +330,15 @@ impl WorkerManager {
         self.start(spec)
     }
 
+    pub fn restart_stdio_rpc(
+        &self,
+        spec: WorkerCommandSpec,
+        router: WorkerRpcRouter,
+    ) -> Result<(), WorkerManagerError> {
+        self.stop()?;
+        self.start_stdio_rpc(spec, router)
+    }
+
     pub fn health_check(&self) -> WorkerHealth {
         let mut inner = lock_inner(&self.inner);
         refresh_child_status(&mut inner).unwrap_or(WorkerHealth::Failed)
@@ -722,6 +731,63 @@ mod tests {
         assert_eq!(response.result.as_ref().unwrap()["ok"], true);
         assert_eq!(response.result.as_ref().unwrap()["echo"], "hello");
         assert_eq!(response.result.as_ref().unwrap()["workspaceFileCount"], 1);
+    }
+
+    #[test]
+    fn manager_restart_stdio_rpc_replaces_connection_and_preserves_full_duplex_requests() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("AGENTS.md", "agents");
+        let manager = WorkerManager::new(20);
+        let initial_router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead]),
+        );
+
+        manager
+            .start_stdio_rpc(test_stdio_agent_echo_worker_spec(), initial_router)
+            .expect("stdio agent worker should start");
+        let before = manager
+            .status()
+            .pid
+            .expect("running stdio worker should expose pid");
+
+        let restarted_router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead]),
+        );
+        manager
+            .restart_stdio_rpc(test_stdio_agent_echo_worker_spec(), restarted_router)
+            .expect("stdio RPC worker should restart");
+        let after = manager
+            .status()
+            .pid
+            .expect("restarted stdio worker should expose pid");
+
+        assert_ne!(before, after);
+        let request = WorkerRequest::new(
+            "agent-req-1",
+            "trace-agent",
+            "agent.echo",
+            json!({ "input": "hello after restart" }),
+        );
+        let response = manager
+            .send_stdio_request(&request, std::time::Duration::from_secs(3))
+            .expect("agent request should complete after restart");
+
+        assert_eq!(response.result.as_ref().unwrap()["ok"], true);
+        assert_eq!(
+            response.result.as_ref().unwrap()["echo"],
+            "hello after restart"
+        );
+        assert_eq!(response.result.as_ref().unwrap()["workspaceFileCount"], 1);
+
+        manager.stop().expect("worker should stop");
     }
 
     #[test]

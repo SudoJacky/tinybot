@@ -2786,10 +2786,16 @@ fn ensure_ts_agent_worker_running(
     if worker.status().state == WorkerManagerState::Running {
         return Ok(());
     }
+    let spec = ts_agent_worker_command_spec();
     worker
         .start_stdio_rpc(
-            ts_agent_worker_command_spec(),
-            experimental_worker_router(workspace_root, config_snapshot),
+            spec.clone(),
+            experimental_worker_router_with_runtime_restart(
+                worker.clone(),
+                spec,
+                workspace_root,
+                config_snapshot,
+            ),
         )
         .map_err(|error| format!("failed to start TS agent worker: {error:?}"))
 }
@@ -2869,6 +2875,37 @@ fn experimental_worker_router(
             WorkerCapability::SessionMetadataRead,
             WorkerCapability::SessionWrite,
         ]),
+    )
+}
+
+fn experimental_worker_router_with_runtime_restart(
+    worker: WorkerManager,
+    spec: WorkerCommandSpec,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+) -> WorkerRpcRouter {
+    let restart_worker = worker.clone();
+    let restart_spec = spec.clone();
+    let restart_workspace_root = workspace_root.clone();
+    let restart_config_snapshot = config_snapshot.clone();
+    experimental_worker_router(workspace_root, config_snapshot).with_runtime_restart_handler(
+        move |_request| {
+            let worker = restart_worker.clone();
+            let spec = restart_spec.clone();
+            let workspace_root = restart_workspace_root.clone();
+            let config_snapshot = restart_config_snapshot.clone();
+            thread::spawn(move || {
+                // Let the worker receive the runtime.restart response before replacing it.
+                thread::sleep(Duration::from_millis(25));
+                let router = experimental_worker_router_with_runtime_restart(
+                    worker.clone(),
+                    spec.clone(),
+                    workspace_root,
+                    config_snapshot,
+                );
+                let _ = worker.restart_stdio_rpc(spec, router);
+            });
+        },
     )
 }
 
@@ -3284,6 +3321,58 @@ mod tests {
             memory_response.error
         );
         assert!(mcp_response.error.is_none(), "{:?}", mcp_response.error);
+    }
+
+    #[test]
+    fn experimental_worker_router_runtime_restart_restarts_stdio_worker() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("AGENTS.md", "agents");
+        let manager = WorkerManager::new(20);
+        let restart_spec = test_stdio_agent_echo_worker_spec();
+        let router = experimental_worker_router_with_runtime_restart(
+            manager.clone(),
+            restart_spec.clone(),
+            fixture.root.clone(),
+            serde_json::json!({}),
+        );
+
+        manager
+            .start_stdio_rpc(test_stdio_runtime_restart_worker_spec(), router)
+            .expect("runtime restart worker should start");
+
+        let diagnostics = wait_for_worker_diagnostics(&manager, |diagnostics| {
+            diagnostics.iter().any(|line| {
+                line.stream == "stderr" && line.line.contains("\"restart_requested\":true")
+            })
+        });
+        assert!(diagnostics.iter().any(|line| {
+            line.stream == "stderr" && line.line.contains("\"restart_requested\":true")
+        }));
+
+        let status = wait_for_worker_status(&manager, |status| {
+            status.state == WorkerManagerState::Running
+                && status.label.as_deref() == Some("stdio-agent-echo-worker")
+        });
+        assert_eq!(status.state, WorkerManagerState::Running);
+        assert_eq!(status.label.as_deref(), Some("stdio-agent-echo-worker"));
+
+        let request = WorkerRequest::new(
+            "agent-req-1",
+            "trace-agent",
+            "agent.echo",
+            serde_json::json!({ "input": "hello after runtime restart" }),
+        );
+        let response = manager
+            .send_stdio_request(&request, Duration::from_secs(3))
+            .expect("restarted worker should accept stdio request");
+
+        assert_eq!(response.result.as_ref().unwrap()["ok"], true);
+        assert_eq!(
+            response.result.as_ref().unwrap()["echo"],
+            "hello after runtime restart"
+        );
+
+        manager.stop().expect("worker should stop");
     }
 
     #[test]
@@ -4218,6 +4307,92 @@ mod tests {
             )
             .with_label(label)
         }
+    }
+
+    fn test_stdio_runtime_restart_worker_spec() -> crate::worker_manager::WorkerCommandSpec {
+        #[cfg(target_os = "windows")]
+        {
+            crate::worker_manager::WorkerCommandSpec::new(
+                "powershell",
+                [
+                    "-NoProfile",
+                    "-Command",
+                    r#"$json = '{"protocol_version":"1","id":"req-restart","trace_id":"trace-restart","method":"runtime.restart","params":{"run_id":"run-1","session_id":"session-1"}}'; [Console]::Out.WriteLine($json); $line = [Console]::In.ReadLine(); [Console]::Error.WriteLine($line)"#,
+                ],
+                PathBuf::from("."),
+            )
+            .with_label("stdio-runtime-restart-worker")
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            crate::worker_manager::WorkerCommandSpec::new(
+                "sh",
+                [
+                    "-c",
+                    r#"json='{"protocol_version":"1","id":"req-restart","trace_id":"trace-restart","method":"runtime.restart","params":{"run_id":"run-1","session_id":"session-1"}}'; printf '%s\n' "$json"; IFS= read -r line; printf '%s\n' "$line" >&2"#,
+                ],
+                PathBuf::from("."),
+            )
+            .with_label("stdio-runtime-restart-worker")
+        }
+    }
+
+    fn test_stdio_agent_echo_worker_spec() -> crate::worker_manager::WorkerCommandSpec {
+        #[cfg(target_os = "windows")]
+        {
+            crate::worker_manager::WorkerCommandSpec::new(
+                "powershell",
+                [
+                    "-NoProfile",
+                    "-Command",
+                    r#"$agent = [Console]::In.ReadLine(); $agentObj = $agent | ConvertFrom-Json; $final = @{ protocol_version = '1'; id = $agentObj.id; trace_id = $agentObj.trace_id; result = @{ ok = $true; echo = $agentObj.params.input; workspaceFileCount = 1 } } | ConvertTo-Json -Compress -Depth 8; [Console]::Out.WriteLine($final)"#,
+                ],
+                PathBuf::from("."),
+            )
+            .with_label("stdio-agent-echo-worker")
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            crate::worker_manager::WorkerCommandSpec::new(
+                "sh",
+                [
+                    "-c",
+                    r#"IFS= read -r agent; printf '%s\n' '{"protocol_version":"1","id":"agent-req-1","trace_id":"trace-agent","result":{"ok":true,"echo":"hello after runtime restart","workspaceFileCount":1}}'"#,
+                ],
+                PathBuf::from("."),
+            )
+            .with_label("stdio-agent-echo-worker")
+        }
+    }
+
+    fn wait_for_worker_status(
+        manager: &WorkerManager,
+        predicate: impl Fn(&WorkerManagerStatus) -> bool,
+    ) -> WorkerManagerStatus {
+        for _ in 0..30 {
+            let status = manager.status();
+            if predicate(&status) {
+                return status;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        manager.status()
+    }
+
+    fn wait_for_worker_diagnostics(
+        manager: &WorkerManager,
+        predicate: impl Fn(&[crate::worker_protocol::WorkerDiagnosticLine]) -> bool,
+    ) -> Vec<crate::worker_protocol::WorkerDiagnosticLine> {
+        for _ in 0..30 {
+            let diagnostics = manager.status().diagnostics;
+            if predicate(&diagnostics) {
+                return diagnostics;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        manager.status().diagnostics
     }
 
     struct WorkspaceFixture {

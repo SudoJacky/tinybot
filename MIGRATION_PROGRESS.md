@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Command Runtime restart parity: desktop TS agent worker startup now installs a native restart handler that asynchronously restarts the stdio WorkerManager with a fresh router after `runtime.restart`, preserving full-duplex worker RPC after `/restart`.
+
 - Continued Command Runtime restart parity: native `runtime.restart` host RPC now invokes an injected Rust restart callback with normalized run/session context before acknowledging, giving the app layer a controlled restart hook instead of a no-op acknowledgement.
 
 - Continued Command Runtime restart parity: the default TS worker server now wires `/restart` through a native `runtime.restart` host RPC, and the Rust worker RPC router acknowledges the controlled restart request instead of leaving restart unavailable outside manually injected tests.
