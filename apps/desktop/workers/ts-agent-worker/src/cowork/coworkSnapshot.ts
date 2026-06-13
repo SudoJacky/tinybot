@@ -1077,7 +1077,7 @@ function swarmGateSummary(plan: JsonObject, units: JsonObject[], session: Cowork
       status: blockingEvaluations.length > 0 ? "blocked" : evaluations.length > 0 ? "pass" : "not_ready",
       total: evaluations.length,
       blocking: blockingEvaluations.length,
-      blocking_ids: blockingEvaluations.map((item) => stringValue(item.id)).filter(Boolean),
+      blocking_ids: blockingEvaluations.map((item) => stringValue(item.id)),
     },
     final_deliverable: {
       status: session.completion_decision.ready_to_finish === true ? "ready" : "not_ready",

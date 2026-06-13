@@ -316,6 +316,27 @@ describe("cowork session snapshot", () => {
     });
   });
 
+  test("preserves Python blocking evaluation id placeholders", () => {
+    const snapshot = coworkSessionSnapshot(normalizeCoworkSession({
+      ...rawSession,
+      id: "cw-swarm-evaluation-ids",
+      workflow_mode: "swarm",
+      runtime_state: {
+        swarm_evaluations: [
+          { status: "block", reason: "missing reducer evidence" },
+          { id: "eval_error", status: "error" },
+        ],
+      },
+    }));
+
+    expect(snapshot.swarm_organization.gates.evaluations).toMatchObject({
+      status: "blocked",
+      total: 2,
+      blocking: 2,
+      blocking_ids: ["", "eval_error"],
+    });
+  });
+
   test("projects Python-compatible swarm scheduler queues and metrics", () => {
     const snapshot = coworkSessionSnapshot(normalizeCoworkSession({
       ...rawSession,
