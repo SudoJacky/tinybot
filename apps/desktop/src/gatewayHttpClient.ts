@@ -237,8 +237,8 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
       }
       return trackSession(result.session);
     });
-  const getSession = async (options: { forceBootstrap?: boolean } = {}) => {
-    if (options.forceBootstrap) {
+  const getSession = async (sessionOptions: { forceBootstrap?: boolean } = {}) => {
+    if (sessionOptions.forceBootstrap) {
       sessionPromise = startBootstrap();
       return sessionPromise;
     }
@@ -247,7 +247,7 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
     if (!shouldRefreshSession(session)) {
       return session;
     }
-    refreshPromise ??= refreshGateway(config, fetchFn, session)
+    refreshPromise ??= refreshGateway(config, fetchFn, session, options.nativeWebui)
       .then((result) => {
         if (result.ok) {
           return trackSession(result.session);
@@ -1054,6 +1054,7 @@ async function refreshGateway(
   config: GatewayConfig,
   fetchFn: FetchFn,
   session: BootstrapSession,
+  nativeWebui?: NativeWebuiApi,
 ): Promise<
   | {
       ok: true;
@@ -1071,6 +1072,29 @@ async function refreshGateway(
     timeoutMs: config.requestTimeoutMs,
   });
   try {
+    if (nativeWebui) {
+      try {
+        const payload = await nativeWebui.route({
+          method: "POST",
+          path: session.refreshTokenPath,
+          headers: { Authorization: `Bearer ${session.token}` },
+        });
+        const parsed = parseRefreshSessionPayload(payload, session);
+        if (!parsed.ok) {
+          logDesktopNativeDebug("gateway.refresh.nativeFallback", { error: parsed.error });
+        } else {
+          logDesktopNativeDebug("gateway.refresh.complete", {
+            refreshTokenPath: parsed.session.refreshTokenPath,
+            tokenReady: true,
+            tokenTtlS: parsed.session.tokenTtlS,
+            wsPath: parsed.session.wsPath,
+          });
+          return parsed;
+        }
+      } catch (error) {
+        logDesktopNativeDebug("gateway.refresh.nativeFallback", { error: stringifyError(error) });
+      }
+    }
     const response = await fetchFn(`${config.httpBaseUrl}${session.refreshTokenPath}`, {
       method: "POST",
       headers: authHeaders(session.token),
@@ -1083,30 +1107,20 @@ async function refreshGateway(
       return { ok: false, error: `HTTP ${response.status}` };
     }
     const payload = await response.json();
-    const token = typeof payload.token === "string" ? payload.token : "";
-    if (!token) {
+    const parsed = parseRefreshSessionPayload(payload, session);
+    if (!parsed.ok) {
       logDesktopNativeDebug("gateway.refresh.error", {
-        error: "missing token",
+        error: parsed.error,
       });
-      return { ok: false, error: "refresh response missing token" };
+      return parsed;
     }
-    const nextSession = {
-      token,
-      wsPath: typeof payload.ws_path === "string" ? payload.ws_path : session.wsPath,
-      refreshTokenPath:
-        typeof payload.refresh_token_path === "string" ? payload.refresh_token_path : session.refreshTokenPath,
-      tokenTtlS: typeof payload.token_ttl_s === "number" ? payload.token_ttl_s : session.tokenTtlS,
-    };
     logDesktopNativeDebug("gateway.refresh.complete", {
-      refreshTokenPath: nextSession.refreshTokenPath,
+      refreshTokenPath: parsed.session.refreshTokenPath,
       tokenReady: true,
-      tokenTtlS: nextSession.tokenTtlS,
-      wsPath: nextSession.wsPath,
+      tokenTtlS: parsed.session.tokenTtlS,
+      wsPath: parsed.session.wsPath,
     });
-    return {
-      ok: true,
-      session: nextSession,
-    };
+    return parsed;
   } catch (error) {
     logDesktopNativeDebug("gateway.refresh.error", {
       error: stringifyError(error),
@@ -1115,6 +1129,28 @@ async function refreshGateway(
   } finally {
     globalThis.clearTimeout(timeout);
   }
+}
+
+function parseRefreshSessionPayload(
+  payload: unknown,
+  previousSession: BootstrapSession,
+): { ok: true; session: BootstrapSession } | { ok: false; error: string } {
+  const record = asRecord(payload);
+  const token = typeof record?.token === "string" ? record.token : "";
+  if (!token) {
+    return { ok: false, error: "refresh response missing token" };
+  }
+  return {
+    ok: true,
+    session: {
+      token,
+      wsPath: typeof record?.ws_path === "string" ? record.ws_path : previousSession.wsPath,
+      refreshTokenPath: typeof record?.refresh_token_path === "string"
+        ? record.refresh_token_path
+        : previousSession.refreshTokenPath,
+      tokenTtlS: typeof record?.token_ttl_s === "number" ? record.token_ttl_s : previousSession.tokenTtlS,
+    },
+  };
 }
 
 async function requestJson(config: GatewayConfig, fetchFn: FetchFn, path: string, init?: RequestInit): Promise<unknown> {
