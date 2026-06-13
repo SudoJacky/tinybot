@@ -764,6 +764,71 @@ describe("AgentWorker", () => {
     ]);
   });
 
+  test("serves Python-compatible WebUI skills route errors through TS worker RPC", async () => {
+    const calls: Array<{ type: string; traceId: string; name?: string; body?: unknown }> = [];
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      skillsBridge: {
+        listWebuiSkills: async () => ({}),
+        getWebuiSkillDetail: async (name, traceId) => {
+          calls.push({ type: "detail", traceId, name });
+          return null;
+        },
+        createWebuiSkill: async (body, traceId) => {
+          calls.push({ type: "create", traceId, body });
+          throw Object.assign(new Error("skill 'planner' already exists"), { status: 409 });
+        },
+        updateWebuiSkill: async () => ({}),
+        deleteWebuiSkill: async (name, traceId) => {
+          calls.push({ type: "delete", traceId, name });
+          throw Object.assign(new Error("cannot delete builtin skills"), { status: 403 });
+        },
+        validateWebuiSkill: async () => ({}),
+      },
+    });
+
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/api/skills",
+      body: "not-json-object",
+    }))).resolves.toMatchObject({
+      result: { status: 400, body: { error: "invalid json body" } },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/api/skills",
+      body: { name: "planner" },
+    }))).resolves.toMatchObject({
+      result: { status: 409, body: { error: "skill 'planner' already exists" } },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "PATCH",
+      path: "/api/skills/planner",
+      body: "not-json-object",
+    }))).resolves.toMatchObject({
+      result: { status: 400, body: { error: "invalid json body" } },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
+      path: "/api/skills/missing",
+    }))).resolves.toMatchObject({
+      result: { status: 404, body: { error: "skill not found" } },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "DELETE",
+      path: "/api/skills/builtin",
+    }))).resolves.toMatchObject({
+      result: { status: 403, body: { error: "cannot delete builtin skills" } },
+    });
+    expect(calls).toEqual([
+      { type: "create", traceId: "trace-webui.handle_request", body: { name: "planner" } },
+      { type: "detail", traceId: "trace-webui.handle_request", name: "missing" },
+      { type: "delete", traceId: "trace-webui.handle_request", name: "builtin" },
+    ]);
+  });
+
   test("serves WebUI bootstrap route through TS worker RPC", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),

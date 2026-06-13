@@ -30,10 +30,14 @@ export class NativeSkillsBridge implements SkillsBridge {
   async createWebuiSkill(body: Record<string, unknown>, traceId: string): Promise<unknown> {
     const name = normalizeSkillName(asString(body.name) ?? "");
     if (!name) {
-      throw new Error("name is required");
+      throw new NativeWebuiSkillError("name is required", 400);
     }
     if (name.length > 64) {
-      throw new Error("skill name too long (max 64 chars)");
+      throw new NativeWebuiSkillError("skill name too long (max 64 chars)", 400);
+    }
+    const existing = await this.loadSkillEntries(traceId);
+    if (existing.some((skill) => skill.name === name)) {
+      throw new NativeWebuiSkillError(`skill '${name}' already exists`, 409);
     }
     const description = asString(body.description) ?? `Custom skill: ${name}`;
     const content = asString(body.content) ?? "";
@@ -53,7 +57,7 @@ export class NativeSkillsBridge implements SkillsBridge {
     const file = asObject(await this.rpcClient.request(traceId, "workspace.read_file", { path, format: "raw" }));
     const currentContent = asString(file?.content) ?? asString(file?.contents);
     if (currentContent === undefined) {
-      throw new Error("skill not found");
+      throw new NativeWebuiSkillError("skill not found", 404);
     }
     const contents = updateSkillContent(currentContent, name, body);
     await this.rpcClient.request(traceId, "workspace.write_file", { path, contents });
@@ -63,8 +67,11 @@ export class NativeSkillsBridge implements SkillsBridge {
   async deleteWebuiSkill(name: string, traceId: string): Promise<unknown> {
     const result = asObject(await this.rpcClient.request(traceId, "skills.list", {}));
     const entry = normalizeSkillEntries(result?.skills).find((skill) => skill.name === name);
+    if (!entry) {
+      throw new NativeWebuiSkillError("skill not found", 404);
+    }
     if (entry?.source === "builtin") {
-      throw new Error("cannot delete builtin skills");
+      throw new NativeWebuiSkillError("cannot delete builtin skills", 403);
     }
     await this.rpcClient.request(traceId, "workspace.delete_file", {
       path: skillDirPath(name),
@@ -96,12 +103,16 @@ export class NativeSkillsBridge implements SkillsBridge {
   }
 
   private async loadRuntime(traceId: string): Promise<SkillsRuntime> {
-    const result = asObject(await this.rpcClient.request(traceId, "skills.list", {}));
     return new SkillsRuntime({
-      skills: normalizeSkillEntries(result?.skills),
+      skills: await this.loadSkillEntries(traceId),
       hasBin: (name) => hasExecutableOnPath(name, this.env),
       hasEnv: (name) => this.env[name] !== undefined,
     });
+  }
+
+  private async loadSkillEntries(traceId: string): Promise<SkillStoreEntry[]> {
+    const result = asObject(await this.rpcClient.request(traceId, "skills.list", {}));
+    return normalizeSkillEntries(result?.skills);
   }
 
   private async loadEnabledSkills(traceId: string): Promise<string[] | undefined> {
@@ -113,6 +124,16 @@ export class NativeSkillsBridge implements SkillsBridge {
     } catch {
       return undefined;
     }
+  }
+}
+
+export class NativeWebuiSkillError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "NativeWebuiSkillError";
+    this.status = status;
   }
 }
 

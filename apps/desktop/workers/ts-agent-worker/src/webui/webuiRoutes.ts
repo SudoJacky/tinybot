@@ -461,43 +461,47 @@ export async function handleWebuiRouteRequest(
     if (!skillsProvider) {
       return { status: 503, body: { error: "webui control route unavailable", route: "get_skills" } };
     }
-    return { status: 200, body: await skillsProvider.listSkills(traceId) };
+    return webuiSkillRouteResponse(() => skillsProvider.listSkills(traceId));
   }
   if (method === "POST" && path === "/api/skills") {
     if (!skillsProvider) {
       return { status: 503, body: { error: "webui control route unavailable", route: "create_skill" } };
     }
-    const body = isJsonObject(request.body) ? request.body : {};
-    return { status: 200, body: await skillsProvider.createSkill(body, traceId) };
+    if (!isJsonObject(request.body)) {
+      return { status: 400, body: { error: "invalid json body" } };
+    }
+    return webuiSkillRouteResponse(() => skillsProvider.createSkill(request.body as JsonObject, traceId));
   }
   const skillValidationName = skillValidatePath(method, path);
   if (skillValidationName !== undefined) {
     if (!skillsProvider) {
       return { status: 503, body: { error: "webui control route unavailable", route: "validate_skill" } };
     }
-    return { status: 200, body: await skillsProvider.validateSkill(skillValidationName, traceId) };
+    return webuiSkillRouteResponse(() => skillsProvider.validateSkill(skillValidationName, traceId));
   }
   const skillUpdateName = skillUpdatePath(method, path);
   if (skillUpdateName !== undefined) {
     if (!skillsProvider) {
       return { status: 503, body: { error: "webui control route unavailable", route: "update_skill" } };
     }
-    const body = isJsonObject(request.body) ? request.body : {};
-    return { status: 200, body: await skillsProvider.updateSkill(skillUpdateName, body, traceId) };
+    if (!isJsonObject(request.body)) {
+      return { status: 400, body: { error: "invalid json body" } };
+    }
+    return webuiSkillRouteResponse(() => skillsProvider.updateSkill(skillUpdateName, request.body as JsonObject, traceId));
   }
   const skillDeleteName = skillDeletePath(method, path);
   if (skillDeleteName !== undefined) {
     if (!skillsProvider) {
       return { status: 503, body: { error: "webui control route unavailable", route: "delete_skill" } };
     }
-    return { status: 200, body: await skillsProvider.deleteSkill(skillDeleteName, traceId) };
+    return webuiSkillRouteResponse(() => skillsProvider.deleteSkill(skillDeleteName, traceId));
   }
   const skillName = skillDetailPath(method, path);
   if (skillName !== undefined) {
     if (!skillsProvider) {
       return { status: 503, body: { error: "webui control route unavailable", route: "get_skill_detail" } };
     }
-    return { status: 200, body: await skillsProvider.getSkillDetail(skillName, traceId) };
+    return webuiSkillRouteResponse(() => skillsProvider.getSkillDetail(skillName, traceId));
   }
   if (method === "POST" && path === "/api/provider-models") {
     return webuiProviderModelsResponse(request.body, providerModelsProvider, traceId);
@@ -631,6 +635,32 @@ export async function handleWebuiRouteRequest(
       route: routeKey(method, path),
     },
   };
+}
+
+async function webuiSkillRouteResponse(action: () => Promise<unknown> | unknown): Promise<WebuiRouteResponse> {
+  try {
+    const body = await action();
+    if (body === null) {
+      return { status: 404, body: { error: "skill not found" } };
+    }
+    return { status: 200, body };
+  } catch (error) {
+    const status = webuiSkillErrorStatus(error);
+    return {
+      status,
+      body: { error: error instanceof Error ? error.message : String(error) },
+    };
+  }
+}
+
+function webuiSkillErrorStatus(error: unknown): number {
+  if (typeof error === "object" && error !== null && "status" in error) {
+    const status = (error as { status?: unknown }).status;
+    if (typeof status === "number" && Number.isInteger(status) && status >= 400 && status <= 599) {
+      return status;
+    }
+  }
+  return 500;
 }
 
 export function parseWebuiRouteRequest(params: JsonObject | undefined): WebuiRouteRequest {

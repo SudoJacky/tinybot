@@ -23,6 +23,64 @@ class FakeRpcClient {
 }
 
 describe("NativeSkillsBridge", () => {
+  test("rejects duplicate workspace skill creation before writing files", async () => {
+    const rpcClient = new FakeRpcClient({
+      "skills.list": [
+        {
+          skills: [
+            {
+              name: "review-work",
+              path: "skills/review-work/SKILL.md",
+              source: "workspace",
+              content: "---\nname: review-work\ndescription: Existing\n---\nExisting.",
+            },
+          ],
+        },
+      ],
+    });
+    const bridge = new NativeSkillsBridge(rpcClient, {});
+
+    await expect(bridge.createWebuiSkill({ name: "Review Work" }, "trace-dup")).rejects.toMatchObject({
+      message: "skill 'review-work' already exists",
+      status: 409,
+    });
+    expect(rpcClient.calls).toEqual([
+      { traceId: "trace-dup", method: "skills.list", params: {} },
+    ]);
+  });
+
+  test("rejects missing and builtin skill deletes before deleting files", async () => {
+    const rpcClient = new FakeRpcClient({
+      "skills.list": [
+        { skills: [] },
+        {
+          skills: [
+            {
+              name: "builtin-plan",
+              path: "tinybot/skills/builtin-plan/SKILL.md",
+              source: "builtin",
+              content: "---\nname: builtin-plan\ndescription: Builtin\n---\nBuiltin.",
+            },
+          ],
+        },
+      ],
+    });
+    const bridge = new NativeSkillsBridge(rpcClient, {});
+
+    await expect(bridge.deleteWebuiSkill("missing", "trace-missing")).rejects.toMatchObject({
+      message: "skill not found",
+      status: 404,
+    });
+    await expect(bridge.deleteWebuiSkill("builtin-plan", "trace-builtin")).rejects.toMatchObject({
+      message: "cannot delete builtin skills",
+      status: 403,
+    });
+    expect(rpcClient.calls).toEqual([
+      { traceId: "trace-missing", method: "skills.list", params: {} },
+      { traceId: "trace-builtin", method: "skills.list", params: {} },
+    ]);
+  });
+
   test("creates, updates, validates, and deletes workspace skills through native workspace RPC", async () => {
     const rpcClient = new FakeRpcClient({
       "workspace.read_file": [
@@ -46,6 +104,7 @@ describe("NativeSkillsBridge", () => {
         },
       ],
       "skills.list": [
+        { skills: [] },
         { skills: [{ name: "planner", path: "skills/planner/SKILL.md", source: "workspace", content: "ignored" }] },
       ],
       "workspace.delete_file": [
@@ -84,6 +143,7 @@ describe("NativeSkillsBridge", () => {
     });
 
     expect(rpcClient.calls).toEqual([
+      { traceId: "trace-1", method: "skills.list", params: {} },
       {
         traceId: "trace-1",
         method: "workspace.write_file",
