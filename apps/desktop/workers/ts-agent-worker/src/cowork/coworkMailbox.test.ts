@@ -359,7 +359,7 @@ describe("CoworkMailbox", () => {
       workflow_mode: "team",
       workflow_profile: "team",
       stop_reason: "budget_exhausted",
-      focus_task: "Draft final answer",
+      focus_task: "Synthesize completed work into the final answer.",
       workspace_dir: "D:/workspace/cowork/session-1",
       artifacts: ["b.md", "c.md", "d.md", "e.md", "f.md", "g.md", "h.md", "i.md"],
       shared_memory_counts: {
@@ -459,6 +459,27 @@ describe("CoworkMailbox", () => {
     expect(session.completion_decision.readiness[0]).toMatchObject({
       agent_id: "researcher",
       score: 105,
+    });
+  });
+
+  it("recomputes the session focus task from pending reply blockers after delivery", async () => {
+    const session = await createTeamSession();
+    session.current_focus_task = "Stale focus";
+
+    deliver(session, {
+      sender_id: "coordinator",
+      recipient_ids: ["researcher"],
+      content: "Please resolve the packaging blocker before final synthesis.",
+      requires_reply: true,
+      request_type: "unblock",
+      priority: 7,
+    });
+
+    expect(session.current_focus_task).toBe(
+      "Resolve unblock request from coordinator: Please resolve the packaging blocker before final synthesis.",
+    );
+    expect(session.completion_decision).toMatchObject({
+      focus_task: "Resolve unblock request from coordinator: Please resolve the packaging blocker before final synthesis.",
     });
   });
 

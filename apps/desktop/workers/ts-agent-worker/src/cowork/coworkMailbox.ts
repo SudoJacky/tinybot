@@ -650,6 +650,7 @@ function refreshMailboxCompletionDecision(session: CoworkSession, now: () => str
   const fanoutBlockers = fanoutMailboxMergeBlockers(tasks);
   const disagreements = detectMailboxDisagreements(tasks);
   const goalReview = reviewMailboxGoalCompletion(session, tasks, reviewBlockers, fanoutBlockers, disagreements);
+  session.current_focus_task = deriveMailboxFocusTask(session, tasks, pendingReplies, goalReview);
   let nextAction = "plan";
   let reason = "No tasks exist yet.";
   if (session.status === "completed") {
@@ -804,6 +805,40 @@ function detectMailboxDisagreements(tasks: JsonObject[]): JsonObject[] {
     }
   }
   return signals.slice(0, 20);
+}
+
+function deriveMailboxFocusTask(session: CoworkSession, tasks: JsonObject[], pendingReplies: JsonObject[], goalReview: JsonObject): string {
+  if (pendingReplies.length > 0) {
+    const record = pendingReplies.reduce((best, candidate) => {
+      const bestPriority = numberOrNull(best.priority) ?? 0;
+      const candidatePriority = numberOrNull(candidate.priority) ?? 0;
+      if (candidatePriority !== bestPriority) {
+        return candidatePriority > bestPriority ? candidate : best;
+      }
+      return stringValue(candidate.created_at) > stringValue(best.created_at) ? candidate : best;
+    });
+    const requestType = stringValue(record.request_type) || "reply";
+    return `Resolve ${requestType} request from ${stringValue(record.sender_id)}: ${stringValue(record.content).slice(0, 220)}`;
+  }
+  const active = tasks.filter((task) => stringValue(task.status) === "in_progress");
+  if (active.length > 0) {
+    const task = [...active].sort((left, right) => stringValue(left.updated_at).localeCompare(stringValue(right.updated_at)))[0];
+    return `${stringValue(task.title)}: ${stringValue(task.description)}`;
+  }
+  const ready = tasks
+    .filter((task) => stringValue(task.status) === "pending")
+    .filter((task) => taskDependenciesDone(session, task));
+  if (ready.length > 0) {
+    const task = [...ready].sort((left, right) => stringValue(left.id).localeCompare(stringValue(right.id)))[0];
+    return `${stringValue(task.title)}: ${stringValue(task.description)}`;
+  }
+  if (tasks.some((task) => stringValue(task.status) === "completed")) {
+    if (goalReview.ready !== true) {
+      return stringValue(goalReview.reason) || "Review whether the original goal is fully satisfied.";
+    }
+    return "Synthesize completed work into the final answer.";
+  }
+  return stringValue(session.goal);
 }
 
 function mailboxAgentReadinessScores(session: CoworkSession): JsonObject[] {
