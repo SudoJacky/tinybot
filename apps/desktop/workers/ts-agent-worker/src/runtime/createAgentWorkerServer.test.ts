@@ -129,6 +129,81 @@ describe("createAgentWorkerServer", () => {
     });
   });
 
+  test("provides a default TS channel manager for lifecycle requests", async () => {
+    const lines: string[] = [];
+    const server = createAgentWorkerServer({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    await server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "channel-status",
+        trace_id: "trace-channel-status",
+        method: "channel.status",
+        params: {},
+      }),
+    );
+    await server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "channel-start",
+        trace_id: "trace-channel-start",
+        method: "channel.start",
+        params: {},
+      }),
+    );
+    await server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "channel-stop",
+        trace_id: "trace-channel-stop",
+        method: "channel.stop",
+        params: {},
+      }),
+    );
+
+    expect(parsedLines(lines).find((line) => line.id === "channel-status")).toMatchObject({
+      protocol_version: "1",
+      id: "channel-status",
+      trace_id: "trace-channel-status",
+      result: {
+        running: false,
+        channels: [],
+        diagnostics: [],
+      },
+    });
+    expect(parsedLines(lines).find((line) => line.id === "channel-start")).toMatchObject({
+      protocol_version: "1",
+      id: "channel-start",
+      trace_id: "trace-channel-start",
+      result: {
+        started: true,
+        status: {
+          running: true,
+          channels: [],
+          diagnostics: [],
+        },
+      },
+    });
+    expect(parsedLines(lines).find((line) => line.id === "channel-stop")).toMatchObject({
+      protocol_version: "1",
+      id: "channel-stop",
+      trace_id: "trace-channel-stop",
+      result: {
+        stopped: true,
+        status: {
+          running: false,
+          channels: [],
+          diagnostics: [],
+        },
+      },
+    });
+  });
+
   test("routes dream slash commands through native memory dream RPC", async () => {
     const lines: string[] = [];
     const provider = new QueueProvider([{ content: "unused", toolCalls: [], stopReason: "stop" }]);

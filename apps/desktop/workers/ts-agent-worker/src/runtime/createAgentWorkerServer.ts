@@ -11,6 +11,8 @@ import { CoworkService } from "../cowork/coworkService.ts";
 import { NativeCoworkStoreBridge } from "../cowork/coworkStoreBridge.ts";
 import { CoworkTeamPlanner } from "../cowork/coworkTeamPlanner.ts";
 import { createCoworkTool } from "../cowork/coworkTool.ts";
+import { MessageBus } from "../bus/messageBus.ts";
+import { ChannelManager } from "../channels/channelManager.ts";
 import { selectConfiguredChannelNames } from "../channels/channelConfig.ts";
 import { parseTinybotConfig } from "../config/configSchema.ts";
 import { HeartbeatRuntime } from "../heartbeat/heartbeatRuntime.ts";
@@ -145,6 +147,7 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     : undefined;
   const sessionBridge = new NativeSessionBridge(rpcClient);
   const workspaceBridge = new NativeWorkspaceBridge(rpcClient);
+  const channelManager = options.channelManager ?? createDefaultChannelManager(options.env ?? process.env);
   const heartbeatRuntime = new HeartbeatRuntime({
     model: options.env?.TINYBOT_MODEL ?? options.env?.OPENAI_MODEL ?? "default",
     provider,
@@ -239,7 +242,7 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     coworkService,
     coworkScheduler,
     heartbeatRuntime,
-    channelManager: options.channelManager,
+    channelManager,
     statusProvider: async () => {
       const runtime = await providerRuntimeFromNativeConfig(configBridge, options.env ?? process.env, {});
       const providerId = stringValue(runtime.providerId);
@@ -256,6 +259,14 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     rpcClient,
     writeLine: options.writeLine,
     writeLog: options.writeLog,
+  });
+}
+
+function createDefaultChannelManager(env: Record<string, string | undefined>): ChannelManager {
+  return new ChannelManager({
+    bus: new MessageBus(),
+    channels: [],
+    env,
   });
 }
 
