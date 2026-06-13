@@ -63,7 +63,7 @@ export class NativeSessionBridge implements SessionBridge, WebuiSessionProvider 
   }
 
   async listTemporaryFiles(sessionId: string, traceId: string): Promise<WebuiSessionTemporaryFiles> {
-    const result = await this.rpcClient.request(traceId, "session.get_metadata", {
+    const result = await this.rpcClient.request(traceId, "knowledge.session_list", {
       session_id: sessionId,
     });
     return normalizeWebuiTemporaryFiles(result, sessionId);
@@ -74,7 +74,7 @@ export class NativeSessionBridge implements SessionBridge, WebuiSessionProvider 
     upload: WebuiTemporaryFileUpload,
     traceId: string,
   ): Promise<Record<string, unknown>> {
-    const result = await this.rpcClient.request(traceId, "session.temporary_file.upload", {
+    const result = await this.rpcClient.request(traceId, "knowledge.session_upload", {
       session_id: sessionId,
       name: upload.name,
       file_type: upload.fileType,

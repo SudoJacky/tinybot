@@ -119,24 +119,23 @@ describe("NativeSessionBridge", () => {
     ]);
   });
 
-  test("lists WebUI temporary files through native session.get_metadata", async () => {
+  test("lists WebUI temporary files through native knowledge.session_list", async () => {
     const requests: Array<{ traceId: string; method: string; params: Record<string, unknown> }> = [];
     const bridge = new NativeSessionBridge({
       request: async (traceId, method, params) => {
         requests.push({ traceId, method, params });
         return {
           session_id: "websocket:chat-1",
-          extra: {
-            temporary_files: [
-              {
-                id: "tmp-1",
-                name: "context.md",
-                file_type: "md",
-                chunk_count: 2,
-                temporary: true,
-              },
-            ],
-          },
+          temporary_files: [
+            {
+              id: "tmp-1",
+              name: "context.md",
+              file_type: "md",
+              chunk_count: 2,
+              temporary: true,
+              source: "session_upload",
+            },
+          ],
         };
       },
     });
@@ -150,19 +149,20 @@ describe("NativeSessionBridge", () => {
           file_type: "md",
           chunk_count: 2,
           temporary: true,
+          source: "session_upload",
         },
       ],
     });
     expect(requests).toEqual([
       {
         traceId: "trace-webui",
-        method: "session.get_metadata",
+        method: "knowledge.session_list",
         params: { session_id: "websocket:chat-1" },
       },
     ]);
   });
 
-  test("uploads WebUI temporary files through native session.temporary_file.upload", async () => {
+  test("uploads WebUI temporary files through native knowledge.session_upload", async () => {
     const requests: Array<{ traceId: string; method: string; params: Record<string, unknown> }> = [];
     const bridge = new NativeSessionBridge({
       request: async (traceId, method, params) => {
@@ -174,6 +174,7 @@ describe("NativeSessionBridge", () => {
           chunk_count: 1,
           size_bytes: 11,
           temporary: true,
+          source: "session_upload",
         };
       },
     });
@@ -194,11 +195,12 @@ describe("NativeSessionBridge", () => {
       chunk_count: 1,
       size_bytes: 11,
       temporary: true,
+      source: "session_upload",
     });
     expect(requests).toEqual([
       {
         traceId: "trace-webui",
-        method: "session.temporary_file.upload",
+        method: "knowledge.session_upload",
         params: {
           session_id: "websocket:chat-1",
           name: "context.md",
