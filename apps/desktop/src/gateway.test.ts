@@ -2078,6 +2078,11 @@ describe("gateway HTTP client", () => {
       architecture: "swarm",
     })).resolves.toEqual({ gateway: true });
     await expect(client.cowork.create({
+      goal: "Blank architecture falls through",
+      architecture: " ",
+      workflowMode: "swarm",
+    })).resolves.toEqual({ gateway: true });
+    await expect(client.cowork.create({
       goal: "Camel workflow mode wins",
       workflowMode: "swarm",
       workflow_mode: "team",
@@ -2112,6 +2117,7 @@ describe("gateway HTTP client", () => {
     });
     expect(fetchFn.mock.calls.map((call) => String((call as unknown[])[0]))).toEqual([
       "http://127.0.0.1:18790/webui/bootstrap",
+      "http://127.0.0.1:18790/api/cowork/sessions",
       "http://127.0.0.1:18790/api/cowork/sessions",
       "http://127.0.0.1:18790/api/cowork/sessions",
       "http://127.0.0.1:18790/api/cowork/sessions",
@@ -2249,6 +2255,10 @@ describe("gateway HTTP client", () => {
       targetArchitecture: "swarm",
       target_architecture: "team",
     })).resolves.toEqual({ gateway: true });
+    await expect(client.cowork.deriveBranch("cw_1", null, {
+      target_architecture: " ",
+      architecture: "swarm",
+    })).resolves.toEqual({ gateway: true });
 
     expect(nativeCowork.route).toHaveBeenNthCalledWith(1, {
       method: "POST",
@@ -2262,6 +2272,7 @@ describe("gateway HTTP client", () => {
     });
     expect(fetchFn.mock.calls.map((call) => String((call as unknown[])[0]))).toEqual([
       "http://127.0.0.1:18790/webui/bootstrap",
+      "http://127.0.0.1:18790/api/cowork/sessions/cw_1/branches/derive",
       "http://127.0.0.1:18790/api/cowork/sessions/cw_1/branches/derive",
     ]);
   });

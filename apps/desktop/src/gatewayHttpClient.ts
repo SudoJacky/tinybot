@@ -997,13 +997,13 @@ function swarmCoworkCreateRoute(method: string, path: string, body: unknown): bo
   const payload = asRecord(body);
   const blueprint = asRecord(payload?.blueprint);
   const mode = blueprint
-    ? firstPythonTruthyJsonValue(
+    ? firstPythonTruthyTextValue(
       blueprint.architecture,
       blueprint.workflow_mode,
       blueprint.workflowMode,
       blueprint.mode,
     )
-    : firstPythonTruthyJsonValue(
+    : firstPythonTruthyTextValue(
       payload?.architecture,
       payload?.workflowMode,
       payload?.workflow_mode,
@@ -1029,7 +1029,7 @@ function swarmBranchDeriveRoute(method: string, path: string, body: unknown): bo
     return false;
   }
   const payload = asRecord(body);
-  const targetArchitecture = firstPythonTruthyJsonValue(
+  const targetArchitecture = firstPythonTruthyTextValue(
     payload?.targetArchitecture,
     payload?.target_architecture,
     payload?.architecture,
@@ -1063,8 +1063,27 @@ function pythonTruthyJsonValue(value: unknown): boolean {
   return true;
 }
 
-function firstPythonTruthyJsonValue(...values: unknown[]): unknown {
-  return values.find((value) => pythonTruthyJsonValue(value));
+function firstPythonTruthyTextValue(...values: unknown[]): string {
+  for (const value of values) {
+    const text = pythonTextValue(value);
+    if (text) {
+      return text;
+    }
+  }
+  return "";
+}
+
+function pythonTextValue(value: unknown): string {
+  if (!pythonTruthyJsonValue(value)) {
+    return "";
+  }
+  if (typeof value === "string") {
+    return value.trim();
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? String(value).trim() : "";
+  }
+  return String(value).trim();
 }
 
 function coworkRecipientList(value: unknown): string[] {
