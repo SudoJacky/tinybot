@@ -352,4 +352,66 @@ describe("cowork session snapshot", () => {
       },
     });
   });
+
+  test("projects Python-compatible swarm trace width and empty reducer coverage metrics", () => {
+    const snapshot = coworkSessionSnapshot(normalizeCoworkSession({
+      ...rawSession,
+      id: "cw-swarm-trace-width",
+      workflow_mode: "swarm",
+      tasks: {},
+      trace_spans: [
+        {
+          id: "span_wu_a",
+          name: "Work unit started",
+          kind: "swarm",
+          status: "completed",
+          data: { work_unit_id: "wu_a" },
+        },
+        {
+          id: "span_wu_b",
+          name: "Work unit started",
+          kind: "swarm",
+          status: "completed",
+          data: { work_unit_id: "wu_b" },
+        },
+        {
+          id: "span_wu_b_duplicate",
+          name: "Work unit started",
+          kind: "swarm",
+          status: "completed",
+          data: { work_unit_id: "wu_b" },
+        },
+      ],
+      swarm_plan: {
+        id: "swarm_trace_width",
+        status: "active",
+        work_units: [
+          {
+            id: "wu_a",
+            title: "A",
+            status: "pending",
+            kind: "fanout",
+            dependencies: ["missing_a"],
+          },
+          {
+            id: "wu_b",
+            title: "B",
+            status: "pending",
+            kind: "fanout",
+            dependencies: ["missing_b"],
+          },
+        ],
+      },
+    }));
+
+    expect(snapshot.swarm_metrics).toMatchObject({
+      schema_version: "cowork.swarm_metrics.v1",
+      plan_id: "swarm_trace_width",
+      fanout_width_observed: 2,
+      reducer_coverage: 0,
+      counts: {
+        completed: 0,
+      },
+    });
+  });
 });

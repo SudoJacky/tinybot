@@ -890,28 +890,18 @@ function criticalPathDepth(units: JsonObject[]): number {
 }
 
 function observedWidthFromTrace(traceSpans: JsonObject[]): number {
-  const starts = traceSpans
-    .filter((span) => stringValue(span.kind) === "swarm" && stringValue(span.status) === "in_progress")
-    .map((span) => stringValue(span.started_at))
-    .filter(Boolean);
-  if (starts.length === 0) {
-    return 0;
-  }
-  const counts = countStrings(starts);
-  return Math.max(0, ...Object.values(counts));
-}
-
-function countStrings(items: string[]): Record<string, number> {
-  const counts: Record<string, number> = {};
-  for (const item of items) {
-    counts[item] = (counts[item] ?? 0) + 1;
-  }
-  return counts;
+  return new Set(traceSpans
+    .filter((span) => stringValue(span.name) === "Work unit started")
+    .map((span) => {
+      const data = isJsonObject(span.data) ? jsonSafeObject(span.data) : {};
+      return stringValue(data.work_unit_id);
+    })
+    .filter(Boolean)).size;
 }
 
 function reducerCoverage(session: CoworkSession, completedUnits: JsonObject[]): number {
   if (completedUnits.length === 0) {
-    return 1;
+    return 0;
   }
   const reducerIds = new Set(Object.values(session.tasks)
     .filter((task) => task.status === "completed" && stringValue(task.source_event_id).startsWith("swarm_reducer:"))

@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued Cowork Phase 10 snapshot route parity: TS swarm parallel metrics now mirror Python's trace-derived observed fanout width and empty reducer-coverage baseline, counting unique `Work unit started` trace work-unit ids and reporting `reducer_coverage=0` until completed fanout units are cited.
+
 - Continued Cowork Phase 10 snapshot route parity: TS swarm session snapshots now project Python-compatible scheduler queue and parallel-metric payloads instead of empty `swarm_queues` / `swarm_metrics` objects, keeping desktop/default queues routes backed by the migrated TS snapshot contract.
 
 - Continued Cowork Phase 10 scheduler parity: TS swarm active-agent selection now mirrors Python's ready-before-failed-retry queue ordering, keeping fresh ready work ahead of retry candidates even when retry units have higher priority.
@@ -810,6 +812,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: align TS swarm active-agent selection with Python failed source-task retry eligibility.
 - [x] Continue Cowork Phase 10: align TS swarm active-agent selection with Python ready-before-failed-retry queue ordering.
 - [x] Continue Cowork Phase 10: project Python-compatible `swarm_queues` and `swarm_metrics` from TS swarm snapshots.
+- [x] Continue Cowork Phase 10: align TS swarm parallel metrics with Python trace-derived fanout width and empty reducer-coverage semantics.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.
