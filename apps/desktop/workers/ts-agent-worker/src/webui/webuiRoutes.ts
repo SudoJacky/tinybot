@@ -160,6 +160,8 @@ export type WebuiApprovalResolution = {
 export type WebuiProviderModelsRequest = {
   providerId: string;
   model?: string;
+  apiKey?: string;
+  apiBase?: string;
   manualModelIds: string[];
   refreshLive: boolean;
 };
@@ -835,6 +837,8 @@ async function webuiProviderModelsResponse(
       {
         providerId: providerId.trim().toLowerCase(),
         ...(stringValue(payload.model) ? { model: stringValue(payload.model) } : {}),
+        ...(stringValue(payload.apiKey ?? payload.api_key) ? { apiKey: stringValue(payload.apiKey ?? payload.api_key) } : {}),
+        ...(stringValue(payload.apiBase ?? payload.api_base) ? { apiBase: stringValue(payload.apiBase ?? payload.api_base) } : {}),
         manualModelIds: manualModelIdsFromPayload(payload),
         refreshLive: Boolean(payload.refresh ?? payload.refresh_live ?? payload.refreshLive),
       },

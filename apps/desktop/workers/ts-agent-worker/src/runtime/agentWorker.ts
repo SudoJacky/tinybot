@@ -122,6 +122,8 @@ export type ProviderReloadResult = {
 export type ProviderModelsListRequest = {
   providerId: string;
   model?: string;
+  apiKey?: string;
+  apiBase?: string;
   manualModelIds: string[];
   refreshLive: boolean;
 };
@@ -4417,6 +4419,8 @@ function parseProviderModelsListRequest(params: Record<string, unknown> | undefi
   return {
     providerId,
     model: stringParam(params, "model", "model"),
+    apiKey: stringParam(params, "apiKey", "api_key"),
+    apiBase: stringParam(params, "apiBase", "api_base"),
     manualModelIds: stringListParam(params, "manualModelIds", "manual_model_ids"),
     refreshLive: booleanParam(params, "refreshLive", "refresh_live") ?? false,
   };

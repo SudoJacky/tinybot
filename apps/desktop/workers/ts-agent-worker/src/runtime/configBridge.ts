@@ -110,6 +110,8 @@ export async function providerModelsFromNativeConfig(
   input: {
     providerId: string;
     model?: string;
+    apiKey?: string;
+    apiBase?: string;
     manualModelIds?: string[];
     refreshLive?: boolean;
   },
@@ -121,16 +123,18 @@ export async function providerModelsFromNativeConfig(
     env,
     provider: input.providerId,
     model: input.model,
-    secretResolver: (secretInput) => configBridge.resolveProviderSecret(secretInput),
+    secretResolver: input.apiKey ? undefined : (secretInput) => configBridge.resolveProviderSecret(secretInput),
   });
   const manualModelIds = [...resolved.manualModelIds, ...(input.manualModelIds ?? [])];
+  const apiKey = input.apiKey ?? resolved.apiKey;
+  const apiBase = input.apiBase ?? resolved.apiBase;
   const modelList = await listProviderModels({
     providerId: resolved.providerId ?? input.providerId,
     profileModels: resolved.models,
     manualModelIds,
     supportsModelDiscovery: resolved.supportsModelDiscovery,
-    apiKey: resolved.apiKey,
-    apiBase: resolved.apiBase,
+    apiKey,
+    apiBase,
     refreshLive: input.refreshLive,
     discoverer: (discoveryInput) => probeOpenAICompatibleModels({
       apiBase: discoveryInput.apiBase,
@@ -145,8 +149,8 @@ export async function providerModelsFromNativeConfig(
     model: resolved.model,
     profileName: resolved.profileName ?? null,
     source: resolved.source,
-    apiBase: resolved.apiBase ?? null,
-    apiKeySource: resolved.apiKeySource ?? null,
+    apiBase: apiBase ?? null,
+    apiKeySource: input.apiKey ? "request" : resolved.apiKeySource ?? null,
     supportsModelDiscovery: resolved.supportsModelDiscovery,
     models: modelList.models.map((model) => model.id),
     modelSources,

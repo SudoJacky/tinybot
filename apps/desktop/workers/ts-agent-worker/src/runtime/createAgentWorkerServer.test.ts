@@ -2276,6 +2276,73 @@ describe("createAgentWorkerServer", () => {
     });
   });
 
+  test("passes WebUI provider-models temporary key and base overrides to live discovery", async () => {
+    const lines: string[] = [];
+    const discoveryCalls: Array<{ url: string; authorization?: string }> = [];
+    const server = createAgentWorkerServer({
+      provider: new QueueProvider([{ content: "unused", toolCalls: [], stopReason: "stop" }]),
+      tools: new ToolRegistry(),
+      env: {},
+      fetchProviderModelsJson: async (url, headers) => {
+        discoveryCalls.push({ url, authorization: headers.Authorization });
+        return { data: [{ id: "qwen-preview" }] };
+      },
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const request = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "webui-provider-models",
+        trace_id: "trace-webui-provider-models",
+        method: "webui.handle_request",
+        params: {
+          method: "POST",
+          path: "/api/provider-models",
+          body: {
+            provider: "dashscope",
+            api_key: "preview-key",
+            api_base: "https://preview.test/compatible-mode/v1",
+            refresh: true,
+          },
+        },
+      }),
+    );
+
+    await respondToConfigSnapshot(server, lines, {
+      agents: { defaults: { provider: "dashscope", model: "qwen-max" } },
+      providers: {
+        dashscope: {
+          provider: "dashscope",
+          api_base: "https://config.test/compatible-mode/v1",
+          api_key: null,
+        },
+      },
+    });
+    await request;
+
+    expect(parsedLines(lines).some((line) => line.method === "provider.resolve_secret")).toBe(false);
+    expect(discoveryCalls).toEqual([
+      {
+        url: "https://preview.test/compatible-mode/v1/models",
+        authorization: "Bearer preview-key",
+      },
+    ]);
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      protocol_version: "1",
+      id: "webui-provider-models",
+      result: {
+        status: 200,
+        body: {
+          ok: true,
+          models: expect.arrayContaining(["qwen-preview"]),
+          url: "https://preview.test/compatible-mode/v1/models",
+        },
+      },
+    });
+  });
+
   test("lists provider catalog entries for settings surfaces", async () => {
     const lines: string[] = [];
     const server = createAgentWorkerServer({

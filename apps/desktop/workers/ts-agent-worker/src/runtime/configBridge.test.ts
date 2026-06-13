@@ -1,12 +1,16 @@
 import { describe, expect, test } from "vitest";
 
 import type { JsonObject } from "../protocol/messages";
-import { NativeConfigBridge, modelProviderConfigFromNativeConfig } from "./configBridge";
+import { NativeConfigBridge, modelProviderConfigFromNativeConfig, providerModelsFromNativeConfig } from "./configBridge";
 
 class FakeRpcClient {
   readonly requests: Array<{ traceId: string; method: string; params: JsonObject }> = [];
 
-  constructor(private readonly values: Record<string, unknown>, private readonly snapshot?: Record<string, unknown>) {}
+  constructor(
+    private readonly values: Record<string, unknown>,
+    private readonly snapshot?: Record<string, unknown>,
+    private readonly secretResponse: unknown = { apiKey: "native-secret", apiKeySource: "config" },
+  ) {}
 
   async request(traceId: string, method: string, params: JsonObject): Promise<unknown> {
     if (method === "config.snapshot_public") {
@@ -18,7 +22,10 @@ class FakeRpcClient {
     }
     this.requests.push({ traceId, method, params });
     if (method === "provider.resolve_secret") {
-      return { apiKey: "native-secret", apiKeySource: "config" };
+      if (this.secretResponse instanceof Error) {
+        throw this.secretResponse;
+      }
+      return this.secretResponse;
     }
     if (method === "config.apply_patch_result") {
       return params;
@@ -214,6 +221,53 @@ describe("NativeConfigBridge", () => {
         apiBase: "https://api.test/v1",
       },
     });
+  });
+
+  test("uses temporary provider-model key and base without requiring native secret resolution", async () => {
+    const discoveryCalls: Array<{ url: string; authorization?: string }> = [];
+    const rpcClient = new FakeRpcClient(
+      {},
+      {
+        agents: { defaults: { provider: "dashscope", model: "qwen-max" } },
+        providers: {
+          dashscope: {
+            provider: "dashscope",
+            api_base: "https://config.test/compatible-mode/v1",
+            api_key: null,
+          },
+        },
+      },
+      new Error("secret unavailable"),
+    );
+
+    const result = await providerModelsFromNativeConfig(
+      new NativeConfigBridge(rpcClient),
+      {},
+      {
+        providerId: "dashscope",
+        apiKey: "preview-key",
+        apiBase: "https://preview.test/compatible-mode/v1",
+        refreshLive: true,
+      },
+      async (url, headers) => {
+        discoveryCalls.push({ url, authorization: headers.Authorization });
+        return { data: [{ id: "qwen-preview" }] };
+      },
+    );
+
+    expect(discoveryCalls).toEqual([
+      {
+        url: "https://preview.test/compatible-mode/v1/models",
+        authorization: "Bearer preview-key",
+      },
+    ]);
+    expect(result).toMatchObject({
+      providerId: "dashscope",
+      apiBase: "https://preview.test/compatible-mode/v1",
+      apiKeySource: "request",
+      models: expect.arrayContaining(["qwen-preview"]),
+    });
+    expect(rpcClient.requests.map((request) => request.method)).toEqual(["config.snapshot_public"]);
   });
 
   test("uses native default model with env OpenAI key when provider is auto", async () => {
