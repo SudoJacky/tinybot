@@ -4513,7 +4513,18 @@ function parseNamedSkillMutation(
 
 function numberParam(params: Record<string, unknown>, camelKey: string, snakeKey: string): number | undefined {
   const value = params[camelKey] ?? params[snakeKey];
-  return typeof value === "number" ? value : undefined;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : undefined;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return undefined;
+    }
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
 }
 
 function booleanParam(params: Record<string, unknown>, camelKey: string, snakeKey: string): boolean | undefined {
