@@ -119,6 +119,7 @@ export type SendCoworkMessageRequest = {
   recipientIds: string[];
   content: string;
   threadId?: string;
+  topic?: string;
   wakeRecipients?: boolean;
 };
 
@@ -965,7 +966,7 @@ export class CoworkService {
     const validRecipients = unique(request.recipientIds.map((recipient) => slug(recipient, "agent")))
       .filter((recipient) => recipient === "user" || Boolean(session.agents[recipient]));
     const recipientIds = validRecipients.length > 0 ? validRecipients : Object.keys(session.agents);
-    const thread = this.ensureThread(session, request.threadId, "General discussion", [senderId, ...recipientIds]);
+    const thread = this.ensureThread(session, request.threadId, request.topic || "General discussion", [senderId, ...recipientIds]);
     for (const participant of [senderId, ...recipientIds]) {
       if ((participant === "user" || session.agents[participant]) && !stringList(thread.participant_ids).includes(participant)) {
         thread.participant_ids = [...stringList(thread.participant_ids), participant];
@@ -2075,7 +2076,7 @@ export class CoworkService {
     if (existingId && session.threads[existingId]) {
       return session.threads[existingId];
     }
-    const id = this.idGenerator("thread");
+    const id = existingId || this.idGenerator("thread");
     const thread = {
       id,
       topic: topic || "Discussion",

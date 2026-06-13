@@ -856,6 +856,7 @@ export class AgentWorker {
         recipientIds: params.recipientIds,
         content: params.content,
         threadId: params.threadId,
+        topic: params.topic,
         wakeRecipients: params.wakeRecipients,
       });
       const messageId = typeof result.message.id === "string" ? result.message.id : "";
@@ -1527,6 +1528,7 @@ export class AgentWorker {
         recipientIds: params.recipientIds,
         content: params.content,
         threadId: params.threadId,
+        topic: params.topic,
         wakeRecipients: params.wakeRecipients,
       });
       return {
@@ -3941,6 +3943,7 @@ function parseCoworkSendMessageParams(params: Record<string, unknown> | undefine
   recipientIds: string[];
   content: string;
   threadId?: string;
+  topic?: string;
   wakeRecipients?: boolean;
 } {
   if (!isJsonObject(params)) {
@@ -3957,6 +3960,7 @@ function parseCoworkSendMessageParams(params: Record<string, unknown> | undefine
     recipientIds: stringListParam(params, "recipientIds", "recipient_ids"),
     content,
     threadId: stringParam(params, "threadId", "thread_id"),
+    topic: stringParam(params, "topic", "topic"),
     wakeRecipients: booleanParam(params, "wakeRecipients", "wake_recipients"),
   };
 }

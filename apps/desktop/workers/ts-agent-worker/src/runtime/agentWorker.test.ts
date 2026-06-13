@@ -4395,6 +4395,36 @@ describe("AgentWorker", () => {
     await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
       method: "POST",
       path: `/api/cowork/sessions/${encodeURIComponent(String(sessionId))}/messages`,
+      body: {
+        content: "Route message",
+        recipient_ids: ["reviewer"],
+        thread_id: "route_topic_thread",
+        topic: "Route topic",
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          message: expect.objectContaining({
+            id: "msg_3",
+            content: "Route message",
+            thread_id: "route_topic_thread",
+          }),
+          session: expect.objectContaining({
+            threads: expect.arrayContaining([
+              expect.objectContaining({
+                id: "route_topic_thread",
+                topic: "Route topic",
+              }),
+            ]),
+          }),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(String(sessionId))}/messages`,
       body: { content: "   " },
     }))).resolves.toMatchObject({
       result: {

@@ -294,6 +294,7 @@ async function sendMessageResult(service: CoworkService, args: Record<string, un
     recipientIds: stringListArg(args, "recipient_ids"),
     content,
     threadId: stringArg(args, "thread_id"),
+    topic: stringArg(args, "topic"),
   });
   const messageId = typeof result.message.id === "string" ? result.message.id : "";
   return {
