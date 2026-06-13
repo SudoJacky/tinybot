@@ -742,7 +742,7 @@ function parseOpenAiChatRequest(
   if (!messages || messages.length !== 1 || !isJsonObject(messages[0]) || messages[0].role !== "user") {
     return { ok: false, message: "Only a single user message is supported" };
   }
-  if (body.stream === true) {
+  if (pythonTruthy(body.stream)) {
     return { ok: false, message: "stream=true is not supported yet. Set stream=false or omit it." };
   }
   const requestedModel = pythonTruthy(body.model) ? pythonString(body.model) : undefined;

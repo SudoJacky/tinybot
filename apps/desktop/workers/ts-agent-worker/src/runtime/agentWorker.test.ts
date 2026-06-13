@@ -1131,6 +1131,25 @@ describe("AgentWorker", () => {
       method: "POST",
       path: "/v1/chat/completions",
       body: {
+        stream: "true",
+        messages: [{ role: "user", content: "Hello" }],
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: {
+          error: {
+            message: "stream=true is not supported yet. Set stream=false or omit it.",
+            type: "invalid_request_error",
+            code: 400,
+          },
+        },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/v1/chat/completions",
+      body: {
         messages: [{ role: "system", content: "No" }, { role: "user", content: "Hello" }],
       },
     }))).resolves.toMatchObject({
