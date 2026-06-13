@@ -449,9 +449,11 @@ export class CoworkScheduler {
       ...jsonSafeObject(session.budget_usage),
       stop_reason: reason,
     };
+    const eventType = stopReasonEventType(reason);
+    const traceStatus = stopReasonTraceStatus(reason);
     session.events = [
       ...session.events,
-      this.event("scheduler.stop", message, {
+      this.event(eventType, message, {
         actorId: "scheduler",
         data: {
           stop_reason: reason,
@@ -466,7 +468,7 @@ export class CoworkScheduler {
       this.traceSpan("scheduler", "Stop reason", {
         sessionId: session.id,
         actorId: "scheduler",
-        status: "completed",
+        status: traceStatus,
         runId: options.runId,
         roundId: options.roundId,
         parentId: options.parentId,
@@ -934,6 +936,20 @@ function budgetExhaustionReason(
     }
   }
   return "";
+}
+
+function stopReasonEventType(reason: string): string {
+  if (reason === "agent_call_budget_exhausted") {
+    return "scheduler.agent_budget_exhausted";
+  }
+  if (reason.includes("budget_exhausted")) {
+    return "scheduler.budget_exhausted";
+  }
+  return "scheduler.stop";
+}
+
+function stopReasonTraceStatus(reason: string): string {
+  return reason.includes("budget_exhausted") || reason === "blocker" ? "blocked" : "completed";
 }
 
 function elapsedSeconds(startedAt: string, now: string): number {

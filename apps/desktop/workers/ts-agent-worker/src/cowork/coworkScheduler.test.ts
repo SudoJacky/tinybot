@@ -292,13 +292,102 @@ describe("CoworkScheduler", () => {
     expect(saved?.scheduler_decisions).toHaveLength(0);
     expect(saved?.events).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        type: "scheduler.stop",
+        type: "scheduler.agent_budget_exhausted",
         data: expect.objectContaining({
           stop_reason: "agent_call_budget_exhausted",
           round_id: "run_1:round:1",
           budget: expect.objectContaining({
             remaining: expect.objectContaining({ max_agent_calls_total: 0 }),
           }),
+        }),
+      }),
+    ]));
+    expect(saved?.trace_spans).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: "Stop reason",
+        status: "blocked",
+        data: expect.objectContaining({
+          stop_reason: "agent_call_budget_exhausted",
+        }),
+      }),
+    ]));
+  });
+
+  it("emits Python-compatible budget-exhausted events for non-agent budget stops", async () => {
+    const provider = new QueueProvider([{
+      content: JSON.stringify({
+        status: "done",
+        action: "complete",
+        completed_task_ids: ["draft"],
+      }),
+      toolCalls: [],
+      stopReason: "stop",
+    }]);
+    const store = createMemoryCoworkStore();
+    const idGenerator = deterministicIds();
+    const service = new CoworkService({
+      store,
+      now: () => fixedNow,
+      idGenerator,
+    });
+    const session = await service.createSession({
+      traceId: "seed",
+      goal: "Coordinate TS cowork scheduler migration",
+      title: "Scheduler session",
+      workflowMode: "team",
+      agents: [{ id: "lead", name: "Lead", role: "Coordinator" }],
+      tasks: [{ id: "draft", title: "Draft", description: "Draft scheduler slice", assigned_agent_id: "lead" }],
+      budgets: {
+        max_tokens: 100,
+      },
+    });
+    await store.writeSnapshot({
+      ...session,
+      budget_usage: {
+        ...session.budget_usage,
+        tokens_total: 100,
+      },
+    }, "setup");
+    const agentRuntime = new CoworkAgentRuntime({
+      store,
+      runner: new AgentRunner({ provider, tools: new ToolRegistry() }),
+      model: "test-model",
+      now: () => fixedNow,
+      idGenerator,
+    });
+    const scheduler = new CoworkScheduler({
+      store,
+      now: () => fixedNow,
+      idGenerator,
+      agentRuntime,
+    });
+
+    const result = await scheduler.runSession({
+      sessionId: session.id,
+      traceId: "trace-run",
+      maxRounds: 2,
+      maxAgents: 1,
+    });
+
+    expect(result.result).toContain("Round 1: token budget exhausted.");
+    expect(provider.messages).toHaveLength(0);
+    const saved = await store.readSnapshot(session.id, "assert");
+    expect(saved?.stop_reason).toBe("token_budget_exhausted");
+    expect(saved?.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "scheduler.budget_exhausted",
+        data: expect.objectContaining({
+          stop_reason: "token_budget_exhausted",
+          round_id: "run_1:round:1",
+        }),
+      }),
+    ]));
+    expect(saved?.trace_spans).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: "Stop reason",
+        status: "blocked",
+        data: expect.objectContaining({
+          stop_reason: "token_budget_exhausted",
         }),
       }),
     ]));
