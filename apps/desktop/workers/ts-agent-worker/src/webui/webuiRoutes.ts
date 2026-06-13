@@ -750,7 +750,9 @@ function parseOpenAiChatRequest(
     return { ok: false, message: `Only configured model '${configuredModel}' is available` };
   }
   const content = openAiMessageContent(messages[0].content);
-  const sessionId = stringParam(body.session_id) ?? stringParam(body.sessionId);
+  const sessionId = pythonTruthy(body.session_id)
+    ? pythonString(body.session_id)
+    : stringParam(body.sessionId);
   return {
     ok: true,
     content,

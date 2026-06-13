@@ -1221,6 +1221,60 @@ describe("AgentWorker", () => {
     expect(providerCalls).toBe(2);
   });
 
+  test("does not serialize distinct numeric OpenAI-compatible API sessions", async () => {
+    const firstCompletion = deferred<ModelResponse>();
+    let providerCalls = 0;
+    const provider: ModelProvider = {
+      complete: async () => {
+        providerCalls += 1;
+        if (providerCalls === 1) {
+          return firstCompletion.promise;
+        }
+        return { content: "second numeric answer", toolCalls: [], stopReason: "stop" };
+      },
+    };
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      webuiConfigProvider: {
+        getConfig: async () => ({
+          agents: { defaults: { provider: "openai", model: "openai/gpt-4o-mini" } },
+        }),
+        patchConfig: async () => ({ config: {}, updatedFields: [] }),
+      },
+    });
+    const chatRequest = (sessionId: number, content: string) => worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/v1/chat/completions",
+      body: {
+        model: "openai/gpt-4o-mini",
+        session_id: sessionId,
+        messages: [{ role: "user", content }],
+      },
+    }));
+
+    const firstResponsePromise = chatRequest(1, "first");
+    await Promise.resolve();
+    const secondResponsePromise = chatRequest(2, "second");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(providerCalls).toBe(2);
+    firstCompletion.resolve({ content: "first numeric answer", toolCalls: [], stopReason: "stop" });
+    await expect(firstResponsePromise).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: { choices: [{ message: { content: "first numeric answer" } }] },
+      },
+    });
+    await expect(secondResponsePromise).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: { choices: [{ message: { content: "second numeric answer" } }] },
+      },
+    });
+  });
+
   test("returns OpenAI-compatible timeout errors for slow chat completions", async () => {
     const provider: ModelProvider = {
       complete: async () =>

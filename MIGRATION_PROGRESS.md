@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued API Runtime OpenAI-compatible parity: TS-native `/v1/chat/completions` now mirrors Python truthiness for `session_id`, so truthy non-string API session ids map to distinct `api:<value>` locks instead of falling back to `api:default`.
+
 - Continued API Runtime OpenAI-compatible parity: TS-native `/v1/chat/completions` now mirrors Python `body.get("stream", False)` truthiness, rejecting truthy non-boolean stream requests with the same OpenAI-shaped 400 before agent execution.
 
 - Continued API Runtime OpenAI-compatible parity: TS-native `/v1/chat/completions` now treats truthy non-string `model` request values like Python's `body.get("model")` guard, returning the configured-model 400 instead of falling through to agent execution.
@@ -1074,6 +1076,7 @@ Heartbeat row 20 update: Phase 4 now runs scheduled notifications through the sh
 - [x] Continue API Runtime Phase 1: parameterize the desktop native-first Knowledge GraphRAG facade for Python-compatible query options.
 - [x] Continue API Runtime Phase 1: mirror Python truthiness for OpenAI-compatible chat completion `model` validation on TS-native routes.
 - [x] Continue API Runtime Phase 1: mirror Python truthiness for OpenAI-compatible chat completion `stream` rejection on TS-native routes.
+- [x] Continue API Runtime Phase 1: mirror Python truthiness for OpenAI-compatible chat completion `session_id` lock keys on TS-native routes.
 - [x] Continue Knowledge Phase 3: include session temporary uploads in native `knowledge.context` results and preserve temporary reference metadata through the TS context bridge.
 - [x] Continue Knowledge Phase 3: let attachment-style prompts request native `knowledge.context` with persistent retrieval disabled so session temporary uploads remain available without broad Knowledge auto-retrieval.
 - [x] Continue Knowledge Phase 3: expose native `knowledge.session_upload`, `knowledge.session_list`, and `knowledge.session_clear` RPC aliases over the session temporary upload store.
