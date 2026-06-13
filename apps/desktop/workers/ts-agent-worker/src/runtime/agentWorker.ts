@@ -314,6 +314,9 @@ export class AgentWorker {
       ...(options.sessionBridge?.clearSession
         ? { clearSession: (sessionId, traceId) => this.clearSessionForCommand(sessionId, traceId) }
         : {}),
+      ...(options.sessionBridge?.clearTemporaryFiles
+        ? { clearTemporaryFiles: (sessionId, traceId) => this.clearTemporaryFilesForCommand(sessionId, traceId) }
+        : {}),
       ...(options.approvalBridge?.listPendingApprovals
         ? { listPendingApprovals: (sessionId, traceId) => this.listPendingApprovalsForCommand(sessionId, traceId) }
         : {}),
@@ -2681,6 +2684,17 @@ export class AgentWorker {
       };
     }
     return this.sessionBridge.clearSession(sessionId, traceId);
+  }
+
+  private async clearTemporaryFilesForCommand(
+    sessionId: string | undefined,
+    traceId: string,
+  ): Promise<{ cleared?: number }> {
+    if (!sessionId || !this.sessionBridge?.clearTemporaryFiles) {
+      return {};
+    }
+    const result = await this.sessionBridge.clearTemporaryFiles(sessionId, traceId);
+    return typeof result.cleared === "number" ? { cleared: result.cleared } : {};
   }
 
   private async listPendingApprovalsForCommand(

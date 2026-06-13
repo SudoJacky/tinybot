@@ -127,6 +127,44 @@ describe("createDefaultCommandRouter", () => {
     });
   });
 
+  test("clears session temporary knowledge when starting a new session", async () => {
+    const calls: unknown[] = [];
+    const router = createDefaultCommandRouter({
+      clearSession: async (sessionId, traceId) => {
+        calls.push({ type: "session", sessionId, traceId });
+        return {
+          sessionId: sessionId ?? "",
+          messagesBefore: 4,
+          messagesAfter: 0,
+          checkpointCleared: true,
+        };
+      },
+      clearTemporaryFiles: async (sessionId, traceId) => {
+        calls.push({ type: "temporary-files", sessionId, traceId });
+        return { cleared: 2 };
+      },
+    });
+
+    await expect(router.dispatch("/new", { traceId: "trace-new", sessionId: "websocket:chat-1" })).resolves.toMatchObject({
+      handled: true,
+      output: "New session started.",
+      metadata: {
+        command: "/new",
+        render_as: "text",
+        cleared: true,
+        session_id: "websocket:chat-1",
+        messages_before: 4,
+        messages_after: 0,
+        checkpoint_cleared: true,
+        temporary_files_cleared: 2,
+      },
+    });
+    expect(calls).toEqual([
+      { type: "session", sessionId: "websocket:chat-1", traceId: "trace-new" },
+      { type: "temporary-files", sessionId: "websocket:chat-1", traceId: "trace-new" },
+    ]);
+  });
+
   test("returns Python-compatible usage for malformed approve commands", async () => {
     const router = createDefaultCommandRouter();
 

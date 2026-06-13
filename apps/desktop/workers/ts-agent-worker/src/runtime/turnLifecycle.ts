@@ -9,6 +9,7 @@ export type SessionBridge = {
   setCheckpoint(sessionId: string, checkpoint: Record<string, unknown>, traceId: string): Promise<void>;
   clearCheckpoint(sessionId: string, traceId: string): Promise<void>;
   clearSession?(sessionId: string, traceId: string): Promise<ClearSessionResult>;
+  clearTemporaryFiles?(sessionId: string, traceId: string): Promise<ClearTemporaryFilesResult>;
   appendMessages(sessionId: string, messages: AgentMessage[], traceId: string): Promise<AppendMessagesResult | void>;
   persistTurn?(sessionId: string, turn: PersistTurnRequest, traceId: string): Promise<PersistTurnResult>;
   getCheckpoint(sessionId: string, traceId: string): Promise<Record<string, unknown> | null>;
@@ -52,6 +53,10 @@ export type ClearSessionResult = {
   messagesBefore: number;
   messagesAfter: number;
   checkpointCleared: boolean;
+};
+
+export type ClearTemporaryFilesResult = {
+  cleared?: number;
 };
 
 export type AppendMessagesResult = {

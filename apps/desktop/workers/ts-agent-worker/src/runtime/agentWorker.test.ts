@@ -7229,6 +7229,7 @@ describe("AgentWorker", () => {
 
   test("handles backend slash new by clearing the current session", async () => {
     const clearCalls: Array<{ sessionId: string; traceId: string }> = [];
+    const temporaryFileClearCalls: Array<{ sessionId: string; traceId: string }> = [];
     let providerCalls = 0;
     const provider: ModelProvider = {
       complete: async () => {
@@ -7249,6 +7250,10 @@ describe("AgentWorker", () => {
           clearCalls.push({ sessionId, traceId });
           return { sessionId, messagesBefore: 3, messagesAfter: 0, checkpointCleared: true };
         },
+        clearTemporaryFiles: async (sessionId, traceId) => {
+          temporaryFileClearCalls.push({ sessionId, traceId });
+          return { cleared: 2 };
+        },
       },
     });
 
@@ -7267,6 +7272,7 @@ describe("AgentWorker", () => {
 
     expect(providerCalls).toBe(0);
     expect(clearCalls).toEqual([{ sessionId: "session-1", traceId: "trace-1" }]);
+    expect(temporaryFileClearCalls).toEqual([{ sessionId: "session-1", traceId: "trace-1" }]);
     expect(response).toMatchObject({
       result: {
         finalContent: "New session started.",
@@ -7278,6 +7284,7 @@ describe("AgentWorker", () => {
           messages_before: 3,
           messages_after: 0,
           checkpoint_cleared: true,
+          temporary_files_cleared: 2,
         },
       },
     });

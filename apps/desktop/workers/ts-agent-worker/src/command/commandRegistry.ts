@@ -157,6 +157,7 @@ async function newSessionResult(context: CommandContext, capabilities: CommandCa
     };
   }
   const result = await capabilities.clearSession(context.sessionId, context.traceId);
+  const temporaryFiles = await capabilities.clearTemporaryFiles?.(context.sessionId, context.traceId);
   return {
     handled: true,
     output: "New session started.",
@@ -168,6 +169,7 @@ async function newSessionResult(context: CommandContext, capabilities: CommandCa
       messages_before: result.messagesBefore,
       messages_after: result.messagesAfter,
       checkpoint_cleared: result.checkpointCleared,
+      ...(typeof temporaryFiles?.cleared === "number" ? { temporary_files_cleared: temporaryFiles.cleared } : {}),
     },
   };
 }

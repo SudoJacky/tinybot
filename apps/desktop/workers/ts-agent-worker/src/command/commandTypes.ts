@@ -44,6 +44,10 @@ export type ClearSessionCommandResult = {
   checkpointCleared: boolean;
 };
 
+export type ClearTemporaryFilesCommandResult = {
+  cleared?: number;
+};
+
 export type PendingApprovalSummary = {
   id: string;
   summary: string;
@@ -95,6 +99,10 @@ export type CommandCapabilities = {
   getStatusSnapshot?: (context: CommandContext) => Promise<CommandStatusSnapshot> | CommandStatusSnapshot;
   requestRestart?: (request: RestartCommandRequest) => Promise<void> | void;
   clearSession?: (sessionId: string | undefined, traceId: string) => Promise<ClearSessionCommandResult> | ClearSessionCommandResult;
+  clearTemporaryFiles?: (
+    sessionId: string | undefined,
+    traceId: string,
+  ) => Promise<ClearTemporaryFilesCommandResult> | ClearTemporaryFilesCommandResult;
   listPendingApprovals?: (sessionId: string | undefined, traceId: string) => Promise<PendingApprovalListResult> | PendingApprovalListResult;
   resolvePendingApproval?: (request: ResolvePendingApprovalRequest) => Promise<ResolvePendingApprovalResult> | ResolvePendingApprovalResult;
   runDream?: (request: DreamCommandRequest) => Promise<DreamCommandResult> | DreamCommandResult;

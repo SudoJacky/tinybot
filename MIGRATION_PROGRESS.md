@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Command Runtime `/new` cleanup parity: TS backend `/new` now clears native session temporary knowledge through the existing `knowledge.session_clear` bridge after clearing the session, and returns `temporary_files_cleared` command metadata when cleanup runs.
+
 - Continued Command Runtime status parity: TS backend `/status` now reuses the Python-compatible status formatter when recent run usage/context data is available, so native slash status reports model, token usage, context window, session message count, and uptime instead of only active-run counts.
 
 - Continued Channel Bus Phase 5 foundation: `AgentWorker` and the stdio worker server now accept an injected native `ChannelManager` and expose `channel.start`, `channel.status`, and `channel.stop` RPCs for TS-managed channel lifecycle control.
@@ -508,6 +510,7 @@ Heartbeat row 20 update: Phase 4 now runs scheduled notifications through the sh
 | Date | Update |
 | --- | --- |
 | 2026-06-14 | Continued Command Runtime status parity: backend slash `/status` now reports Python-compatible runtime status content from recent native worker usage/context snapshots. |
+| 2026-06-14 | Continued Command Runtime `/new` cleanup parity: backend slash `/new` now clears native session temporary knowledge through `knowledge.session_clear` after session reset and reports `temporary_files_cleared` metadata. |
 | 2026-06-14 | Continued Channel Bus Phase 5 foundation: wired injected native `ChannelManager` lifecycle through `AgentWorker` and the stdio server via `channel.start/status/stop` RPCs. |
 | 2026-06-14 | Continued Channel Bus Phase 5 foundation: TS host-RPC channel connectors now convert `handled: false` host responses into channel lifecycle/delivery failures. |
 | 2026-06-14 | Continued Channel Bus Phase 5 foundation: Rust worker-host RPC now recognizes `channel.connector.*` behind a dedicated capability and returns explicit unavailable connector results. |
@@ -1224,6 +1227,7 @@ Heartbeat row 20 update: Phase 4 now runs scheduled notifications through the sh
 - [x] Continue Command Runtime Phase 3: route deferred `/dream` batches through the TS provider, parse JSON Memory Operations, and apply save/reject/supersede operations without advancing cursors on invalid provider JSON.
 - [x] Continue Command Runtime Phase 3: include current Memory Notes and rendered memory views in provider-backed Dream extraction prompts.
 - [x] Continue Command Runtime status parity: report Python-compatible `/status` model, token, context, session, and uptime fields from native worker snapshots.
+- [x] Continue Command Runtime `/new` parity: clear native session temporary knowledge through `knowledge.session_clear` after clearing the session.
 
 - [x] 复核 `ts_native_core.md` 对应实现和 `rust-native-core-worker-migration` 完成状态。
 - [x] 为 Batch 1 拆出第一个可实现任务：shared support runtime 的最小公共 helper/API。
