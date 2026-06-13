@@ -1043,7 +1043,7 @@ export class AgentWorker {
         traceId,
         sessionId,
         agentId: segments[3],
-        limit: route.query.has("limit") ? Number.parseInt(route.query.get("limit") ?? "", 10) : undefined,
+        limit: queryIntegerParam(route.query, "limit", "limit"),
       });
       return { status: activity.available === false ? 404 : 200, body: { activity } };
     }
@@ -3639,6 +3639,15 @@ function queryStringParam(query: URLSearchParams, snakeKey: string, camelKey: st
 function queryBoolParam(query: URLSearchParams, snakeKey: string, camelKey: string): boolean {
   const value = queryStringParam(query, snakeKey, camelKey).toLowerCase();
   return value === "1" || value === "true" || value === "yes";
+}
+
+function queryIntegerParam(query: URLSearchParams, snakeKey: string, camelKey: string): number | undefined {
+  const value = queryStringParam(query, snakeKey, camelKey);
+  if (!/^[+-]?\d+$/.test(value)) {
+    return undefined;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function protocolEventName(event: AgentRunnerEvent): string {

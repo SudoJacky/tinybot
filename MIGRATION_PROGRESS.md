@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued Cowork Phase 10 route parity: TS-native agent activity routes now parse `limit` query values with Python `int(...)` semantics, defaulting malformed values such as `2.5` before the shared 1..80 clamp instead of truncating them through JavaScript `parseInt`.
+
 - Continued Cowork Phase 10 route parity: TS-native blueprint create auto-run now mirrors Python's `rounds` alias for `max_rounds`, keeping blueprint launch scheduling limits aligned with the fallback route.
 
 - Continued Cowork Phase 10 route parity: TS-native Cowork create-session routes now mirror Python truthiness for string-form `auto_run` flags before dispatching auto-run sessions through the migrated scheduler.

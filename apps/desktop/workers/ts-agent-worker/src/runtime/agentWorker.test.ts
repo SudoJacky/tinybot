@@ -4290,6 +4290,62 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("defaults malformed Python agent-activity route limits before clamping", async () => {
+    const store = createMemoryCoworkStore();
+    const coworkService = new CoworkService({
+      store,
+      now: () => "2026-06-12T08:00:00.000Z",
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      coworkService,
+    });
+    const session = await coworkService.createSession({
+      traceId: "seed-agent-activity-limit",
+      goal: "Read activity",
+      title: "Read Activity",
+      agents: [{ id: "lead", name: "Lead" }],
+      tasks: [],
+    });
+    session.agent_steps = Array.from({ length: 3 }, (_, index) => ({
+      id: `step_${index + 1}`,
+      session_id: session.id,
+      agent_id: "lead",
+      action_kind: "tool_call",
+      status: "completed",
+      started_at: `2026-06-12T08:00:0${index}.000Z`,
+      ended_at: `2026-06-12T08:00:0${index + 1}.000Z`,
+      linked_message_ids: [],
+      linked_artifact_refs: [],
+      linked_task_ids: [],
+      tool_observations: [],
+      browser_observations: [],
+    }));
+    await store.writeSnapshot(session, "seed-agent-activity-limit");
+
+    const response = await worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "GET",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/agents/lead/activity?limit=2.5`,
+    }));
+
+    expect(response).toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          activity: expect.objectContaining({
+            recent_steps: [
+              expect.objectContaining({ id: "step_1" }),
+              expect.objectContaining({ id: "step_2" }),
+              expect.objectContaining({ id: "step_3" }),
+            ],
+          }),
+        },
+      },
+    });
+  });
+
   test("returns Python-compatible status codes for cowork route errors", async () => {
     const store = createMemoryCoworkStore();
     const coworkService = new CoworkService({
