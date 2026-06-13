@@ -5037,7 +5037,7 @@ describe("AgentWorker", () => {
 
     const messageResponse = await worker.handleRequest(coworkRequest("cowork.send_message", {
       session_id: sessionId,
-      sender_id: "lead",
+      sender_id: 404,
       recipient_ids: ["reviewer"],
       content: 12345,
       thread_id: 101.5,
@@ -5047,6 +5047,7 @@ describe("AgentWorker", () => {
     const messageResult = messageResponse.result as { message: Record<string, unknown>; session: { agents: Record<string, { inbox: string[] }> } };
     expect(messageResult.message).toMatchObject({
       id: "msg_2",
+      sender_id: "404",
       content: "12345",
       thread_id: "101.5",
       topic: "202",

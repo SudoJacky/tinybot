@@ -4123,7 +4123,7 @@ function parseCoworkSendMessageParams(params: Record<string, unknown> | undefine
   }
   return {
     sessionId,
-    senderId: stringParam(params, "senderId", "sender_id") ?? "user",
+    senderId: pythonRouteTextParam(params, "senderId", "sender_id") || "user",
     recipientIds: stringListParam(params, "recipientIds", "recipient_ids"),
     content,
     threadId: pythonRouteTextParam(params, "threadId", "thread_id"),

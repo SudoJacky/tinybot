@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Cowork Phase 10 direct RPC parity: direct TS `cowork.send_message` RPCs now mirror Python route text coercion for `sender_id`, preserving truthy numeric sender ids in message records instead of silently falling back to `user`.
+
 - Continued Cowork Phase 10 direct RPC parity: direct TS task mutation RPCs now mirror Python route text coercion for target `task_id`, letting truthy numeric task ids reach service-level validation for assign/retry/review instead of failing at the worker protocol boundary.
 
 - Continued Cowork Phase 10 direct RPC parity: direct TS `cowork.add_task` RPCs now mirror Python route text coercion for direct-only `expected_output`, `fanout_group_id`, and `merge_task_id` metadata, preserving truthy numeric values through task state and swarm projections.
@@ -1019,6 +1021,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: auto-run direct TS `cowork.create_session` RPCs with Python-compatible scheduler limits.
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS `cowork.send_message` metadata fields.
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS `cowork.send_message` content.
+- [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS `cowork.send_message` sender ids.
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS `cowork.add_task` titles.
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS `cowork.add_task` descriptions.
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS `cowork.add_task` assignee ids.
