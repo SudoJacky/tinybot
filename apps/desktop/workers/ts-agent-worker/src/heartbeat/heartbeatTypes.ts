@@ -12,7 +12,10 @@ export type HeartbeatTickResult =
   | { status: "failed"; error: string };
 
 export type HeartbeatStatus = {
+  enabled: boolean;
   running: boolean;
+  executing: boolean;
+  intervalMs: number;
   lastResult: HeartbeatTickResult | null;
   lastError: string | null;
 };

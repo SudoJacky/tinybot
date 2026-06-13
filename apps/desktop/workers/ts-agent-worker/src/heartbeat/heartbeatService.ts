@@ -24,7 +24,11 @@ export type HeartbeatServiceOptions = {
   executeTasks?: (input: HeartbeatExecuteInput) => Promise<string> | string;
   evaluateResponse?: (input: HeartbeatEvaluationInput) => Promise<boolean> | boolean;
   notify?: (input: HeartbeatNotifyInput) => Promise<void> | void;
+  enabled?: boolean;
+  intervalMs?: number;
 };
+
+const DEFAULT_INTERVAL_MS = 30 * 60 * 1000;
 
 export class HeartbeatService {
   private readonly readHeartbeatFile: HeartbeatServiceOptions["readHeartbeatFile"];
@@ -32,7 +36,10 @@ export class HeartbeatService {
   private readonly executeTasks?: HeartbeatServiceOptions["executeTasks"];
   private readonly evaluateResponse?: HeartbeatServiceOptions["evaluateResponse"];
   private readonly notify?: HeartbeatServiceOptions["notify"];
-  private running = false;
+  private readonly enabled: boolean;
+  private readonly intervalMs: number;
+  private timer: ReturnType<typeof setInterval> | null = null;
+  private executing = false;
   private lastResult: HeartbeatTickResult | null = null;
 
   constructor(options: HeartbeatServiceOptions) {
@@ -41,6 +48,26 @@ export class HeartbeatService {
     this.executeTasks = options.executeTasks;
     this.evaluateResponse = options.evaluateResponse;
     this.notify = options.notify;
+    this.enabled = options.enabled ?? true;
+    this.intervalMs = Math.max(1, options.intervalMs ?? DEFAULT_INTERVAL_MS);
+  }
+
+  start(): boolean {
+    if (!this.enabled || this.timer) {
+      return false;
+    }
+    this.timer = setInterval(() => {
+      void this.runScheduledTick();
+    }, this.intervalMs);
+    return true;
+  }
+
+  stop(): void {
+    if (!this.timer) {
+      return;
+    }
+    clearInterval(this.timer);
+    this.timer = null;
   }
 
   async tick(): Promise<HeartbeatTickResult> {
@@ -53,14 +80,24 @@ export class HeartbeatService {
 
   getStatus(): HeartbeatStatus {
     return {
-      running: this.running,
+      enabled: this.enabled,
+      running: this.timer !== null,
+      executing: this.executing,
+      intervalMs: this.intervalMs,
       lastResult: this.lastResult,
       lastError: this.lastResult?.status === "failed" ? this.lastResult.error : null,
     };
   }
 
+  private async runScheduledTick(): Promise<void> {
+    if (this.executing) {
+      return;
+    }
+    await this.tick();
+  }
+
   private async runHeartbeat(options: { notify: boolean }): Promise<HeartbeatTickResult> {
-    this.running = true;
+    this.executing = true;
     try {
       const content = (await this.readHeartbeatFile())?.trim() ?? "";
       if (!content) {
@@ -93,7 +130,7 @@ export class HeartbeatService {
     } catch (error) {
       return this.recordResult({ status: "failed", error: errorMessage(error) });
     } finally {
-      this.running = false;
+      this.executing = false;
     }
   }
 

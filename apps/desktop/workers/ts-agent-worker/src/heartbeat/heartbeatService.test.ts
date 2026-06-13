@@ -1,8 +1,12 @@
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { HeartbeatService } from "./heartbeatService";
 
 describe("HeartbeatService", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   test("skips missing or empty HEARTBEAT.md content without calling the provider path", async () => {
     const decide = vi.fn();
     const executeTasks = vi.fn();
@@ -117,7 +121,10 @@ describe("HeartbeatService", () => {
     });
 
     expect(service.getStatus()).toEqual({
+      enabled: true,
       running: false,
+      executing: false,
+      intervalMs: 1_800_000,
       lastResult: null,
       lastError: null,
     });
@@ -125,7 +132,10 @@ describe("HeartbeatService", () => {
     await service.tick();
 
     expect(service.getStatus()).toEqual({
+      enabled: true,
       running: false,
+      executing: false,
+      intervalMs: 1_800_000,
       lastResult: {
         status: "executed",
         tasks: "Inspect heartbeat diagnostics.",
@@ -133,5 +143,88 @@ describe("HeartbeatService", () => {
       },
       lastError: null,
     });
+  });
+
+  test("starts an enabled interval after the first delay and stops future ticks", async () => {
+    vi.useFakeTimers();
+    const executeTasks = vi.fn(async ({ tasks }: { tasks: string }) => `Completed ${tasks}`);
+    const service = new HeartbeatService({
+      intervalMs: 1_000,
+      readHeartbeatFile: async () => "- [ ] Scheduled heartbeat task.",
+      decide: async () => ({ action: "run", tasks: "Scheduled heartbeat task." }),
+      executeTasks,
+    });
+
+    expect(service.start()).toBe(true);
+    expect(service.getStatus()).toMatchObject({
+      enabled: true,
+      running: true,
+      executing: false,
+      intervalMs: 1_000,
+    });
+
+    await vi.advanceTimersByTimeAsync(999);
+    expect(executeTasks).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(executeTasks).toHaveBeenCalledTimes(1);
+
+    service.stop();
+    expect(service.getStatus()).toMatchObject({ running: false });
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(executeTasks).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not start disabled heartbeat scheduling", async () => {
+    vi.useFakeTimers();
+    const executeTasks = vi.fn();
+    const service = new HeartbeatService({
+      enabled: false,
+      intervalMs: 10,
+      readHeartbeatFile: async () => "- [ ] Disabled task.",
+      decide: async () => ({ action: "run", tasks: "Disabled task." }),
+      executeTasks,
+    });
+
+    expect(service.start()).toBe(false);
+    expect(service.getStatus()).toMatchObject({
+      enabled: false,
+      running: false,
+      executing: false,
+      intervalMs: 10,
+    });
+
+    await vi.advanceTimersByTimeAsync(20);
+    expect(executeTasks).not.toHaveBeenCalled();
+  });
+
+  test("skips overlapping scheduled ticks while one heartbeat is executing", async () => {
+    vi.useFakeTimers();
+    let resolveExecute: ((value: string) => void) | undefined;
+    const executeTasks = vi.fn(() => new Promise<string>((resolve) => {
+      resolveExecute = resolve;
+    }));
+    const service = new HeartbeatService({
+      intervalMs: 10,
+      readHeartbeatFile: async () => "- [ ] Slow heartbeat task.",
+      decide: async () => ({ action: "run", tasks: "Slow heartbeat task." }),
+      executeTasks,
+    });
+
+    service.start();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(executeTasks).toHaveBeenCalledTimes(1);
+    expect(service.getStatus()).toMatchObject({
+      running: true,
+      executing: true,
+    });
+
+    await vi.advanceTimersByTimeAsync(30);
+    expect(executeTasks).toHaveBeenCalledTimes(1);
+
+    resolveExecute?.("Completed slow heartbeat task.");
+    await vi.runOnlyPendingTimersAsync();
+    service.stop();
   });
 });
