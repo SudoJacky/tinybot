@@ -2773,23 +2773,6 @@ describe("createAgentWorkerServer", () => {
       }),
     );
 
-    await waitFor(() => lines.some((line) => JSON.parse(line).method === "session.clear_checkpoint"));
-    const clearRequest = lines.map((line) => JSON.parse(line)).find((message) => message.method === "session.clear_checkpoint");
-    expect(clearRequest).toMatchObject({
-      protocol_version: "1",
-      trace_id: "trace-1",
-      method: "session.clear_checkpoint",
-      params: { session_id: "session-1" },
-    });
-    await server.handleLine(
-      JSON.stringify({
-        protocol_version: "1",
-        id: clearRequest.id,
-        trace_id: "trace-1",
-        result: { ok: true },
-      }),
-    );
-
     await waitFor(() => lines.some((line) => JSON.parse(line).method === "session.persist_turn"));
     const persistRequest = lines.map((line) => JSON.parse(line)).find((message) => message.method === "session.persist_turn");
     expect(persistRequest).toMatchObject({
@@ -3137,17 +3120,6 @@ describe("createAgentWorkerServer", () => {
       }),
     );
 
-    await waitFor(() => parsedLines(lines).some((line) => line.method === "session.clear_checkpoint"));
-    const clearRequest = parsedLines(lines).find((message) => message.method === "session.clear_checkpoint");
-    await server.handleLine(
-      JSON.stringify({
-        protocol_version: "1",
-        id: clearRequest?.id,
-        trace_id: "trace-resume-denied",
-        result: { session_id: "session-1" },
-      }),
-    );
-
     await waitFor(() => parsedLines(lines).some((line) => line.method === "session.persist_turn"));
     const persistRequest = parsedLines(lines).find((message) => message.method === "session.persist_turn");
     expect(persistRequest).toMatchObject({
@@ -3288,23 +3260,6 @@ describe("createAgentWorkerServer", () => {
       JSON.stringify({
         protocol_version: "1",
         id: setRequest?.id,
-        trace_id: "trace-submit-form",
-        result: { ok: true },
-      }),
-    );
-
-    await waitFor(() => parsedLines(lines).some((line) => line.method === "session.clear_checkpoint"));
-    const clearRequest = parsedLines(lines).find((message) => message.method === "session.clear_checkpoint");
-    expect(clearRequest).toMatchObject({
-      protocol_version: "1",
-      trace_id: "trace-submit-form",
-      method: "session.clear_checkpoint",
-      params: { session_id: "session-1" },
-    });
-    await server.handleLine(
-      JSON.stringify({
-        protocol_version: "1",
-        id: clearRequest?.id,
         trace_id: "trace-submit-form",
         result: { ok: true },
       }),
