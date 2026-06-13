@@ -50,6 +50,13 @@ export {
   type ChannelDescriptor,
 } from "./channelRegistry.ts";
 export {
+  createNativeTextChannelAdapters,
+  type CreateNativeTextChannelAdaptersOptions,
+  type CreateNativeTextChannelAdaptersResult,
+  type NativeTextChannelConnectorRegistry,
+  type NativeTextChannelFactorySkip,
+} from "./nativeChannelFactory.ts";
+export {
   NativeTextChannel,
   type NativeTextChannelConnector,
   type NativeTextChannelOptions,
