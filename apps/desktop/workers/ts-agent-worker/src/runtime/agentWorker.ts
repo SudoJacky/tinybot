@@ -774,7 +774,7 @@ export class AgentWorker {
     traceId: string,
     options: { allowRoundsAlias?: boolean } = {},
   ): Promise<CoworkSession> {
-    const autoRun = pythonRouteBoolParam(body, "autoRun", "auto_run") === true;
+    const autoRun = pythonRouteAnyBoolParam(body, "autoRun", "auto_run");
     if (!autoRun || !this.coworkScheduler) {
       return session;
     }
@@ -4742,6 +4742,10 @@ function pythonRouteBoolParam(params: Record<string, unknown>, camelKey: string,
     return Object.keys(value).length > 0;
   }
   return true;
+}
+
+function pythonRouteAnyBoolParam(params: Record<string, unknown>, ...keys: string[]): boolean {
+  return keys.some((key) => pythonRouteBoolParam(params, key, key) === true);
 }
 
 function pythonRouteTextParam(params: Record<string, unknown>, camelKey: string, snakeKey: string): string {

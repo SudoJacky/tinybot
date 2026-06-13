@@ -3344,6 +3344,22 @@ describe("AgentWorker", () => {
       run_until_idle: true,
       stop_on_blocker: true,
     });
+
+    await worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: "/api/cowork/sessions",
+      body: {
+        goal: "Snake auto-run route",
+        workflow_mode: "team",
+        autoRun: "",
+        auto_run: true,
+        max_rounds: 1,
+      },
+    }));
+    const savedSnake = await store.readSnapshot("cw_2", "trace-1");
+    const snakeRunSpan = savedSnake?.trace_spans.find((span) => span.name === "Cowork run");
+
+    expect(snakeRunSpan?.input_ref).toBe("max_rounds=1, max_agents=3, max_agent_calls=30");
   });
 
   test("routes Python-compatible cowork run requests through the injected CoworkScheduler", async () => {
