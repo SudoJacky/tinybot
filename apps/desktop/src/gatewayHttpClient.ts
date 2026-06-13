@@ -997,14 +997,18 @@ function swarmCoworkCreateRoute(method: string, path: string, body: unknown): bo
   const payload = asRecord(body);
   const blueprint = asRecord(payload?.blueprint);
   const mode = blueprint
-    ? blueprint.workflow_mode
-      ?? blueprint.workflowMode
-      ?? blueprint.architecture
-      ?? blueprint.mode
-    : payload?.architecture
-    ?? payload?.workflow_mode
-    ?? payload?.workflowMode
-    ?? payload?.mode;
+    ? firstPythonTruthyJsonValue(
+      blueprint.workflow_mode,
+      blueprint.workflowMode,
+      blueprint.architecture,
+      blueprint.mode,
+    )
+    : firstPythonTruthyJsonValue(
+      payload?.architecture,
+      payload?.workflow_mode,
+      payload?.workflowMode,
+      payload?.mode,
+    );
   return isSwarmMode(mode);
 }
 
@@ -1025,9 +1029,11 @@ function swarmBranchDeriveRoute(method: string, path: string, body: unknown): bo
     return false;
   }
   const payload = asRecord(body);
-  const targetArchitecture = payload?.target_architecture
-    ?? payload?.targetArchitecture
-    ?? payload?.architecture;
+  const targetArchitecture = firstPythonTruthyJsonValue(
+    payload?.target_architecture,
+    payload?.targetArchitecture,
+    payload?.architecture,
+  );
   return isSwarmMode(targetArchitecture);
 }
 
@@ -1055,6 +1061,10 @@ function pythonTruthyJsonValue(value: unknown): boolean {
     return Object.keys(value).length > 0;
   }
   return true;
+}
+
+function firstPythonTruthyJsonValue(...values: unknown[]): unknown {
+  return values.find((value) => pythonTruthyJsonValue(value));
 }
 
 async function bootstrapGateway(
