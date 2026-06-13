@@ -60,4 +60,50 @@ describe("NativeCronBridge", () => {
       { traceId: "trace-remove", method: "cron.job.remove", params: { job_id: "job-1" } },
     ]);
   });
+
+  test("preserves Python-shaped run history when normalizing listed jobs", async () => {
+    const rpc = new FakeRpc([
+      {
+        jobs: [
+          {
+            id: "job-1",
+            name: "Check status",
+            enabled: true,
+            schedule: { kind: "every", every_ms: 60000 },
+            payload: { kind: "agent_turn", message: "Check status", deliver: true, channel: "native", to: "chat-1" },
+            state: {
+              next_run_at_ms: 1775000060000,
+              last_run_at_ms: 1775000000000,
+              last_status: "error",
+              last_error: "network unavailable",
+              run_history: [
+                { run_at_ms: 1774999940000, status: "ok", duration_ms: 1234 },
+                { run_at_ms: 1775000000000, status: "error", duration_ms: 2500, error: "network unavailable" },
+              ],
+            },
+            created_at_ms: 1774999900000,
+            updated_at_ms: 1775000000000,
+            delete_after_run: false,
+          },
+        ],
+      },
+    ]);
+    const bridge = new NativeCronBridge(rpc);
+
+    await expect(bridge.listJobs("trace-list")).resolves.toEqual([
+      expect.objectContaining({
+        id: "job-1",
+        state: expect.objectContaining({
+          nextRunAtMs: 1775000060000,
+          lastRunAtMs: 1775000000000,
+          lastStatus: "error",
+          lastError: "network unavailable",
+          runHistory: [
+            { runAtMs: 1774999940000, status: "ok", durationMs: 1234, error: null },
+            { runAtMs: 1775000000000, status: "error", durationMs: 2500, error: "network unavailable" },
+          ],
+        }),
+      }),
+    ]);
+  });
 });

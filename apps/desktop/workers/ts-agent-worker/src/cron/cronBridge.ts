@@ -82,7 +82,7 @@ export function normalizeCronJob(value: unknown): CronJob | null {
           ? state.last_status
           : null,
       lastError: stringValue(state?.lastError ?? state?.last_error),
-      runHistory: [],
+      runHistory: normalizeRunHistory(state?.runHistory ?? state?.run_history),
     },
     createdAtMs: numberValue(input.createdAtMs ?? input.created_at_ms) ?? 0,
     updatedAtMs: numberValue(input.updatedAtMs ?? input.updated_at_ms) ?? 0,
@@ -109,4 +109,32 @@ function numberValue(value: unknown): number | null {
 
 function stringValue(value: unknown): string | null {
   return typeof value === "string" ? value : null;
+}
+
+function normalizeRunHistory(value: unknown): CronJob["state"]["runHistory"] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map(normalizeRunRecord).filter((record): record is NonNullable<CronJob["state"]["runHistory"]>[number] => record !== null);
+}
+
+function normalizeRunRecord(value: unknown): NonNullable<CronJob["state"]["runHistory"]>[number] | null {
+  const input = asObject(value);
+  if (!input) {
+    return null;
+  }
+  const status = input.status;
+  if (status !== "ok" && status !== "error" && status !== "skipped") {
+    return null;
+  }
+  const runAtMs = numberValue(input.runAtMs ?? input.run_at_ms);
+  if (runAtMs === null) {
+    return null;
+  }
+  return {
+    runAtMs,
+    status,
+    durationMs: numberValue(input.durationMs ?? input.duration_ms) ?? 0,
+    error: stringValue(input.error),
+  };
 }

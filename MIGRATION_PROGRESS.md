@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Task/Cron background runtime parity: native Cron bridge normalization now preserves Python-compatible `run_history` / `runHistory` records instead of dropping job execution history from listed jobs.
+
 - Continued Task/Cron background runtime parity: TS-native `cron` one-shot `at` schedules now interpret naive ISO datetimes in the configured default timezone instead of the worker process timezone, matching Python CronTool behavior.
 
 - Continued Task/Cron background runtime parity: TS-native `cron` add now mirrors Python's session-context guard, rejecting schedule creation when no delivery session context is available instead of silently targeting the worker run id.
