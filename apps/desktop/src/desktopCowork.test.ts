@@ -531,7 +531,7 @@ describe("desktop Cowork helpers", () => {
       body: { reason: "retry from desktop" },
     });
     expect(buildDesktopCoworkActionRequest({ action: "updateBudget", sessionId: "cowork/1", body: { max_rounds: 4 } })).toEqual({
-      method: "POST",
+      method: "PATCH",
       path: "/api/cowork/sessions/cowork%2F1/budget",
       body: { max_rounds: 4 },
     });

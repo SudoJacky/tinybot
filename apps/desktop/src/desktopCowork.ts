@@ -243,7 +243,7 @@ export type DesktopCoworkActionRequest =
       path: string;
     }
   | {
-      method: "POST";
+      method: "POST" | "PATCH";
       path: string;
       body?: UnknownRecord;
     };
@@ -586,7 +586,7 @@ export function buildDesktopCoworkActionRequest(input: DesktopCoworkActionInput)
       };
     case "updateBudget":
       return {
-        method: "POST",
+        method: "PATCH",
         path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/budget`,
         body: input.body,
       };

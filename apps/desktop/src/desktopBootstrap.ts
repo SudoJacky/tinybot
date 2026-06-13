@@ -1098,7 +1098,8 @@ async function handleNativeCoworkAction(event: DesktopCoworkActionEvent): Promis
         sessionId,
         body: { max_rounds: event.maxRounds },
       });
-      await gatewayApi.cowork.updateBudget(sessionId, requestBody(request));
+      const method = request.method === "PATCH" ? "PATCH" : "POST";
+      await gatewayApi.cowork.updateBudget(sessionId, requestBody(request), { method });
       setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork budget updated." }));
       return;
     }

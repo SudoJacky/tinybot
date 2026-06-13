@@ -22,7 +22,7 @@
 
 - Cowork Phase 10 desktop action parity continues: `buildDesktopCoworkActionRequest()` and the desktop Cowork action UI now expose native route shapes for blueprint export, trace, DAG, artifacts, organization, queues, and branch listing; `handleNativeCoworkAction()` dispatches those read-only actions through the native-first `gatewayApi.cowork` facade so root/native desktop actions can target the migrated TS `cowork.route_request` observability endpoints without Python-only request construction.
 
-- Cowork Phase 10 desktop route parity continues: `buildDesktopCoworkActionRequest()` now also covers the migrated TS-native budget update, source-branch derive, final-result select, and final-result merge route shapes, matching the native-first `gatewayHttpClient` Cowork facade paths.
+- Cowork Phase 10 desktop route parity continues: `buildDesktopCoworkActionRequest()` now also covers the migrated TS-native budget update, source-branch derive, final-result select, and final-result merge route shapes, matching the native-first `gatewayHttpClient` Cowork facade paths; desktop budget update actions now default to the documented `PATCH /budget` route while the gateway facade preserves POST compatibility for older Python-shaped callers.
 
 - Cowork Phase 10 desktop default-route coverage continues: desktop Cowork action controls now emit budget update plus source-branch derive/final-result select/final-result merge events, and `handleNativeCoworkAction()` dispatches them through the native-first `gatewayApi.cowork` facade instead of leaving those TS-native mutation routes as request-builder-only coverage. Agent activity and observation-detail desktop actions now also flow through the native-first Cowork facade, including requester `agent_id` query propagation for sensitive observation authorization.
 
@@ -551,6 +551,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: wire desktop Cowork action controls and handler dispatch for TS-native budget update, source-branch derive, final-result select, and final-result merge routes.
 - [x] Continue Cowork Phase 10: expand desktop gateway regression coverage for default TS-native Cowork session detail, summary, graph, pause, delete, message, add-task, branch select, and branch-result merge routes.
 - [x] Continue Cowork Phase 10: wire desktop Cowork agent-activity and observation-detail actions through native-first facade routes with requester `agent_id` propagation.
+- [x] Continue Cowork Phase 10: switch desktop budget update actions to the documented native `PATCH /budget` route while preserving gateway POST compatibility.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue Command Runtime Phase 3: migrate the first native `/dream` conversation-evidence extraction path for explicit memory-intent evidence.
 - [x] Continue Command Runtime Phase 3: migrate the first native `/dream` legacy-history extraction path for explicit memory-intent records.
