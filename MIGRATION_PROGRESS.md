@@ -16,6 +16,8 @@
 
 - Continued Cowork Phase 10 native route parity: TS worker assign-task routes now preserve Python `assigned_agent_id` precedence when blank direct-worker `agentId` aliases appear in mixed desktop/native request bodies.
 
+- Continued Cowork Phase 10 native route parity: TS worker add-task routes now preserve Python `assigned_agent_id` precedence when blank camel-case `assignedAgentId` aliases appear in mixed desktop/native request bodies.
+
 - Continued Cowork Phase 10 create-session route parity: TS-native create-session architecture alias selection now mirrors Python truthy text coercion for `architecture` / `workflow_mode` / `mode`, so truthy numeric primary aliases are preserved before service normalization instead of falling through to later aliases.
 
 - Continued Cowork Phase 10 direct/default-route parity: TS-native blueprint validate/preview now mirror Python route text coercion for `default_goal`, preserving truthy numeric fallback goals before blueprint normalization.
@@ -1081,6 +1083,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: honor mixed-alias run-route numeric limits on the TS-native worker route.
 - [x] Continue Cowork Phase 10: preserve blueprint create auto-run `rounds` fallback with blank camel-case max-round aliases.
 - [x] Continue Cowork Phase 10: preserve assign-task route `assigned_agent_id` precedence with blank direct-agent aliases.
+- [x] Continue Cowork Phase 10: preserve add-task route `assigned_agent_id` precedence with blank camel-case assignee aliases.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.

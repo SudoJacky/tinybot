@@ -5292,6 +5292,23 @@ describe("AgentWorker", () => {
     await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
       method: "POST",
       path: `/api/cowork/sessions/${encodeURIComponent(String(sessionId))}/tasks`,
+      body: { title: "Route assigned", assignedAgentId: "", assigned_agent_id: "lead" },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          task: expect.objectContaining({
+            id: "task_3",
+            title: "Route assigned",
+            assigned_agent_id: "lead",
+          }),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(String(sessionId))}/tasks`,
       body: {
         title: "Numeric description",
         description: 9001,
@@ -5306,7 +5323,7 @@ describe("AgentWorker", () => {
         status: 200,
         body: {
           task: expect.objectContaining({
-            id: "task_3",
+            id: "task_4",
             title: "Numeric description",
             description: "9001",
             expected_output: "",

@@ -3975,7 +3975,8 @@ function coworkAddTaskRouteBody(
     session_id: sessionId,
     title,
     description: pythonRouteTextParam(body, "description", "description"),
-    assigned_agent_id: pythonRouteTextParam(body, "assignedAgentId", "assigned_agent_id"),
+    assigned_agent_id: pythonRouteTextParam(body, "assigned_agent_id", "assigned_agent_id")
+      || pythonRouteTextParam(body, "assignedAgentId", "assignedAgentId"),
     dependencies: body.dependencies || [],
   };
 }
