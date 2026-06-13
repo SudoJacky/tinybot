@@ -31,7 +31,7 @@ export function buildSystemPrompt(input: SystemPromptInput): string {
       ].join("\n"),
     );
   }
-  if (!activeSkillsContent && !skillsSummary && (input.includeDeferredSkillsPlaceholder ?? true)) {
+  if (!activeSkillsContent && !skillsSummary && input.includeDeferredSkillsPlaceholder === true) {
     parts.push("# Active Skills\n\n(deferred in TS context phase 1)");
   }
   return parts.join("\n\n---\n\n");

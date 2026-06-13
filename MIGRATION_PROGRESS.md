@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Context Builder/Skills prompt parity: TS system prompts now omit the old `Active Skills` deferred placeholder by default when no skills context is available, matching Python's empty-skills behavior while preserving explicit opt-in coverage for the placeholder.
+
 - Continued Task/Cron background runtime parity: TS-native `task add_subtask` now returns Python-compatible dependency warnings after DAG validation, so newly introduced missing/cyclic dependency issues are visible immediately in the tool response.
 
 - Continued WebUI transport Phase 5 Skills update parity: native TS skill updates now use Python's stricter frontmatter boundary matching, so malformed or newline-less closing frontmatter markers fall back to legacy-content wrapping instead of being partially consumed.
