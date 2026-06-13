@@ -787,7 +787,9 @@ fn find_legal_message_start(messages: &[Value]) -> usize {
                 }
             }
             Some("tool") => {
-                if let Some(tool_call_id) = message_string(message, "tool_call_id") {
+                if let Some(tool_call_id) =
+                    message_string_any(message, &["tool_call_id", "toolCallId"])
+                {
                     if !declared.contains(&tool_call_id) {
                         start = index + 1;
                         declared.clear();
@@ -840,9 +842,7 @@ fn project_history_message(message: &Value) -> Option<Value> {
 }
 
 fn assistant_tool_call_ids(message: &Value) -> Vec<String> {
-    message
-        .get("tool_calls")
-        .and_then(Value::as_array)
+    message_array_any(message, &["tool_calls", "toolCalls"])
         .map(|tool_calls| {
             tool_calls
                 .iter()
@@ -866,6 +866,15 @@ fn message_role(message: &Value) -> Option<&str> {
 
 fn message_string(message: &Value, key: &str) -> Option<String> {
     message.get(key).and_then(Value::as_str).map(str::to_string)
+}
+
+fn message_string_any(message: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| message_string(message, key))
+}
+
+fn message_array_any<'a>(message: &'a Value, keys: &[&str]) -> Option<&'a Vec<Value>> {
+    keys.iter()
+        .find_map(|key| message.get(key).and_then(Value::as_array))
 }
 
 fn now_session_timestamp() -> String {
@@ -1279,6 +1288,54 @@ mod tests {
                     ]
                 }),
                 json!({ "role": "tool", "content": "README", "toolCallId": "call-read", "name": "read_file" })
+            ]
+        );
+    }
+
+    #[test]
+    fn get_history_uses_camel_case_tool_calls_for_legal_boundary() {
+        let mut session = session_fixture();
+        session.extra = json!({
+            "messages": [
+                { "role": "user", "content": "inspect" },
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "toolCalls": [
+                        {
+                            "id": "call-read",
+                            "name": "read_file",
+                            "argumentsJson": "{\"path\":\"README.md\"}"
+                        }
+                    ]
+                },
+                { "role": "tool", "content": "README", "tool_call_id": "call-read", "name": "read_file" },
+                { "role": "assistant", "content": "done" }
+            ]
+        });
+        let rpc = WorkerSessionRpc::new(vec![session], read_policy());
+
+        let history = rpc
+            .get_history("session-1", 80)
+            .expect("history should keep legal camelCase tool-call pairs");
+
+        assert_eq!(
+            history.messages,
+            vec![
+                json!({ "role": "user", "content": "inspect" }),
+                json!({
+                    "role": "assistant",
+                    "content": "",
+                    "toolCalls": [
+                        {
+                            "id": "call-read",
+                            "name": "read_file",
+                            "argumentsJson": "{\"path\":\"README.md\"}"
+                        }
+                    ]
+                }),
+                json!({ "role": "tool", "content": "README", "tool_call_id": "call-read", "name": "read_file" }),
+                json!({ "role": "assistant", "content": "done" })
             ]
         );
     }
