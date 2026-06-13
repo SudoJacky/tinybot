@@ -687,7 +687,7 @@ fn session_message_key(message: &Value) -> String {
         "assistant" => serde_json::json!([
             "assistant",
             message.get("content").cloned().unwrap_or(Value::Null),
-            message_field(message, "toolCalls", "tool_calls"),
+            normalized_tool_calls_for_key(message),
         ]),
         "user" => serde_json::json!([
             "user",
@@ -704,6 +704,30 @@ fn message_field(message: &Value, camel: &str, snake: &str) -> Value {
         .or_else(|| message.get(snake))
         .cloned()
         .unwrap_or(Value::Null)
+}
+
+fn normalized_tool_calls_for_key(message: &Value) -> Value {
+    let Some(tool_calls) = message_array_any(message, &["toolCalls", "tool_calls"]) else {
+        return Value::Null;
+    };
+    Value::Array(
+        tool_calls
+            .iter()
+            .map(normalized_tool_call_for_key)
+            .collect(),
+    )
+}
+
+fn normalized_tool_call_for_key(tool_call: &Value) -> Value {
+    let function = tool_call.get("function").and_then(Value::as_object);
+    serde_json::json!({
+        "id": message_string(tool_call, "id"),
+        "name": message_string(tool_call, "name")
+            .or_else(|| function.and_then(|payload| payload.get("name")).and_then(Value::as_str).map(str::to_string)),
+        "arguments": message_string(tool_call, "argumentsJson")
+            .or_else(|| message_string(tool_call, "arguments_json"))
+            .or_else(|| function.and_then(|payload| payload.get("arguments")).and_then(Value::as_str).map(str::to_string)),
+    })
 }
 
 fn project_history_messages(
@@ -1442,6 +1466,65 @@ mod tests {
     }
 
     #[test]
+    fn append_messages_dedupes_equivalent_tool_calls_across_field_shapes() {
+        let mut session = session_fixture();
+        session.extra = json!({
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call-1",
+                            "type": "function",
+                            "function": { "name": "lookup", "arguments": "{}" }
+                        }
+                    ]
+                }
+            ]
+        });
+        let mut rpc = WorkerSessionRpc::new(vec![session], write_policy());
+
+        let updated = rpc
+            .append_messages(
+                "session-1",
+                vec![
+                    json!({
+                        "role": "assistant",
+                        "content": "",
+                        "toolCalls": [
+                            {
+                                "id": "call-1",
+                                "name": "lookup",
+                                "argumentsJson": "{}"
+                            }
+                        ]
+                    }),
+                    json!({ "role": "assistant", "content": "done" }),
+                ],
+            )
+            .expect("equivalent tool call messages should dedupe across field shapes");
+
+        assert_eq!(
+            updated.extra["messages"],
+            json!([
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call-1",
+                            "type": "function",
+                            "function": { "name": "lookup", "arguments": "{}" }
+                        }
+                    ]
+                },
+                { "role": "assistant", "content": "done" }
+            ])
+        );
+    }
+
+    #[test]
     fn append_messages_creates_missing_session_with_write_capability() {
         let mut rpc = WorkerSessionRpc::new(vec![], write_policy());
 
@@ -1743,6 +1826,63 @@ mod tests {
                 { "role": "assistant", "content": "next" }
             ])
         );
+    }
+
+    #[test]
+    fn persist_turn_dedupes_equivalent_tool_calls_across_field_shapes() {
+        let mut session = session_fixture();
+        session.extra = json!({
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call-1",
+                            "type": "function",
+                            "function": { "name": "lookup", "arguments": "{}" }
+                        }
+                    ]
+                }
+            ]
+        });
+        let mut rpc = WorkerSessionRpc::new(
+            vec![session],
+            CapabilityPolicy::new([
+                WorkerCapability::SessionWrite,
+                WorkerCapability::SessionMetadataRead,
+            ]),
+        );
+
+        let result = rpc
+            .persist_turn(
+                "session-1",
+                "run-1",
+                vec![
+                    json!({
+                        "role": "assistant",
+                        "content": "",
+                        "toolCalls": [
+                            {
+                                "id": "call-1",
+                                "name": "lookup",
+                                "argumentsJson": "{}"
+                            }
+                        ]
+                    }),
+                    json!({ "role": "assistant", "content": "done" }),
+                ],
+                false,
+                None,
+            )
+            .expect("equivalent tool call messages should dedupe across field shapes");
+
+        assert_eq!(result.messages_before, 1);
+        assert_eq!(result.messages_after, 2);
+        assert_eq!(result.saved_message_count, 1);
+        assert_eq!(result.duplicate_message_count, 1);
+        let updated = rpc.get_metadata("session-1").expect("session should exist");
+        assert_eq!(updated.extra["messages"].as_array().map(Vec::len), Some(2));
     }
 
     #[test]

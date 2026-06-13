@@ -16,6 +16,8 @@
 
 - Continued session legal-boundary parity: native Rust history projection now treats camelCase `toolCalls` / `toolCallId` as legal tool-call boundary signals alongside Python/OpenAI-style snake_case fields, preventing valid mixed TS/Rust tool-call turns from being trimmed out of the next TS context.
 
+- Continued session persistence dedupe parity: native Rust `session.append_messages` and `session.persist_turn` now normalize OpenAI-style `tool_calls` and TS `toolCalls` into the same assistant-message duplicate key, preventing equivalent mixed-shape tool-call turns from being saved twice.
+
 - Continued Batch 5 Task/Cron background runtime parity: TS `cron.run_due` now runs Python-compatible evaluator gating for `deliver=true` cron results, suppresses routine responses, emits `cron.delivery` for notify decisions, records delivery decisions in per-job run records, and preserves Python's fail-open notify behavior when evaluator calls fail.
 
 - Continued Heartbeat runtime Phase 2 worker bridge: TS worker now exposes `heartbeat.trigger_now` and `heartbeat.status` request methods over the worker protocol, delegating to the injected `HeartbeatRuntime` while preserving explicit unavailable-runtime errors for native host callers.
@@ -127,6 +129,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 
 | Date | Update |
 | --- | --- |
+| 2026-06-13 | Continued session persistence dedupe parity: Rust `session.append_messages` and `session.persist_turn` now dedupe equivalent OpenAI `tool_calls` and TS `toolCalls` assistant messages. |
 | 2026-06-13 | Continued session legal-boundary parity: Rust `session.get_history` now recognizes camelCase `toolCalls` / `toolCallId` while finding legal tool-call history boundaries. |
 | 2026-06-13 | Continued session history projection parity: Rust `session.get_history` now preserves snake_case and camelCase tool/reasoning model fields for mixed native TS session records. |
 | 2026-06-13 | Continued session turn lifecycle fallback parity: `TurnLifecycle.finalizeTurn()` now clears terminal checkpoints after fallback `session.append_messages` persistence when `session.persist_turn` is unavailable. |
