@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Cowork Phase 10 direct RPC parity: direct TS branch/final-result RPCs now mirror Python route text coercion for `branch_id`, preserving truthy numeric branch ids through service validation instead of failing at the worker protocol boundary.
+
 - Continued Cowork Phase 10 direct RPC parity: direct TS `cowork.select_branch_result` RPCs now mirror Python route text coercion for `result_id`, preserving truthy numeric result ids in validation instead of silently selecting the branch's default result.
 
 - Continued Cowork Phase 10 direct RPC parity: direct TS `cowork.merge_branch_results` RPCs now mirror Python route text coercion for merge `summary`, preserving truthy numeric summaries instead of generating a default branch merge summary.
@@ -1018,6 +1020,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS `cowork.derive_branch` metadata fields.
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS `cowork.merge_branch_results` summaries.
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS `cowork.select_branch_result` result ids.
+- [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS branch ids.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.

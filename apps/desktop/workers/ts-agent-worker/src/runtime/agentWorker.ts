@@ -4309,7 +4309,7 @@ function parseCoworkBranchParams(params: Record<string, unknown> | undefined, me
     throw new Error(`${method} requires object params`);
   }
   const sessionId = stringParam(params, "sessionId", "session_id");
-  const branchId = stringParam(params, "branchId", "branch_id");
+  const branchId = pythonRouteTextParam(params, "branchId", "branch_id");
   if (!sessionId || !branchId) {
     throw new Error(`${method} requires params.session_id and params.branch_id`);
   }
