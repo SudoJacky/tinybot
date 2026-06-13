@@ -615,6 +615,11 @@ describe("desktop Cowork helpers", () => {
       path: "/api/cowork/sessions/cowork%2F1/branches/branch%2F1/derive",
       body: { target_architecture: "swarm" },
     });
+    expect(buildDesktopCoworkActionRequest({ action: "selectBranch", sessionId: "cowork/1", branchId: "branch/1", architecture: "team" })).toEqual({
+      method: "POST",
+      path: "/api/cowork/sessions/cowork%2F1/branches/branch%2F1/select",
+      body: { architecture: "team", workflow_mode: "team" },
+    });
     expect(buildDesktopCoworkActionRequest({ action: "selectBranchResult", sessionId: "cowork/1", branchId: "branch/1", resultId: "result-1" })).toEqual({
       method: "POST",
       path: "/api/cowork/sessions/cowork%2F1/branches/branch%2F1/result/select-final",

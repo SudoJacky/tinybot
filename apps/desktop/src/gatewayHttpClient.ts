@@ -822,13 +822,13 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         body,
         `cowork.workUnit.${action}`,
       ),
-      selectBranch: (sessionId: string, branchId: string) => coworkNativeOrGateway(
+      selectBranch: (sessionId: string, branchId: string, body: unknown = undefined) => coworkNativeOrGateway(
         options.nativeCowork,
         options.tsCoworkRuntime,
         request,
         "POST",
         `/api/cowork/sessions/${encodePathSegment(sessionId)}/branches/${encodePathSegment(branchId)}/select`,
-        undefined,
+        body,
         "cowork.selectBranch",
       ),
       deriveBranch: (sessionId: string, sourceBranchId: string | null, body: unknown) => coworkNativeOrGateway(
@@ -977,7 +977,7 @@ function coworkRouteGroup(method: string, path: string, body: unknown): "readOnl
     path.includes("/work-units/")
     || path.includes("/branch-results/")
     || path.includes("/final-result/")
-    || /\/api\/cowork\/sessions\/[^/]+\/branches\/[^/]+\/select(?:$|\?)/.test(path)
+    || swarmBranchSelectRoute(method, path, body)
     || /\/api\/cowork\/sessions\/[^/]+\/branches\/[^/]+\/result\/select-final(?:$|\?)/.test(path)
   ) {
     return "swarm";
@@ -1061,6 +1061,20 @@ function swarmBranchDeriveRoute(method: string, path: string, body: unknown): bo
     payload?.architecture,
   );
   return isSwarmMode(targetArchitecture);
+}
+
+function swarmBranchSelectRoute(method: string, path: string, body: unknown): boolean {
+  if (method !== "POST" || !/\/api\/cowork\/sessions\/[^/]+\/branches\/[^/]+\/select(?:$|\?)/.test(path)) {
+    return false;
+  }
+  const payload = asRecord(body);
+  const architecture = firstPythonTruthyTextValue(
+    payload?.architecture,
+    payload?.workflowMode,
+    payload?.workflow_mode,
+    payload?.mode,
+  );
+  return architecture ? isSwarmMode(architecture) : true;
 }
 
 function isSwarmMode(value: unknown): boolean {

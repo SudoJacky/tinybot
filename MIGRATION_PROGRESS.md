@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Cowork Phase 10 desktop default-route parity: desktop branch-select requests now carry target-branch architecture when known, and the gateway keeps explicit non-swarm branch selections on the mutation rollout gate instead of forcing every branch select through the swarm/Python fallback path.
+
 - Continued Cowork Phase 10 desktop default-route parity: desktop Cowork recipientless message action requests now carry selected-session architecture when known, and the gateway keeps explicit non-swarm group messages on the mutation rollout gate instead of forcing them through the swarm/Python fallback path.
 
 - Continued Cowork Phase 10 desktop default-route parity: desktop Cowork run action requests now carry the selected session architecture/workflow mode when known, so swarm sessions triggered from the native pane still hit the desktop gateway swarm rollout gate and can preserve Python fallback when swarm TS routing is disabled.
@@ -1127,6 +1129,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: route explicitly swarm Cowork run requests through Python fallback when the desktop swarm rollout gate is disabled.
 - [x] Continue Cowork Phase 10: preserve selected-session architecture on desktop Cowork run action requests for swarm rollout fallback gating.
 - [x] Continue Cowork Phase 10: preserve selected-session architecture on desktop recipientless message requests so non-swarm group messages use the mutation rollout gate.
+- [x] Continue Cowork Phase 10: preserve target-branch architecture on desktop branch select requests so non-swarm branch selections use the mutation rollout gate.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.
 - [x] Continue session turn lifecycle evidence durability: capture memory evidence from native `saved_messages` for partial-duplicate persisted turns.

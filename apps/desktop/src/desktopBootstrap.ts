@@ -1151,7 +1151,17 @@ async function handleNativeCoworkAction(event: DesktopCoworkActionEvent): Promis
       return;
     }
     if (event.action === "selectBranch" && event.branchId) {
-      await gatewayApi.cowork.selectBranch(sessionId, event.branchId);
+      const request = buildDesktopCoworkActionRequest({
+        action: "selectBranch",
+        sessionId,
+        branchId: event.branchId,
+        architecture: selectedCoworkBranchArchitecture(event.pane, event.branchId),
+      });
+      await gatewayApi.cowork.selectBranch(
+        sessionId,
+        event.branchId,
+        "body" in request ? request.body : undefined,
+      );
       setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork branch selected." }));
       return;
     }
@@ -1303,6 +1313,14 @@ function selectedCoworkSessionArchitecture(pane: DesktopCoworkPaneModel, session
   const row = pane.sessionRows.find((item) => item.id === sessionId);
   const rowSession = asRecord(row?.raw);
   return stringValue(rowSession.architecture).trim() || stringValue(rowSession.workflow_mode).trim();
+}
+
+function selectedCoworkBranchArchitecture(pane: DesktopCoworkPaneModel, branchId: string): string {
+  const branch = pane.cockpitView?.branches.find((item) => item.branchId === branchId || item.resultId === branchId);
+  const raw = asRecord(branch?.raw);
+  return stringValue(raw.architecture).trim()
+    || stringValue(raw.workflow_mode).trim()
+    || stringValue(raw.target_architecture).trim();
 }
 
 async function handleNativeKnowledgeAction(event: DesktopKnowledgeActionEvent): Promise<void> {
