@@ -4623,6 +4623,20 @@ function appendCoworkSelectedActions(
       });
     });
     actions.append(button);
+    const detailRef = latestAgentObservationDetailRef(view, id);
+    if (detailRef) {
+      const observation = createCoworkSelectedActionButton(targetDocument, "loadObservation", "Observation");
+      observation.addEventListener("click", () => {
+        coworkActions.onCoworkAction?.({
+          action: "loadObservation",
+          pane,
+          sessionId,
+          detailRef,
+          requesterAgentId: id,
+        });
+      });
+      actions.append(observation);
+    }
   } else if (type === "workUnit") {
     for (const [action, label, workUnitAction] of [
       ["retryWorkUnit", "Retry", "retry"],
@@ -4688,6 +4702,38 @@ function createCoworkSelectedActionButton(targetDocument: Document, action: stri
   button.setAttribute("data-desktop-cowork-entity-action", action);
   button.textContent = label;
   return button as HTMLButtonElement;
+}
+
+function latestAgentObservationDetailRef(view: DesktopCoworkCockpitView, agentId: string): string {
+  const raw = recordValue(view.raw);
+  const steps = arrayValue(raw.agent_steps).map(recordValue).filter((step) => String(step.agent_id ?? "") === agentId);
+  for (const step of [...steps].reverse()) {
+    const observations = [
+      ...arrayValue(step.tool_observations),
+      ...arrayValue(step.browser_observations),
+    ].map(recordValue).reverse();
+    for (const observation of observations) {
+      const detailRef = String(
+        observation.detail_ref
+        ?? observation.detailRef
+        ?? observation.detail_id
+        ?? observation.detailId
+        ?? "",
+      ).trim();
+      if (detailRef) {
+        return detailRef;
+      }
+    }
+  }
+  return "";
+}
+
+function arrayValue(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
 function coworkBudgetMaxRoundsValue(pane: DesktopCoworkPaneModel): string {

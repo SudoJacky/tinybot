@@ -150,15 +150,23 @@ describe("cowork inspector Vue island", () => {
     mountCoworkInspectorIsland(host, {
       view: {
         ...baseView,
+        raw: {
+          agent_steps: [{
+            agent_id: "agent-1",
+            tool_observations: [{ id: "toolobs-1", detail_ref: "detail-1" }],
+          }],
+        },
         inspector: { ...baseView.inspector, type: "agent", id: "agent-1", title: "Planner", rows: [], payloadText: "" },
       },
       onAction: (event) => events.push(event),
     });
 
     host.querySelector<HTMLButtonElement>('[data-desktop-cowork-entity-action="loadAgentActivity"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-cowork-entity-action="loadObservation"]')?.click();
 
     expect(events).toEqual([
       { action: "loadAgentActivity", sessionId: "cowork-1", agentId: "agent-1", limit: 20 },
+      { action: "loadObservation", sessionId: "cowork-1", detailRef: "detail-1", requesterAgentId: "agent-1" },
     ]);
   });
 });

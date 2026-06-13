@@ -14,6 +14,8 @@
 
 - Continued Cowork Phase 10 rollout parity: desktop gateway branch-select requests now follow the swarm rollout gate alongside branch-result/final-result routes, so disabling TS swarm routing preserves the Python fallback for branch selection.
 
+- Continued Cowork Phase 10 desktop observability parity: selected-agent inspectors now expose the latest tool/browser observation detail action when agent activity includes a `detail_ref`, and both legacy and Vue desktop paths send `loadObservation` with requester `agent_id` into the existing TS-native observation route.
+
 - Continued Cowork Phase 10 desktop route parity: the native Vue Cowork inspector now emits derive-branch, select-final-result, and merge-final-result events for selected branches, keeping the Vue island action surface aligned with the migrated TS-native route facade.
 
 - Continued session turn lifecycle evidence durability: native `session.persist_turn` now returns the exact `saved_messages` it appended, and TS `TurnLifecycle` uses that contract for memory evidence capture instead of guessing from `savedMessageCount`, so partial duplicate turns capture only newly persisted messages.
@@ -698,6 +700,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: expose selected-agent activity actions from legacy and Vue desktop inspectors.
 - [x] Continue Cowork Phase 10: preserve selected-agent activity `limit` query options through legacy/Vue desktop inspector events and the native bootstrap handler.
 - [x] Continue Cowork Phase 10: gate branch-select desktop gateway requests under the swarm rollout flag with Python fallback.
+- [x] Continue Cowork Phase 10: expose selected-agent observation-detail actions from legacy and Vue desktop inspectors with requester propagation.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.

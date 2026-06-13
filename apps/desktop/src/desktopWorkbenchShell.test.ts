@@ -3266,12 +3266,17 @@ describe("desktop workbench shell", () => {
       status: "blocked",
       agents: [{ id: "agent-1", name: "Planner" }, { id: "agent-2", name: "Reviewer" }],
       tasks: [{ id: "task-1", title: "Map helpers", status: "failed", assigned_agent_id: "agent-1" }],
+      agent_steps: [{
+        agent_id: "agent-1",
+        tool_observations: [{ id: "toolobs-1", detail_ref: "detail-1" }],
+      }],
       branch_results: [{ branch_id: "branch-a", result_id: "result-a", summary: "Use helpers" }, { branch_id: "branch-b", result_id: "result-b", summary: "Use controllers" }],
       swarm_plan: {
         work_units: [{ id: "wu-1", title: "Extract projections", status: "failed", assigned_agent_id: "agent-1" }],
       },
       graph: {
         nodes: [
+          { id: "agent-1", label: "Planner", kind: "agent" },
           { id: "task-1", label: "Map helpers", kind: "task" },
           { id: "wu-1", label: "Extract projections", kind: "workUnit" },
           { id: "branch-a", label: "Use helpers", kind: "branch" },
@@ -3302,6 +3307,8 @@ describe("desktop workbench shell", () => {
             branchIds: event.branchIds,
             sourceBranchId: event.sourceBranchId,
             targetArchitecture: event.targetArchitecture,
+            detailRef: event.detailRef,
+            requesterAgentId: event.requesterAgentId,
             title: event.taskTitle,
             assignedAgentId: event.assignedAgentId,
           };
@@ -3329,6 +3336,10 @@ describe("desktop workbench shell", () => {
     pane?.querySelector('[data-desktop-cowork-entity-action="retryTask"]')?.click();
     pane?.querySelector('[data-desktop-cowork-entity-action="reviewTask"]')?.click();
 
+    pane?.querySelector('[data-desktop-cowork-entity="agent-1"]')?.click();
+    pane?.querySelector('[data-desktop-cowork-entity-action="loadAgentActivity"]')?.click();
+    pane?.querySelector('[data-desktop-cowork-entity-action="loadObservation"]')?.click();
+
     pane?.querySelector('[data-desktop-cowork-entity="wu-1"]')?.click();
     pane?.querySelector('[data-desktop-cowork-entity-action="retryWorkUnit"]')?.click();
     pane?.querySelector('[data-desktop-cowork-entity-action="skipWorkUnit"]')?.click();
@@ -3347,6 +3358,8 @@ describe("desktop workbench shell", () => {
       { action: "task", sessionId: "cowork-1", taskId: "task-1", taskAction: "assign", assignedAgentId: "agent-2" },
       { action: "task", sessionId: "cowork-1", taskId: "task-1", taskAction: "retry" },
       { action: "task", sessionId: "cowork-1", taskId: "task-1", taskAction: "review" },
+      { action: "loadAgentActivity", sessionId: "cowork-1" },
+      { action: "loadObservation", sessionId: "cowork-1", detailRef: "detail-1", requesterAgentId: "agent-1" },
       { action: "workUnit", sessionId: "cowork-1", workUnitId: "wu-1", workUnitAction: "retry" },
       { action: "workUnit", sessionId: "cowork-1", workUnitId: "wu-1", workUnitAction: "skip" },
       { action: "workUnit", sessionId: "cowork-1", workUnitId: "wu-1", workUnitAction: "cancel" },
