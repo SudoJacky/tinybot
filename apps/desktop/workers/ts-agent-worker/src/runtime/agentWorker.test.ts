@@ -3285,6 +3285,7 @@ describe("AgentWorker", () => {
           agents: [{ id: "lead", role: "Lead", tools: ["cowork_internal"] }],
         },
         auto_run: true,
+        maxRounds: "",
         rounds: "2",
         parallel_width: "2",
         max_agent_calls: "3",

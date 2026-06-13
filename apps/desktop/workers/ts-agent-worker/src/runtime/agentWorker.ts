@@ -779,8 +779,7 @@ export class AgentWorker {
       return session;
     }
     const runBody = options.allowRoundsAlias
-      && body.maxRounds === undefined
-      && body.max_rounds === undefined
+      && numberParam(body, "maxRounds", "max_rounds") === undefined
       && body.rounds !== undefined
       ? { ...body, max_rounds: body.rounds }
       : body;
