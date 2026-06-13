@@ -2865,6 +2865,7 @@ fn experimental_worker_router(
             WorkerCapability::BackgroundRead,
             WorkerCapability::BackgroundWrite,
             WorkerCapability::McpCall,
+            WorkerCapability::ChannelConnector,
             WorkerCapability::SessionMetadataRead,
             WorkerCapability::SessionWrite,
         ]),

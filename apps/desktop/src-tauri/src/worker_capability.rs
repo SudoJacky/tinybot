@@ -51,6 +51,8 @@ pub enum WorkerCapability {
     BackgroundWrite,
     #[serde(rename = "mcp.call")]
     McpCall,
+    #[serde(rename = "channel.connector")]
+    ChannelConnector,
     #[serde(rename = "shell.execute")]
     ShellExecute,
 }

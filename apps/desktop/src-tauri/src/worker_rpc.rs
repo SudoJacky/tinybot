@@ -45,6 +45,7 @@ pub struct WorkerRpcRouter {
     cron: WorkerCronRpc,
     background: WorkerBackgroundRpc,
     mcp: WorkerMcpRpc,
+    channel_connector: WorkerChannelConnectorRpc,
     config_store: Option<ConfigStore>,
 }
 
@@ -70,6 +71,7 @@ impl WorkerRpcRouter {
             task: WorkerTaskRpc::new(workspace_root.clone(), policy.clone()),
             cron: WorkerCronRpc::new(workspace_root.clone(), policy.clone()),
             background: WorkerBackgroundRpc::new(workspace_root.clone(), policy.clone()),
+            channel_connector: WorkerChannelConnectorRpc::new(policy.clone()),
             mcp: WorkerMcpRpc::new(config_snapshot, policy),
             config_store: None,
         }
@@ -295,6 +297,26 @@ impl WorkerRpcRouter {
                 let params: DiagnosticsAppendParams = parse_params(request)?;
                 serde_json::to_value(self.diagnostics.append(&params.stream, &params.line)?)
                     .map_err(serialization_error)
+            }
+            "channel.connector.start" => {
+                let params: ChannelConnectorParams = parse_params(request)?;
+                self.channel_connector.start(params)
+            }
+            "channel.connector.stop" => {
+                let params: ChannelConnectorParams = parse_params(request)?;
+                self.channel_connector.stop(params)
+            }
+            "channel.connector.send_text" => {
+                let params: ChannelConnectorParams = parse_params(request)?;
+                self.channel_connector.send_text(params)
+            }
+            "channel.connector.send_delta" => {
+                let params: ChannelConnectorParams = parse_params(request)?;
+                self.channel_connector.send_delta(params)
+            }
+            "channel.connector.send_usage" => {
+                let params: ChannelConnectorParams = parse_params(request)?;
+                self.channel_connector.send_usage(params)
             }
             "shell.execute" => {
                 let params: ShellExecuteParams = parse_params(request)?;
@@ -2648,6 +2670,11 @@ struct DiagnosticsAppendParams {
 }
 
 #[derive(Deserialize)]
+struct ChannelConnectorParams {
+    channel: String,
+}
+
+#[derive(Deserialize)]
 struct ApprovalRequestParams {
     run_id: String,
     #[serde(default)]
@@ -2883,6 +2910,80 @@ struct MemorySupersedeParams {
 #[derive(Deserialize)]
 struct RuntimeNowParams {
     timezone: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+struct WorkerChannelConnectorRpc {
+    policy: CapabilityPolicy,
+}
+
+impl WorkerChannelConnectorRpc {
+    fn new(policy: CapabilityPolicy) -> Self {
+        Self { policy }
+    }
+
+    fn start(
+        &self,
+        params: ChannelConnectorParams,
+    ) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
+        self.unavailable(params.channel, "start")
+    }
+
+    fn stop(
+        &self,
+        params: ChannelConnectorParams,
+    ) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
+        self.unavailable(params.channel, "stop")
+    }
+
+    fn send_text(
+        &self,
+        params: ChannelConnectorParams,
+    ) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
+        self.unavailable(params.channel, "send_text")
+    }
+
+    fn send_delta(
+        &self,
+        params: ChannelConnectorParams,
+    ) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
+        self.unavailable(params.channel, "send_delta")
+    }
+
+    fn send_usage(
+        &self,
+        params: ChannelConnectorParams,
+    ) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
+        self.unavailable(params.channel, "send_usage")
+    }
+
+    fn unavailable(
+        &self,
+        channel: String,
+        operation: &str,
+    ) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
+        self.require()?;
+        Ok(serde_json::json!({
+            "ok": true,
+            "channel": channel,
+            "operation": operation,
+            "handled": false,
+            "reason": "native_connector_unavailable",
+        }))
+    }
+
+    fn require(&self) -> Result<(), crate::worker_protocol::WorkerProtocolError> {
+        if self.policy.allows(&WorkerCapability::ChannelConnector) {
+            return Ok(());
+        }
+        Err(crate::worker_protocol::WorkerProtocolError::new(
+            crate::worker_protocol::WorkerProtocolErrorCode::CapabilityDenied,
+            "worker capability denied",
+            serde_json::json!({ "capability": WorkerCapability::ChannelConnector }),
+            false,
+            crate::worker_protocol::WorkerProtocolErrorSource::RustCore,
+        ))
+    }
 }
 
 fn parse_params<T: for<'de> Deserialize<'de>>(
@@ -4235,6 +4336,70 @@ mod tests {
         );
         assert_eq!(error.details["capability"], "fs.workspace.read");
         assert!(response.result.is_none());
+    }
+
+    #[test]
+    fn channel_connector_send_text_returns_explicit_unavailable_bridge_result() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::ChannelConnector]),
+        );
+        let request = WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "channel.connector.send_text",
+            json!({
+                "channel": "feishu",
+                "chat_id": "oc_1",
+                "content": "hello",
+                "media": ["file://a.png"],
+                "metadata": { "reply_kind": "text" },
+                "reply_to": "msg-1"
+            }),
+        );
+
+        let response = router.dispatch(&request);
+
+        assert!(response.error.is_none());
+        let result = response.result.expect("connector result should be present");
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["channel"], "feishu");
+        assert_eq!(result["operation"], "send_text");
+        assert_eq!(result["handled"], false);
+        assert_eq!(result["reason"], "native_connector_unavailable");
+    }
+
+    #[test]
+    fn channel_connector_methods_require_connector_capability() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::default(),
+        );
+        let request = WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "channel.connector.start",
+            json!({ "channel": "feishu" }),
+        );
+
+        let response = router.dispatch(&request);
+
+        let error = response
+            .error
+            .expect("connector start should require channel capability");
+        assert_eq!(
+            error.code,
+            crate::worker_protocol::WorkerProtocolErrorCode::CapabilityDenied
+        );
+        assert_eq!(error.details["capability"], "channel.connector");
     }
 
     #[test]
