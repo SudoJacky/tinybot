@@ -4315,6 +4315,16 @@ describe("AgentWorker", () => {
 
     await expect(worker.handleRequest(coworkRequest("cowork.retry_work_unit", {
       session_id: session.id,
+      work_unit_id: 404,
+      reason: 505,
+    }))).resolves.toMatchObject({
+      result: {
+        result: "Error: work unit '404' not found",
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.retry_work_unit", {
+      session_id: session.id,
       work_unit_id: "wu_retry",
       reason: "User retry",
     }))).resolves.toMatchObject({

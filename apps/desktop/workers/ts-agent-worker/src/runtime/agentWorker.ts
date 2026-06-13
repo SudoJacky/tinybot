@@ -4216,7 +4216,7 @@ function parseCoworkWorkUnitActionParams(params: Record<string, unknown> | undef
     throw new Error(`${method} requires object params`);
   }
   const sessionId = stringParam(params, "sessionId", "session_id");
-  const workUnitId = stringParam(params, "workUnitId", "work_unit_id");
+  const workUnitId = pythonRouteTextParam(params, "workUnitId", "work_unit_id");
   if (!sessionId || !workUnitId) {
     throw new Error(`${method} requires params.session_id and params.work_unit_id`);
   }
