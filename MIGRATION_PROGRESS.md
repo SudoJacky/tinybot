@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Task/Cron background runtime parity: TS-native `task add_subtask` now returns Python-compatible dependency warnings after DAG validation, so newly introduced missing/cyclic dependency issues are visible immediately in the tool response.
+
 - Continued WebUI transport Phase 5 Skills update parity: native TS skill updates now use Python's stricter frontmatter boundary matching, so malformed or newline-less closing frontmatter markers fall back to legacy-content wrapping instead of being partially consumed.
 
 - Continued WebUI transport Phase 5 Skills update parity: native TS skill updates now mirror Python fallback frontmatter assembly for legacy skills without frontmatter, coercing explicit non-string descriptions and truthy `always` values instead of dropping them.

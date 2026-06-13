@@ -132,6 +132,20 @@ describe("createTaskTool", () => {
     });
   });
 
+  test("returns Python-compatible dependency warnings after adding a subtask", async () => {
+    const tool = createTaskTool({ store: memoryBridge([basePlan()]), idGenerator: () => "new-dag" });
+
+    await expect(tool.execute({
+      action: "add_subtask",
+      plan_id: "plan-1",
+      subtask_title: "Blocked follow-up",
+      subtask_description: "This depends on a missing subtask",
+      subtask_dependencies: ["missing"],
+    }, context)).resolves.toMatchObject({
+      content: expect.stringContaining("Added subtask 'Blocked follow-up' (id: new-dag) to plan plan-1.\nWarning: New dependency issues:"),
+    });
+  });
+
   test("returns Python-compatible validation and not-found errors", async () => {
     const tool = createTaskTool({ store: memoryBridge([]) });
 

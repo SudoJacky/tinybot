@@ -283,7 +283,12 @@ async function addSubtaskResult(runtime: TaskRuntime, args: Record<string, unkno
   if (!subtask) {
     return { content: `Error: Could not add subtask to plan ${planId}. Plan may be completed or not found.` };
   }
-  return { content: `Added subtask '${subtask.title}' (id: ${subtask.id}) to plan ${planId}.` };
+  const plan = await runtime.getPlan(planId, traceId(context));
+  const dagErrors = plan ? dagErrorsFor(plan) : [];
+  const warning = dagErrors.length > 0
+    ? `\nWarning: New dependency issues: ${formatPythonList(dagErrors)}`
+    : "";
+  return { content: `Added subtask '${subtask.title}' (id: ${subtask.id}) to plan ${planId}.${warning}` };
 }
 
 async function removeSubtaskResult(runtime: TaskRuntime, args: Record<string, unknown>, context: ToolContext): Promise<ToolResult> {
