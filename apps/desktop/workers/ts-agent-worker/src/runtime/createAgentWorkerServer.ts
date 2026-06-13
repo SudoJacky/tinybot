@@ -171,6 +171,18 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
       });
     },
     currentTime: async () => currentTimeString((await heartbeatConfigFromNativeConfig(configBridge)).agents.defaults.timezone),
+    notifyExternal: ({ channel, chatId, content, tasks }) => writeEvent({
+      protocol_version: WORKER_PROTOCOL_VERSION,
+      trace_id: "trace-heartbeat-delivery",
+      event: "heartbeat.delivery",
+      payload: {
+        channel,
+        chatId,
+        chat_id: chatId,
+        content,
+        tasks,
+      },
+    }),
     trimHeartbeatSession: async (keepRecentMessages) => {
       await sessionBridge.trimSession(
         "heartbeat",

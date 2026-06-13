@@ -9,7 +9,9 @@ import type { ModelProviderConfig } from "./providerFactory";
 type ParsedLine = {
   id?: unknown;
   trace_id?: unknown;
+  event?: unknown;
   method?: unknown;
+  payload?: Record<string, unknown>;
   params?: Record<string, unknown>;
 };
 
@@ -605,6 +607,119 @@ describe("createAgentWorkerServer", () => {
         status: { running: false },
       },
     });
+  });
+
+  test("delivers approved scheduled heartbeat notifications to the selected external target", async () => {
+    const lines: string[] = [];
+    const handled = new Set<unknown>();
+    const heartbeatConfigSnapshot = {
+      agents: { defaults: { model: "gpt-heartbeat", timezone: "Asia/Shanghai" } },
+      channels: { feishu: { enabled: true } },
+      gateway: { heartbeat: { enabled: true, interval_s: 1, keep_recent_messages: 5 } },
+    };
+    const provider = new QueueProvider([
+      {
+        content: "",
+        toolCalls: [{
+          id: "heartbeat-call",
+          name: "heartbeat",
+          argumentsJson: JSON.stringify({ action: "run", tasks: "Notify about heartbeat task." }),
+        }],
+        stopReason: "tool_calls",
+      },
+      { content: "Heartbeat task completed.", toolCalls: [], stopReason: "stop" },
+      {
+        content: "",
+        toolCalls: [{
+          id: "evaluate-call",
+          name: "evaluate_notification",
+          argumentsJson: JSON.stringify({ should_notify: true, reason: "completed" }),
+        }],
+        stopReason: "tool_calls",
+      },
+    ]);
+    const server = createAgentWorkerServer({
+      provider,
+      tools: new ToolRegistry(),
+      env: { TINYBOT_MODEL: "gpt-heartbeat" },
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const respondNext = async (method: string, result: unknown | ((request: ParsedLine) => unknown)): Promise<ParsedLine> => {
+      try {
+        await waitFor(() => parsedLines(lines).some((line) => line.method === method && !handled.has(line.id)));
+      } catch (error) {
+        const pending = parsedLines(lines)
+          .filter((line) => line.method && !handled.has(line.id))
+          .map((line) => ({ id: line.id, method: line.method, params: line.params }));
+        throw new Error(`missing ${method} request; pending=${JSON.stringify(pending)}`, { cause: error });
+      }
+      const request = parsedLines(lines).find((line) => line.method === method && !handled.has(line.id));
+      if (!request || typeof request.id !== "string" || typeof request.trace_id !== "string") {
+        throw new Error(`missing ${method} request`);
+      }
+      handled.add(request.id);
+      await server.handleLine(JSON.stringify({
+        protocol_version: "1",
+        id: request.id,
+        trace_id: request.trace_id,
+        result: typeof result === "function" ? result(request) : result,
+      }));
+      return request;
+    };
+
+    const start = server.handleLine(JSON.stringify({
+      protocol_version: "1",
+      id: "heartbeat-start-delivery",
+      trace_id: "trace-heartbeat-start-delivery",
+      method: "heartbeat.start",
+      params: {},
+    }));
+    await respondNext("config.snapshot_public", { value: heartbeatConfigSnapshot });
+    await start;
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+
+    await respondNext("workspace.read_file", (request) => {
+      expect(request.params).toEqual({ path: "HEARTBEAT.md", format: "raw" });
+      return { path: "HEARTBEAT.md", content: "- [ ] Notify about heartbeat task." };
+    });
+    await respondNext("config.snapshot_public", { value: heartbeatConfigSnapshot });
+    await respondNext("session.list_metadata", [
+      { session_id: "feishu:chat-2", title: "Feishu", updated_at: "2026-06-13T08:00:00.000Z" },
+    ]);
+    await respondNext("config.snapshot_public", { value: heartbeatConfigSnapshot });
+    await respondNext("config.snapshot_public", { value: heartbeatConfigSnapshot });
+    await respondNext("session.trim", (request) => {
+      expect(request.params).toEqual({ session_id: "heartbeat", keep_recent_messages: 5 });
+      return { session_id: "heartbeat", messages_before: 8, messages_after: 5 };
+    });
+    await respondNext("config.snapshot_public", { value: heartbeatConfigSnapshot });
+    await respondNext("session.list_metadata", [
+      { session_id: "feishu:chat-2", title: "Feishu", updated_at: "2026-06-13T08:00:00.000Z" },
+    ]);
+
+    await waitFor(() => parsedLines(lines).some((line) => line.event === "heartbeat.delivery"));
+    expect(parsedLines(lines)).toContainEqual(expect.objectContaining({
+      protocol_version: "1",
+      trace_id: "trace-heartbeat-delivery",
+      event: "heartbeat.delivery",
+      payload: {
+        channel: "feishu",
+        chatId: "chat-2",
+        chat_id: "chat-2",
+        content: "Heartbeat task completed.",
+        tasks: "Notify about heartbeat task.",
+      },
+    }));
+
+    await server.handleLine(JSON.stringify({
+      protocol_version: "1",
+      id: "heartbeat-stop-delivery",
+      trace_id: "trace-heartbeat-stop-delivery",
+      method: "heartbeat.stop",
+      params: {},
+    }));
   });
 
   test("exposes heartbeat diagnostics through native WebUI status route", async () => {

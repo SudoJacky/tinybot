@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Heartbeat runtime Phase 4: native stdio heartbeat scheduling now emits approved external heartbeat notifications as `heartbeat.delivery` worker events with Python-compatible channel/chat/content payloads, closing the server wiring gap with Python `on_heartbeat_notify`.
+
 - Continued Heartbeat runtime Phase 4: TS `HeartbeatRuntime` now uses the shared Python-compatible background evaluator by default before scheduled notifications, sharing the evaluator prompt/tool schema with Cron and preserving Python's failure-default-to-notify behavior.
 
 - Continued Cowork Phase 10 desktop default-route parity: desktop branch-result select-final requests now carry target-branch architecture when known, and the gateway keeps explicit non-swarm branch final-result selections on the mutation rollout gate instead of forcing every branch-scoped select-final call through the swarm/Python fallback path.
@@ -1150,6 +1152,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Heartbeat runtime Phase 3: start and stop TS heartbeat scheduling from the native desktop host lifecycle.
 - [x] Continue Heartbeat runtime Phase 3: use native `agents.defaults.timezone` when formatting heartbeat decision `Current Time` prompts.
 - [x] Continue Heartbeat runtime Phase 4: use the shared Python-compatible background evaluator before scheduled heartbeat notifications.
+- [x] Continue Heartbeat runtime Phase 4: emit approved native heartbeat external notifications through worker events with Python-compatible channel targets.
 - [x] Add a dedicated TS worker typecheck/runtime smoke build boundary and run it from the desktop build.
 - [x] Continue Command Runtime Phase 3: migrate the first native `/dream` conversation-evidence extraction path for explicit memory-intent evidence.
 - [x] Continue Command Runtime Phase 3: migrate the first native `/dream` legacy-history extraction path for explicit memory-intent records.
