@@ -1391,7 +1391,7 @@ export class AgentWorker {
       if (routeHasInvalidJsonBody(route)) {
         return invalidCoworkJsonBodyRouteResponse();
       }
-      const params = parseCoworkDeriveBranchParams({ ...body, session_id: sessionId });
+      const params = parseCoworkDeriveBranchParams(coworkDeriveBranchRouteBody(body, sessionId));
       const result = await this.coworkService.deriveBranch({
         traceId,
         sessionId: params.sessionId,
@@ -1408,7 +1408,7 @@ export class AgentWorker {
       if (routeHasInvalidJsonBody(route)) {
         return invalidCoworkJsonBodyRouteResponse();
       }
-      const params = parseCoworkDeriveBranchParams({ ...body, session_id: sessionId, source_branch_id: segments[3] });
+      const params = parseCoworkDeriveBranchParams(coworkDeriveBranchRouteBody(body, sessionId, segments[3]));
       const result = await this.coworkService.deriveBranch({
         traceId,
         sessionId: params.sessionId,
@@ -3911,6 +3911,41 @@ function routeHasInvalidJsonBody(route: CoworkRouteRequest): boolean {
 
 function hasCoworkMergeBranchIdsList(body: Record<string, unknown>): boolean {
   return Array.isArray(body.branch_ids) || Array.isArray(body.branchIds);
+}
+
+function coworkDeriveBranchRouteBody(
+  body: Record<string, unknown>,
+  sessionId: string,
+  pathSourceBranchId?: string,
+): Record<string, unknown> {
+  const routeBody: Record<string, unknown> = {
+    ...body,
+    session_id: sessionId,
+  };
+  setRouteTextParam(routeBody, body, "source_branch_id", "sourceBranchId", "source_branch_id");
+  if (pathSourceBranchId !== undefined) {
+    routeBody.source_branch_id = pathSourceBranchId;
+  }
+  setRouteTextParam(routeBody, body, "target_architecture", "targetArchitecture", "target_architecture");
+  setRouteTextParam(routeBody, body, "architecture", "architecture", "architecture");
+  setRouteTextParam(routeBody, body, "reason", "reason", "reason");
+  setRouteTextParam(routeBody, body, "derivation_reason", "derivationReason", "derivation_reason");
+  setRouteTextParam(routeBody, body, "title", "title", "title");
+  setRouteTextParam(routeBody, body, "inherited_context_summary", "inheritedContextSummary", "inherited_context_summary");
+  return routeBody;
+}
+
+function setRouteTextParam(
+  target: Record<string, unknown>,
+  source: Record<string, unknown>,
+  targetKey: string,
+  camelKey: string,
+  snakeKey: string,
+): void {
+  if (!Object.prototype.hasOwnProperty.call(source, camelKey) && !Object.prototype.hasOwnProperty.call(source, snakeKey)) {
+    return;
+  }
+  target[targetKey] = pythonRouteTextParam(source, camelKey, snakeKey);
 }
 
 function unavailableCoworkRouteResponse(): CoworkRouteResponse {

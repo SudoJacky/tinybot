@@ -4102,8 +4102,9 @@ describe("AgentWorker", () => {
       path: `/api/cowork/sessions/${encodeURIComponent(created.id)}/branches/default/derive`,
       body: {
         target_architecture: "orchestrator",
-        derivation_reason: "Python alias reason",
-        title: "Reason alias branch",
+        derivation_reason: 404,
+        title: 505,
+        inherited_context_summary: 606,
       },
     }))).resolves.toMatchObject({
       result: {
@@ -4112,7 +4113,9 @@ describe("AgentWorker", () => {
           branch: expect.objectContaining({
             id: "br_3",
             architecture: "orchestrator",
-            derivation_reason: "Python alias reason",
+            title: "505",
+            derivation_reason: "404",
+            inherited_context_summary: "606",
             source_branch_id: "default",
           }),
           session: expect.objectContaining({
@@ -4120,7 +4123,7 @@ describe("AgentWorker", () => {
             stage_records: expect.arrayContaining([
               expect.objectContaining({
                 target_branch_id: "br_3",
-                derivation_reason: "Python alias reason",
+                derivation_reason: "404",
               }),
             ]),
           }),
