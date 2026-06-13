@@ -296,6 +296,99 @@ describe("CoworkMailbox", () => {
     });
   });
 
+  it("refreshes Python-shaped decision metadata after mailbox delivery", async () => {
+    const session = await createTeamSession();
+    session.agents.coordinator.inbox = [];
+    session.workflow_mode = "team";
+    session.current_focus_task = "Draft final answer";
+    session.workspace_dir = "D:/workspace/cowork/session-1";
+    session.stop_reason = "budget_exhausted";
+    session.artifacts = ["a.md", "b.md", "c.md", "d.md", "e.md", "f.md", "g.md", "h.md", "i.md"];
+    session.budget_limits = {
+      max_rounds_per_run: 5,
+      max_tokens: 1000,
+    };
+    session.budget_usage = {
+      rounds: 2,
+      tokens_total: 400,
+    };
+    session.shared_memory = {
+      findings: [{ text: "Finding A" }, { text: "Finding B" }],
+      claims: [{ text: "Claim A" }],
+      risks: [],
+      open_questions: [{ text: "Question A" }],
+      decisions: [{ text: "Decision A" }],
+      artifacts: [{ text: "a.md" }],
+    };
+    session.tasks = {
+      task_1: {
+        id: "task_1",
+        title: "Answer question",
+        description: "Provide the recommendation.",
+        assigned_agent_id: "researcher",
+        status: "completed",
+        dependencies: [],
+        result: "Recommend option A.",
+        result_data: { answer: "Recommend option A." },
+        confidence: 0.9,
+        error: null,
+        priority: 0,
+        expected_output: "",
+        review_required: false,
+        reviewer_agent_ids: [],
+        review_status: "",
+        fanout_group_id: "",
+        merge_task_id: "",
+        source_blueprint_id: "",
+        source_event_id: "",
+        runtime_created: false,
+        created_at: fixedNow,
+        updated_at: fixedNow,
+      },
+    };
+
+    deliver(session, {
+      sender_id: "coordinator",
+      recipient_ids: ["researcher"],
+      content: "Metadata should stay current.",
+      wake_recipients: false,
+    });
+
+    expect(session.completion_decision).toMatchObject({
+      next_action: "summarize",
+      workflow_mode: "team",
+      workflow_profile: "team",
+      stop_reason: "budget_exhausted",
+      focus_task: "Draft final answer",
+      workspace_dir: "D:/workspace/cowork/session-1",
+      artifacts: ["b.md", "c.md", "d.md", "e.md", "f.md", "g.md", "h.md", "i.md"],
+      shared_memory_counts: {
+        findings: 2,
+        claims: 1,
+        risks: 0,
+        open_questions: 1,
+        decisions: 1,
+        artifacts: 1,
+      },
+      budget: {
+        limits: {
+          max_rounds_per_run: 5,
+          max_tokens: 1000,
+        },
+        usage: {
+          rounds: 2,
+          tokens_total: 400,
+          stop_reason: "budget_exhausted",
+        },
+        remaining: {
+          max_rounds_per_run: 3,
+          max_tokens: 600,
+        },
+        stop_reason: "budget_exhausted",
+      },
+    });
+  });
+
   it("keeps review-required completed tasks behind review gates instead of summarizing", async () => {
     const session = await createTeamSession();
     session.agents.coordinator.inbox = [];

@@ -1,7 +1,9 @@
 import { isJsonObject, type JsonObject } from "../protocol/messages.ts";
+import { defaultPolicyRegistry } from "./coworkPolicy.ts";
 import type { CoworkEvent, CoworkSession } from "./coworkTypes.ts";
 
 const CONVERGENCE_IDLE_ROUNDS = 2;
+const SHARED_MEMORY_BUCKETS = ["findings", "claims", "risks", "open_questions", "decisions", "artifacts"] as const;
 
 export type CoworkEnvelope = {
   sender_id: string;
@@ -702,6 +704,14 @@ function refreshMailboxCompletionDecision(session: CoworkSession, now: () => str
     ready_to_finish: nextAction === "summarize",
     no_progress_rounds: session.no_progress_rounds,
     convergence_limit: CONVERGENCE_IDLE_ROUNDS,
+    budget: mailboxBudgetState(session),
+    stop_reason: stringValue(session.stop_reason),
+    workflow_mode: stringValue(session.workflow_mode),
+    workflow_profile: defaultPolicyRegistry().resolve(session.workflow_mode).runtimeProfile,
+    focus_task: stringValue(session.current_focus_task),
+    workspace_dir: stringValue(session.workspace_dir),
+    artifacts: session.artifacts.slice(-8),
+    shared_memory_counts: sharedMemoryCounts(session),
     goal_review: goalReview,
     updated_at: now(),
   };
@@ -793,6 +803,48 @@ function detectMailboxDisagreements(tasks: JsonObject[]): JsonObject[] {
     }
   }
   return signals.slice(0, 20);
+}
+
+function mailboxBudgetState(session: CoworkSession): JsonObject {
+  const limits = jsonSafeObject(session.budget_limits);
+  const usage = {
+    ...jsonSafeObject(session.budget_usage),
+    stop_reason: stringValue(session.stop_reason) || stringValue(jsonSafeObject(session.budget_usage).stop_reason),
+  };
+  return {
+    limits,
+    usage,
+    remaining: budgetRemaining(limits, usage),
+    stop_reason: stringValue(usage.stop_reason),
+  };
+}
+
+function budgetRemaining(limits: JsonObject, usage: JsonObject): JsonObject {
+  const pairs: Record<string, string> = {
+    max_rounds_per_run: "rounds",
+    max_agent_calls_per_run: "agent_calls",
+    max_agent_calls_total: "agent_calls",
+    max_spawned_agents: "spawned_agents",
+    max_tool_calls: "tool_calls",
+    max_tokens: "tokens_total",
+    max_cost: "cost",
+    max_wall_time_seconds: "wall_time_seconds",
+  };
+  const remaining: JsonObject = {};
+  for (const [limitKey, usageKey] of Object.entries(pairs)) {
+    const limit = numberOrNull(limits[limitKey]);
+    remaining[limitKey] = limit === null ? null : Math.max(0, limit - (numberOrNull(usage[usageKey]) ?? 0));
+  }
+  return remaining;
+}
+
+function sharedMemoryCounts(session: CoworkSession): JsonObject {
+  const memory = jsonSafeObject(session.shared_memory);
+  const counts: JsonObject = {};
+  for (const bucket of SHARED_MEMORY_BUCKETS) {
+    counts[bucket] = arrayValue(memory[bucket]).length;
+  }
+  return counts;
 }
 
 function reviewMailboxGoalCompletion(
