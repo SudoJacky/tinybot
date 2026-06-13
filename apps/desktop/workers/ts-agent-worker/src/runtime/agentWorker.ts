@@ -112,6 +112,7 @@ export type AgentWorkerOptions = {
   workspaceBridge?: WebuiWorkspaceProvider;
   heartbeatRuntime?: Pick<HeartbeatRuntime, "start" | "stop" | "triggerNow" | "getStatus"> & Partial<Pick<HeartbeatRuntime, "refreshConfig">>;
   channelManager?: ChannelLifecycleManager;
+  channelBus?: MessageBus;
 };
 
 export type ChannelLifecycleManager = {
@@ -257,6 +258,7 @@ export class AgentWorker {
   private readonly workspaceBridge?: WebuiWorkspaceProvider;
   private readonly heartbeatRuntime?: Pick<HeartbeatRuntime, "start" | "stop" | "triggerNow" | "getStatus"> & Partial<Pick<HeartbeatRuntime, "refreshConfig">>;
   private readonly channelManager?: ChannelLifecycleManager;
+  private readonly channelBus?: MessageBus;
   private readonly commandRouter: CommandRouter;
   private readonly turnLifecycle: TurnLifecycle;
   private readonly activeRuns = new Map<string, ActiveRun>();
@@ -290,6 +292,7 @@ export class AgentWorker {
     this.workspaceBridge = options.workspaceBridge;
     this.heartbeatRuntime = options.heartbeatRuntime;
     this.channelManager = options.channelManager;
+    this.channelBus = options.channelBus;
     this.commandRouter = options.commandRouter ?? createDefaultCommandRouter({
       cancelActiveRunsForSession: (sessionId) => this.cancelActiveRunsForSession(sessionId),
       getStatusSnapshot: (context) => this.statusSnapshot(context.sessionId),
@@ -3010,6 +3013,7 @@ export class AgentWorker {
       await bus.publishInbound(message);
       const dispatched = await runtime.dispatchInboundAvailable(1);
       const outboundMessages = bus.drainOutboundForTest();
+      await this.publishSharedChannelOutbound(outboundMessages);
       return {
         protocol_version: WORKER_PROTOCOL_VERSION,
         id: request.id,
@@ -3023,6 +3027,15 @@ export class AgentWorker {
       };
     } catch (error) {
       return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async publishSharedChannelOutbound(outboundMessages: Awaited<ReturnType<MessageBus["drainOutboundForTest"]>>): Promise<void> {
+    if (!this.channelBus || outboundMessages.length === 0) {
+      return;
+    }
+    for (const message of outboundMessages) {
+      await this.channelBus.publishOutbound(message);
     }
   }
 

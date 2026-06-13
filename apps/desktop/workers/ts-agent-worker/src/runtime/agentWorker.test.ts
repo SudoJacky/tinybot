@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 
 import type { AgentMessage } from "../agent/agentRunSpec";
+import { MessageBus } from "../bus/messageBus";
 import { CoworkScheduler } from "../cowork/coworkScheduler";
 import { CoworkService, createMemoryCoworkStore } from "../cowork/coworkService";
 import type { CoworkSession } from "../cowork/coworkTypes";
@@ -433,6 +434,72 @@ describe("AgentWorker", () => {
         stopReason: "final_response",
       }),
     }));
+  });
+
+  test("publishes channel inbound replies onto the shared channel bus for native dispatch", async () => {
+    const channelBus = new MessageBus();
+    const worker = new AgentWorker({
+      provider: new QueueProvider([
+        {
+          content: "native channel reply",
+          toolCalls: [],
+          stopReason: "stop",
+        },
+      ]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      channelBus,
+      contextBridge: {
+        loadContextInput: async (input) => ({
+          input: {
+            identity: "Identity",
+            currentMessage: input.input.content,
+            runtime: {
+              currentTime: "2026-06-14 10:00:00 Asia/Shanghai",
+              channel: input.channel,
+              chatId: input.chatId,
+            },
+          },
+          metadata: {
+            missingSession: false,
+            malformedHistoryCount: 0,
+            missingBootstrapFiles: [],
+            bootstrapFallbackUsed: false,
+          },
+        }),
+      },
+    });
+
+    const response = await worker.handleRequest(channelRequest("channel.dispatch_inbound", {
+      message: {
+        channel: "feishu",
+        sender_id: "ou_1",
+        chat_id: "oc_1",
+        content: "hello",
+        timestamp: "2026-06-14T02:00:00.000Z",
+        media: [],
+        metadata: {},
+      },
+    }));
+
+    expect(response).toMatchObject({
+      result: {
+        outboundMessages: [
+          expect.objectContaining({
+            channel: "feishu",
+            chatId: "oc_1",
+            content: "native channel reply",
+          }),
+        ],
+      },
+    });
+    expect(channelBus.drainOutboundForTest()).toEqual([
+      expect.objectContaining({
+        channel: "feishu",
+        chatId: "oc_1",
+        content: "native channel reply",
+      }),
+    ]);
   });
 
   test("dispatches channel stop commands through active session cancellation without loading agent context", async () => {

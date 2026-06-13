@@ -147,7 +147,8 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     : undefined;
   const sessionBridge = new NativeSessionBridge(rpcClient);
   const workspaceBridge = new NativeWorkspaceBridge(rpcClient);
-  const channelManager = options.channelManager ?? createDefaultChannelManager(options.env ?? process.env);
+  const channelBus = new MessageBus();
+  const channelManager = options.channelManager ?? createDefaultChannelManager(channelBus, options.env ?? process.env);
   const heartbeatRuntime = new HeartbeatRuntime({
     model: options.env?.TINYBOT_MODEL ?? options.env?.OPENAI_MODEL ?? "default",
     provider,
@@ -243,6 +244,7 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     coworkScheduler,
     heartbeatRuntime,
     channelManager,
+    channelBus,
     statusProvider: async () => {
       const runtime = await providerRuntimeFromNativeConfig(configBridge, options.env ?? process.env, {});
       const providerId = stringValue(runtime.providerId);
@@ -262,9 +264,12 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
   });
 }
 
-function createDefaultChannelManager(env: Record<string, string | undefined>): ChannelManager {
+function createDefaultChannelManager(
+  bus: MessageBus,
+  env: Record<string, string | undefined>,
+): ChannelManager {
   return new ChannelManager({
-    bus: new MessageBus(),
+    bus,
     channels: [],
     env,
   });
