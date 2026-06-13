@@ -217,8 +217,8 @@ function updateSkillContent(currentContent: string, name: string, body: Record<s
     }
   } else {
     frontmatterLines.push(`name: ${name}`);
-    frontmatterLines.push(`description: ${asString(body.description) ?? name}`);
-    if (body.always === true) {
+    frontmatterLines.push(`description: ${body.description === undefined ? name : String(body.description)}`);
+    if (pythonTruthy(body.always)) {
       frontmatterLines.push("always: true");
     }
   }

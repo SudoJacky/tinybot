@@ -261,6 +261,44 @@ describe("NativeSkillsBridge", () => {
     ]);
   });
 
+  test("coerces no-frontmatter update description and always fields like Python", async () => {
+    const rpcClient = new FakeRpcClient({
+      "workspace.read_file": [
+        {
+          content: "Legacy body",
+        },
+      ],
+      "workspace.write_file": [
+        { path: "skills/planner/SKILL.md", bytes_written: 52 },
+      ],
+    });
+    const bridge = new NativeSkillsBridge(rpcClient, {});
+
+    await expect(bridge.updateWebuiSkill("planner", {
+      description: 123,
+      always: "yes",
+    }, "trace-update-legacy")).resolves.toEqual({
+      updated: true,
+      name: "planner",
+      path: "skills/planner/SKILL.md",
+    });
+    expect(rpcClient.calls).toEqual([
+      {
+        traceId: "trace-update-legacy",
+        method: "workspace.read_file",
+        params: { path: "skills/planner/SKILL.md", format: "raw" },
+      },
+      {
+        traceId: "trace-update-legacy",
+        method: "workspace.write_file",
+        params: {
+          path: "skills/planner/SKILL.md",
+          contents: "---\nname: planner\ndescription: 123\nalways: true\n---\nLegacy body",
+        },
+      },
+    ]);
+  });
+
   test("allows skill root symlinks during validation like Python WebUI routes", async () => {
     const rpcClient = new FakeRpcClient({
       "workspace.list_dir": [
