@@ -5770,11 +5770,13 @@ describe("AgentWorker", () => {
     await expect(worker.handleRequest(coworkRequest("cowork.merge_branch_results", {
       session_id: session.id,
       branch_ids: ["default", "br_1"],
+      summary: 707,
     }))).resolves.toMatchObject({
       result: {
         finalResult: expect.objectContaining({
           id: "final_2",
           source: "branch_merge",
+          summary: "707",
           source_branch_ids: ["default", "br_1"],
           source_result_ids: ["brres_1", "brres_team"],
           artifacts: ["default.md", "team.md"],

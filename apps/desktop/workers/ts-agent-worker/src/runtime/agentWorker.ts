@@ -4371,7 +4371,7 @@ function parseCoworkMergeBranchResultsParams(params: Record<string, unknown> | u
   return {
     sessionId,
     branchIds,
-    summary: stringParam(params, "summary", "summary"),
+    summary: pythonRouteTextParam(params, "summary", "summary"),
   };
 }
 
