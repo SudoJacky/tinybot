@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued Cowork Phase 10 route parity: TS-native Cowork run routes now mirror Python truthiness for `run_until_idle` and `stop_on_blocker` JSON values, preserving Python fallback behavior for string-form route flags on the default worker route.
+
 - Continued Cowork Phase 10 desktop/default-route parity: TS-native Cowork message dispatch now preserves Python-compatible `thread_id`, `topic`, and `event_type` fields through direct worker RPC and desktop action request builders instead of dropping route metadata before mailbox/thread projection.
 
 - Continued Cowork Phase 10 desktop default-route parity: desktop Cowork action request builders and bootstrap dispatch now preserve Python-compatible emergency-stop `reason` bodies through the default UI path before calling the native-first gateway client.
@@ -879,6 +881,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: align TS swarm final-deliverable readiness projection with Python truthy semantics.
 - [x] Continue Cowork Phase 10: preserve Python-compatible emergency-stop `reason` bodies through the desktop Cowork action builder and bootstrap default UI dispatch path.
 - [x] Continue Cowork Phase 10: forward Python-compatible emergency-stop route bodies from the desktop gateway native-first client so `reason` reaches the TS route handler.
+- [x] Continue Cowork Phase 10: mirror Python truthiness for Cowork run-route `run_until_idle` and `stop_on_blocker` flags.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.

@@ -4105,8 +4105,8 @@ function parseCoworkRunSessionParams(params: Record<string, unknown> | undefined
     maxRounds: numberParam(params, "maxRounds", "max_rounds"),
     maxAgents,
     maxAgentCalls: numberParam(params, "maxAgentCalls", "max_agent_calls"),
-    runUntilIdle: booleanParam(params, "runUntilIdle", "run_until_idle"),
-    stopOnBlocker: booleanParam(params, "stopOnBlocker", "stop_on_blocker"),
+    runUntilIdle: pythonRouteBoolParam(params, "runUntilIdle", "run_until_idle"),
+    stopOnBlocker: pythonRouteBoolParam(params, "stopOnBlocker", "stop_on_blocker"),
   };
 }
 
@@ -4531,6 +4531,32 @@ function numberParam(params: Record<string, unknown>, camelKey: string, snakeKey
 function booleanParam(params: Record<string, unknown>, camelKey: string, snakeKey: string): boolean | undefined {
   const value = params[camelKey] ?? params[snakeKey];
   return typeof value === "boolean" ? value : undefined;
+}
+
+function pythonRouteBoolParam(params: Record<string, unknown>, camelKey: string, snakeKey: string): boolean | undefined {
+  const value = params[camelKey] ?? params[snakeKey];
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null) {
+    return false;
+  }
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "string") {
+    return value.length > 0;
+  }
+  if (typeof value === "number") {
+    return value !== 0 && Number.isFinite(value);
+  }
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+  if (typeof value === "object") {
+    return Object.keys(value).length > 0;
+  }
+  return true;
 }
 
 function providerRetryModeParam(params: Record<string, unknown>): "standard" | "persistent" | undefined {

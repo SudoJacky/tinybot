@@ -701,7 +701,7 @@ describe("CoworkScheduler", () => {
     const provider = new QueueProvider([
       {
         content: JSON.stringify({
-          status: "done",
+          status: "idle",
           action: "complete",
           public_note: "Draft complete.",
           private_note: "Completed first round.",
