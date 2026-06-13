@@ -1023,7 +1023,19 @@ describe("CoworkService", () => {
       architecture: "team",
       sections: expect.any(Array),
     });
-    await expect(service.getQueues({ traceId: "trace-queues", sessionId: session.id })).resolves.toEqual({});
+    await expect(service.getQueues({ traceId: "trace-queues", sessionId: session.id })).resolves.toMatchObject({
+      schema_version: "cowork.swarm_queues.v1",
+      parallel_width: 3,
+      available_slots: 3,
+      counts: {
+        ready: 0,
+        blocked: 0,
+        running: 0,
+        completed: 0,
+        failed_retry: 0,
+        cancelled: 0,
+      },
+    });
   });
 
   it("delivers mailbox envelopes through the persisted service session", async () => {

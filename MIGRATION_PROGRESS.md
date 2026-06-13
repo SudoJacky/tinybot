@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued Cowork Phase 10 queues route parity: TS-native `/queues` routes now return Python-shaped `cowork.swarm_queues.v1` empty queue projections for non-swarm sessions instead of inheriting the session snapshot's gated `{}` summary field.
+
 - Continued Cowork Phase 10 trace route parity: TS-native Cowork trace routes now return Python-sized `scheduler_decisions[-80:]` history instead of inheriting the shorter session snapshot window.
 
 - Continued Cowork Phase 10 route parity: TS-native agent activity routes now parse `limit` query values with Python `int(...)` semantics, defaulting malformed values such as `2.5` before the shared 1..80 clamp instead of truncating them through JavaScript `parseInt`.

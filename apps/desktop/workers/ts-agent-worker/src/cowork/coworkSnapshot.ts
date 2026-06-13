@@ -667,7 +667,7 @@ function orchestrationAssessment(swarmPlan: JsonObject): JsonObject {
   return isJsonObject(swarmPlan.orchestration) ? jsonSafeObject(swarmPlan.orchestration) : {};
 }
 
-function buildSwarmSchedulerQueues(session: CoworkSession): JsonObject {
+export function buildSwarmSchedulerQueues(session: CoworkSession): JsonObject {
   const plan = jsonSafeObject(session.swarm_plan);
   const units = swarmWorkUnits(session);
   const completed = completedSwarmReferences(session, units);

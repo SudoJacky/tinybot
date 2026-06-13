@@ -3,7 +3,7 @@ import { normalizeArchitectureName } from "./coworkArchitecture.ts";
 import { normalizeBlueprint, previewBlueprint } from "./coworkBlueprint.ts";
 import { CoworkMailbox, type CoworkEnvelope, type CoworkMailboxMessage } from "./coworkMailbox.ts";
 import { normalizeCoworkSession } from "./coworkSerde.ts";
-import { coworkSessionSnapshot } from "./coworkSnapshot.ts";
+import { buildSwarmSchedulerQueues, coworkSessionSnapshot } from "./coworkSnapshot.ts";
 import type { CoworkAgent, CoworkBranch, CoworkEvent, CoworkSession, CoworkTask } from "./coworkTypes.ts";
 
 const DEFAULT_BRANCH_ID = "default";
@@ -399,8 +399,7 @@ export class CoworkService {
 
   async getQueues(request: CoworkReadOnlyRequest): Promise<JsonObject> {
     const session = await this.requireSession(request.sessionId, request.traceId ?? "");
-    const snapshot = coworkSessionSnapshot(session);
-    return jsonSafeObject(snapshot.swarm_queues);
+    return buildSwarmSchedulerQueues(session);
   }
 
   async getAgentActivity(request: CoworkAgentActivityRequest): Promise<JsonObject> {

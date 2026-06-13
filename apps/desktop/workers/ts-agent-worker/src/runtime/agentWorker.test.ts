@@ -4329,6 +4329,53 @@ describe("AgentWorker", () => {
     expect(decisions.at(-1)?.id).toBe("decision_81");
   });
 
+  test("returns Python-shaped empty scheduler queues for non-swarm sessions", async () => {
+    const store = createMemoryCoworkStore();
+    const coworkService = new CoworkService({
+      store,
+      now: () => "2026-06-12T08:00:00.000Z",
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      coworkService,
+    });
+    const session = await coworkService.createSession({
+      traceId: "seed-non-swarm-queues",
+      goal: "Inspect queues",
+      title: "Inspect Queues",
+      workflowMode: "team",
+      agents: [{ id: "lead", name: "Lead" }],
+      tasks: [],
+      budgets: { parallel_width: 2 },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "GET",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/queues`,
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          swarm_queues: expect.objectContaining({
+            schema_version: "cowork.swarm_queues.v1",
+            parallel_width: 2,
+            available_slots: 2,
+            counts: {
+              ready: 0,
+              blocked: 0,
+              running: 0,
+              completed: 0,
+              failed_retry: 0,
+              cancelled: 0,
+            },
+          }),
+        },
+      },
+    });
+  });
+
   test("defaults malformed Python agent-activity route limits before clamping", async () => {
     const store = createMemoryCoworkStore();
     const coworkService = new CoworkService({

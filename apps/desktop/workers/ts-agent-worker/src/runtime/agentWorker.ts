@@ -22,7 +22,7 @@ import { previewBlueprint, validateBlueprint } from "../cowork/coworkBlueprint.t
 import type { CoworkEnvelope } from "../cowork/coworkMailbox.ts";
 import type { CoworkScheduler } from "../cowork/coworkScheduler.ts";
 import type { CoworkService } from "../cowork/coworkService.ts";
-import { coworkSessionSnapshot } from "../cowork/coworkSnapshot.ts";
+import { buildSwarmSchedulerQueues, coworkSessionSnapshot } from "../cowork/coworkSnapshot.ts";
 import type { CoworkBranch, CoworkSession } from "../cowork/coworkTypes.ts";
 import type { HeartbeatRuntime } from "../heartbeat/heartbeatRuntime.ts";
 import type { ModelProvider, ToolDefinition } from "../model/provider.ts";
@@ -1033,8 +1033,7 @@ export class AgentWorker {
       if (!session) {
         return { status: 404, body: { error: "cowork session not found" } };
       }
-      const snapshot = coworkSessionSnapshot(session);
-      const queues = snapshot.swarm_queues ?? {};
+      const queues = buildSwarmSchedulerQueues(session);
       return { status: 200, body: { queues, swarm_queues: queues } };
     }
 
