@@ -30,6 +30,8 @@
 
 - Continued Cowork Phase 10 mailbox parity: TS mailbox delivery now expires overdue records before delivering new envelopes, matching Python mailbox behavior so native message routes do not keep stale blockers active.
 
+- Continued Cowork Phase 10 route parity: TS-native Cowork mutation routes that mirror Python `_json_body()` now reject missing request bodies with `invalid json body` instead of treating them as empty objects.
+
 - Continued Cowork Phase 10 desktop observability parity: selected-agent inspectors now expose the latest tool/browser observation detail action when agent activity includes a `detail_ref`, and both legacy and Vue desktop paths send `loadObservation` with requester `agent_id` into the existing TS-native observation route.
 
 - Continued Cowork Phase 10 desktop route parity: the native Vue Cowork inspector now emits derive-branch, select-final-result, and merge-final-result events for selected branches, keeping the Vue island action surface aligned with the migrated TS-native route facade.
@@ -523,6 +525,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 | 2026-06-13 | Continued Cowork Phase 10 route parity: TS-native message routes now preserve Python-compatible `thread_id` and `topic` fields when creating new discussion threads. |
 | 2026-06-13 | Continued Cowork Phase 10 route parity: TS-native message routes now deliver non-swarm API messages through mailbox envelopes with delivered records and `event_type` metadata. |
 | 2026-06-13 | Continued Cowork Phase 10 mailbox parity: TS mailbox delivery now expires overdue records before delivering new envelopes. |
+| 2026-06-13 | Continued Cowork Phase 10 route parity: TS-native Cowork `_json_body()` mutation routes now reject missing request bodies with Python-compatible `invalid json body` responses. |
 | 2026-06-13 | Continued Channel Bus Phase 3: TS worker now exposes `channel.dispatch_inbound`, parses Python-compatible inbound envelopes, routes them through `ChannelRuntime` and the existing `agent.run_input` path, and returns outbound bus messages with camelCase and snake_case projections for native/Python bridges. |
 | 2026-06-13 | Continued Channel Bus Phase 3/4 bridge setup: Rust/Tauri now exposes `worker_channel_dispatch_inbound`, builds `channel.dispatch_inbound` worker requests from generic channel envelopes, and desktop `nativeTransport.dispatchChannelInbound()` can call the native TS channel bridge. |
 | 2026-06-13 | Continued Channel Bus Phase 4 bridge setup: added exported TS `pythonChannelBridge` schema helpers for Python-compatible inbound normalization and outbound snake_case projection, and made `channel.dispatch_inbound` reuse that shared bridge contract. |
@@ -741,6 +744,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: preserve Python-compatible message `thread_id` and `topic` fields on TS-native message routes.
 - [x] Continue Cowork Phase 10: route non-swarm TS-native API messages through mailbox envelopes with `event_type` metadata.
 - [x] Continue Cowork Phase 10: expire overdue mailbox records before TS mailbox delivery.
+- [x] Continue Cowork Phase 10: reject missing bodies on TS-native Cowork `_json_body()` mutation routes.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.

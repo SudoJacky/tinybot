@@ -3855,7 +3855,7 @@ function invalidCoworkJsonBodyRouteResponse(): CoworkRouteResponse {
 }
 
 function routeHasInvalidJsonBody(route: CoworkRouteRequest): boolean {
-  return route.body !== undefined && !isJsonObject(route.body);
+  return !isJsonObject(route.body);
 }
 
 function hasCoworkMergeBranchIdsList(body: Record<string, unknown>): boolean {
