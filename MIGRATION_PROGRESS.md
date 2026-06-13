@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Command Runtime restart parity: native `runtime.restart` host RPC now invokes an injected Rust restart callback with normalized run/session context before acknowledging, giving the app layer a controlled restart hook instead of a no-op acknowledgement.
+
 - Continued Command Runtime restart parity: the default TS worker server now wires `/restart` through a native `runtime.restart` host RPC, and the Rust worker RPC router acknowledges the controlled restart request instead of leaving restart unavailable outside manually injected tests.
 
 - Continued Task/Cron background runtime parity: TS-native `cron.run_due` now routes the protected Dream system cron job through the existing Dream bridge instead of skipping all `system_event` jobs, while preserving skipped diagnostics for unknown system events.

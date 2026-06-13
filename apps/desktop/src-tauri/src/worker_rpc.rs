@@ -22,10 +22,12 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},
+    fmt,
     fs,
     hash::{Hash, Hasher},
     path::PathBuf,
     process::Command,
+    sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -46,7 +48,61 @@ pub struct WorkerRpcRouter {
     background: WorkerBackgroundRpc,
     mcp: WorkerMcpRpc,
     channel_connector: WorkerChannelConnectorRpc,
+    runtime: WorkerRuntimeRpc,
     config_store: Option<ConfigStore>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RuntimeRestartRequest {
+    pub run_id: Option<String>,
+    pub session_id: Option<String>,
+}
+
+type RuntimeRestartHandler = Arc<dyn Fn(RuntimeRestartRequest) + Send + Sync + 'static>;
+
+#[derive(Clone)]
+struct WorkerRuntimeRpc {
+    restart_handler: Option<RuntimeRestartHandler>,
+}
+
+impl fmt::Debug for WorkerRuntimeRpc {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("WorkerRuntimeRpc")
+            .field("restart_handler", &self.restart_handler.is_some())
+            .finish()
+    }
+}
+
+impl WorkerRuntimeRpc {
+    fn new() -> Self {
+        Self {
+            restart_handler: None,
+        }
+    }
+
+    fn with_restart_handler(
+        handler: impl Fn(RuntimeRestartRequest) + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            restart_handler: Some(Arc::new(handler)),
+        }
+    }
+
+    fn restart(&self, params: RuntimeRestartParams) -> Value {
+        let request = RuntimeRestartRequest {
+            run_id: params.run_id,
+            session_id: params.session_id,
+        };
+        if let Some(handler) = &self.restart_handler {
+            handler(request.clone());
+        }
+        serde_json::json!({
+            "restart_requested": true,
+            "run_id": request.run_id,
+            "session_id": request.session_id,
+        })
+    }
 }
 
 impl WorkerRpcRouter {
@@ -73,6 +129,7 @@ impl WorkerRpcRouter {
             background: WorkerBackgroundRpc::new(workspace_root.clone(), policy.clone()),
             channel_connector: WorkerChannelConnectorRpc::new(policy.clone()),
             mcp: WorkerMcpRpc::new(config_snapshot, policy),
+            runtime: WorkerRuntimeRpc::new(),
             config_store: None,
         }
     }
@@ -94,6 +151,14 @@ impl WorkerRpcRouter {
         );
         router.config_store = Some(config_store);
         router
+    }
+
+    pub fn with_runtime_restart_handler(
+        mut self,
+        handler: impl Fn(RuntimeRestartRequest) + Send + Sync + 'static,
+    ) -> Self {
+        self.runtime = WorkerRuntimeRpc::with_restart_handler(handler);
+        self
     }
 
     pub fn dispatch(&mut self, request: &WorkerRequest) -> WorkerResponse {
@@ -523,11 +588,7 @@ impl WorkerRpcRouter {
             }
             "runtime.restart" => {
                 let params: RuntimeRestartParams = parse_params(request)?;
-                Ok(serde_json::json!({
-                    "restart_requested": true,
-                    "run_id": params.run_id,
-                    "session_id": params.session_id,
-                }))
+                Ok(self.runtime.restart(params))
             }
             _ => Err(unknown_method_error(request)),
         }
@@ -4193,7 +4254,7 @@ fn memory_timestamp() -> String {
 mod tests {
     use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
     use crate::worker_protocol::WorkerRequest;
-    use crate::worker_rpc::WorkerRpcRouter;
+    use crate::worker_rpc::{RuntimeRestartRequest, WorkerRpcRouter};
     use serde_json::{json, Value};
     use std::{
         path::PathBuf,
@@ -4205,13 +4266,21 @@ mod tests {
     #[test]
     fn dispatches_runtime_restart_request() {
         let fixture = WorkspaceFixture::new();
+        let restart_requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let captured = restart_requests.clone();
         let mut router = WorkerRpcRouter::new(
             fixture.root.clone(),
             json!({}),
             vec![],
             20,
             CapabilityPolicy::new([]),
-        );
+        )
+        .with_runtime_restart_handler(move |request| {
+            captured
+                .lock()
+                .expect("restart request log should lock")
+                .push(request);
+        });
         let request = WorkerRequest::new(
             "req-restart",
             "trace-restart",
@@ -4233,6 +4302,16 @@ mod tests {
                 "run_id": "run-1",
                 "session_id": "session-1"
             })
+        );
+        assert_eq!(
+            restart_requests
+                .lock()
+                .expect("restart request log should lock")
+                .as_slice(),
+            [RuntimeRestartRequest {
+                run_id: Some("run-1".to_string()),
+                session_id: Some("session-1".to_string())
+            }]
         );
     }
 
