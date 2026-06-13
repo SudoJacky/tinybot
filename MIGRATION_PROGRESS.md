@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued WebUI transport Phase 5 Skills update parity: native TS skill updates now reject non-string `content` payloads before writing, matching Python's update-route string concatenation failure boundary instead of stringifying invalid bodies.
+
 - Continued WebUI transport Phase 5 Skills create parity: native TS skill creation now rejects truthy non-string `content` values through the same create-error and best-effort cleanup boundary Python reaches during `SKILL.md` assembly, instead of silently writing TODO body content.
 
 - Continued WebUI transport Phase 5 Skills create parity: native TS skill creation now mirrors Python create-route coercion for truthy non-string `name`, explicit `description`, and truthy `always` values while keeping skill body content string-bounded.

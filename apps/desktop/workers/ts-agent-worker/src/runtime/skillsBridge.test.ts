@@ -205,6 +205,28 @@ describe("NativeSkillsBridge", () => {
     ]);
   });
 
+  test("rejects non-string update content before writing like Python", async () => {
+    const rpcClient = new FakeRpcClient({
+      "workspace.read_file": [
+        {
+          content: "---\nname: planner\ndescription: Plan work\n---\nOld body",
+        },
+      ],
+    });
+    const bridge = new NativeSkillsBridge(rpcClient, {});
+
+    await expect(bridge.updateWebuiSkill("planner", {
+      content: 123,
+    }, "trace-update-content")).rejects.toThrow("can only concatenate str (not \"int\") to str");
+    expect(rpcClient.calls).toEqual([
+      {
+        traceId: "trace-update-content",
+        method: "workspace.read_file",
+        params: { path: "skills/planner/SKILL.md", format: "raw" },
+      },
+    ]);
+  });
+
   test("allows skill root symlinks during validation like Python WebUI routes", async () => {
     const rpcClient = new FakeRpcClient({
       "workspace.read_file": [

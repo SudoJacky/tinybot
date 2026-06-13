@@ -212,7 +212,9 @@ function updateSkillContent(currentContent: string, name: string, body: Record<s
   }
   frontmatterLines.push("---");
   const bodyStart = match ? match[0].length : 0;
-  const bodyContent = body.content !== undefined ? String(body.content) : currentContent.slice(bodyStart).trim();
+  const bodyContent = Object.prototype.hasOwnProperty.call(body, "content")
+    ? updateSkillBodyContent(body.content)
+    : currentContent.slice(bodyStart).trim();
   return `${frontmatterLines.join("\n")}\n${bodyContent}`;
 }
 
@@ -371,7 +373,17 @@ function createSkillBodyContent(value: unknown, always: boolean): string {
   throw new TypeError(`sequence item ${itemIndex}: expected str instance, ${pythonTypeName(value)} found`);
 }
 
+function updateSkillBodyContent(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  throw new TypeError(`can only concatenate str (not "${pythonTypeName(value)}") to str`);
+}
+
 function pythonTypeName(value: unknown): string {
+  if (value === null) {
+    return "NoneType";
+  }
   if (typeof value === "boolean") {
     return "bool";
   }
