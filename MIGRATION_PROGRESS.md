@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued Cowork Phase 10 mailbox parity: TS mailbox completion-decision refresh now honors Python convergence review priority ahead of unread inbox work and emits `no_progress_rounds` / `convergence_limit` decision metadata.
+
 - Continued Cowork Phase 10 mailbox parity: TS mailbox completion-decision refresh now honors Python's failed-task priority ahead of pending reply blockers, so failed tasks surface as `review_failed_tasks` even when new mailbox reply requests are delivered.
 
 - Continued Cowork Phase 10 mailbox parity: TS mailbox delivery now refreshes Python-compatible completion decisions for pending reply blockers after delivered/read `requires_reply` records, exposing `resolve_blockers` decisions with blocker summaries instead of leaving stale or empty decision payloads.
@@ -754,6 +756,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: reset stale completed-session readiness decisions when TS mailbox delivery reopens a session for a user message.
 - [x] Continue Cowork Phase 10: refresh Python-compatible pending-reply blocker completion decisions after TS mailbox delivery.
 - [x] Continue Cowork Phase 10: preserve Python `review_failed_tasks` priority ahead of reply blockers during TS mailbox decision refresh.
+- [x] Continue Cowork Phase 10: preserve Python `review_convergence` priority ahead of unread inbox work during TS mailbox decision refresh.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.

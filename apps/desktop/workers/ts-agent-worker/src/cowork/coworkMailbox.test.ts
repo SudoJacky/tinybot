@@ -227,6 +227,26 @@ describe("CoworkMailbox", () => {
     });
   });
 
+  it("keeps convergence review ahead of unread inbox work when refreshing decisions", async () => {
+    const session = await createTeamSession();
+    session.no_progress_rounds = 2;
+
+    deliver(session, {
+      sender_id: "analyst",
+      recipient_ids: ["coordinator"],
+      content: "Another note without tracked progress.",
+      wake_recipients: true,
+    });
+
+    expect(session.completion_decision).toMatchObject({
+      next_action: "review_convergence",
+      reason: "No tracked progress for 2 consecutive round(s).",
+      ready_to_finish: false,
+      no_progress_rounds: 2,
+      convergence_limit: 2,
+    });
+  });
+
   it("deduplicates active correlation requests and returns the original message", async () => {
     const session = await createTeamSession();
     const box = mailbox();

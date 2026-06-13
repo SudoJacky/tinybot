@@ -1,6 +1,8 @@
 import { isJsonObject, type JsonObject } from "../protocol/messages.ts";
 import type { CoworkEvent, CoworkSession } from "./coworkTypes.ts";
 
+const CONVERGENCE_IDLE_ROUNDS = 2;
+
 export type CoworkEnvelope = {
   sender_id: string;
   content: string;
@@ -648,6 +650,9 @@ function refreshMailboxCompletionDecision(session: CoworkSession, now: () => str
   } else if (pendingReplies.length > 0) {
     nextAction = "resolve_blockers";
     reason = `${pendingReplies.length} reply request(s) are still open.`;
+  } else if (session.no_progress_rounds >= CONVERGENCE_IDLE_ROUNDS) {
+    nextAction = "review_convergence";
+    reason = `No tracked progress for ${session.no_progress_rounds} consecutive round(s).`;
   } else if (unreadMessageCount > 0) {
     nextAction = "run_next_round";
     reason = `${unreadMessageCount} unread message(s) need agent attention.`;
@@ -674,6 +679,8 @@ function refreshMailboxCompletionDecision(session: CoworkSession, now: () => str
       content: stringValue(record.content).slice(0, 240),
     })),
     ready_to_finish: false,
+    no_progress_rounds: session.no_progress_rounds,
+    convergence_limit: CONVERGENCE_IDLE_ROUNDS,
     updated_at: now(),
   };
 }
