@@ -4083,13 +4083,13 @@ function parseCoworkCreateSessionParams(params: Record<string, unknown> | undefi
       runtimeState: isJsonObject(params.runtimeState) ? params.runtimeState : isJsonObject(params.runtime_state) ? params.runtime_state : undefined,
     };
   }
-  const goal = stringParam(params, "goal", "goal");
+  const goal = pythonRouteTextParam(params, "goal", "goal");
   if (!goal) {
     throw new Error("cowork.create_session requires params.goal or params.blueprint");
   }
   return {
     goal,
-    title: stringParam(params, "title", "title"),
+    title: pythonRouteTextParam(params, "title", "title"),
     workflowMode: firstTruthyStringParam(
       params,
       ["architecture", "architecture"],

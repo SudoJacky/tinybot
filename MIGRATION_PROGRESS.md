@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Cowork Phase 10 create-session route parity: TS-native Cowork session creation now mirrors Python route text coercion for `goal` and `title`, accepting truthy numeric JSON values while still rejecting falsy/missing goals.
+
 - Continued Cowork Phase 10 direct RPC parity: direct TS `cowork.request_task_review` RPCs now mirror Python route text coercion for `reviewer_agent_id`, preserving truthy numeric reviewer ids before reviewer-task assignment fallback.
 
 - Continued Cowork Phase 10 direct RPC parity: direct TS `cowork.assign_task` RPCs now mirror Python route text coercion for `assigned_agent_id`, preserving truthy numeric assignee ids through service slug normalization instead of failing at the worker protocol boundary.
@@ -1006,6 +1008,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS `cowork.add_task` assignee ids.
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS `cowork.assign_task` assignee ids.
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS `cowork.request_task_review` reviewer ids.
+- [x] Continue Cowork Phase 10: mirror Python route text coercion for Cowork create-session goals and titles.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.

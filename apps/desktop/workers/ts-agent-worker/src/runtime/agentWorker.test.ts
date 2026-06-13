@@ -3105,6 +3105,27 @@ describe("AgentWorker", () => {
         },
       },
     });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: "/api/cowork/sessions",
+      body: {
+        goal: 404,
+        title: 505,
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          result: "started cw_2",
+          session: expect.objectContaining({
+            id: "cw_2",
+            title: "505",
+            goal: "404",
+          }),
+        },
+      },
+    });
   });
 
   test("returns Python-compatible create-session route error for non-object bodies", async () => {
