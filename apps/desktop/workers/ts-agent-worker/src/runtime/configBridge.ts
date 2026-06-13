@@ -251,7 +251,7 @@ async function legacyModelProviderConfigFromNativeConfig(
         responses: normalizeFixtureResponses(providerConfig?.responses),
       };
     }
-    if (provider !== "openai" && !(provider === "auto" && env.OPENAI_API_KEY)) {
+    if (provider !== "openai" && provider !== "auto") {
       return modelProviderConfigFromEnv(env);
     }
 

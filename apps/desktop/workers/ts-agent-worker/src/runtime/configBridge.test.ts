@@ -336,6 +336,54 @@ describe("NativeConfigBridge", () => {
     ]);
   });
 
+  test("legacy fallback resolves native OpenAI secrets when provider is auto", async () => {
+    const rpcClient = new FakeRpcClient(
+      {
+        "agents.defaults.provider": "auto",
+        "agents.defaults.model": "gpt-5",
+        "providers.openai": {
+          provider: "openai",
+          api_base: "https://api.test/v1",
+          api_key: null,
+        },
+      },
+      undefined,
+      { api_key: "native-secret", api_key_source: "config" },
+    );
+
+    await expect(modelProviderConfigFromNativeConfig(new NativeConfigBridge(rpcClient), {})).resolves.toEqual({
+      kind: "openai",
+      apiKey: "native-secret",
+      baseURL: "https://api.test/v1",
+      model: "gpt-5",
+    });
+    expect(rpcClient.requests).toEqual([
+      {
+        traceId: "worker-config",
+        method: "config.get",
+        params: { path: "agents.defaults.provider" },
+      },
+      {
+        traceId: "worker-config",
+        method: "provider.resolve_secret",
+        params: {
+          providerId: "openai",
+          apiKeyEnvVars: ["OPENAI_API_KEY"],
+        },
+      },
+      {
+        traceId: "worker-config",
+        method: "config.get",
+        params: { path: "agents.defaults.model" },
+      },
+      {
+        traceId: "worker-config",
+        method: "config.get",
+        params: { path: "providers.openai" },
+      },
+    ]);
+  });
+
   test("returns unconfigured provider config when OpenAI is selected without env api key", async () => {
     const rpcClient = new FakeRpcClient(
       {

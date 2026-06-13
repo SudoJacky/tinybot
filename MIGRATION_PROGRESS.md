@@ -22,6 +22,8 @@
 
 - Continued config/provider preview durability: TS provider-model preview now falls back to an empty public config when native snapshots are unavailable but request-scoped `api_key` / `api_base` / manual models are supplied, preserving live/manual model discovery without native secret resolution.
 
+- Continued config/provider bridge durability: `modelProviderConfigFromNativeConfig()` legacy fallback now treats native `provider=auto` as eligible for `provider.resolve_secret`, so snapshot-unavailable workers can still resolve configured OpenAI secrets without env keys.
+
 - Continued TS worker packaging/build boundary: `apps/desktop` now has a `typecheck:worker` gate backed by a dedicated `workers/ts-agent-worker/tsconfig.json` plus a Node source-runtime smoke check, and the main desktop build runs it before Vite packaging so worker type/runtime syntax regressions are no longer hidden by the app-only `tsconfig`.
 
 - Continued session turn lifecycle durability: native Rust `session.persist_turn` now deduplicates incoming persisted messages using Python-compatible user/assistant/tool message keys and reports real saved/duplicate message counts, so repeated TS worker persistence cannot grow session history with already-saved turn messages.
@@ -159,6 +161,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 
 | Date | Update |
 | --- | --- |
+| 2026-06-13 | Continued config/provider bridge durability: legacy native config fallback now resolves OpenAI secrets for `provider=auto` when public config snapshots are unavailable and env keys are absent. |
 | 2026-06-13 | Continued Cowork internal delegation parity: spawned-agent budget exhaustion now blocks TS `cowork_internal` spawn_agent/spawn_subteam with guardrail and denial observability. |
 | 2026-06-13 | Continued Cowork scheduler Python parity: budget-limit stops now emit Python-compatible budget-exhausted event types and blocked trace status in the TS scheduler. |
 | 2026-06-13 | Continued Cowork Phase 10 rollout parity: recipient-less swarm message fallback classification now follows the worker recipient alias precedence. |
@@ -695,6 +698,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] 继续 config Phase 3：推进受控 `config.apply_patch_result` RPC 起点。
 - [x] 继续 config Phase 3：推进 host action 持久化到 ConfigStore / 真实 `config.patch` patch 输入桥接起点。
 - [x] 继续 config Phase 3：将 desktop settings 保存路径从 Python gateway `PATCH /api/config` 切到 native host action，并保留 Python fallback。
+- [x] Continue config/provider bridge durability: resolve native OpenAI secrets for legacy `provider=auto` fallback when public snapshots are unavailable.
 - [x] 在 Batch 1 shared support Phase 1 完成后更新 `Current Focus` 和对应状态。
 - [x] 继续 Cowork Phase 1：补 TS session/store types、legacy serde/default hydration 与 `cowork_store.*` native bridge contract。
 - [x] 继续 Cowork Phase 1：补 read-only `coworkSessionSnapshot()`、graph/trace/task DAG/artifact index 与 non-verbose privacy projection。
