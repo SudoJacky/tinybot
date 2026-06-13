@@ -49,3 +49,9 @@ export {
   type ChannelCapabilities,
   type ChannelDescriptor,
 } from "./channelRegistry.ts";
+export {
+  NativeTextChannel,
+  type NativeTextChannelConnector,
+  type NativeTextChannelOptions,
+  type NativeTextChannelSendTextInput,
+} from "./nativeTextChannel.ts";
