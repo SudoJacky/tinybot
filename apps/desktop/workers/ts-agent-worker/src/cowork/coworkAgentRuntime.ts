@@ -1270,7 +1270,10 @@ function taskForSwarmUnit(session: CoworkSession, unit: JsonObject, agentId: str
   if (!task) {
     return selectTaskForAgent(session, agentId);
   }
-  if (task.status !== "pending" || (task.assigned_agent_id && task.assigned_agent_id !== agentId)) {
+  if (
+    ["in_progress", "completed", "skipped"].includes(task.status)
+    || (task.assigned_agent_id && task.assigned_agent_id !== agentId)
+  ) {
     return undefined;
   }
   const completed = new Set(Object.values(session.tasks)

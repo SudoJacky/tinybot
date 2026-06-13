@@ -366,6 +366,45 @@ describe("CoworkAgentRuntime", () => {
     }));
   });
 
+  it("selects failed retry swarm units when their source task is failed", async () => {
+    const provider = new QueueProvider([]);
+    const seeded = await seedRuntime(provider);
+    const session = await seeded.store.readSnapshot("cw_1", "test");
+    if (!session) {
+      throw new Error("missing seeded session");
+    }
+    session.workflow_mode = "swarm";
+    session.tasks.draft.status = "failed";
+    session.tasks.draft.error = "model timeout";
+    session.budget_limits = { ...session.budget_limits, parallel_width: 1 };
+    session.swarm_plan = {
+      id: "swarm_1",
+      status: "running",
+      work_units: [{
+        id: "wu_retry_failed_task",
+        title: "Retry failed task",
+        description: "Retry the failed task lane",
+        source_task_id: "draft",
+        assigned_agent_id: "lead",
+        workstream: "runtime",
+        status: "failed",
+        attempts: 1,
+        max_attempts: 3,
+        dependencies: [],
+        priority: 5,
+      }],
+    };
+
+    const selection = selectReadyCoworkAgentCandidates(session, 1);
+
+    expect(selection.agents.map((agent) => agent.id)).toEqual(["lead"]);
+    expect(selection.candidateScores.lead).toEqual(expect.objectContaining({
+      work_unit_id: "wu_retry_failed_task",
+      source_task_id: "draft",
+      status: "failed",
+    }));
+  });
+
   it("runs one agent round and applies completed task progress", async () => {
     const provider = new QueueProvider([{
       content: JSON.stringify({
