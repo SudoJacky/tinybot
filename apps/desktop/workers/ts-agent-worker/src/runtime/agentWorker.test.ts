@@ -1580,6 +1580,48 @@ describe("AgentWorker", () => {
       },
     });
     await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/v1/knowledge/documents/upload?async_index=true",
+      body: {
+        name: "Upload.json",
+        content: "{\"topic\":\"desktop native\"}\n",
+        file_type: "json",
+        size_bytes: 27,
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 202,
+        body: {
+          id: expect.any(String),
+          name: "Upload.json",
+          file_type: "json",
+          size_bytes: 27,
+          job_id: expect.any(String),
+        },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/v1/knowledge/documents/upload?async_index=true",
+      body: {
+        name: "Upload.csv",
+        content: "name,value\ndesktop,native\n",
+        file_type: "csv",
+        size_bytes: 26,
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 202,
+        body: {
+          id: expect.any(String),
+          name: "Upload.csv",
+          file_type: "csv",
+          size_bytes: 26,
+          job_id: expect.any(String),
+        },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
       method: "GET",
       path: "/v1/knowledge/jobs/kjob_doc-2",
     }))).resolves.toMatchObject({
@@ -1864,6 +1906,26 @@ describe("AgentWorker", () => {
           file_type: "md",
           category: "docs",
           tags: ["desktop", "native"],
+          source: "file_upload",
+        },
+      },
+      {
+        method: "add",
+        traceId: "trace-webui.handle_request",
+        params: {
+          name: "Upload.json",
+          content: "{\"topic\":\"desktop native\"}\n",
+          file_type: "json",
+          source: "file_upload",
+        },
+      },
+      {
+        method: "add",
+        traceId: "trace-webui.handle_request",
+        params: {
+          name: "Upload.csv",
+          content: "name,value\ndesktop,native\n",
+          file_type: "csv",
           source: "file_upload",
         },
       },

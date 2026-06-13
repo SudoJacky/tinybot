@@ -538,6 +538,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue API Runtime Phase 1: expose native all rebuild-index completed aggregate job envelopes and desktop native-first all rebuild facade while leaving semantic rebuild-index on HTTP fallback.
 - [x] Continue API Runtime Phase 1: extend desktop native Knowledge upload support to `.json` and `.csv` text-like files while leaving extractor-dependent formats on HTTP fallback.
 - [x] Continue API Runtime Phase 1: route semantic rebuild-index through native completed unavailable/skipped job envelopes and desktop native-first facade paths while keeping semantic extraction itself deferred.
+- [x] Continue API Runtime Phase 1: harden the TS worker upload route and Rust `knowledge.add_document` core so `.json` and `.csv` text-like Knowledge uploads are accepted end-to-end on the native path.
 - [x] Continue Cowork Phase 10: expose desktop native action requests for TS-native Cowork blueprint, trace, DAG, artifact, organization, queue, and branch read-only routes.
 - [x] Continue Cowork Phase 10: wire desktop Cowork action controls and handler dispatch for TS-native blueprint, trace, DAG, artifact, organization, queue, and branch read-only routes.
 - [x] Continue Cowork Phase 10: expose desktop native action requests for TS-native budget update, source-branch derive, final-result select, and final-result merge routes.

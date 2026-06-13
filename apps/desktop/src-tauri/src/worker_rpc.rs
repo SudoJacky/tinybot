@@ -6111,6 +6111,28 @@ mod tests {
             "# Desktop Knowledge Notes\n\nTS worker knowledge store should persist chunks for sparse retrieval.\n"
         );
 
+        let json_response = router.dispatch(&WorkerRequest::new(
+            "req-json",
+            "trace-json",
+            "knowledge.add_document",
+            json!({
+                "name": "Desktop Payload",
+                "content": "{\"topic\":\"native knowledge\",\"mode\":\"json\"}\n",
+                "file_type": "json",
+                "category": "desktop",
+                "tags": ["json"],
+            }),
+        ));
+        assert_eq!(json_response.error, None);
+        let json_result = json_response
+            .result
+            .as_ref()
+            .expect("json knowledge.add_document should return result");
+        assert_eq!(
+            json_result["document"]["file_type"].as_str().unwrap(),
+            "json"
+        );
+
         let query_response = router.dispatch(&WorkerRequest::new(
             "req-4",
             "trace-1",

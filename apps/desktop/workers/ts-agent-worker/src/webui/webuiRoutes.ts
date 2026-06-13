@@ -944,8 +944,8 @@ async function knowledgeUploadDocumentResponse(
   const fileType = (stringValue(body.file_type) ?? stringValue(body.fileType) ?? extensionFromName(name))
     .toLowerCase()
     .replace(/^\./, "");
-  if (fileType !== "txt" && fileType !== "md") {
-    return { status: 400, body: { error: `Unsupported file type '${fileType}'. Supported: md, txt` } };
+  if (!isTextLikeKnowledgeUploadType(fileType)) {
+    return { status: 400, body: { error: `Unsupported file type '${fileType}'. Supported: csv, json, md, txt` } };
   }
   if (!content.trim()) {
     return { status: 400, body: { error: "File content is empty" } };
@@ -1448,6 +1448,10 @@ function knowledgeTags(value: unknown): string[] {
     return value.map((item) => String(item).trim()).filter(Boolean);
   }
   return [];
+}
+
+function isTextLikeKnowledgeUploadType(fileType: string): boolean {
+  return ["txt", "md", "json", "csv"].includes(fileType);
 }
 
 function booleanQuery(value: string | null): boolean {

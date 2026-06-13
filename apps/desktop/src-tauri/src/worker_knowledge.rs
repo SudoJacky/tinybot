@@ -46,8 +46,10 @@ impl WorkerKnowledgeRpc {
             .filter(|value| !value.is_empty())
             .unwrap_or("txt")
             .to_ascii_lowercase();
-        if file_type != "txt" && file_type != "md" {
-            return Err(invalid_knowledge_request("file_type must be txt or md"));
+        if !is_text_like_knowledge_file_type(&file_type) {
+            return Err(invalid_knowledge_request(
+                "file_type must be txt, md, json, or csv",
+            ));
         }
         let store = KnowledgeStorePaths::new(&self.root);
         store.ensure_dirs()?;
@@ -942,6 +944,10 @@ fn write_jsonl<T: Serialize>(path: &Path, records: &[T]) -> Result<(), WorkerPro
         })?;
     }
     Ok(())
+}
+
+fn is_text_like_knowledge_file_type(file_type: &str) -> bool {
+    matches!(file_type, "txt" | "md" | "json" | "csv")
 }
 
 fn make_document_id(name: &str, content: &str, created_at: &str) -> String {
