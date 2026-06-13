@@ -5980,6 +5980,91 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("honors Python branch_ids precedence over blank branchIds on final-result merge routes", async () => {
+    const store = createMemoryCoworkStore();
+    const coworkService = new CoworkService({
+      store,
+      now: () => "2026-06-12T08:00:00.000Z",
+      idGenerator: (() => {
+        const counters = new Map<string, number>();
+        return (prefix: string) => {
+          const next = (counters.get(prefix) ?? 0) + 1;
+          counters.set(prefix, next);
+          return `${prefix}_${next}`;
+        };
+      })(),
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      coworkService,
+    });
+    const create = await worker.handleRequest(coworkRequest("cowork.create_session", {
+      goal: "Merge route alias precedence",
+      title: "Merge Route Alias",
+      agents: [{ id: "lead", name: "Lead", role: "Lead" }],
+      tasks: [{ id: "draft", title: "Draft", description: "Draft answer", assigned_agent_id: "lead" }],
+    }));
+    const session = ((create.result as Record<string, unknown>).session as CoworkSession);
+    await worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/branches/derive`,
+      body: { target_architecture: "team" },
+    }));
+    const seeded = await store.readSnapshot(session.id, "seed-merge-results");
+    if (!seeded) {
+      throw new Error("missing merge alias session");
+    }
+    seeded.branches.default.branch_result = {
+      id: "brres_default",
+      source_branch_id: "default",
+      source_architecture: "adaptive_starter",
+      summary: "Default result",
+      artifacts: ["default.md"],
+      decision: { default: true },
+      confidence: 0.7,
+      result_type: "branch",
+      source_result_ids: [],
+      created_at: "2026-06-12T08:00:00.000Z",
+    };
+    seeded.branches.br_1.branch_result = {
+      id: "brres_team",
+      source_branch_id: "br_1",
+      source_architecture: "team",
+      summary: "Team result",
+      artifacts: ["team.md"],
+      decision: { team: true },
+      confidence: 0.8,
+      result_type: "branch",
+      source_result_ids: [],
+      created_at: "2026-06-12T08:00:00.000Z",
+    };
+    await store.writeSnapshot(seeded, "seed-merge-results");
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/final-result/merge`,
+      body: {
+        branchIds: [],
+        branch_ids: ["default", "br_1"],
+        summary: "Merged summary",
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          session_final_result: expect.objectContaining({
+            source: "branch_merge",
+            source_branch_ids: ["default", "br_1"],
+            source_result_ids: ["brres_default", "brres_team"],
+            summary: "Merged summary",
+          }),
+        },
+      },
+    });
+  });
+
   test("routes cowork session control and budget requests through the injected CoworkService", async () => {
     const coworkService = new CoworkService({
       store: createMemoryCoworkStore(),

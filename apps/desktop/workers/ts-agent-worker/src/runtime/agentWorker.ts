@@ -4783,7 +4783,14 @@ function providerRetryModeParam(params: Record<string, unknown>): "standard" | "
 }
 
 function stringListParam(params: Record<string, unknown>, camelKey: string, snakeKey: string): string[] {
-  const value = params[camelKey] ?? params[snakeKey];
+  const snakeValues = stringListValue(params[snakeKey]);
+  if (snakeValues.length > 0) {
+    return snakeValues;
+  }
+  return stringListValue(params[camelKey]);
+}
+
+function stringListValue(value: unknown): string[] {
   if (typeof value === "string") {
     return value.replace(/\n/g, ",").split(",").map((item) => item.trim()).filter(Boolean);
   }

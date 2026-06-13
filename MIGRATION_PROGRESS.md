@@ -24,6 +24,8 @@
 
 - Continued Cowork Phase 10 native route parity: TS worker branch final-result select routes now preserve Python `result_id` precedence when blank camel-case `resultId` aliases appear in mixed desktop/native request bodies.
 
+- Continued Cowork Phase 10 native route parity: TS worker final-result merge routes now preserve Python `branch_ids` precedence when blank camel-case `branchIds` aliases appear in mixed desktop/native request bodies.
+
 - Continued Cowork Phase 10 create-session route parity: TS-native create-session architecture alias selection now mirrors Python truthy text coercion for `architecture` / `workflow_mode` / `mode`, so truthy numeric primary aliases are preserved before service normalization instead of falling through to later aliases.
 
 - Continued Cowork Phase 10 direct/default-route parity: TS-native blueprint validate/preview now mirror Python route text coercion for `default_goal`, preserving truthy numeric fallback goals before blueprint normalization.
@@ -1093,6 +1095,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: preserve task-review route `reviewer_agent_id` precedence with blank camel-case reviewer aliases.
 - [x] Continue Cowork Phase 10: preserve branch-derive route snake-case text precedence with blank camel-case aliases.
 - [x] Continue Cowork Phase 10: preserve branch final-result route `result_id` precedence with blank camel-case result aliases.
+- [x] Continue Cowork Phase 10: preserve final-result merge route `branch_ids` precedence with blank camel-case branch aliases.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.
