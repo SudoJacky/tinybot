@@ -122,6 +122,12 @@ describe("createTaskTool", () => {
     await expect(tool.execute({ action: "status", plan_id: "missing" }, context)).resolves.toEqual({
       content: "Error: Plan missing not found",
     });
+    await expect(tool.execute({ action: "delete", plan_id: "missing" }, context)).resolves.toEqual({
+      content: "Error: Plan missing not found.",
+    });
+    await expect(tool.execute({ action: "resume", plan_id: "missing" }, context)).resolves.toEqual({
+      content: "Error: Plan missing not found",
+    });
   });
 
   test("reports deferred backend work for create and resume without configured backends", async () => {
@@ -223,7 +229,7 @@ describe("createTaskTool", () => {
     });
 
     await expect(tool.execute({ action: "resume", plan_id: "plan-1" }, context)).resolves.toMatchObject({
-      content: "Task plan plan-1 resumed. Spawned 1 ready subtask.",
+      content: "任务已后台启动，SubAgent自动执行中。完成后会通知你。无需主动干预。（plan_id: plan-1，启动 1 个子任务）",
       metadata: {
         _task_event: true,
         _task_plan_id: "plan-1",

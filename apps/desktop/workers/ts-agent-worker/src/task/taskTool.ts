@@ -155,6 +155,10 @@ async function resumeResult(runtime: TaskRuntime, args: Record<string, unknown>,
   if (typeof planId !== "string") {
     return { content: planId.content };
   }
+  const existingProgress = await runtime.getProgress(planId, traceId(context));
+  if (!existingProgress) {
+    return { content: `Error: Plan ${planId} not found` };
+  }
   const result = await runtime.resumePlan(planId, {
     parallel: booleanArg(args, "parallel", true),
   }, traceId(context));
@@ -162,9 +166,8 @@ async function resumeResult(runtime: TaskRuntime, args: Record<string, unknown>,
     return deferredResult("Task background execution is not available in the native TS runtime yet.", "subagent_runtime");
   }
   const progress = taskProgressPayload(result.plan);
-  const noun = result.spawnedCount === 1 ? "subtask" : "subtasks";
   return {
-    content: `Task plan ${result.plan.id} resumed. Spawned ${result.spawnedCount} ready ${noun}.`,
+    content: `任务已后台启动，SubAgent自动执行中。完成后会通知你。无需主动干预。（plan_id: ${result.plan.id}，启动 ${result.spawnedCount} 个子任务）`,
     metadata: {
       _task_event: true,
       _task_plan_id: result.plan.id,
@@ -222,7 +225,7 @@ async function deleteResult(runtime: TaskRuntime, args: Record<string, unknown>,
     return { content: planId.content };
   }
   const deleted = await runtime.deletePlan(planId, traceId(context));
-  return { content: deleted ? `Deleted plan ${planId}.` : `Error: Plan ${planId} not found` };
+  return { content: deleted ? `Deleted plan ${planId}.` : `Error: Plan ${planId} not found.` };
 }
 
 async function addSubtaskResult(runtime: TaskRuntime, args: Record<string, unknown>, context: ToolContext): Promise<ToolResult> {
