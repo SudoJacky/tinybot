@@ -905,6 +905,9 @@ function mailboxAgentReadinessScore(session: CoworkSession, agentId: string, rea
     score += reviewer && hasPendingReview ? 40 : 0;
     score -= reviewer && !hasPendingReview ? 8 : 0;
   }
+  if (agentId === leadAgentId(session) && leadShouldSynthesize(session)) {
+    score += 65;
+  }
   return score;
 }
 
@@ -961,6 +964,9 @@ function activationReasonsFor(session: CoworkSession, agentId: string, readyTask
   if (claimableTaskIdsFor(session, agentId).length > 0) {
     reasons.push("shared_task_claim");
   }
+  if (agentId === leadAgentId(session) && leadShouldSynthesize(session)) {
+    reasons.push("synthesis");
+  }
   if (Object.values(session.tasks).some((task) => task.review_required === true
     && stringValue(task.status) === "pending"
     && arrayValue(task.reviewer_agent_ids).map(stringValue).includes(agentId))) {
@@ -984,6 +990,20 @@ function mailboxPressureFor(session: CoworkSession, agentId: string): number {
     }
   }
   return pressure;
+}
+
+function leadShouldSynthesize(session: CoworkSession): boolean {
+  const tasks = Object.values(session.tasks);
+  if (tasks.length === 0) {
+    return false;
+  }
+  const hasCompleted = tasks.some((task) => stringValue(task.status) === "completed");
+  const hasOpenWork = tasks.some((task) => ["pending", "in_progress"].includes(stringValue(task.status)));
+  const hasUserVisibleResult = Object.values(session.messages).some((message) => (
+    stringValue(message.sender_id) !== "user"
+    && arrayValue(message.recipient_ids).map(stringValue).includes("user")
+  ));
+  return hasCompleted && (!hasOpenWork || !hasUserVisibleResult);
 }
 
 function isReviewerAgent(agent: JsonObject): boolean {

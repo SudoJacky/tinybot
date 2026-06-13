@@ -536,6 +536,55 @@ describe("CoworkMailbox", () => {
     });
   });
 
+  it("boosts lead readiness for synthesis when completed work has no user-visible result", async () => {
+    const session = await createTeamSession();
+    session.agents.coordinator.inbox = [];
+    session.agents.researcher.inbox = [];
+    session.agents.analyst.inbox = [];
+    session.tasks = {
+      research: {
+        id: "research",
+        title: "Research",
+        description: "Summarize migrated backend behavior.",
+        assigned_agent_id: "researcher",
+        status: "completed",
+        dependencies: [],
+        result: "Backend behavior summarized.",
+        result_data: { answer: "Backend behavior summarized." },
+        confidence: 0.8,
+        error: null,
+        priority: 0,
+        expected_output: "",
+        review_required: false,
+        reviewer_agent_ids: [],
+        review_status: "",
+        fanout_group_id: "",
+        merge_task_id: "",
+        source_blueprint_id: "",
+        source_event_id: "",
+        runtime_created: false,
+        created_at: fixedNow,
+        updated_at: fixedNow,
+      },
+    };
+
+    deliver(session, {
+      sender_id: "coordinator",
+      recipient_ids: ["analyst"],
+      content: "Refresh readiness after research completion.",
+      wake_recipients: false,
+    });
+
+    const coordinatorReadiness = session.completion_decision.readiness.find(
+      (entry: Record<string, unknown>) => entry.agent_id === "coordinator",
+    );
+    expect(coordinatorReadiness).toMatchObject({
+      agent_id: "coordinator",
+      score: 75,
+      activation_reasons: ["synthesis"],
+    });
+  });
+
   it("recomputes the session focus task from pending reply blockers after delivery", async () => {
     const session = await createTeamSession();
     session.current_focus_task = "Stale focus";
