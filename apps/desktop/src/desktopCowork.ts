@@ -271,6 +271,7 @@ export type DesktopCoworkActionInput =
       sessionId: string;
       content: string;
       recipientIds?: string[];
+      architecture?: string;
       threadId?: string;
       topic?: string;
       eventType?: string;
@@ -586,6 +587,12 @@ export function buildDesktopCoworkActionRequest(input: DesktopCoworkActionInput)
       return { method: "DELETE", path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}` };
     case "sendMessage": {
       const body: UnknownRecord = { content: stringValue(input.content).trim(), recipient_ids: input.recipientIds ?? [] };
+      const architecture = stringValue(input.architecture).trim();
+      if (architecture) {
+        const normalizedArchitecture = coworkArchitectureValue(architecture);
+        body.architecture = normalizedArchitecture;
+        body.workflow_mode = normalizedArchitecture;
+      }
       const threadId = stringValue(input.threadId).trim();
       const topic = stringValue(input.topic).trim();
       const eventType = stringValue(input.eventType).trim();

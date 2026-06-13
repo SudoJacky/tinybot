@@ -571,6 +571,11 @@ describe("desktop Cowork helpers", () => {
       path: "/api/cowork/sessions/cowork%2F1/messages",
       body: { content: "Continue", recipient_ids: ["agent-1"] },
     });
+    expect(buildDesktopCoworkActionRequest({ action: "sendMessage", sessionId: "cowork/1", content: "Share update", recipientIds: [], architecture: "team" })).toEqual({
+      method: "POST",
+      path: "/api/cowork/sessions/cowork%2F1/messages",
+      body: { content: "Share update", recipient_ids: [], architecture: "team", workflow_mode: "team" },
+    });
     expect(buildDesktopCoworkActionRequest({
       action: "sendMessage",
       sessionId: "cowork/1",

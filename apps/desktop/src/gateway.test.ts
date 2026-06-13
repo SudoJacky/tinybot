@@ -1916,6 +1916,45 @@ describe("gateway HTTP client", () => {
     ]);
   });
 
+  test("keeps recipientless non-swarm cowork messages on the mutation rollout gate", async () => {
+    const fetchFn = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
+      if (String(url).endsWith("/webui/bootstrap")) {
+        return new Response(JSON.stringify({ token: "token-1" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ gateway: true }), { status: 200 });
+    });
+    const nativeCowork = {
+      route: vi.fn(async () => ({ native: true })),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeCowork,
+      tsCoworkRuntime: {
+        mutations: true,
+        swarm: false,
+        fallbackToPython: true,
+      },
+    });
+
+    await expect(client.cowork.message("cw_1", {
+      content: "Share team context",
+      recipient_ids: [],
+      architecture: "team",
+    })).resolves.toEqual({ native: true });
+
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "POST",
+      path: "/api/cowork/sessions/cw_1/messages",
+      body: {
+        content: "Share team context",
+        recipient_ids: [],
+        architecture: "team",
+      },
+    });
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
   test("uses worker recipient normalization for swarm message rollout gates", async () => {
     const fetchFn = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
       if (String(url).endsWith("/webui/bootstrap")) {

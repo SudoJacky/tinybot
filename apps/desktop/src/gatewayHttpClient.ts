@@ -1035,7 +1035,16 @@ function recipientlessCoworkMessageRoute(method: string, path: string, body: unk
   }
   const payload = asRecord(body);
   const recipients = payload?.recipientIds ?? payload?.recipient_ids;
-  return coworkRecipientList(recipients).length === 0;
+  if (coworkRecipientList(recipients).length > 0) {
+    return false;
+  }
+  const mode = firstPythonTruthyTextValue(
+    payload?.architecture,
+    payload?.workflowMode,
+    payload?.workflow_mode,
+    payload?.mode,
+  );
+  return mode ? isSwarmMode(mode) : true;
 }
 
 function swarmBranchDeriveRoute(method: string, path: string, body: unknown): boolean {

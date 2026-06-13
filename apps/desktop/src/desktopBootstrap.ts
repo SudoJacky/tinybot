@@ -1033,6 +1033,7 @@ async function handleNativeCoworkAction(event: DesktopCoworkActionEvent): Promis
         sessionId,
         content: event.message ?? "",
         recipientIds: [],
+        architecture: selectedCoworkSessionArchitecture(event.pane, sessionId),
         threadId: event.threadId,
         topic: event.topic,
         eventType: event.eventType,
