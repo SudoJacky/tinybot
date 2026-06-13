@@ -998,9 +998,9 @@ function swarmCoworkCreateRoute(method: string, path: string, body: unknown): bo
       ?? blueprint.workflowMode
       ?? blueprint.architecture
       ?? blueprint.mode
-    : payload?.workflow_mode
+    : payload?.architecture
+    ?? payload?.workflow_mode
     ?? payload?.workflowMode
-    ?? payload?.architecture
     ?? payload?.mode;
   return isSwarmMode(mode);
 }

@@ -14,6 +14,8 @@
 
 - Continued Cowork Phase 10 rollout parity: desktop gateway branch-select requests now follow the swarm rollout gate alongside branch-result/final-result routes, so disabling TS swarm routing preserves the Python fallback for branch selection.
 
+- Continued Cowork Phase 10 rollout parity: desktop gateway Cowork session creation now follows Python's `architecture` before `workflow_mode` precedence when applying swarm rollout gates, so non-swarm architecture overrides no longer fall back to Python and swarm architecture overrides still preserve Python fallback while TS swarm routing is disabled.
+
 - Continued Cowork Phase 10 desktop observability parity: selected-agent inspectors now expose the latest tool/browser observation detail action when agent activity includes a `detail_ref`, and both legacy and Vue desktop paths send `loadObservation` with requester `agent_id` into the existing TS-native observation route.
 
 - Continued Cowork Phase 10 desktop route parity: the native Vue Cowork inspector now emits derive-branch, select-final-result, and merge-final-result events for selected branches, keeping the Vue island action surface aligned with the migrated TS-native route facade.
@@ -499,6 +501,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 | 2026-06-13 | Continued Batch 6 WebUI transport migration: TS-native workspace file `PUT /api/workspace/files/{path}` now preserves Python-compatible `expected_updated_at` optimistic concurrency through the native workspace bridge, with Rust returning version-conflict errors before overwriting stale files. |
 | 2026-06-13 | Continued Cowork Phase 10 rollout parity: desktop branch-derive rollout gating now follows Python's target precedence of `target_architecture` / `architecture`, so unrelated `workflow_mode` aliases no longer force non-swarm derive requests onto the Python fallback when TS swarm routing is disabled. |
 | 2026-06-13 | Continued Cowork Phase 10 desktop/native route parity: desktop native-first Cowork route calls now split query parameters into Rust's structured `query` field while keeping HTTP fallback URLs unchanged, so migrated observability/list routes use the same explicit query envelope as `worker_cowork_route`. |
+| 2026-06-13 | Continued Cowork Phase 10 rollout parity: desktop create-session swarm gates now match Python's `architecture` / `workflow_mode` precedence for non-blueprint creates, keeping architecture-overridden non-swarm starts on the TS-native route while preserving Python fallback for architecture-overridden swarm starts when TS swarm routing is disabled. |
 | 2026-06-13 | Continued Channel Bus Phase 3: TS worker now exposes `channel.dispatch_inbound`, parses Python-compatible inbound envelopes, routes them through `ChannelRuntime` and the existing `agent.run_input` path, and returns outbound bus messages with camelCase and snake_case projections for native/Python bridges. |
 | 2026-06-13 | Continued Channel Bus Phase 3/4 bridge setup: Rust/Tauri now exposes `worker_channel_dispatch_inbound`, builds `channel.dispatch_inbound` worker requests from generic channel envelopes, and desktop `nativeTransport.dispatchChannelInbound()` can call the native TS channel bridge. |
 | 2026-06-13 | Continued Channel Bus Phase 4 bridge setup: added exported TS `pythonChannelBridge` schema helpers for Python-compatible inbound normalization and outbound snake_case projection, and made `channel.dispatch_inbound` reuse that shared bridge contract. |
@@ -709,6 +712,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: return Python-shaped work-unit retry/skip/cancel error payloads with snapshot sessions.
 - [x] Continue Cowork Phase 10: align branch-derive rollout gating with Python `target_architecture` / `architecture` precedence.
 - [x] Continue Cowork Phase 10: pass desktop native Cowork route query parameters through Rust's structured worker route envelope.
+- [x] Continue Cowork Phase 10: align create-session rollout gating with Python `architecture` / `workflow_mode` precedence for non-blueprint requests.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.
