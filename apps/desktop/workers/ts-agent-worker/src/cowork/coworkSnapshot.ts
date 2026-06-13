@@ -972,6 +972,7 @@ function buildCoworkSwarmOrganization(session: CoworkSession): JsonObject {
   const plan = jsonSafeObject(session.swarm_plan);
   const units = swarmWorkUnits(session);
   const mainUnits = units.filter((unit) => !["reducer", "reviewer"].includes(stringValue(unit.kind)));
+  const metrics = session.workflow_mode === "swarm" ? buildSwarmParallelMetrics(session) : {};
   const workstreams = swarmWorkstreamGroups(mainUnits);
   return {
     schema_version: "cowork.swarm_organization.v1",
@@ -988,7 +989,7 @@ function buildCoworkSwarmOrganization(session: CoworkSession): JsonObject {
       agents: new Set(units.map((unit) => stringValue(unit.assigned_agent_id)).filter(Boolean)).size,
     },
     gates: swarmGateSummary(plan, units, session),
-    metrics: {},
+    metrics,
     blockers: swarmBlockerSummaries(units, session),
   };
 }

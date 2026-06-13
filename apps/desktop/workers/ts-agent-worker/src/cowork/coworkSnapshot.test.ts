@@ -235,6 +235,10 @@ describe("cowork session snapshot", () => {
         workstreams: 8,
         work_units: 120,
       },
+      metrics: {
+        schema_version: "cowork.swarm_metrics.v1",
+        plan_id: "swarm_1",
+      },
     });
     expect(snapshot.swarm_organization.workstreams).toHaveLength(8);
     expect(snapshot.swarm_organization.workstreams[0]).toMatchObject({
