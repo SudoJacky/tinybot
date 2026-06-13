@@ -146,7 +146,12 @@ export class TurnLifecycle {
         runtimeContextTag: RUNTIME_CONTEXT_TAG,
         contextMetadata: result.contextMetadata,
       }, traceId);
-      const evidenceCapturedCount = await this.captureEvidence(traceId, spec.sessionId, messages, persisted.messagesBefore);
+      const evidenceCapturedCount = await this.captureEvidence(
+        traceId,
+        spec.sessionId,
+        savedMessagesForEvidence(messages, persisted.savedMessageCount),
+        persisted.messagesBefore,
+      );
       return lifecycleMetadataFromPersistedTurn(spec, result, persisted, evidenceCapturedCount);
     }
     const appended = await this.sessionBridge.appendMessages(spec.sessionId, messages, traceId);
@@ -185,6 +190,16 @@ export class TurnLifecycle {
       return 0;
     }
   }
+}
+
+function savedMessagesForEvidence(messages: AgentMessage[], savedMessageCount: number): AgentMessage[] {
+  if (savedMessageCount <= 0) {
+    return [];
+  }
+  if (savedMessageCount >= messages.length) {
+    return messages;
+  }
+  return messages.slice(messages.length - savedMessageCount);
 }
 
 function sessionAppendMessages(spec: AgentRunSpec, result: AgentRunResult): AgentMessage[] {

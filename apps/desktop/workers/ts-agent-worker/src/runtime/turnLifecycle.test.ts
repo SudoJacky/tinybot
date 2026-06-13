@@ -271,6 +271,39 @@ describe("TurnLifecycle", () => {
     });
   });
 
+  test("does not capture conversation evidence for duplicate-only persisted turns", async () => {
+    const capturedEvidence: Array<{ messages: AgentMessage[]; startIndex: number }> = [];
+    const bridge: SessionBridge = {
+      setCheckpoint: async () => undefined,
+      clearCheckpoint: async () => undefined,
+      appendMessages: async () => undefined,
+      persistTurn: async (_sessionId, turn) => ({
+        sessionId: "session-1",
+        messagesBefore: 2,
+        messagesAfter: 2,
+        savedMessageCount: 0,
+        checkpointCleared: turn.clearCheckpoint,
+        duplicateMessageCount: turn.messages.length,
+        truncatedToolResultCount: 0,
+        omittedSideEffects: ["conversation_evidence"],
+      }),
+      getCheckpoint: async () => null,
+    };
+    const memoryBridge: MemoryEvidenceBridge = {
+      captureEvidence: async (_sessionId, request) => {
+        capturedEvidence.push({ messages: request.messages, startIndex: request.startIndex });
+        return { evidence: [{ id: "duplicate-ev" }] };
+      },
+    };
+
+    const metadata = await new TurnLifecycle(bridge, memoryBridge).finalizeTurn("trace-1", spec(), result());
+
+    expect(capturedEvidence).toEqual([]);
+    expect(metadata?.savedMessageCount).toBe(0);
+    expect(metadata?.evidenceCapturedCount).toBe(0);
+    expect(metadata?.omittedSideEffects).toContain("conversation_evidence");
+  });
+
   test("falls back to append_messages when persist_turn is unavailable", async () => {
     const appended: Array<{ sessionId: string; messages: AgentMessage[] }> = [];
     const clearedCheckpoints: string[] = [];
