@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued WebUI transport Phase 5 Skills create parity: native TS skill creation now only treats existing workspace skills as duplicates, allowing workspace skills to override builtin skills like Python's workspace-directory existence check.
+
 - Continued WebUI transport Phase 5 Skills create parity: native TS skill creation now wraps skill file write failures in Python-compatible create errors and best-effort cleanup, so partial parent directories do not survive failed `SKILL.md` writes.
 
 - Continued WebUI transport Phase 5 Skills create parity: native TS skill creation now cleans up partially-created workspace skill directories when resource directory creation fails, matching Python's best-effort rollback before returning a create error.

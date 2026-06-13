@@ -49,6 +49,57 @@ describe("NativeSkillsBridge", () => {
     ]);
   });
 
+  test("allows workspace skill creation to override a builtin skill name like Python", async () => {
+    const rpcClient = new FakeRpcClient({
+      "skills.list": [
+        {
+          skills: [
+            {
+              name: "planner",
+              path: "tinybot/skills/planner/SKILL.md",
+              source: "builtin",
+              content: "---\nname: planner\ndescription: Builtin\n---\nBuiltin.",
+            },
+          ],
+        },
+      ],
+      "workspace.write_file": [
+        { path: "skills/planner/SKILL.md", bytes_written: 81 },
+      ],
+    });
+    const bridge = new NativeSkillsBridge(rpcClient, {});
+
+    await expect(bridge.createWebuiSkill({
+      name: "Planner",
+      description: "Workspace override",
+      content: "Prefer workspace behavior.",
+    }, "trace-override")).resolves.toMatchObject({
+      created: true,
+      name: "planner",
+      path: "skills/planner/SKILL.md",
+    });
+    expect(rpcClient.calls).toEqual([
+      { traceId: "trace-override", method: "skills.list", params: {} },
+      {
+        traceId: "trace-override",
+        method: "workspace.write_file",
+        params: {
+          path: "skills/planner/SKILL.md",
+          contents: [
+            "---",
+            "name: planner",
+            "description: Workspace override",
+            "---",
+            "",
+            "# Planner",
+            "",
+            "Prefer workspace behavior.",
+          ].join("\n"),
+        },
+      },
+    ]);
+  });
+
   test("rejects missing and builtin skill deletes before deleting files", async () => {
     const rpcClient = new FakeRpcClient({
       "skills.list": [

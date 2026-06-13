@@ -36,7 +36,7 @@ export class NativeSkillsBridge implements SkillsBridge {
       throw new NativeWebuiSkillError("skill name too long (max 64 chars)", 400);
     }
     const existing = await this.loadSkillEntries(traceId);
-    if (existing.some((skill) => skill.name === name)) {
+    if (existing.some((skill) => skill.name === name && skill.source === "workspace")) {
       throw new NativeWebuiSkillError(`skill '${name}' already exists`, 409);
     }
     const description = asString(body.description) ?? `Custom skill: ${name}`;
