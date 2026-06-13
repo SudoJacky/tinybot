@@ -313,6 +313,9 @@ export interface DesktopCoworkActionEvent {
   sessionId?: string;
   goal?: string;
   message?: string;
+  threadId?: string;
+  topic?: string;
+  eventType?: string;
   blueprintText?: string;
   preview?: boolean;
   taskTitle?: string;

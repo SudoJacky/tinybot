@@ -266,7 +266,15 @@ export type DesktopCoworkActionInput =
   | { action: "runSession"; sessionId: string }
   | { action: "pauseSession" | "resumeSession" | "emergencyStopSession"; sessionId: string; reason?: string }
   | { action: "deleteSession"; sessionId: string }
-  | { action: "sendMessage"; sessionId: string; content: string; recipientIds?: string[] }
+  | {
+      action: "sendMessage";
+      sessionId: string;
+      content: string;
+      recipientIds?: string[];
+      threadId?: string;
+      topic?: string;
+      eventType?: string;
+    }
   | { action: "addTask"; sessionId: string; title: string; assignedAgentId: string }
   | { action: "task"; sessionId: string; taskId: string; taskAction: "assign" | "retry" | "review"; assignedAgentId?: string }
   | { action: "workUnit"; sessionId: string; workUnitId: string; workUnitAction: "retry" | "skip" | "cancel"; reason?: string }
@@ -568,12 +576,26 @@ export function buildDesktopCoworkActionRequest(input: DesktopCoworkActionInput)
       };
     case "deleteSession":
       return { method: "DELETE", path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}` };
-    case "sendMessage":
+    case "sendMessage": {
+      const body: UnknownRecord = { content: stringValue(input.content).trim(), recipient_ids: input.recipientIds ?? [] };
+      const threadId = stringValue(input.threadId).trim();
+      const topic = stringValue(input.topic).trim();
+      const eventType = stringValue(input.eventType).trim();
+      if (threadId) {
+        body.thread_id = threadId;
+      }
+      if (topic) {
+        body.topic = topic;
+      }
+      if (eventType) {
+        body.event_type = eventType;
+      }
       return {
         method: "POST",
         path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/messages`,
-        body: { content: stringValue(input.content).trim(), recipient_ids: input.recipientIds ?? [] },
+        body,
       };
+    }
     case "addTask":
       return {
         method: "POST",

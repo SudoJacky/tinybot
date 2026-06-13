@@ -1534,6 +1534,7 @@ export class AgentWorker {
         content: params.content,
         threadId: params.threadId,
         topic: params.topic,
+        eventType: params.eventType,
         wakeRecipients: params.wakeRecipients,
       });
       return {

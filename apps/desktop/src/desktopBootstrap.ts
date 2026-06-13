@@ -1024,10 +1024,16 @@ async function handleNativeCoworkAction(event: DesktopCoworkActionEvent): Promis
       return;
     }
     if (event.action === "sendMessage") {
-      await gatewayApi.cowork.message(sessionId, {
+      const request = buildDesktopCoworkActionRequest({
+        action: "sendMessage",
+        sessionId,
         content: event.message ?? "",
-        recipient_ids: [],
+        recipientIds: [],
+        threadId: event.threadId,
+        topic: event.topic,
+        eventType: event.eventType,
       });
+      await gatewayApi.cowork.message(sessionId, requestBody(request));
       setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork message sent." }));
       return;
     }

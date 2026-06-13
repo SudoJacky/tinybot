@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued Cowork Phase 10 desktop/default-route parity: TS-native Cowork message dispatch now preserves Python-compatible `thread_id`, `topic`, and `event_type` fields through direct worker RPC and desktop action request builders instead of dropping route metadata before mailbox/thread projection.
+
 - Continued Cowork Phase 10 desktop default-route parity: desktop Cowork action request builders and bootstrap dispatch now preserve Python-compatible emergency-stop `reason` bodies through the default UI path before calling the native-first gateway client.
 
 - Continued Cowork Phase 10 desktop default-route parity: desktop gateway `cowork.action("emergency-stop")` now forwards Python-compatible JSON bodies such as `reason` through native-first routes instead of dropping them before the TS worker route handler.
@@ -825,6 +827,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: preserve selected-agent activity `limit` query options through legacy/Vue desktop inspector events and the native bootstrap handler.
 - [x] Continue Cowork Phase 10: gate branch-select desktop gateway requests under the swarm rollout flag with Python fallback.
 - [x] Continue Cowork Phase 10: expose selected-agent observation-detail actions from legacy and Vue desktop inspectors with requester propagation.
+- [x] Continue Cowork Phase 10: preserve Python-compatible message `thread_id`, `topic`, and `event_type` fields through direct TS worker RPC and desktop action request builders.
 - [x] Continue Cowork Phase 10: return Python-shaped work-unit retry/skip/cancel error payloads with snapshot sessions.
 - [x] Continue Cowork Phase 10: align branch-derive rollout gating with Python `target_architecture` / `architecture` precedence.
 - [x] Continue Cowork Phase 10: pass desktop native Cowork route query parameters through Rust's structured worker route envelope.

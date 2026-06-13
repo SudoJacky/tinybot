@@ -24,7 +24,7 @@ export type CoworkActionsIslandEvent =
       sessionId: string;
     }
   | { action: "updateBudget"; sessionId: string; maxRounds?: number }
-  | { action: "sendMessage"; sessionId: string; message: string }
+  | { action: "sendMessage"; sessionId: string; message: string; threadId?: string; topic?: string; eventType?: string }
   | { action: "addTask"; sessionId: string; taskTitle: string; assignedAgentId: string };
 
 export interface CoworkActionsIslandOptions {

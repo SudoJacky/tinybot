@@ -558,6 +558,25 @@ describe("desktop Cowork helpers", () => {
       path: "/api/cowork/sessions/cowork%2F1/messages",
       body: { content: "Continue", recipient_ids: ["agent-1"] },
     });
+    expect(buildDesktopCoworkActionRequest({
+      action: "sendMessage",
+      sessionId: "cowork/1",
+      content: " Continue in thread ",
+      recipientIds: ["agent-1"],
+      threadId: "thread/1",
+      topic: "Review lane",
+      eventType: "review.requested",
+    })).toEqual({
+      method: "POST",
+      path: "/api/cowork/sessions/cowork%2F1/messages",
+      body: {
+        content: "Continue in thread",
+        recipient_ids: ["agent-1"],
+        thread_id: "thread/1",
+        topic: "Review lane",
+        event_type: "review.requested",
+      },
+    });
     expect(buildDesktopCoworkActionRequest({ action: "task", sessionId: "cowork/1", taskId: "task/2", taskAction: "assign", assignedAgentId: "agent-2" })).toEqual({
       method: "POST",
       path: "/api/cowork/sessions/cowork%2F1/tasks/task%2F2/assign",

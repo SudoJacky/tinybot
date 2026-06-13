@@ -120,6 +120,7 @@ export type SendCoworkMessageRequest = {
   content: string;
   threadId?: string;
   topic?: string;
+  eventType?: string;
   wakeRecipients?: boolean;
 };
 
@@ -980,6 +981,8 @@ export class CoworkService {
       sender_id: senderId,
       recipient_ids: recipientIds,
       content: cleanString(request.content),
+      topic: cleanString(request.topic),
+      event_type: cleanString(request.eventType),
       created_at: this.now(),
       read_by: [senderId],
     };
@@ -1004,6 +1007,8 @@ export class CoworkService {
           thread_id: message.thread_id,
           message_id: messageId,
           recipients: recipientIds,
+          topic: message.topic,
+          event_type: message.event_type,
           wake_recipients: request.wakeRecipients !== false,
         },
       }),

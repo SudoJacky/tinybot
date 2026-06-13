@@ -4454,9 +4454,17 @@ describe("AgentWorker", () => {
       recipient_ids: ["reviewer"],
       content: "Please review",
       thread_id: "thread_1",
+      topic: "Review lane",
+      event_type: "review.requested",
     }));
     const messageResult = messageResponse.result as { message: Record<string, unknown>; session: { agents: Record<string, { inbox: string[] }> } };
-    expect(messageResult.message).toMatchObject({ id: "msg_2", content: "Please review" });
+    expect(messageResult.message).toMatchObject({
+      id: "msg_2",
+      content: "Please review",
+      thread_id: "thread_1",
+      topic: "Review lane",
+      event_type: "review.requested",
+    });
     expect(messageResult.session.agents.reviewer.inbox).toEqual(["msg_2"]);
 
     await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
