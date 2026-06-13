@@ -246,6 +246,7 @@ async function approveResult(context: CommandContext, capabilities: CommandCapab
   if (!resolution.resolved) {
     return approvalNotFoundResult("/approve", approvalId, true, scope);
   }
+  const retryScheduled = await resumeResolvedApproval(context, capabilities, resolution);
   const summary = resolution.summary ?? approvalId;
   const output = scope === "once"
     ? `Approved \`${resolution.approvalId}\` once: ${summary}\n\nRetrying the approved operation now.`
@@ -255,6 +256,7 @@ async function approveResult(context: CommandContext, capabilities: CommandCapab
     approved: true,
     resolved: true,
     scope,
+    retry_scheduled: retryScheduled,
   });
 }
 
@@ -282,11 +284,32 @@ async function denyResult(context: CommandContext, capabilities: CommandCapabili
   if (!resolution.resolved) {
     return approvalNotFoundResult("/deny", approvalId, false);
   }
+  const retryScheduled = await resumeResolvedApproval(context, capabilities, resolution);
   return textCommandResult("/deny", `Denied \`${resolution.approvalId}\`: ${resolution.summary ?? resolution.approvalId}`, {
     approval_id: resolution.approvalId,
     approved: false,
     resolved: true,
+    retry_scheduled: retryScheduled,
   });
+}
+
+async function resumeResolvedApproval(
+  context: CommandContext,
+  capabilities: CommandCapabilities,
+  resolution: Awaited<ReturnType<NonNullable<CommandCapabilities["resolvePendingApproval"]>>>,
+): Promise<boolean> {
+  if (!capabilities.resumeResolvedApproval) {
+    return false;
+  }
+  await capabilities.resumeResolvedApproval({
+    traceId: context.traceId,
+    sessionId: context.sessionId,
+    approvalId: resolution.approvalId,
+    approved: resolution.approved,
+    scope: resolution.scope,
+    summary: resolution.summary,
+  });
+  return true;
 }
 
 async function dreamResult(context: CommandContext, capabilities: CommandCapabilities): Promise<CommandResult> {

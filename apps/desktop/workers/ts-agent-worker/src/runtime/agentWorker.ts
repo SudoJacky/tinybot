@@ -17,6 +17,7 @@ import type {
   DreamRestoreCommandRequest,
   ResolvePendingApprovalRequest,
   ResolvePendingApprovalResult,
+  ResumeResolvedApprovalRequest,
   RestartCommandRequest,
 } from "../command/commandTypes.ts";
 import { previewBlueprint, validateBlueprint } from "../cowork/coworkBlueprint.ts";
@@ -327,6 +328,9 @@ export class AgentWorker {
         : {}),
       ...(options.approvalBridge
         ? { resolvePendingApproval: (request) => this.resolvePendingApprovalForCommand(request) }
+        : {}),
+      ...(options.sessionBridge
+        ? { resumeResolvedApproval: (request) => this.scheduleResolvedApprovalResumeForCommand(request) }
         : {}),
       ...(options.dreamBridge
         ? {
@@ -2806,6 +2810,45 @@ export class AgentWorker {
         approved: request.approved,
         scope: request.scope,
       };
+    }
+  }
+
+  private scheduleResolvedApprovalResumeForCommand(request: ResumeResolvedApprovalRequest): void {
+    if (!request.sessionId || !this.sessionBridge) {
+      return;
+    }
+    void this.resumeResolvedApprovalForCommand(request).catch((error) => {
+      this.emitEvent({
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        trace_id: request.traceId,
+        event: "diagnostics.log",
+        payload: {
+          stream: "stderr",
+          line: `approval resume failed: ${errorMessage(error)}`,
+        },
+      });
+    });
+  }
+
+  private async resumeResolvedApprovalForCommand(request: ResumeResolvedApprovalRequest): Promise<void> {
+    const sessionId = request.sessionId;
+    if (!sessionId || !this.sessionBridge) {
+      return;
+    }
+    const approval: ApprovalResolutionRequest = {
+      sessionId,
+      approvalId: request.approvalId,
+      approved: request.approved,
+      scope: request.scope,
+    };
+    const checkpoint = await this.sessionBridge.getCheckpoint(sessionId, request.traceId);
+    if (!checkpoint || !canResumeApprovalCheckpoint(checkpoint, request.approvalId)) {
+      return;
+    }
+    if (request.approved) {
+      await this.resumeApprovedCheckpoint(request.traceId, approval, checkpoint);
+    } else {
+      await this.resumeDeniedApprovalCheckpoint(request.traceId, approval, checkpoint);
     }
   }
 

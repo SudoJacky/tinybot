@@ -7805,6 +7805,141 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("resumes approved checkpoint after backend slash approve command", async () => {
+    const events: WorkerEvent[] = [];
+    const writtenFiles: Array<Record<string, unknown>> = [];
+    const appendedMessages: AgentMessage[][] = [];
+    const clearedSessions: string[] = [];
+    const tools = new ToolRegistry();
+    tools.register({
+      name: "write_file",
+      description: "Write a file",
+      parameters: { type: "object" },
+      execute: async (args) => {
+        writtenFiles.push(args);
+        return { content: `wrote ${String(args.path)}` };
+      },
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([{ content: "file written", toolCalls: [], stopReason: "stop" }]),
+      tools,
+      emitEvent: (event) => {
+        events.push(event);
+      },
+      approvalBridge: {
+        requestApproval: async () => ({}),
+        listPendingApprovals: async () => ({ approvals: [] }),
+        resolveApproval: async (params) => ({
+          approvalId: params.approvalId,
+          approved: params.approved,
+          scope: params.scope,
+          summary: "write_file path=\"notes/today.md\"",
+          status: "approved",
+        }),
+      },
+      sessionBridge: {
+        setCheckpoint: async () => undefined,
+        clearCheckpoint: async (sessionId) => {
+          clearedSessions.push(sessionId);
+        },
+        appendMessages: async (_sessionId, messages) => {
+          appendedMessages.push(messages);
+        },
+        getCheckpoint: async (sessionId) => ({
+          sessionId,
+          runId: "run-awaiting-approval",
+          phase: "tools_completed",
+          model: "test-model",
+          iteration: 1,
+          messages: [
+            { role: "user", content: "write a file" },
+            {
+              role: "assistant",
+              content: "",
+              toolCalls: [{ id: "approval-call-1", name: "request_approval", argumentsJson: "{}" }],
+            },
+            {
+              role: "tool",
+              content: "Waiting for approval.",
+              toolCallId: "approval-call-1",
+              name: "request_approval",
+              metadata: {
+                awaitingUserInput: true,
+                stopReason: "awaiting_approval",
+                approvalId: "approval-1",
+                operation: {
+                  toolName: "write_file",
+                  arguments: { path: "notes/today.md", contents: "hello" },
+                },
+              },
+            },
+          ],
+          assistantMessage: {
+            role: "assistant",
+            content: "",
+            toolCalls: [{ id: "approval-call-1", name: "request_approval", argumentsJson: "{}" }],
+          },
+          completedToolResults: [
+            {
+              role: "tool",
+              content: "Waiting for approval.",
+              toolCallId: "approval-call-1",
+              name: "request_approval",
+              metadata: {
+                awaitingUserInput: true,
+                stopReason: "awaiting_approval",
+                approvalId: "approval-1",
+                operation: {
+                  toolName: "write_file",
+                  arguments: { path: "notes/today.md", contents: "hello" },
+                },
+              },
+            },
+          ],
+          pendingToolCalls: [],
+        }),
+      },
+    });
+
+    const response = await worker.handleRequest(
+      request({
+        spec: {
+          runId: "run-approve-command",
+          sessionId: "session-1",
+          messages: [{ role: "user", content: "/approve approval-1 once" }],
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+        },
+      }),
+    );
+    await vi.waitFor(() => {
+      expect(events).toContainEqual(expect.objectContaining({
+        event: "agent.done",
+        payload: expect.objectContaining({ runId: "run-awaiting-approval" }),
+      }));
+    });
+
+    expect(response).toMatchObject({
+      result: {
+        stopReason: "command",
+        metadata: {
+          command: "/approve",
+          approval_id: "approval-1",
+          retry_scheduled: true,
+        },
+      },
+    });
+    expect(writtenFiles).toEqual([{ path: "notes/today.md", contents: "hello" }]);
+    expect(appendedMessages.at(-1)).toContainEqual({
+      role: "tool",
+      content: "wrote notes/today.md",
+      toolCallId: "approval-call-1",
+      name: "request_approval",
+    });
+    expect(clearedSessions).toEqual(["session-1"]);
+  });
+
   test("handles backend slash deny by resolving a pending approval", async () => {
     let providerCalls = 0;
     const resolveCalls: Array<{ sessionId: string; approvalId: string; approved: boolean; scope?: string; traceId: string }> = [];

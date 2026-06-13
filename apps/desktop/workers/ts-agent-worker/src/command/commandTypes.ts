@@ -83,6 +83,15 @@ export type ResolvePendingApprovalResult = {
   scope?: "once" | "session";
 };
 
+export type ResumeResolvedApprovalRequest = {
+  traceId: string;
+  sessionId: string | undefined;
+  approvalId: string;
+  approved: boolean;
+  scope?: "once" | "session";
+  summary?: string;
+};
+
 export type DreamCommandRequest = {
   traceId: string;
   sessionId: string | undefined;
@@ -116,6 +125,7 @@ export type CommandCapabilities = {
   ) => Promise<ClearTemporaryFilesCommandResult> | ClearTemporaryFilesCommandResult;
   listPendingApprovals?: (sessionId: string | undefined, traceId: string) => Promise<PendingApprovalListResult> | PendingApprovalListResult;
   resolvePendingApproval?: (request: ResolvePendingApprovalRequest) => Promise<ResolvePendingApprovalResult> | ResolvePendingApprovalResult;
+  resumeResolvedApproval?: (request: ResumeResolvedApprovalRequest) => Promise<void> | void;
   runDream?: (request: DreamCommandRequest) => Promise<DreamCommandResult> | DreamCommandResult;
   getDreamLog?: (request: DreamLogCommandRequest) => Promise<DreamCommandResult> | DreamCommandResult;
   restoreDream?: (request: DreamRestoreCommandRequest) => Promise<DreamCommandResult> | DreamCommandResult;

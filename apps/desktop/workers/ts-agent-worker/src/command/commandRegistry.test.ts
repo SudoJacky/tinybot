@@ -250,6 +250,110 @@ describe("createDefaultCommandRouter", () => {
     ]);
   });
 
+  test("resumes approved operations after resolving pending approvals", async () => {
+    const calls: unknown[] = [];
+    const router = createDefaultCommandRouter({
+      resolvePendingApproval: async (request) => {
+        calls.push({ type: "resolve", request });
+        return {
+          resolved: true,
+          approvalId: request.approvalId,
+          approved: true,
+          scope: request.scope,
+          summary: "write_file path=\"notes.md\"",
+        };
+      },
+      resumeResolvedApproval: async (request) => {
+        calls.push({ type: "resume", request });
+      },
+    });
+
+    await expect(router.dispatch("/approve approval-1 once", { traceId: "trace-1", sessionId: "session-1" })).resolves.toMatchObject({
+      handled: true,
+      metadata: {
+        command: "/approve",
+        approval_id: "approval-1",
+        approved: true,
+        resolved: true,
+        scope: "once",
+        retry_scheduled: true,
+      },
+    });
+    expect(calls).toEqual([
+      {
+        type: "resolve",
+        request: {
+          traceId: "trace-1",
+          sessionId: "session-1",
+          approvalId: "approval-1",
+          approved: true,
+          scope: "once",
+        },
+      },
+      {
+        type: "resume",
+        request: {
+          traceId: "trace-1",
+          sessionId: "session-1",
+          approvalId: "approval-1",
+          approved: true,
+          scope: "once",
+          summary: "write_file path=\"notes.md\"",
+        },
+      },
+    ]);
+  });
+
+  test("resumes denied operations after resolving pending approvals", async () => {
+    const calls: unknown[] = [];
+    const router = createDefaultCommandRouter({
+      resolvePendingApproval: async (request) => {
+        calls.push({ type: "resolve", request });
+        return {
+          resolved: true,
+          approvalId: request.approvalId,
+          approved: false,
+          summary: "write_file path=\"notes.md\"",
+        };
+      },
+      resumeResolvedApproval: async (request) => {
+        calls.push({ type: "resume", request });
+      },
+    });
+
+    await expect(router.dispatch("/deny approval-1", { traceId: "trace-1", sessionId: "session-1" })).resolves.toMatchObject({
+      handled: true,
+      metadata: {
+        command: "/deny",
+        approval_id: "approval-1",
+        approved: false,
+        resolved: true,
+        retry_scheduled: true,
+      },
+    });
+    expect(calls).toEqual([
+      {
+        type: "resolve",
+        request: {
+          traceId: "trace-1",
+          sessionId: "session-1",
+          approvalId: "approval-1",
+          approved: false,
+        },
+      },
+      {
+        type: "resume",
+        request: {
+          traceId: "trace-1",
+          sessionId: "session-1",
+          approvalId: "approval-1",
+          approved: false,
+          summary: "write_file path=\"notes.md\"",
+        },
+      },
+    ]);
+  });
+
   test("formats successful deny command results", async () => {
     const calls: unknown[] = [];
     const router = createDefaultCommandRouter({
