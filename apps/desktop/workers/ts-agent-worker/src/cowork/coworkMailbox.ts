@@ -636,11 +636,15 @@ function refreshMailboxCompletionDecision(session: CoworkSession, now: () => str
     .map(jsonSafeObject)
     .filter((record) => record.requires_reply === true && ["delivered", "read"].includes(stringValue(record.status)));
   const unreadMessageCount = countUnreadInboxMessages(session);
+  const failedTaskCount = Object.values(session.tasks).filter((task) => stringValue(task.status) === "failed").length;
   let nextAction = "plan";
   let reason = "No tasks exist yet.";
   if (session.status === "completed") {
     nextAction = "complete";
     reason = "The cowork session is complete.";
+  } else if (failedTaskCount > 0) {
+    nextAction = "review_failed_tasks";
+    reason = `${failedTaskCount} task(s) failed and need review.`;
   } else if (pendingReplies.length > 0) {
     nextAction = "resolve_blockers";
     reason = `${pendingReplies.length} reply request(s) are still open.`;

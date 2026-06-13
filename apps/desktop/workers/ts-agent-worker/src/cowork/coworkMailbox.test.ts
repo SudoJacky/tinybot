@@ -189,6 +189,44 @@ describe("CoworkMailbox", () => {
     });
   });
 
+  it("keeps failed-task review ahead of reply blockers when refreshing decisions", async () => {
+    const session = await createTeamSession();
+    session.tasks.task_1 = {
+      id: "task_1",
+      title: "Verify result",
+      description: "Check the result before finalizing.",
+      assigned_agent_id: "researcher",
+      status: "failed",
+      dependencies: [],
+      result: "",
+      error: "Verification failed.",
+      created_at: fixedNow,
+      updated_at: fixedNow,
+    };
+
+    deliver(session, {
+      sender_id: "coordinator",
+      recipient_ids: ["researcher"],
+      content: "Please reply once the failure is understood.",
+      request_type: "verify",
+      blocking_task_id: "task_1",
+      requires_reply: true,
+    });
+
+    expect(session.completion_decision).toMatchObject({
+      next_action: "review_failed_tasks",
+      reason: "1 task(s) failed and need review.",
+      ready_to_finish: false,
+      blocked: [
+        expect.objectContaining({
+          id: "env_1",
+          request_type: "verify",
+          blocking_task_id: "task_1",
+        }),
+      ],
+    });
+  });
+
   it("deduplicates active correlation requests and returns the original message", async () => {
     const session = await createTeamSession();
     const box = mailbox();
