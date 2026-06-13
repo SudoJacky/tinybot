@@ -108,7 +108,7 @@ class CronToolRuntime {
       return { schedule: { kind: "cron", expr: cronExpr, tz: timezone }, deleteAfterRun: false };
     }
     if (at) {
-      const parsed = Date.parse(at);
+      const parsed = parseAtTimestampMs(at, this.defaultTimezone);
       if (Number.isNaN(parsed)) {
         return `Error: invalid ISO datetime format '${at}'. Expected format: YYYY-MM-DDTHH:MM:SS`;
       }
@@ -212,6 +212,46 @@ function displayTimezone(schedule: CronSchedule, defaultTimezone: string): strin
 
 function formatTimestamp(ms: number, timezone: string): string {
   return `${new Date(ms).toISOString()} (${timezone})`;
+}
+
+function parseAtTimestampMs(value: string, defaultTimezone: string): number {
+  if (hasExplicitTimezone(value)) {
+    return Date.parse(value);
+  }
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,3})?)?$/.exec(value);
+  if (!match || !isValidTimezone(defaultTimezone)) {
+    return NaN;
+  }
+  const [, year, month, day, hour, minute, second = "00"] = match;
+  const utcGuess = Date.UTC(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+    Number(second),
+  );
+  return utcGuess - timezoneOffsetMs(utcGuess, defaultTimezone);
+}
+
+function hasExplicitTimezone(value: string): boolean {
+  return /(?:Z|[+-]\d{2}:\d{2})$/i.test(value);
+}
+
+function timezoneOffsetMs(timestampMs: number, timezone: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(timestampMs));
+  const value = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value);
+  const asUtc = Date.UTC(value("year"), value("month") - 1, value("day"), value("hour"), value("minute"), value("second"));
+  return asUtc - timestampMs;
 }
 
 function traceId(context: ToolContext): string {

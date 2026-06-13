@@ -105,6 +105,22 @@ describe("createCronTool", () => {
     expect(bridge.addRequests).toEqual([]);
   });
 
+  test("interprets naive at schedules in the default timezone", async () => {
+    const bridge = memoryBridge();
+    const tool = createCronTool({ bridge, defaultTimezone: "America/Vancouver" });
+
+    await expect(tool.execute({
+      action: "add",
+      message: "Morning check",
+      at: "2026-02-12T10:30:00",
+    }, context)).resolves.toEqual({ content: "Created job 'Morning check' (id: job-1)" });
+
+    expect(bridge.addRequests[0]?.schedule).toEqual({
+      kind: "at",
+      atMs: Date.UTC(2026, 1, 12, 18, 30, 0),
+    });
+  });
+
   test("formats protected system jobs like Python", async () => {
     const tool = createCronTool({
       bridge: memoryBridge([
