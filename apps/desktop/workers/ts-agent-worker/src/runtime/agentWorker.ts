@@ -3976,9 +3976,12 @@ function parseCoworkCreateSessionParams(params: Record<string, unknown> | undefi
   return {
     goal,
     title: stringParam(params, "title", "title"),
-    workflowMode: stringParam(params, "workflowMode", "workflow_mode")
-      ?? stringParam(params, "architecture", "architecture")
-      ?? stringParam(params, "mode", "mode"),
+    workflowMode: firstTruthyStringParam(
+      params,
+      ["architecture", "architecture"],
+      ["workflowMode", "workflow_mode"],
+      ["mode", "mode"],
+    ),
     agents: objectArrayParam(params.agents),
     tasks: objectArrayParam(params.tasks),
     budgets: isJsonObject(params.budgets) ? params.budgets : isJsonObject(params.budget) ? params.budget : undefined,
@@ -4171,6 +4174,16 @@ function parseCoworkUpdateBudgetParams(params: Record<string, unknown> | undefin
     throw new Error("cowork.update_budget requires params.session_id");
   }
   return { sessionId, budgets };
+}
+
+function firstTruthyStringParam(params: Record<string, unknown> | undefined, ...keys: Array<[string, string]>): string | undefined {
+  for (const [camelKey, snakeKey] of keys) {
+    const value = stringParam(params, camelKey, snakeKey);
+    if (value) {
+      return value;
+    }
+  }
+  return undefined;
 }
 
 function parseCoworkBranchParams(params: Record<string, unknown> | undefined, method: string): {
