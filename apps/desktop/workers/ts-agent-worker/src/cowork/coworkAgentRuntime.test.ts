@@ -141,6 +141,31 @@ describe("CoworkAgentRuntime", () => {
     expect(selection.candidateScores).toEqual({ lead: 18 });
   });
 
+  it("does not select done agents even when they still have inbox work", async () => {
+    const provider = new QueueProvider([]);
+    const seeded = await seedRuntime(provider);
+    const session = await seeded.store.readSnapshot("cw_1", "test");
+    if (!session) {
+      throw new Error("missing seeded session");
+    }
+    session.agents.lead.status = "done";
+    session.agents.lead.inbox = ["msg_1"];
+    session.messages.msg_1 = {
+      id: "msg_1",
+      thread_id: "thread_1",
+      sender_id: "user",
+      recipient_ids: ["lead"],
+      content: "Follow-up after completion.",
+      created_at: fixedNow,
+      read_by: [],
+    };
+
+    const selection = selectReadyCoworkAgentCandidates(session, 1);
+
+    expect(selection.agents).toEqual([]);
+    expect(selection.candidateScores).toEqual({});
+  });
+
   it("runs one agent round and applies completed task progress", async () => {
     const provider = new QueueProvider([{
       content: JSON.stringify({

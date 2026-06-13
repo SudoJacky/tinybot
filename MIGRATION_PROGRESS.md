@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued Cowork Phase 10 scheduler parity: TS active-agent and swarm selection now mirror Python terminal-agent filtering, excluding `done` / `failed` / `retired` agents and retired lifecycle records even if stale inbox work remains.
+
 - Continued Cowork Phase 10 scheduler parity: TS active-agent selection now mirrors Python shared-task slot consumption for unassigned ready tasks, preventing multiple idle agents from being scheduled for the same shared task and exposing the Python-compatible shared-task candidate score.
 
 - Continued Cowork Phase 10 mailbox parity: TS mailbox readiness scoring now preserves Python shared-state open-question pressure, boosting shared-state agents when shared memory contains non-empty open-question text.
@@ -783,6 +785,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: include Python-compatible message-bus subscription pressure in TS mailbox readiness scores.
 - [x] Continue Cowork Phase 10: include Python-compatible shared-state open-question pressure in TS mailbox readiness scores.
 - [x] Continue Cowork Phase 10: align TS active-agent selection with Python shared-task slot consumption for unassigned ready tasks.
+- [x] Continue Cowork Phase 10: align TS active-agent and swarm selection with Python terminal-agent filtering.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.

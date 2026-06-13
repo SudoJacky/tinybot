@@ -1109,7 +1109,7 @@ function selectTeamReadyAgents(session: CoworkSession, limit: number): CoworkRea
   const leadId = leadAgentId(session);
   let unassignedReadySlots = unassignedReadyTasks(session).length;
   for (const agent of Object.values(session.agents)) {
-    if (!["idle", "waiting", "blocked", "done"].includes(agent.status)) {
+    if (!isSelectableAgentStatus(agent)) {
       continue;
     }
     const hasDirectWork = Boolean(selectDirectTaskForAgent(session, agent.id)) || agent.inbox.length > 0;
@@ -1144,7 +1144,7 @@ function selectSwarmReadyAgents(session: CoworkSession, limit: number): CoworkRe
   for (const unit of orderedUnits) {
     const agentId = cleanString(unit.assigned_agent_id);
     const agent = session.agents[agentId];
-    if (!agent || selectedAgentIds.has(agent.id) || !["idle", "waiting", "blocked", "done"].includes(agent.status)) {
+    if (!agent || selectedAgentIds.has(agent.id) || !isSelectableAgentStatus(agent)) {
       continue;
     }
     const task = taskForSwarmUnit(session, unit, agent.id);
@@ -2830,6 +2830,11 @@ function completedTaskIds(session: CoworkSession): Set<string> {
   return new Set(Object.values(session.tasks)
     .filter((task) => ["completed", "skipped"].includes(task.status))
     .map((task) => task.id));
+}
+
+function isSelectableAgentStatus(agent: CoworkAgent): boolean {
+  return !["done", "failed", "retired"].includes(agent.status)
+    && cleanString(agent.lifecycle_status || "active") !== "retired";
 }
 
 function parseAgentProgress(content: string): CoworkAgentProgress {
