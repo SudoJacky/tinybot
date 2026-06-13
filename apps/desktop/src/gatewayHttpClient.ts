@@ -987,7 +987,7 @@ function autoRunCoworkCreateRoute(method: string, path: string, body: unknown): 
     return false;
   }
   const payload = asRecord(body);
-  return pythonTruthyJsonValue(payload?.autoRun ?? payload?.auto_run);
+  return pythonTruthyJsonValue(payload?.autoRun) || pythonTruthyJsonValue(payload?.auto_run);
 }
 
 function swarmCoworkCreateRoute(method: string, path: string, body: unknown): boolean {

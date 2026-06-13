@@ -1646,10 +1646,16 @@ describe("gateway HTTP client", () => {
       autoRun: true,
       auto_run: "",
     })).resolves.toEqual({ gateway: true });
+    await expect(client.cowork.create({
+      goal: "Python auto-run alias wins",
+      autoRun: "",
+      auto_run: true,
+    })).resolves.toEqual({ gateway: true });
 
     expect(nativeCowork.route).not.toHaveBeenCalled();
     expect(fetchFn.mock.calls.map((call) => String((call as unknown[])[0]))).toEqual([
       "http://127.0.0.1:18790/webui/bootstrap",
+      "http://127.0.0.1:18790/api/cowork/sessions",
       "http://127.0.0.1:18790/api/cowork/sessions",
       "http://127.0.0.1:18790/api/cowork/sessions",
     ]);

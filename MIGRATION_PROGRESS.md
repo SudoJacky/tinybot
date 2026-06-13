@@ -4,6 +4,8 @@
 
 - Continued Cowork Phase 10 desktop rollout coverage: gateway default-route regression tests now cover Python-compatible create-session architecture precedence when a truthy numeric `architecture` value appears before a later swarm `workflow_mode`, keeping the request on the native default path instead of falling through to Python fallback.
 
+- Continued Cowork Phase 10 desktop rollout parity: desktop gateway create-session scheduler gates now treat either `autoRun` or Python `auto_run` truthy values as scheduler-bound, preserving Python fallback when TS scheduler routing is disabled and mixed-alias request bodies would otherwise slip to the native create route.
+
 - Continued Cowork Phase 10 create-session route parity: TS-native create-session architecture alias selection now mirrors Python truthy text coercion for `architecture` / `workflow_mode` / `mode`, so truthy numeric primary aliases are preserved before service normalization instead of falling through to later aliases.
 
 - Continued Cowork Phase 10 direct/default-route parity: TS-native blueprint validate/preview now mirror Python route text coercion for `default_goal`, preserving truthy numeric fallback goals before blueprint normalization.
@@ -1063,6 +1065,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: align gateway branch-derive rollout alias precedence with the native TS worker route.
 - [x] Continue Cowork Phase 10: align gateway create-session rollout architecture alias precedence with native TS worker and blueprint normalization.
 - [x] Continue Cowork Phase 10: align gateway create/branch architecture text coercion with native TS worker route parsing.
+- [x] Continue Cowork Phase 10: preserve Python fallback for mixed-alias auto-run create-session requests when TS scheduler routing is disabled.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.
