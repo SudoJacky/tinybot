@@ -22,8 +22,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},
-    fmt,
-    fs,
+    fmt, fs,
     hash::{Hash, Hasher},
     path::PathBuf,
     process::Command,
@@ -207,6 +206,11 @@ impl WorkerRpcRouter {
                     params.expected_updated_at.as_deref(),
                 )?)
                 .map_err(serialization_error)
+            }
+            "workspace.create_dir" => {
+                let params: PathParams = parse_params(request)?;
+                serde_json::to_value(self.workspace.create_dir(&params.path)?)
+                    .map_err(serialization_error)
             }
             "workspace.list_dir" => {
                 let params: ListDirParams = parse_params(request)?;
@@ -4387,6 +4391,37 @@ mod tests {
             "current"
         );
         assert!(response.result.is_none());
+    }
+
+    #[test]
+    fn dispatches_workspace_create_dir_request() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::FsWorkspaceWrite]),
+        );
+
+        let response = router.dispatch(&WorkerRequest::new(
+            "req-create-dir",
+            "trace-1",
+            "workspace.create_dir",
+            json!({ "path": "skills/planner/scripts" }),
+        ));
+
+        assert_eq!(
+            response.result,
+            Some(json!({ "path": "skills/planner/scripts", "kind": "dir", "created": true }))
+        );
+        assert!(fixture
+            .root
+            .join("skills")
+            .join("planner")
+            .join("scripts")
+            .is_dir());
+        assert!(response.error.is_none());
     }
 
     #[test]

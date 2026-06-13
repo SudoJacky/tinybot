@@ -44,6 +44,11 @@ export class NativeSkillsBridge implements SkillsBridge {
     const contents = createSkillContent(name, description, content, body.always === true);
     const path = skillFilePath(name);
     await this.rpcClient.request(traceId, "workspace.write_file", { path, contents });
+    for (const resource of normalizeSkillResources(body.resources)) {
+      await this.rpcClient.request(traceId, "workspace.create_dir", {
+        path: `${skillDirPath(name)}/${resource}`,
+      });
+    }
     return {
       created: true,
       name,
@@ -279,6 +284,24 @@ function skillDirPath(name: string): string {
 
 function skillFilePath(name: string): string {
   return `${skillDirPath(name)}/SKILL.md`;
+}
+
+const ALLOWED_SKILL_RESOURCE_DIRS = new Set<string>(["scripts", "references", "assets"]);
+
+function normalizeSkillResources(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const resources: string[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (typeof item !== "string" || !ALLOWED_SKILL_RESOURCE_DIRS.has(item) || seen.has(item)) {
+      continue;
+    }
+    seen.add(item);
+    resources.push(item);
+  }
+  return resources;
 }
 
 function normalizeSkillEntries(value: unknown): SkillStoreEntry[] {

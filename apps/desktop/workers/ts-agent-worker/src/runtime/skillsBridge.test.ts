@@ -121,6 +121,11 @@ describe("NativeSkillsBridge", () => {
         { path: "skills/review-work/SKILL.md", bytes_written: 91 },
         { path: "skills/planner/SKILL.md", bytes_written: 76 },
       ],
+      "workspace.create_dir": [
+        { path: "skills/review-work/scripts", kind: "dir", created: true },
+        { path: "skills/review-work/references", kind: "dir", created: true },
+        { path: "skills/review-work/assets", kind: "dir", created: true },
+      ],
       "workspace.list_dir": [
         {
           entries: [
@@ -144,6 +149,7 @@ describe("NativeSkillsBridge", () => {
       description: "Review changes",
       content: "Check diffs.",
       always: true,
+      resources: ["scripts", "references", "invalid", "assets", "scripts"],
     }, "trace-1")).resolves.toMatchObject({
       created: true,
       name: "review-work",
@@ -187,6 +193,21 @@ describe("NativeSkillsBridge", () => {
             "Check diffs.",
           ].join("\n"),
         },
+      },
+      {
+        traceId: "trace-1",
+        method: "workspace.create_dir",
+        params: { path: "skills/review-work/scripts" },
+      },
+      {
+        traceId: "trace-1",
+        method: "workspace.create_dir",
+        params: { path: "skills/review-work/references" },
+      },
+      {
+        traceId: "trace-1",
+        method: "workspace.create_dir",
+        params: { path: "skills/review-work/assets" },
       },
       {
         traceId: "trace-2",
