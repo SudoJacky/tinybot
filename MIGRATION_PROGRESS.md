@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued Cowork Phase 10 work-unit route parity: TS-native work-unit retry/skip/cancel routes now mirror Python route text coercion for `reason`, preserving truthy numeric JSON reasons in retry priority boosts and skip/cancel task results.
+
 - Continued Cowork Phase 10 final-result select route parity: TS-native final-result select routes now mirror Python route text coercion for `branch_id` and `result_id`, letting truthy numeric JSON ids reach the migrated Cowork service as strings instead of failing at the worker protocol boundary.
 
 - Continued Cowork Phase 10 branch-derive route parity: TS-native derive-branch routes now mirror Python route text coercion for `title`, `reason`/`derivation_reason`, `inherited_context_summary`, and related architecture/source aliases, preserving truthy numeric JSON fields instead of falling back to generated branch metadata.
@@ -365,6 +367,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 | 2026-06-13 | Continued Cowork Phase 10 final-result route parity: branch-result merge routes now apply Python route text coercion to `summary`, preserving truthy numeric JSON summaries instead of falling back to generated summaries. |
 | 2026-06-13 | Continued Cowork Phase 10 branch-derive route parity: derive-branch routes now apply Python route text coercion to title, reason aliases, inherited context, architecture aliases, and body source-branch aliases before invoking the migrated TS service. |
 | 2026-06-13 | Continued Cowork Phase 10 final-result select route parity: final-result select routes now apply Python route text coercion to branch and result ids before invoking the migrated TS service. |
+| 2026-06-13 | Continued Cowork Phase 10 work-unit route parity: work-unit retry/skip/cancel routes now apply Python route text coercion to `reason` before invoking the migrated TS service. |
 | 2026-06-13 | Continued Cowork Phase 10 desktop route parity: legacy and Vue Cowork inspectors now expose selected-agent activity actions that dispatch through the migrated native-first agent-activity facade path. |
 | 2026-06-13 | Continued Cowork Phase 10 desktop route parity: native Vue Cowork inspector branch controls now dispatch derive-branch, select-final-result, and merge-final-result events into the existing native-first handler/facade paths. |
 | 2026-06-13 | Continued session turn lifecycle evidence durability: Rust `session.persist_turn` now returns exact `saved_messages`, TS `NativeSessionBridge` normalizes them, and `TurnLifecycle` captures evidence from those messages for partial-duplicate persisted turns. |
@@ -964,6 +967,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for branch-result merge summaries.
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for branch-derive metadata fields.
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for final-result select ids.
+- [x] Continue Cowork Phase 10: mirror Python route text coercion for work-unit action reasons.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.

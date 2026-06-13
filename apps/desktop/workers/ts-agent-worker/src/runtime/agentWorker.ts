@@ -1330,7 +1330,12 @@ export class AgentWorker {
     }
     const workUnitId = segments[3];
     const action = segments[4];
-    const params = parseCoworkWorkUnitActionParams({ ...body, session_id: sessionId, work_unit_id: workUnitId }, "cowork.route_request");
+    const params = parseCoworkWorkUnitActionParams({
+      ...body,
+      session_id: sessionId,
+      work_unit_id: workUnitId,
+      reason: routeTextParamIfPresent(body, "reason", "reason"),
+    }, "cowork.route_request");
     let result: { session: CoworkSession; result: string };
     if (action === "retry") {
       result = await this.coworkService.retryWorkUnit({

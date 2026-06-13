@@ -4303,7 +4303,7 @@ describe("AgentWorker", () => {
     await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
       method: "POST",
       path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/work-units/wu_skip/skip`,
-      body: { reason: "Out of scope" },
+      body: { reason: 404 },
     }))).resolves.toMatchObject({
       result: {
         status: 200,
@@ -4311,14 +4311,14 @@ describe("AgentWorker", () => {
           result: "Work unit 'Skip unit' skipped.",
           session: expect.objectContaining({
             tasks: expect.arrayContaining([
-              expect.objectContaining({ id: "wu_skip_task", status: "skipped", result: "Out of scope" }),
+              expect.objectContaining({ id: "wu_skip_task", status: "skipped", result: "404" }),
             ]),
             swarm_plan: expect.objectContaining({
               work_units: expect.arrayContaining([
                 expect.objectContaining({
                   id: "wu_skip",
                   status: "skipped",
-                  skip_reason: "Out of scope",
+                  skip_reason: "404",
                 }),
               ]),
             }),
@@ -4341,7 +4341,7 @@ describe("AgentWorker", () => {
     await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
       method: "POST",
       path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/work-units/wu_cancel/cancel`,
-      body: { reason: "User stopped" },
+      body: { reason: 505 },
     }))).resolves.toMatchObject({
       result: {
         status: 200,
@@ -4349,14 +4349,14 @@ describe("AgentWorker", () => {
           result: "Work unit 'Cancel unit' cancelled.",
           session: expect.objectContaining({
             tasks: expect.arrayContaining([
-              expect.objectContaining({ id: "wu_cancel_task", status: "skipped", result: "User stopped" }),
+              expect.objectContaining({ id: "wu_cancel_task", status: "skipped", result: "505" }),
             ]),
             swarm_plan: expect.objectContaining({
               work_units: expect.arrayContaining([
                 expect.objectContaining({
                   id: "wu_cancel",
                   status: "cancelled",
-                  cancel_reason: "User stopped",
+                  cancel_reason: "505",
                 }),
               ]),
             }),
