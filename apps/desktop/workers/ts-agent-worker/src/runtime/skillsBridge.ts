@@ -40,10 +40,11 @@ export class NativeSkillsBridge implements SkillsBridge {
       throw new NativeWebuiSkillError(`skill '${name}' already exists`, 409);
     }
     const description = body.description === undefined ? `Custom skill: ${name}` : String(body.description);
-    const content = asString(body.content) ?? "";
-    const contents = createSkillContent(name, description, content, pythonTruthy(body.always));
+    const always = pythonTruthy(body.always);
     const path = skillFilePath(name);
     try {
+      const content = createSkillBodyContent(body.content, always);
+      const contents = createSkillContent(name, description, content, always);
       await this.rpcClient.request(traceId, "workspace.write_file", { path, contents });
       for (const resource of normalizeSkillResources(body.resources)) {
         await this.rpcClient.request(traceId, "workspace.create_dir", {
@@ -357,6 +358,36 @@ function asObject(value: unknown): JsonObject | undefined {
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+function createSkillBodyContent(value: unknown, always: boolean): string {
+  if (value === undefined || typeof value === "string") {
+    return value ?? "";
+  }
+  if (!pythonTruthy(value)) {
+    return "";
+  }
+  const itemIndex = always ? 8 : 7;
+  throw new TypeError(`sequence item ${itemIndex}: expected str instance, ${pythonTypeName(value)} found`);
+}
+
+function pythonTypeName(value: unknown): string {
+  if (typeof value === "boolean") {
+    return "bool";
+  }
+  if (typeof value === "number") {
+    return Number.isInteger(value) ? "int" : "float";
+  }
+  if (typeof value === "bigint") {
+    return "int";
+  }
+  if (Array.isArray(value)) {
+    return "list";
+  }
+  if (typeof value === "object" && value !== null) {
+    return "dict";
+  }
+  return typeof value;
 }
 
 function pythonTruthyString(value: unknown): string | undefined {

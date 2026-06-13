@@ -143,6 +143,36 @@ describe("NativeSkillsBridge", () => {
     ]);
   });
 
+  test("cleans up truthy non-string create content failures like Python", async () => {
+    const rpcClient = new FakeRpcClient({
+      "skills.list": [
+        { skills: [] },
+      ],
+      "workspace.delete_file": [
+        { path: "skills/review-work", kind: "dir", deleted: true },
+      ],
+    });
+    const bridge = new NativeSkillsBridge(rpcClient, {});
+
+    await expect(bridge.createWebuiSkill({
+      name: "Review Work",
+      description: "Review changes",
+      content: 123,
+      always: true,
+    }, "trace-content-cleanup")).rejects.toMatchObject({
+      message: "failed to create skill: sequence item 8: expected str instance, int found",
+      status: 500,
+    });
+    expect(rpcClient.calls).toEqual([
+      { traceId: "trace-content-cleanup", method: "skills.list", params: {} },
+      {
+        traceId: "trace-content-cleanup",
+        method: "workspace.delete_file",
+        params: { path: "skills/review-work", recursive: true },
+      },
+    ]);
+  });
+
   test("rejects missing and builtin skill deletes before deleting files", async () => {
     const rpcClient = new FakeRpcClient({
       "skills.list": [

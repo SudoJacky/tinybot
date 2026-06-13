@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued WebUI transport Phase 5 Skills create parity: native TS skill creation now rejects truthy non-string `content` values through the same create-error and best-effort cleanup boundary Python reaches during `SKILL.md` assembly, instead of silently writing TODO body content.
+
 - Continued WebUI transport Phase 5 Skills create parity: native TS skill creation now mirrors Python create-route coercion for truthy non-string `name`, explicit `description`, and truthy `always` values while keeping skill body content string-bounded.
 
 - Continued WebUI transport Phase 5 Skills create parity: native TS skill creation now only treats existing workspace skills as duplicates, allowing workspace skills to override builtin skills like Python's workspace-directory existence check.
