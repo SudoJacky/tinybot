@@ -21,6 +21,7 @@ export class NativeMcpBridge {
   private readonly rpcClient: NativeRpcClient;
   private readonly manager: McpRuntimeManager;
   private servers = new Map<string, NativeMcpServerTools>();
+  private diagnostics: McpRuntimeDiagnostics | null = null;
 
   constructor(options: NativeMcpBridgeOptions) {
     this.rpcClient = options.rpcClient;
@@ -35,12 +36,18 @@ export class NativeMcpBridge {
       await this.rpcClient.request(traceId, "mcp.list_tools", {}),
     );
     this.servers = new Map(discovery.map((server) => [server.name, server]));
-    return this.manager.connectAll(nativeMcpServersConfig(discovery));
+    this.diagnostics = await this.manager.connectAll(nativeMcpServersConfig(discovery));
+    return this.diagnostics;
   }
 
   async close(): Promise<void> {
     await this.manager.close();
     this.servers.clear();
+    this.diagnostics = null;
+  }
+
+  getDiagnostics(): McpRuntimeDiagnostics | null {
+    return this.diagnostics;
   }
 
   private async connect(server: McpServerConfig) {

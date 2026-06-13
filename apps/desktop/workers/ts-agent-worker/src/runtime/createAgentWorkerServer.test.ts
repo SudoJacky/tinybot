@@ -700,6 +700,70 @@ describe("createAgentWorkerServer", () => {
         },
       },
     });
+
+    const priorRequestIds = new Set(parsedLines(lines).map((line) => line.id));
+    const status = server.handleLine(JSON.stringify({
+      protocol_version: "1",
+      id: "webui-mcp-status",
+      trace_id: "trace-webui-mcp-status",
+      method: "webui.handle_request",
+      params: { method: "GET", path: "/api/status" },
+    }));
+    const handledRequests = new Set<unknown>();
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await waitFor(() => {
+        const messages = parsedLines(lines);
+        return messages.some((line) => line.id === "webui-mcp-status" && "result" in line)
+          || messages.some((line) => line.method === "config.snapshot_public" && !priorRequestIds.has(line.id) && !handledRequests.has(line.id))
+          || messages.some((line) => line.method === "provider.resolve_secret" && !priorRequestIds.has(line.id) && !handledRequests.has(line.id));
+      });
+      const response = parsedLines(lines).find((line) => line.id === "webui-mcp-status" && "result" in line);
+      if (response) {
+        break;
+      }
+      const request = parsedLines(lines).find((line) =>
+        (line.method === "config.snapshot_public" || line.method === "provider.resolve_secret")
+        && !priorRequestIds.has(line.id)
+        && !handledRequests.has(line.id)
+      );
+      if (!request || typeof request.id !== "string" || typeof request.trace_id !== "string") {
+        throw new Error("missing native status request id");
+      }
+      handledRequests.add(request.id);
+      await server.handleLine(JSON.stringify({
+        protocol_version: "1",
+        id: request.id,
+        trace_id: request.trace_id,
+        result: request.method === "provider.resolve_secret"
+          ? { apiKey: "test-key", apiKeySource: "env" }
+          : {
+            value: {
+              agents: { defaults: { model: "gpt-mcp" } },
+              gateway: { heartbeat: { enabled: false, interval_s: 120, keep_recent_messages: 6 } },
+            },
+          },
+      }));
+    }
+    await status;
+
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      protocol_version: "1",
+      id: "webui-mcp-status",
+      trace_id: "trace-webui-mcp-status",
+      result: {
+        status: 200,
+        body: {
+          mcp: {
+            servers: [{
+              name: "docs",
+              status: "connected",
+              registeredTools: ["mcp_docs_search"],
+              error: null,
+            }],
+          },
+        },
+      },
+    });
   });
 
   test("registers request_form tool that pauses the run through native form RPC", async () => {

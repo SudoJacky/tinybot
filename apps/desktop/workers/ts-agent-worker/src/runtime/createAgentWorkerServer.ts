@@ -226,6 +226,7 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
       const providerId = stringValue(runtime.providerId);
       return {
         channelRunning: true,
+        mcp: mcpBridge?.getDiagnostics() ?? null,
         provider: providerId ? { name: providerId, profile: stringValue(runtime.profileName) } : null,
         model: stringValue(runtime.model) ?? null,
       };

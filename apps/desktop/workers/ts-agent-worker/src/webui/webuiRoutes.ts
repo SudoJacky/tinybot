@@ -1,6 +1,7 @@
 import { isJsonObject, type JsonObject } from "../protocol/messages.ts";
 import type { ToolRegistry } from "../tools/toolRegistry.ts";
 import type { HeartbeatStatus } from "../heartbeat/heartbeatTypes.ts";
+import type { McpRuntimeDiagnostics } from "../mcp/mcpRuntimeManager.ts";
 
 export type WebuiRouteSpec = {
   key: string;
@@ -24,6 +25,7 @@ export type WebuiRouteResponse = {
 export type WebuiStatusSnapshot = {
   channelRunning: boolean;
   heartbeat?: HeartbeatStatus | null;
+  mcp?: McpRuntimeDiagnostics | null;
   provider: Record<string, unknown> | null;
   model: string | null;
 };
@@ -630,6 +632,7 @@ function webuiStatusBody(status: WebuiStatusSnapshot): Record<string, unknown> {
   return {
     channels: { websocket: { enabled: true, running: status.channelRunning } },
     ...(status.heartbeat ? { heartbeat: heartbeatStatusBody(status.heartbeat) } : {}),
+    ...(status.mcp ? { mcp: status.mcp } : {}),
     provider: status.provider,
     model: status.model,
   };
