@@ -1,5 +1,9 @@
 # TS Runtime Migration Progress
 
+## 2026-06-13 Progress Note
+
+- Continued Batch 5 Task/Cron background runtime parity: TS `cron.run_due` now runs Python-compatible evaluator gating for `deliver=true` cron results, suppresses routine responses, emits `cron.delivery` for notify decisions, records delivery decisions in per-job run records, and preserves Python's fail-open notify behavior when evaluator calls fail.
+
 更新时间：2026-06-12
 
 本文档用于跟踪 `overall.md` 中建议的 TypeScript runtime migration 推进顺序。推进方式按依赖层分批完成，而不是逐个设计文档从 Phase 1 做到最后。
@@ -480,6 +484,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: pass agent activity `limit` query options through the desktop gateway native TS Cowork facade.
 - [x] Continue Cowork Phase 10: pass observation requester `agent_id` query options through the desktop gateway native TS Cowork facade.
 - [x] Continue Cowork Phase 10: expose documented PATCH budget updates through the desktop gateway native TS Cowork facade.
+- [x] Continue Task/Cron background runtime parity: evaluate `deliver=true` cron run results with the TS evaluator before emitting native delivery events.
 - [x] Start WebUI transport Batch 6: expose TS-native `/api/status` via worker route specs, Rust `worker_webui_route`, and desktop native status facade.
 - [x] Continue WebUI transport Batch 6: expose TS-native `/api/sessions` list via session metadata bridge and desktop native facade.
 - [x] Continue WebUI transport Batch 6: expose TS-native `/api/sessions/{key}/messages` via session metadata bridge and desktop native facade.

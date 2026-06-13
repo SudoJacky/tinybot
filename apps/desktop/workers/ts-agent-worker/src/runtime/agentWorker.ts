@@ -34,6 +34,11 @@ import {
   type WorkerResponse,
 } from "../protocol/messages.ts";
 import type { ApprovalRequestPayload } from "../security/approvalTypes.ts";
+import {
+  buildEvaluatorMessages,
+  EVALUATE_NOTIFICATION_TOOL,
+  parseEvaluatorDecision,
+} from "../support/evaluator.ts";
 import type { ToolRegistry } from "../tools/toolRegistry.ts";
 import {
   handleClientWebSocketFrame,
@@ -174,6 +179,11 @@ type CronRunDueParams = {
   stream: boolean;
 };
 
+type CronDeliveryDecision = {
+  delivered: boolean;
+  deliveryReason: string;
+};
+
 type CoworkRouteRequest = {
   method: string;
   path: string;
@@ -197,6 +207,30 @@ export type ApprovalResolutionRequest = {
   approvalId: string;
   approved: boolean;
   scope?: string;
+};
+
+const EVALUATOR_TEMPLATES = {
+  "agent/evaluator.md": [
+    "{% if part == 'system' %}",
+    "You are a notification gate for a background agent. You will be given the original task and the agent's response. Call the evaluate_notification tool to decide whether the user should be notified.",
+    "",
+    "Notify when the response contains actionable information, errors, completed deliverables, or anything the user explicitly asked to be reminded about.",
+    "",
+    "Suppress when the response is a routine status check with nothing new, a confirmation that everything is normal, or essentially empty.",
+    "{% elif part == 'user' %}",
+    "## Original task",
+    "{{ task_context }}",
+    "",
+    "## Agent response",
+    "{{ response }}",
+    "{% endif %}",
+  ].join("\n"),
+};
+
+const EVALUATE_NOTIFICATION_TOOL_DEFINITION: ToolDefinition = {
+  name: EVALUATE_NOTIFICATION_TOOL.function.name,
+  description: EVALUATE_NOTIFICATION_TOOL.function.description,
+  parameters: EVALUATE_NOTIFICATION_TOOL.function.parameters,
 };
 
 type FormSubmissionRequest = {
@@ -2190,10 +2224,15 @@ export class AgentWorker {
       const result = isJsonObject(response.result) ? response.result : {};
       const stopReason = typeof result.stopReason === "string" ? result.stopReason : "error";
       const status = stopReason === "error" || stopReason === "tool_error" ? "error" : "ok";
+      const finalContent = typeof result.finalContent === "string" ? result.finalContent : "";
+      const delivery = status === "ok"
+        ? await this.evaluateCronDelivery(job, params.model, finalContent, request.trace_id)
+        : undefined;
       return cronRunRecord(job, status, runAtMs, Date.now() - runAtMs, {
         runId,
-        finalContent: typeof result.finalContent === "string" ? result.finalContent : "",
+        finalContent,
         stopReason,
+        ...(delivery ? { delivered: delivery.delivered, deliveryReason: delivery.deliveryReason } : {}),
         ...(typeof result.error === "string" ? { error: result.error } : {}),
       });
     } catch (error) {
@@ -2571,6 +2610,60 @@ export class AgentWorker {
       };
     } catch (error) {
       return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async evaluateCronDelivery(
+    job: CronRunDueJob,
+    model: string,
+    finalContent: string,
+    traceId: string,
+  ): Promise<CronDeliveryDecision | undefined> {
+    if (job.payload.deliver !== true || !job.payload.to || finalContent.trim().length === 0) {
+      return undefined;
+    }
+    const decision = await this.cronDeliveryDecision(job, model, finalContent);
+    if (decision.shouldNotify) {
+      this.emitEvent({
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        trace_id: traceId,
+        event: "cron.delivery",
+        payload: withNativePayloadAliases({
+          jobId: job.id,
+          jobName: job.name,
+          channel: job.payload.channel ?? "cli",
+          chatId: job.payload.to,
+          content: finalContent,
+          reason: decision.reason,
+        }),
+      });
+    }
+    return {
+      delivered: decision.shouldNotify,
+      deliveryReason: decision.reason,
+    };
+  }
+
+  private async cronDeliveryDecision(
+    job: CronRunDueJob,
+    model: string,
+    finalContent: string,
+  ): Promise<{ shouldNotify: boolean; reason: string }> {
+    try {
+      const response = await this.provider.complete(buildEvaluatorMessages({
+        templates: EVALUATOR_TEMPLATES,
+        taskContext: job.payload.message,
+        response: finalContent,
+      }), {
+        model,
+        tools: [EVALUATE_NOTIFICATION_TOOL_DEFINITION],
+        toolChoice: { type: "function", function: { name: "evaluate_notification" } },
+        maxTokens: 256,
+        temperature: 0,
+      });
+      return parseEvaluatorDecision({ toolCalls: response.toolCalls });
+    } catch {
+      return { shouldNotify: true, reason: "evaluator_failed" };
     }
   }
 

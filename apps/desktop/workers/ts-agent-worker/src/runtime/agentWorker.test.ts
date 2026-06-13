@@ -5041,6 +5041,78 @@ describe("AgentWorker", () => {
     }));
   });
 
+  test("evaluates cron deliver jobs before emitting outbound delivery", async () => {
+    const events: WorkerEvent[] = [];
+    const provider = new QueueProvider([
+      { content: "routine heartbeat ok", toolCalls: [], stopReason: "stop" },
+      {
+        content: "",
+        toolCalls: [{
+          id: "eval-1",
+          name: "evaluate_notification",
+          argumentsJson: JSON.stringify({ should_notify: false, reason: "routine" }),
+        }],
+        stopReason: "tool_calls",
+      },
+    ]);
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: (event) => events.push(event),
+    });
+
+    const response = await worker.handleRequest(cronRunDueRequest({
+      model: "fixture-model",
+      maxIterations: 2,
+      stream: false,
+      jobs: [
+        {
+          id: "job-1",
+          name: "Check status",
+          enabled: true,
+          schedule: { kind: "every", everyMs: 60000 },
+          payload: {
+            kind: "agent_turn",
+            message: "Check system status",
+            deliver: true,
+            channel: "desktop",
+            to: "chat-1",
+          },
+          state: { nextRunAtMs: 1000 },
+          createdAtMs: 1,
+          updatedAtMs: 1,
+          deleteAfterRun: false,
+        },
+      ],
+    }));
+
+    expect(response).toMatchObject({
+      result: {
+        records: [
+          expect.objectContaining({
+            jobId: "job-1",
+            status: "ok",
+            finalContent: "routine heartbeat ok",
+            delivered: false,
+            deliveryReason: "routine",
+          }),
+        ],
+      },
+    });
+    expect(provider.messages).toHaveLength(2);
+    expect(provider.messages[1]?.[1]).toMatchObject({
+      role: "user",
+      content: expect.stringContaining("## Agent response\nroutine heartbeat ok"),
+    });
+    expect(provider.options[1]).toMatchObject({
+      model: "fixture-model",
+      maxTokens: 256,
+      temperature: 0,
+      toolChoice: { type: "function", function: { name: "evaluate_notification" } },
+    });
+    expect(events).not.toContainEqual(expect.objectContaining({ event: "cron.delivery" }));
+  });
+
   test("reports skipped and failed cron job records without aborting the due batch", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),
