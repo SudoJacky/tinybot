@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued WebUI transport Phase 5 Skills validation parity: native TS skill validation now checks the workspace skill directory before reading `SKILL.md`, returning Python-compatible 404 `skill not found` for missing skill directories while preserving invalid `SKILL.md not found` results for existing directories.
+
 - Continued WebUI transport Phase 5 Skills update parity: native TS skill updates now reject non-string `content` payloads before writing, matching Python's update-route string concatenation failure boundary instead of stringifying invalid bodies.
 
 - Continued WebUI transport Phase 5 Skills create parity: native TS skill creation now rejects truthy non-string `content` values through the same create-error and best-effort cleanup boundary Python reaches during `SKILL.md` assembly, instead of silently writing TODO body content.

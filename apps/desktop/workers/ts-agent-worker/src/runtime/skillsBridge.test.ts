@@ -229,11 +229,6 @@ describe("NativeSkillsBridge", () => {
 
   test("allows skill root symlinks during validation like Python WebUI routes", async () => {
     const rpcClient = new FakeRpcClient({
-      "workspace.read_file": [
-        {
-          content: "---\nname: planner\ndescription: Plan work\n---\nPlan.",
-        },
-      ],
       "workspace.list_dir": [
         {
           entries: [
@@ -241,6 +236,11 @@ describe("NativeSkillsBridge", () => {
             { path: "skills/planner/scripts", kind: "dir" },
             { path: "skills/planner/shared-notes", kind: "symlink" },
           ],
+        },
+      ],
+      "workspace.read_file": [
+        {
+          content: "---\nname: planner\ndescription: Plan work\n---\nPlan.",
         },
       ],
     });
@@ -251,6 +251,61 @@ describe("NativeSkillsBridge", () => {
       valid: true,
       message: "Skill is valid",
     });
+  });
+
+  test("rejects missing skill validation before reading files like Python", async () => {
+    const rpcClient = new FakeRpcClient({
+      "workspace.list_dir": [
+        new Error("path not found"),
+      ],
+    });
+    const bridge = new NativeSkillsBridge(rpcClient, {});
+
+    await expect(bridge.validateWebuiSkill("missing", "trace-validate-missing")).rejects.toMatchObject({
+      message: "skill not found",
+      status: 404,
+    });
+    expect(rpcClient.calls).toEqual([
+      {
+        traceId: "trace-validate-missing",
+        method: "workspace.list_dir",
+        params: { path: "skills/missing", recursive: false },
+      },
+    ]);
+  });
+
+  test("returns invalid validation when a skill directory lacks SKILL.md like Python", async () => {
+    const rpcClient = new FakeRpcClient({
+      "workspace.list_dir": [
+        {
+          entries: [
+            { path: "skills/planner/scripts", kind: "dir" },
+          ],
+        },
+      ],
+      "workspace.read_file": [
+        {},
+      ],
+    });
+    const bridge = new NativeSkillsBridge(rpcClient, {});
+
+    await expect(bridge.validateWebuiSkill("planner", "trace-validate-no-skill-md")).resolves.toEqual({
+      name: "planner",
+      valid: false,
+      message: "SKILL.md not found",
+    });
+    expect(rpcClient.calls).toEqual([
+      {
+        traceId: "trace-validate-no-skill-md",
+        method: "workspace.list_dir",
+        params: { path: "skills/planner", recursive: false },
+      },
+      {
+        traceId: "trace-validate-no-skill-md",
+        method: "workspace.read_file",
+        params: { path: "skills/planner/SKILL.md", format: "raw" },
+      },
+    ]);
   });
 
   test("cleans up partially created skills when resource directory creation fails", async () => {
@@ -475,13 +530,13 @@ describe("NativeSkillsBridge", () => {
       },
       {
         traceId: "trace-3",
-        method: "workspace.read_file",
-        params: { path: "skills/planner/SKILL.md", format: "raw" },
+        method: "workspace.list_dir",
+        params: { path: "skills/planner", recursive: false },
       },
       {
         traceId: "trace-3",
-        method: "workspace.list_dir",
-        params: { path: "skills/planner", recursive: false },
+        method: "workspace.read_file",
+        params: { path: "skills/planner/SKILL.md", format: "raw" },
       },
       { traceId: "trace-4", method: "skills.list", params: {} },
       {

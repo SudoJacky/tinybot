@@ -93,6 +93,7 @@ export class NativeSkillsBridge implements SkillsBridge {
 
   async validateWebuiSkill(name: string, traceId: string): Promise<unknown> {
     const path = skillFilePath(name);
+    const listing = await this.loadSkillDirectory(name, traceId);
     const file = asObject(await this.rpcClient.request(traceId, "workspace.read_file", { path, format: "raw" }));
     const content = asString(file?.content) ?? asString(file?.contents);
     if (content === undefined) {
@@ -106,10 +107,6 @@ export class NativeSkillsBridge implements SkillsBridge {
     if (!result.valid) {
       return result;
     }
-    const listing = asObject(await this.rpcClient.request(traceId, "workspace.list_dir", {
-      path: skillDirPath(name),
-      recursive: false,
-    }));
     return validateSkillChildren(name, listing?.entries);
   }
 
@@ -134,6 +131,17 @@ export class NativeSkillsBridge implements SkillsBridge {
       return Array.isArray(skills?.enabled) ? normalizeStringArray(skills.enabled) : undefined;
     } catch {
       return undefined;
+    }
+  }
+
+  private async loadSkillDirectory(name: string, traceId: string): Promise<JsonObject | undefined> {
+    try {
+      return asObject(await this.rpcClient.request(traceId, "workspace.list_dir", {
+        path: skillDirPath(name),
+        recursive: false,
+      }));
+    } catch {
+      throw new NativeWebuiSkillError("skill not found", 404);
     }
   }
 
