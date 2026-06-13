@@ -990,7 +990,7 @@ function swarmCoworkCreateRoute(method: string, path: string, body: unknown): bo
     ?? blueprint?.workflowMode
     ?? blueprint?.architecture
     ?? blueprint?.mode;
-  return mode === "swarm";
+  return isSwarmMode(mode);
 }
 
 function recipientlessCoworkMessageRoute(method: string, path: string, body: unknown): boolean {
@@ -1015,7 +1015,11 @@ function swarmBranchDeriveRoute(method: string, path: string, body: unknown): bo
     ?? payload?.workflow_mode
     ?? payload?.workflowMode
     ?? payload?.architecture;
-  return typeof targetArchitecture === "string" && targetArchitecture.trim().toLowerCase() === "swarm";
+  return isSwarmMode(targetArchitecture);
+}
+
+function isSwarmMode(value: unknown): boolean {
+  return typeof value === "string" && value.trim().toLowerCase().replace(/-/g, "_") === "swarm";
 }
 
 async function bootstrapGateway(
