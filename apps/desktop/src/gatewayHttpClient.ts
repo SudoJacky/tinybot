@@ -941,6 +941,9 @@ function coworkRouteEnabledByRollout(
   if (rollout.enabled === false) {
     return false;
   }
+  if (autoRunCoworkCreateRoute(method, path, body) && swarmCoworkCreateRoute(method, path, body)) {
+    return rollout.scheduler !== false && rollout.swarm !== false;
+  }
   const group = coworkRouteGroup(method, path, body);
   return rollout[group] !== false;
 }
@@ -955,11 +958,11 @@ function coworkRouteGroup(method: string, path: string, body: unknown): "readOnl
   if (/\/api\/cowork\/sessions\/[^/]+\/run(?:$|\?)/.test(path)) {
     return "scheduler";
   }
-  if (swarmCoworkCreateRoute(method, path, body)) {
-    return "swarm";
-  }
   if (autoRunCoworkCreateRoute(method, path, body)) {
     return "scheduler";
+  }
+  if (swarmCoworkCreateRoute(method, path, body)) {
+    return "swarm";
   }
   if (recipientlessCoworkMessageRoute(method, path, body)) {
     return "swarm";
