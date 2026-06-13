@@ -208,6 +208,7 @@ describe("cowork session snapshot", () => {
         assigned_agent_id: `worker_${((value - 1) % 8) + 1}`,
         fanout_group_id: `stream_${Math.floor((value - 1) / 15) + 1}`,
         source_task_id: `unit_${String(value).padStart(3, "0")}`,
+        dependencies: value === 1 ? ["already_done_dependency"] : [],
       };
     });
     const snapshot = coworkSessionSnapshot(normalizeCoworkSession({
@@ -245,6 +246,8 @@ describe("cowork session snapshot", () => {
       id: "stream_1",
       title: "Stream 1",
       unit_counts: { completed: 15 },
+      risk: "low",
+      blockers: [expect.objectContaining({ work_unit_id: "wu_001", blocked_by: ["already_done_dependency"] })],
       sample_unit_ids: ["wu_001", "wu_002", "wu_003", "wu_004", "wu_005", "wu_006", "wu_007", "wu_008"],
     });
     expect(snapshot.swarm_organization.workstreams.find((stream) => stream.id === "stream_5")).toMatchObject({

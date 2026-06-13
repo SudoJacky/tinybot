@@ -1043,15 +1043,17 @@ function swarmWorkstreamGroups(units: JsonObject[]): JsonObject[] {
       const completed = (group.unitCounts.completed ?? 0) + (group.unitCounts.skipped ?? 0);
       const blocked = (group.unitCounts.failed ?? 0) + (group.unitCounts.blocked ?? 0) + (group.unitCounts.needs_revision ?? 0);
       const running = group.unitCounts.in_progress ?? 0;
+      const status = blocked > 0 ? "blocked" : running > 0 ? "active" : total > 0 && completed === total ? "completed" : "pending";
+      const risk = blocked > 0 ? "high" : status !== "completed" && group.blockers.length > 0 ? "medium" : "low";
       return {
         id: group.id,
         title: group.title,
-        status: blocked > 0 ? "blocked" : running > 0 ? "active" : total > 0 && completed === total ? "completed" : "pending",
+        status,
         unit_counts: sortRecord(group.unitCounts),
         agent_ids: [...group.agentIds].sort(),
         critical: group.critical || blocked > 0,
         coverage: Math.round((completed / Math.max(1, total)) * 1000) / 1000,
-        risk: blocked > 0 ? "high" : group.blockers.length > 0 ? "medium" : "low",
+        risk,
         blockers: group.blockers,
         sample_unit_ids: group.sampleUnitIds.filter(Boolean),
       };
