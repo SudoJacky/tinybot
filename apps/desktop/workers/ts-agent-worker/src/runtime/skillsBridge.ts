@@ -43,8 +43,8 @@ export class NativeSkillsBridge implements SkillsBridge {
     const content = asString(body.content) ?? "";
     const contents = createSkillContent(name, description, content, body.always === true);
     const path = skillFilePath(name);
-    await this.rpcClient.request(traceId, "workspace.write_file", { path, contents });
     try {
+      await this.rpcClient.request(traceId, "workspace.write_file", { path, contents });
       for (const resource of normalizeSkillResources(body.resources)) {
         await this.rpcClient.request(traceId, "workspace.create_dir", {
           path: `${skillDirPath(name)}/${resource}`,

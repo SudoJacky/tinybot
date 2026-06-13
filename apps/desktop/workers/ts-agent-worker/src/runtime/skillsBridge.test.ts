@@ -164,6 +164,54 @@ describe("NativeSkillsBridge", () => {
     ]);
   });
 
+  test("cleans up partially created skill directories when skill file writing fails", async () => {
+    const rpcClient = new FakeRpcClient({
+      "skills.list": [
+        { skills: [] },
+      ],
+      "workspace.write_file": [
+        new Error("file write failed"),
+      ],
+      "workspace.delete_file": [
+        { path: "skills/review-work", kind: "dir", deleted: true },
+      ],
+    });
+    const bridge = new NativeSkillsBridge(rpcClient, {});
+
+    await expect(bridge.createWebuiSkill({
+      name: "Review Work",
+      description: "Review changes",
+    }, "trace-write-cleanup")).rejects.toMatchObject({
+      message: "failed to create skill: file write failed",
+      status: 500,
+    });
+    expect(rpcClient.calls).toEqual([
+      { traceId: "trace-write-cleanup", method: "skills.list", params: {} },
+      {
+        traceId: "trace-write-cleanup",
+        method: "workspace.write_file",
+        params: {
+          path: "skills/review-work/SKILL.md",
+          contents: [
+            "---",
+            "name: review-work",
+            "description: Review changes",
+            "---",
+            "",
+            "# Review Work",
+            "",
+            "[TODO: Add skill instructions here]",
+          ].join("\n"),
+        },
+      },
+      {
+        traceId: "trace-write-cleanup",
+        method: "workspace.delete_file",
+        params: { path: "skills/review-work", recursive: true },
+      },
+    ]);
+  });
+
   test("creates, updates, validates, and deletes workspace skills through native workspace RPC", async () => {
     const rpcClient = new FakeRpcClient({
       "workspace.read_file": [

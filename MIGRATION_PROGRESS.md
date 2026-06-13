@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued WebUI transport Phase 5 Skills create parity: native TS skill creation now wraps skill file write failures in Python-compatible create errors and best-effort cleanup, so partial parent directories do not survive failed `SKILL.md` writes.
+
 - Continued WebUI transport Phase 5 Skills create parity: native TS skill creation now cleans up partially-created workspace skill directories when resource directory creation fails, matching Python's best-effort rollback before returning a create error.
 
 - Continued WebUI transport Phase 5 Skills create parity: native TS skill creation now creates requested `scripts/`, `references/`, and `assets/` resource directories through a dedicated `workspace.create_dir` bridge, matching Python's create route while ignoring unsupported resource names.
