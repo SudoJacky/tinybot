@@ -353,6 +353,86 @@ describe("CoworkMailbox", () => {
     });
   });
 
+  it("keeps completed fanout groups behind explicit merge synthesis", async () => {
+    const session = await createTeamSession();
+    session.agents.coordinator.inbox = [];
+    session.tasks = {
+      task_1: {
+        id: "task_1",
+        title: "Research path A",
+        description: "Investigate the first branch.",
+        assigned_agent_id: "researcher",
+        status: "completed",
+        dependencies: [],
+        result: "Path A is viable.",
+        result_data: { answer: "Path A is viable." },
+        confidence: 0.82,
+        error: null,
+        priority: 0,
+        expected_output: "",
+        review_required: false,
+        reviewer_agent_ids: [],
+        review_status: "",
+        fanout_group_id: "fanout_1",
+        merge_task_id: "merge_1",
+        source_blueprint_id: "",
+        source_event_id: "",
+        runtime_created: false,
+        created_at: fixedNow,
+        updated_at: fixedNow,
+      },
+      task_2: {
+        id: "task_2",
+        title: "Research path B",
+        description: "Investigate the second branch.",
+        assigned_agent_id: "analyst",
+        status: "skipped",
+        dependencies: [],
+        result: "Path B was not needed.",
+        result_data: { answer: "Path B was not needed." },
+        confidence: 0.7,
+        error: null,
+        priority: 0,
+        expected_output: "",
+        review_required: false,
+        reviewer_agent_ids: [],
+        review_status: "",
+        fanout_group_id: "fanout_1",
+        merge_task_id: "merge_1",
+        source_blueprint_id: "",
+        source_event_id: "",
+        runtime_created: false,
+        created_at: fixedNow,
+        updated_at: fixedNow,
+      },
+    };
+
+    deliver(session, {
+      sender_id: "coordinator",
+      recipient_ids: ["researcher"],
+      content: "Fanout work is ready for synthesis.",
+      wake_recipients: false,
+    });
+
+    expect(session.completion_decision).toMatchObject({
+      next_action: "merge_fanout_work",
+      reason: "1 fanout group(s) require synthesis.",
+      ready_to_finish: false,
+      fanout_blockers: [
+        {
+          fanout_group_id: "fanout_1",
+          task_ids: ["task_1", "task_2"],
+          merge_task_ids: ["merge_1"],
+        },
+      ],
+      goal_review: {
+        ready: false,
+        reason: "Fanout work needs an explicit merge or synthesis task.",
+        missing: ["fanout_merge"],
+      },
+    });
+  });
+
   it("deduplicates active correlation requests and returns the original message", async () => {
     const session = await createTeamSession();
     const box = mailbox();

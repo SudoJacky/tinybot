@@ -645,7 +645,8 @@ function refreshMailboxCompletionDecision(session: CoworkSession, now: () => str
     return status === "pending" || status === "in_progress";
   }).length;
   const reviewBlockers = reviewMailboxGateBlockers(tasks);
-  const goalReview = reviewMailboxGoalCompletion(session, tasks, reviewBlockers);
+  const fanoutBlockers = fanoutMailboxMergeBlockers(tasks);
+  const goalReview = reviewMailboxGoalCompletion(session, tasks, reviewBlockers, fanoutBlockers);
   let nextAction = "plan";
   let reason = "No tasks exist yet.";
   if (session.status === "completed") {
@@ -657,6 +658,9 @@ function refreshMailboxCompletionDecision(session: CoworkSession, now: () => str
   } else if (reviewBlockers.length > 0) {
     nextAction = "resolve_review_gates";
     reason = `${reviewBlockers.length} review gate(s) must pass before completion.`;
+  } else if (fanoutBlockers.length > 0) {
+    nextAction = "merge_fanout_work";
+    reason = `${fanoutBlockers.length} fanout group(s) require synthesis.`;
   } else if (pendingReplies.length > 0) {
     nextAction = "resolve_blockers";
     reason = `${pendingReplies.length} reply request(s) are still open.`;
@@ -689,6 +693,7 @@ function refreshMailboxCompletionDecision(session: CoworkSession, now: () => str
       content: stringValue(record.content).slice(0, 240),
     })),
     review_blockers: reviewBlockers,
+    fanout_blockers: fanoutBlockers,
     ready_to_finish: nextAction === "summarize",
     no_progress_rounds: session.no_progress_rounds,
     convergence_limit: CONVERGENCE_IDLE_ROUNDS,
@@ -720,7 +725,43 @@ function reviewMailboxGateBlockers(tasks: JsonObject[]): JsonObject[] {
   });
 }
 
-function reviewMailboxGoalCompletion(session: CoworkSession, tasks: JsonObject[], reviewBlockers: JsonObject[]): JsonObject {
+function fanoutMailboxMergeBlockers(tasks: JsonObject[]): JsonObject[] {
+  const byId = new Map(tasks.map((task) => [stringValue(task.id), task]));
+  const fanoutGroups = new Map<string, JsonObject[]>();
+  for (const task of tasks) {
+    const groupId = stringValue(task.fanout_group_id);
+    if (groupId) {
+      fanoutGroups.set(groupId, [...(fanoutGroups.get(groupId) ?? []), task]);
+    }
+  }
+  const blockers: JsonObject[] = [];
+  for (const [groupId, groupTasks] of fanoutGroups) {
+    const completedFanout = groupTasks.filter((task) => ["completed", "skipped"].includes(stringValue(task.status)));
+    if (completedFanout.length < groupTasks.length) {
+      continue;
+    }
+    const mergeIds = unique(groupTasks.map((task) => stringValue(task.merge_task_id)).filter(Boolean)).sort();
+    const mergeDone = mergeIds.some((mergeId) => {
+      const mergeTask = byId.get(mergeId);
+      return Boolean(mergeTask && ["completed", "skipped"].includes(stringValue(mergeTask.status)));
+    });
+    if (mergeIds.length === 0 || !mergeDone) {
+      blockers.push({
+        fanout_group_id: groupId,
+        task_ids: groupTasks.map((task) => stringValue(task.id)),
+        merge_task_ids: mergeIds,
+      });
+    }
+  }
+  return blockers;
+}
+
+function reviewMailboxGoalCompletion(
+  session: CoworkSession,
+  tasks: JsonObject[],
+  reviewBlockers: JsonObject[],
+  fanoutBlockers: JsonObject[],
+): JsonObject {
   const completed = tasks.filter((task) => stringValue(task.status) === "completed");
   const openQuestions = completed.flatMap((task) => arrayValue(jsonSafeObject(task.result_data).open_questions).map(stringValue).filter(Boolean));
   if (openQuestions.length > 0) {
@@ -728,6 +769,9 @@ function reviewMailboxGoalCompletion(session: CoworkSession, tasks: JsonObject[]
   }
   if (reviewBlockers.length > 0) {
     return { ready: false, reason: "Review-required outputs have not passed review.", missing: ["review_gates"] };
+  }
+  if (fanoutBlockers.length > 0) {
+    return { ready: false, reason: "Fanout work needs an explicit merge or synthesis task.", missing: ["fanout_merge"] };
   }
   const goalText = session.goal.toLowerCase();
   const deliveryMarkers = [
