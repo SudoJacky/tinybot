@@ -91,6 +91,37 @@ describe("ChannelManager", () => {
     await manager.stopAll();
   });
 
+  test("continues stopping channels when one channel fails to stop", async () => {
+    const bus = new MessageBus();
+    const broken = adapter({
+      name: "broken",
+      displayName: "Broken",
+      start: vi.fn(async () => undefined),
+      stop: vi.fn(async () => {
+        throw new Error("stop boom");
+      }),
+    });
+    const websocket = adapter({
+      start: vi.fn(async () => undefined),
+      stop: vi.fn(async () => undefined),
+    });
+    const manager = new ChannelManager({ bus, channels: [broken, websocket] });
+
+    await manager.startAll();
+    await expect(manager.stopAll()).resolves.toBeUndefined();
+
+    expect(broken.stop).toHaveBeenCalledOnce();
+    expect(websocket.stop).toHaveBeenCalledOnce();
+    expect(manager.status()).toMatchObject({
+      running: false,
+      channels: expect.arrayContaining([
+        expect.objectContaining({ name: "broken", running: false }),
+        expect.objectContaining({ name: "websocket", running: false }),
+      ]),
+      diagnostics: [expect.objectContaining({ kind: "stop_failed", channel: "broken", error: "stop boom" })],
+    });
+  });
+
   test("sends restart completion notice to the marked channel on start", async () => {
     const bus = new MessageBus();
     const websocket = adapter({

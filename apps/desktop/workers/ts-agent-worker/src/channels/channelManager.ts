@@ -30,7 +30,7 @@ export type ChannelManagerStatus = {
 };
 
 export type ChannelDispatchDiagnostic = {
-  kind: "dropped" | "unknown_channel" | "send_failed" | "start_failed";
+  kind: "dropped" | "unknown_channel" | "send_failed" | "start_failed" | "stop_failed";
   reason?: "progress_disabled" | "tool_hints_disabled";
   channel: string;
   chatId?: string;
@@ -140,8 +140,17 @@ export class ChannelManager {
     this.dispatcherTask = null;
     this.dispatcherAbortController = null;
     for (const channel of this.channels.values()) {
-      await channel.stop?.();
-      this.runningChannels.delete(channel.name);
+      try {
+        await channel.stop?.();
+      } catch (error) {
+        this.dispatchDiagnostics.push({
+          kind: "stop_failed",
+          channel: channel.name,
+          error: String(error instanceof Error ? error.message : error),
+        });
+      } finally {
+        this.runningChannels.delete(channel.name);
+      }
     }
   }
 

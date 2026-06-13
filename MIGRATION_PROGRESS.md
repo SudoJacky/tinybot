@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Channel Bus lifecycle parity: TS `ChannelManager.stopAll()` now isolates per-channel stop failures like Python `stop_all()`, continues stopping healthy adapters, clears running status, and exposes `stop_failed` diagnostics instead of aborting shutdown.
+
 - Continued Channel Bus lifecycle parity: TS `ChannelManager.startAll()` now isolates per-channel startup failures like Python `_start_channel()`, continuing to start healthy adapters while exposing failed adapter diagnostics instead of aborting the whole channel runtime.
 
 - Continued Channel Bus dispatcher parity: TS `ChannelManager` now waits on the outbound `MessageBus` with a cancellable timeout, so messages published after startup wake the dispatcher immediately like Python's blocking outbound consumer instead of waiting for the idle poll interval.
@@ -958,6 +960,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Channel Bus manager lifecycle parity: start and stop a background outbound dispatcher with `ChannelManager` lifecycle.
 - [x] Continue Channel Bus dispatcher parity: wake the outbound dispatcher from `MessageBus` delivery instead of waiting for idle polling.
 - [x] Continue Channel Bus lifecycle parity: isolate per-channel startup failures and continue starting healthy adapters.
+- [x] Continue Channel Bus lifecycle parity: isolate per-channel stop failures and continue stopping healthy adapters.
 - [x] Start API Runtime Phase 1: expose TS-native public `GET /health` and OpenAI-compatible `GET /v1/models` through the worker route bridge.
 - [x] Continue API Runtime Phase 1: expose TS-native non-stream `POST /v1/chat/completions` through the worker route bridge and existing AgentRunner path.
 - [x] Continue API Runtime Phase 1: apply `api.timeout` and OpenAI-shaped 504 handling to TS-native chat completions.
