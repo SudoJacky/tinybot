@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued Cowork Phase 10 control route parity: TS-native pause/resume routes now mirror Python `_simple_tool_action` missing-session responses, returning a Python-shaped `result` error with `session: null` instead of a route-level 404.
+
 - Continued Cowork Phase 10 create-session route parity: TS-native session creation now mirrors Python's blueprint type guard, ignoring non-object `blueprint` values and falling through to goal-based creation instead of failing blueprint validation.
 
 - Continued Cowork Phase 10 budget route parity: TS-native budget update routes now mirror Python's `budgets` field precedence, ignoring malformed sibling `budget` values when the Python-compatible `budgets` payload is present.

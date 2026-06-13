@@ -1156,6 +1156,10 @@ export class AgentWorker {
       return unavailableCoworkRouteResponse();
     }
     if (resource === "pause") {
+      const session = await this.coworkService.getSession(sessionId, traceId);
+      if (!session) {
+        return { status: 200, body: { result: `Error: cowork session '${sessionId}' not found`, session: null } };
+      }
       const result = await this.coworkService.pauseSession({ traceId, sessionId });
       return {
         status: 200,
@@ -1163,6 +1167,10 @@ export class AgentWorker {
       };
     }
     if (resource === "resume") {
+      const session = await this.coworkService.getSession(sessionId, traceId);
+      if (!session) {
+        return { status: 200, body: { result: `Error: cowork session '${sessionId}' not found`, session: null } };
+      }
       const result = await this.coworkService.resumeSession({ traceId, sessionId });
       return {
         status: 200,
