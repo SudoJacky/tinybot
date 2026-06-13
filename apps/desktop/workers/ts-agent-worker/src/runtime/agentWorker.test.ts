@@ -3714,6 +3714,28 @@ describe("AgentWorker", () => {
         },
       },
     });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(created.id)}/branches/default/derive`,
+      body: {
+        architecture: "team",
+        title: "Team alias branch",
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          branch: expect.objectContaining({
+            id: "br_2",
+            title: "Team alias branch",
+            architecture: "team",
+            source_branch_id: "default",
+          }),
+          session: expect.objectContaining({ current_branch_id: "br_2" }),
+        },
+      },
+    });
   });
 
   test("routes cowork work-unit lifecycle requests through the injected CoworkService", async () => {

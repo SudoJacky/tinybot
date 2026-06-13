@@ -4150,7 +4150,8 @@ function parseCoworkDeriveBranchParams(params: Record<string, unknown> | undefin
   return {
     sessionId,
     sourceBranchId: stringParam(params, "sourceBranchId", "source_branch_id"),
-    targetArchitecture: stringParam(params, "targetArchitecture", "target_architecture"),
+    targetArchitecture: stringParam(params, "targetArchitecture", "target_architecture")
+      ?? stringParam(params, "architecture", "architecture"),
     reason: stringParam(params, "reason", "reason"),
     title: stringParam(params, "title", "title"),
     inheritedContextSummary: stringParam(params, "inheritedContextSummary", "inherited_context_summary"),
