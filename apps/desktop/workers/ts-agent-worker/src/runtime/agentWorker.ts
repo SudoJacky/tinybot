@@ -1286,7 +1286,7 @@ export class AgentWorker {
       };
     }
     if (action === "review") {
-      const params = parseCoworkTaskMutationParams({ ...body, session_id: sessionId, task_id: taskId }, "cowork.route_request");
+      const params = parseCoworkTaskMutationParams(coworkTaskReviewRouteBody(body, sessionId, taskId), "cowork.route_request");
       try {
         const result = await this.coworkService.requestTaskReview({
           traceId,
@@ -3975,6 +3975,20 @@ function coworkAddTaskRouteBody(
     assigned_agent_id: pythonRouteTextParam(body, "assignedAgentId", "assigned_agent_id"),
     dependencies: body.dependencies || [],
   };
+}
+
+function coworkTaskReviewRouteBody(
+  body: Record<string, unknown>,
+  sessionId: string,
+  taskId: string,
+): Record<string, unknown> {
+  const routeBody: Record<string, unknown> = {
+    ...body,
+    session_id: sessionId,
+    task_id: taskId,
+  };
+  setRouteTextParam(routeBody, body, "reviewer_agent_id", "reviewerAgentId", "reviewer_agent_id");
+  return routeBody;
 }
 
 function setRouteTextParam(

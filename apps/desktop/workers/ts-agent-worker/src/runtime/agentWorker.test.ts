@@ -2716,7 +2716,7 @@ describe("AgentWorker", () => {
         goal: "Route Cowork API",
         title: "Route API",
         workflow_mode: "team",
-        agents: [{ id: "lead", name: "Lead", role: "Lead" }],
+        agents: [{ id: "lead", name: "Lead", role: "Lead" }, { id: "123_5", name: "Numeric", role: "Worker" }],
         tasks: [{ id: "draft", title: "Draft", description: "Draft answer", assigned_agent_id: "lead" }],
       },
     }));
@@ -2747,7 +2747,7 @@ describe("AgentWorker", () => {
           items: [expect.objectContaining({
             id: "cw_1",
             title: "Route API",
-            agents: [expect.objectContaining({ id: "lead", private_summary: "" })],
+            agents: expect.arrayContaining([expect.objectContaining({ id: "lead", private_summary: "" })]),
             messages: [],
             trace_spans: [],
           })],
@@ -2839,14 +2839,14 @@ describe("AgentWorker", () => {
     await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
       method: "POST",
       path: `/api/cowork/sessions/${encodeURIComponent(createdSession.id)}/tasks/task_1/review`,
-      body: {},
+      body: { reviewer_agent_id: 123.5 },
     }))).resolves.toMatchObject({
       result: {
         status: 200,
         body: {
           review_task_id: "task_2",
           session: expect.objectContaining({
-            tasks: expect.arrayContaining([expect.objectContaining({ id: "task_2", title: "Review Review" })]),
+            tasks: expect.arrayContaining([expect.objectContaining({ id: "task_2", title: "Review Review", assigned_agent_id: "123_5" })]),
             graph: expect.objectContaining({ schema_version: "cowork.graph.v2" }),
           }),
         },
