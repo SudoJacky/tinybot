@@ -370,6 +370,34 @@ describe("TurnLifecycle", () => {
     expect(metadata?.omittedSideEffects).toEqual([]);
   });
 
+  test("does not capture conversation evidence for duplicate-only append fallback turns", async () => {
+    const capturedEvidence: Array<{ startIndex: number; messages: AgentMessage[] }> = [];
+    const bridge: SessionBridge = {
+      setCheckpoint: async () => undefined,
+      clearCheckpoint: async () => undefined,
+      appendMessages: async () => ({
+        sessionId: "session-1",
+        messagesBefore: 2,
+        messagesAfter: 2,
+        savedMessageCount: 0,
+      }),
+      getCheckpoint: async () => null,
+    };
+    const memoryBridge: MemoryEvidenceBridge = {
+      captureEvidence: async (_sessionId, request) => {
+        capturedEvidence.push({ startIndex: request.startIndex, messages: request.messages });
+        return { evidence: [{ id: "duplicate-ev" }] };
+      },
+    };
+
+    const metadata = await new TurnLifecycle(bridge, memoryBridge).finalizeTurn("trace-1", spec(), result());
+
+    expect(capturedEvidence).toEqual([]);
+    expect(metadata?.savedMessageCount).toBe(0);
+    expect(metadata?.evidenceCapturedCount).toBe(0);
+    expect(metadata?.omittedSideEffects).toContain("conversation_evidence");
+  });
+
   test("keeps checkpoints for awaiting input results", async () => {
     const persistedTurns: Array<{ clearCheckpoint: boolean }> = [];
     const bridge: SessionBridge = {

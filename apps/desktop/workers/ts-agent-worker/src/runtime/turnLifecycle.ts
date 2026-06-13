@@ -160,7 +160,12 @@ export class TurnLifecycle {
     }
     const messagesBefore = appended?.messagesBefore ?? 0;
     const savedMessageCount = appended?.savedMessageCount ?? messages.length;
-    const evidenceCapturedCount = await this.captureEvidence(traceId, spec.sessionId, messages, messagesBefore);
+    const evidenceCapturedCount = await this.captureEvidence(
+      traceId,
+      spec.sessionId,
+      savedMessagesForEvidence(messages, savedMessageCount),
+      messagesBefore,
+    );
     return {
       sessionId: spec.sessionId,
       runId: spec.runId,

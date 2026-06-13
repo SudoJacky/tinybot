@@ -8,6 +8,8 @@
 
 - Continued session turn lifecycle evidence durability: TS `TurnLifecycle.finalizeTurn()` now skips conversation evidence capture when native `session.persist_turn` reports a duplicate-only turn with `savedMessageCount=0`, preventing repeated persisted turns from generating duplicate memory evidence.
 
+- Continued session turn lifecycle evidence durability: the `session.append_messages` fallback path now applies the same saved-message evidence filter, so duplicate-only append results also skip memory evidence capture.
+
 - Continued Cowork scheduler Python parity: TS `CoworkScheduler` now emits Python-compatible `scheduler.agent_budget_exhausted` / `scheduler.budget_exhausted` events and blocked stop trace status for budget-limit stops, preserving native observability semantics without Python fallback.
 
 - Continued Cowork Phase 10 rollout parity: desktop gateway recipient-less swarm message classification now follows the TS worker parser's `recipientIds` before `recipient_ids` alias precedence, keeping rollout fallback aligned with native route behavior.
@@ -165,6 +167,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 
 | Date | Update |
 | --- | --- |
+| 2026-06-13 | Continued session turn lifecycle evidence durability: duplicate-only append fallback results now skip memory evidence capture just like native persist-turn results. |
 | 2026-06-13 | Continued session turn lifecycle evidence durability: duplicate-only native persist-turn results now skip memory evidence capture instead of recording evidence for messages that were not saved. |
 | 2026-06-13 | Continued Cowork Phase 10 desktop route parity: agent-activity desktop action requests now preserve `limit` query options for the native-first Cowork facade. |
 | 2026-06-13 | Continued config/provider bridge durability: legacy native config fallback now resolves OpenAI secrets for `provider=auto` when public config snapshots are unavailable and env keys are absent. |
@@ -673,6 +676,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: preserve agent-activity `limit` query options in desktop action request builders.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
+- [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.
 - [x] Start Heartbeat runtime Phase 1: add pure TS heartbeat decision parsing, target selection, manual trigger/status, and tick service orchestration.
 - [x] Continue Heartbeat runtime Phase 1: add start/stop interval lifecycle with disabled guard, first-delay scheduling, and no-overlap scheduled ticks.
 - [x] Continue Heartbeat runtime bridge foundation: route heartbeat tasks through TS `AgentRunner` with fixed heartbeat session, trim callback, and external-notify gating.
