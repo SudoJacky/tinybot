@@ -1009,7 +1009,8 @@ async function handleNativeCoworkAction(event: DesktopCoworkActionEvent): Promis
         : event.action === "pauseSession"
           ? "pause"
           : "resume";
-      await gatewayApi.cowork.action(sessionId, apiAction);
+      const request = buildDesktopCoworkActionRequest({ action: event.action, sessionId });
+      await gatewayApi.cowork.action(sessionId, apiAction, "body" in request ? request.body : undefined);
       setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: `Cowork ${apiAction} requested.` }));
       return;
     }

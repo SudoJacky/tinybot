@@ -264,7 +264,7 @@ export type DesktopCoworkActionInput =
   | { action: "loadObservation"; sessionId: string; detailRef: string; requesterAgentId?: string }
   | { action: "createSession"; goal?: string; blueprint?: unknown; architecture?: string; autoRun?: boolean }
   | { action: "runSession"; sessionId: string }
-  | { action: "pauseSession" | "resumeSession" | "emergencyStopSession"; sessionId: string }
+  | { action: "pauseSession" | "resumeSession" | "emergencyStopSession"; sessionId: string; reason?: string }
   | { action: "deleteSession"; sessionId: string }
   | { action: "sendMessage"; sessionId: string; content: string; recipientIds?: string[] }
   | { action: "addTask"; sessionId: string; title: string; assignedAgentId: string }
@@ -561,7 +561,11 @@ export function buildDesktopCoworkActionRequest(input: DesktopCoworkActionInput)
     case "resumeSession":
       return { method: "POST", path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/resume` };
     case "emergencyStopSession":
-      return { method: "POST", path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/emergency-stop` };
+      return {
+        method: "POST",
+        path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/emergency-stop`,
+        body: { reason: stringValue(input.reason).trim() || "emergency stop from desktop" },
+      };
     case "deleteSession":
       return { method: "DELETE", path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}` };
     case "sendMessage":

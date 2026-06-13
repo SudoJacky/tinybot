@@ -503,6 +503,11 @@ describe("desktop Cowork helpers", () => {
         stop_on_blocker: false,
       },
     });
+    expect(buildDesktopCoworkActionRequest({ action: "emergencyStopSession", sessionId: "cowork/1" })).toEqual({
+      method: "POST",
+      path: "/api/cowork/sessions/cowork%2F1/emergency-stop",
+      body: { reason: "emergency stop from desktop" },
+    });
     expect(buildDesktopCoworkActionRequest({ action: "loadBlueprint", sessionId: "cowork/1" })).toEqual({
       method: "GET",
       path: "/api/cowork/sessions/cowork%2F1/blueprint",
