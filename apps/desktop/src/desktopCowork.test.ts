@@ -195,6 +195,35 @@ describe("desktop Cowork helpers", () => {
     });
   });
 
+  test("builds branch rows from Python snapshot branches when branch_results is absent", () => {
+    const view = buildDesktopCoworkCockpitView({
+      ...session,
+      current_branch_id: "branch-b",
+      branch_results: [],
+      branches: [
+        {
+          id: "branch-a",
+          title: "Use helpers",
+          status: "completed",
+          current: false,
+          branch_result: { id: "result-a", summary: "Use helpers result" },
+        },
+        {
+          id: "branch-b",
+          title: "Use controllers",
+          status: "active",
+          current: true,
+          branch_result: {},
+        },
+      ],
+    });
+
+    expect(view.branches.map((branch) => [branch.branchId, branch.resultId, branch.selected, branch.title])).toEqual([
+      ["branch-a", "result-a", false, "Use helpers"],
+      ["branch-b", "", true, "Use controllers"],
+    ]);
+  });
+
   test("builds Cowork observability panels for graph, focus, metrics, work, outputs, and evaluations", () => {
     const view = buildDesktopCoworkCockpitView(session);
 

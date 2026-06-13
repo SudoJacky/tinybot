@@ -756,16 +756,31 @@ function buildThreadRows(threads: unknown): DesktopCoworkThreadRow[] {
 }
 
 function buildBranchRows(session: UnknownRecord): DesktopCoworkBranchRow[] {
-  const activeBranchId = stringValue(session.active_branch_id) || stringValue(asRecord(session.session_final_result).branch_id);
-  return arrayValue(session.branch_results).filter(isRecord).map((branch) => {
-    const branchId = stringValue(branch.branch_id) || stringValue(branch.id);
-    const resultId = stringValue(branch.result_id) || stringValue(branch.selected_result_id);
+  const activeBranchId = stringValue(session.current_branch_id)
+    || stringValue(session.active_branch_id)
+    || stringValue(asRecord(session.session_final_result).branch_id);
+  const resultByBranchId = new Map<string, UnknownRecord>();
+  for (const result of arrayValue(session.branch_results).filter(isRecord)) {
+    const branchId = stringValue(result.branch_id) || stringValue(result.source_branch_id) || stringValue(result.id);
+    if (branchId) {
+      resultByBranchId.set(branchId, result);
+    }
+  }
+  const branchSources = arrayValue(session.branches).filter(isRecord);
+  const sources = branchSources.length ? branchSources : arrayValue(session.branch_results).filter(isRecord);
+  return sources.map((branch) => {
+    const branchId = stringValue(branch.branch_id) || stringValue(branch.id) || stringValue(branch.source_branch_id);
+    const branchResult = asRecord(branch.branch_result);
+    const result = resultByBranchId.get(branchId) ?? branchResult;
+    const resultId = stringValue(result.result_id)
+      || stringValue(result.selected_result_id)
+      || stringValue(result.id);
     return {
       branchId,
       resultId,
-      title: stringValue(branch.title) || stringValue(branch.summary) || branchId,
+      title: stringValue(branch.title) || stringValue(result.summary) || stringValue(branch.summary) || branchId,
       status: stringValue(branch.status) || "ready",
-      selected: Boolean(activeBranchId && activeBranchId === branchId),
+      selected: Boolean(stringValue(branch.current) === "true" || (activeBranchId && activeBranchId === branchId)),
       meta: [stringValue(branch.status) || "ready", resultId ? `Result ${resultId}` : ""].filter(Boolean).join(" / "),
       raw: branch,
     };
