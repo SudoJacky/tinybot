@@ -4150,7 +4150,7 @@ function parseCoworkAddTaskParams(params: Record<string, unknown> | undefined): 
     throw new Error("cowork.add_task requires object params");
   }
   const sessionId = stringParam(params, "sessionId", "session_id");
-  const title = stringParam(params, "title", "title");
+  const title = pythonRouteTextParam(params, "title", "title");
   if (!sessionId || !title) {
     throw new Error("cowork.add_task requires params.session_id and params.title");
   }
