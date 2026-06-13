@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued config/provider preview durability: TS provider-model preview now falls back to an empty public config when native snapshots are unavailable but request-scoped `api_key` / `api_base` / manual models are supplied, preserving live/manual model discovery without native secret resolution.
+
 - Continued TS worker packaging/build boundary: `apps/desktop` now has a `typecheck:worker` gate backed by a dedicated `workers/ts-agent-worker/tsconfig.json` plus a Node source-runtime smoke check, and the main desktop build runs it before Vite packaging so worker type/runtime syntax regressions are no longer hidden by the app-only `tsconfig`.
 
 - Continued session turn lifecycle durability: native Rust `session.persist_turn` now deduplicates incoming persisted messages using Python-compatible user/assistant/tool message keys and reports real saved/duplicate message counts, so repeated TS worker persistence cannot grow session history with already-saved turn messages.
@@ -131,6 +133,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 
 | Date | Update |
 | --- | --- |
+| 2026-06-13 | Continued config/provider preview durability: provider-model preview can use request-scoped key/base/manual model overrides when native public config snapshots are unavailable. |
 | 2026-06-13 | Continued config/provider bridge durability: legacy native config fallback now uses `provider.resolve_secret` for OpenAI secrets when env keys are absent, while keeping env keys higher priority. |
 | 2026-06-13 | Continued session persistence dedupe parity: Rust `session.append_messages` and `session.persist_turn` now dedupe equivalent OpenAI `tool_calls` and TS `toolCalls` assistant messages. |
 | 2026-06-13 | Continued session legal-boundary parity: Rust `session.get_history` now recognizes camelCase `toolCalls` / `toolCallId` while finding legal tool-call history boundaries. |

@@ -5,6 +5,7 @@ import { NativeConfigBridge, modelProviderConfigFromNativeConfig, providerModels
 
 class FakeRpcClient {
   readonly requests: Array<{ traceId: string; method: string; params: JsonObject }> = [];
+  readonly failedRequests: Array<{ traceId: string; method: string; params: JsonObject }> = [];
 
   constructor(
     private readonly values: Record<string, unknown>,
@@ -15,6 +16,7 @@ class FakeRpcClient {
   async request(traceId: string, method: string, params: JsonObject): Promise<unknown> {
     if (method === "config.snapshot_public") {
       if (this.snapshot === undefined) {
+        this.failedRequests.push({ traceId, method, params });
         throw new Error("unknown method");
       }
       this.requests.push({ traceId, method, params });
@@ -268,6 +270,43 @@ describe("NativeConfigBridge", () => {
       models: expect.arrayContaining(["qwen-preview"]),
     });
     expect(rpcClient.requests.map((request) => request.method)).toEqual(["config.snapshot_public"]);
+    expect(rpcClient.requests.map((request) => request.method)).not.toContain("provider.resolve_secret");
+  });
+
+  test("lists provider models from request overrides when native snapshot is unavailable", async () => {
+    const discoveryCalls: Array<{ url: string; authorization?: string }> = [];
+    const rpcClient = new FakeRpcClient({}, undefined, new Error("secret unavailable"));
+
+    const result = await providerModelsFromNativeConfig(
+      new NativeConfigBridge(rpcClient),
+      {},
+      {
+        providerId: "dashscope",
+        apiKey: "preview-key",
+        apiBase: "https://preview.test/compatible-mode/v1",
+        manualModelIds: ["manual-preview"],
+        refreshLive: true,
+      },
+      async (url, headers) => {
+        discoveryCalls.push({ url, authorization: headers.Authorization });
+        return { data: [{ id: "qwen-preview" }] };
+      },
+    );
+
+    expect(discoveryCalls).toEqual([
+      {
+        url: "https://preview.test/compatible-mode/v1/models",
+        authorization: "Bearer preview-key",
+      },
+    ]);
+    expect(result).toMatchObject({
+      providerId: "dashscope",
+      apiBase: "https://preview.test/compatible-mode/v1",
+      apiKeySource: "request",
+      models: expect.arrayContaining(["manual-preview", "qwen-preview"]),
+    });
+    expect(rpcClient.failedRequests.map((request) => request.method)).toEqual(["config.snapshot_public"]);
+    expect(rpcClient.requests.map((request) => request.method)).not.toContain("provider.resolve_secret");
   });
 
   test("uses native default model with env OpenAI key when provider is auto", async () => {

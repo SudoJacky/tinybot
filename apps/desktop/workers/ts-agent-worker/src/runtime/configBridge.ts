@@ -117,7 +117,15 @@ export async function providerModelsFromNativeConfig(
   },
   fetchJson: JsonFetcher = fetchModelDiscoveryJson,
 ): Promise<Record<string, unknown>> {
-  const snapshot = await configBridge.snapshotPublic();
+  let snapshot: TinybotPublicConfig;
+  try {
+    snapshot = await configBridge.snapshotPublic();
+  } catch (error) {
+    if (!hasProviderModelRequestOverrides(input)) {
+      throw error;
+    }
+    snapshot = createPublicConfigSnapshot({});
+  }
   const resolved = await resolveRuntimeProvider({
     config: snapshot,
     env,
@@ -159,6 +167,14 @@ export async function providerModelsFromNativeConfig(
     url: modelList.url ?? null,
     warnings: resolved.warnings,
   };
+}
+
+function hasProviderModelRequestOverrides(input: {
+  apiKey?: string;
+  apiBase?: string;
+  manualModelIds?: string[];
+}): boolean {
+  return Boolean(input.apiKey || input.apiBase || input.manualModelIds?.length);
 }
 
 async function fetchModelDiscoveryJson(url: string, headers: Record<string, string>): Promise<unknown> {
