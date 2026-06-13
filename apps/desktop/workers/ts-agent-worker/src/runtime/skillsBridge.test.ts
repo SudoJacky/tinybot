@@ -299,6 +299,52 @@ describe("NativeSkillsBridge", () => {
     ]);
   });
 
+  test("treats frontmatter without a closing newline as legacy content like Python", async () => {
+    const rpcClient = new FakeRpcClient({
+      "workspace.read_file": [
+        {
+          content: "---\nname: planner\ndescription: Old\n---Legacy body",
+        },
+      ],
+      "workspace.write_file": [
+        { path: "skills/planner/SKILL.md", bytes_written: 83 },
+      ],
+    });
+    const bridge = new NativeSkillsBridge(rpcClient, {});
+
+    await expect(bridge.updateWebuiSkill("planner", {
+      description: "Updated plan",
+    }, "trace-update-malformed-frontmatter")).resolves.toEqual({
+      updated: true,
+      name: "planner",
+      path: "skills/planner/SKILL.md",
+    });
+    expect(rpcClient.calls).toEqual([
+      {
+        traceId: "trace-update-malformed-frontmatter",
+        method: "workspace.read_file",
+        params: { path: "skills/planner/SKILL.md", format: "raw" },
+      },
+      {
+        traceId: "trace-update-malformed-frontmatter",
+        method: "workspace.write_file",
+        params: {
+          path: "skills/planner/SKILL.md",
+          contents: [
+            "---",
+            "name: planner",
+            "description: Updated plan",
+            "---",
+            "---",
+            "name: planner",
+            "description: Old",
+            "---Legacy body",
+          ].join("\n"),
+        },
+      },
+    ]);
+  });
+
   test("allows skill root symlinks during validation like Python WebUI routes", async () => {
     const rpcClient = new FakeRpcClient({
       "workspace.list_dir": [

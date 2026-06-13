@@ -191,7 +191,7 @@ function createSkillContent(name: string, description: string, content: string, 
 }
 
 function updateSkillContent(currentContent: string, name: string, body: Record<string, unknown>): string {
-  const match = currentContent.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+  const match = currentContent.match(/^---\n([\s\S]*?)\n---\n/);
   const frontmatterLines = ["---"];
   if (match) {
     for (const line of match[1].split(/\r?\n/)) {
