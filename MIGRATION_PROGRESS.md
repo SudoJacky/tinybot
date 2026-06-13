@@ -14,6 +14,8 @@
 
 - Continued Channel Bus Phase 5 foundation: the default stdio worker channel lifecycle can now assemble native text adapters from canonical channel config when the host provides connector implementations, while keeping the empty-manager path for hosts that still rely on the Python bridge.
 
+- Continued Channel Bus Phase 5 foundation: added an explicit TS host-RPC connector bridge for native text channel adapters, mapping start/stop/send text/send delta/send usage onto stable `channel.connector.*` worker-host methods without changing the default Python bridge fallback path.
+
 - Continued Channel Bus Phase 5 foundation: native text channel adapters can now be instantiated from canonical enabled channel config plus host-provided connector registry, skipping channels without native connectors so Python bridge fallback can remain explicit during migration.
 
 - Continued Channel Bus Phase 5 foundation: added a reusable TS `NativeTextChannel` adapter boundary for native platform connectors, sharing `BaseChannel` allow-list/inbound normalization while forwarding outbound text, stream delta, usage, and lifecycle calls without the Python bridge.
@@ -487,6 +489,8 @@ Channel Bus row 18 update: Phase 5 worker lifecycle wiring now accepts an inject
 
 Channel Bus row 18 update: Phase 5 default stdio worker lifecycle now reads canonical native config and assembles host-provided native text connectors into `ChannelManager` adapters at channel startup, preserving the empty-manager fallback when no connectors are available.
 
+Channel Bus row 18 update: Phase 5 now has an explicit TS host-RPC connector bridge for native text adapters, so host-provided connectors can be expressed as stable `channel.connector.start/stop/send_text/send_delta/send_usage` worker-host calls while Python bridge fallback remains opt-in by absence of connectors.
+
 Heartbeat row 20 update: Phase 4 now runs scheduled notifications through the shared Python-compatible evaluator, emits approved external notifications as `heartbeat.delivery` worker events, and projects those delivery events into target native desktop chats without requiring an active agent run.
 
 ## Work Log
@@ -494,6 +498,7 @@ Heartbeat row 20 update: Phase 4 now runs scheduled notifications through the sh
 | Date | Update |
 | --- | --- |
 | 2026-06-14 | Continued Channel Bus Phase 5 foundation: wired injected native `ChannelManager` lifecycle through `AgentWorker` and the stdio server via `channel.start/status/stop` RPCs. |
+| 2026-06-14 | Continued Channel Bus Phase 5 foundation: added an explicit host-RPC connector bridge for native text channel start/stop/send/delta/usage operations. |
 | 2026-06-14 | Continued Channel Bus Phase 5 foundation: default stdio worker channel lifecycle now assembles host-provided native text connectors from canonical channel config. |
 | 2026-06-14 | Continued Channel Bus Phase 5 foundation: added native text channel adapter factory from enabled channel config plus connector registry, preserving Python bridge fallback for channels without native connectors. |
 | 2026-06-14 | Continued Channel Bus Phase 5 foundation: added reusable TS `NativeTextChannel` connector boundary for native platform adapters with BaseChannel allow-list/inbound semantics and outbound text/delta/usage forwarding. |
@@ -1019,6 +1024,7 @@ Heartbeat row 20 update: Phase 4 now runs scheduled notifications through the sh
 - [x] Continue Channel Bus Phase 5 foundation: republish `channel.dispatch_inbound` replies onto the shared TS channel bus for native dispatch.
 - [x] Continue Channel Bus Phase 5 foundation: start the TS-managed native channel runtime during desktop bootstrap.
 - [x] Continue Channel Bus Phase 5 foundation: assemble host-provided native text connectors from canonical config in the default stdio worker lifecycle.
+- [x] Continue Channel Bus Phase 5 foundation: add an explicit host-RPC connector bridge contract for native text adapters.
 - [x] Start API Runtime Phase 1: expose TS-native public `GET /health` and OpenAI-compatible `GET /v1/models` through the worker route bridge.
 - [x] Continue API Runtime Phase 1: expose TS-native non-stream `POST /v1/chat/completions` through the worker route bridge and existing AgentRunner path.
 - [x] Continue API Runtime Phase 1: apply `api.timeout` and OpenAI-shaped 504 handling to TS-native chat completions.

@@ -265,6 +265,60 @@ describe("createAgentWorkerServer", () => {
     });
   });
 
+  test("can build default native channel connectors from the host RPC bridge", async () => {
+    const lines: string[] = [];
+    const server = createAgentWorkerServer({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      nativeChannelConnectorBridgeChannels: ["feishu"],
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const start = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "channel-start-bridge",
+        trace_id: "trace-channel-start-bridge",
+        method: "channel.start",
+        params: {},
+      }),
+    );
+    await respondToConfigSnapshot(server, lines, {
+      channels: {
+        feishu: {
+          enabled: true,
+          allow_from: ["ou_1"],
+        },
+      },
+    });
+    await respondToWorkerRequest(server, lines, "channel.connector.start", { ok: true });
+    await start;
+
+    expect(parsedLines(lines).find((line) => line.method === "channel.connector.start")).toMatchObject({
+      trace_id: "channel.connector.feishu.start",
+      method: "channel.connector.start",
+      params: {
+        channel: "feishu",
+      },
+    });
+    expect(parsedLines(lines).find((line) => line.id === "channel-start-bridge")).toMatchObject({
+      protocol_version: "1",
+      id: "channel-start-bridge",
+      trace_id: "trace-channel-start-bridge",
+      result: {
+        started: true,
+        status: {
+          running: true,
+          channels: [
+            { name: "feishu", displayName: "Feishu", supportsStreaming: true, running: true },
+          ],
+          diagnostics: [],
+        },
+      },
+    });
+  });
+
   test("routes dream slash commands through native memory dream RPC", async () => {
     const lines: string[] = [];
     const provider = new QueueProvider([{ content: "unused", toolCalls: [], stopReason: "stop" }]);

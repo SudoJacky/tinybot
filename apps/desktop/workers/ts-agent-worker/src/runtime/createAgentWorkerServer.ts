@@ -14,6 +14,7 @@ import { createCoworkTool } from "../cowork/coworkTool.ts";
 import { MessageBus } from "../bus/messageBus.ts";
 import { ChannelManager } from "../channels/channelManager.ts";
 import { selectChannelDeliveryOptions, selectConfiguredChannelNames } from "../channels/channelConfig.ts";
+import { createNativeChannelConnectorBridgeRegistry } from "../channels/nativeChannelConnectorBridge.ts";
 import {
   createNativeTextChannelAdapters,
   type NativeTextChannelConnectorRegistry,
@@ -70,6 +71,7 @@ export type CreateAgentWorkerServerOptions = {
   fetchProviderModelsJson?: JsonFetcher;
   channelManager?: ChannelLifecycleManager;
   nativeChannelConnectors?: NativeTextChannelConnectorRegistry;
+  nativeChannelConnectorBridgeChannels?: string[];
   writeLine: (line: string) => void;
   writeLog: (line: string) => void;
 };
@@ -154,10 +156,15 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
   const sessionBridge = new NativeSessionBridge(rpcClient);
   const workspaceBridge = new NativeWorkspaceBridge(rpcClient);
   const channelBus = new MessageBus();
+  const nativeChannelConnectors = options.nativeChannelConnectors
+    ?? createNativeChannelConnectorBridgeRegistry({
+      rpcClient,
+      channels: options.nativeChannelConnectorBridgeChannels ?? [],
+    });
   const channelManager = options.channelManager ?? createDefaultChannelManager({
     bus: channelBus,
     configBridge,
-    connectors: options.nativeChannelConnectors ?? {},
+    connectors: nativeChannelConnectors,
     env: options.env ?? process.env,
     writeLog: options.writeLog,
   });
