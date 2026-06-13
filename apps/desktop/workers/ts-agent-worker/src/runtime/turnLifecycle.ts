@@ -9,7 +9,7 @@ export type SessionBridge = {
   setCheckpoint(sessionId: string, checkpoint: Record<string, unknown>, traceId: string): Promise<void>;
   clearCheckpoint(sessionId: string, traceId: string): Promise<void>;
   clearSession?(sessionId: string, traceId: string): Promise<ClearSessionResult>;
-  appendMessages(sessionId: string, messages: AgentMessage[], traceId: string): Promise<void>;
+  appendMessages(sessionId: string, messages: AgentMessage[], traceId: string): Promise<AppendMessagesResult | void>;
   persistTurn?(sessionId: string, turn: PersistTurnRequest, traceId: string): Promise<PersistTurnResult>;
   getCheckpoint(sessionId: string, traceId: string): Promise<Record<string, unknown> | null>;
 };
@@ -51,6 +51,13 @@ export type ClearSessionResult = {
   messagesBefore: number;
   messagesAfter: number;
   checkpointCleared: boolean;
+};
+
+export type AppendMessagesResult = {
+  sessionId: string;
+  messagesBefore: number;
+  messagesAfter: number;
+  savedMessageCount: number;
 };
 
 export type TurnLifecycleMetadata = {
@@ -142,18 +149,20 @@ export class TurnLifecycle {
       const evidenceCapturedCount = await this.captureEvidence(traceId, spec.sessionId, messages, persisted.messagesBefore);
       return lifecycleMetadataFromPersistedTurn(spec, result, persisted, evidenceCapturedCount);
     }
-    await this.sessionBridge.appendMessages(spec.sessionId, messages, traceId);
+    const appended = await this.sessionBridge.appendMessages(spec.sessionId, messages, traceId);
     if (clearCheckpoint) {
       await this.sessionBridge.clearCheckpoint(spec.sessionId, traceId);
     }
-    const evidenceCapturedCount = await this.captureEvidence(traceId, spec.sessionId, messages, 0);
+    const messagesBefore = appended?.messagesBefore ?? 0;
+    const savedMessageCount = appended?.savedMessageCount ?? messages.length;
+    const evidenceCapturedCount = await this.captureEvidence(traceId, spec.sessionId, messages, messagesBefore);
     return {
       sessionId: spec.sessionId,
       runId: spec.runId,
       stopReason: result.stopReason,
       checkpointCleared: clearCheckpoint,
       persisted: true,
-      savedMessageCount: messages.length,
+      savedMessageCount,
       awaitingInput: isAwaitingInputResult(result),
       evidenceCapturedCount,
       omittedSideEffects: evidenceCapturedCount > 0 ? [] : ["conversation_evidence"],

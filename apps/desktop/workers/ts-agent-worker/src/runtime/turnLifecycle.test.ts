@@ -302,6 +302,41 @@ describe("TurnLifecycle", () => {
     expect(metadata?.savedMessageCount).toBe(2);
   });
 
+  test("uses append fallback session size as the evidence start index", async () => {
+    const capturedEvidence: Array<{ startIndex: number; messages: AgentMessage[] }> = [];
+    const bridge: SessionBridge = {
+      setCheckpoint: async () => undefined,
+      clearCheckpoint: async () => undefined,
+      appendMessages: async () => ({
+        sessionId: "session-1",
+        messagesBefore: 5,
+        messagesAfter: 7,
+        savedMessageCount: 2,
+      }),
+      getCheckpoint: async () => null,
+    };
+    const memoryBridge: MemoryEvidenceBridge = {
+      captureEvidence: async (_sessionId, request) => {
+        capturedEvidence.push({ startIndex: request.startIndex, messages: request.messages });
+        return { evidence: [{ id: "ev-1" }] };
+      },
+    };
+
+    const metadata = await new TurnLifecycle(bridge, memoryBridge).finalizeTurn("trace-1", spec(), result());
+
+    expect(capturedEvidence).toEqual([
+      {
+        startIndex: 5,
+        messages: [
+          { role: "user", content: "hello" },
+          { role: "assistant", content: "done" },
+        ],
+      },
+    ]);
+    expect(metadata?.savedMessageCount).toBe(2);
+    expect(metadata?.omittedSideEffects).toEqual([]);
+  });
+
   test("keeps checkpoints for awaiting input results", async () => {
     const persistedTurns: Array<{ clearCheckpoint: boolean }> = [];
     const bridge: SessionBridge = {

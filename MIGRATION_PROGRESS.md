@@ -32,6 +32,8 @@
 
 - Continued session turn lifecycle fallback parity: TS `TurnLifecycle.finalizeTurn()` now explicitly clears terminal checkpoints when it must fall back to low-level `session.append_messages`, so fallback persistence no longer reports `checkpointCleared=true` without actually clearing the native session checkpoint.
 
+- Continued session turn lifecycle evidence durability: TS `TurnLifecycle.finalizeTurn()` now uses native append fallback session sizes as the conversation-evidence start index when `session.persist_turn` is unavailable, keeping evidence cursors aligned for existing sessions on downgrade paths.
+
 - Continued session history projection parity: native Rust `session.get_history` now preserves both snake_case and camelCase model-history fields for tool calls, tool call ids, reasoning content, and thinking blocks, so mixed TS/Rust session records stay usable for the next TS turn.
 
 - Continued session legal-boundary parity: native Rust history projection now treats camelCase `toolCalls` / `toolCallId` as legal tool-call boundary signals alongside Python/OpenAI-style snake_case fields, preventing valid mixed TS/Rust tool-call turns from being trimmed out of the next TS context.
@@ -115,7 +117,7 @@
 | Order | Status | Document | Goal | Notes |
 | --- | --- | --- | --- | --- |
 | 5 | active | [ts_tool_runtime_migration_design.md](ts_tool_runtime_migration_design.md) | 建立 tool schema、registry、prepare/execute metadata | 已具备 schema casting/validation、registry/runtime/native proxy 起点；本轮补齐 approval-aware policy，approval-gated 工具要求 `approval.request` 并限制在可交互通道 |
-| 6 | active | [ts_session_turn_lifecycle_migration_design.md](ts_session_turn_lifecycle_migration_design.md) | 明确 persistence/checkpoint/resume 语义 | 已建立 `persistedMessages` 起点和 Rust/TS `session.persist_turn` RPC；AgentWorker 在可用时优先通过 `TurnLifecycle.finalizeTurn()` 写 completed turn，并通过 `TurnLifecycle.writeCheckpoint()` / `clearCheckpoint()` / `restoreCheckpoint()` 收敛 checkpoint write-clear 与 restore materialization；`checkpoint.ts` 已承载 approval/form resume projection helper；`agent.done.payload.lifecycle` 暴露 persisted/saved/checkpoint/omitted side-effect metadata；已补齐 TS persistence helper 的 Python-key dedupe/tool truncate、versioned checkpoint helper，以及 Rust `session.get_history` 的 user/tool legal boundary projection；真实 TS worker 连续两轮可读取上一轮 persisted history |
+| 6 | active | [ts_session_turn_lifecycle_migration_design.md](ts_session_turn_lifecycle_migration_design.md) | 明确 persistence/checkpoint/resume 语义 | 已建立 `persistedMessages` 起点和 Rust/TS `session.persist_turn` RPC；AgentWorker 在可用时优先通过 `TurnLifecycle.finalizeTurn()` 写 completed turn，并通过 `TurnLifecycle.writeCheckpoint()` / `clearCheckpoint()` / `restoreCheckpoint()` 收敛 checkpoint write-clear 与 restore materialization；`checkpoint.ts` 已承载 approval/form resume projection helper；`agent.done.payload.lifecycle` 暴露 persisted/saved/checkpoint/omitted side-effect metadata；已补齐 TS persistence helper 的 Python-key dedupe/tool truncate、versioned checkpoint helper、append fallback evidence cursor alignment，以及 Rust `session.get_history` 的 user/tool legal boundary projection；真实 TS worker 连续两轮可读取上一轮 persisted history |
 | 7 | active | [ts_context_builder_migration_design.md](ts_context_builder_migration_design.md) | 接入 deterministic context assembly | 已有 deterministic `contextBuilder.ts`、`NativeContextBridge` 与 `agent.run_input` product path；已新增 `runInputContext.ts`，把 ContextBridge 输出投影为 AgentRunSpec 和 context metadata；本轮补齐 run_input context metadata -> TurnLifecycle persist-turn 传递，下一步补连续会话 round-trip 验收，再挂 memory/RAG/skills |
 
 ### Batch 3: Safety And Real Model Runtime
@@ -169,6 +171,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 | 2026-06-13 | Continued config/provider preview durability: provider-model preview can use request-scoped key/base/manual model overrides when native public config snapshots are unavailable. |
 | 2026-06-13 | Continued config/provider bridge durability: legacy native config fallback now uses `provider.resolve_secret` for OpenAI secrets when env keys are absent, while keeping env keys higher priority. |
 | 2026-06-13 | Continued session persistence dedupe parity: Rust `session.append_messages` and `session.persist_turn` now dedupe equivalent OpenAI `tool_calls` and TS `toolCalls` assistant messages. |
+| 2026-06-13 | Continued session turn lifecycle evidence durability: append fallback persistence now reports session sizes to `TurnLifecycle`, so memory evidence capture starts at the existing session history length when `session.persist_turn` is unavailable. |
 | 2026-06-13 | Continued session legal-boundary parity: Rust `session.get_history` now recognizes camelCase `toolCalls` / `toolCallId` while finding legal tool-call history boundaries. |
 | 2026-06-13 | Continued session history projection parity: Rust `session.get_history` now preserves snake_case and camelCase tool/reasoning model fields for mixed native TS session records. |
 | 2026-06-13 | Continued session turn lifecycle fallback parity: `TurnLifecycle.finalizeTurn()` now clears terminal checkpoints after fallback `session.append_messages` persistence when `session.persist_turn` is unavailable. |
@@ -467,6 +470,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 
 ## Next Checklist
 
+- [x] Continue session turn lifecycle evidence durability: align append fallback memory-evidence start indexes with existing session history length.
 - [x] Continue Cowork Phase 3: add minimal TS `CoworkService` create/list/get/delete and blueprint materialization.
 - [x] Continue Cowork Phase 3: wire `CoworkService` into worker RPCs and the native store bridge.
 - [x] Continue Cowork Phase 3: add `send_message`, `add_task`, and `assign_task` service mutations and worker RPCs.

@@ -393,6 +393,36 @@ describe("NativeSessionBridge", () => {
     ]);
   });
 
+  test("normalizes append message counts from native session metadata", async () => {
+    const bridge = new NativeSessionBridge({
+      request: async () => ({
+        session_id: "session-1",
+        extra: {
+          messages: [
+            { role: "user", content: "old" },
+            { role: "assistant", content: "previous" },
+            { role: "user", content: "hello" },
+            { role: "assistant", content: "done" },
+          ],
+        },
+      }),
+    });
+
+    await expect(bridge.appendMessages(
+      "session-1",
+      [
+        { role: "user", content: "hello" },
+        { role: "assistant", content: "done" },
+      ],
+      "trace-1",
+    )).resolves.toEqual({
+      sessionId: "session-1",
+      messagesBefore: 2,
+      messagesAfter: 4,
+      savedMessageCount: 2,
+    });
+  });
+
   test("serializes assistant reasoning fields before appending messages", async () => {
     const requests: Array<{ traceId: string; method: string; params: Record<string, unknown> }> = [];
     const thinkingBlocks = [{ type: "thinking", text: "checked constraints" }];

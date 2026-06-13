@@ -11,7 +11,7 @@ import type {
   WebuiTemporaryFileUpload,
   WebuiSessionProvider,
 } from "../webui/webuiRoutes.ts";
-import type { ClearSessionResult, PersistTurnRequest, PersistTurnResult, SessionBridge } from "./agentWorker.ts";
+import type { AppendMessagesResult, ClearSessionResult, PersistTurnRequest, PersistTurnResult, SessionBridge } from "./agentWorker.ts";
 
 export type TrimSessionResult = {
   sessionId: string;
@@ -132,11 +132,13 @@ export class NativeSessionBridge implements SessionBridge, WebuiSessionProvider 
     return normalizeTrimSessionResult(result, sessionId);
   }
 
-  async appendMessages(sessionId: string, messages: AgentMessage[], traceId: string): Promise<void> {
-    await this.rpcClient.request(traceId, "session.append_messages", {
+  async appendMessages(sessionId: string, messages: AgentMessage[], traceId: string): Promise<AppendMessagesResult> {
+    const persistedMessages = messages.filter(persistableSessionMessage).map(nativeSessionMessage);
+    const result = await this.rpcClient.request(traceId, "session.append_messages", {
       session_id: sessionId,
-      messages: messages.filter(persistableSessionMessage).map(nativeSessionMessage),
+      messages: persistedMessages,
     });
+    return normalizeAppendMessagesResult(result, sessionId, persistedMessages.length);
   }
 
   async persistTurn(sessionId: string, turn: PersistTurnRequest, traceId: string): Promise<PersistTurnResult> {
@@ -186,6 +188,21 @@ function normalizeClearSessionResult(result: unknown, fallbackSessionId: string)
     messagesBefore: numberField(payload, "messagesBefore", "messages_before"),
     messagesAfter: numberField(payload, "messagesAfter", "messages_after"),
     checkpointCleared: booleanField(payload, "checkpointCleared", "checkpoint_cleared"),
+  };
+}
+
+function normalizeAppendMessagesResult(result: unknown, fallbackSessionId: string, requestedMessageCount: number): AppendMessagesResult {
+  const payload = isJsonObject(result) ? result : {};
+  const extra = isJsonObject(payload.extra) ? payload.extra : {};
+  const messages = Array.isArray(extra.messages) ? extra.messages : [];
+  const messagesAfter = optionalNumberField(payload, "messagesAfter", "messages_after") ?? messages.length;
+  const savedMessageCount = optionalNumberField(payload, "savedMessageCount", "saved_message_count") ?? requestedMessageCount;
+  const messagesBefore = optionalNumberField(payload, "messagesBefore", "messages_before") ?? Math.max(0, messagesAfter - savedMessageCount);
+  return {
+    sessionId: stringField(payload, "sessionId", "session_id") ?? fallbackSessionId,
+    messagesBefore,
+    messagesAfter,
+    savedMessageCount,
   };
 }
 

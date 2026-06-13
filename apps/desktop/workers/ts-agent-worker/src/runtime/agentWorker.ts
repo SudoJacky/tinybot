@@ -79,7 +79,7 @@ import type { ContextBridge } from "./contextBridge.ts";
 import { buildRunInputSpec } from "./runInputContext.ts";
 import { TurnLifecycle, type ClearSessionResult, type MemoryEvidenceBridge, type SessionBridge } from "./turnLifecycle.ts";
 
-export type { PersistTurnRequest, PersistTurnResult, SessionBridge } from "./turnLifecycle.ts";
+export type { AppendMessagesResult, PersistTurnRequest, PersistTurnResult, SessionBridge } from "./turnLifecycle.ts";
 export type { ClearSessionResult } from "./turnLifecycle.ts";
 
 export type AgentWorkerOptions = {
