@@ -229,6 +229,9 @@ function validateSkillChildren(name: string, entries: unknown): { name: string; 
     if (childName === "SKILL.md") {
       continue;
     }
+    if (object?.kind === "symlink") {
+      continue;
+    }
     if (object?.kind === "dir" && allowedDirs.has(childName)) {
       continue;
     }

@@ -81,6 +81,32 @@ describe("NativeSkillsBridge", () => {
     ]);
   });
 
+  test("allows skill root symlinks during validation like Python WebUI routes", async () => {
+    const rpcClient = new FakeRpcClient({
+      "workspace.read_file": [
+        {
+          content: "---\nname: planner\ndescription: Plan work\n---\nPlan.",
+        },
+      ],
+      "workspace.list_dir": [
+        {
+          entries: [
+            { path: "skills/planner/SKILL.md", kind: "file" },
+            { path: "skills/planner/scripts", kind: "dir" },
+            { path: "skills/planner/shared-notes", kind: "symlink" },
+          ],
+        },
+      ],
+    });
+    const bridge = new NativeSkillsBridge(rpcClient, {});
+
+    await expect(bridge.validateWebuiSkill("planner", "trace-symlink")).resolves.toEqual({
+      name: "planner",
+      valid: true,
+      message: "Skill is valid",
+    });
+  });
+
   test("creates, updates, validates, and deletes workspace skills through native workspace RPC", async () => {
     const rpcClient = new FakeRpcClient({
       "workspace.read_file": [

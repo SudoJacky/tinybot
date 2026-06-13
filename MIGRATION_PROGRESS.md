@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued WebUI transport Phase 5 Skills validation parity: native TS skill validation now allows root-level symlink entries like Python WebUI validation while continuing to reject ordinary unexpected root files or directories outside `SKILL.md`, `scripts/`, `references/`, and `assets/`.
+
 - Continued WebUI transport Phase 5 Skills route parity: native TS WebUI skill routes now return Python-compatible JSON status responses for invalid create/update bodies, missing skill detail, duplicate skill creation, and protected/missing delete paths instead of leaking worker-level protocol failures.
 
 - Continued Command Runtime approval parity: TS `/approve` and `/deny` now schedule resumed approval checkpoint execution after resolving a pending approval, matching Python's command path that retries the paused operation instead of only updating approval state.
