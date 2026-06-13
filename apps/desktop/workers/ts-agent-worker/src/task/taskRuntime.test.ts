@@ -404,6 +404,103 @@ describe("TaskRuntime", () => {
     ]);
   });
 
+  test("retries failed subtasks before exhausting failure", async () => {
+    const plan = basePlan();
+    plan.status = "executing";
+    plan.currentSubtaskIds = ["b"];
+    plan.subtasks[1].status = "in_progress";
+    plan.subtasks[1].retryCount = 1;
+    plan.subtasks[1].maxRetries = 2;
+    const { bridge, saves } = memoryBridge([plan]);
+    const spawned: string[] = [];
+    const runtime = new TaskRuntime({
+      store: bridge,
+      now: () => "2026-06-12T00:00:00.000Z",
+      executor: {
+        spawnSubtask: async ({ subtask }) => {
+          spawned.push(subtask.id);
+        },
+      },
+    });
+
+    const result = await runtime.completeSubtask(
+      "plan-1",
+      "b",
+      { status: "failed", error: "temporary failure" },
+      { parallel: true },
+      "trace-retry",
+    );
+
+    expect(result).toMatchObject({
+      plan: expect.objectContaining({ id: "plan-1", status: "executing" }),
+      spawnedCount: 1,
+    });
+    expect(spawned).toEqual(["b"]);
+    expect(saves.at(-1)).toMatchObject({
+      status: "executing",
+      currentSubtaskIds: ["b"],
+      subtasks: [
+        expect.objectContaining({ id: "a", status: "completed" }),
+        expect.objectContaining({
+          id: "b",
+          status: "in_progress",
+          retryCount: 2,
+          error: "temporary failure",
+          startedAt: "2026-06-12T00:00:00.000Z",
+          completedAt: null,
+        }),
+      ],
+    });
+  });
+
+  test("pauses plans when failed subtasks exhaust retries", async () => {
+    const plan = basePlan();
+    plan.status = "executing";
+    plan.currentSubtaskIds = ["b"];
+    plan.subtasks[1].status = "in_progress";
+    plan.subtasks[1].retryCount = 2;
+    plan.subtasks[1].maxRetries = 2;
+    const { bridge, saves } = memoryBridge([plan]);
+    const spawned: string[] = [];
+    const runtime = new TaskRuntime({
+      store: bridge,
+      now: () => "2026-06-12T00:00:00.000Z",
+      executor: {
+        spawnSubtask: async ({ subtask }) => {
+          spawned.push(subtask.id);
+        },
+      },
+    });
+
+    const result = await runtime.completeSubtask(
+      "plan-1",
+      "b",
+      { status: "failed", error: "permanent failure" },
+      { parallel: true },
+      "trace-exhausted",
+    );
+
+    expect(result).toMatchObject({
+      plan: expect.objectContaining({ id: "plan-1", status: "paused" }),
+      spawnedCount: 0,
+    });
+    expect(spawned).toEqual([]);
+    expect(saves.at(-1)).toMatchObject({
+      status: "paused",
+      currentSubtaskIds: [],
+      subtasks: [
+        expect.objectContaining({ id: "a", status: "completed" }),
+        expect.objectContaining({
+          id: "b",
+          status: "failed",
+          retryCount: 3,
+          error: "permanent failure",
+          completedAt: "2026-06-12T00:00:00.000Z",
+        }),
+      ],
+    });
+  });
+
   test("notifies the owning session when a task plan completes", async () => {
     const plan = basePlan();
     plan.status = "executing";

@@ -180,6 +180,7 @@ export class TaskRuntime {
     if (!subtask) {
       return null;
     }
+    const wasPaused = plan.status === "paused";
     subtask.status = request.status;
     if (request.result !== undefined) {
       subtask.result = request.result;
@@ -188,7 +189,22 @@ export class TaskRuntime {
       subtask.error = request.error;
     }
     if (request.status === "completed" || request.status === "failed" || request.status === "skipped") {
-      subtask.completedAt = this.now();
+      if (request.status === "failed" && !wasPaused) {
+        subtask.retryCount = (subtask.retryCount ?? 0) + 1;
+        if (subtask.retryCount <= (subtask.maxRetries ?? 2)) {
+          subtask.status = "pending";
+          subtask.completedAt = null;
+        } else {
+          subtask.completedAt = this.now();
+          plan.status = "paused";
+          plan.context = {
+            ...plan.context,
+            error: `Subtask '${subtask.title}' failed after ${subtask.maxRetries ?? 2} retries.`,
+          };
+        }
+      } else {
+        subtask.completedAt = this.now();
+      }
       plan.currentSubtaskIds = plan.currentSubtaskIds.filter((id) => id !== subtask.id);
     }
     if (isPlanCompleted(plan)) {

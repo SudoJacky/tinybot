@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Task/Cron background runtime parity: TS-native task completion callbacks now apply Python-style retry handling for failed subtasks, requeueing failures until `maxRetries` is exhausted and pausing the plan with an error once retries are spent instead of leaving the task chain stuck in `executing`.
+
 - Continued Task/Cron background runtime parity: TS-native task plan creation now preserves the active desktop/WebUI session key and derives channel/chat context from it, so task progress cards, background subagents, and completion notifications target the original session instead of a synthetic `native:*` session.
 
 - Continued WebUI/API route diagnostics parity: TS `webui.route_specs` now returns `route_diagnostics` entries with `owner: "ts-worker"` and stable `route_group` values while preserving the legacy `routes` shape, giving the desktop/Rust gateway the route-owner visibility called out by the migration docs before Python fallback can be fully retired.
