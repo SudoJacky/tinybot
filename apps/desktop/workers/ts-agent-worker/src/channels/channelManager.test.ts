@@ -307,6 +307,26 @@ describe("ChannelManager", () => {
     ]);
   });
 
+  test("propagates cancellation errors during send retry", async () => {
+    const bus = new MessageBus();
+    const cancelled = adapter({
+      send: vi.fn(async () => {
+        throw new DOMException("send cancelled", "AbortError");
+      }),
+    });
+    const manager = new ChannelManager({
+      bus,
+      channels: [cancelled],
+      retryDelaysMs: [],
+    });
+
+    await bus.publishOutbound(outbound({ content: "cancelled" }));
+
+    await expect(manager.dispatchAvailable()).rejects.toMatchObject({ name: "AbortError" });
+    expect(cancelled.send).toHaveBeenCalledOnce();
+    expect(manager.diagnostics()).toEqual([]);
+  });
+
   test("treats sendMaxRetries as total delivery attempts including the first send", async () => {
     const bus = new MessageBus();
     const delays: number[] = [];

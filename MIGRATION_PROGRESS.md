@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Channel Bus retry parity: TS `ChannelManager` now treats adapter `AbortError` / cancellation errors like Python `asyncio.CancelledError`, propagating cancellation out of send retry instead of converting it into a final `send_failed` diagnostic, while the background dispatcher exits cleanly on cancellation.
+
 - Continued Channel Bus lifecycle parity: TS `ChannelManager.stopAll()` now isolates per-channel stop failures like Python `stop_all()`, continues stopping healthy adapters, clears running status, and exposes `stop_failed` diagnostics instead of aborting shutdown.
 
 - Continued Channel Bus lifecycle parity: TS `ChannelManager.startAll()` now isolates per-channel startup failures like Python `_start_channel()`, continuing to start healthy adapters while exposing failed adapter diagnostics instead of aborting the whole channel runtime.
@@ -957,6 +959,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Channel Bus command parity: dispatch channel slash commands through the backend command router before normal agent context/provider execution.
 - [x] Continue Channel Bus manager parity: swallow stream/reasoning/end frames on adapters without `sendDelta`, matching Python `BaseChannel.send_delta()` no-op behavior.
 - [x] Continue Channel Bus manager parity: align `sendMaxRetries` with Python `send_max_retries` total-attempt semantics.
+- [x] Continue Channel Bus retry parity: propagate adapter cancellation errors instead of recording them as final send failures.
 - [x] Continue Channel Bus manager lifecycle parity: start and stop a background outbound dispatcher with `ChannelManager` lifecycle.
 - [x] Continue Channel Bus dispatcher parity: wake the outbound dispatcher from `MessageBus` delivery instead of waiting for idle polling.
 - [x] Continue Channel Bus lifecycle parity: isolate per-channel startup failures and continue starting healthy adapters.

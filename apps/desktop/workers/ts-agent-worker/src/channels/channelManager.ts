@@ -165,7 +165,15 @@ export class ChannelManager {
   private async runOutboundDispatcher(): Promise<void> {
     const signal = this.dispatcherAbortController?.signal;
     while (this.running) {
-      const dispatched = await this.dispatchAvailable();
+      let dispatched = 0;
+      try {
+        dispatched = await this.dispatchAvailable();
+      } catch (error) {
+        if (isCancellationError(error)) {
+          break;
+        }
+        throw error;
+      }
       if (!this.running) {
         break;
       }
@@ -285,6 +293,9 @@ export class ChannelManager {
         await this.sendOnce(channel, message);
         return { ok: true, attempts };
       } catch (error) {
+        if (isCancellationError(error)) {
+          throw error;
+        }
         lastError = error;
         if (attempts < maxAttempts) {
           const delay = retryDelayMs(this.retryDelaysMs, attempts - 1);
@@ -366,6 +377,10 @@ function retryDelayMs(delays: number[], index: number): number | undefined {
     return undefined;
   }
   return delays[Math.min(index, delays.length - 1)];
+}
+
+function isCancellationError(error: unknown): boolean {
+  return error instanceof Error && (error.name === "AbortError" || error.name.endsWith("CancelledError"));
 }
 
 function restartNoticeSource(options: ChannelManagerOptions): ChannelRestartNoticeSource {
