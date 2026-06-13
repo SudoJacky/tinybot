@@ -1697,6 +1697,7 @@ describe("gateway HTTP client", () => {
     await expect(client.cowork.message("cw_1", { content: "Prioritize evidence", recipient_ids: [] })).resolves.toEqual({ gateway: true });
     await expect(client.cowork.message("cw_1", { content: "Direct note", recipient_ids: ["lead"] })).resolves.toEqual({ native: true });
     await expect(client.cowork.workUnitAction("cw_1", "wu 1", "retry", { reason: "Retry" })).resolves.toEqual({ gateway: true });
+    await expect(client.cowork.selectBranch("cw_1", "branch 1")).resolves.toEqual({ gateway: true });
     await expect(client.cowork.selectBranchResult("cw_1", "branch 1", { result_id: "result_1" })).resolves.toEqual({ gateway: true });
     await expect(client.cowork.mergeBranchResults("cw_1", { branch_ids: ["branch 1", "branch 2"] })).resolves.toEqual({ gateway: true });
     await expect(client.cowork.selectFinalResult("cw_1", { branch_id: "branch 1", result_id: "result_1" })).resolves.toEqual({ gateway: true });
@@ -1711,6 +1712,7 @@ describe("gateway HTTP client", () => {
       "http://127.0.0.1:18790/webui/bootstrap",
       "http://127.0.0.1:18790/api/cowork/sessions/cw_1/messages",
       "http://127.0.0.1:18790/api/cowork/sessions/cw_1/work-units/wu%201/retry",
+      "http://127.0.0.1:18790/api/cowork/sessions/cw_1/branches/branch%201/select",
       "http://127.0.0.1:18790/api/cowork/sessions/cw_1/branches/branch%201/result/select-final",
       "http://127.0.0.1:18790/api/cowork/sessions/cw_1/branch-results/merge",
       "http://127.0.0.1:18790/api/cowork/sessions/cw_1/final-result/select",

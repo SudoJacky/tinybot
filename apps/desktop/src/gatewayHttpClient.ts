@@ -961,6 +961,7 @@ function coworkRouteGroup(method: string, path: string, body: unknown): "readOnl
     path.includes("/work-units/")
     || path.includes("/branch-results/")
     || path.includes("/final-result/")
+    || /\/api\/cowork\/sessions\/[^/]+\/branches\/[^/]+\/select(?:$|\?)/.test(path)
     || /\/api\/cowork\/sessions\/[^/]+\/branches\/[^/]+\/result\/select-final(?:$|\?)/.test(path)
   ) {
     return "swarm";
