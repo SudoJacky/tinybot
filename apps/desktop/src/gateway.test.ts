@@ -1356,7 +1356,8 @@ describe("gateway HTTP client", () => {
 
     expect(nativeCowork.route).toHaveBeenCalledWith({
       method: "GET",
-      path: "/api/cowork/sessions?include_completed=true",
+      path: "/api/cowork/sessions",
+      query: { include_completed: "true" },
     });
     expect(nativeCowork.route).toHaveBeenCalledWith({
       method: "GET",
@@ -1400,11 +1401,13 @@ describe("gateway HTTP client", () => {
     });
     expect(nativeCowork.route).toHaveBeenCalledWith({
       method: "GET",
-      path: "/api/cowork/sessions/cw_1/agents/lead/activity?limit=5",
+      path: "/api/cowork/sessions/cw_1/agents/lead/activity",
+      query: { limit: "5" },
     });
     expect(nativeCowork.route).toHaveBeenCalledWith({
       method: "GET",
-      path: "/api/cowork/sessions/cw_1/observations/detail%201?agent_id=reviewer",
+      path: "/api/cowork/sessions/cw_1/observations/detail%201",
+      query: { agent_id: "reviewer" },
     });
     expect(nativeCowork.route).toHaveBeenCalledWith({
       method: "POST",
@@ -1482,6 +1485,45 @@ describe("gateway HTTP client", () => {
       method: "POST",
       path: "/api/cowork/sessions/cw_1/final-result/merge",
       body: { branch_ids: ["branch 1", "branch 2"] },
+    });
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  test("passes cowork route query parameters through the native route query field", async () => {
+    const fetchFn = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
+      if (String(url).endsWith("/webui/bootstrap")) {
+        return new Response(JSON.stringify({ token: "token-1" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ gateway: true }), { status: 200 });
+    });
+    const nativeCowork = {
+      route: vi.fn(async (request: { method: string; path: string; query?: Record<string, unknown> }) => ({
+        native: true,
+        request,
+      })),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeCowork,
+    });
+
+    await expect(client.cowork.sessions({ includeCompleted: true, originChatId: "chat/1" })).resolves.toMatchObject({
+      native: true,
+    });
+    await expect(client.cowork.agentActivity("cw_1", "lead", { limit: 5 })).resolves.toMatchObject({
+      native: true,
+    });
+
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "GET",
+      path: "/api/cowork/sessions",
+      query: { include_completed: "true", origin_chat_id: "chat/1" },
+    });
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "GET",
+      path: "/api/cowork/sessions/cw_1/agents/lead/activity",
+      query: { limit: "5" },
     });
     expect(fetchFn).not.toHaveBeenCalled();
   });

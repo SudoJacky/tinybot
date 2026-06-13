@@ -69,6 +69,7 @@ export type NativeSkillsApi = {
 export type NativeCoworkRouteRequest = {
   method: string;
   path: string;
+  query?: Record<string, string>;
   body?: unknown;
 };
 
@@ -900,9 +901,7 @@ function coworkNativeOrGateway(
   label: string,
 ): Promise<unknown> {
   const effectiveRollout = { ...DEFAULT_TS_COWORK_RUNTIME_ROLLOUT, ...(rollout ?? {}) };
-  const nativeRequest: NativeCoworkRouteRequest = body === undefined
-    ? { method, path }
-    : { method, path, body };
+  const nativeRequest = nativeCoworkRouteRequest(method, path, body);
   const gatewayInit = method === "GET"
     ? undefined
     : body === undefined
@@ -917,6 +916,17 @@ function coworkNativeOrGateway(
     label,
     effectiveRollout.fallbackToPython,
   );
+}
+
+function nativeCoworkRouteRequest(method: string, path: string, body: unknown): NativeCoworkRouteRequest {
+  const url = new URL(path, "http://desktop.local");
+  const query = Object.fromEntries(url.searchParams.entries());
+  return {
+    method,
+    path: url.pathname,
+    ...(Object.keys(query).length ? { query } : {}),
+    ...(body === undefined ? {} : { body }),
+  };
 }
 
 function coworkRouteEnabledByRollout(

@@ -3435,7 +3435,7 @@ mod tests {
                 method: "POST".to_string(),
                 path: "/api/cowork/sessions/cw_1/tasks/task_1/retry".to_string(),
                 body: Some(serde_json::json!({ "reason": "Retry" })),
-                query: None,
+                query: Some(serde_json::json!({ "limit": "5" })),
             },
         );
 
@@ -3447,7 +3447,8 @@ mod tests {
             serde_json::json!({
                 "method": "POST",
                 "path": "/api/cowork/sessions/cw_1/tasks/task_1/retry",
-                "body": { "reason": "Retry" }
+                "body": { "reason": "Retry" },
+                "query": { "limit": "5" }
             })
         );
     }

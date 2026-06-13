@@ -15,6 +15,26 @@ describe("desktop native cowork api", () => {
     });
   });
 
+  test("forwards structured query parameters to the native worker route", async () => {
+    const invoke = vi.fn(async () => ({ status: 200, body: { activity: { available: true } } }));
+    const api = createDesktopNativeCoworkApi({ invoke });
+
+    await expect(api.route({
+      method: "GET",
+      path: "/api/cowork/sessions/cw_1/agents/lead/activity",
+      query: { limit: "5" },
+    })).resolves.toEqual({
+      activity: { available: true },
+    });
+    expect(invoke).toHaveBeenCalledWith("worker_cowork_route", {
+      input: {
+        method: "GET",
+        path: "/api/cowork/sessions/cw_1/agents/lead/activity",
+        query: { limit: "5" },
+      },
+    });
+  });
+
   test("throws for non-2xx worker route envelopes so callers can fall back", async () => {
     const invoke = vi.fn(async () => ({ status: 501, body: { error: "not migrated" } }));
     const api = createDesktopNativeCoworkApi({ invoke });
