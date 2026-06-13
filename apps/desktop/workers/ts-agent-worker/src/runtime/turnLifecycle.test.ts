@@ -273,9 +273,12 @@ describe("TurnLifecycle", () => {
 
   test("falls back to append_messages when persist_turn is unavailable", async () => {
     const appended: Array<{ sessionId: string; messages: AgentMessage[] }> = [];
+    const clearedCheckpoints: string[] = [];
     const bridge: SessionBridge = {
       setCheckpoint: async () => undefined,
-      clearCheckpoint: async () => undefined,
+      clearCheckpoint: async (sessionId) => {
+        clearedCheckpoints.push(sessionId);
+      },
       appendMessages: async (sessionId, messages) => {
         appended.push({ sessionId, messages });
       },
@@ -294,6 +297,7 @@ describe("TurnLifecycle", () => {
         ],
       },
     ]);
+    expect(clearedCheckpoints).toEqual(["session-1"]);
     expect(metadata?.checkpointCleared).toBe(true);
     expect(metadata?.savedMessageCount).toBe(2);
   });

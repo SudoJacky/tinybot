@@ -143,6 +143,9 @@ export class TurnLifecycle {
       return lifecycleMetadataFromPersistedTurn(spec, result, persisted, evidenceCapturedCount);
     }
     await this.sessionBridge.appendMessages(spec.sessionId, messages, traceId);
+    if (clearCheckpoint) {
+      await this.sessionBridge.clearCheckpoint(spec.sessionId, traceId);
+    }
     const evidenceCapturedCount = await this.captureEvidence(traceId, spec.sessionId, messages, 0);
     return {
       sessionId: spec.sessionId,
