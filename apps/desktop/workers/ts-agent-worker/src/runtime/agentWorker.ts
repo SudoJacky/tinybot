@@ -24,7 +24,7 @@ import type { CoworkEnvelope } from "../cowork/coworkMailbox.ts";
 import type { CoworkScheduler } from "../cowork/coworkScheduler.ts";
 import type { CoworkService } from "../cowork/coworkService.ts";
 import { buildSwarmSchedulerQueues, coworkSessionSnapshot } from "../cowork/coworkSnapshot.ts";
-import type { CoworkBranch, CoworkSession } from "../cowork/coworkTypes.ts";
+import type { CoworkBranch, CoworkEvent, CoworkSession } from "../cowork/coworkTypes.ts";
 import type { HeartbeatRuntime } from "../heartbeat/heartbeatRuntime.ts";
 import type { ModelProvider, TokenUsage, ToolDefinition } from "../model/provider.ts";
 import {
@@ -298,6 +298,7 @@ export class AgentWorker {
     this.memoryBridge = options.memoryBridge;
     this.contextBridge = options.contextBridge;
     this.coworkService = options.coworkService;
+    this.coworkService?.addListener((session, event) => this.emitCoworkWebuiEvents(session, event));
     this.coworkScheduler = options.coworkScheduler;
     this.statusProvider = options.statusProvider;
     this.webuiBootstrapProvider = options.webuiBootstrapProvider;
@@ -3643,6 +3644,45 @@ export class AgentWorker {
     });
   }
 
+  private emitCoworkWebuiEvents(session: CoworkSession, event: CoworkEvent): void {
+    const traceId = `cowork:${session.id}`;
+    this.emitEvent({
+      protocol_version: WORKER_PROTOCOL_VERSION,
+      trace_id: traceId,
+      event: "cowork_updated",
+      payload: {
+        event: "cowork_updated",
+        session_id: session.id,
+        event_id: event.id,
+        event_type: event.type,
+        message: event.message,
+        updated_at: session.updated_at,
+      },
+    });
+
+    const chatId = coworkOriginChatId(session);
+    if (!chatId) {
+      return;
+    }
+    const data = isJsonObject(event.data) ? event.data : {};
+    this.emitEvent({
+      protocol_version: WORKER_PROTOCOL_VERSION,
+      trace_id: traceId,
+      event: "cowork_state",
+      payload: {
+        event: "cowork_state",
+        chat_id: chatId,
+        session_id: session.id,
+        change_type: event.type,
+        agent_id: coworkStringValue(data.agent_id) || coworkStringValue(event.actor_id),
+        task_id: coworkStringValue(data.task_id),
+        work_unit_id: coworkStringValue(data.work_unit_id),
+        status: coworkStringValue(data.status) || session.status,
+        updated_at: session.updated_at || coworkStringValue(event.created_at),
+      },
+    });
+  }
+
   private async resumeApprovedCheckpoint(
     traceId: string,
     approval: ApprovalResolutionRequest,
@@ -4211,6 +4251,19 @@ function routeTextParamIfPresent(
 
 function unavailableCoworkRouteResponse(): CoworkRouteResponse {
   return { status: 503, body: { error: "cowork is not available" } };
+}
+
+function coworkOriginChatId(session: CoworkSession): string {
+  const runtimeState = isJsonObject(session.runtime_state) ? session.runtime_state : {};
+  const originChannel = coworkStringValue(runtimeState.origin_channel);
+  if (originChannel && originChannel !== "websocket") {
+    return "";
+  }
+  return coworkStringValue(runtimeState.origin_chat_id).trim();
+}
+
+function coworkStringValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
 }
 
 function branchSnapshots(session: CoworkSession): JsonObject[] {

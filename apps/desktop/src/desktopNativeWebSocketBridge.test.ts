@@ -98,6 +98,103 @@ describe("desktop native WebSocket bridge", () => {
     expect(unlisteners.every((unlisten) => vi.mocked(unlisten).mock.calls.length === 1)).toBe(true);
   });
 
+  test("projects TS worker cowork events into legacy WebUI WebSocket frames", async () => {
+    const handlers = new Map<string, (payload: unknown) => void>();
+    const nativeTransport: NativeTransportApi = {
+      gatewayFrame: vi.fn(),
+      websocketMessage: vi.fn(),
+      dispatchWebsocketMessage: vi.fn(),
+      dispatchChannelInbound: vi.fn(),
+      startChannels: vi.fn(),
+      channelStatus: vi.fn(),
+      stopChannels: vi.fn(),
+    };
+    const socket = createDesktopNativeWebSocket({
+      url: "/ws",
+      nativeTransport,
+      listenToAgentEvent: async (eventName, handler) => {
+        handlers.set(eventName, handler);
+        return () => handlers.delete(eventName);
+      },
+    });
+    const events: Array<Record<string, unknown>> = [];
+    socket.addEventListener("message", (event) => {
+      events.push(JSON.parse(String((event as MessageEvent).data)) as Record<string, unknown>);
+    });
+
+    await flushMicrotasks();
+
+    expect(handlers.get("cowork_stream")).toBeDefined();
+    expect(handlers.get("cowork_mailbox_stream")).toBeDefined();
+    expect(handlers.get("cowork_state")).toBeDefined();
+    expect(handlers.get("cowork_updated")).toBeDefined();
+
+    handlers.get("cowork_stream")?.({
+      event: "cowork_stream",
+      chat_id: "chat-native",
+      session_id: "cw_1",
+      agent_id: "lead",
+      step_id: "step_1",
+      phase: "delta",
+      status: "running",
+      sequence: 1,
+      text: "draft",
+      completed: false,
+    });
+    handlers.get("cowork_mailbox_stream")?.({
+      event: "cowork_mailbox_stream",
+      chat_id: "chat-native",
+      session_id: "cw_1",
+      sender_agent_id: "lead",
+      draft_id: "draft_1",
+      tool_call_id: "call_1",
+      phase: "terminal",
+      status: "completed",
+      sequence: 2,
+      text: "",
+      completed: true,
+    });
+    handlers.get("cowork_state")?.({
+      event: "cowork_state",
+      chat_id: "chat-native",
+      session_id: "cw_1",
+      change_type: "message.sent",
+      status: "active",
+    });
+    handlers.get("cowork_updated")?.({
+      event: "cowork_updated",
+      session_id: "cw_1",
+      event_id: "evt_1",
+      event_type: "message.sent",
+    });
+
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "cowork_stream",
+      chat_id: "chat-native",
+      session_id: "cw_1",
+      text: "draft",
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "cowork_mailbox_stream",
+      chat_id: "chat-native",
+      session_id: "cw_1",
+      draft_id: "draft_1",
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "cowork_state",
+      chat_id: "chat-native",
+      session_id: "cw_1",
+      change_type: "message.sent",
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "cowork_updated",
+      session_id: "cw_1",
+      event_id: "evt_1",
+    }));
+
+    socket.close();
+  });
+
   test("projects TS worker tool progress into legacy WebUI message frames", async () => {
     const handlers = new Map<DesktopNativeWebSocketAgentEventName, (payload: unknown) => void>();
     const nativeTransport: NativeTransportApi = {

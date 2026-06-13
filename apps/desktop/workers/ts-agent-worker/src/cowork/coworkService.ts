@@ -68,6 +68,8 @@ export type CoworkServiceOptions = {
   idGenerator?: CoworkIdGenerator;
 };
 
+export type CoworkServiceListener = (session: CoworkSession, event: CoworkEvent) => void;
+
 export type CoworkAgentInput = JsonObject & {
   id?: string;
   name?: string;
@@ -233,11 +235,19 @@ export class CoworkService {
   private readonly store: CoworkServiceStore;
   private readonly now: () => string;
   private readonly idGenerator: CoworkIdGenerator;
+  private readonly listeners = new Set<CoworkServiceListener>();
 
   constructor(options: CoworkServiceOptions) {
     this.store = options.store;
     this.now = options.now ?? (() => new Date().toISOString());
     this.idGenerator = options.idGenerator ?? ((prefix) => `${prefix}_${cryptoRandomSuffix()}`);
+  }
+
+  addListener(listener: CoworkServiceListener): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
   }
 
   async listSessions(traceId = "", options: { includeCompleted?: boolean } = {}): Promise<CoworkSession[]> {
@@ -1643,7 +1653,9 @@ export class CoworkService {
       rounds: 0,
       no_progress_rounds: 0,
     });
-    return this.store.writeSnapshot(session, traceId);
+    const saved = await this.store.writeSnapshot(session, traceId);
+    this.notifyListeners(saved, event);
+    return saved;
   }
 
   async createSessionFromBlueprint(
@@ -2104,6 +2116,16 @@ export class CoworkService {
       ...(options.data ? { data: options.data } : {}),
       created_at: this.now(),
     };
+  }
+
+  private notifyListeners(session: CoworkSession, event: CoworkEvent): void {
+    for (const listener of this.listeners) {
+      try {
+        listener(session, event);
+      } catch {
+        // Listener failures must not break Cowork state persistence.
+      }
+    }
   }
 
   private traceSpan(

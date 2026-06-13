@@ -22,6 +22,10 @@ export type DesktopNativeWebSocketAgentEventName =
   | "agent.memory_reference"
   | "agent.task_progress"
   | "agent.browser_frame"
+  | "cowork_updated"
+  | "cowork_state"
+  | "cowork_stream"
+  | "cowork_mailbox_stream"
   | "agent.cancelled"
   | "agent.done"
   | "agent.error";
@@ -43,6 +47,10 @@ const AGENT_EVENT_NAMES: DesktopNativeWebSocketAgentEventName[] = [
   "agent.memory_reference",
   "agent.task_progress",
   "agent.browser_frame",
+  "cowork_updated",
+  "cowork_state",
+  "cowork_stream",
+  "cowork_mailbox_stream",
   "agent.cancelled",
   "agent.done",
   "agent.error",
@@ -242,6 +250,13 @@ class DesktopNativeWebSocket extends EventTarget {
       return;
     }
     const record = isRecord(payload) ? payload : {};
+    if (isCoworkEventName(eventName)) {
+      this.emitJson({
+        ...record,
+        event: stringValue(record.event) || eventName,
+      });
+      return;
+    }
     const runId = stringValue(record.runId) || stringValue(record.run_id);
     if (!runId) {
       return;
@@ -528,6 +543,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function arrayValue(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
+}
+
+function isCoworkEventName(eventName: DesktopNativeWebSocketAgentEventName): boolean {
+  return (
+    eventName === "cowork_updated" ||
+    eventName === "cowork_state" ||
+    eventName === "cowork_stream" ||
+    eventName === "cowork_mailbox_stream"
+  );
 }
 
 function stringValue(value: unknown): string {

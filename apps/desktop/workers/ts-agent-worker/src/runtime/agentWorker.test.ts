@@ -2756,6 +2756,74 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("emits Python-compatible WebUI cowork update events for websocket-origin sessions", async () => {
+    const emitted: WorkerEvent[] = [];
+    const coworkService = new CoworkService({
+      store: createMemoryCoworkStore(),
+      now: () => "2026-06-12T08:00:00.000Z",
+      idGenerator: (() => {
+        const counters = new Map<string, number>();
+        return (prefix: string) => {
+          const next = (counters.get(prefix) ?? 0) + 1;
+          counters.set(prefix, next);
+          return `${prefix}_${next}`;
+        };
+      })(),
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: (event) => emitted.push(event),
+      coworkService,
+    });
+
+    const create = await worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: "/api/cowork/sessions",
+      body: {
+        goal: "Broadcast Cowork updates",
+        title: "Broadcast Cowork",
+        runtime_state: {
+          origin_channel: "websocket",
+          origin_chat_id: "chat-1",
+          origin_session_key: "websocket:chat-1",
+          origin_surface: "main_chat",
+        },
+      },
+    }));
+    expect(create).toMatchObject({ result: expect.objectContaining({ status: 200 }) });
+    expect(await coworkService.getSession("cw_1", "assert")).toMatchObject({
+      runtime_state: expect.objectContaining({
+        origin_chat_id: "chat-1",
+      }),
+    });
+
+    expect(emitted).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        event: "cowork_updated",
+        payload: expect.objectContaining({
+          event: "cowork_updated",
+          session_id: "cw_1",
+          event_id: "evt_1",
+          event_type: "session.created",
+          message: "Created cowork session 'Broadcast Cowork'",
+          updated_at: "2026-06-12T08:00:00.000Z",
+        }),
+      }),
+      expect.objectContaining({
+        event: "cowork_state",
+        payload: expect.objectContaining({
+          event: "cowork_state",
+          chat_id: "chat-1",
+          session_id: "cw_1",
+          change_type: "session.created",
+          status: "active",
+          updated_at: "2026-06-12T08:00:00.000Z",
+        }),
+      }),
+    ]));
+  });
+
   test("preserves Python-compatible direct blueprint default goals", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),

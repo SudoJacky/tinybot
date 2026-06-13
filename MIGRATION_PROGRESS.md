@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued WebUI transport Batch 6 Cowork event parity: the native root-WebUI WebSocket shim now subscribes to TS worker Cowork update/state/stream events and forwards them as legacy WebUI frames, while TS-native Cowork session creation emits Python-compatible update/state worker events for websocket-origin sessions.
+
 - Continued WebUI transport Batch 6 Cowork route parity: TS worker WebUI route specs now expose `/api/cowork/*` wildcard routes and `webui.handle_request` delegates those requests through the existing native Cowork route dispatcher.
 
 - Continued WebUI transport Batch 6 upload fallback parity: desktop session temporary uploads now keep extractor-dependent formats such as PDF on the HTTP/Python gateway path instead of sending raw `File.text()` payloads to the native TS route, while plain text/Markdown uploads still prefer native.
@@ -1074,6 +1076,7 @@ Heartbeat row 20 update: Phase 4 now runs scheduled notifications through the sh
 - [x] Continue Knowledge Phase 3: expose desktop gateway native-first temporary-file clear facade with HTTP fallback.
 - [x] Continue WebUI transport Batch 6: keep extractor-dependent session temporary uploads such as PDF on HTTP/Python fallback while preserving native-first text/Markdown uploads.
 - [x] Continue WebUI transport Batch 6: expose `/api/cowork/*` wildcard route specs and bridge `webui.handle_request` Cowork requests into the TS-native Cowork dispatcher.
+- [x] Continue WebUI transport Batch 6: forward TS worker Cowork update/state/stream events through the native root-WebUI WebSocket shim and emit create-session update/state events from the TS Cowork service.
 - [x] Continue Cowork Phase 10: expose desktop native action requests for TS-native Cowork blueprint, trace, DAG, artifact, organization, queue, and branch read-only routes.
 - [x] Continue Cowork Phase 10: wire desktop Cowork action controls and handler dispatch for TS-native blueprint, trace, DAG, artifact, organization, queue, and branch read-only routes.
 - [x] Continue Cowork Phase 10: expose desktop native action requests for TS-native budget update, source-branch derive, final-result select, and final-result merge routes.
