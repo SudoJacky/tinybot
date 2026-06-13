@@ -3008,6 +3008,49 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("ignores non-object create-session route blueprints when a goal is present", async () => {
+    const coworkService = new CoworkService({
+      store: createMemoryCoworkStore(),
+      now: () => "2026-06-12T08:00:00.000Z",
+      idGenerator: (() => {
+        const counters = new Map<string, number>();
+        return (prefix: string) => {
+          const next = (counters.get(prefix) ?? 0) + 1;
+          counters.set(prefix, next);
+          return `${prefix}_${next}`;
+        };
+      })(),
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      coworkService,
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: "/api/cowork/sessions",
+      body: {
+        goal: "Use goal path",
+        title: "Goal session",
+        blueprint: "ignored",
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          result: "started cw_1",
+          session: expect.objectContaining({
+            id: "cw_1",
+            title: "Goal session",
+            goal: "Use goal path",
+          }),
+        },
+      },
+    });
+  });
+
   test("returns Python-compatible create-session route error for non-object bodies", async () => {
     const coworkService = new CoworkService({
       store: createMemoryCoworkStore(),

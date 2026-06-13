@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued Cowork Phase 10 create-session route parity: TS-native session creation now mirrors Python's blueprint type guard, ignoring non-object `blueprint` values and falling through to goal-based creation instead of failing blueprint validation.
+
 - Continued Cowork Phase 10 budget route parity: TS-native budget update routes now mirror Python's `budgets` field precedence, ignoring malformed sibling `budget` values when the Python-compatible `budgets` payload is present.
 
 - Continued Cowork Phase 10 queues route parity: TS-native `/queues` routes now return Python-shaped `cowork.swarm_queues.v1` empty queue projections for non-swarm sessions instead of inheriting the session snapshot's gated `{}` summary field.

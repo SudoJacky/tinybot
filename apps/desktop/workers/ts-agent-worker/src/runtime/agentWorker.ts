@@ -756,7 +756,10 @@ export class AgentWorker {
     response: CoworkRouteResponse;
   } {
     try {
-      return { ok: true, params: parseCoworkCreateSessionParams(body) };
+      const routeBody = body.blueprint !== undefined && body.blueprint !== null && !isJsonObject(body.blueprint)
+        ? { ...body, blueprint: undefined }
+        : body;
+      return { ok: true, params: parseCoworkCreateSessionParams(routeBody) };
     } catch (error) {
       if (errorMessage(error) === "cowork.create_session requires params.goal or params.blueprint") {
         return { ok: false, response: { status: 400, body: { error: "goal is required" } } };
