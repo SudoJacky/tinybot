@@ -10,6 +10,8 @@
 
 - Continued Channel Bus Phase 5 foundation: `channel.dispatch_inbound` now republishes agent replies onto the worker's shared channel bus while preserving Python bridge response payloads, allowing the TS `ChannelManager` dispatcher to deliver replies for native-managed channels.
 
+- Continued Channel Bus Phase 5 foundation: desktop bootstrap now starts the TS-managed native channel runtime after the gateway is ready, so the shared channel bus dispatcher is active during normal native desktop sessions while startup failures remain non-blocking.
+
 - Continued Channel Bus Phase 5 foundation: native text channel adapters can now be instantiated from canonical enabled channel config plus host-provided connector registry, skipping channels without native connectors so Python bridge fallback can remain explicit during migration.
 
 - Continued Channel Bus Phase 5 foundation: added a reusable TS `NativeTextChannel` adapter boundary for native platform connectors, sharing `BaseChannel` allow-list/inbound normalization while forwarding outbound text, stream delta, usage, and lifecycle calls without the Python bridge.
@@ -1010,6 +1012,7 @@ Heartbeat row 20 update: Phase 4 now runs scheduled notifications through the sh
 - [x] Continue Channel Bus Phase 5 foundation: expose Rust/Tauri and desktop native transport lifecycle commands for TS-managed channel adapters.
 - [x] Continue Channel Bus Phase 5 foundation: install a default TS `MessageBus`/`ChannelManager` in normal agent worker server runs.
 - [x] Continue Channel Bus Phase 5 foundation: republish `channel.dispatch_inbound` replies onto the shared TS channel bus for native dispatch.
+- [x] Continue Channel Bus Phase 5 foundation: start the TS-managed native channel runtime during desktop bootstrap.
 - [x] Start API Runtime Phase 1: expose TS-native public `GET /health` and OpenAI-compatible `GET /v1/models` through the worker route bridge.
 - [x] Continue API Runtime Phase 1: expose TS-native non-stream `POST /v1/chat/completions` through the worker route bridge and existing AgentRunner path.
 - [x] Continue API Runtime Phase 1: apply `api.timeout` and OpenAI-shaped 504 handling to TS-native chat completions.

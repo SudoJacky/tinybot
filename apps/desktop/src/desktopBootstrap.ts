@@ -101,6 +101,7 @@ import {
 import { createDesktopNativeCoworkApi } from "./desktopNativeCowork";
 import { createDesktopNativeSkillsApi } from "./desktopNativeSkills";
 import { createDesktopNativeWebuiApi } from "./desktopNativeWebui";
+import { startDesktopNativeChannelRuntime } from "./desktopNativeChannelLifecycle";
 import { createDesktopNativeTransportApi } from "./desktopNativeTransport";
 import { normalizeSessionsPayload } from "./nativeChat";
 import {
@@ -205,6 +206,10 @@ async function bootDesktopWebUi(): Promise<void> {
     const status = await ensureGatewayReady(gatewayConfig, { invoke, hasTauriRuntime });
     nativeRuntimeStatus = status;
     updateNativeGatewayTask(buildDesktopGatewayTaskOperation("startup", status));
+    await startDesktopNativeChannelRuntime({
+      nativeTransport: gatewayClientOptions.nativeTransport,
+      logDebug: logDesktopNativeDebug,
+    });
     const workbenchMode = resolveDesktopWorkbenchStartupMode();
     document.documentElement.dataset.desktopWorkbenchMode = workbenchMode.mode;
     document.documentElement.dataset.desktopWorkbenchRequestedMode = workbenchMode.requestedMode;
