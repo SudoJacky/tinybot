@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued Batch 5 Task/Cron background runtime parity: TS native task status/create summaries now mirror Python's plan-summary details, including created timestamps, DAG error rows, status icons, and result ellipses.
+
 - Continued Batch 5 Task/Cron background runtime parity: TS native `task` create results now mirror Python's user-facing creation prompt and `auto_execute` handoff into background subtask execution.
 
 - Continued Batch 5 Task/Cron background runtime parity: TS native `task` resume and delete-not-found results now mirror Python's user-facing messages, including the background-start wording and delete missing-plan punctuation.

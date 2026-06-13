@@ -80,6 +80,28 @@ describe("createTaskTool", () => {
     });
   });
 
+  test("renders Python-compatible plan summary details", async () => {
+    const plan = basePlan();
+    plan.createdAt = "2026-06-12T08:15:30.000Z";
+    plan.context = { dag_errors: ["missing dependency"] };
+    const tool = createTaskTool({ store: memoryBridge([plan]) });
+
+    await expect(tool.execute({ action: "status", plan_id: "plan-1" }, context)).resolves.toMatchObject({
+      content: [
+        "## Backend migration (id: plan-1)",
+        "Status: executing",
+        "Created: 2026-06-12 08:15",
+        "⚠️ DAG Errors: ['missing dependency']",
+        "Progress: 1/2 completed, 0 in progress, 1 pending, 0 failed",
+        "",
+        "### Subtasks",
+        "- ✅ **a:** Foundation",
+        "  Result: Foundation done...",
+        "- ⏳ **b:** Runtime (depends: a) [sequential]",
+      ].join("\n"),
+    });
+  });
+
   test("controls plans and mutates subtasks through TaskRuntime", async () => {
     const tool = createTaskTool({ store: memoryBridge([basePlan()]), idGenerator: () => "new1" });
 

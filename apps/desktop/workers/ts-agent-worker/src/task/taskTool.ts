@@ -303,16 +303,26 @@ function formatPlanSummary(plan: TaskPlan): string {
   const lines = [
     `## ${plan.title} (id: ${plan.id})`,
     `Status: ${plan.status}`,
+  ];
+  const created = formatCreatedAt(plan.createdAt);
+  if (created) {
+    lines.push(`Created: ${created}`);
+  }
+  const dagErrors = dagErrorsFor(plan);
+  if (dagErrors.length > 0) {
+    lines.push(`⚠️ DAG Errors: ${formatPythonList(dagErrors)}`);
+  }
+  lines.push(
     `Progress: ${progress.completed}/${progress.total} completed, ${progress.in_progress} in progress, ${progress.pending} pending, ${progress.failed} failed`,
     "",
     "### Subtasks",
-  ];
+  );
   for (const subtask of plan.subtasks) {
     const dependencies = subtask.dependencies.length ? ` (depends: ${subtask.dependencies.join(", ")})` : "";
     const sequential = subtask.parallelSafe ? "" : " [sequential]";
     lines.push(`- ${statusLabel(subtask.status)} **${subtask.id}:** ${subtask.title}${dependencies}${sequential}`);
     if (subtask.result) {
-      lines.push(`  Result: ${truncate(subtask.result, 100)}`);
+      lines.push(`  Result: ${truncate(subtask.result, 100)}...`);
     }
     if (subtask.error) {
       lines.push(`  Error: ${truncate(subtask.error, 100)}`);
@@ -350,18 +360,38 @@ function formatProgress(progress: ReturnType<typeof taskProgressPayload>): strin
 function statusLabel(status: string): string {
   switch (status) {
     case "pending":
-      return "[pending]";
+      return "⏳";
     case "in_progress":
-      return "[in_progress]";
+      return "▶️";
     case "completed":
-      return "[completed]";
+      return "✅";
     case "failed":
-      return "[failed]";
+      return "❌";
     case "skipped":
-      return "[skipped]";
+      return "⏭️";
     default:
-      return "[unknown]";
+      return "❓";
   }
+}
+
+function formatCreatedAt(createdAt: string | null | undefined): string {
+  if (!createdAt) {
+    return "";
+  }
+  const match = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/.exec(createdAt);
+  if (match) {
+    return `${match[1]} ${match[2]}`;
+  }
+  return createdAt.slice(0, 16);
+}
+
+function formatPythonList(values: unknown[]): string {
+  return `[${values.map((value) => {
+    if (typeof value === "string") {
+      return `'${value.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
+    }
+    return String(value);
+  }).join(", ")}]`;
 }
 
 function requiredPlanId(args: Record<string, unknown>, action: string): string | { content: string } {
