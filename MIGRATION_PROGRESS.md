@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued Batch 5 Task/Cron background runtime parity: TS native `task` create results now mirror Python's user-facing creation prompt and `auto_execute` handoff into background subtask execution.
+
 - Continued Batch 5 Task/Cron background runtime parity: TS native `task` resume and delete-not-found results now mirror Python's user-facing messages, including the background-start wording and delete missing-plan punctuation.
 
 - Continued Batch 5 Task/Cron background runtime parity: TS native `task` add/remove subtask actions now mirror Python's user-facing success and failure messages for subtask mutation results.

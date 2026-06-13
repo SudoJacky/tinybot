@@ -200,7 +200,7 @@ describe("createTaskTool", () => {
     });
 
     await expect(tool.execute({ action: "create", request: "Plan this" }, context)).resolves.toMatchObject({
-      content: expect.stringContaining("Task plan created (plan_id: plan-new)."),
+      content: expect.stringContaining("任务计划已创建（plan_id: plan-new）。"),
       metadata: {
         _task_event: true,
         _task_plan_id: "plan-new",
@@ -210,6 +210,55 @@ describe("createTaskTool", () => {
     await expect(tool.execute({ action: "status", plan_id: "plan-new" }, context)).resolves.toMatchObject({
       content: expect.stringContaining("## Created native plan (id: plan-new)"),
     });
+  });
+
+  test("auto-executes a newly created task plan when requested", async () => {
+    const spawned: string[] = [];
+    const tool = createTaskTool({
+      store: memoryBridge([]),
+      now: () => "2026-06-12T00:00:00.000Z",
+      planner: {
+        createPlan: async (request, planContext) => ({
+          id: "plan-auto",
+          title: "Auto native plan",
+          originalRequest: request,
+          status: "planning",
+          currentSubtaskIds: [],
+          context: planContext,
+          subtasks: [
+            {
+              id: "a",
+              title: "Inspect",
+              description: "Inspect Python",
+              status: "pending",
+              dependencies: [],
+              parallelSafe: true,
+              result: null,
+              error: null,
+              startedAt: null,
+              completedAt: null,
+              retryCount: 0,
+              maxRetries: 2,
+            },
+          ],
+        }),
+      },
+      executor: {
+        spawnSubtask: async ({ subtask }) => {
+          spawned.push(subtask.id);
+        },
+      },
+    });
+
+    await expect(tool.execute({ action: "create", request: "Plan this", auto_execute: true }, context)).resolves.toMatchObject({
+      content: "任务已后台启动，SubAgent自动执行中。完成后会通知你。无需主动干预。（plan_id: plan-auto，启动 1 个子任务）",
+      metadata: {
+        _task_event: true,
+        _task_plan_id: "plan-auto",
+        _task_progress: expect.objectContaining({ plan_id: "plan-auto", in_progress: 1 }),
+      },
+    });
+    expect(spawned).toEqual(["a"]);
   });
 
   test("resumes a task plan through the configured executor", async () => {

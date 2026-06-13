@@ -110,19 +110,22 @@ async function createResult(runtime: TaskRuntime, args: Record<string, unknown>,
   if (!plan) {
     return deferredResult("Task plan creation is not available in the native TS runtime yet.", "task_planning");
   }
+  const dagErrors = dagErrorsFor(plan);
+  if (booleanArg(args, "auto_execute", false) && dagErrors.length === 0) {
+    const result = await runtime.resumePlan(plan.id, {
+      parallel: booleanArg(args, "parallel", true),
+    }, traceId(context));
+    if (!result) {
+      return deferredResult("Task background execution is not available in the native TS runtime yet.", "subagent_runtime");
+    }
+    return resumeSuccessResult(result);
+  }
   const progress = taskProgressPayload(plan);
-  const warning = Array.isArray(plan.context.dagErrors) && plan.context.dagErrors.length > 0
-    ? `\n\nWarning: Plan has dependency issues: ${JSON.stringify(plan.context.dagErrors)}\nPlease fix before executing.`
+  const warning = dagErrors.length > 0
+    ? `\n\n⚠️ Warning: Plan has dependency issues: ${JSON.stringify(dagErrors)}\nPlease fix before executing.`
     : "";
   return {
-    content: [
-      `Task plan created (plan_id: ${plan.id}).`,
-      "",
-      formatPlanSummary(plan),
-      "",
-      `Hint: use \`task action=resume plan_id=${plan.id}\` to start background execution.`,
-      warning,
-    ].join("\n"),
+    content: `任务计划已创建（plan_id: ${plan.id}）。\n\n${formatPlanSummary(plan)}\n\n提示：使用 \`task action=resume plan_id=${plan.id}\` 启动执行，之后无需干预，完成后会通知你。${warning}`,
     metadata: {
       _task_event: true,
       _task_plan_id: plan.id,
@@ -165,6 +168,10 @@ async function resumeResult(runtime: TaskRuntime, args: Record<string, unknown>,
   if (!result) {
     return deferredResult("Task background execution is not available in the native TS runtime yet.", "subagent_runtime");
   }
+  return resumeSuccessResult(result);
+}
+
+function resumeSuccessResult(result: { plan: TaskPlan; spawnedCount: number }): ToolResult {
   const progress = taskProgressPayload(result.plan);
   return {
     content: `任务已后台启动，SubAgent自动执行中。完成后会通知你。无需主动干预。（plan_id: ${result.plan.id}，启动 ${result.spawnedCount} 个子任务）`,
@@ -312,6 +319,11 @@ function formatPlanSummary(plan: TaskPlan): string {
     }
   }
   return lines.join("\n");
+}
+
+function dagErrorsFor(plan: TaskPlan): unknown[] {
+  const dagErrors = plan.context.dag_errors ?? plan.context.dagErrors;
+  return Array.isArray(dagErrors) ? dagErrors : [];
 }
 
 function formatProgress(progress: ReturnType<typeof taskProgressPayload>): string {
