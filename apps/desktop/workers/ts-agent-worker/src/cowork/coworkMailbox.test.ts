@@ -296,6 +296,63 @@ describe("CoworkMailbox", () => {
     });
   });
 
+  it("keeps review-required completed tasks behind review gates instead of summarizing", async () => {
+    const session = await createTeamSession();
+    session.agents.coordinator.inbox = [];
+    session.tasks = {
+      task_1: {
+        id: "task_1",
+        title: "Answer question",
+        description: "Provide the recommendation.",
+        assigned_agent_id: "researcher",
+        status: "completed",
+        dependencies: [],
+        result: "Recommend option A.",
+        result_data: { answer: "Recommend option A." },
+        confidence: 0.75,
+        error: null,
+        priority: 0,
+        expected_output: "",
+        review_required: true,
+        reviewer_agent_ids: ["analyst"],
+        review_status: "pending",
+        fanout_group_id: "",
+        merge_task_id: "",
+        source_blueprint_id: "",
+        source_event_id: "",
+        runtime_created: false,
+        created_at: fixedNow,
+        updated_at: fixedNow,
+      },
+    };
+
+    deliver(session, {
+      sender_id: "coordinator",
+      recipient_ids: ["researcher"],
+      content: "Review still needs to pass.",
+      wake_recipients: false,
+    });
+
+    expect(session.completion_decision).toMatchObject({
+      next_action: "resolve_review_gates",
+      reason: "1 review gate(s) must pass before completion.",
+      ready_to_finish: false,
+      review_blockers: [
+        {
+          task_id: "task_1",
+          task_title: "Answer question",
+          review_status: "pending",
+          reviewer_agent_ids: ["analyst"],
+        },
+      ],
+      goal_review: {
+        ready: false,
+        reason: "Review-required outputs have not passed review.",
+        missing: ["review_gates"],
+      },
+    });
+  });
+
   it("deduplicates active correlation requests and returns the original message", async () => {
     const session = await createTeamSession();
     const box = mailbox();

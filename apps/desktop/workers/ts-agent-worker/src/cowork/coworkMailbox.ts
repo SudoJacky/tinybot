@@ -644,7 +644,8 @@ function refreshMailboxCompletionDecision(session: CoworkSession, now: () => str
     const status = stringValue(task.status);
     return status === "pending" || status === "in_progress";
   }).length;
-  const goalReview = reviewMailboxGoalCompletion(session, tasks);
+  const reviewBlockers = reviewMailboxGateBlockers(tasks);
+  const goalReview = reviewMailboxGoalCompletion(session, tasks, reviewBlockers);
   let nextAction = "plan";
   let reason = "No tasks exist yet.";
   if (session.status === "completed") {
@@ -653,6 +654,9 @@ function refreshMailboxCompletionDecision(session: CoworkSession, now: () => str
   } else if (failedTaskCount > 0) {
     nextAction = "review_failed_tasks";
     reason = `${failedTaskCount} task(s) failed and need review.`;
+  } else if (reviewBlockers.length > 0) {
+    nextAction = "resolve_review_gates";
+    reason = `${reviewBlockers.length} review gate(s) must pass before completion.`;
   } else if (pendingReplies.length > 0) {
     nextAction = "resolve_blockers";
     reason = `${pendingReplies.length} reply request(s) are still open.`;
@@ -684,6 +688,7 @@ function refreshMailboxCompletionDecision(session: CoworkSession, now: () => str
       blocking_task_id: nullableString(record.blocking_task_id),
       content: stringValue(record.content).slice(0, 240),
     })),
+    review_blockers: reviewBlockers,
     ready_to_finish: nextAction === "summarize",
     no_progress_rounds: session.no_progress_rounds,
     convergence_limit: CONVERGENCE_IDLE_ROUNDS,
@@ -692,11 +697,37 @@ function refreshMailboxCompletionDecision(session: CoworkSession, now: () => str
   };
 }
 
-function reviewMailboxGoalCompletion(session: CoworkSession, tasks: JsonObject[]): JsonObject {
+function reviewMailboxGateBlockers(tasks: JsonObject[]): JsonObject[] {
+  return tasks.flatMap((task) => {
+    if (task.review_required !== true) {
+      return [];
+    }
+    const status = stringValue(task.status);
+    if (status !== "completed" && status !== "failed") {
+      return [];
+    }
+    const data = jsonSafeObject(task.result_data);
+    const reviewStatus = stringValue(task.review_status || data.review_status).toLowerCase();
+    if (["passed", "waived", "expired"].includes(reviewStatus)) {
+      return [];
+    }
+    return [{
+      task_id: stringValue(task.id),
+      task_title: stringValue(task.title),
+      review_status: reviewStatus || "required",
+      reviewer_agent_ids: arrayValue(task.reviewer_agent_ids).map(stringValue),
+    }];
+  });
+}
+
+function reviewMailboxGoalCompletion(session: CoworkSession, tasks: JsonObject[], reviewBlockers: JsonObject[]): JsonObject {
   const completed = tasks.filter((task) => stringValue(task.status) === "completed");
   const openQuestions = completed.flatMap((task) => arrayValue(jsonSafeObject(task.result_data).open_questions).map(stringValue).filter(Boolean));
   if (openQuestions.length > 0) {
     return { ready: false, reason: "Completed work still contains open questions.", missing: ["open_questions"] };
+  }
+  if (reviewBlockers.length > 0) {
+    return { ready: false, reason: "Review-required outputs have not passed review.", missing: ["review_gates"] };
   }
   const goalText = session.goal.toLowerCase();
   const deliveryMarkers = [
