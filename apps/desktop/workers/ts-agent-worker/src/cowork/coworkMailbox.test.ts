@@ -433,6 +433,65 @@ describe("CoworkMailbox", () => {
     });
   });
 
+  it("keeps completed task disagreement signals behind synthesis", async () => {
+    const session = await createTeamSession();
+    session.agents.coordinator.inbox = [];
+    session.tasks = {
+      task_1: {
+        id: "task_1",
+        title: "Compare fallback behavior",
+        description: "Compare runtime fallback behavior across lanes.",
+        assigned_agent_id: "researcher",
+        status: "completed",
+        dependencies: [],
+        result: "Fallback behavior still has an unresolved conflict.",
+        result_data: {
+          answer: "Fallback behavior still has an unresolved conflict.",
+          conflicts: ["Runtime and quality lanes disagree on fallback behavior."],
+        },
+        confidence: 0.72,
+        error: null,
+        priority: 0,
+        expected_output: "",
+        review_required: false,
+        reviewer_agent_ids: [],
+        review_status: "",
+        fanout_group_id: "",
+        merge_task_id: "",
+        source_blueprint_id: "",
+        source_event_id: "",
+        runtime_created: false,
+        created_at: fixedNow,
+        updated_at: fixedNow,
+      },
+    };
+
+    deliver(session, {
+      sender_id: "coordinator",
+      recipient_ids: ["researcher"],
+      content: "Conflict signal needs synthesis before finalizing.",
+      wake_recipients: false,
+    });
+
+    expect(session.completion_decision).toMatchObject({
+      next_action: "synthesize_disagreements",
+      reason: "1 disagreement signal(s) need lead or reviewer synthesis.",
+      ready_to_finish: false,
+      disagreements: [
+        {
+          task_id: "task_1",
+          kind: "conflicts",
+          text: "Runtime and quality lanes disagree on fallback behavior.",
+        },
+      ],
+      goal_review: {
+        ready: false,
+        reason: "Completed work contains disagreement signals requiring synthesis.",
+        missing: ["disagreements"],
+      },
+    });
+  });
+
   it("deduplicates active correlation requests and returns the original message", async () => {
     const session = await createTeamSession();
     const box = mailbox();

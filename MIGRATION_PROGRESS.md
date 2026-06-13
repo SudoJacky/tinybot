@@ -764,6 +764,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: return Python-compatible `summarize` / `ready_to_finish` decisions for completed task results during TS mailbox refresh.
 - [x] Continue Cowork Phase 10: preserve Python review gate blocker decisions during TS mailbox completion-decision refresh.
 - [x] Continue Cowork Phase 10: preserve Python fanout merge blocker decisions during TS mailbox completion-decision refresh.
+- [x] Continue Cowork Phase 10: preserve Python disagreement synthesis decisions during TS mailbox completion-decision refresh.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.
