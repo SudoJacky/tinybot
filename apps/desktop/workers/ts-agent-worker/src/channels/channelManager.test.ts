@@ -112,6 +112,22 @@ describe("ChannelManager", () => {
     expect(websocket.send).not.toHaveBeenCalled();
   });
 
+  test("does not send stream frames as ordinary messages when the channel has no delta sender", async () => {
+    const bus = new MessageBus();
+    const plain = adapter({
+      supportsStreaming: false,
+      sendDelta: undefined,
+    });
+    const manager = new ChannelManager({ bus, channels: [plain] });
+
+    await bus.publishOutbound(outbound({ content: "delta", metadata: { _stream_delta: true } }));
+    await bus.publishOutbound(outbound({ content: "reason", metadata: { _reasoning_delta: true } }));
+    await bus.publishOutbound(outbound({ content: "", metadata: { _stream_end: true } }));
+
+    await expect(manager.dispatchAvailable()).resolves.toBe(3);
+    expect(plain.send).not.toHaveBeenCalled();
+  });
+
   test("drops disabled progress frames and records unknown channel diagnostics", async () => {
     const bus = new MessageBus();
     const websocket = adapter();

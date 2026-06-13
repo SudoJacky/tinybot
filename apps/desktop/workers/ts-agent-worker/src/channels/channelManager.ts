@@ -210,8 +210,8 @@ export class ChannelManager {
     if (message.metadata._stream_delta || message.metadata._stream_end || message.metadata._reasoning_delta) {
       if (channel.sendDelta) {
         await channel.sendDelta(message.chatId, message.content, message.metadata);
-        return;
       }
+      return;
     }
     if (!message.metadata._streamed) {
       await channel.send(message);

@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Channel Bus manager parity: TS `ChannelManager` now mirrors Python `BaseChannel.send_delta()` no-op fallback by swallowing stream, reasoning, and stream-end frames when an adapter has no `sendDelta`, instead of sending partial stream frames as ordinary channel messages.
+
 - Continued Cowork Phase 10 desktop rollout coverage: gateway default-route regression tests now cover Python-compatible create-session architecture precedence when a truthy numeric `architecture` value appears before a later swarm `workflow_mode`, keeping the request on the native default path instead of falling through to Python fallback.
 
 - Continued Cowork Phase 10 desktop rollout parity: desktop gateway create-session scheduler gates now treat either `autoRun` or Python `auto_run` truthy values as scheduler-bound, preserving Python fallback when TS scheduler routing is disabled and mixed-alias request bodies would otherwise slip to the native create route.
@@ -943,6 +945,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Channel Bus Phase 4: add Python bridge inbound ingestion into the TS MessageBus with malformed, closed-bus, and backpressure diagnostics.
 - [x] Continue Channel Bus Phase 4: deliver restart completion notices from Python-compatible env markers on ChannelManager startup.
 - [x] Continue Channel Bus command parity: dispatch channel slash commands through the backend command router before normal agent context/provider execution.
+- [x] Continue Channel Bus manager parity: swallow stream/reasoning/end frames on adapters without `sendDelta`, matching Python `BaseChannel.send_delta()` no-op behavior.
 - [x] Start API Runtime Phase 1: expose TS-native public `GET /health` and OpenAI-compatible `GET /v1/models` through the worker route bridge.
 - [x] Continue API Runtime Phase 1: expose TS-native non-stream `POST /v1/chat/completions` through the worker route bridge and existing AgentRunner path.
 - [x] Continue API Runtime Phase 1: apply `api.timeout` and OpenAI-shaped 504 handling to TS-native chat completions.
