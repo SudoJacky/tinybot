@@ -2300,6 +2300,37 @@ describe("gateway HTTP client", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
+  test("keeps non-swarm branch result select requests on the mutation rollout gate", async () => {
+    const fetchFn = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
+      if (String(url).endsWith("/webui/bootstrap")) {
+        return new Response(JSON.stringify({ token: "token-1" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ gateway: true }), { status: 200 });
+    });
+    const nativeCowork = {
+      route: vi.fn(async () => ({ native: true })),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeCowork,
+      tsCoworkRuntime: {
+        mutations: true,
+        swarm: false,
+        fallbackToPython: true,
+      },
+    });
+
+    await expect(client.cowork.selectBranchResult("cw_1", "branch 1", { result_id: "result_1", architecture: "team" })).resolves.toEqual({ native: true });
+
+    expect(nativeCowork.route).toHaveBeenCalledWith({
+      method: "POST",
+      path: "/api/cowork/sessions/cw_1/branches/branch%201/result/select-final",
+      body: { result_id: "result_1", architecture: "team" },
+    });
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
   test("uses Python truthiness when selecting branch derive architecture for swarm rollout gates", async () => {
     const fetchFn = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
       if (String(url).endsWith("/webui/bootstrap")) {

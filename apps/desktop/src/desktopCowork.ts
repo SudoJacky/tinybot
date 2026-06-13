@@ -282,7 +282,7 @@ export type DesktopCoworkActionInput =
   | { action: "updateBudget"; sessionId: string; body: UnknownRecord }
   | { action: "deriveBranch"; sessionId: string; sourceBranchId?: string | null; body: UnknownRecord }
   | { action: "selectBranch"; sessionId: string; branchId: string; architecture?: string }
-  | { action: "selectBranchResult"; sessionId: string; branchId: string; resultId: string }
+  | { action: "selectBranchResult"; sessionId: string; branchId: string; resultId: string; architecture?: string }
   | { action: "mergeBranchResults"; sessionId: string; branchIds: string[] }
   | { action: "selectFinalResult"; sessionId: string; body: UnknownRecord }
   | { action: "mergeFinalResult"; sessionId: string; body: UnknownRecord }
@@ -657,12 +657,20 @@ export function buildDesktopCoworkActionRequest(input: DesktopCoworkActionInput)
         ...(body ? { body } : {}),
       };
     }
-    case "selectBranchResult":
+    case "selectBranchResult": {
+      const architecture = stringValue(input.architecture).trim();
+      const normalizedArchitecture = architecture ? coworkArchitectureValue(architecture) : "";
+      const body: UnknownRecord = { result_id: input.resultId };
+      if (normalizedArchitecture) {
+        body.architecture = normalizedArchitecture;
+        body.workflow_mode = normalizedArchitecture;
+      }
       return {
         method: "POST",
         path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/branches/${encodePathSegment(input.branchId)}/result/select-final`,
-        body: { result_id: input.resultId },
+        body,
       };
+    }
     case "mergeBranchResults":
       return {
         method: "POST",

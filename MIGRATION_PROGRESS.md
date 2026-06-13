@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Cowork Phase 10 desktop default-route parity: desktop branch-result select-final requests now carry target-branch architecture when known, and the gateway keeps explicit non-swarm branch final-result selections on the mutation rollout gate instead of forcing every branch-scoped select-final call through the swarm/Python fallback path.
+
 - Continued Cowork Phase 10 desktop default-route parity: desktop branch-select requests now carry target-branch architecture when known, and the gateway keeps explicit non-swarm branch selections on the mutation rollout gate instead of forcing every branch select through the swarm/Python fallback path.
 
 - Continued Cowork Phase 10 desktop default-route parity: desktop Cowork recipientless message action requests now carry selected-session architecture when known, and the gateway keeps explicit non-swarm group messages on the mutation rollout gate instead of forcing them through the swarm/Python fallback path.
@@ -1125,7 +1127,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: preserve branch-derive route snake-case text precedence with blank camel-case aliases.
 - [x] Continue Cowork Phase 10: preserve branch final-result route `result_id` precedence with blank camel-case result aliases.
 - [x] Continue Cowork Phase 10: preserve final-result merge route `branch_ids` precedence with blank camel-case branch aliases.
-- [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
+- [x] Continue Cowork Phase 10: preserve target-branch architecture on desktop branch result select-final requests so non-swarm branch final-result selections use the mutation rollout gate.
 - [x] Continue Cowork Phase 10: route explicitly swarm Cowork run requests through Python fallback when the desktop swarm rollout gate is disabled.
 - [x] Continue Cowork Phase 10: preserve selected-session architecture on desktop Cowork run action requests for swarm rollout fallback gating.
 - [x] Continue Cowork Phase 10: preserve selected-session architecture on desktop recipientless message requests so non-swarm group messages use the mutation rollout gate.

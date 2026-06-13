@@ -1183,6 +1183,7 @@ async function handleNativeCoworkAction(event: DesktopCoworkActionEvent): Promis
         sessionId,
         branchId: event.branchId,
         resultId: event.resultId,
+        architecture: selectedCoworkBranchArchitecture(event.pane, event.branchId),
       });
       await gatewayApi.cowork.selectBranchResult(sessionId, event.branchId, requestBody(request));
       setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork final branch result selected." }));

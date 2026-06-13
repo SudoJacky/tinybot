@@ -978,7 +978,7 @@ function coworkRouteGroup(method: string, path: string, body: unknown): "readOnl
     || path.includes("/branch-results/")
     || path.includes("/final-result/")
     || swarmBranchSelectRoute(method, path, body)
-    || /\/api\/cowork\/sessions\/[^/]+\/branches\/[^/]+\/result\/select-final(?:$|\?)/.test(path)
+    || swarmBranchResultSelectRoute(method, path, body)
   ) {
     return "swarm";
   }
@@ -1065,6 +1065,20 @@ function swarmBranchDeriveRoute(method: string, path: string, body: unknown): bo
 
 function swarmBranchSelectRoute(method: string, path: string, body: unknown): boolean {
   if (method !== "POST" || !/\/api\/cowork\/sessions\/[^/]+\/branches\/[^/]+\/select(?:$|\?)/.test(path)) {
+    return false;
+  }
+  const payload = asRecord(body);
+  const architecture = firstPythonTruthyTextValue(
+    payload?.architecture,
+    payload?.workflowMode,
+    payload?.workflow_mode,
+    payload?.mode,
+  );
+  return architecture ? isSwarmMode(architecture) : true;
+}
+
+function swarmBranchResultSelectRoute(method: string, path: string, body: unknown): boolean {
+  if (method !== "POST" || !/\/api\/cowork\/sessions\/[^/]+\/branches\/[^/]+\/result\/select-final(?:$|\?)/.test(path)) {
     return false;
   }
   const payload = asRecord(body);
