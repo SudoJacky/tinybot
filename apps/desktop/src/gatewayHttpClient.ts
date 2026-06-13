@@ -327,13 +327,16 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         "webui.sessions.temporaryFiles",
       ),
       uploadTemporaryFile: (key: string, body: FormData) => nativeOrGateway(
-        () => options.nativeWebui
-          ? nativeTemporaryFileUploadBody(body).then((uploadBody) => options.nativeWebui?.route({
-            method: "POST",
-            path: `/api/sessions/${encodePathSegment(key)}/temporary-files`,
-            body: uploadBody,
-          }))
-          : undefined,
+        () => {
+          const uploadBody = nativeTemporaryFileUploadBody(body);
+          return options.nativeWebui && uploadBody
+            ? uploadBody.then((payload) => options.nativeWebui?.route({
+              method: "POST",
+              path: `/api/sessions/${encodePathSegment(key)}/temporary-files`,
+              body: payload,
+            }))
+            : undefined;
+        },
         () => request(`/api/sessions/${encodePathSegment(key)}/temporary-files`, formRequest("POST", body)),
         "webui.sessions.uploadTemporaryFile",
       ),
@@ -1428,17 +1431,21 @@ function formRequest(method: string, body: FormData): RequestInit {
   };
 }
 
-async function nativeTemporaryFileUploadBody(body: FormData): Promise<Record<string, unknown>> {
+function nativeTemporaryFileUploadBody(body: FormData): Promise<Record<string, unknown>> | undefined {
   const file = body.get("file");
   if (!(file instanceof File)) {
-    return {};
+    return undefined;
   }
-  return {
+  const fileType = extensionFromName(file.name);
+  if (!["txt", "md"].includes(fileType)) {
+    return undefined;
+  }
+  return file.text().then((content) => ({
     name: file.name,
-    file_type: extensionFromName(file.name),
-    content: await file.text(),
+    file_type: fileType,
+    content,
     size_bytes: file.size,
-  };
+  }));
 }
 
 function nativeKnowledgeUploadBody(body: FormData): Promise<Record<string, unknown>> | undefined {

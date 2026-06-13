@@ -834,6 +834,38 @@ describe("gateway HTTP client", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
+  test("keeps extractor-dependent session temporary uploads on the HTTP gateway fallback", async () => {
+    const fetchFn = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
+      if (String(url).endsWith("/webui/bootstrap")) {
+        return new Response(JSON.stringify({ token: "token-1" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ gateway: true }), { status: 200 });
+    });
+    const nativeWebui = {
+      route: vi.fn(async () => {
+        throw new Error("pdf temporary upload should not use native route");
+      }),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeWebui,
+    });
+    const form = new FormData();
+    form.append("file", new File(["%PDF-1.4"], "context.pdf", { type: "application/pdf" }));
+
+    await expect(client.sessions.uploadTemporaryFile("websocket:chat-1", form)).resolves.toEqual({ gateway: true });
+    expect(nativeWebui.route).not.toHaveBeenCalled();
+    expect(fetchFn.mock.calls.map((call) => String((call as unknown[])[0]))).toEqual([
+      "http://127.0.0.1:18790/webui/bootstrap",
+      "http://127.0.0.1:18790/api/sessions/websocket%3Achat-1/temporary-files",
+    ]);
+    expect(fetchFn.mock.calls[1][1]).toMatchObject({
+      method: "POST",
+      body: form,
+    });
+  });
+
   test("prefers native WebUI session temporary file clear when available", async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
     const nativeWebui = {

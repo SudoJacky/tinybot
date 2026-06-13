@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued WebUI transport Batch 6 upload fallback parity: desktop session temporary uploads now keep extractor-dependent formats such as PDF on the HTTP/Python gateway path instead of sending raw `File.text()` payloads to the native TS route, while plain text/Markdown uploads still prefer native.
+
 - Continued Command Runtime `/new` cleanup parity: TS backend `/new` now clears native session temporary knowledge through the existing `knowledge.session_clear` bridge after clearing the session, and returns `temporary_files_cleared` command metadata when cleanup runs.
 
 - Continued Command Runtime status parity: TS backend `/status` now reuses the Python-compatible status formatter when recent run usage/context data is available, so native slash status reports model, token usage, context window, session message count, and uptime instead of only active-run counts.
@@ -510,6 +512,7 @@ Heartbeat row 20 update: Phase 4 now runs scheduled notifications through the sh
 | Date | Update |
 | --- | --- |
 | 2026-06-14 | Continued Command Runtime status parity: backend slash `/status` now reports Python-compatible runtime status content from recent native worker usage/context snapshots. |
+| 2026-06-14 | Continued WebUI transport Batch 6 upload fallback parity: desktop session temporary uploads keep extractor-dependent formats such as PDF on HTTP/Python fallback while text/Markdown uploads continue using the native route. |
 | 2026-06-14 | Continued Command Runtime `/new` cleanup parity: backend slash `/new` now clears native session temporary knowledge through `knowledge.session_clear` after session reset and reports `temporary_files_cleared` metadata. |
 | 2026-06-14 | Continued Channel Bus Phase 5 foundation: wired injected native `ChannelManager` lifecycle through `AgentWorker` and the stdio server via `channel.start/status/stop` RPCs. |
 | 2026-06-14 | Continued Channel Bus Phase 5 foundation: TS host-RPC channel connectors now convert `handled: false` host responses into channel lifecycle/delivery failures. |
@@ -1064,6 +1067,7 @@ Heartbeat row 20 update: Phase 4 now runs scheduled notifications through the sh
 - [x] Continue Knowledge Phase 3: route TS WebUI temporary-file list/upload through native `knowledge.session_list` and `knowledge.session_upload`.
 - [x] Continue Knowledge Phase 3: expose TS WebUI temporary-file clear through native `knowledge.session_clear`.
 - [x] Continue Knowledge Phase 3: expose desktop gateway native-first temporary-file clear facade with HTTP fallback.
+- [x] Continue WebUI transport Batch 6: keep extractor-dependent session temporary uploads such as PDF on HTTP/Python fallback while preserving native-first text/Markdown uploads.
 - [x] Continue Cowork Phase 10: expose desktop native action requests for TS-native Cowork blueprint, trace, DAG, artifact, organization, queue, and branch read-only routes.
 - [x] Continue Cowork Phase 10: wire desktop Cowork action controls and handler dispatch for TS-native blueprint, trace, DAG, artifact, organization, queue, and branch read-only routes.
 - [x] Continue Cowork Phase 10: expose desktop native action requests for TS-native budget update, source-branch derive, final-result select, and final-result merge routes.
