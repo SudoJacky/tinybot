@@ -306,6 +306,33 @@ describe("NativeSessionBridge", () => {
     ]);
   });
 
+  test("trims a session through native session.trim", async () => {
+    const requests: Array<{ traceId: string; method: string; params: Record<string, unknown> }> = [];
+    const bridge = new NativeSessionBridge({
+      request: async (traceId, method, params) => {
+        requests.push({ traceId, method, params });
+        return {
+          session_id: "heartbeat",
+          messages_before: 9,
+          messages_after: 5,
+        };
+      },
+    });
+
+    await expect(bridge.trimSession("heartbeat", 5, "trace-heartbeat")).resolves.toEqual({
+      sessionId: "heartbeat",
+      messagesBefore: 9,
+      messagesAfter: 5,
+    });
+    expect(requests).toEqual([
+      {
+        traceId: "trace-heartbeat",
+        method: "session.trim",
+        params: { session_id: "heartbeat", keep_recent_messages: 5 },
+      },
+    ]);
+  });
+
   test("serializes agent messages with native snake_case tool fields before appending", async () => {
     const requests: Array<{ traceId: string; method: string; params: Record<string, unknown> }> = [];
     const bridge = new NativeSessionBridge({

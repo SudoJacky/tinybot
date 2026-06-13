@@ -357,6 +357,29 @@ describe("createAgentWorkerServer", () => {
         updated_at: "2026-06-13T08:00:00.000Z",
       },
     ]);
+    await waitFor(() => parsedLines(lines).filter((line) => line.method === "config.snapshot_public").length >= 2);
+    const trimConfigRequest = parsedLines(lines).filter((line) => line.method === "config.snapshot_public").at(-1);
+    if (!trimConfigRequest || typeof trimConfigRequest.id !== "string" || typeof trimConfigRequest.trace_id !== "string") {
+      throw new Error("missing trim config request");
+    }
+    await server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: trimConfigRequest.id,
+        trace_id: trimConfigRequest.trace_id,
+        result: {
+          value: {
+            agents: { defaults: { model: "gpt-heartbeat" } },
+            channels: { feishu: { enabled: true } },
+            gateway: { heartbeat: { enabled: true, interval_s: 120, keep_recent_messages: 5 } },
+          },
+        },
+      }),
+    );
+    await respondToWorkerRequest(server, lines, "session.trim", (request) => {
+      expect(request.params).toEqual({ session_id: "heartbeat", keep_recent_messages: 5 });
+      return { session_id: "heartbeat", messages_before: 9, messages_after: 5 };
+    });
     await run;
 
     expect(provider.options[0]).toMatchObject({ model: "gpt-heartbeat" });

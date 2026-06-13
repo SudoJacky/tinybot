@@ -224,6 +224,14 @@ impl WorkerRpcRouter {
                 serde_json::to_value(self.session.clear_session(&params.session_id)?)
                     .map_err(serialization_error)
             }
+            "session.trim" => {
+                let params: SessionTrimParams = parse_params(request)?;
+                serde_json::to_value(
+                    self.session
+                        .trim_session(&params.session_id, params.keep_recent_messages)?,
+                )
+                .map_err(serialization_error)
+            }
             "session.delete" => {
                 let params: SessionIdParams = parse_params(request)?;
                 serde_json::to_value(self.session.delete_session(&params.session_id)?)
@@ -2331,6 +2339,12 @@ struct SessionTaskProgressUpsertParams {
     plan_id: String,
     progress: Value,
     content: String,
+}
+
+#[derive(Deserialize)]
+struct SessionTrimParams {
+    session_id: String,
+    keep_recent_messages: usize,
 }
 
 #[derive(Deserialize)]
@@ -4484,6 +4498,53 @@ mod tests {
         assert_eq!(
             response.result.as_ref().unwrap()["session"]["extra"]["messages"],
             json!([])
+        );
+        assert!(response.error.is_none());
+    }
+
+    #[test]
+    fn dispatches_session_trim_request() {
+        let fixture = WorkspaceFixture::new();
+        let mut session = session_fixture();
+        session.extra = json!({
+            "messages": [
+                { "role": "user", "content": "old" },
+                { "role": "assistant", "content": "old answer" },
+                { "role": "user", "content": "recent" },
+                { "role": "assistant", "content": "recent answer" }
+            ],
+            "last_consolidated": 1
+        });
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![session],
+            20,
+            CapabilityPolicy::new([WorkerCapability::SessionWrite]),
+        );
+        let request = WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "session.trim",
+            json!({ "session_id": "session-1", "keep_recent_messages": 1 }),
+        );
+
+        let response = router.dispatch(&request);
+
+        assert_eq!(
+            response.result.as_ref().unwrap()["messages_before"],
+            json!(4)
+        );
+        assert_eq!(
+            response.result.as_ref().unwrap()["messages_after"],
+            json!(2)
+        );
+        assert_eq!(
+            response.result.as_ref().unwrap()["session"]["extra"]["messages"],
+            json!([
+                { "role": "user", "content": "recent" },
+                { "role": "assistant", "content": "recent answer" }
+            ])
         );
         assert!(response.error.is_none());
     }

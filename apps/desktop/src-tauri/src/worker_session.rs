@@ -479,6 +479,57 @@ impl WorkerSessionRpc {
         })
     }
 
+    pub fn trim_session(
+        &mut self,
+        session_id: &str,
+        keep_recent_messages: usize,
+    ) -> Result<TrimSessionResult, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionWrite)?;
+        validate_session_id(session_id)?;
+        let session = self.session_mut_or_create(session_id);
+        ensure_extra_object(session);
+        ensure_messages_array(session);
+        let messages_before = session
+            .extra
+            .get("messages")
+            .and_then(Value::as_array)
+            .map_or(0, Vec::len);
+
+        let retained = if keep_recent_messages == 0 {
+            Vec::new()
+        } else {
+            session
+                .extra
+                .get("messages")
+                .and_then(Value::as_array)
+                .map(|messages| recent_legal_suffix(messages, keep_recent_messages))
+                .unwrap_or_default()
+        };
+        let messages_after = retained.len();
+        let dropped = messages_before.saturating_sub(messages_after);
+        let last_consolidated = session_last_consolidated(session).saturating_sub(dropped);
+        if let Some(extra) = session.extra.as_object_mut() {
+            extra.insert("messages".to_string(), Value::Array(retained));
+            extra.insert(
+                "last_consolidated".to_string(),
+                serde_json::json!(last_consolidated),
+            );
+            if keep_recent_messages == 0 {
+                extra.insert("user_profile".to_string(), serde_json::json!({}));
+                extra.remove("runtime_checkpoint");
+                extra.remove("last_context_metadata");
+                extra.remove("last_persisted_run_id");
+            }
+        }
+        session.updated_at = now_session_timestamp();
+        Ok(TrimSessionResult {
+            session_id: session.session_id.clone(),
+            messages_before,
+            messages_after,
+            session: session.clone(),
+        })
+    }
+
     fn require(&self, capability: WorkerCapability) -> Result<(), WorkerProtocolError> {
         if self.policy.allows(&capability) {
             return Ok(());
@@ -556,6 +607,14 @@ pub struct ClearSessionResult {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct TrimSessionResult {
+    pub session_id: String,
+    pub messages_before: usize,
+    pub messages_after: usize,
+    pub session: SessionMetadata,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct DeleteSessionResult {
     pub session_id: String,
     pub deleted: bool,
@@ -622,6 +681,19 @@ fn project_history_messages(
         .filter(|message| !is_progress_message(message))
         .filter_map(project_history_message)
         .collect()
+}
+
+fn recent_legal_suffix(messages: &[Value], keep_recent_messages: usize) -> Vec<Value> {
+    if messages.len() <= keep_recent_messages {
+        return messages.to_vec();
+    }
+    let mut start_idx = messages.len().saturating_sub(keep_recent_messages);
+    while start_idx > 0 && message_role(&messages[start_idx]) != Some("user") {
+        start_idx -= 1;
+    }
+    let retained = &messages[start_idx..];
+    let legal_start = find_legal_message_start(retained);
+    retained[legal_start..].to_vec()
 }
 
 fn session_last_consolidated(session: &SessionMetadata) -> usize {
@@ -1194,6 +1266,93 @@ mod tests {
             updated.extra["messages"],
             json!([{ "role": "assistant", "content": "hello" }])
         );
+    }
+
+    #[test]
+    fn trim_session_keeps_recent_legal_suffix_with_write_capability() {
+        let mut session = session_fixture();
+        session.extra = json!({
+            "last_consolidated": 2,
+            "messages": [
+                { "role": "user", "content": "old question" },
+                { "role": "assistant", "content": "old answer" },
+                { "role": "tool", "content": "orphan", "tool_call_id": "orphan-call", "name": "read_file" },
+                { "role": "assistant", "content": "previous answer" },
+                { "role": "user", "content": "run heartbeat task" },
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call-read",
+                            "type": "function",
+                            "function": { "name": "read_file", "arguments": "{}" }
+                        }
+                    ]
+                },
+                { "role": "tool", "content": "README", "tool_call_id": "call-read", "name": "read_file" },
+                { "role": "assistant", "content": "done" }
+            ]
+        });
+        let mut rpc = WorkerSessionRpc::new(vec![session], write_policy());
+
+        let result = rpc
+            .trim_session("session-1", 3)
+            .expect("session should trim to a legal suffix");
+
+        assert_eq!(result.session_id, "session-1");
+        assert_eq!(result.messages_before, 8);
+        assert_eq!(result.messages_after, 4);
+        assert_eq!(result.session.extra["last_consolidated"], json!(0));
+        assert_eq!(
+            result.session.extra["messages"],
+            json!([
+                { "role": "user", "content": "run heartbeat task" },
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call-read",
+                            "type": "function",
+                            "function": { "name": "read_file", "arguments": "{}" }
+                        }
+                    ]
+                },
+                { "role": "tool", "content": "README", "tool_call_id": "call-read", "name": "read_file" },
+                { "role": "assistant", "content": "done" }
+            ])
+        );
+    }
+
+    #[test]
+    fn trim_session_zero_clears_session_like_python_retain_suffix() {
+        let mut session = session_fixture();
+        session.extra = json!({
+            "messages": [
+                { "role": "user", "content": "hello" },
+                { "role": "assistant", "content": "done" }
+            ],
+            "last_consolidated": 1,
+            "user_profile": { "name": "Ada" },
+            "runtime_checkpoint": { "phase": "awaiting_tools" },
+            "last_context_metadata": { "historyMessageCount": 2 },
+            "last_persisted_run_id": "run-1"
+        });
+        let mut rpc = WorkerSessionRpc::new(vec![session], write_policy());
+
+        let result = rpc
+            .trim_session("session-1", 0)
+            .expect("zero trim should clear session state");
+
+        assert_eq!(result.messages_before, 2);
+        assert_eq!(result.messages_after, 0);
+        assert_eq!(result.session.extra["messages"], json!([]));
+        assert_eq!(result.session.extra["last_consolidated"], json!(0));
+        assert_eq!(result.session.extra["user_profile"], json!({}));
+        assert!(result.session.extra.get("runtime_checkpoint").is_none());
+        assert!(result.session.extra.get("last_context_metadata").is_none());
+        assert!(result.session.extra.get("last_persisted_run_id").is_none());
     }
 
     #[test]

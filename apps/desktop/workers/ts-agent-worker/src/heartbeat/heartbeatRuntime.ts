@@ -7,6 +7,7 @@ import type { HeartbeatStatus, HeartbeatTickResult } from "./heartbeatTypes.ts";
 import type { HeartbeatTarget } from "./heartbeatTarget.ts";
 
 type HeartbeatTargetSelector = () => HeartbeatTarget | Promise<HeartbeatTarget>;
+type HeartbeatKeepRecentMessages = number | (() => number | Promise<number>);
 
 export type HeartbeatRuntimeOptions = {
   model: string;
@@ -23,7 +24,7 @@ export type HeartbeatRuntimeOptions = {
     tasks: string;
   }) => Promise<void> | void;
   trimHeartbeatSession?: (keepRecentMessages: number) => Promise<void> | void;
-  keepRecentMessages?: number;
+  keepRecentMessages?: HeartbeatKeepRecentMessages;
   enabled?: boolean;
   intervalMs?: number;
   maxIterations?: number;
@@ -36,7 +37,7 @@ export class HeartbeatRuntime {
   private readonly selectTarget: HeartbeatTargetSelector;
   private readonly notifyExternal?: HeartbeatRuntimeOptions["notifyExternal"];
   private readonly trimHeartbeatSession?: HeartbeatRuntimeOptions["trimHeartbeatSession"];
-  private readonly keepRecentMessages: number;
+  private readonly keepRecentMessages: HeartbeatKeepRecentMessages;
   private readonly maxIterations: number;
   private readonly idGenerator: () => string;
   private readonly service: HeartbeatService;
@@ -47,7 +48,7 @@ export class HeartbeatRuntime {
     this.selectTarget = options.selectTarget;
     this.notifyExternal = options.notifyExternal;
     this.trimHeartbeatSession = options.trimHeartbeatSession;
-    this.keepRecentMessages = Math.max(0, options.keepRecentMessages ?? 8);
+    this.keepRecentMessages = options.keepRecentMessages ?? 8;
     this.maxIterations = Math.max(1, options.maxIterations ?? 4);
     this.idGenerator = options.idGenerator ?? randomHeartbeatRunId;
     this.service = new HeartbeatService({
@@ -103,7 +104,7 @@ export class HeartbeatRuntime {
         chatId: target.chatId,
       },
     } satisfies AgentRunSpec);
-    await this.trimHeartbeatSession?.(this.keepRecentMessages);
+    await this.trimHeartbeatSession?.(await this.resolveKeepRecentMessages());
     return finalContent(result);
   }
 
@@ -119,6 +120,13 @@ export class HeartbeatRuntime {
       tasks,
     });
     return true;
+  }
+
+  private async resolveKeepRecentMessages(): Promise<number> {
+    const value = typeof this.keepRecentMessages === "function"
+      ? await this.keepRecentMessages()
+      : this.keepRecentMessages;
+    return Math.max(0, value);
   }
 }
 

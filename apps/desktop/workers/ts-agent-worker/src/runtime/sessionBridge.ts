@@ -13,6 +13,12 @@ import type {
 } from "../webui/webuiRoutes.ts";
 import type { ClearSessionResult, PersistTurnRequest, PersistTurnResult, SessionBridge } from "./agentWorker.ts";
 
+export type TrimSessionResult = {
+  sessionId: string;
+  messagesBefore: number;
+  messagesAfter: number;
+};
+
 export class NativeSessionBridge implements SessionBridge, WebuiSessionProvider {
   private readonly rpcClient: NativeRpcClient;
 
@@ -118,6 +124,14 @@ export class NativeSessionBridge implements SessionBridge, WebuiSessionProvider 
     return normalizeClearSessionResult(result, sessionId);
   }
 
+  async trimSession(sessionId: string, keepRecentMessages: number, traceId: string): Promise<TrimSessionResult> {
+    const result = await this.rpcClient.request(traceId, "session.trim", {
+      session_id: sessionId,
+      keep_recent_messages: keepRecentMessages,
+    });
+    return normalizeTrimSessionResult(result, sessionId);
+  }
+
   async appendMessages(sessionId: string, messages: AgentMessage[], traceId: string): Promise<void> {
     await this.rpcClient.request(traceId, "session.append_messages", {
       session_id: sessionId,
@@ -172,6 +186,15 @@ function normalizeClearSessionResult(result: unknown, fallbackSessionId: string)
     messagesBefore: numberField(payload, "messagesBefore", "messages_before"),
     messagesAfter: numberField(payload, "messagesAfter", "messages_after"),
     checkpointCleared: booleanField(payload, "checkpointCleared", "checkpoint_cleared"),
+  };
+}
+
+function normalizeTrimSessionResult(result: unknown, fallbackSessionId: string): TrimSessionResult {
+  const payload = isJsonObject(result) ? result : {};
+  return {
+    sessionId: stringField(payload, "sessionId", "session_id") ?? fallbackSessionId,
+    messagesBefore: numberField(payload, "messagesBefore", "messages_before"),
+    messagesAfter: numberField(payload, "messagesAfter", "messages_after"),
   };
 }
 
