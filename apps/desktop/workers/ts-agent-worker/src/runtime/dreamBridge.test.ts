@@ -197,6 +197,12 @@ describe("ProviderBackedDreamBridge", () => {
         cursor_start: 3,
         cursor_end: 3,
         evidence_ids: ["ev_1"],
+        memory_context: {
+          current_notes: "- id=note_user_pref status=active scope=user type=preference priority=0.8 confidence=0.9: User prefers compact migration slices.",
+          current_memory: "Project memory view\n",
+          current_soul: "Assistant memory view\n",
+          current_user: "User memory view\n",
+        },
       },
       {
         changed: true,
@@ -236,6 +242,14 @@ describe("ProviderBackedDreamBridge", () => {
     expect(provider.requests[0]?.messages[0]?.content).toContain("Output ONLY a JSON array");
     expect(provider.requests[0]?.messages[1]?.content).toContain("## Conversation Evidence");
     expect(provider.requests[0]?.messages[1]?.content).toContain("[ev_1] cursor=3");
+    expect(provider.requests[0]?.messages[1]?.content).toContain("## Current Memory Notes");
+    expect(provider.requests[0]?.messages[1]?.content).toContain("id=note_user_pref status=active");
+    expect(provider.requests[0]?.messages[1]?.content).toContain("## Current MEMORY.md");
+    expect(provider.requests[0]?.messages[1]?.content).toContain("Project memory view");
+    expect(provider.requests[0]?.messages[1]?.content).toContain("## Current SOUL.md");
+    expect(provider.requests[0]?.messages[1]?.content).toContain("Assistant memory view");
+    expect(provider.requests[0]?.messages[1]?.content).toContain("## Current USER.md");
+    expect(provider.requests[0]?.messages[1]?.content).toContain("User memory view");
     expect(calls).toEqual([
       {
         traceId: "trace-dream",

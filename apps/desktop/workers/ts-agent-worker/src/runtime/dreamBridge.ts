@@ -85,6 +85,14 @@ type DreamBatch = {
   cursorStart: number;
   cursorEnd: number;
   evidenceIds: string[];
+  memoryContext: DreamMemoryContext;
+};
+
+type DreamMemoryContext = {
+  currentNotes: string;
+  currentMemory: string;
+  currentSoul: string;
+  currentUser: string;
 };
 
 type ParsedDreamOperations = {
@@ -206,15 +214,25 @@ const DREAM_SYSTEM_PROMPT = [
 ].join("\n");
 
 function dreamProviderMessages(batch: DreamBatch): AgentMessage[] {
+  const primaryContext = batch.kind === "conversation_evidence"
+    ? `## Conversation Evidence\n${formatDreamRecords(batch.records)}`
+    : `## Conversation History\n${formatDreamRecords(batch.records)}`;
   return [
     { role: "system", content: DREAM_SYSTEM_PROMPT },
     {
       role: "user",
-      content: batch.kind === "conversation_evidence"
-        ? `## Conversation Evidence\n${formatDreamRecords(batch.records)}`
-        : `## Conversation History\n${formatDreamRecords(batch.records)}`,
+      content: `${primaryContext}\n\n${formatDreamMemoryContext(batch.memoryContext)}`,
     },
   ];
+}
+
+function formatDreamMemoryContext(context: DreamMemoryContext): string {
+  return [
+    `## Current Memory Notes\n${context.currentNotes || "(no Memory Notes)"}`,
+    `## Current MEMORY.md\n${context.currentMemory || "(empty)"}`,
+    `## Current SOUL.md\n${context.currentSoul || "(empty)"}`,
+    `## Current USER.md\n${context.currentUser || "(empty)"}`,
+  ].join("\n\n");
 }
 
 function formatDreamRecords(records: unknown[]): string {
@@ -324,6 +342,17 @@ function dreamBatch(value: JsonObject): DreamBatch {
     cursorStart: numberValue(value.cursor_start) ?? 0,
     cursorEnd: numberValue(value.cursor_end) ?? 0,
     evidenceIds: stringListValue(value.evidence_ids),
+    memoryContext: dreamMemoryContext(value.memory_context),
+  };
+}
+
+function dreamMemoryContext(value: unknown): DreamMemoryContext {
+  const object = isJsonObject(value) ? value : {};
+  return {
+    currentNotes: stringValue(object.current_notes) ?? "(no Memory Notes)",
+    currentMemory: stringValueAllowEmpty(object.current_memory) ?? "(empty)",
+    currentSoul: stringValueAllowEmpty(object.current_soul) ?? "(empty)",
+    currentUser: stringValueAllowEmpty(object.current_user) ?? "(empty)",
   };
 }
 
@@ -343,6 +372,10 @@ function cursorMetadata(kind: DreamBatchKind, value: JsonObject): JsonObject {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function stringValueAllowEmpty(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
 }
 
 function numberValue(value: unknown): number | undefined {

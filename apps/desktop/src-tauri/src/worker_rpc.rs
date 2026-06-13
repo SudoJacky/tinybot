@@ -1203,6 +1203,7 @@ impl WorkerMemoryRpc {
                 "conversation_evidence",
                 pending_evidence,
                 Some(evidence_cursor),
+                self.dream_memory_context()?,
             ));
         }
 
@@ -1212,6 +1213,7 @@ impl WorkerMemoryRpc {
                 "legacy_history",
                 pending_legacy_history,
                 Some(self.last_dream_cursor()),
+                self.dream_memory_context()?,
             ));
         }
 
@@ -1221,7 +1223,8 @@ impl WorkerMemoryRpc {
             "pending_evidence": 0,
             "pending_legacy_history": 0,
             "last_evidence_cursor": evidence_cursor,
-            "last_dream_cursor": self.last_dream_cursor()
+            "last_dream_cursor": self.last_dream_cursor(),
+            "memory_context": self.dream_memory_context()?
         }))
     }
 
@@ -2011,6 +2014,30 @@ impl WorkerMemoryRpc {
 
     fn notes_path(&self) -> PathBuf {
         self.workspace_root.join("memory").join("notes.jsonl")
+    }
+
+    fn dream_memory_context(&self) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
+        let notes = self.read_notes()?;
+        Ok(serde_json::json!({
+            "current_notes": format_dream_current_notes(&notes),
+            "current_memory": self.read_memory_text("memory/MEMORY.md", "(empty)")?,
+            "current_soul": self.read_memory_text("SOUL.md", "(empty)")?,
+            "current_user": self.read_memory_text("USER.md", "(empty)")?,
+        }))
+    }
+
+    fn read_memory_text(
+        &self,
+        relative_path: &str,
+        default_value: &str,
+    ) -> Result<String, crate::worker_protocol::WorkerProtocolError> {
+        match fs::read_to_string(self.workspace_root.join(relative_path)) {
+            Ok(contents) => Ok(contents),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                Ok(default_value.to_string())
+            }
+            Err(error) => Err(memory_io_error(error)),
+        }
     }
 
     fn dream_git_initialized(&self) -> bool {
@@ -3014,6 +3041,7 @@ fn memory_dream_pending_batch(
     kind: &str,
     records: Vec<Value>,
     last_cursor: Option<usize>,
+    memory_context: Value,
 ) -> Value {
     let cursors: Vec<usize> = records
         .iter()
@@ -3044,8 +3072,73 @@ fn memory_dream_pending_batch(
         "cursor_start": cursor_start,
         "cursor_end": cursor_end,
         "last_cursor": last_cursor.unwrap_or(0),
-        "evidence_ids": evidence_ids
+        "evidence_ids": evidence_ids,
+        "memory_context": memory_context
     })
+}
+
+fn format_dream_current_notes(notes: &[Value]) -> String {
+    let mut active_notes = notes
+        .iter()
+        .filter(|note| {
+            note.get("status")
+                .and_then(Value::as_str)
+                .unwrap_or("active")
+                == "active"
+        })
+        .collect::<Vec<_>>();
+    active_notes.sort_by(|left, right| {
+        let left_key = (
+            left.get("status")
+                .and_then(Value::as_str)
+                .unwrap_or("active"),
+            left.get("type")
+                .and_then(Value::as_str)
+                .unwrap_or("project"),
+            left.get("content").and_then(Value::as_str).unwrap_or(""),
+        );
+        let right_key = (
+            right
+                .get("status")
+                .and_then(Value::as_str)
+                .unwrap_or("active"),
+            right
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or("project"),
+            right.get("content").and_then(Value::as_str).unwrap_or(""),
+        );
+        left_key.cmp(&right_key)
+    });
+    if active_notes.is_empty() {
+        return "(no Memory Notes)".to_string();
+    }
+    active_notes
+        .into_iter()
+        .map(|note| {
+            format!(
+                "- id={} status={} scope={} type={} priority={} confidence={}: {}",
+                note.get("id").and_then(Value::as_str).unwrap_or("unknown"),
+                note.get("status")
+                    .and_then(Value::as_str)
+                    .unwrap_or("active"),
+                note.get("scope")
+                    .and_then(Value::as_str)
+                    .unwrap_or("project"),
+                note.get("type")
+                    .and_then(Value::as_str)
+                    .unwrap_or("project"),
+                format_memory_number(note.get("priority").and_then(Value::as_f64).unwrap_or(0.5)),
+                format_memory_number(
+                    note.get("confidence")
+                        .and_then(Value::as_f64)
+                        .unwrap_or(0.5)
+                ),
+                note.get("content").and_then(Value::as_str).unwrap_or("")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn dream_note_content(record: &Value) -> Option<String> {
@@ -5604,6 +5697,27 @@ mod tests {
     fn dispatches_memory_dream_pending_returns_deferred_conversation_evidence_batch() {
         let fixture = WorkspaceFixture::new();
         fixture.write(
+            "memory/notes.jsonl",
+            &format!(
+                "{}\n",
+                json!({
+                    "id": "note_user_pref",
+                    "scope": "user",
+                    "type": "preference",
+                    "status": "active",
+                    "content": "User prefers compact migration slices.",
+                    "priority": 0.8,
+                    "confidence": 0.9,
+                    "sources": [{ "capture_origin": "explicit" }],
+                    "created_at": "2026-06-13T00:00:00Z",
+                    "updated_at": "2026-06-13T00:00:00Z"
+                })
+            ),
+        );
+        fixture.write("memory/MEMORY.md", "Project memory view\n");
+        fixture.write("SOUL.md", "Assistant memory view\n");
+        fixture.write("USER.md", "User memory view\n");
+        fixture.write(
             "memory/conversations/2026-06-12.jsonl",
             &format!(
                 "{}\n",
@@ -5647,6 +5761,22 @@ mod tests {
         assert_eq!(
             result["records"][0]["content"],
             json!("We discussed the desktop runtime behavior.")
+        );
+        assert!(result["memory_context"]["current_notes"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("id=note_user_pref status=active scope=user type=preference"));
+        assert_eq!(
+            result["memory_context"]["current_memory"],
+            json!("Project memory view\n")
+        );
+        assert_eq!(
+            result["memory_context"]["current_soul"],
+            json!("Assistant memory view\n")
+        );
+        assert_eq!(
+            result["memory_context"]["current_user"],
+            json!("User memory view\n")
         );
     }
 
