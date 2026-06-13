@@ -1089,6 +1089,13 @@ export type CoworkReadyAgentSelection = {
 };
 
 export function selectReadyCoworkAgentCandidates(session: CoworkSession, limit: number): CoworkReadyAgentSelection {
+  if (session.status !== "active") {
+    return {
+      agents: [],
+      candidateScores: {},
+      reasonProfile: "inactive session",
+    };
+  }
   if (session.workflow_mode === "swarm") {
     const swarmSelection = selectSwarmReadyAgents(session, limit);
     if (swarmSelection.agents.length > 0) {

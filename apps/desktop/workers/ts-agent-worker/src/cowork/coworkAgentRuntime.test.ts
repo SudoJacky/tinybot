@@ -166,6 +166,21 @@ describe("CoworkAgentRuntime", () => {
     expect(selection.candidateScores).toEqual({});
   });
 
+  it("does not select agents when the session is not active", async () => {
+    const provider = new QueueProvider([]);
+    const seeded = await seedRuntime(provider);
+    const session = await seeded.store.readSnapshot("cw_1", "test");
+    if (!session) {
+      throw new Error("missing seeded session");
+    }
+    session.status = "paused";
+
+    const selection = selectReadyCoworkAgentCandidates(session, 1);
+
+    expect(selection.agents).toEqual([]);
+    expect(selection.candidateScores).toEqual({});
+  });
+
   it("runs one agent round and applies completed task progress", async () => {
     const provider = new QueueProvider([{
       content: JSON.stringify({
