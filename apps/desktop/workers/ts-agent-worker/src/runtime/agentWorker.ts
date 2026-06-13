@@ -4387,8 +4387,8 @@ function parseCoworkDeliverEnvelopeParams(params: Record<string, unknown> | unde
   if (!sessionId || !isJsonObject(rawEnvelope)) {
     throw new Error("cowork.deliver_envelope requires params.session_id and params.envelope");
   }
-  const senderId = stringParam(rawEnvelope, "senderId", "sender_id");
-  const content = stringParam(rawEnvelope, "content", "content");
+  const senderId = pythonRouteTextParam(rawEnvelope, "senderId", "sender_id");
+  const content = pythonRouteTextParam(rawEnvelope, "content", "content");
   if (!senderId || !content) {
     throw new Error("cowork.deliver_envelope requires params.envelope.sender_id and params.envelope.content");
   }
@@ -4396,29 +4396,29 @@ function parseCoworkDeliverEnvelopeParams(params: Record<string, unknown> | unde
     sender_id: senderId,
     content,
     recipient_ids: stringListParam(rawEnvelope, "recipientIds", "recipient_ids"),
-    visibility: stringParam(rawEnvelope, "visibility", "visibility"),
-    kind: stringParam(rawEnvelope, "kind", "kind"),
-    topic: stringParam(rawEnvelope, "topic", "topic"),
-    event_type: stringParam(rawEnvelope, "eventType", "event_type"),
-    request_type: stringParam(rawEnvelope, "requestType", "request_type"),
-    thread_id: stringParam(rawEnvelope, "threadId", "thread_id"),
+    visibility: pythonRouteTextParam(rawEnvelope, "visibility", "visibility"),
+    kind: pythonRouteTextParam(rawEnvelope, "kind", "kind"),
+    topic: pythonRouteTextParam(rawEnvelope, "topic", "topic"),
+    event_type: pythonRouteTextParam(rawEnvelope, "eventType", "event_type"),
+    request_type: pythonRouteTextParam(rawEnvelope, "requestType", "request_type"),
+    thread_id: pythonRouteTextParam(rawEnvelope, "threadId", "thread_id"),
     requires_reply: booleanParam(rawEnvelope, "requiresReply", "requires_reply"),
     priority: numberParam(rawEnvelope, "priority", "priority"),
     deadline_round: numberParam(rawEnvelope, "deadlineRound", "deadline_round"),
-    correlation_id: stringParam(rawEnvelope, "correlationId", "correlation_id"),
-    lineage_id: stringParam(rawEnvelope, "lineageId", "lineage_id"),
-    reply_to_envelope_id: stringParam(rawEnvelope, "replyToEnvelopeId", "reply_to_envelope_id"),
-    caused_by_envelope_id: stringParam(rawEnvelope, "causedByEnvelopeId", "caused_by_envelope_id"),
+    correlation_id: pythonRouteTextParam(rawEnvelope, "correlationId", "correlation_id"),
+    lineage_id: pythonRouteTextParam(rawEnvelope, "lineageId", "lineage_id"),
+    reply_to_envelope_id: pythonRouteTextParam(rawEnvelope, "replyToEnvelopeId", "reply_to_envelope_id"),
+    caused_by_envelope_id: pythonRouteTextParam(rawEnvelope, "causedByEnvelopeId", "caused_by_envelope_id"),
     expected_output_schema: isJsonObject(rawEnvelope.expectedOutputSchema)
       ? rawEnvelope.expectedOutputSchema
       : isJsonObject(rawEnvelope.expected_output_schema)
         ? rawEnvelope.expected_output_schema
         : undefined,
-    blocking_task_id: stringParam(rawEnvelope, "blockingTaskId", "blocking_task_id"),
+    blocking_task_id: pythonRouteTextParam(rawEnvelope, "blockingTaskId", "blocking_task_id"),
     escalate_after_rounds: numberParam(rawEnvelope, "escalateAfterRounds", "escalate_after_rounds"),
     wake_recipients: booleanParam(rawEnvelope, "wakeRecipients", "wake_recipients"),
-    tool_call_id: stringParam(rawEnvelope, "toolCallId", "tool_call_id"),
-    draft_id: stringParam(rawEnvelope, "draftId", "draft_id"),
+    tool_call_id: pythonRouteTextParam(rawEnvelope, "toolCallId", "tool_call_id"),
+    draft_id: pythonRouteTextParam(rawEnvelope, "draftId", "draft_id"),
   };
   return { sessionId, envelope };
 }

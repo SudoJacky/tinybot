@@ -5478,15 +5478,36 @@ describe("AgentWorker", () => {
     await expect(worker.handleRequest(coworkRequest("cowork.deliver_envelope", {
       session_id: session.id,
       envelope: {
-        sender_id: "coordinator",
+        sender_id: 404,
         recipient_ids: ["researcher"],
-        content: "Please verify.",
+        content: 505,
+        topic: 606,
+        event_type: 707,
+        request_type: 808,
+        thread_id: 909,
+        blocking_task_id: 1001,
         requires_reply: true,
       },
     }))).resolves.toMatchObject({
       result: {
-        message: expect.objectContaining({ id: "msg_2", recipient_ids: ["researcher"] }),
-        record: expect.objectContaining({ id: "env_1", status: "delivered" }),
+        message: expect.objectContaining({
+          id: "msg_2",
+          sender_id: "404",
+          recipient_ids: ["researcher"],
+          content: "505",
+          thread_id: "909",
+        }),
+        record: expect.objectContaining({
+          id: "env_1",
+          status: "delivered",
+          sender_id: "404",
+          content: "505",
+          topic: "606",
+          event_type: "707",
+          request_type: "808",
+          thread_id: "909",
+          blocking_task_id: "1001",
+        }),
         session: expect.objectContaining({
           agents: expect.objectContaining({
             researcher: expect.objectContaining({ inbox: ["msg_2"] }),
@@ -5514,7 +5535,7 @@ describe("AgentWorker", () => {
       agent_id: "researcher",
     }))).resolves.toMatchObject({
       result: {
-        messages: [expect.objectContaining({ id: "msg_2", read_by: ["coordinator", "researcher"] })],
+        messages: [expect.objectContaining({ id: "msg_2", read_by: ["404", "researcher"] })],
         session: expect.objectContaining({
           mailbox: expect.objectContaining({
             env_1: expect.objectContaining({ status: "read", read_by: ["researcher"] }),
