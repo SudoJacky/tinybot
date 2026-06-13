@@ -475,7 +475,7 @@ function buildCoworkGraph(session: CoworkSession): JsonObject {
 
   return {
     schema_version: "cowork.graph.v2",
-    generated_at: "",
+    generated_at: generatedAt(),
     nodes,
     edges,
     stats: {
@@ -717,7 +717,7 @@ function buildSwarmSchedulerQueues(session: CoworkSession): JsonObject {
     schema_version: "cowork.swarm_queues.v1",
     plan_id: stringValue(plan.id),
     plan_status: stringValue(plan.status),
-    generated_at: "",
+    generated_at: generatedAt(),
     parallel_width: parallelWidth,
     available_slots: Math.max(0, parallelWidth - queues.running.length),
     queues,
@@ -777,7 +777,7 @@ function buildSwarmParallelMetrics(session: CoworkSession): JsonObject {
       reducer_units: reducerUnits.length,
       reviewer_units: reviewerUnits.length,
     },
-    generated_at: "",
+    generated_at: generatedAt(),
   };
 }
 
@@ -964,7 +964,7 @@ function buildCoworkLargeSwarmSummary(session: CoworkSession): JsonObject {
         sample_unit_ids: group.sampleUnitIds.filter(Boolean),
       })),
     render_limit: 60,
-    generated_at: "",
+    generated_at: generatedAt(),
   };
 }
 
@@ -975,7 +975,7 @@ function buildCoworkSwarmOrganization(session: CoworkSession): JsonObject {
   const workstreams = swarmWorkstreamGroups(mainUnits);
   return {
     schema_version: "cowork.swarm_organization.v1",
-    generated_at: "",
+    generated_at: generatedAt(),
     plan_id: stringValue(plan.id),
     plan_status: stringValue(plan.status),
     enabled: units.length > 0 && (units.length >= 20 || workstreams.length > 1),
@@ -1243,6 +1243,10 @@ function hash(value: string): string {
 function compact(value: unknown, limit: number): string {
   const text = stringValue(value).split(/\s+/).filter(Boolean).join(" ");
   return text.length <= limit ? text : `${text.slice(0, Math.max(0, limit - 3)).trimEnd()}...`;
+}
+
+function generatedAt(): string {
+  return new Date().toISOString();
 }
 
 function jsonSafe(value: unknown): unknown {

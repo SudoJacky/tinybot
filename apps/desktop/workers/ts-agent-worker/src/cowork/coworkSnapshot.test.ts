@@ -4,6 +4,8 @@ import { buildDesktopCoworkCockpitView, buildDesktopCoworkSessionRows } from "..
 import { normalizeCoworkSession } from "./coworkSerde";
 import { coworkSessionSnapshot } from "./coworkSnapshot";
 
+const isoTimestamp = expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+
 const rawSession = {
   id: "cw-snap-1",
   title: "Launch plan",
@@ -225,6 +227,7 @@ describe("cowork session snapshot", () => {
 
     expect(snapshot.swarm_organization).toMatchObject({
       schema_version: "cowork.swarm_organization.v1",
+      generated_at: isoTimestamp,
       plan_id: "swarm_1",
       enabled: true,
       total_work_units: 120,
@@ -242,6 +245,7 @@ describe("cowork session snapshot", () => {
     });
     expect(snapshot.large_swarm_summary).toMatchObject({
       schema_version: "cowork.large_swarm.v1",
+      generated_at: isoTimestamp,
       enabled: true,
       total_work_units: 120,
       render_limit: 60,
@@ -324,6 +328,7 @@ describe("cowork session snapshot", () => {
     expect(snapshot.swarm_queues).toMatchObject({
       schema_version: "cowork.swarm_queues.v1",
       plan_id: "swarm_queues",
+      generated_at: isoTimestamp,
       parallel_width: 2,
       counts: {
         ready: 1,
@@ -342,6 +347,7 @@ describe("cowork session snapshot", () => {
     expect(snapshot.swarm_metrics).toMatchObject({
       schema_version: "cowork.swarm_metrics.v1",
       plan_id: "swarm_queues",
+      generated_at: isoTimestamp,
       counts: {
         work_units: 4,
         completed: 1,
@@ -350,6 +356,10 @@ describe("cowork session snapshot", () => {
         reducer_units: 0,
         reviewer_units: 0,
       },
+    });
+    expect(snapshot.swarm_queues.metrics).toMatchObject({
+      schema_version: "cowork.swarm_metrics.v1",
+      generated_at: isoTimestamp,
     });
   });
 

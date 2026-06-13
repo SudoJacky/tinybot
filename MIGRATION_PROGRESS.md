@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued Cowork Phase 10 snapshot route parity: TS Cowork graph, swarm queue, swarm metrics, large-swarm summary, and swarm-organization projections now populate Python-compatible `generated_at` timestamps instead of empty strings.
+
 - Continued Cowork Phase 10 snapshot route parity: TS swarm critical-path metrics now mirror Python's cycle handling by treating recursive dependency visits as depth `1`, preserving Python-compatible `critical_path_depth` for malformed/cyclic swarm plans.
 
 - Continued Cowork Phase 10 snapshot route parity: TS swarm reducer-coverage metrics now mirror Python by reading `source_work_unit_ids` from any reducer task with a `swarm_reducer:` source event, regardless of whether the reducer task has already completed.
@@ -819,6 +821,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: align TS swarm parallel metrics with Python trace-derived fanout width and empty reducer-coverage semantics.
 - [x] Continue Cowork Phase 10: align TS swarm reducer-coverage metrics with Python source-event citation semantics.
 - [x] Continue Cowork Phase 10: align TS swarm critical-path metrics with Python cyclic dependency semantics.
+- [x] Continue Cowork Phase 10: populate Python-compatible `generated_at` timestamps on TS Cowork graph/swarm snapshot projections.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.
