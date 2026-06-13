@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Cowork Phase 10 direct RPC parity: direct TS mailbox read RPCs now mirror Python route text coercion for `agent_id`, letting truthy numeric agent ids reach mailbox service handling instead of failing at the worker protocol boundary.
+
 - Continued Cowork Phase 10 direct RPC parity: direct TS work-unit action RPCs now mirror Python route text coercion for target `work_unit_id`, letting truthy numeric work-unit ids reach service-level validation instead of failing at the worker protocol boundary.
 
 - Continued Cowork Phase 10 direct RPC parity: direct TS `cowork.send_message` RPCs now mirror Python route text coercion for `sender_id`, preserving truthy numeric sender ids in message records instead of silently falling back to `user`.
@@ -1032,6 +1034,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS `cowork.emergency_stop_session` reasons.
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS work-unit action reasons.
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS work-unit action ids.
+- [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS mailbox read agent ids.
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS `cowork.assign_task` assignee ids.
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS `cowork.request_task_review` reviewer ids.
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for Cowork create-session goals and titles.

@@ -5497,6 +5497,20 @@ describe("AgentWorker", () => {
 
     await expect(worker.handleRequest(coworkRequest("cowork.mark_messages_read", {
       session_id: session.id,
+      agent_id: 404,
+    }))).resolves.toMatchObject({
+      result: {
+        messages: [],
+        session: expect.objectContaining({
+          agents: expect.objectContaining({
+            researcher: expect.objectContaining({ inbox: ["msg_2"] }),
+          }),
+        }),
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.mark_messages_read", {
+      session_id: session.id,
       agent_id: "researcher",
     }))).resolves.toMatchObject({
       result: {

@@ -4431,7 +4431,7 @@ function parseCoworkMailboxAgentParams(params: Record<string, unknown> | undefin
     throw new Error(`${method} requires object params`);
   }
   const sessionId = stringParam(params, "sessionId", "session_id");
-  const agentId = stringParam(params, "agentId", "agent_id");
+  const agentId = pythonRouteTextParam(params, "agentId", "agent_id");
   if (!sessionId || !agentId) {
     throw new Error(`${method} requires params.session_id and params.agent_id`);
   }
