@@ -38,7 +38,8 @@ import {
 import type { ApprovalRequestPayload } from "../security/approvalTypes.ts";
 import {
   buildEvaluatorMessages,
-  EVALUATE_NOTIFICATION_TOOL,
+  DEFAULT_EVALUATOR_TEMPLATES,
+  EVALUATE_NOTIFICATION_TOOL_DEFINITION,
   parseEvaluatorDecision,
 } from "../support/evaluator.ts";
 import type { ToolRegistry } from "../tools/toolRegistry.ts";
@@ -213,30 +214,6 @@ export type ApprovalResolutionRequest = {
   approvalId: string;
   approved: boolean;
   scope?: string;
-};
-
-const EVALUATOR_TEMPLATES = {
-  "agent/evaluator.md": [
-    "{% if part == 'system' %}",
-    "You are a notification gate for a background agent. You will be given the original task and the agent's response. Call the evaluate_notification tool to decide whether the user should be notified.",
-    "",
-    "Notify when the response contains actionable information, errors, completed deliverables, or anything the user explicitly asked to be reminded about.",
-    "",
-    "Suppress when the response is a routine status check with nothing new, a confirmation that everything is normal, or essentially empty.",
-    "{% elif part == 'user' %}",
-    "## Original task",
-    "{{ task_context }}",
-    "",
-    "## Agent response",
-    "{{ response }}",
-    "{% endif %}",
-  ].join("\n"),
-};
-
-const EVALUATE_NOTIFICATION_TOOL_DEFINITION: ToolDefinition = {
-  name: EVALUATE_NOTIFICATION_TOOL.function.name,
-  description: EVALUATE_NOTIFICATION_TOOL.function.description,
-  parameters: EVALUATE_NOTIFICATION_TOOL.function.parameters,
 };
 
 type FormSubmissionRequest = {
@@ -2804,7 +2781,7 @@ export class AgentWorker {
   ): Promise<{ shouldNotify: boolean; reason: string }> {
     try {
       const response = await this.provider.complete(buildEvaluatorMessages({
-        templates: EVALUATOR_TEMPLATES,
+        templates: DEFAULT_EVALUATOR_TEMPLATES,
         taskContext: job.payload.message,
         response: finalContent,
       }), {

@@ -1,6 +1,7 @@
 import type { AgentRunResult, AgentRunSpec } from "../agent/agentRunSpec.ts";
 import type { AgentRunner } from "../agent/agentRunner.ts";
 import type { ModelProvider } from "../model/provider.ts";
+import { evaluateNotificationDecision } from "../support/evaluator.ts";
 import { decideHeartbeat } from "./heartbeatDecision.ts";
 import { HeartbeatService } from "./heartbeatService.ts";
 import type { HeartbeatStatus, HeartbeatTickResult } from "./heartbeatTypes.ts";
@@ -41,6 +42,7 @@ export type HeartbeatRuntimeOptions = {
 
 export class HeartbeatRuntime {
   private readonly model: string;
+  private readonly provider: ModelProvider;
   private readonly runner: Pick<AgentRunner, "run">;
   private readonly selectTarget: HeartbeatTargetSelector;
   private readonly notifyExternal?: HeartbeatRuntimeOptions["notifyExternal"];
@@ -53,6 +55,7 @@ export class HeartbeatRuntime {
 
   constructor(options: HeartbeatRuntimeOptions) {
     this.model = options.model;
+    this.provider = options.provider;
     this.runner = options.runner;
     this.selectTarget = options.selectTarget;
     this.notifyExternal = options.notifyExternal;
@@ -70,7 +73,7 @@ export class HeartbeatRuntime {
         currentTime: await options.currentTime(),
       }),
       executeTasks: ({ tasks }) => this.executeTasks(tasks),
-      evaluateResponse: options.evaluateResponse,
+      evaluateResponse: options.evaluateResponse ?? (({ response, taskContext }) => this.evaluateResponse(response, taskContext)),
       notify: ({ response, tasks }) => this.notify(response, tasks),
       enabled: options.enabled,
       intervalMs: options.intervalMs,
@@ -138,6 +141,15 @@ export class HeartbeatRuntime {
       tasks,
     });
     return true;
+  }
+
+  private async evaluateResponse(response: string, taskContext: string): Promise<boolean> {
+    return (await evaluateNotificationDecision({
+      provider: this.provider,
+      model: this.model,
+      taskContext,
+      response,
+    })).shouldNotify;
   }
 
   private async resolveKeepRecentMessages(): Promise<number> {

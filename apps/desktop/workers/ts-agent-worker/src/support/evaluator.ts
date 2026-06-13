@@ -1,5 +1,24 @@
 import type { TemplateRegistry } from "./templates.ts";
 import { renderTemplate } from "./templates.ts";
+import type { ModelProvider, ToolDefinition } from "../model/provider.ts";
+
+export const DEFAULT_EVALUATOR_TEMPLATES = {
+  "agent/evaluator.md": [
+    "{% if part == 'system' %}",
+    "You are a notification gate for a background agent. You will be given the original task and the agent's response. Call the evaluate_notification tool to decide whether the user should be notified.",
+    "",
+    "Notify when the response contains actionable information, errors, completed deliverables, or anything the user explicitly asked to be reminded about.",
+    "",
+    "Suppress when the response is a routine status check with nothing new, a confirmation that everything is normal, or essentially empty.",
+    "{% elif part == 'user' %}",
+    "## Original task",
+    "{{ task_context }}",
+    "",
+    "## Agent response",
+    "{{ response }}",
+    "{% endif %}",
+  ].join("\n"),
+};
 
 export const EVALUATE_NOTIFICATION_TOOL = {
   type: "function",
@@ -23,6 +42,12 @@ export const EVALUATE_NOTIFICATION_TOOL = {
     },
   },
 } as const;
+
+export const EVALUATE_NOTIFICATION_TOOL_DEFINITION: ToolDefinition = {
+  name: EVALUATE_NOTIFICATION_TOOL.function.name,
+  description: EVALUATE_NOTIFICATION_TOOL.function.description,
+  parameters: EVALUATE_NOTIFICATION_TOOL.function.parameters,
+};
 
 export type EvaluatorMessage = {
   role: "system" | "user";
@@ -80,6 +105,31 @@ export function parseEvaluatorDecision(input: {
     shouldNotify: booleanValue(args.should_notify, true),
     reason: typeof args.reason === "string" ? args.reason : "",
   };
+}
+
+export async function evaluateNotificationDecision(input: {
+  provider: ModelProvider;
+  model: string;
+  taskContext: string;
+  response: string;
+  templates?: TemplateRegistry;
+}): Promise<{ shouldNotify: boolean; reason: string }> {
+  try {
+    const response = await input.provider.complete(buildEvaluatorMessages({
+      templates: input.templates ?? DEFAULT_EVALUATOR_TEMPLATES,
+      taskContext: input.taskContext,
+      response: input.response,
+    }), {
+      model: input.model,
+      tools: [EVALUATE_NOTIFICATION_TOOL_DEFINITION],
+      toolChoice: { type: "function", function: { name: "evaluate_notification" } },
+      maxTokens: 256,
+      temperature: 0,
+    });
+    return parseEvaluatorDecision({ toolCalls: response.toolCalls });
+  } catch {
+    return { shouldNotify: true, reason: "evaluator_failed" };
+  }
 }
 
 function toolArguments(toolCall: EvaluatorToolCall): Record<string, unknown> | undefined {

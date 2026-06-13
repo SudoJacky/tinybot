@@ -93,6 +93,46 @@ describe("HeartbeatRuntime", () => {
     });
   });
 
+  test("uses the Python-compatible evaluator by default before notifying", async () => {
+    const notifyExternal = vi.fn();
+    const provider = new QueueProvider([
+      heartbeatDecision("Report routine heartbeat status."),
+      {
+        content: "",
+        stopReason: "tool_calls",
+        toolCalls: [{
+          id: "evaluate-call",
+          name: "evaluate_notification",
+          argumentsJson: JSON.stringify({ should_notify: false, reason: "routine" }),
+        }],
+      },
+    ]);
+    const runtime = new HeartbeatRuntime({
+      model: "gpt-heartbeat",
+      provider,
+      currentTime: () => "now",
+      readHeartbeatFile: async () => "- [ ] Report routine heartbeat status.",
+      selectTarget: () => ({ channel: "feishu", chatId: "notify-chat", external: true }),
+      runner: { run: async () => agentResult("Routine heartbeat status.") },
+      notifyExternal,
+      idGenerator: () => "heartbeat-run-4",
+    });
+
+    await expect(runtime.tick()).resolves.toEqual({
+      status: "silenced",
+      tasks: "Report routine heartbeat status.",
+      response: "Routine heartbeat status.",
+    });
+    expect(provider.options[1]).toMatchObject({
+      model: "gpt-heartbeat",
+      tools: [expect.objectContaining({ name: "evaluate_notification" })],
+      toolChoice: { type: "function", function: { name: "evaluate_notification" } },
+      maxTokens: 256,
+      temperature: 0,
+    });
+    expect(notifyExternal).not.toHaveBeenCalled();
+  });
+
   test("does not notify when the current target falls back to cli direct", async () => {
     const notifyExternal = vi.fn();
     const runtime = new HeartbeatRuntime({
