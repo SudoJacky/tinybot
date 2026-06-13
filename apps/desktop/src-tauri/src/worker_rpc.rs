@@ -1251,12 +1251,72 @@ impl WorkerMemoryRpc {
         let timestamp = memory_timestamp();
         let mut applied_notes = 0usize;
         for note_params in params.notes {
+            let action = note_params
+                .action
+                .as_deref()
+                .map(str::trim)
+                .map(str::to_ascii_lowercase)
+                .unwrap_or_else(|| "save".to_string());
+            if action == "skip" {
+                continue;
+            }
+            let mut source = serde_json::json!({
+                "capture_origin": "dream",
+                "history_start_cursor": cursor_start,
+                "history_end_cursor": cursor_end
+            });
+            if kind == "conversation_evidence" {
+                let evidence_ids: Vec<String> = note_params
+                    .evidence_ids
+                    .as_deref()
+                    .or(params.evidence_ids.as_deref())
+                    .unwrap_or(&[])
+                    .iter()
+                    .map(|id| id.trim().to_string())
+                    .filter(|id| !id.is_empty())
+                    .collect();
+                if !evidence_ids.is_empty() {
+                    source["evidence_ids"] = serde_json::json!(evidence_ids);
+                }
+            }
+            if let Some(session_id) = params
+                .session_id
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+            {
+                source["session_key"] = Value::String(session_id.to_string());
+            }
+
+            if action == "reject" {
+                let note_id =
+                    required_memory_note_id(note_params.target_note_id.as_deref().unwrap_or(""))?;
+                let note = find_note_mut(&mut notes, note_id)?;
+                note["status"] = Value::String("rejected".to_string());
+                note["updated_at"] = Value::String(timestamp.clone());
+                ensure_json_object_field(note, "metadata");
+                note["metadata"]["extractor"] = Value::String("ts_provider_dream".to_string());
+                if let Some(reason) = note_params
+                    .metadata
+                    .as_ref()
+                    .and_then(|value| value.get("reason"))
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.trim().is_empty())
+                {
+                    note["metadata"]["rejected_reason"] = Value::String(reason.to_string());
+                }
+                applied_notes += 1;
+                continue;
+            }
+
             let content = note_params.content.trim();
             if content.is_empty() {
                 continue;
             }
-            let note_type =
-                validate_memory_value("note_type", &note_params.note_type, MEMORY_NOTE_TYPES)?;
+            let note_type = validate_memory_value(
+                "note_type",
+                note_params.note_type.as_deref().unwrap_or("project"),
+                MEMORY_NOTE_TYPES,
+            )?;
             let scope = note_params
                 .scope
                 .as_deref()
@@ -1287,31 +1347,6 @@ impl WorkerMemoryRpc {
                 .map(|tag| tag.trim().to_string())
                 .filter(|tag| !tag.is_empty())
                 .collect();
-            let mut source = serde_json::json!({
-                "capture_origin": "dream",
-                "history_start_cursor": cursor_start,
-                "history_end_cursor": cursor_end
-            });
-            if kind == "conversation_evidence" {
-                let evidence_ids: Vec<String> = params
-                    .evidence_ids
-                    .as_deref()
-                    .unwrap_or(&[])
-                    .iter()
-                    .map(|id| id.trim().to_string())
-                    .filter(|id| !id.is_empty())
-                    .collect();
-                if !evidence_ids.is_empty() {
-                    source["evidence_ids"] = serde_json::json!(evidence_ids);
-                }
-            }
-            if let Some(session_id) = params
-                .session_id
-                .as_deref()
-                .filter(|value| !value.trim().is_empty())
-            {
-                source["session_key"] = Value::String(session_id.to_string());
-            }
             let note_id = generate_memory_note_id(note_type, scope, content, &source);
             let mut note = serde_json::json!({
                 "id": note_id,
@@ -1328,6 +1363,28 @@ impl WorkerMemoryRpc {
             });
             if !tags.is_empty() {
                 note["tags"] = serde_json::json!(tags);
+            }
+            if action == "supersede" {
+                let target_note_id =
+                    required_memory_note_id(note_params.target_note_id.as_deref().unwrap_or(""))?;
+                let replacement_id = note_id.clone();
+                let old_note_exists = notes.iter().any(|existing| {
+                    existing.get("id").and_then(Value::as_str) == Some(target_note_id)
+                });
+                if !old_note_exists {
+                    return Err(invalid_memory_request(format!(
+                        "Memory Note not found: {target_note_id}"
+                    )));
+                }
+                note["supersedes"] = serde_json::json!([target_note_id]);
+                notes.retain(|existing| existing.get("id") != note.get("id"));
+                notes.push(note);
+                let old_note = find_note_mut(&mut notes, target_note_id)?;
+                old_note["status"] = Value::String("superseded".to_string());
+                old_note["superseded_by"] = Value::String(replacement_id);
+                old_note["updated_at"] = Value::String(memory_timestamp());
+                applied_notes += 1;
+                continue;
             }
             notes.retain(|existing| existing.get("id") != note.get("id"));
             notes.push(note);
@@ -2750,8 +2807,14 @@ struct MemoryDreamApplyParams {
 
 #[derive(Deserialize)]
 struct MemoryDreamApplyNoteParams {
+    #[serde(default)]
+    action: Option<String>,
+    #[serde(default)]
+    target_note_id: Option<String>,
+    #[serde(default)]
     content: String,
-    note_type: String,
+    #[serde(default)]
+    note_type: Option<String>,
     #[serde(default)]
     scope: Option<String>,
     #[serde(default)]
@@ -2762,6 +2825,8 @@ struct MemoryDreamApplyNoteParams {
     tags: Option<Vec<String>>,
     #[serde(default)]
     metadata: Option<Value>,
+    #[serde(default)]
+    evidence_ids: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -5633,6 +5698,93 @@ mod tests {
         assert!(
             notes.contains("User wants desktop runtime migration slices to stay reasonably sized.")
         );
+    }
+
+    #[test]
+    fn dispatches_memory_dream_apply_rejects_and_supersedes_provider_operations() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write(
+            "memory/notes.jsonl",
+            &format!(
+                "{}\n{}\n",
+                json!({
+                    "id": "note_reject",
+                    "scope": "project",
+                    "type": "project",
+                    "status": "active",
+                    "content": "Temporary runtime discussion should be durable.",
+                    "priority": 0.5,
+                    "confidence": 0.5,
+                    "sources": [{ "capture_origin": "explicit" }],
+                    "created_at": "2026-06-13T00:00:00Z",
+                    "updated_at": "2026-06-13T00:00:00Z"
+                }),
+                json!({
+                    "id": "note_old",
+                    "scope": "user",
+                    "type": "preference",
+                    "status": "active",
+                    "content": "User prefers very tiny migration commits.",
+                    "priority": 0.5,
+                    "confidence": 0.5,
+                    "sources": [{ "capture_origin": "explicit" }],
+                    "created_at": "2026-06-13T00:00:00Z",
+                    "updated_at": "2026-06-13T00:00:00Z"
+                })
+            ),
+        );
+        fixture.write("memory/.dream_cursor", "3");
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::MemoryWrite]),
+        );
+
+        let response = router.dispatch(&WorkerRequest::new(
+            "req-apply",
+            "trace-1",
+            "memory.dream_apply",
+            json!({
+                "kind": "legacy_history",
+                "cursor_start": 4,
+                "cursor_end": 6,
+                "notes": [
+                    {
+                        "action": "reject",
+                        "target_note_id": "note_reject",
+                        "metadata": { "reason": "provider correction" }
+                    },
+                    {
+                        "action": "supersede",
+                        "target_note_id": "note_old",
+                        "content": "User prefers reasonably sized migration slices.",
+                        "note_type": "preference",
+                        "scope": "user",
+                        "priority": 0.8,
+                        "confidence": 0.9,
+                        "tags": ["dream"]
+                    }
+                ]
+            }),
+        ));
+        let result = response.result.expect("dream apply should return result");
+
+        assert!(response.error.is_none());
+        assert_eq!(result["applied_notes"], json!(2));
+        assert_eq!(result["last_dream_cursor"], json!(6));
+        assert_eq!(fixture.read("memory/.dream_cursor"), "6");
+        let notes = fixture.read("memory/notes.jsonl");
+        assert!(notes.contains("\"id\":\"note_reject\""));
+        assert!(notes.contains("\"status\":\"rejected\""));
+        assert!(notes.contains("\"id\":\"note_old\""));
+        assert!(notes.contains("\"status\":\"superseded\""));
+        assert!(notes.contains("\"supersedes\":[\"note_old\"]"));
+        assert!(notes.contains("\"capture_origin\":\"dream\""));
+        assert!(notes.contains("\"history_start_cursor\":4"));
+        assert!(notes.contains("\"history_end_cursor\":6"));
+        assert!(notes.contains("User prefers reasonably sized migration slices."));
     }
 
     #[test]

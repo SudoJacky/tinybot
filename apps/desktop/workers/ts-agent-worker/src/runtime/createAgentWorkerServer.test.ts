@@ -141,6 +141,142 @@ describe("createAgentWorkerServer", () => {
     });
   });
 
+  test("routes deferred dream slash commands through provider-backed native apply", async () => {
+    const lines: string[] = [];
+    const provider = new QueueProvider([
+      {
+        content: JSON.stringify([
+          {
+            action: "save",
+            scope: "user",
+            type: "preference",
+            content: "User prefers compact migration slices.",
+            priority: 0.7,
+            confidence: 0.8,
+            evidence_ids: ["ev_1"],
+            tags: ["dream"],
+            metadata: {},
+          },
+        ]),
+        toolCalls: [],
+        stopReason: "stop",
+      },
+    ]);
+    const server = createAgentWorkerServer({
+      provider,
+      tools: new ToolRegistry(),
+      env: { TINYBOT_MODEL: "dream-model" },
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const run = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "req-dream",
+        trace_id: "trace-dream",
+        method: "agent.run",
+        params: {
+          spec: {
+            runId: "run-dream",
+            sessionId: "session-1",
+            messages: [{ role: "user", content: "/dream" }],
+            model: "test-model",
+            maxIterations: 2,
+            stream: false,
+          },
+        },
+      }),
+    );
+
+    await waitFor(() => parsedLines(lines).some((line) => line.method === "memory.dream_run"));
+    const dreamRun = parsedLines(lines).find((line) => line.method === "memory.dream_run");
+    if (!dreamRun || typeof dreamRun.id !== "string") {
+      throw new Error("missing memory.dream_run request id");
+    }
+    await server.handleLine(JSON.stringify({
+      protocol_version: "1",
+      id: dreamRun.id,
+      trace_id: "trace-dream",
+      result: {
+        content: "Dream deferred 1 conversation evidence record(s) for provider-backed memory extraction.",
+        metadata: { deferred: true, pending_evidence: 1 },
+      },
+    }));
+
+    await waitFor(() => parsedLines(lines).some((line) => line.method === "memory.dream_pending"));
+    const pending = parsedLines(lines).find((line) => line.method === "memory.dream_pending");
+    if (!pending || typeof pending.id !== "string") {
+      throw new Error("missing memory.dream_pending request id");
+    }
+    await server.handleLine(JSON.stringify({
+      protocol_version: "1",
+      id: pending.id,
+      trace_id: "trace-dream",
+      result: {
+        kind: "conversation_evidence",
+        records: [{
+          id: "ev_1",
+          role: "user",
+          content: "Please remember I prefer compact migration slices.",
+          cursor: 3,
+          message_index: 1,
+        }],
+        cursor_start: 3,
+        cursor_end: 3,
+        evidence_ids: ["ev_1"],
+      },
+    }));
+
+    await waitFor(() => parsedLines(lines).some((line) => line.method === "memory.dream_apply"));
+    const apply = parsedLines(lines).find((line) => line.method === "memory.dream_apply");
+    expect(apply).toMatchObject({
+      trace_id: "trace-dream",
+      method: "memory.dream_apply",
+      params: {
+        session_id: "session-1",
+        kind: "conversation_evidence",
+        cursor_start: 3,
+        cursor_end: 3,
+        evidence_ids: ["ev_1"],
+      },
+    });
+    expect(apply?.params?.notes).toEqual([
+      expect.objectContaining({
+        action: "save",
+        content: "User prefers compact migration slices.",
+        note_type: "preference",
+        scope: "user",
+      }),
+    ]);
+    if (!apply || typeof apply.id !== "string") {
+      throw new Error("missing memory.dream_apply request id");
+    }
+    await server.handleLine(JSON.stringify({
+      protocol_version: "1",
+      id: apply.id,
+      trace_id: "trace-dream",
+      result: { changed: true, applied_notes: 1, last_evidence_cursor: 3 },
+    }));
+    await run;
+
+    expect(provider.requests).toHaveLength(1);
+    expect(provider.options[0]?.model).toBe("dream-model");
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      id: "req-dream",
+      trace_id: "trace-dream",
+      result: {
+        finalContent: "Dream applied 1 provider memory note operation(s) from 1 conversation evidence record(s).",
+        stopReason: "command",
+        metadata: {
+          command: "/dream",
+          provider_backed: true,
+          applied_notes: 1,
+        },
+      },
+    });
+  });
+
   test("writes usage protocol events before the final agent response", async () => {
     const lines: string[] = [];
     const server = createAgentWorkerServer({

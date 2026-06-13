@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 
-import { NativeDreamBridge } from "./dreamBridge";
+import type { AgentMessage } from "../agent/agentRunSpec";
+import type { ModelProvider, ModelRequestOptions, ModelResponse } from "../model/provider";
+import { NativeDreamBridge, ProviderBackedDreamBridge } from "./dreamBridge";
 
 function rpcClient(result: unknown) {
   const calls: Array<{ traceId: string; method: string; params: Record<string, unknown> }> = [];
@@ -13,6 +15,33 @@ function rpcClient(result: unknown) {
       },
     },
   };
+}
+
+function sequenceRpcClient(results: unknown[]) {
+  const calls: Array<{ traceId: string; method: string; params: Record<string, unknown> }> = [];
+  return {
+    calls,
+    client: {
+      request: async (traceId: string, method: string, params: Record<string, unknown>) => {
+        calls.push({ traceId, method, params });
+        if (results.length === 0) {
+          throw new Error(`unexpected native request: ${method}`);
+        }
+        return results.shift();
+      },
+    },
+  };
+}
+
+class RecordingProvider implements ModelProvider {
+  readonly requests: Array<{ messages: AgentMessage[]; options?: ModelRequestOptions }> = [];
+
+  constructor(private readonly response: ModelResponse) {}
+
+  async complete(messages: AgentMessage[], options?: ModelRequestOptions): Promise<ModelResponse> {
+    this.requests.push({ messages, options });
+    return this.response;
+  }
 }
 
 describe("NativeDreamBridge", () => {
@@ -141,6 +170,149 @@ describe("NativeDreamBridge", () => {
       changed: true,
       applied_notes: 1,
       last_evidence_cursor: 5,
+    });
+  });
+});
+
+describe("ProviderBackedDreamBridge", () => {
+  test("uses provider JSON operations for deferred conversation evidence and applies them natively", async () => {
+    const { client, calls } = sequenceRpcClient([
+      {
+        content: "Dream deferred 1 conversation evidence record(s) for provider-backed memory extraction.",
+        metadata: { deferred: true, pending_evidence: 1 },
+      },
+      {
+        kind: "conversation_evidence",
+        records: [
+          {
+            id: "ev_1",
+            turn_id: "turn_1",
+            session_key: "desktop:session-1",
+            role: "user",
+            content: "Please remember I prefer compact migration slices.",
+            cursor: 3,
+            message_index: 1,
+          },
+        ],
+        cursor_start: 3,
+        cursor_end: 3,
+        evidence_ids: ["ev_1"],
+      },
+      {
+        changed: true,
+        applied_notes: 1,
+        last_evidence_cursor: 3,
+      },
+    ]);
+    const provider = new RecordingProvider({
+      content: JSON.stringify([
+        {
+          action: "save",
+          scope: "user",
+          type: "preference",
+          content: "User prefers compact migration slices.",
+          priority: 0.7,
+          confidence: 0.8,
+          evidence_ids: ["ev_1"],
+          tags: ["dream"],
+          metadata: { reason: "explicit preference" },
+        },
+        { action: "skip", scope: "project", type: "project", content: "" },
+      ]),
+      toolCalls: [],
+      stopReason: "stop",
+    });
+    const bridge = new ProviderBackedDreamBridge({
+      nativeBridge: new NativeDreamBridge(client),
+      provider,
+      model: "dream-model",
+    });
+
+    const result = await bridge.runDream({ traceId: "trace-dream", sessionId: "session-1" });
+
+    expect(provider.requests).toHaveLength(1);
+    expect(provider.requests[0]?.options?.model).toBe("dream-model");
+    expect(provider.requests[0]?.messages[0]?.role).toBe("system");
+    expect(provider.requests[0]?.messages[0]?.content).toContain("Output ONLY a JSON array");
+    expect(provider.requests[0]?.messages[1]?.content).toContain("## Conversation Evidence");
+    expect(provider.requests[0]?.messages[1]?.content).toContain("[ev_1] cursor=3");
+    expect(calls).toEqual([
+      {
+        traceId: "trace-dream",
+        method: "memory.dream_run",
+        params: { session_id: "session-1" },
+      },
+      {
+        traceId: "trace-dream",
+        method: "memory.dream_pending",
+        params: { session_id: "session-1" },
+      },
+      {
+        traceId: "trace-dream",
+        method: "memory.dream_apply",
+        params: {
+          session_id: "session-1",
+          kind: "conversation_evidence",
+          cursor_start: 3,
+          cursor_end: 3,
+          evidence_ids: ["ev_1"],
+          notes: [
+            {
+              action: "save",
+              content: "User prefers compact migration slices.",
+              note_type: "preference",
+              scope: "user",
+              priority: 0.7,
+              confidence: 0.8,
+              tags: ["dream"],
+              metadata: { reason: "explicit preference" },
+              evidence_ids: ["ev_1"],
+            },
+          ],
+        },
+      },
+    ]);
+    expect(result).toEqual({
+      content: "Dream applied 1 provider memory note operation(s) from 1 conversation evidence record(s).",
+      metadata: {
+        changed: true,
+        provider_backed: true,
+        applied_notes: 1,
+        skipped_operations: 1,
+        last_evidence_cursor: 3,
+      },
+    });
+  });
+
+  test("leaves deferred cursors untouched when provider output is not JSON operations", async () => {
+    const { client, calls } = sequenceRpcClient([
+      {
+        content: "Dream deferred 1 legacy history record(s) for provider-backed memory extraction.",
+        metadata: { deferred: true, pending_legacy_history: 1 },
+      },
+      {
+        kind: "legacy_history",
+        records: [{ cursor: 4, timestamp: "2026-06-13 12:00", content: "Discussed transient UI state." }],
+        cursor_start: 4,
+        cursor_end: 4,
+      },
+    ]);
+    const provider = new RecordingProvider({ content: "No durable memory.", toolCalls: [], stopReason: "stop" });
+    const bridge = new ProviderBackedDreamBridge({
+      nativeBridge: new NativeDreamBridge(client),
+      provider,
+      model: "dream-model",
+    });
+
+    const result = await bridge.runDream({ traceId: "trace-dream", sessionId: undefined });
+
+    expect(calls.map((call) => call.method)).toEqual(["memory.dream_run", "memory.dream_pending"]);
+    expect(result.content).toBe("Dream provider extraction failed; cursor unchanged.");
+    expect(result.metadata).toMatchObject({
+      changed: false,
+      provider_backed: true,
+      deferred: true,
+      error: "invalid_provider_json",
     });
   });
 });

@@ -41,7 +41,7 @@ import {
   providerRuntimeFromNativeConfig,
 } from "./configBridge.ts";
 import { NativeContextBridge } from "./contextBridge.ts";
-import { NativeDreamBridge } from "./dreamBridge.ts";
+import { NativeDreamBridge, ProviderBackedDreamBridge } from "./dreamBridge.ts";
 import { NativeKnowledgeBridge } from "./knowledgeBridge.ts";
 import { NativeMcpBridge } from "./mcpBridge.ts";
 import { NativeMemoryBridge } from "./memoryBridge.ts";
@@ -197,7 +197,11 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     validateProviderModel: (request) => providerModelValidationResult(request),
     skillsBridge: new NativeSkillsBridge(rpcClient, options.env ?? process.env),
     approvalBridge: new NativeApprovalBridge(rpcClient),
-    dreamBridge: new NativeDreamBridge(rpcClient),
+    dreamBridge: new ProviderBackedDreamBridge({
+      nativeBridge: new NativeDreamBridge(rpcClient),
+      provider,
+      model: options.env?.TINYBOT_MODEL ?? options.env?.OPENAI_MODEL ?? "default",
+    }),
     sessionBridge,
     workspaceBridge,
     webuiSessionProvider: sessionBridge,
