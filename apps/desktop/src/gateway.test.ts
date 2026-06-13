@@ -2183,11 +2183,20 @@ describe("gateway HTTP client", () => {
       workflow_mode: "swarm",
       architecture: "team",
     })).resolves.toEqual({ native: true });
+    await expect(client.cowork.deriveBranch("cw_1", null, {
+      target_architecture: 404,
+      architecture: "swarm",
+    })).resolves.toEqual({ native: true });
 
-    expect(nativeCowork.route).toHaveBeenCalledWith({
+    expect(nativeCowork.route).toHaveBeenNthCalledWith(1, {
       method: "POST",
       path: "/api/cowork/sessions/cw_1/branches/derive",
       body: { workflow_mode: "swarm", architecture: "team" },
+    });
+    expect(nativeCowork.route).toHaveBeenNthCalledWith(2, {
+      method: "POST",
+      path: "/api/cowork/sessions/cw_1/branches/derive",
+      body: { target_architecture: 404, architecture: "swarm" },
     });
     expect(fetchFn).not.toHaveBeenCalled();
   });
