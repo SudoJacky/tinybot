@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued Command Runtime Phase 3 provider-backed Dream preparation: Rust now exposes internal `memory.dream_pending` / `memory.dream_apply` RPCs so TS can read deferred Dream batches and apply provider-generated notes with `capture_origin: dream` while advancing the matching evidence/history cursor; `NativeDreamBridge` now has typed hooks for those RPCs.
+
 - Continued Command Runtime Phase 3 native Dream consolidation parity: Rust `memory.dream_run` now defers pending conversation evidence and legacy history records that lack explicit memory intent instead of advancing `.evidence_cursor` / `.dream_cursor`, preserving those records for the follow-up provider-backed LLM summarization path.
 
 - Continued Cowork Phase 10 runtime route regression coverage: TS worker route tests now explicitly cover Python-compatible invalid-body handling for work-unit `skip` and `cancel` routes while retaining the existing permissive `retry` route behavior.
@@ -956,6 +958,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Command Runtime Phase 3: migrate the first native `/dream` conversation-evidence extraction path for explicit memory-intent evidence.
 - [x] Continue Command Runtime Phase 3: migrate the first native `/dream` legacy-history extraction path for explicit memory-intent records.
 - [x] Continue Command Runtime Phase 3: preserve pending non-explicit Dream evidence/history for provider-backed LLM summarization by deferring native heuristic runs without cursor advancement.
+- [x] Continue Command Runtime Phase 3: expose internal native Dream pending/apply RPCs and TS bridge hooks for provider-backed Dream note application with Dream source/cursor semantics.
 
 - [x] 复核 `ts_native_core.md` 对应实现和 `rust-native-core-worker-migration` 完成状态。
 - [x] 为 Batch 1 拆出第一个可实现任务：shared support runtime 的最小公共 helper/API。

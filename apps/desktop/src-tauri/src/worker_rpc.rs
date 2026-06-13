@@ -328,6 +328,14 @@ impl WorkerRpcRouter {
                 let params: MemoryDreamParams = parse_params(request)?;
                 self.memory.dream_run(params)
             }
+            "memory.dream_pending" => {
+                let params: MemoryDreamParams = parse_params(request)?;
+                self.memory.dream_pending(params)
+            }
+            "memory.dream_apply" => {
+                let params: MemoryDreamApplyParams = parse_params(request)?;
+                self.memory.dream_apply(params)
+            }
             "memory.dream_log" => {
                 let params: MemoryDreamParams = parse_params(request)?;
                 self.memory.dream_log(params)
@@ -1180,6 +1188,171 @@ impl WorkerMemoryRpc {
                 "pending_evidence": 0
             }),
         ))
+    }
+
+    fn dream_pending(
+        &self,
+        params: MemoryDreamParams,
+    ) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
+        self.require(WorkerCapability::MemoryRead)?;
+        let _session_id = params.session_id.as_deref();
+        let evidence_cursor = self.last_evidence_cursor();
+        let pending_evidence = self.pending_conversation_evidence(evidence_cursor, 50)?;
+        if !pending_evidence.is_empty() {
+            return Ok(memory_dream_pending_batch(
+                "conversation_evidence",
+                pending_evidence,
+                Some(evidence_cursor),
+            ));
+        }
+
+        let pending_legacy_history = self.pending_legacy_history(50)?;
+        if !pending_legacy_history.is_empty() {
+            return Ok(memory_dream_pending_batch(
+                "legacy_history",
+                pending_legacy_history,
+                Some(self.last_dream_cursor()),
+            ));
+        }
+
+        Ok(serde_json::json!({
+            "kind": "none",
+            "records": [],
+            "pending_evidence": 0,
+            "pending_legacy_history": 0,
+            "last_evidence_cursor": evidence_cursor,
+            "last_dream_cursor": self.last_dream_cursor()
+        }))
+    }
+
+    fn dream_apply(
+        &self,
+        params: MemoryDreamApplyParams,
+    ) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
+        self.require(WorkerCapability::MemoryWrite)?;
+        let kind = validate_memory_value(
+            "dream_apply kind",
+            &params.kind,
+            &["conversation_evidence", "legacy_history"],
+        )?;
+        let cursor_start = params
+            .cursor_start
+            .ok_or_else(|| invalid_memory_request("Dream apply cursor_start is required"))?;
+        let cursor_end = params
+            .cursor_end
+            .ok_or_else(|| invalid_memory_request("Dream apply cursor_end is required"))?;
+        if cursor_end < cursor_start {
+            return Err(invalid_memory_request(
+                "Dream apply cursor_end must be greater than or equal to cursor_start",
+            ));
+        }
+
+        let mut notes = self.read_notes()?;
+        let timestamp = memory_timestamp();
+        let mut applied_notes = 0usize;
+        for note_params in params.notes {
+            let content = note_params.content.trim();
+            if content.is_empty() {
+                continue;
+            }
+            let note_type =
+                validate_memory_value("note_type", &note_params.note_type, MEMORY_NOTE_TYPES)?;
+            let scope = note_params
+                .scope
+                .as_deref()
+                .map(|value| validate_memory_value("scope", value, MEMORY_NOTE_SCOPES))
+                .transpose()?
+                .unwrap_or_else(|| default_memory_scope(note_type));
+            let priority = validate_memory_score("priority", note_params.priority.unwrap_or(0.6))?;
+            let confidence =
+                validate_memory_score("confidence", note_params.confidence.unwrap_or(0.6))?;
+            let mut metadata = match note_params.metadata {
+                Some(value) if value.is_object() => value,
+                Some(_) => return Err(invalid_memory_request("metadata must be a JSON object")),
+                None => serde_json::json!({}),
+            };
+            if let Some(object) = metadata.as_object_mut() {
+                object.insert(
+                    "extractor".to_string(),
+                    Value::String("ts_provider_dream".to_string()),
+                );
+                if kind == "legacy_history" {
+                    object.insert("legacy_history".to_string(), Value::Bool(true));
+                }
+            }
+            let tags: Vec<String> = note_params
+                .tags
+                .unwrap_or_default()
+                .into_iter()
+                .map(|tag| tag.trim().to_string())
+                .filter(|tag| !tag.is_empty())
+                .collect();
+            let mut source = serde_json::json!({
+                "capture_origin": "dream",
+                "history_start_cursor": cursor_start,
+                "history_end_cursor": cursor_end
+            });
+            if kind == "conversation_evidence" {
+                let evidence_ids: Vec<String> = params
+                    .evidence_ids
+                    .as_deref()
+                    .unwrap_or(&[])
+                    .iter()
+                    .map(|id| id.trim().to_string())
+                    .filter(|id| !id.is_empty())
+                    .collect();
+                if !evidence_ids.is_empty() {
+                    source["evidence_ids"] = serde_json::json!(evidence_ids);
+                }
+            }
+            if let Some(session_id) = params
+                .session_id
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+            {
+                source["session_key"] = Value::String(session_id.to_string());
+            }
+            let note_id = generate_memory_note_id(note_type, scope, content, &source);
+            let mut note = serde_json::json!({
+                "id": note_id,
+                "scope": scope,
+                "type": note_type,
+                "status": "active",
+                "content": content,
+                "priority": priority,
+                "confidence": confidence,
+                "sources": [source],
+                "created_at": timestamp,
+                "updated_at": timestamp,
+                "metadata": metadata
+            });
+            if !tags.is_empty() {
+                note["tags"] = serde_json::json!(tags);
+            }
+            notes.retain(|existing| existing.get("id") != note.get("id"));
+            notes.push(note);
+            applied_notes += 1;
+        }
+
+        if applied_notes > 0 {
+            self.write_notes(&notes)?;
+            self.refresh_memory_views(&notes)?;
+        }
+        if kind == "conversation_evidence" {
+            self.write_evidence_cursor(cursor_end)?;
+            Ok(serde_json::json!({
+                "changed": applied_notes > 0,
+                "applied_notes": applied_notes,
+                "last_evidence_cursor": self.last_evidence_cursor()
+            }))
+        } else {
+            self.write_dream_cursor(cursor_end)?;
+            Ok(serde_json::json!({
+                "changed": applied_notes > 0,
+                "applied_notes": applied_notes,
+                "last_dream_cursor": self.last_dream_cursor()
+            }))
+        }
     }
 
     fn extract_dream_notes_from_evidence(
@@ -2561,6 +2734,37 @@ struct MemorySaveParams {
 }
 
 #[derive(Deserialize)]
+struct MemoryDreamApplyParams {
+    #[serde(default)]
+    session_id: Option<String>,
+    kind: String,
+    #[serde(default)]
+    cursor_start: Option<usize>,
+    #[serde(default)]
+    cursor_end: Option<usize>,
+    #[serde(default)]
+    evidence_ids: Option<Vec<String>>,
+    #[serde(default)]
+    notes: Vec<MemoryDreamApplyNoteParams>,
+}
+
+#[derive(Deserialize)]
+struct MemoryDreamApplyNoteParams {
+    content: String,
+    note_type: String,
+    #[serde(default)]
+    scope: Option<String>,
+    #[serde(default)]
+    priority: Option<f64>,
+    #[serde(default)]
+    confidence: Option<f64>,
+    #[serde(default)]
+    tags: Option<Vec<String>>,
+    #[serde(default)]
+    metadata: Option<Value>,
+}
+
+#[derive(Deserialize)]
 struct MemorySupersedeParams {
     note_id: String,
     replacement_content: String,
@@ -2738,6 +2942,44 @@ fn memory_dream_result_with_metadata(
     serde_json::json!({
         "content": content,
         "metadata": metadata
+    })
+}
+
+fn memory_dream_pending_batch(
+    kind: &str,
+    records: Vec<Value>,
+    last_cursor: Option<usize>,
+) -> Value {
+    let cursors: Vec<usize> = records
+        .iter()
+        .filter_map(|record| {
+            record
+                .get("cursor")
+                .and_then(Value::as_u64)
+                .map(|cursor| cursor as usize)
+        })
+        .collect();
+    let cursor_start = cursors.iter().min().copied().unwrap_or(0);
+    let cursor_end = cursors.iter().max().copied().unwrap_or(cursor_start);
+    let evidence_ids: Vec<String> = records
+        .iter()
+        .filter_map(|record| {
+            record
+                .get("id")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .map(str::to_string)
+        })
+        .collect();
+    serde_json::json!({
+        "kind": kind,
+        "records": records,
+        "pending_evidence": if kind == "conversation_evidence" { cursors.len() } else { 0 },
+        "pending_legacy_history": if kind == "legacy_history" { cursors.len() } else { 0 },
+        "cursor_start": cursor_start,
+        "cursor_end": cursor_end,
+        "last_cursor": last_cursor.unwrap_or(0),
+        "evidence_ids": evidence_ids
     })
 }
 
@@ -5291,6 +5533,106 @@ mod tests {
         assert_eq!(result["metadata"]["pending_legacy_history"], json!(1));
         assert_eq!(result["metadata"]["skipped_history"], json!(1));
         assert_eq!(fixture.read("memory/.dream_cursor"), "2");
+    }
+
+    #[test]
+    fn dispatches_memory_dream_pending_returns_deferred_conversation_evidence_batch() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write(
+            "memory/conversations/2026-06-12.jsonl",
+            &format!(
+                "{}\n",
+                json!({
+                    "id": "ev_1",
+                    "turn_id": "turn_1",
+                    "session_key": "desktop:session-1",
+                    "role": "user",
+                    "content": "We discussed the desktop runtime behavior.",
+                    "timestamp": "2026-06-12T03:00:00Z",
+                    "message_index": 1,
+                    "cursor": 3
+                })
+            ),
+        );
+        fixture.write("memory/.evidence_cursor", "2");
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::MemoryRead]),
+        );
+
+        let response = router.dispatch(&WorkerRequest::new(
+            "req-pending",
+            "trace-1",
+            "memory.dream_pending",
+            json!({}),
+        ));
+        let result = response
+            .result
+            .expect("dream pending should return a batch");
+
+        assert!(response.error.is_none());
+        assert_eq!(result["kind"], json!("conversation_evidence"));
+        assert_eq!(result["pending_evidence"], json!(1));
+        assert_eq!(result["cursor_start"], json!(3));
+        assert_eq!(result["cursor_end"], json!(3));
+        assert_eq!(result["evidence_ids"], json!(["ev_1"]));
+        assert_eq!(
+            result["records"][0]["content"],
+            json!("We discussed the desktop runtime behavior.")
+        );
+    }
+
+    #[test]
+    fn dispatches_memory_dream_apply_writes_provider_notes_with_dream_source_and_advances_cursor() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("memory/.evidence_cursor", "2");
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::MemoryWrite]),
+        );
+
+        let response = router.dispatch(&WorkerRequest::new(
+            "req-apply",
+            "trace-1",
+            "memory.dream_apply",
+            json!({
+                "kind": "conversation_evidence",
+                "session_id": "desktop:session-1",
+                "cursor_start": 3,
+                "cursor_end": 5,
+                "evidence_ids": ["ev_1", "ev_2"],
+                "notes": [{
+                    "content": "User wants desktop runtime migration slices to stay reasonably sized.",
+                    "note_type": "preference",
+                    "scope": "user",
+                    "priority": 0.7,
+                    "confidence": 0.8,
+                    "tags": ["migration"],
+                    "metadata": { "source": "provider" }
+                }]
+            }),
+        ));
+        let result = response.result.expect("dream apply should return result");
+
+        assert!(response.error.is_none());
+        assert_eq!(result["applied_notes"], json!(1));
+        assert_eq!(result["last_evidence_cursor"], json!(5));
+        assert_eq!(fixture.read("memory/.evidence_cursor"), "5");
+        let notes = fixture.read("memory/notes.jsonl");
+        assert!(notes.contains("\"capture_origin\":\"dream\""));
+        assert!(notes.contains("\"evidence_ids\":[\"ev_1\",\"ev_2\"]"));
+        assert!(notes.contains("\"history_start_cursor\":3"));
+        assert!(notes.contains("\"history_end_cursor\":5"));
+        assert!(notes.contains("\"extractor\":\"ts_provider_dream\""));
+        assert!(
+            notes.contains("User wants desktop runtime migration slices to stay reasonably sized.")
+        );
     }
 
     #[test]
