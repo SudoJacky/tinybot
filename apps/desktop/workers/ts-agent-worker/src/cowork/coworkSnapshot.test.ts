@@ -296,6 +296,26 @@ describe("cowork session snapshot", () => {
     ]);
   });
 
+  test("treats truthy swarm gate required configuration like Python", () => {
+    const snapshot = coworkSessionSnapshot(normalizeCoworkSession({
+      ...rawSession,
+      id: "cw-swarm-gate-required",
+      workflow_mode: "swarm",
+      swarm_plan: {
+        id: "swarm_gate_required",
+        status: "active",
+        work_units: [],
+        review: { required: 1, agent_id: "reviewer_agent" },
+      },
+    }));
+
+    expect(snapshot.swarm_organization.gates.reviewer).toMatchObject({
+      status: "pending",
+      required: true,
+      agent_id: "reviewer_agent",
+    });
+  });
+
   test("projects Python-compatible swarm scheduler queues and metrics", () => {
     const snapshot = coworkSessionSnapshot(normalizeCoworkSession({
       ...rawSession,

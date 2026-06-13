@@ -1090,9 +1090,10 @@ function swarmGateSummary(plan: JsonObject, units: JsonObject[], session: Cowork
 function swarmGate(kind: string, units: JsonObject[], config: unknown): JsonObject {
   const unit = units[units.length - 1] ?? {};
   const data = isJsonObject(config) ? jsonSafeObject(config) : {};
+  const required = Boolean(data.required) || kind === "reducer";
   return {
-    status: stringValue(unit.status) || (data.required === true ? "pending" : "not_ready"),
-    required: data.required === true || kind === "reducer",
+    status: stringValue(unit.status) || (required ? "pending" : "not_ready"),
+    required,
     agent_id: stringValue(unit.assigned_agent_id) || stringValue(data.agent_id),
     work_unit_id: stringValue(unit.id),
     source_work_unit_ids: arrayValue(unit.source_work_unit_ids).map(stringValue).filter(Boolean),
