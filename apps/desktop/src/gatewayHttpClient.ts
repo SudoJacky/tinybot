@@ -982,14 +982,15 @@ function swarmCoworkCreateRoute(method: string, path: string, body: unknown): bo
   }
   const payload = asRecord(body);
   const blueprint = asRecord(payload?.blueprint);
-  const mode = payload?.workflow_mode
+  const mode = blueprint
+    ? blueprint.workflow_mode
+      ?? blueprint.workflowMode
+      ?? blueprint.architecture
+      ?? blueprint.mode
+    : payload?.workflow_mode
     ?? payload?.workflowMode
     ?? payload?.architecture
-    ?? payload?.mode
-    ?? blueprint?.workflow_mode
-    ?? blueprint?.workflowMode
-    ?? blueprint?.architecture
-    ?? blueprint?.mode;
+    ?? payload?.mode;
   return isSwarmMode(mode);
 }
 
