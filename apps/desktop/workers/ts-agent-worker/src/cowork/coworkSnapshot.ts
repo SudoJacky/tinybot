@@ -869,8 +869,11 @@ function criticalPathDepth(units: JsonObject[]): number {
   const byId = new Map(units.map((unit) => [stringValue(unit.id), unit]));
   const memo = new Map<string, number>();
   const visit = (id: string, seen: Set<string>): number => {
-    if (!id || seen.has(id)) {
+    if (!id) {
       return 0;
+    }
+    if (seen.has(id)) {
+      return 1;
     }
     const existing = memo.get(id);
     if (existing !== undefined) {

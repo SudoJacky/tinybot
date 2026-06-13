@@ -468,4 +468,38 @@ describe("cowork session snapshot", () => {
       },
     });
   });
+
+  test("matches Python critical path depth for cyclic swarm dependencies", () => {
+    const snapshot = coworkSessionSnapshot(normalizeCoworkSession({
+      ...rawSession,
+      id: "cw-swarm-cycle-depth",
+      workflow_mode: "swarm",
+      swarm_plan: {
+        id: "swarm_cycle_depth",
+        status: "active",
+        work_units: [
+          {
+            id: "wu_a",
+            title: "A",
+            status: "pending",
+            kind: "fanout",
+            dependencies: ["wu_b"],
+          },
+          {
+            id: "wu_b",
+            title: "B",
+            status: "pending",
+            kind: "fanout",
+            dependencies: ["wu_a"],
+          },
+        ],
+      },
+    }));
+
+    expect(snapshot.swarm_metrics).toMatchObject({
+      schema_version: "cowork.swarm_metrics.v1",
+      plan_id: "swarm_cycle_depth",
+      critical_path_depth: 3,
+    });
+  });
 });
