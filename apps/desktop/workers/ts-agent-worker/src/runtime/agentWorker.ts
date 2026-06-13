@@ -4240,7 +4240,7 @@ function parseCoworkEmergencyStopParams(params: Record<string, unknown> | undefi
   }
   return {
     sessionId,
-    reason: stringParam(params, "reason", "reason"),
+    reason: pythonRouteTextParam(params, "reason", "reason"),
   };
 }
 

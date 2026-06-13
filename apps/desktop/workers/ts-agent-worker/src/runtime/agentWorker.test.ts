@@ -5652,6 +5652,18 @@ describe("AgentWorker", () => {
         }),
       },
     });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.emergency_stop_session", {
+      session_id: sessionId,
+      reason: 404,
+    }))).resolves.toMatchObject({
+      result: {
+        agentStep: expect.objectContaining({
+          action_kind: "emergency_stop",
+          scheduler_reason: "404",
+        }),
+      },
+    });
   });
 
   test("routes cowork branch and final-result requests through the injected CoworkService", async () => {
