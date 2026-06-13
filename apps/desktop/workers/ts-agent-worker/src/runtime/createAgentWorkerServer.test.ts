@@ -444,6 +444,75 @@ describe("createAgentWorkerServer", () => {
     });
   });
 
+  test("routes restart slash commands through native runtime restart RPC", async () => {
+    const lines: string[] = [];
+    const provider = new QueueProvider([{ content: "unused", toolCalls: [], stopReason: "stop" }]);
+    const server = createAgentWorkerServer({
+      provider,
+      tools: new ToolRegistry(),
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const run = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "req-restart",
+        trace_id: "trace-restart",
+        method: "agent.run",
+        params: {
+          spec: {
+            runId: "run-restart",
+            sessionId: "session-1",
+            messages: [{ role: "user", content: " /restart " }],
+            model: "test-model",
+            maxIterations: 2,
+            stream: false,
+          },
+        },
+      }),
+    );
+
+    await waitFor(() => parsedLines(lines).some((line) => line.method === "runtime.restart"));
+    const request = parsedLines(lines).find((line) => line.method === "runtime.restart");
+    expect(request).toMatchObject({
+      trace_id: "trace-restart",
+      method: "runtime.restart",
+      params: {
+        run_id: "run-restart",
+        session_id: "session-1",
+      },
+    });
+    if (!request || typeof request.id !== "string") {
+      throw new Error("missing runtime.restart request id");
+    }
+    await server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: request.id,
+        trace_id: "trace-restart",
+        result: { restart_requested: true },
+      }),
+    );
+    await run;
+
+    expect(provider.requests).toHaveLength(0);
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      protocol_version: "1",
+      id: "req-restart",
+      trace_id: "trace-restart",
+      result: {
+        finalContent: "Restarting...",
+        stopReason: "command",
+        metadata: {
+          command: "/restart",
+          render_as: "text",
+          restart_requested: true,
+        },
+      },
+    });
+  });
+
   test("routes deferred dream slash commands through provider-backed native apply", async () => {
     const lines: string[] = [];
     const provider = new QueueProvider([

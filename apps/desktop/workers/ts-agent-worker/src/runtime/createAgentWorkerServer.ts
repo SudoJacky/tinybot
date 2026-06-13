@@ -223,6 +223,12 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
       options.writeLog(`native MCP discovery failed: ${errorMessage(error)}`);
     }) : undefined,
     reloadProvider: lazyProvider ? () => lazyProvider.reload() : undefined,
+    requestRestart: async (request) => {
+      await rpcClient.request(request.traceId, "runtime.restart", {
+        ...(request.runId ? { run_id: request.runId } : {}),
+        ...(request.sessionId ? { session_id: request.sessionId } : {}),
+      });
+    },
     listProviderModels: (request) => providerModelsFromNativeConfig(
       configBridge,
       options.env ?? process.env,

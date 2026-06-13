@@ -521,6 +521,14 @@ impl WorkerRpcRouter {
                 let params: RuntimeNowParams = parse_params(request)?;
                 Ok(runtime_now(params.timezone))
             }
+            "runtime.restart" => {
+                let params: RuntimeRestartParams = parse_params(request)?;
+                Ok(serde_json::json!({
+                    "restart_requested": true,
+                    "run_id": params.run_id,
+                    "session_id": params.session_id,
+                }))
+            }
             _ => Err(unknown_method_error(request)),
         }
     }
@@ -2912,6 +2920,14 @@ struct RuntimeNowParams {
     timezone: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct RuntimeRestartParams {
+    #[serde(default, alias = "runId")]
+    run_id: Option<String>,
+    #[serde(default, alias = "sessionId")]
+    session_id: Option<String>,
+}
+
 #[derive(Clone, Debug)]
 struct WorkerChannelConnectorRpc {
     policy: CapabilityPolicy,
@@ -4185,6 +4201,40 @@ mod tests {
     };
 
     static WORKSPACE_FIXTURE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    #[test]
+    fn dispatches_runtime_restart_request() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([]),
+        );
+        let request = WorkerRequest::new(
+            "req-restart",
+            "trace-restart",
+            "runtime.restart",
+            json!({
+                "run_id": "run-1",
+                "session_id": "session-1"
+            }),
+        );
+
+        let response = router.dispatch(&request);
+
+        assert!(response.matches_request(&request));
+        assert!(response.error.is_none());
+        assert_eq!(
+            response.result.expect("restart result should be present"),
+            json!({
+                "restart_requested": true,
+                "run_id": "run-1",
+                "session_id": "session-1"
+            })
+        );
+    }
 
     #[test]
     fn dispatches_workspace_read_file_request() {
