@@ -235,6 +235,14 @@ export function createCoworkInternalTool(options: CoworkInternalToolOptions): To
         if (!role) {
           return { content: "Error: role is required" };
         }
+        const budgetDenial = denySpawnAgentWhenBudgetExhausted(session, agent, now, idGenerator);
+        if (budgetDenial) {
+          await options.store.writeSnapshot(normalizeCoworkSession(session), traceId);
+          return {
+            content: budgetDenial,
+            metadata: internalMetadata(session.id, agent.id, action, { denied_reasons: ["spawned_agent_budget_exhausted"] }),
+          };
+        }
         const spawned = spawnAgent(session, agent, {
           role,
           goal: cleanString(args.goal),
@@ -257,6 +265,14 @@ export function createCoworkInternalTool(options: CoworkInternalToolOptions): To
         const agentSpecs = objectList(args.agents);
         if (agentSpecs.length === 0) {
           return { content: "Error: agents are required" };
+        }
+        const budgetDenial = denySpawnAgentWhenBudgetExhausted(session, agent, now, idGenerator);
+        if (budgetDenial) {
+          await options.store.writeSnapshot(normalizeCoworkSession(session), traceId);
+          return {
+            content: budgetDenial,
+            metadata: internalMetadata(session.id, agent.id, action, { denied_reasons: ["spawned_agent_budget_exhausted"] }),
+          };
         }
         const spawned = spawnSubteam(session, agent, {
           teamId: cleanString(args.team_id) || cleanString(args.title) || "subteam",
@@ -456,6 +472,75 @@ function assignTask(
   ];
   session.updated_at = now();
   return { task, agent: assignedAgent, message };
+}
+
+function denySpawnAgentWhenBudgetExhausted(
+  session: CoworkSession,
+  parent: CoworkAgent,
+  now: () => string,
+  idGenerator: CoworkIdGenerator,
+): string {
+  const maxSpawnedAgents = numericValue(session.budget_limits.max_spawned_agents);
+  if (maxSpawnedAgents <= 0 || numericValue(session.budget_usage.spawned_agents) < maxSpawnedAgents) {
+    return "";
+  }
+  const createdAt = now();
+  const guardrailId = idGenerator("dguard");
+  session.delegation_guardrails[guardrailId] = {
+    id: guardrailId,
+    parent_agent_id: parent.id,
+    max_spawned_agents: maxSpawnedAgents,
+    allowed_tools: ["cowork_internal"],
+    denied_reasons: ["spawned_agent_budget_exhausted"],
+    created_at: createdAt,
+    updated_at: createdAt,
+  };
+  session.stop_reason = "spawn_budget_exhausted";
+  session.budget_usage = {
+    ...session.budget_usage,
+    stop_reason: "spawn_budget_exhausted",
+  };
+  session.events = [
+    ...session.events,
+    event(idGenerator, now, "scheduler.budget_exhausted", "Cowork agent spawn request was blocked by the spawned-agent budget", {
+      actorId: "scheduler",
+      data: {
+        stop_reason: "spawn_budget_exhausted",
+        parent_agent_id: parent.id,
+        max_spawned_agents: maxSpawnedAgents,
+      },
+    }),
+    event(idGenerator, now, "delegation.denied", "Sub-Agent delegation request was denied by guardrails", {
+      actorId: parent.id,
+      data: {
+        guardrail_id: guardrailId,
+        denied_reasons: ["spawned_agent_budget_exhausted"],
+      },
+    }),
+  ];
+  session.trace_spans = [
+    ...session.trace_spans,
+    {
+      id: idGenerator("span"),
+      session_id: session.id,
+      kind: "scheduler",
+      name: "Stop reason",
+      actor_id: "scheduler",
+      status: "blocked",
+      started_at: createdAt,
+      ended_at: now(),
+      input_ref: "",
+      output_ref: "",
+      summary: "Cowork agent spawn request was blocked by the spawned-agent budget",
+      data: {
+        stop_reason: "spawn_budget_exhausted",
+        parent_agent_id: parent.id,
+        max_spawned_agents: maxSpawnedAgents,
+      },
+    },
+  ];
+  session.updated_at = now();
+  return "Error: spawned-agent budget exhausted";
 }
 
 function spawnAgent(

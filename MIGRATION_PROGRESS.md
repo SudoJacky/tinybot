@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued Cowork internal delegation parity: TS `cowork_internal` `spawn_agent` and `spawn_subteam` now honor explicit spawned-agent budget exhaustion with Python-compatible guardrail records, `spawn_budget_exhausted` stop state, delegation-denied events, and no accidental sub-agent creation.
+
 - Continued Cowork scheduler Python parity: TS `CoworkScheduler` now emits Python-compatible `scheduler.agent_budget_exhausted` / `scheduler.budget_exhausted` events and blocked stop trace status for budget-limit stops, preserving native observability semantics without Python fallback.
 
 - Continued Cowork Phase 10 rollout parity: desktop gateway recipient-less swarm message classification now follows the TS worker parser's `recipientIds` before `recipient_ids` alias precedence, keeping rollout fallback aligned with native route behavior.
@@ -149,6 +151,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 
 | Date | Update |
 | --- | --- |
+| 2026-06-13 | Continued Cowork internal delegation parity: spawned-agent budget exhaustion now blocks TS `cowork_internal` spawn_agent/spawn_subteam with guardrail and denial observability. |
 | 2026-06-13 | Continued Cowork scheduler Python parity: budget-limit stops now emit Python-compatible budget-exhausted event types and blocked trace status in the TS scheduler. |
 | 2026-06-13 | Continued Cowork Phase 10 rollout parity: recipient-less swarm message fallback classification now follows the worker recipient alias precedence. |
 | 2026-06-13 | Continued Cowork Phase 10 rollout parity: blueprint create architecture now takes precedence over top-level mode for swarm rollout fallback classification. |
@@ -641,6 +644,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: prefer blueprint architecture over top-level create mode when applying swarm rollout fallback gates.
 - [x] Continue Cowork Phase 10: align recipient-less swarm message rollout gates with worker recipient alias precedence.
 - [x] Continue Cowork Phase 10: align TS scheduler budget-stop events and trace status with Python Cowork observability semantics.
+- [x] Continue Cowork Phase 10: block TS `cowork_internal` spawn_agent/spawn_subteam when explicit spawned-agent budget guardrails are exhausted.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Start Heartbeat runtime Phase 1: add pure TS heartbeat decision parsing, target selection, manual trigger/status, and tick service orchestration.
 - [x] Continue Heartbeat runtime Phase 1: add start/stop interval lifecycle with disabled guard, first-delay scheduling, and no-overlap scheduled ticks.

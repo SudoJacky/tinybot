@@ -2063,6 +2063,109 @@ describe("CoworkAgentRuntime", () => {
     ]));
   });
 
+  it("denies cowork_internal spawn_agent when the spawned-agent budget is exhausted", async () => {
+    const provider = new QueueProvider([
+      {
+        content: "",
+        toolCalls: [{
+          id: "tool-spawn",
+          name: "cowork_internal",
+          argumentsJson: JSON.stringify({
+            action: "spawn_agent",
+            role: "Researcher",
+            goal: "Research TS cowork stream hooks",
+            tools: ["read_file", "cowork_internal"],
+            content: "Need another bounded research lane.",
+          }),
+        }],
+        stopReason: "tool_calls",
+      },
+      {
+        content: JSON.stringify({
+          status: "waiting",
+          action: "continue",
+          public_note: "Spawn was denied by guardrails.",
+          private_note: "cowork_internal spawn_agent hit budget limits.",
+          completed_task_ids: [],
+        }),
+        toolCalls: [],
+        stopReason: "stop",
+      },
+    ]);
+    const seeded = await seedRuntime(provider);
+    const session = await seeded.store.readSnapshot("cw_1", "setup");
+    if (!session) {
+      throw new Error("missing seeded session");
+    }
+    await seeded.store.writeSnapshot({
+      ...session,
+      budget_limits: {
+        ...session.budget_limits,
+        max_spawned_agents: 1,
+      },
+      budget_usage: {
+        ...session.budget_usage,
+        spawned_agents: 1,
+      },
+    }, "setup");
+
+    await seeded.runtime.runAgent({
+      traceId: "trace-agent",
+      sessionId: "cw_1",
+      agentId: "lead",
+      runId: "run_1",
+      roundId: "run_1:round:1",
+      parentSpanId: "span_parent",
+    });
+
+    expect(provider.messages[1]).toContainEqual(expect.objectContaining({
+      role: "tool",
+      name: "cowork_internal",
+      content: expect.stringContaining("Error: spawned-agent budget exhausted"),
+    }));
+    const saved = await seeded.store.readSnapshot("cw_1", "assert");
+    expect(saved?.agents.researcher).toBeUndefined();
+    expect(saved?.budget_usage).toMatchObject({
+      spawned_agents: 1,
+      stop_reason: "spawn_budget_exhausted",
+    });
+    expect(saved?.stop_reason).toBe("spawn_budget_exhausted");
+    expect(Object.values(saved?.delegation_guardrails ?? {})).toEqual([
+      expect.objectContaining({
+        parent_agent_id: "lead",
+        max_spawned_agents: 1,
+        denied_reasons: ["spawned_agent_budget_exhausted"],
+      }),
+    ]);
+    expect(saved?.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "scheduler.budget_exhausted",
+        actor_id: "scheduler",
+        data: expect.objectContaining({
+          stop_reason: "spawn_budget_exhausted",
+          parent_agent_id: "lead",
+          max_spawned_agents: 1,
+        }),
+      }),
+      expect.objectContaining({
+        type: "delegation.denied",
+        actor_id: "lead",
+        data: expect.objectContaining({
+          denied_reasons: ["spawned_agent_budget_exhausted"],
+        }),
+      }),
+    ]));
+    expect(saved?.trace_spans).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: "Stop reason",
+        status: "blocked",
+        data: expect.objectContaining({
+          stop_reason: "spawn_budget_exhausted",
+        }),
+      }),
+    ]));
+  });
+
   it("lets an agent spawn a temporary subteam through cowork_internal", async () => {
     const provider = new QueueProvider([
       {
@@ -2187,6 +2290,85 @@ describe("CoworkAgentRuntime", () => {
           task_ids: ["task_1", "task_2"],
           reason: "Split research and verification work.",
           source_event_id: "evt_src_1",
+        }),
+      }),
+    ]));
+  });
+
+  it("denies cowork_internal spawn_subteam when the spawned-agent budget is exhausted", async () => {
+    const provider = new QueueProvider([
+      {
+        content: "",
+        toolCalls: [{
+          id: "tool-subteam",
+          name: "cowork_internal",
+          argumentsJson: JSON.stringify({
+            action: "spawn_subteam",
+            team_id: "analysis-lane",
+            content: "Split research and verification work.",
+            agents: [
+              { role: "Researcher", goal: "Collect migration evidence" },
+              { role: "Verifier", goal: "Check migration risks" },
+            ],
+          }),
+        }],
+        stopReason: "tool_calls",
+      },
+      {
+        content: JSON.stringify({
+          status: "waiting",
+          action: "continue",
+          public_note: "Subteam spawn was denied by guardrails.",
+          private_note: "cowork_internal spawn_subteam hit budget limits.",
+          completed_task_ids: [],
+        }),
+        toolCalls: [],
+        stopReason: "stop",
+      },
+    ]);
+    const seeded = await seedRuntime(provider);
+    const session = await seeded.store.readSnapshot("cw_1", "setup");
+    if (!session) {
+      throw new Error("missing seeded session");
+    }
+    await seeded.store.writeSnapshot({
+      ...session,
+      budget_limits: {
+        ...session.budget_limits,
+        max_spawned_agents: 1,
+      },
+      budget_usage: {
+        ...session.budget_usage,
+        spawned_agents: 1,
+      },
+    }, "setup");
+
+    await seeded.runtime.runAgent({
+      traceId: "trace-agent",
+      sessionId: "cw_1",
+      agentId: "lead",
+      runId: "run_1",
+      roundId: "run_1:round:1",
+      parentSpanId: "span_parent",
+    });
+
+    expect(provider.messages[1]).toContainEqual(expect.objectContaining({
+      role: "tool",
+      name: "cowork_internal",
+      content: expect.stringContaining("Error: spawned-agent budget exhausted"),
+    }));
+    const saved = await seeded.store.readSnapshot("cw_1", "assert");
+    expect(saved?.agents.researcher).toBeUndefined();
+    expect(saved?.agents.verifier).toBeUndefined();
+    expect(saved?.events).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "subteam.spawned" }),
+    ]));
+    expect(saved?.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "delegation.denied",
+        actor_id: "lead",
+        data: expect.objectContaining({
+          denied_reasons: ["spawned_agent_budget_exhausted"],
         }),
       }),
     ]));
