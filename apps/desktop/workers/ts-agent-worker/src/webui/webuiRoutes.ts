@@ -75,6 +75,7 @@ export type WebuiPatchSessionResult = {
 export type WebuiSessionTemporaryFiles = {
   sessionId: string;
   items: Record<string, unknown>[];
+  cleared?: number;
 };
 
 export type WebuiTemporaryFileUpload = {
@@ -121,6 +122,10 @@ export type WebuiSessionProvider = {
     upload: WebuiTemporaryFileUpload,
     traceId: string,
   ): Promise<Record<string, unknown>> | Record<string, unknown>;
+  clearTemporaryFiles?(
+    sessionId: string,
+    traceId: string,
+  ): Promise<WebuiSessionTemporaryFiles> | WebuiSessionTemporaryFiles;
   clearSession?(
     sessionId: string,
     traceId: string,
@@ -303,6 +308,7 @@ const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
   { key: "clear_session", method: "POST", path: "/api/sessions/{key}/clear", public: false },
   { key: "list_temporary_files", method: "GET", path: "/api/sessions/{key}/temporary-files", public: false },
   { key: "upload_temporary_file", method: "POST", path: "/api/sessions/{key}/temporary-files", public: false },
+  { key: "clear_temporary_files", method: "DELETE", path: "/api/sessions/{key}/temporary-files", public: false },
   { key: "get_skills", method: "GET", path: "/api/skills", public: false },
   { key: "create_skill", method: "POST", path: "/api/skills", public: false },
   { key: "get_skill_detail", method: "GET", path: "/api/skills/{name}", public: false },
@@ -545,6 +551,9 @@ export async function handleWebuiRouteRequest(
   if (temporaryFilesKey !== undefined) {
     if (method === "POST") {
       return webuiTemporaryFileUploadResponse(temporaryFilesKey, request.body, sessionProvider, traceId);
+    }
+    if (method === "DELETE") {
+      return webuiTemporaryFilesClearResponse(temporaryFilesKey, sessionProvider, traceId);
     }
     if (!sessionProvider?.listTemporaryFiles) {
       return { status: 200, body: { items: [] } };
@@ -1878,6 +1887,24 @@ function webuiPatchSessionBody(session: WebuiPatchSessionResult): Record<string,
 function webuiTemporaryFilesBody(session: WebuiSessionTemporaryFiles): Record<string, unknown> {
   return {
     items: session.items,
+    ...(typeof session.cleared === "number" ? { cleared: session.cleared } : {}),
+  };
+}
+
+async function webuiTemporaryFilesClearResponse(
+  sessionId: string,
+  sessionProvider: WebuiSessionProvider | undefined,
+  traceId: string,
+): Promise<WebuiRouteResponse> {
+  if (!sessionId.startsWith("websocket:")) {
+    return { status: 400, body: { error: "temporary files are only supported for websocket sessions" } };
+  }
+  if (!sessionProvider?.clearTemporaryFiles) {
+    return { status: 503, body: { error: "temporary knowledge store is not available" } };
+  }
+  return {
+    status: 200,
+    body: webuiTemporaryFilesBody(await sessionProvider.clearTemporaryFiles(sessionId, traceId)),
   };
 }
 
@@ -2008,7 +2035,10 @@ function routeKey(method: string, path: string): string {
     return "patch_session";
   }
   if (temporaryFilesPathKey(method, path) !== undefined) {
-    return method === "POST" ? "upload_temporary_file" : "list_temporary_files";
+    if (method === "POST") {
+      return "upload_temporary_file";
+    }
+    return method === "DELETE" ? "clear_temporary_files" : "list_temporary_files";
   }
   if (clearSessionPathKey(method, path) !== undefined) {
     return "clear_session";
@@ -2061,7 +2091,7 @@ function patchSessionPathKey(method: string, path: string): string | undefined {
 }
 
 function temporaryFilesPathKey(method: string, path: string): string | undefined {
-  if (method !== "GET" && method !== "POST") {
+  if (method !== "GET" && method !== "POST" && method !== "DELETE") {
     return undefined;
   }
   const match = /^\/api\/sessions\/([^/]+)\/temporary-files$/.exec(path);

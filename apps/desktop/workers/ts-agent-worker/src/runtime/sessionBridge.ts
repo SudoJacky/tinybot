@@ -84,6 +84,13 @@ export class NativeSessionBridge implements SessionBridge, WebuiSessionProvider 
     return isJsonObject(result) ? result : {};
   }
 
+  async clearTemporaryFiles(sessionId: string, traceId: string): Promise<WebuiSessionTemporaryFiles> {
+    const result = await this.rpcClient.request(traceId, "knowledge.session_clear", {
+      session_id: sessionId,
+    });
+    return normalizeWebuiTemporaryFiles(result, sessionId);
+  }
+
   async deleteSession(sessionId: string, traceId: string): Promise<WebuiDeleteSessionResult> {
     const result = await this.rpcClient.request(traceId, "session.delete", {
       session_id: sessionId,
@@ -244,9 +251,11 @@ function normalizeWebuiTemporaryFiles(result: unknown, fallbackSessionId: string
   const sessionId = stringField(result, "sessionId", "session_id") ?? fallbackSessionId;
   const extra = isJsonObject(result.extra) ? result.extra : {};
   const items = extra.temporary_files ?? extra.temporaryFiles ?? result.temporary_files ?? result.temporaryFiles;
+  const cleared = optionalNumberField(result, "cleared", "cleared");
   return {
     sessionId,
     items: Array.isArray(items) ? items.filter(isJsonObject) : [],
+    ...(cleared !== undefined ? { cleared } : {}),
   };
 }
 
@@ -369,6 +378,11 @@ function stringField(payload: Record<string, unknown>, camelKey: string, snakeKe
 function numberField(payload: Record<string, unknown>, camelKey: string, snakeKey: string): number {
   const value = payload[camelKey] ?? payload[snakeKey];
   return typeof value === "number" ? value : 0;
+}
+
+function optionalNumberField(payload: Record<string, unknown>, camelKey: string, snakeKey: string): number | undefined {
+  const value = payload[camelKey] ?? payload[snakeKey];
+  return typeof value === "number" ? value : undefined;
 }
 
 function booleanField(payload: Record<string, unknown>, camelKey: string, snakeKey: string): boolean {

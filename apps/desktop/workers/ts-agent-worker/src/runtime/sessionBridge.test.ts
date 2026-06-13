@@ -212,6 +212,33 @@ describe("NativeSessionBridge", () => {
     ]);
   });
 
+  test("clears WebUI temporary files through native knowledge.session_clear", async () => {
+    const requests: Array<{ traceId: string; method: string; params: Record<string, unknown> }> = [];
+    const bridge = new NativeSessionBridge({
+      request: async (traceId, method, params) => {
+        requests.push({ traceId, method, params });
+        return {
+          session_id: "websocket:chat-1",
+          cleared: 2,
+          temporary_files: [],
+        };
+      },
+    });
+
+    await expect((bridge as any).clearTemporaryFiles("websocket:chat-1", "trace-webui")).resolves.toEqual({
+      sessionId: "websocket:chat-1",
+      cleared: 2,
+      items: [],
+    });
+    expect(requests).toEqual([
+      {
+        traceId: "trace-webui",
+        method: "knowledge.session_clear",
+        params: { session_id: "websocket:chat-1" },
+      },
+    ]);
+  });
+
   test("lists WebUI session metadata through native session.list_metadata", async () => {
     const requests: Array<{ traceId: string; method: string; params: Record<string, unknown> }> = [];
     const bridge = new NativeSessionBridge({
