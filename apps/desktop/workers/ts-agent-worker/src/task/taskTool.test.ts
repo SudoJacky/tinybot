@@ -84,10 +84,10 @@ describe("createTaskTool", () => {
     const tool = createTaskTool({ store: memoryBridge([basePlan()]), idGenerator: () => "new1" });
 
     await expect(tool.execute({ action: "pause", plan_id: "plan-1" }, context)).resolves.toMatchObject({
-      content: "Plan plan-1 paused.",
+      content: "Paused plan 'Backend migration' (plan-1). Use 'resume' to continue.",
     });
     await expect(tool.execute({ action: "cancel", plan_id: "plan-1" }, context)).resolves.toMatchObject({
-      content: "Plan plan-1 cancelled.",
+      content: "Cancelled plan 'Backend migration' (plan-1).",
     });
     await expect(tool.execute({
       action: "add_subtask",

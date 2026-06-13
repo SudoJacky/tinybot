@@ -207,6 +207,12 @@ async function controlResult(
   if (!plan) {
     return { content: `Error: Plan ${planId} not found` };
   }
+  if (action === "pause") {
+    return { content: `Paused plan '${plan.title}' (${plan.id}). Use 'resume' to continue.` };
+  }
+  if (action === "cancel") {
+    return { content: `Cancelled plan '${plan.title}' (${plan.id}).` };
+  }
   return { content: `Plan ${plan.id} ${verb}.` };
 }
 
