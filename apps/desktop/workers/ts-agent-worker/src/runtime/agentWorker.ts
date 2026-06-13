@@ -4333,13 +4333,13 @@ function parseCoworkDeriveBranchParams(params: Record<string, unknown> | undefin
   }
   return {
     sessionId,
-    sourceBranchId: stringParam(params, "sourceBranchId", "source_branch_id"),
-    targetArchitecture: stringParam(params, "targetArchitecture", "target_architecture")
-      ?? stringParam(params, "architecture", "architecture"),
-    reason: stringParam(params, "reason", "reason")
-      ?? stringParam(params, "derivationReason", "derivation_reason"),
-    title: stringParam(params, "title", "title"),
-    inheritedContextSummary: stringParam(params, "inheritedContextSummary", "inherited_context_summary"),
+    sourceBranchId: pythonRouteTextParam(params, "sourceBranchId", "source_branch_id"),
+    targetArchitecture: pythonRouteTextParam(params, "targetArchitecture", "target_architecture")
+      || pythonRouteTextParam(params, "architecture", "architecture"),
+    reason: pythonRouteTextParam(params, "reason", "reason")
+      || pythonRouteTextParam(params, "derivationReason", "derivation_reason"),
+    title: pythonRouteTextParam(params, "title", "title"),
+    inheritedContextSummary: pythonRouteTextParam(params, "inheritedContextSummary", "inherited_context_summary"),
   };
 }
 

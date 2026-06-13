@@ -5692,14 +5692,17 @@ describe("AgentWorker", () => {
       session_id: session.id,
       source_branch_id: "default",
       target_architecture: "team",
-      reason: "Compare team workflow",
-      title: "Team branch",
-      inherited_context_summary: "Carry context forward",
+      reason: 404,
+      title: 505,
+      inherited_context_summary: 606,
     }))).resolves.toMatchObject({
       result: {
         branch: expect.objectContaining({
           id: "br_1",
+          title: "505",
           architecture: "team",
+          derivation_reason: "404",
+          inherited_context_summary: "606",
           source_branch_id: "default",
         }),
         session: expect.objectContaining({
@@ -5709,6 +5712,13 @@ describe("AgentWorker", () => {
               branch_result: expect.objectContaining({ id: "brres_1" }),
             }),
           }),
+          stage_records: expect.arrayContaining([
+            expect.objectContaining({
+              target_branch_id: "br_1",
+              derivation_reason: "404",
+              inherited_context_summary: "606",
+            }),
+          ]),
         }),
       },
     });
