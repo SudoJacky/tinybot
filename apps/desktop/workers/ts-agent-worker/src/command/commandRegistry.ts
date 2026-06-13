@@ -1,5 +1,6 @@
 import { CommandRouter } from "./commandRouter.ts";
 import type { CommandCapabilities, CommandContext, CommandResult } from "./commandTypes.ts";
+import { buildStatusContent } from "../support/statusFormatter.ts";
 
 const HELP_COMMANDS = [
   { command: "/new", description: "Start a new conversation." },
@@ -72,9 +73,10 @@ async function statusResult(context: CommandContext, capabilities: CommandCapabi
     activeSessionRunCount: 0,
     sessionId: context.sessionId,
   };
+  const richStatusContent = statusContentFromSnapshot(snapshot);
   return {
     handled: true,
-    output: [
+    output: richStatusContent ?? [
       "Worker status:",
       `Active runs: ${snapshot.activeRunCount}`,
       `Current session active runs: ${snapshot.activeSessionRunCount}`,
@@ -88,6 +90,30 @@ async function statusResult(context: CommandContext, capabilities: CommandCapabi
       ...(snapshot.sessionId ? { session_id: snapshot.sessionId } : {}),
     },
   };
+}
+
+function statusContentFromSnapshot(snapshot: Awaited<ReturnType<NonNullable<CommandCapabilities["getStatusSnapshot"]>>>): string | undefined {
+  if (
+    !snapshot.version
+    || !snapshot.model
+    || snapshot.startTimeMs === undefined
+    || !snapshot.lastUsage
+    || snapshot.contextWindowTokens === undefined
+    || snapshot.sessionMessageCount === undefined
+    || snapshot.contextTokensEstimate === undefined
+  ) {
+    return undefined;
+  }
+  return buildStatusContent({
+    version: snapshot.version,
+    model: snapshot.model,
+    startTimeMs: snapshot.startTimeMs,
+    nowMs: snapshot.nowMs,
+    lastUsage: snapshot.lastUsage,
+    contextWindowTokens: snapshot.contextWindowTokens,
+    sessionMessageCount: snapshot.sessionMessageCount,
+    contextTokensEstimate: snapshot.contextTokensEstimate,
+  });
 }
 
 async function restartResult(context: CommandContext, capabilities: CommandCapabilities): Promise<CommandResult> {

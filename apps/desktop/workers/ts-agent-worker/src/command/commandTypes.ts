@@ -17,6 +17,18 @@ export type CommandStatusSnapshot = {
   activeRunCount: number;
   activeSessionRunCount: number;
   sessionId?: string;
+  version?: string;
+  model?: string;
+  startTimeMs?: number;
+  nowMs?: number;
+  lastUsage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    cached_tokens?: number;
+  };
+  contextWindowTokens?: number;
+  sessionMessageCount?: number;
+  contextTokensEstimate?: number;
 };
 
 export type RestartCommandRequest = {

@@ -26,7 +26,7 @@ import type { CoworkService } from "../cowork/coworkService.ts";
 import { buildSwarmSchedulerQueues, coworkSessionSnapshot } from "../cowork/coworkSnapshot.ts";
 import type { CoworkBranch, CoworkSession } from "../cowork/coworkTypes.ts";
 import type { HeartbeatRuntime } from "../heartbeat/heartbeatRuntime.ts";
-import type { ModelProvider, ToolDefinition } from "../model/provider.ts";
+import type { ModelProvider, TokenUsage, ToolDefinition } from "../model/provider.ts";
 import {
   isJsonObject,
   type JsonObject,
@@ -175,6 +175,18 @@ type ActiveRun = {
   cancelled: boolean;
 };
 
+type LastRunStatusSnapshot = {
+  model: string;
+  lastUsage: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    cached_tokens?: number;
+  };
+  contextWindowTokens: number;
+  sessionMessageCount: number;
+  contextTokensEstimate: number;
+};
+
 type CronRunDueJob = {
   id: string;
   name: string;
@@ -264,6 +276,8 @@ export class AgentWorker {
   private readonly activeRuns = new Map<string, ActiveRun>();
   private readonly checkpointWrites = new Map<string, Promise<void>>();
   private readonly openAiSessionLocks = new Map<string, Promise<void>>();
+  private readonly startTimeMs = Date.now();
+  private lastRunStatus?: LastRunStatusSnapshot;
   private openAiRunCounter = 0;
 
   constructor(options: AgentWorkerOptions) {
@@ -2625,6 +2639,13 @@ export class AgentWorker {
     activeRunCount: number;
     activeSessionRunCount: number;
     sessionId?: string;
+    version?: string;
+    model?: string;
+    startTimeMs?: number;
+    lastUsage?: LastRunStatusSnapshot["lastUsage"];
+    contextWindowTokens?: number;
+    sessionMessageCount?: number;
+    contextTokensEstimate?: number;
   } {
     let activeSessionRunCount = 0;
     for (const activeRun of this.activeRuns.values()) {
@@ -2636,6 +2657,17 @@ export class AgentWorker {
       activeRunCount: this.activeRuns.size,
       activeSessionRunCount,
       ...(sessionId ? { sessionId } : {}),
+      ...(this.lastRunStatus
+        ? {
+          version: process.env.npm_package_version ?? "0.0.0",
+          model: this.lastRunStatus.model,
+          startTimeMs: this.startTimeMs,
+          lastUsage: this.lastRunStatus.lastUsage,
+          contextWindowTokens: this.lastRunStatus.contextWindowTokens,
+          sessionMessageCount: this.lastRunStatus.sessionMessageCount,
+          contextTokensEstimate: this.lastRunStatus.contextTokensEstimate,
+        }
+        : {}),
     };
   }
 
@@ -3465,6 +3497,7 @@ export class AgentWorker {
     if (!result.usage) {
       return;
     }
+    this.rememberRunStatus(spec, result.usage);
     this.emitEvent({
       protocol_version: WORKER_PROTOCOL_VERSION,
       trace_id: traceId,
@@ -3477,6 +3510,20 @@ export class AgentWorker {
           : {}),
       }),
     });
+  }
+
+  private rememberRunStatus(spec: AgentRunSpec, usage: TokenUsage): void {
+    this.lastRunStatus = {
+      model: spec.model,
+      lastUsage: {
+        prompt_tokens: usage.inputTokens,
+        completion_tokens: usage.outputTokens,
+        cached_tokens: usage.cachedTokens,
+      },
+      contextWindowTokens: spec.contextWindow ?? 0,
+      sessionMessageCount: spec.messages.length,
+      contextTokensEstimate: usage.inputTokens ?? usage.totalTokens ?? 0,
+    };
   }
 
   private emitContextMetadata(

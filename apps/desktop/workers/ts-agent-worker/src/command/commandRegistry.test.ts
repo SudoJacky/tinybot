@@ -86,6 +86,47 @@ describe("createDefaultCommandRouter", () => {
     });
   });
 
+  test("formats rich status snapshots with Python-compatible status content", async () => {
+    const router = createDefaultCommandRouter({
+      getStatusSnapshot: () => ({
+        activeRunCount: 2,
+        activeSessionRunCount: 1,
+        sessionId: "session-1",
+        version: "1.2.3",
+        model: "gpt-4.1-mini",
+        startTimeMs: 1_000,
+        nowMs: 65_000,
+        lastUsage: {
+          prompt_tokens: 100,
+          completion_tokens: 25,
+          cached_tokens: 40,
+        },
+        contextWindowTokens: 8192,
+        sessionMessageCount: 7,
+        contextTokensEstimate: 1536,
+      }),
+    });
+
+    await expect(router.dispatch("/status", { traceId: "trace-1", sessionId: "session-1" })).resolves.toMatchObject({
+      handled: true,
+      output: [
+        "tinybot v1.2.3",
+        "Model: gpt-4.1-mini",
+        "Tokens: 100 in / 25 out (40% cached)",
+        "Context: 1k/8k (18%)",
+        "Session: 7 messages",
+        "Uptime: 1m 4s",
+      ].join("\n"),
+      metadata: {
+        command: "/status",
+        render_as: "text",
+        active_run_count: 2,
+        active_session_run_count: 1,
+        session_id: "session-1",
+      },
+    });
+  });
+
   test("returns Python-compatible usage for malformed approve commands", async () => {
     const router = createDefaultCommandRouter();
 

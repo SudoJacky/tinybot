@@ -7109,6 +7109,77 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("reports last run usage and context in backend slash status", async () => {
+    let providerCalls = 0;
+    const provider: ModelProvider = {
+      complete: async () => {
+        providerCalls += 1;
+        return {
+          content: "done",
+          toolCalls: [],
+          stopReason: "stop",
+          usage: {
+            inputTokens: 120,
+            outputTokens: 30,
+            cachedTokens: 60,
+          },
+        };
+      },
+    };
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+    });
+
+    await worker.handleRequest(
+      request({
+        spec: {
+          runId: "run-usage-source",
+          sessionId: "session-1",
+          messages: [
+            { role: "system", content: "system context" },
+            { role: "user", content: "hello" },
+          ],
+          model: "status-model",
+          contextWindow: 8192,
+          maxIterations: 2,
+          stream: false,
+        },
+      }),
+    );
+
+    const statusResponse = await worker.handleRequest(
+      request({
+        spec: {
+          runId: "run-status-command",
+          sessionId: "session-1",
+          messages: [{ role: "user", content: "/status" }],
+          model: "status-model",
+          maxIterations: 2,
+          stream: false,
+        },
+      }),
+    );
+
+    expect(providerCalls).toBe(1);
+    expect(statusResponse).toMatchObject({
+      result: {
+        finalContent: expect.stringContaining("Model: status-model"),
+        stopReason: "command",
+        metadata: {
+          command: "/status",
+          render_as: "text",
+          active_run_count: 0,
+          active_session_run_count: 0,
+        },
+      },
+    });
+    expect(statusResponse.result?.finalContent).toContain("Tokens: 120 in / 30 out (50% cached)");
+    expect(statusResponse.result?.finalContent).toContain("Context: 120/8k (1%)");
+    expect(statusResponse.result?.finalContent).toContain("Session: 2 messages");
+  });
+
   test("handles backend slash restart through the native restart bridge", async () => {
     const restartRequests: Array<{ traceId: string; runId?: string; sessionId?: string }> = [];
     let providerCalls = 0;
