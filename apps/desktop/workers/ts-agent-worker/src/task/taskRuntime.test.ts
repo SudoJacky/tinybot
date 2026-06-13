@@ -329,6 +329,53 @@ describe("TaskRuntime", () => {
     });
   });
 
+  test("builds Python-compatible completed context for spawned subtasks", async () => {
+    const plan = basePlan();
+    plan.status = "planning";
+    plan.subtasks = [
+      {
+        ...basePlan().subtasks[0],
+        id: "a",
+        title: "Foundation",
+        status: "completed",
+        result: "Foundation result",
+      },
+      {
+        ...basePlan().subtasks[0],
+        id: "b",
+        title: "Research",
+        status: "completed",
+        result: "Research result",
+      },
+      {
+        ...basePlan().subtasks[1],
+        id: "c",
+        title: "Implementation",
+        description: "Use completed context",
+        status: "pending",
+        dependencies: ["a"],
+      },
+    ];
+    const { bridge } = memoryBridge([plan]);
+    const spawnedTasks: string[] = [];
+    const runtime = new TaskRuntime({
+      store: bridge,
+      now: () => "2026-06-12T00:00:00.000Z",
+      executor: {
+        spawnSubtask: async ({ task }) => {
+          spawnedTasks.push(task);
+        },
+      },
+    });
+
+    await runtime.resumePlan("plan-1", { parallel: true }, "trace-resume");
+
+    expect(spawnedTasks[0]).toContain("## Dependencies' Results");
+    expect(spawnedTasks[0]).toContain("**Foundation:** Foundation result");
+    expect(spawnedTasks[0]).toContain("## Other Completed Steps");
+    expect(spawnedTasks[0]).toContain("- Research: Research result");
+  });
+
   test("publishes task progress when resume starts ready subtasks", async () => {
     const plan = basePlan();
     plan.status = "planning";

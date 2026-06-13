@@ -443,6 +443,7 @@ function randomTaskId(): string {
 }
 
 const MAX_CONTEXT_PER_SUBTASK = 1500;
+const MAX_TOTAL_CONTEXT = 8000;
 
 function truncateSubtaskResult(result: string | null | undefined): string | null {
   if (!result) {
@@ -455,11 +456,7 @@ function truncateSubtaskResult(result: string | null | undefined): string | null
 }
 
 function buildTaskDescription(plan: TaskPlan, subtask: SubTask): string {
-  const dependencyContext = subtask.dependencies
-    .map((dependencyId) => plan.subtasks.find((candidate) => candidate.id === dependencyId))
-    .filter((dependency): dependency is SubTask => dependency !== undefined && !!dependency.result)
-    .map((dependency) => `**${dependency.title}:** ${dependency.result}`)
-    .join("\n");
+  const completedContext = buildCompletedSubtaskContext(plan, subtask);
   return [
     `Execute subtask: ${subtask.title}`,
     "",
@@ -467,13 +464,46 @@ function buildTaskDescription(plan: TaskPlan, subtask: SubTask): string {
     subtask.description,
     "",
     "## Context from Completed Subtasks",
-    dependencyContext,
+    completedContext,
     "",
     "## Instructions",
     "1. Focus on completing only this subtask",
     "2. Use available tools to gather information and produce results",
     "3. Provide a clear, concise summary of what was accomplished",
   ].join("\n");
+}
+
+function buildCompletedSubtaskContext(plan: TaskPlan, subtask: SubTask): string {
+  const parts: string[] = [];
+  const dependencyResults = subtask.dependencies
+    .map((dependencyId) => plan.subtasks.find((candidate) => candidate.id === dependencyId))
+    .filter((dependency): dependency is SubTask => dependency !== undefined && !!dependency.result)
+    .map((dependency) => `**${dependency.title}:** ${dependency.result}`);
+
+  if (dependencyResults.length > 0) {
+    parts.push("## Dependencies' Results", ...dependencyResults);
+  }
+
+  const otherResults: string[] = [];
+  let totalLength = dependencyResults.reduce((total, result) => total + result.length, 0);
+  for (const candidate of plan.subtasks) {
+    if (
+      candidate.status === "completed"
+      && !subtask.dependencies.includes(candidate.id)
+      && candidate.result
+    ) {
+      const snippet = candidate.result.slice(0, 500);
+      if (totalLength + snippet.length < MAX_TOTAL_CONTEXT) {
+        otherResults.push(`- ${candidate.title}: ${snippet}`);
+        totalLength += snippet.length;
+      }
+    }
+  }
+  if (otherResults.length > 0) {
+    parts.push("\n## Other Completed Steps", ...otherResults.slice(0, 5));
+  }
+
+  return parts.join("\n");
 }
 
 function taskResultSummary(plan: TaskPlan): string {
