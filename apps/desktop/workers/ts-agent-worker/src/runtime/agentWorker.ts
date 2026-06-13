@@ -1508,17 +1508,21 @@ export class AgentWorker {
     }
     try {
       const params = parseCoworkCreateSessionParams(request.params);
+      const body: Record<string, unknown> = request.params ?? {};
       if (params.blueprint !== undefined) {
         const result = await this.coworkService.createSessionFromBlueprint({
           traceId: request.trace_id,
           blueprint: params.blueprint,
           runtimeState: params.runtimeState,
         });
+        const session = result.session
+          ? await this.maybeAutoRunCoworkSession(result.session, body, request.trace_id, { allowRoundsAlias: true })
+          : null;
         return {
           protocol_version: WORKER_PROTOCOL_VERSION,
           id: request.id,
           trace_id: request.trace_id,
-          result,
+          result: { ...result, session },
         };
       }
       const session = await this.coworkService.createSession({
@@ -1531,11 +1535,12 @@ export class AgentWorker {
         budgets: params.budgets,
         runtimeState: params.runtimeState,
       });
+      const routedSession = await this.maybeAutoRunCoworkSession(session, body, request.trace_id);
       return {
         protocol_version: WORKER_PROTOCOL_VERSION,
         id: request.id,
         trace_id: request.trace_id,
-        result: { session },
+        result: { session: routedSession },
       };
     } catch (error) {
       return this.failure(request, errorMessage(error), {}, "invalid_protocol");

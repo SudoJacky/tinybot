@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued Cowork Phase 10 direct RPC parity: direct TS `cowork.create_session` RPCs now honor Python-compatible `auto_run` scheduling and numeric run limits, reusing the migrated scheduler instead of returning an unrunnable freshly-created session.
+
 - Continued Cowork Phase 10 task-review route parity: TS-native review-task routes now mirror Python route text coercion for `reviewer_agent_id`, preserving truthy numeric reviewer ids before reviewer assignment fallback.
 
 - Continued Cowork Phase 10 add-task route parity: TS-native add-task routes now mirror Python's narrower route payload boundary, ignoring direct worker RPC-only fields such as review/fanout/merge metadata instead of persisting them through HTTP route requests.
@@ -980,6 +982,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for message route metadata fields.
 - [x] Continue Cowork Phase 10: mirror Python add-task route payload boundaries for direct worker RPC-only fields.
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for task-review reviewer ids.
+- [x] Continue Cowork Phase 10: auto-run direct TS `cowork.create_session` RPCs with Python-compatible scheduler limits.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.
