@@ -853,7 +853,7 @@ export class AgentWorker {
       if (!session) {
         return { status: 200, body: { result: `Error: cowork session '${sessionId}' not found`, session: null } };
       }
-      const params = parseCoworkSendMessageParams({ ...body, session_id: sessionId, content });
+      const params = parseCoworkSendMessageParams(coworkSendMessageRouteBody(body, sessionId, content));
       if (params.recipientIds.length === 0) {
         if (session.workflow_mode === "swarm") {
           const result = await this.coworkService.steerSwarm({
@@ -3950,6 +3950,22 @@ function coworkSelectFinalResultRouteBody(
   };
   setRouteTextParam(routeBody, body, "branch_id", "branchId", "branch_id");
   setRouteTextParam(routeBody, body, "result_id", "resultId", "result_id");
+  return routeBody;
+}
+
+function coworkSendMessageRouteBody(
+  body: Record<string, unknown>,
+  sessionId: string,
+  content: string,
+): Record<string, unknown> {
+  const routeBody: Record<string, unknown> = {
+    ...body,
+    session_id: sessionId,
+    content,
+  };
+  setRouteTextParam(routeBody, body, "thread_id", "threadId", "thread_id");
+  setRouteTextParam(routeBody, body, "topic", "topic", "topic");
+  setRouteTextParam(routeBody, body, "event_type", "eventType", "event_type");
   return routeBody;
 }
 

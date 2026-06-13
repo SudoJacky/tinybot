@@ -4952,9 +4952,9 @@ describe("AgentWorker", () => {
       body: {
         content: "Route message",
         recipient_ids: ["reviewer"],
-        thread_id: "route_topic_thread",
-        topic: "Route topic",
-        event_type: "route.topic.sent",
+        thread_id: 101,
+        topic: 202,
+        event_type: 303,
       },
     }))).resolves.toMatchObject({
       result: {
@@ -4963,22 +4963,22 @@ describe("AgentWorker", () => {
           message: expect.objectContaining({
             id: "msg_3",
             content: "Route message",
-            thread_id: "route_topic_thread",
+            thread_id: "101",
           }),
           session: expect.objectContaining({
             threads: expect.arrayContaining([
               expect.objectContaining({
-                id: "route_topic_thread",
-                topic: "Route topic",
+                id: "101",
+                topic: "202",
               }),
             ]),
             mailbox: expect.arrayContaining([
               expect.objectContaining({
                 id: "env_1",
                 message_id: "msg_3",
-                thread_id: "route_topic_thread",
-                topic: "Route topic",
-                event_type: "route.topic.sent",
+                thread_id: "101",
+                topic: "202",
+                event_type: "303",
                 status: "delivered",
               }),
             ]),
@@ -4987,8 +4987,8 @@ describe("AgentWorker", () => {
                 type: "mailbox.queued",
                 payload: expect.objectContaining({
                   envelope_id: "env_1",
-                  topic: "Route topic",
-                  event_type: "route.topic.sent",
+                  topic: "202",
+                  event_type: "303",
                 }),
               }),
             ]),
