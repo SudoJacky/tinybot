@@ -205,6 +205,40 @@ describe("NativeSkillsBridge", () => {
     ]);
   });
 
+  test("wraps workspace skill delete failures like Python", async () => {
+    const rpcClient = new FakeRpcClient({
+      "skills.list": [
+        {
+          skills: [
+            {
+              name: "review-work",
+              path: "skills/review-work/SKILL.md",
+              source: "workspace",
+              content: "---\nname: review-work\ndescription: Existing\n---\nExisting.",
+            },
+          ],
+        },
+      ],
+      "workspace.delete_file": [
+        new Error("permission denied"),
+      ],
+    });
+    const bridge = new NativeSkillsBridge(rpcClient, {});
+
+    await expect(bridge.deleteWebuiSkill("review-work", "trace-delete-failed")).rejects.toMatchObject({
+      message: "failed to delete skill: permission denied",
+      status: 500,
+    });
+    expect(rpcClient.calls).toEqual([
+      { traceId: "trace-delete-failed", method: "skills.list", params: {} },
+      {
+        traceId: "trace-delete-failed",
+        method: "workspace.delete_file",
+        params: { path: "skills/review-work", recursive: true },
+      },
+    ]);
+  });
+
   test("rejects non-string update content before writing like Python", async () => {
     const rpcClient = new FakeRpcClient({
       "workspace.read_file": [

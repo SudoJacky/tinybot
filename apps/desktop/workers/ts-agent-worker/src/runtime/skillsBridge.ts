@@ -84,10 +84,14 @@ export class NativeSkillsBridge implements SkillsBridge {
     if (entry?.source === "builtin") {
       throw new NativeWebuiSkillError("cannot delete builtin skills", 403);
     }
-    await this.rpcClient.request(traceId, "workspace.delete_file", {
-      path: skillDirPath(name),
-      recursive: true,
-    });
+    try {
+      await this.rpcClient.request(traceId, "workspace.delete_file", {
+        path: skillDirPath(name),
+        recursive: true,
+      });
+    } catch (error) {
+      throw new NativeWebuiSkillError(`failed to delete skill: ${errorMessage(error)}`, 500);
+    }
     return { deleted: true, name };
   }
 
