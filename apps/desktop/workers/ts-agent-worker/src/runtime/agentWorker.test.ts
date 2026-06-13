@@ -5184,11 +5184,11 @@ describe("AgentWorker", () => {
     const assignResponse = await worker.handleRequest(coworkRequest("cowork.assign_task", {
       session_id: sessionId,
       task_id: "open",
-      assigned_agent_id: "reviewer",
+      assigned_agent_id: 123.5,
     }));
     const assignResult = assignResponse.result as { result: string; session: { tasks: Record<string, { assigned_agent_id: string }> } };
-    expect(assignResult.result).toBe("Task 'Open' assigned to Reviewer.");
-    expect(assignResult.session.tasks.open.assigned_agent_id).toBe("reviewer");
+    expect(assignResult.result).toBe("Task 'Open' assigned to Numeric Reviewer.");
+    expect(assignResult.session.tasks.open.assigned_agent_id).toBe("123_5");
 
     await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
       method: "POST",
@@ -5200,7 +5200,7 @@ describe("AgentWorker", () => {
         body: {
           result: "Error: agent 'item' not found",
           session: expect.objectContaining({
-            tasks: expect.arrayContaining([expect.objectContaining({ id: "open", assigned_agent_id: "reviewer" })]),
+            tasks: expect.arrayContaining([expect.objectContaining({ id: "open", assigned_agent_id: "123_5" })]),
             graph: expect.objectContaining({ schema_version: "cowork.graph.v2" }),
           }),
         },
@@ -5217,7 +5217,7 @@ describe("AgentWorker", () => {
         body: {
           result: "Error: agent '123' not found",
           session: expect.objectContaining({
-            tasks: expect.arrayContaining([expect.objectContaining({ id: "open", assigned_agent_id: "reviewer" })]),
+            tasks: expect.arrayContaining([expect.objectContaining({ id: "open", assigned_agent_id: "123_5" })]),
           }),
         },
       },
@@ -5243,7 +5243,7 @@ describe("AgentWorker", () => {
         body: {
           result: "Error: task 'missing' not found",
           session: expect.objectContaining({
-            tasks: expect.arrayContaining([expect.objectContaining({ id: "open", assigned_agent_id: "reviewer" })]),
+            tasks: expect.arrayContaining([expect.objectContaining({ id: "open", assigned_agent_id: "123_5" })]),
             graph: expect.objectContaining({ schema_version: "cowork.graph.v2" }),
           }),
         },
@@ -5505,7 +5505,11 @@ describe("AgentWorker", () => {
     const create = await worker.handleRequest(coworkRequest("cowork.create_session", {
       goal: "Review retry path",
       title: "Review Retry",
-      agents: [{ id: "lead", name: "Lead" }, { id: "reviewer", name: "Reviewer", role: "Reviewer" }],
+      agents: [
+        { id: "lead", name: "Lead" },
+        { id: "reviewer", name: "Reviewer", role: "Reviewer" },
+        { id: "123_5", name: "Numeric Reviewer", role: "Reviewer" },
+      ],
       tasks: [{ id: "answer", title: "Answer", description: "Answer task", assigned_agent_id: "lead" }],
     }));
     const session = ((create.result as Record<string, unknown>).session as CoworkSession);
@@ -5538,13 +5542,13 @@ describe("AgentWorker", () => {
     await expect(worker.handleRequest(coworkRequest("cowork.request_task_review", {
       session_id: session.id,
       task_id: "answer",
-      reviewer_agent_id: "reviewer",
+      reviewer_agent_id: 123.5,
     }))).resolves.toMatchObject({
       result: {
         review_task_id: "task_1",
         reviewTask: expect.objectContaining({
           title: "Review Answer",
-          assigned_agent_id: "reviewer",
+          assigned_agent_id: "123_5",
           dependencies: ["answer"],
         }),
       },

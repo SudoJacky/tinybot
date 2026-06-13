@@ -4179,7 +4179,8 @@ function parseCoworkAssignTaskParams(params: Record<string, unknown> | undefined
   }
   const sessionId = stringParam(params, "sessionId", "session_id");
   const taskId = stringParam(params, "taskId", "task_id");
-  const agentId = stringParam(params, "agentId", "agent_id") ?? stringParam(params, "assignedAgentId", "assigned_agent_id");
+  const agentId = pythonRouteTextParam(params, "agentId", "agent_id")
+    || pythonRouteTextParam(params, "assignedAgentId", "assigned_agent_id");
   if (!sessionId || !taskId || !agentId) {
     throw new Error("cowork.assign_task requires params.session_id, params.task_id, and params.assigned_agent_id");
   }
@@ -4202,7 +4203,7 @@ function parseCoworkTaskMutationParams(params: Record<string, unknown> | undefin
   return {
     sessionId,
     taskId,
-    reviewerAgentId: stringParam(params, "reviewerAgentId", "reviewer_agent_id"),
+    reviewerAgentId: pythonRouteTextParam(params, "reviewerAgentId", "reviewer_agent_id"),
   };
 }
 
