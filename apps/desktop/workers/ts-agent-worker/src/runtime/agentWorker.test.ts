@@ -435,6 +435,107 @@ describe("AgentWorker", () => {
     }));
   });
 
+  test("dispatches channel stop commands through active session cancellation without loading agent context", async () => {
+    const events: WorkerEvent[] = [];
+    const completion = deferred<ModelResponse>();
+    let providerCalls = 0;
+    const loadedInputs: AgentRunInput[] = [];
+    const provider: ModelProvider = {
+      complete: async () => {
+        providerCalls += 1;
+        if (providerCalls === 1) {
+          return completion.promise;
+        }
+        throw new Error("channel stop reached provider");
+      },
+    };
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: (event) => events.push(event),
+      contextBridge: {
+        loadContextInput: async (input) => {
+          loadedInputs.push(input);
+          return {
+            input: {
+              identity: "Identity",
+              currentMessage: input.input.content,
+              runtime: {
+                currentTime: "2026-06-13 10:00:00 Asia/Shanghai",
+                channel: input.channel,
+                chatId: input.chatId,
+              },
+            },
+            metadata: {
+              missingSession: false,
+              malformedHistoryCount: 0,
+              missingBootstrapFiles: [],
+              bootstrapFallbackUsed: false,
+            },
+          };
+        },
+      },
+    });
+
+    const runResponsePromise = worker.handleRequest(
+      request({
+        spec: {
+          runId: "run-channel-active-1",
+          sessionId: "websocket:chat-1",
+          messages: [{ role: "user", content: "keep working" }],
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+        },
+      }),
+    );
+
+    const stopResponse = await worker.handleRequest(channelRequest("channel.dispatch_inbound", {
+      message: {
+        channel: "websocket",
+        sender_id: "client-1",
+        chat_id: "chat-1",
+        content: "/stop",
+        timestamp: "2026-06-13T02:00:00.000Z",
+        media: [],
+        metadata: {},
+      },
+    }));
+    completion.resolve({ content: "late answer", toolCalls: [], stopReason: "stop" });
+    const runResponse = await runResponsePromise;
+
+    expect(providerCalls).toBe(1);
+    expect(loadedInputs).toEqual([]);
+    expect(stopResponse).toMatchObject({
+      result: {
+        dispatched: 1,
+        outboundMessages: [
+          expect.objectContaining({
+            channel: "websocket",
+            chatId: "chat-1",
+            content: "Stopped 1 task(s).",
+            metadata: expect.objectContaining({
+              command: "/stop",
+              cancelled_count: 1,
+              run_ids: ["run-channel-active-1"],
+            }),
+          }),
+        ],
+      },
+    });
+    expect(events).toContainEqual(expect.objectContaining({
+      protocol_version: "1",
+      trace_id: "trace-1",
+      event: "agent.cancelled",
+      payload: expect.objectContaining({ runId: "run-channel-active-1" }),
+    }));
+    expect(runResponse.result).toMatchObject({
+      finalContent: "",
+      stopReason: "cancelled",
+      error: "cancelled",
+    });
+  });
+
   test("serves WebUI tools control route through TS worker RPC", async () => {
     const tools = new ToolRegistry();
     tools.register({

@@ -2621,10 +2621,22 @@ export class AgentWorker {
     if (!message) {
       return undefined;
     }
-    const result = await this.commandRouter.dispatch(message.content, {
-      traceId,
+    return this.tryDispatchCommand(traceId, {
       runId: spec.runId,
       sessionId: spec.sessionId,
+      content: message.content,
+      messages: spec.messages,
+    });
+  }
+
+  private async tryDispatchCommand(
+    traceId: string,
+    command: { runId: string; sessionId?: string; content: string; messages: AgentMessage[] },
+  ): Promise<AgentRunResult | undefined> {
+    const result = await this.commandRouter.dispatch(command.content, {
+      traceId,
+      runId: command.runId,
+      sessionId: command.sessionId,
     });
     if (!result.handled) {
       return undefined;
@@ -2636,7 +2648,7 @@ export class AgentWorker {
     };
     return {
       finalContent: commandMessage.content,
-      messages: [...spec.messages, commandMessage],
+      messages: [...command.messages, commandMessage],
       toolsUsed: [],
       stopReason: "command",
       ...(result.metadata ? { metadata: result.metadata } : {}),
@@ -2866,6 +2878,20 @@ export class AgentWorker {
       const bus = new MessageBus();
       const runtime = new ChannelRuntime({
         bus,
+        handleCommand: (message, context) =>
+          this.tryDispatchCommand(request.trace_id, {
+            runId: context.runId,
+            sessionId: context.sessionId,
+            content: message.content,
+            messages: [{
+              role: "user",
+              content: message.content,
+              metadata: {
+                ...message.metadata,
+                senderId: message.senderId,
+              },
+            }],
+          }),
         runAgent: async (input) => {
           const response = await this.handleRunInputRequest({
             protocol_version: WORKER_PROTOCOL_VERSION,

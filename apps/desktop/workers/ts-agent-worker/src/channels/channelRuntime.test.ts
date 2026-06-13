@@ -124,4 +124,54 @@ describe("ChannelRuntime", () => {
       }),
     ]);
   });
+
+  test("dispatches channel slash commands without invoking the agent runner", async () => {
+    const bus = new MessageBus();
+    const agentInputs: AgentRunInput[] = [];
+    const commandCalls: Array<{ raw: string; sessionId: string; runId: string }> = [];
+    const runtime = new ChannelRuntime({
+      bus,
+      createRunId: () => "run-stop",
+      handleCommand: async (message, context) => {
+        commandCalls.push({
+          raw: message.content,
+          sessionId: context.sessionId,
+          runId: context.runId,
+        });
+        return result({
+          finalContent: "Stopped 1 task(s).",
+          metadata: { command: "/stop", cancelled_count: 1 },
+          stopReason: "command",
+        });
+      },
+      runAgent: async (input) => {
+        agentInputs.push(input);
+        return result();
+      },
+    });
+
+    await bus.publishInbound(inbound({
+      content: "/stop",
+      channel: "feishu",
+      chatId: "oc_1",
+      metadata: { _wants_stream: true },
+    }));
+
+    await expect(runtime.dispatchInboundAvailable()).resolves.toBe(1);
+    expect(agentInputs).toEqual([]);
+    expect(commandCalls).toEqual([
+      { raw: "/stop", sessionId: "feishu:oc_1", runId: "run-stop" },
+    ]);
+    expect(bus.drainOutboundForTest()).toEqual([
+      expect.objectContaining({
+        channel: "feishu",
+        chatId: "oc_1",
+        content: "Stopped 1 task(s).",
+        metadata: expect.objectContaining({
+          command: "/stop",
+          cancelled_count: 1,
+        }),
+      }),
+    ]);
+  });
 });

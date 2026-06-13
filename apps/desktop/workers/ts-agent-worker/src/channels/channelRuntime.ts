@@ -8,9 +8,15 @@ export type ChannelRuntimeRunAgent = (
   context: { message: InboundMessage },
 ) => Promise<AgentRunResult> | AgentRunResult;
 
+export type ChannelRuntimeHandleCommand = (
+  message: InboundMessage,
+  context: { runId: string; sessionId: string },
+) => Promise<AgentRunResult | undefined> | AgentRunResult | undefined;
+
 export type ChannelRuntimeOptions = {
   bus: MessageBus;
   runAgent: ChannelRuntimeRunAgent;
+  handleCommand?: ChannelRuntimeHandleCommand;
   createRunId?: (message: InboundMessage, index: number) => string;
 };
 
@@ -25,6 +31,7 @@ export type ChannelRuntimeDiagnostic = {
 export class ChannelRuntime {
   private readonly bus: MessageBus;
   private readonly runAgent: ChannelRuntimeRunAgent;
+  private readonly handleCommand?: ChannelRuntimeHandleCommand;
   private readonly createRunId: (message: InboundMessage, index: number) => string;
   private readonly runtimeDiagnostics: ChannelRuntimeDiagnostic[] = [];
   private runCounter = 0;
@@ -32,6 +39,7 @@ export class ChannelRuntime {
   constructor(options: ChannelRuntimeOptions) {
     this.bus = options.bus;
     this.runAgent = options.runAgent;
+    this.handleCommand = options.handleCommand;
     this.createRunId = options.createRunId ?? defaultRunId;
   }
 
@@ -48,6 +56,15 @@ export class ChannelRuntime {
       }
       const runId = this.createRunId(message, this.runCounter++);
       try {
+        const commandResult = await this.handleCommand?.(message, {
+          runId,
+          sessionId: sessionKeyOf(message),
+        });
+        if (commandResult) {
+          await this.publishResult(message, commandResult, { forceNonStream: true });
+          completed += 1;
+          continue;
+        }
         const result = await this.runAgent(this.inputFromMessage(message, runId), { message });
         await this.publishResult(message, result);
         completed += 1;
@@ -90,7 +107,11 @@ export class ChannelRuntime {
     };
   }
 
-  private async publishResult(message: InboundMessage, result: AgentRunResult): Promise<void> {
+  private async publishResult(
+    message: InboundMessage,
+    result: AgentRunResult,
+    options: { forceNonStream?: boolean } = {},
+  ): Promise<void> {
     if (result.usage && message.channel === "websocket") {
       await this.bus.publishOutbound({
         channel: message.channel,
@@ -106,7 +127,7 @@ export class ChannelRuntime {
     const metadata: MessageMetadata = {
       ...metadataRecord(result.metadata),
     };
-    const streamed = message.metadata._wants_stream === true;
+    const streamed = !options.forceNonStream && message.metadata._wants_stream === true;
     if (streamed) {
       metadata._streamed = true;
     }
