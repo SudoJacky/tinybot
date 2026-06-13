@@ -904,6 +904,8 @@ function mailboxAgentReadinessScore(session: CoworkSession, agentId: string, rea
     ));
     score += reviewer && hasPendingReview ? 40 : 0;
     score -= reviewer && !hasPendingReview ? 8 : 0;
+  } else if (profile === "message_bus") {
+    score += agentSubscriptionPressure(session, agentId);
   }
   if (agentId === leadAgentId(session) && leadShouldSynthesize(session)) {
     score += 65;
@@ -987,6 +989,30 @@ function mailboxPressureFor(session: CoworkSession, agentId: string): number {
     }
     if (record.requires_reply === true && ["delivered", "read"].includes(stringValue(record.status))) {
       pressure = Math.max(pressure, (numberOrNull(record.priority) ?? 0) + 20);
+    }
+  }
+  return pressure;
+}
+
+function agentSubscriptionPressure(session: CoworkSession, agentId: string): number {
+  const agent = jsonSafeObject(session.agents[agentId]);
+  const subscriptions = new Set(arrayValue(agent.subscriptions).map((item) => stringValue(item).toLowerCase()).filter(Boolean));
+  if (subscriptions.size === 0) {
+    return 0;
+  }
+  let pressure = 0;
+  for (const record of Object.values(session.mailbox).map(jsonSafeObject)) {
+    if (["replied", "expired"].includes(stringValue(record.status))) {
+      continue;
+    }
+    const labels = [
+      stringValue(record.topic),
+      stringValue(record.event_type),
+      stringValue(record.request_type),
+      stringValue(record.kind),
+    ].map((item) => item.toLowerCase()).filter(Boolean);
+    if (labels.some((label) => subscriptions.has(label))) {
+      pressure = Math.max(pressure, 10 + Math.min(numberOrNull(record.priority) ?? 0, 40));
     }
   }
   return pressure;

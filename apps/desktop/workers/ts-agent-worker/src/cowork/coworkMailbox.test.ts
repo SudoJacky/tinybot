@@ -585,6 +585,33 @@ describe("CoworkMailbox", () => {
     });
   });
 
+  it("adds message-bus subscription pressure to readiness scores", async () => {
+    const session = await createTeamSession();
+    session.workflow_mode = "message_bus";
+    session.agents.coordinator.inbox = [];
+    session.agents.researcher.inbox = [];
+    session.agents.analyst.inbox = [];
+    session.agents.researcher.subscriptions = ["backend"];
+
+    deliver(session, {
+      sender_id: "coordinator",
+      recipient_ids: ["analyst"],
+      content: "Backend route needs attention.",
+      topic: "backend",
+      priority: 37,
+      wake_recipients: false,
+    });
+
+    const researcherReadiness = session.completion_decision.readiness.find(
+      (entry: Record<string, unknown>) => entry.agent_id === "researcher",
+    );
+    expect(researcherReadiness).toMatchObject({
+      agent_id: "researcher",
+      score: 47,
+      activation_reasons: [],
+    });
+  });
+
   it("recomputes the session focus task from pending reply blockers after delivery", async () => {
     const session = await createTeamSession();
     session.current_focus_task = "Stale focus";
