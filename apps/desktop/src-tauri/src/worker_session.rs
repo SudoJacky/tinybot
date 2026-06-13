@@ -823,10 +823,14 @@ fn project_history_message(message: &Value) -> Option<Value> {
     );
     for key in [
         "tool_calls",
+        "toolCalls",
         "tool_call_id",
+        "toolCallId",
         "name",
         "reasoning_content",
+        "reasoningContent",
         "thinking_blocks",
+        "thinkingBlocks",
     ] {
         if let Some(value) = object.get(key) {
             projected.insert(key.to_string(), value.clone());
@@ -1225,6 +1229,56 @@ mod tests {
                 }),
                 json!({ "role": "tool", "content": "README", "tool_call_id": "call-read", "name": "read_file" }),
                 json!({ "role": "assistant", "content": "final done" })
+            ]
+        );
+    }
+
+    #[test]
+    fn get_history_preserves_camel_case_model_fields() {
+        let mut session = session_fixture();
+        session.extra = json!({
+            "messages": [
+                { "role": "user", "content": "inspect" },
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "reasoningContent": "Need a tool.",
+                    "thinkingBlocks": [{ "type": "thinking", "text": "trace" }],
+                    "toolCalls": [
+                        {
+                            "id": "call-read",
+                            "name": "read_file",
+                            "argumentsJson": "{\"path\":\"README.md\"}"
+                        }
+                    ]
+                },
+                { "role": "tool", "content": "README", "toolCallId": "call-read", "name": "read_file" }
+            ]
+        });
+        let rpc = WorkerSessionRpc::new(vec![session], read_policy());
+
+        let history = rpc
+            .get_history("session-1", 80)
+            .expect("history should preserve model fields");
+
+        assert_eq!(
+            history.messages,
+            vec![
+                json!({ "role": "user", "content": "inspect" }),
+                json!({
+                    "role": "assistant",
+                    "content": "",
+                    "reasoningContent": "Need a tool.",
+                    "thinkingBlocks": [{ "type": "thinking", "text": "trace" }],
+                    "toolCalls": [
+                        {
+                            "id": "call-read",
+                            "name": "read_file",
+                            "argumentsJson": "{\"path\":\"README.md\"}"
+                        }
+                    ]
+                }),
+                json!({ "role": "tool", "content": "README", "toolCallId": "call-read", "name": "read_file" })
             ]
         );
     }
