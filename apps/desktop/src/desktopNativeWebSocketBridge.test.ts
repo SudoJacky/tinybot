@@ -12,6 +12,9 @@ describe("desktop native WebSocket bridge", () => {
       websocketMessage: vi.fn(),
       dispatchWebsocketMessage: vi.fn(async () => dispatch.promise),
       dispatchChannelInbound: vi.fn(),
+      startChannels: vi.fn(),
+      channelStatus: vi.fn(),
+      stopChannels: vi.fn(),
     };
     const socket = createDesktopNativeWebSocket({
       url: "/ws",
@@ -113,6 +116,9 @@ describe("desktop native WebSocket bridge", () => {
         },
       })),
       dispatchChannelInbound: vi.fn(),
+      startChannels: vi.fn(),
+      channelStatus: vi.fn(),
+      stopChannels: vi.fn(),
     };
     const socket = createDesktopNativeWebSocket({
       url: "/ws",
@@ -202,6 +208,9 @@ describe("desktop native WebSocket bridge", () => {
         },
       })),
       dispatchChannelInbound: vi.fn(),
+      startChannels: vi.fn(),
+      channelStatus: vi.fn(),
+      stopChannels: vi.fn(),
     };
     const socket = createDesktopNativeWebSocket({
       url: "/ws",
@@ -285,6 +294,9 @@ describe("desktop native WebSocket bridge", () => {
         },
       })),
       dispatchChannelInbound: vi.fn(),
+      startChannels: vi.fn(),
+      channelStatus: vi.fn(),
+      stopChannels: vi.fn(),
     };
     const socket = createDesktopNativeWebSocket({
       url: "/ws",
@@ -358,6 +370,9 @@ describe("desktop native WebSocket bridge", () => {
         },
       })),
       dispatchChannelInbound: vi.fn(),
+      startChannels: vi.fn(),
+      channelStatus: vi.fn(),
+      stopChannels: vi.fn(),
     };
     const socket = createDesktopNativeWebSocket({
       url: "/ws",
@@ -402,6 +417,9 @@ describe("desktop native WebSocket bridge", () => {
       websocketMessage: vi.fn(),
       dispatchWebsocketMessage: vi.fn(async () => dispatch.promise),
       dispatchChannelInbound: vi.fn(),
+      startChannels: vi.fn(),
+      channelStatus: vi.fn(),
+      stopChannels: vi.fn(),
     };
     const socket = createDesktopNativeWebSocket({
       url: "/ws",

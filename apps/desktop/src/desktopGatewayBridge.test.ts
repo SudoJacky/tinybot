@@ -185,6 +185,9 @@ describe("desktop gateway bridge", () => {
           };
         }),
         dispatchChannelInbound: vi.fn(),
+        startChannels: vi.fn(),
+        channelStatus: vi.fn(),
+        stopChannels: vi.fn(),
       },
     });
 

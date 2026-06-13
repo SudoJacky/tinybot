@@ -170,4 +170,28 @@ describe("desktop native transport", () => {
       },
     });
   });
+
+  test("maps channel lifecycle commands through native TS worker commands", async () => {
+    const invoke = vi.fn(async (command: string) => {
+      if (command === "worker_channel_status") {
+        return {
+          running: true,
+          channels: [{ id: "feishu", running: true }],
+        };
+      }
+      return { ok: true };
+    });
+    const transport = createDesktopNativeTransportApi({ invoke });
+
+    await expect(transport.startChannels()).resolves.toEqual({ ok: true });
+    await expect(transport.channelStatus()).resolves.toMatchObject({
+      running: true,
+      channels: [expect.objectContaining({ id: "feishu", running: true })],
+    });
+    await expect(transport.stopChannels()).resolves.toEqual({ ok: true });
+
+    expect(invoke).toHaveBeenNthCalledWith(1, "worker_channel_start");
+    expect(invoke).toHaveBeenNthCalledWith(2, "worker_channel_status");
+    expect(invoke).toHaveBeenNthCalledWith(3, "worker_channel_stop");
+  });
 });

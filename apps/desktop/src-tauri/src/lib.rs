@@ -704,6 +704,36 @@ fn worker_channel_dispatch_inbound(
 }
 
 #[tauri::command]
+fn worker_channel_start(state: State<'_, SharedGateway>) -> Result<serde_json::Value, String> {
+    worker_channel_start_with_options(
+        state.inner(),
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(60),
+    )
+}
+
+#[tauri::command]
+fn worker_channel_status(state: State<'_, SharedGateway>) -> Result<serde_json::Value, String> {
+    worker_channel_status_with_options(
+        state.inner(),
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_channel_stop(state: State<'_, SharedGateway>) -> Result<serde_json::Value, String> {
+    worker_channel_stop_with_options(
+        state.inner(),
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(60),
+    )
+}
+
+#[tauri::command]
 fn worker_cancel_agent(
     input: WorkerCancelAgentInput,
     state: State<'_, SharedGateway>,
@@ -2374,6 +2404,111 @@ fn build_worker_channel_dispatch_inbound_request(
     )
 }
 
+fn worker_channel_start_with_options(
+    shared: &SharedGateway,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    send_channel_lifecycle_worker_request(
+        shared,
+        workspace_root,
+        config_snapshot,
+        build_worker_channel_start_request(now_unix_ms()),
+        timeout,
+        "start",
+    )
+}
+
+fn worker_channel_status_with_options(
+    shared: &SharedGateway,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    send_channel_lifecycle_worker_request(
+        shared,
+        workspace_root,
+        config_snapshot,
+        build_worker_channel_status_request(now_unix_ms()),
+        timeout,
+        "status",
+    )
+}
+
+fn worker_channel_stop_with_options(
+    shared: &SharedGateway,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    send_channel_lifecycle_worker_request(
+        shared,
+        workspace_root,
+        config_snapshot,
+        build_worker_channel_stop_request(now_unix_ms()),
+        timeout,
+        "stop",
+    )
+}
+
+fn send_channel_lifecycle_worker_request(
+    shared: &SharedGateway,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    request: WorkerRequest,
+    timeout: Duration,
+    action: &str,
+) -> Result<serde_json::Value, String> {
+    let worker = {
+        let runtime = lock_runtime(shared);
+        runtime.experimental_worker.clone()
+    };
+
+    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot)?;
+
+    let response = worker
+        .send_stdio_request(&request, timeout)
+        .map_err(|error| format!("worker channel {action} request failed: {}", error.message))?;
+
+    if let Some(error) = response.error {
+        return Err(format!(
+            "worker channel {action} returned error: {}",
+            error.message
+        ));
+    }
+    response
+        .result
+        .ok_or_else(|| format!("worker channel {action} response missing result"))
+}
+
+fn build_worker_channel_start_request(request_id: u128) -> WorkerRequest {
+    WorkerRequest::new(
+        format!("channel-start-{request_id}"),
+        format!("trace-channel-start-{request_id}"),
+        "channel.start",
+        serde_json::json!({}),
+    )
+}
+
+fn build_worker_channel_status_request(request_id: u128) -> WorkerRequest {
+    WorkerRequest::new(
+        format!("channel-status-{request_id}"),
+        format!("trace-channel-status-{request_id}"),
+        "channel.status",
+        serde_json::json!({}),
+    )
+}
+
+fn build_worker_channel_stop_request(request_id: u128) -> WorkerRequest {
+    WorkerRequest::new(
+        format!("channel-stop-{request_id}"),
+        format!("trace-channel-stop-{request_id}"),
+        "channel.stop",
+        serde_json::json!({}),
+    )
+}
+
 fn json_string_field<'a>(
     object: &'a serde_json::Map<String, serde_json::Value>,
     key: &str,
@@ -2920,6 +3055,9 @@ pub fn run() {
             worker_transport_websocket_message,
             worker_transport_dispatch_websocket_message,
             worker_channel_dispatch_inbound,
+            worker_channel_start,
+            worker_channel_status,
+            worker_channel_stop,
             worker_cancel_agent,
             worker_restore_agent_checkpoint,
             worker_submit_agent_form,
@@ -3646,6 +3784,28 @@ mod tests {
                 }
             })
         );
+    }
+
+    #[test]
+    fn worker_channel_lifecycle_requests_target_ts_channel_manager() {
+        let start_request = build_worker_channel_start_request(42);
+        let status_request = build_worker_channel_status_request(43);
+        let stop_request = build_worker_channel_stop_request(44);
+
+        assert_eq!(start_request.id, "channel-start-42");
+        assert_eq!(start_request.trace_id, "trace-channel-start-42");
+        assert_eq!(start_request.method, "channel.start");
+        assert_eq!(start_request.params, serde_json::json!({}));
+
+        assert_eq!(status_request.id, "channel-status-43");
+        assert_eq!(status_request.trace_id, "trace-channel-status-43");
+        assert_eq!(status_request.method, "channel.status");
+        assert_eq!(status_request.params, serde_json::json!({}));
+
+        assert_eq!(stop_request.id, "channel-stop-44");
+        assert_eq!(stop_request.trace_id, "trace-channel-stop-44");
+        assert_eq!(stop_request.method, "channel.stop");
+        assert_eq!(stop_request.params, serde_json::json!({}));
     }
 
     #[test]

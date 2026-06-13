@@ -50,6 +50,9 @@ export type NativeTransportApi = {
   websocketMessage(request: NativeTransportWebSocketMessageRequest): Promise<unknown>;
   dispatchWebsocketMessage(request: NativeTransportWebSocketDispatchRequest): Promise<unknown>;
   dispatchChannelInbound(request: NativeChannelDispatchInboundRequest): Promise<unknown>;
+  startChannels(): Promise<unknown>;
+  channelStatus(): Promise<unknown>;
+  stopChannels(): Promise<unknown>;
 };
 
 export function createDesktopNativeTransportApi(options: { invoke?: TauriInvoke } = {}): NativeTransportApi {
@@ -59,5 +62,8 @@ export function createDesktopNativeTransportApi(options: { invoke?: TauriInvoke 
     websocketMessage: (request) => invoke("worker_transport_websocket_message", { input: request }),
     dispatchWebsocketMessage: (request) => invoke("worker_transport_dispatch_websocket_message", { input: request }),
     dispatchChannelInbound: (request) => invoke("worker_channel_dispatch_inbound", { input: request }),
+    startChannels: () => invoke("worker_channel_start"),
+    channelStatus: () => invoke("worker_channel_status"),
+    stopChannels: () => invoke("worker_channel_stop"),
   };
 }
