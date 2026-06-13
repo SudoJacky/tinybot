@@ -4447,7 +4447,7 @@ function parseCoworkAgentActivityParams(params: Record<string, unknown> | undefi
     throw new Error("cowork.get_agent_activity requires object params");
   }
   const sessionId = stringParam(params, "sessionId", "session_id");
-  const agentId = stringParam(params, "agentId", "agent_id");
+  const agentId = pythonRouteTextParam(params, "agentId", "agent_id");
   if (!sessionId || !agentId) {
     throw new Error("cowork.get_agent_activity requires params.session_id and params.agent_id");
   }
@@ -4467,15 +4467,15 @@ function parseCoworkObservationDetailParams(params: Record<string, unknown> | un
     throw new Error("cowork.get_observation_detail requires object params");
   }
   const sessionId = stringParam(params, "sessionId", "session_id");
-  const detailId = stringParam(params, "detailId", "detail_id");
+  const detailId = pythonRouteTextParam(params, "detailId", "detail_id");
   if (!sessionId || !detailId) {
     throw new Error("cowork.get_observation_detail requires params.session_id and params.detail_id");
   }
   return {
     sessionId,
     detailId,
-    requesterAgentId: stringParam(params, "requesterAgentId", "requester_agent_id")
-      ?? stringParam(params, "agentId", "agent_id"),
+    requesterAgentId: pythonRouteTextParam(params, "requesterAgentId", "requester_agent_id")
+      || pythonRouteTextParam(params, "agentId", "agent_id"),
   };
 }
 

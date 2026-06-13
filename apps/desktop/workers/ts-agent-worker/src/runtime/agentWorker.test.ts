@@ -5968,10 +5968,15 @@ describe("AgentWorker", () => {
       budgets: { max_tokens: 300 },
     }));
     const session = (create.result as { session: CoworkSession }).session;
+    session.agents["404"] = {
+      ...session.agents.lead,
+      id: "404",
+      name: "Numeric Agent",
+    };
     session.agent_steps = [{
       id: "step_1",
       session_id: session.id,
-      agent_id: "lead",
+      agent_id: "404",
       task_id: "draft",
       status: "completed",
       linked_message_ids: ["msg_1"],
@@ -5980,8 +5985,8 @@ describe("AgentWorker", () => {
       tool_observations: [{ id: "tool_1", name: "read_file", status: "completed" }],
       browser_observations: [],
     }];
-    session.observation_details.detail_1 = {
-      id: "detail_1",
+    session.observation_details["505"] = {
+      id: "505",
       subject_id: "tool_1",
       subject_type: "tool_observation",
       state: "available",
@@ -6028,25 +6033,25 @@ describe("AgentWorker", () => {
     });
     await expect(worker.handleRequest(coworkRequest("cowork.get_agent_activity", {
       session_id: session.id,
-      agent_id: "lead",
+      agent_id: 404,
       limit: 5,
     }))).resolves.toMatchObject({
       result: {
         activity: expect.objectContaining({
           available: true,
           session_id: session.id,
-          agent: expect.objectContaining({ id: "lead" }),
+          agent: expect.objectContaining({ id: "404" }),
         }),
       },
     });
     await expect(worker.handleRequest(coworkRequest("cowork.get_observation_detail", {
       session_id: session.id,
-      detail_id: "detail_1",
-      agent_id: "lead",
+      detail_id: 505,
+      agent_id: 404,
     }))).resolves.toMatchObject({
       result: {
         detail: expect.objectContaining({
-          id: "detail_1",
+          id: "505",
           state: "available",
           content: "full content",
         }),
@@ -6058,7 +6063,7 @@ describe("AgentWorker", () => {
       result: {
         summary: expect.objectContaining({
           session_id: session.id,
-          counts: expect.objectContaining({ agents: 1, tasks: 1, artifacts: 1 }),
+          counts: expect.objectContaining({ agents: 2, tasks: 1, artifacts: 1 }),
         }),
       },
     });
