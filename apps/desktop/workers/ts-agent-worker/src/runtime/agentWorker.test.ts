@@ -5341,6 +5341,22 @@ describe("AgentWorker", () => {
       },
     });
 
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(String(sessionId))}/tasks/open/assign`,
+      body: { agentId: "", assigned_agent_id: "lead" },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          result: "Task 'Open' assigned to Lead.",
+          session: expect.objectContaining({
+            tasks: expect.arrayContaining([expect.objectContaining({ id: "open", assigned_agent_id: "lead" })]),
+          }),
+        },
+      },
+    });
+
     const assignResponse = await worker.handleRequest(coworkRequest("cowork.assign_task", {
       session_id: sessionId,
       task_id: "open",

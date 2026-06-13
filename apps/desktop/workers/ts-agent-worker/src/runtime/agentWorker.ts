@@ -1252,9 +1252,8 @@ export class AgentWorker {
     const taskId = segments[3];
     const action = segments[4];
     if (action === "assign") {
-      const agentId = hasParam(body, "agentId", "agent_id")
-        ? pythonRouteTextParam(body, "agentId", "agent_id")
-        : pythonRouteTextParam(body, "assignedAgentId", "assigned_agent_id");
+      const agentId = pythonRouteTextParam(body, "assignedAgentId", "assigned_agent_id")
+        || pythonRouteTextParam(body, "agentId", "agent_id");
       const result = await this.coworkService.assignTask({
         traceId,
         sessionId,
