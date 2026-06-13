@@ -274,6 +274,20 @@ export type WebuiOpenAiCompatProvider = {
   ): Promise<string> | string;
 };
 
+export type WebuiCoworkRouteRequest = {
+  method: string;
+  path: string;
+  headers?: Record<string, unknown>;
+  body?: unknown;
+};
+
+export type WebuiCoworkProvider = {
+  route(
+    request: WebuiCoworkRouteRequest,
+    traceId: string,
+  ): Promise<WebuiRouteResponse> | WebuiRouteResponse;
+};
+
 export class WebuiOpenAiRequestTimeoutError extends Error {
   readonly timeoutSeconds: number;
 
@@ -330,6 +344,10 @@ const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
   { key: "list_workspace_files", method: "GET", path: "/api/workspace/files", public: false },
   { key: "get_workspace_file", method: "GET", path: "/api/workspace/files/{path:.+}", public: false },
   { key: "put_workspace_file", method: "PUT", path: "/api/workspace/files/{path:.+}", public: false },
+  { key: "cowork_route", method: "GET", path: "/api/cowork/{path:.+}", public: false },
+  { key: "cowork_route", method: "POST", path: "/api/cowork/{path:.+}", public: false },
+  { key: "cowork_route", method: "PATCH", path: "/api/cowork/{path:.+}", public: false },
+  { key: "cowork_route", method: "DELETE", path: "/api/cowork/{path:.+}", public: false },
 ];
 
 export function webuiRouteSpecs(): WebuiRouteSpec[] {
@@ -351,6 +369,7 @@ export async function handleWebuiRouteRequest(
   workspaceProvider?: WebuiWorkspaceProvider,
   openAiCompatProvider?: WebuiOpenAiCompatProvider,
   knowledgeProvider?: WebuiKnowledgeProvider,
+  coworkProvider?: WebuiCoworkProvider,
   traceId = "webui-route",
 ): Promise<WebuiRouteResponse> {
   const method = request.method.toUpperCase();
@@ -510,6 +529,17 @@ export async function handleWebuiRouteRequest(
   const workspaceFilePath = workspaceFileRoutePath(method, path);
   if (workspaceFilePath !== undefined) {
     return webuiWorkspaceFileResponse(method, workspaceFilePath, request.body, workspaceProvider, traceId);
+  }
+  if (coworkRoutePath(method, path)) {
+    if (!coworkProvider) {
+      return { status: 503, body: { error: "cowork is not available" } };
+    }
+    return coworkProvider.route({
+      method,
+      path: `${path}${url.search}`,
+      headers: request.headers,
+      body: request.body,
+    }, traceId);
   }
   if (method === "GET" && path === "/api/sessions") {
     if (!sessionProvider) {
@@ -2095,8 +2125,18 @@ function routeKey(method: string, path: string): string {
   if (deleteSessionPathKey(method, path) !== undefined) {
     return "delete_session";
   }
+  if (coworkRoutePath(method, path)) {
+    return "cowork_route";
+  }
   const spec = WEBUI_ROUTE_SPECS.find((entry) => entry.method === method && entry.path === path);
   return spec?.key ?? `${method} ${path}`;
+}
+
+function coworkRoutePath(method: string, path: string): boolean {
+  return (
+    (method === "GET" || method === "POST" || method === "PATCH" || method === "DELETE") &&
+    path.startsWith("/api/cowork/")
+  );
 }
 
 function knowledgeDocumentPath(method: string, path: string): { docId: string } | undefined {

@@ -2689,6 +2689,73 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("bridges WebUI cowork API requests through the injected CoworkService", async () => {
+    const coworkService = new CoworkService({
+      store: createMemoryCoworkStore(),
+      now: () => "2026-06-12T08:00:00.000Z",
+      idGenerator: (() => {
+        const counters = new Map<string, number>();
+        return (prefix: string) => {
+          const next = (counters.get(prefix) ?? 0) + 1;
+          counters.set(prefix, next);
+          return `${prefix}_${next}`;
+        };
+      })(),
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      coworkService,
+    });
+
+    await expect(worker.handleRequest(webuiRequest("webui.route_specs"))).resolves.toMatchObject({
+      result: {
+        routes: expect.arrayContaining([
+          { key: "cowork_route", method: "GET", path: "/api/cowork/{path:.+}", public: false },
+          { key: "cowork_route", method: "POST", path: "/api/cowork/{path:.+}", public: false },
+        ]),
+      },
+    });
+
+    const create = await worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/api/cowork/sessions",
+      body: {
+        goal: "Bridge Cowork WebUI",
+        title: "WebUI Cowork",
+        workflow_mode: "team",
+        agents: [{ id: "lead", role: "Lead" }],
+        tasks: [{ id: "plan", title: "Plan", assigned_agent_id: "lead" }],
+      },
+    }));
+
+    expect(create).toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          result: "started cw_1",
+          session: expect.objectContaining({
+            id: "cw_1",
+            title: "WebUI Cowork",
+          }),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
+      path: "/api/cowork/sessions?include_completed=true",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          items: [expect.objectContaining({ id: "cw_1", title: "WebUI Cowork" })],
+        },
+      },
+    });
+  });
+
   test("preserves Python-compatible direct blueprint default goals", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),

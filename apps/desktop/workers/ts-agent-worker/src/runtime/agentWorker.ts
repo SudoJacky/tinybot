@@ -61,6 +61,7 @@ import {
   type WebuiAgentUiFormProvider,
   type WebuiAgentUiFormRequest,
   type WebuiConfigProvider,
+  type WebuiCoworkProvider,
   type WebuiKnowledgeProvider,
   type WebuiOpenAiCompatProvider,
   type WebuiProvidersProvider,
@@ -2977,6 +2978,7 @@ export class AgentWorker {
           this.workspaceBridge,
           this.webuiOpenAiCompatProvider(),
           this.knowledgeProvider,
+          this.webuiCoworkProvider(),
           request.trace_id,
         ),
       };
@@ -3170,6 +3172,23 @@ export class AgentWorker {
     }
     return {
       continueForm: (form, traceId) => this.continueWebuiAgentUiForm(form, traceId),
+    };
+  }
+
+  private webuiCoworkProvider(): WebuiCoworkProvider | undefined {
+    if (!this.coworkService) {
+      return undefined;
+    }
+    return {
+      route: async (route, traceId) => {
+        const url = new URL(route.path, "http://worker.local");
+        return this.dispatchCoworkRouteRequest({
+          method: route.method.toUpperCase(),
+          path: `${url.pathname}${url.search}`,
+          body: route.body,
+          query: url.searchParams,
+        }, traceId);
+      },
     };
   }
 
