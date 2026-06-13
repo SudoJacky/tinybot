@@ -1217,6 +1217,11 @@ function swarmReadyUnits(session: CoworkSession): JsonObject[] {
   return units
     .filter((unit) => {
       const status = cleanString(unit.status) || "pending";
+      if (["failed", "needs_revision"].includes(status)) {
+        const attempts = Math.trunc(numberValue(unit.attempts) ?? 0);
+        const maxAttempts = Math.trunc(numberValue(unit.max_attempts) ?? 1);
+        return attempts < maxAttempts;
+      }
       if (!["pending", "ready"].includes(status)) {
         return false;
       }
