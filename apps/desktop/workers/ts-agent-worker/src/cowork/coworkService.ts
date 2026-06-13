@@ -317,7 +317,7 @@ export class CoworkService {
       trace: arrayValue(snapshot.trace),
       trace_spans: arrayValue(snapshot.trace_spans),
       agent_steps: arrayValue(snapshot.agent_steps),
-      scheduler_decisions: arrayValue(snapshot.scheduler_decisions),
+      scheduler_decisions: session.scheduler_decisions.slice(-80).map(jsonSafeObject),
       run_metrics: arrayValue(snapshot.run_metrics),
     };
   }

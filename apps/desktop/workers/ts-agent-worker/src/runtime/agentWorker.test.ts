@@ -4290,6 +4290,45 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("returns Python-sized scheduler decision history from the cowork trace route", async () => {
+    const store = createMemoryCoworkStore();
+    const coworkService = new CoworkService({
+      store,
+      now: () => "2026-06-12T08:00:00.000Z",
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      coworkService,
+    });
+    const session = await coworkService.createSession({
+      traceId: "seed-trace-decisions",
+      goal: "Trace decisions",
+      title: "Trace Decisions",
+      agents: [{ id: "lead", name: "Lead" }],
+      tasks: [],
+    });
+    session.scheduler_decisions = Array.from({ length: 81 }, (_, index) => ({
+      id: `decision_${index + 1}`,
+      round: index + 1,
+      reason: `decision ${index + 1}`,
+    }));
+    await store.writeSnapshot(session, "seed-trace-decisions");
+
+    const response = await worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "GET",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/trace`,
+    }));
+
+    const decisions = ((response.result as {
+      body: { scheduler_decisions: Array<{ id: string }> };
+    }).body.scheduler_decisions);
+    expect(decisions).toHaveLength(80);
+    expect(decisions[0]?.id).toBe("decision_2");
+    expect(decisions.at(-1)?.id).toBe("decision_81");
+  });
+
   test("defaults malformed Python agent-activity route limits before clamping", async () => {
     const store = createMemoryCoworkStore();
     const coworkService = new CoworkService({
