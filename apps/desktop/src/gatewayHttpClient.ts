@@ -1014,8 +1014,6 @@ function swarmBranchDeriveRoute(method: string, path: string, body: unknown): bo
   const payload = asRecord(body);
   const targetArchitecture = payload?.target_architecture
     ?? payload?.targetArchitecture
-    ?? payload?.workflow_mode
-    ?? payload?.workflowMode
     ?? payload?.architecture;
   return isSwarmMode(targetArchitecture);
 }
