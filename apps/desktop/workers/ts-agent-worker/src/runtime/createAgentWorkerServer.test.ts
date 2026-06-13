@@ -307,6 +307,75 @@ describe("createAgentWorkerServer", () => {
     });
   });
 
+  test("wires heartbeat trigger to native workspace and session/config bridges", async () => {
+    const lines: string[] = [];
+    const provider = new QueueProvider([
+      {
+        content: "",
+        toolCalls: [{
+          id: "heartbeat-call",
+          name: "heartbeat",
+          argumentsJson: JSON.stringify({ action: "run", tasks: "Review the stalled desktop task." }),
+        }],
+        stopReason: "tool_calls",
+      },
+      { content: "Desktop heartbeat handled.", toolCalls: [], stopReason: "stop" },
+    ]);
+    const server = createAgentWorkerServer({
+      provider,
+      tools: new ToolRegistry(),
+      env: { TINYBOT_MODEL: "gpt-heartbeat" },
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const run = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "heartbeat-req",
+        trace_id: "trace-heartbeat",
+        method: "heartbeat.trigger_now",
+        params: {},
+      }),
+    );
+
+    await respondToWorkerRequest(server, lines, "workspace.read_file", (request) => {
+      expect(request.params).toEqual({ path: "HEARTBEAT.md", format: "raw" });
+      return { path: "HEARTBEAT.md", content: "- [ ] Review the stalled desktop task." };
+    });
+    await respondToWorkerRequest(server, lines, "config.snapshot_public", {
+      value: {
+        agents: { defaults: { model: "gpt-heartbeat" } },
+        channels: { feishu: { enabled: true } },
+        gateway: { heartbeat: { enabled: true, interval_s: 120, keep_recent_messages: 5 } },
+      },
+    });
+    await respondToWorkerRequest(server, lines, "session.list_metadata", [
+      {
+        session_id: "feishu:chat-1",
+        title: "Feishu",
+        updated_at: "2026-06-13T08:00:00.000Z",
+      },
+    ]);
+    await run;
+
+    expect(provider.options[0]).toMatchObject({ model: "gpt-heartbeat" });
+    expect(provider.requests[1]).toContainEqual({
+      role: "user",
+      content: "Review the stalled desktop task.",
+    });
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      protocol_version: "1",
+      id: "heartbeat-req",
+      trace_id: "trace-heartbeat",
+      result: {
+        status: "executed",
+        tasks: "Review the stalled desktop task.",
+        response: "Desktop heartbeat handled.",
+      },
+    });
+  });
+
   test("registers request_form tool that pauses the run through native form RPC", async () => {
     const form = {
       form_id: "travel_plan",

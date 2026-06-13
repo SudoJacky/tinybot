@@ -6,12 +6,14 @@ import { HeartbeatService } from "./heartbeatService.ts";
 import type { HeartbeatStatus, HeartbeatTickResult } from "./heartbeatTypes.ts";
 import type { HeartbeatTarget } from "./heartbeatTarget.ts";
 
+type HeartbeatTargetSelector = () => HeartbeatTarget | Promise<HeartbeatTarget>;
+
 export type HeartbeatRuntimeOptions = {
   model: string;
   provider: ModelProvider;
   runner: Pick<AgentRunner, "run">;
   readHeartbeatFile: () => Promise<string | null | undefined> | string | null | undefined;
-  selectTarget: () => HeartbeatTarget;
+  selectTarget: HeartbeatTargetSelector;
   currentTime: () => string;
   evaluateResponse?: (input: { response: string; taskContext: string }) => Promise<boolean> | boolean;
   notifyExternal?: (input: {
@@ -31,7 +33,7 @@ export type HeartbeatRuntimeOptions = {
 export class HeartbeatRuntime {
   private readonly model: string;
   private readonly runner: Pick<AgentRunner, "run">;
-  private readonly selectTarget: () => HeartbeatTarget;
+  private readonly selectTarget: HeartbeatTargetSelector;
   private readonly notifyExternal?: HeartbeatRuntimeOptions["notifyExternal"];
   private readonly trimHeartbeatSession?: HeartbeatRuntimeOptions["trimHeartbeatSession"];
   private readonly keepRecentMessages: number;
@@ -85,7 +87,7 @@ export class HeartbeatRuntime {
   }
 
   private async executeTasks(tasks: string): Promise<string> {
-    const target = this.selectTarget();
+    const target = await this.selectTarget();
     const runId = this.idGenerator();
     const result = await this.runner.run({
       runId,
@@ -106,7 +108,7 @@ export class HeartbeatRuntime {
   }
 
   private async notify(response: string, tasks: string): Promise<boolean> {
-    const target = this.selectTarget();
+    const target = await this.selectTarget();
     if (!target.external || target.channel === "cli") {
       return false;
     }

@@ -11,6 +11,10 @@ import { CoworkService } from "../cowork/coworkService.ts";
 import { NativeCoworkStoreBridge } from "../cowork/coworkStoreBridge.ts";
 import { CoworkTeamPlanner } from "../cowork/coworkTeamPlanner.ts";
 import { createCoworkTool } from "../cowork/coworkTool.ts";
+import { selectConfiguredChannelNames } from "../channels/channelConfig.ts";
+import { parseTinybotConfig } from "../config/configSchema.ts";
+import { HeartbeatRuntime } from "../heartbeat/heartbeatRuntime.ts";
+import { selectHeartbeatTarget } from "../heartbeat/heartbeatTarget.ts";
 import {
   createNativeApprovalTools,
   createNativeCronTools,
@@ -139,6 +143,26 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     : undefined;
   const sessionBridge = new NativeSessionBridge(rpcClient);
   const workspaceBridge = new NativeWorkspaceBridge(rpcClient);
+  const heartbeatRuntime = new HeartbeatRuntime({
+    model: options.env?.TINYBOT_MODEL ?? options.env?.OPENAI_MODEL ?? "default",
+    provider,
+    runner: new AgentRunner({ provider, tools: options.tools }),
+    readHeartbeatFile: async () => (await workspaceBridge.readFile("HEARTBEAT.md", "trace-heartbeat-read"))?.content,
+    selectTarget: async () => {
+      const [config, sessions] = await Promise.all([
+        heartbeatConfigFromNativeConfig(configBridge),
+        sessionBridge.listSessions("trace-heartbeat-target").catch(() => []),
+      ]);
+      return selectHeartbeatTarget({
+        enabledChannels: selectConfiguredChannelNames(config),
+        sessions: sessions.map((session) => ({
+          key: session.sessionId,
+          updatedAtMs: Date.parse(session.updatedAt),
+        })),
+      });
+    },
+    currentTime: () => new Date().toISOString(),
+  });
   const worker = new AgentWorker({
     provider,
     tools: options.tools,
@@ -174,6 +198,7 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     contextBridge: new NativeContextBridge(rpcClient),
     coworkService,
     coworkScheduler,
+    heartbeatRuntime,
     statusProvider: async () => {
       const runtime = await providerRuntimeFromNativeConfig(configBridge, options.env ?? process.env, {});
       const providerId = stringValue(runtime.providerId);
@@ -198,6 +223,14 @@ function errorMessage(error: unknown): string {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+async function heartbeatConfigFromNativeConfig(configBridge: NativeConfigBridge) {
+  try {
+    return parseTinybotConfig(await configBridge.snapshotPublic());
+  } catch {
+    return parseTinybotConfig({});
+  }
 }
 
 const DEFAULT_NATIVE_TOOL_CAPABILITIES = [
