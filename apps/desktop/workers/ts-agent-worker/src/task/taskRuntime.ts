@@ -1,4 +1,4 @@
-import { isPlanCompleted, readySubtasks, validateTaskDag } from "./taskDag.ts";
+import { isPlanBlocked, isPlanCompleted, readySubtasks, validateTaskDag } from "./taskDag.ts";
 import { taskProgressPayload, type TaskProgressPayload } from "./taskProgress.ts";
 import type { TaskPlanContext } from "./taskPlanner.ts";
 import type { TaskNotificationBridge, TaskProgressCardBridge } from "./taskNotificationBridge.ts";
@@ -224,6 +224,17 @@ export class TaskRuntime {
     }
     plan.status = "executing";
     const ready = readySubtasks(plan);
+    if (ready.length === 0 && isPlanBlocked(plan)) {
+      plan.status = "paused";
+      plan.context = {
+        ...plan.context,
+        error: "Tasks blocked by unresolvable dependencies",
+      };
+      const saved = await this.store.savePlan(plan, traceId);
+      await this.publishCompletedSubtask(saved, subtask, request, traceId);
+      await this.notifyPlanCompleted(saved, traceId);
+      return { plan: saved, spawnedCount: 0 };
+    }
     const toSpawn = options.parallel === false ? ready.slice(0, 1) : ready;
     for (const readySubtask of toSpawn) {
       readySubtask.status = "in_progress";

@@ -552,6 +552,70 @@ describe("TaskRuntime", () => {
     ]);
   });
 
+  test("pauses plans when completed subtasks leave pending work blocked", async () => {
+    const plan = basePlan();
+    plan.status = "executing";
+    plan.context = { sessionKey: "desktop:chat-1" };
+    plan.currentSubtaskIds = ["a"];
+    plan.subtasks[0].status = "in_progress";
+    plan.subtasks[1].status = "pending";
+    const { bridge, saves } = memoryBridge([plan]);
+    const spawned: string[] = [];
+    const notifications: Array<{ sessionKey: string; status: string; error: unknown; traceId: string }> = [];
+    const runtime = new TaskRuntime({
+      store: bridge,
+      now: () => "2026-06-12T00:00:00.000Z",
+      executor: {
+        spawnSubtask: async ({ subtask }) => {
+          spawned.push(subtask.id);
+        },
+      },
+      notifier: {
+        notifyPlanCompleted: async (sessionKey, completedPlan, _summary, traceId) => {
+          notifications.push({
+            sessionKey,
+            status: completedPlan.status,
+            error: completedPlan.context.error,
+            traceId,
+          });
+        },
+      },
+    });
+
+    const result = await runtime.completeSubtask(
+      "plan-1",
+      "a",
+      { status: "skipped", result: "dependency not needed" },
+      { parallel: true },
+      "trace-blocked",
+    );
+
+    expect(result).toMatchObject({
+      plan: expect.objectContaining({ id: "plan-1", status: "paused" }),
+      spawnedCount: 0,
+    });
+    expect(spawned).toEqual([]);
+    expect(saves.at(-1)).toMatchObject({
+      status: "paused",
+      currentSubtaskIds: [],
+      context: {
+        error: "Tasks blocked by unresolvable dependencies",
+      },
+      subtasks: [
+        expect.objectContaining({ id: "a", status: "skipped" }),
+        expect.objectContaining({ id: "b", status: "pending" }),
+      ],
+    });
+    expect(notifications).toEqual([
+      {
+        sessionKey: "desktop:chat-1",
+        status: "paused",
+        error: "Tasks blocked by unresolvable dependencies",
+        traceId: "trace-blocked",
+      },
+    ]);
+  });
+
   test("notifies the owning session when a task plan completes", async () => {
     const plan = basePlan();
     plan.status = "executing";
