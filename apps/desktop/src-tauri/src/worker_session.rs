@@ -4,6 +4,7 @@ use crate::worker_protocol::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Debug)]
@@ -433,13 +434,24 @@ impl WorkerSessionRpc {
             .get("messages")
             .and_then(Value::as_array)
             .map_or(0, Vec::len);
-        let saved_message_count = messages.len();
+        let mut saved_message_count = 0;
+        let mut duplicate_message_count = 0;
         if let Some(existing) = session
             .extra
             .get_mut("messages")
             .and_then(Value::as_array_mut)
         {
-            existing.extend(messages);
+            let mut seen: HashSet<String> = existing.iter().map(session_message_key).collect();
+            for message in messages {
+                let key = session_message_key(&message);
+                if seen.contains(&key) {
+                    duplicate_message_count += 1;
+                    continue;
+                }
+                seen.insert(key);
+                existing.push(message);
+                saved_message_count += 1;
+            }
         }
         let mut checkpoint_cleared = false;
         if clear_checkpoint {
@@ -473,7 +485,7 @@ impl WorkerSessionRpc {
             messages_after,
             saved_message_count,
             checkpoint_cleared,
-            duplicate_message_count: 0,
+            duplicate_message_count,
             truncated_tool_result_count: 0,
             omitted_side_effects: default_omitted_side_effects(),
         })
@@ -658,6 +670,32 @@ fn ensure_messages_array(session: &mut SessionMetadata) {
     if !session.extra.get("messages").is_some_and(Value::is_array) {
         session.extra["messages"] = serde_json::json!([]);
     }
+}
+
+fn session_message_key(message: &Value) -> String {
+    let role = message.get("role").and_then(Value::as_str).unwrap_or("");
+    let key = match role {
+        "tool" => serde_json::json!(["tool", message_field(message, "toolCallId", "tool_call_id")]),
+        "assistant" => serde_json::json!([
+            "assistant",
+            message.get("content").cloned().unwrap_or(Value::Null),
+            message_field(message, "toolCalls", "tool_calls"),
+        ]),
+        "user" => serde_json::json!([
+            "user",
+            message.get("content").cloned().unwrap_or(Value::Null),
+        ]),
+        _ => serde_json::json!([role, message.get("content").cloned().unwrap_or(Value::Null),]),
+    };
+    serde_json::to_string(&key).unwrap_or_default()
+}
+
+fn message_field(message: &Value, camel: &str, snake: &str) -> Value {
+    message
+        .get(camel)
+        .or_else(|| message.get(snake))
+        .cloned()
+        .unwrap_or(Value::Null)
 }
 
 fn project_history_messages(
@@ -1503,6 +1541,54 @@ mod tests {
                     "missingSession": false
                 }
             })
+        );
+    }
+
+    #[test]
+    fn persist_turn_skips_duplicate_session_messages() {
+        let mut session = session_fixture();
+        session.extra = json!({
+            "messages": [
+                { "role": "user", "content": "hello" },
+                { "role": "assistant", "content": "done" },
+                { "role": "tool", "toolCallId": "call-1", "name": "lookup", "content": "old" }
+            ]
+        });
+        let mut rpc = WorkerSessionRpc::new(
+            vec![session],
+            CapabilityPolicy::new([
+                WorkerCapability::SessionWrite,
+                WorkerCapability::SessionMetadataRead,
+            ]),
+        );
+
+        let result = rpc
+            .persist_turn(
+                "session-1",
+                "run-duplicate-1",
+                vec![
+                    json!({ "role": "user", "content": "hello" }),
+                    json!({ "role": "assistant", "content": "next" }),
+                    json!({ "role": "tool", "tool_call_id": "call-1", "name": "lookup", "content": "new" }),
+                ],
+                false,
+                None,
+            )
+            .expect("turn should persist");
+
+        assert_eq!(result.messages_before, 3);
+        assert_eq!(result.messages_after, 4);
+        assert_eq!(result.saved_message_count, 1);
+        assert_eq!(result.duplicate_message_count, 2);
+        let updated = rpc.get_metadata("session-1").expect("session should exist");
+        assert_eq!(
+            updated.extra["messages"],
+            json!([
+                { "role": "user", "content": "hello" },
+                { "role": "assistant", "content": "done" },
+                { "role": "tool", "toolCallId": "call-1", "name": "lookup", "content": "old" },
+                { "role": "assistant", "content": "next" }
+            ])
         );
     }
 
