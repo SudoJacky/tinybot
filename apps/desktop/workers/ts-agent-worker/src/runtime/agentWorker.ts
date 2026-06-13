@@ -1312,9 +1312,7 @@ export class AgentWorker {
     const status = result.result.startsWith("Error:") ? 400 : 200;
     return {
       status,
-      body: status === 200
-        ? { result: result.result, session: coworkSessionSnapshot(result.session) }
-        : result,
+      body: { result: result.result, session: coworkSessionSnapshot(result.session) },
     };
   }
 

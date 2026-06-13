@@ -484,6 +484,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 | 2026-06-13 | Continued Batch 5 Cowork runtime Phase 10 route parity: TS `cowork.route_request` now returns Python-compatible HTTP `503 {"error":"cowork is not available"}` when the Cowork service is absent instead of surfacing a worker protocol error. |
 | 2026-06-13 | Continued Batch 5 Cowork runtime Phase 10 route parity: branch-scoped derive and select-final routes now reject explicit non-object `cowork.route_request` bodies with Python-compatible `400 {"error":"invalid json body"}` while preserving the TS bridge's empty-body business-error compatibility. |
 | 2026-06-13 | Continued Batch 5 Cowork runtime Phase 10 route parity: branch-result merge routes now return Python-compatible route-level `400 {"error":"branch_ids must be a list"}` when `branch_ids` is missing or not a list instead of surfacing a worker protocol parameter error. |
+| 2026-06-13 | Continued Batch 5 Cowork runtime Phase 10 route parity: TS work-unit retry/skip/cancel route errors now return Python-shaped payloads with snapshot sessions instead of leaking raw Cowork session state on 400 responses. |
 | 2026-06-13 | Continued Batch 5 Cowork runtime Phase 10 desktop facade coverage: gateway `cowork.agentActivity()` now forwards Python-compatible `limit` query parameters through the default native TS route path so desktop observability panels can request bounded activity without falling back to Python. |
 | 2026-06-13 | Continued Batch 5 Cowork runtime Phase 10 desktop facade coverage: gateway `cowork.observation()` now forwards Python-compatible requester `agent_id` query parameters through the default native TS route path so sensitive observation authorization can stay on the migrated Worker route. |
 | 2026-06-13 | Continued Batch 5 Cowork runtime Phase 10 desktop facade coverage: gateway `cowork.updateBudget()` can now explicitly dispatch documented `PATCH /budget` requests through the default native TS route while preserving the existing Python-compatible POST default. |
@@ -701,6 +702,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: preserve selected-agent activity `limit` query options through legacy/Vue desktop inspector events and the native bootstrap handler.
 - [x] Continue Cowork Phase 10: gate branch-select desktop gateway requests under the swarm rollout flag with Python fallback.
 - [x] Continue Cowork Phase 10: expose selected-agent observation-detail actions from legacy and Vue desktop inspectors with requester propagation.
+- [x] Continue Cowork Phase 10: return Python-shaped work-unit retry/skip/cancel error payloads with snapshot sessions.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.

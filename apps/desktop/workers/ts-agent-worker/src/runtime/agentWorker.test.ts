@@ -3902,6 +3902,10 @@ describe("AgentWorker", () => {
         status: 400,
         body: {
           result: "Error: work unit 'missing' not found",
+          session: expect.objectContaining({
+            id: session.id,
+            graph: expect.objectContaining({ schema_version: "cowork.graph.v2" }),
+          }),
         },
       },
     });
