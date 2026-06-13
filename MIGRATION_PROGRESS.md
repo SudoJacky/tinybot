@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued Batch 5 Task/Cron background runtime parity: TS native `cron` add now mirrors Python's `cron_expr` timezone validation by rejecting unknown IANA timezone names before creating jobs.
+
 - Continued Batch 5 Task/Cron background runtime parity: TS native `task` resume now mirrors Python's pre-spawn guards for DAG errors, blocked plans, all-subtasks-complete plans, and no-ready-subtask plans.
 
 - Continued Batch 5 Task/Cron background runtime parity: TS native `task` resume now mirrors Python's completed/executing plan guards instead of re-entering background execution for terminal or already-running plans.
@@ -722,6 +724,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: pass agent activity `limit` query options through the desktop gateway native TS Cowork facade.
 - [x] Continue Cowork Phase 10: pass observation requester `agent_id` query options through the desktop gateway native TS Cowork facade.
 - [x] Continue Cowork Phase 10: expose documented PATCH budget updates through the desktop gateway native TS Cowork facade.
+- [x] Continue Task/Cron background runtime parity: reject unknown IANA timezone names for TS-native `cron` add requests with `cron_expr`, matching Python `ZoneInfo` validation.
 - [x] Continue Task/Cron background runtime parity: evaluate `deliver=true` cron run results with the TS evaluator before emitting native delivery events.
 - [x] Start WebUI transport Batch 6: expose TS-native `/api/status` via worker route specs, Rust `worker_webui_route`, and desktop native status facade.
 - [x] Continue WebUI transport Batch 6: expose TS-native `/api/sessions` list via session metadata bridge and desktop native facade.

@@ -95,7 +95,11 @@ class CronToolRuntime {
       return { schedule: { kind: "every", everyMs: everySeconds * 1000 }, deleteAfterRun: false };
     }
     if (cronExpr) {
-      return { schedule: { kind: "cron", expr: cronExpr, tz: tz || this.defaultTimezone }, deleteAfterRun: false };
+      const timezone = tz || this.defaultTimezone;
+      if (!isValidTimezone(timezone)) {
+        return `Error: unknown timezone '${timezone}'`;
+      }
+      return { schedule: { kind: "cron", expr: cronExpr, tz: timezone }, deleteAfterRun: false };
     }
     if (at) {
       const parsed = Date.parse(at);
@@ -177,4 +181,16 @@ function numberArg(args: Record<string, unknown>, key: string): number | null {
 function booleanArg(args: Record<string, unknown>, key: string, fallback: boolean): boolean {
   const value = args[key];
   return typeof value === "boolean" ? value : fallback;
+}
+
+function isValidTimezone(timezone: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: timezone });
+    return true;
+  } catch (error) {
+    if (error instanceof RangeError) {
+      return false;
+    }
+    throw error;
+  }
 }
