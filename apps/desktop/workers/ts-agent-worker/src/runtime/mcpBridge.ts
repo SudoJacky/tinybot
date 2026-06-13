@@ -17,6 +17,11 @@ type NativeMcpServerTools = {
   tools: McpRawToolDefinition[];
 };
 
+type NativeMcpServerOverride = {
+  enabledTools?: string[];
+  toolTimeout?: number;
+};
+
 export class NativeMcpBridge {
   private readonly rpcClient: NativeRpcClient;
   private readonly manager: McpRuntimeManager;
@@ -31,12 +36,15 @@ export class NativeMcpBridge {
     this.manager = new McpRuntimeManager({ registry: options.registry, connector });
   }
 
-  async ensureConnected(traceId: string): Promise<McpRuntimeDiagnostics> {
+  async ensureConnected(traceId: string, configSnapshot?: unknown): Promise<McpRuntimeDiagnostics> {
     const discovery = parseNativeMcpListToolsResult(
       await this.rpcClient.request(traceId, "mcp.list_tools", {}),
     );
     this.servers = new Map(discovery.map((server) => [server.name, server]));
-    this.diagnostics = await this.manager.connectAll(nativeMcpServersConfig(discovery));
+    this.diagnostics = await this.manager.connectAll(nativeMcpServersConfig(
+      discovery,
+      nativeMcpServerOverrides(configSnapshot),
+    ));
     return this.diagnostics;
   }
 
@@ -97,7 +105,10 @@ class NativeMcpToolSession implements McpToolSession {
   }
 }
 
-function nativeMcpServersConfig(servers: NativeMcpServerTools[]): McpServersConfig {
+function nativeMcpServersConfig(
+  servers: NativeMcpServerTools[],
+  overrides: Map<string, NativeMcpServerOverride> = new Map(),
+): McpServersConfig {
   return Object.fromEntries(servers.map((server) => [server.name, {
     name: server.name,
     safeName: sanitizeMcpName(server.name),
@@ -107,9 +118,32 @@ function nativeMcpServersConfig(servers: NativeMcpServerTools[]): McpServersConf
     env: {},
     url: "",
     headers: {},
-    toolTimeout: 30,
-    enabledTools: ["*"],
+    toolTimeout: overrides.get(server.name)?.toolTimeout ?? 30,
+    enabledTools: overrides.get(server.name)?.enabledTools ?? ["*"],
   }]));
+}
+
+function nativeMcpServerOverrides(configSnapshot: unknown): Map<string, NativeMcpServerOverride> {
+  const tools = asRecord(asRecord(configSnapshot)?.tools);
+  const servers = asRecord(tools?.mcpServers ?? tools?.mcp_servers);
+  const overrides = new Map<string, NativeMcpServerOverride>();
+  for (const [name, value] of Object.entries(servers ?? {})) {
+    const server = asRecord(value);
+    if (!server) {
+      continue;
+    }
+    const override: NativeMcpServerOverride = {};
+    const enabledTools = server.enabledTools ?? server.enabled_tools;
+    if (Array.isArray(enabledTools)) {
+      override.enabledTools = enabledTools.filter((tool): tool is string => typeof tool === "string");
+    }
+    const toolTimeout = server.toolTimeout ?? server.tool_timeout;
+    if (typeof toolTimeout === "number" && Number.isInteger(toolTimeout) && toolTimeout >= 1) {
+      override.toolTimeout = toolTimeout;
+    }
+    overrides.set(name, override);
+  }
+  return overrides;
 }
 
 function parseNativeMcpListToolsResult(value: unknown): NativeMcpServerTools[] {

@@ -635,7 +635,7 @@ describe("createAgentWorkerServer", () => {
         params: {
           method: "PATCH",
           path: "/api/config",
-          body: { tools: { mcpServers: { docs: { command: "node", args: ["server.js"] } } } },
+          body: { tools: { mcpServers: { docs: { command: "node", args: ["server.js"], enabledTools: ["search"] } } } },
         },
       }),
     );
@@ -649,10 +649,10 @@ describe("createAgentWorkerServer", () => {
     await respondToWorkerRequest(server, lines, "config.apply_patch_result", {
       ok: true,
       config: {
-        tools: { mcpServers: { docs: { command: "node", args: ["server.js"] } } },
+        tools: { mcpServers: { docs: { command: "node", args: ["server.js"], enabledTools: ["search"] } } },
         gateway: { heartbeat: { enabled: false, interval_s: 120, keep_recent_messages: 6 } },
       },
-      updatedFields: ["tools.mcpServers.docs.command", "tools.mcpServers.docs.args"],
+      updatedFields: ["tools.mcpServers.docs.command", "tools.mcpServers.docs.args", "tools.mcpServers.docs.enabledTools"],
       sideEffects: { applied: [], restartRequired: [], warnings: [] },
     });
     await waitFor(() => parsedLines(lines).filter((line) => line.method === "mcp.list_tools").length >= 1);
@@ -667,7 +667,10 @@ describe("createAgentWorkerServer", () => {
       result: {
         servers: [{
           name: "docs",
-          tools: [{ name: "search", description: "Search docs", input_schema: { type: "object" } }],
+          tools: [
+            { name: "search", description: "Search docs", input_schema: { type: "object" } },
+            { name: "delete", description: "Delete docs", input_schema: { type: "object" } },
+          ],
         }],
       },
     }));
@@ -696,7 +699,7 @@ describe("createAgentWorkerServer", () => {
         status: 200,
         body: {
           ok: true,
-          updatedFields: ["tools.mcpServers.docs.command", "tools.mcpServers.docs.args"],
+          updatedFields: ["tools.mcpServers.docs.command", "tools.mcpServers.docs.args", "tools.mcpServers.docs.enabledTools"],
         },
       },
     });
@@ -758,6 +761,7 @@ describe("createAgentWorkerServer", () => {
               name: "docs",
               status: "connected",
               registeredTools: ["mcp_docs_search"],
+              skippedTools: ["mcp_docs_delete"],
               error: null,
             }],
           },

@@ -64,4 +64,49 @@ describe("NativeMcpBridge", () => {
       },
     ]);
   });
+
+  test("applies configured MCP allowlists to native discovery results", async () => {
+    const registry = new ToolRegistry();
+    const bridge = new NativeMcpBridge({
+      registry,
+      rpcClient: {
+        async request(_traceId, method) {
+          if (method === "mcp.list_tools") {
+            return {
+              servers: [
+                {
+                  name: "docs",
+                  tools: [
+                    { name: "search", description: "Search docs", inputSchema: { type: "object" } },
+                    { name: "delete", description: "Delete docs", inputSchema: { type: "object" } },
+                  ],
+                },
+              ],
+            };
+          }
+          throw new Error(`unexpected method ${method}`);
+        },
+      },
+    });
+
+    const diagnostics = await bridge.ensureConnected("trace-list", {
+      tools: {
+        mcpServers: {
+          docs: {
+            command: "native",
+            enabledTools: ["search"],
+          },
+        },
+      },
+    });
+
+    expect(registry.toolNames).toEqual(["mcp_docs_search"]);
+    expect(registry.has("mcp_docs_delete")).toBe(false);
+    expect(diagnostics.servers[0]).toMatchObject({
+      name: "docs",
+      registeredTools: ["mcp_docs_search"],
+      skippedTools: ["mcp_docs_delete"],
+      unmatchedEnabledTools: [],
+    });
+  });
 });

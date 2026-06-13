@@ -210,7 +210,7 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
         );
         if (mcpBridge && configPatchTouchesMcpServers(result.updatedFields)) {
           await mcpBridge.close();
-          await mcpBridge.ensureConnected(traceId);
+          await mcpBridge.ensureConnected(traceId, result.config);
         }
         return result;
       },
