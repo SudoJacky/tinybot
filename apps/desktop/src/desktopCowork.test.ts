@@ -503,6 +503,19 @@ describe("desktop Cowork helpers", () => {
         stop_on_blocker: false,
       },
     });
+    expect(buildDesktopCoworkActionRequest({ action: "runSession", sessionId: "cowork/1", architecture: "swarm" })).toEqual({
+      method: "POST",
+      path: "/api/cowork/sessions/cowork%2F1/run",
+      body: {
+        max_rounds: 20,
+        max_agents: 3,
+        max_agent_calls: 30,
+        run_until_idle: true,
+        stop_on_blocker: false,
+        architecture: "swarm",
+        workflow_mode: "swarm",
+      },
+    });
     expect(buildDesktopCoworkActionRequest({ action: "emergencyStopSession", sessionId: "cowork/1" })).toEqual({
       method: "POST",
       path: "/api/cowork/sessions/cowork%2F1/emergency-stop",

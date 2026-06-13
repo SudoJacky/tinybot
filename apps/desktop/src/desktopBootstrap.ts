@@ -998,7 +998,11 @@ async function handleNativeCoworkAction(event: DesktopCoworkActionEvent): Promis
       return;
     }
     if (event.action === "runSession") {
-      const request = buildDesktopCoworkActionRequest({ action: "runSession", sessionId });
+      const request = buildDesktopCoworkActionRequest({
+        action: "runSession",
+        sessionId,
+        architecture: selectedCoworkSessionArchitecture(event.pane, sessionId),
+      });
       await gatewayApi.cowork.run(sessionId, requestBody(request));
       setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork run started." }));
       return;
@@ -1286,6 +1290,18 @@ function extractCoworkSessionId(payload: unknown): string | null {
 function extractCoworkSummary(payload: unknown): string {
   const record = asRecord(payload);
   return stringValue(record.summary) || stringValue(record.text) || JSON.stringify(record, null, 2);
+}
+
+function selectedCoworkSessionArchitecture(pane: DesktopCoworkPaneModel, sessionId: string): string {
+  const cockpitSession = asRecord(pane.cockpitView?.raw);
+  const cockpitArchitecture = stringValue(cockpitSession.architecture).trim()
+    || stringValue(cockpitSession.workflow_mode).trim();
+  if (cockpitArchitecture) {
+    return cockpitArchitecture;
+  }
+  const row = pane.sessionRows.find((item) => item.id === sessionId);
+  const rowSession = asRecord(row?.raw);
+  return stringValue(rowSession.architecture).trim() || stringValue(rowSession.workflow_mode).trim();
 }
 
 async function handleNativeKnowledgeAction(event: DesktopKnowledgeActionEvent): Promise<void> {

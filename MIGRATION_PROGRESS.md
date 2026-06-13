@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Cowork Phase 10 desktop default-route parity: desktop Cowork run action requests now carry the selected session architecture/workflow mode when known, so swarm sessions triggered from the native pane still hit the desktop gateway swarm rollout gate and can preserve Python fallback when swarm TS routing is disabled.
+
 - Continued Cowork Phase 10 desktop default-route parity: desktop gateway Cowork run rollout gates now treat explicit swarm architecture/mode aliases in run request bodies as swarm-bound, preserving Python fallback when the swarm rollout gate is disabled instead of routing those runs to the TS scheduler path.
 
 - Continued Channel Bus retry parity: TS `ChannelManager` now treats adapter `AbortError` / cancellation errors like Python `asyncio.CancelledError`, propagating cancellation out of send retry instead of converting it into a final `send_failed` diagnostic, while the background dispatcher exits cleanly on cancellation.
@@ -1121,6 +1123,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: preserve final-result merge route `branch_ids` precedence with blank camel-case branch aliases.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue Cowork Phase 10: route explicitly swarm Cowork run requests through Python fallback when the desktop swarm rollout gate is disabled.
+- [x] Continue Cowork Phase 10: preserve selected-session architecture on desktop Cowork run action requests for swarm rollout fallback gating.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.
 - [x] Continue session turn lifecycle evidence durability: capture memory evidence from native `saved_messages` for partial-duplicate persisted turns.

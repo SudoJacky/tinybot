@@ -263,7 +263,7 @@ export type DesktopCoworkActionInput =
   | { action: "loadAgentActivity"; sessionId: string; agentId: string; limit?: number }
   | { action: "loadObservation"; sessionId: string; detailRef: string; requesterAgentId?: string }
   | { action: "createSession"; goal?: string; blueprint?: unknown; architecture?: string; autoRun?: boolean }
-  | { action: "runSession"; sessionId: string }
+  | { action: "runSession"; sessionId: string; architecture?: string }
   | { action: "pauseSession" | "resumeSession" | "emergencyStopSession"; sessionId: string; reason?: string }
   | { action: "deleteSession"; sessionId: string }
   | {
@@ -552,18 +552,26 @@ export function buildDesktopCoworkActionRequest(input: DesktopCoworkActionInput)
         },
       };
     }
-    case "runSession":
+    case "runSession": {
+      const body: UnknownRecord = {
+        max_rounds: DEFAULT_RUN_ROUNDS,
+        max_agents: DEFAULT_RUN_AGENTS,
+        max_agent_calls: DEFAULT_RUN_AGENT_CALLS,
+        run_until_idle: true,
+        stop_on_blocker: false,
+      };
+      const architecture = stringValue(input.architecture).trim();
+      if (architecture) {
+        const normalizedArchitecture = coworkArchitectureValue(architecture);
+        body.architecture = normalizedArchitecture;
+        body.workflow_mode = normalizedArchitecture;
+      }
       return {
         method: "POST",
         path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/run`,
-        body: {
-          max_rounds: DEFAULT_RUN_ROUNDS,
-          max_agents: DEFAULT_RUN_AGENTS,
-          max_agent_calls: DEFAULT_RUN_AGENT_CALLS,
-          run_until_idle: true,
-          stop_on_blocker: false,
-        },
+        body,
       };
+    }
     case "pauseSession":
       return { method: "POST", path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/pause` };
     case "resumeSession":
