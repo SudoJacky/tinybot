@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued Cowork Phase 10 summary route parity: TS-native summary routes now mirror Python `CoworkTool` missing-session responses by returning a `summary` error string with HTTP 200 instead of a route-level 404.
+
 - Continued Cowork Phase 10 message route parity: TS-native message routes now mirror Python `CoworkTool` missing-session responses after JSON/content validation, returning a Python-shaped `result` error with `session: null` instead of a route-level 404.
 
 - Continued Cowork Phase 10 add-task route parity: TS-native add-task routes now mirror Python `CoworkTool` missing-session responses, returning a Python-shaped `result` error with `session: null` after title validation instead of a route-level 404.

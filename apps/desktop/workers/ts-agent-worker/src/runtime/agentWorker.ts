@@ -971,6 +971,10 @@ export class AgentWorker {
     }
 
     if (resource === "summary" && segments.length === 3 && route.method === "GET") {
+      const session = await this.coworkService.getSession(sessionId, traceId);
+      if (!session) {
+        return { status: 200, body: { summary: `Error: cowork session '${sessionId}' not found` } };
+      }
       const summary = await this.coworkService.formatSummary({ traceId, sessionId });
       return { status: 200, body: { summary } };
     }

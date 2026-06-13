@@ -4652,9 +4652,9 @@ describe("AgentWorker", () => {
       path: "/api/cowork/sessions/missing-session/summary",
     }))).resolves.toMatchObject({
       result: {
-        status: 404,
+        status: 200,
         body: {
-          error: "cowork session not found",
+          summary: "Error: cowork session 'missing-session' not found",
         },
       },
     });
