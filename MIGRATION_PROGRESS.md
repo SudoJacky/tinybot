@@ -4,6 +4,8 @@
 
 - Continued Batch 5 Task/Cron background runtime parity: TS `cron.run_due` now runs Python-compatible evaluator gating for `deliver=true` cron results, suppresses routine responses, emits `cron.delivery` for notify decisions, records delivery decisions in per-job run records, and preserves Python's fail-open notify behavior when evaluator calls fail.
 
+- Started Heartbeat runtime Phase 1: added pure TS heartbeat decision, target selection, trigger/status, and tick service foundations, preserving Python's `HEARTBEAT.md` prompt/tool-call contract, defensive skip fallback, execution/evaluator/notification sequencing, explicit external-channel target fallback, and fail-open notification on evaluator errors.
+
 更新时间：2026-06-12
 
 本文档用于跟踪 `overall.md` 中建议的 TypeScript runtime migration 推进顺序。推进方式按依赖层分批完成，而不是逐个设计文档从 Phase 1 做到最后。
@@ -93,12 +95,13 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 | 17 | in_progress | [ts_webui_transport_migration_design.md](ts_webui_transport_migration_design.md) | 做 bootstrap/status/session/WebSocket 最小闭环 | Bootstrap route payload contract, refresh-token, status, tools list, skills list/detail/mutations, config get, provider catalog, provider model listing, approvals list/approve/deny, Agent UI forms, workspace file routes, session-list, session-messages, session-profile, session metadata PATCH, temporary-file list/upload, session-delete, and session-clear route starting points are wired through TS worker `webui.handle_request`, native bridges where needed, Rust `worker_webui_route`, and desktop native facade fallback where payload shape permits; WebSocket outbound frame mapping now has a TS transport helper, `transport.gateway_frame` worker RPC, Rust `worker_transport_gateway_frame` command, and desktop native transport facade for legacy message/delta/stream-end/usage/browser/approval/Agent UI frames; inbound client frame mapping now has TS helpers, `transport.websocket_message` worker RPC, Rust `worker_transport_websocket_message` command, Rust dispatch into `agent.run_input` for inbound user-message frames, desktop native transport facade coverage for `new_chat`, `attach`, `message`, `interrupt`, `ping`, and file subscription intent results, plus root-WebUI same-origin `/ws` interception through a native WebSocket shim that projects TS worker content/reasoning/usage/error/done, tool-call progress, `agent_ui_event` form requests, and approval-pending events into legacy WebUI frames. |
 | 18 | active | [ts_channel_bus_runtime_migration_design.md](ts_channel_bus_runtime_migration_design.md) | 迁移 channel bus | Phase 1 started with TS message envelopes, session-key selector, async inbound/outbound queues, batch/timeout consumption, close semantics, backlog diagnostics, and exported bus module surface. |
 | 19 | active | [ts_api_runtime_migration_design.md](ts_api_runtime_migration_design.md) | 作为上层 facade 收口 | Phase 1 OpenAI-compatible API now has TS worker `GET /health`, `GET /v1/models`, and non-stream `POST /v1/chat/completions` parity over `webui.handle_request`, including model guard, content-array text extraction, OpenAI error/response shape, TS AgentRunner dispatch, same-session serialization, and `api.timeout` 504 handling; empty final retry/fallback is covered by the shared `AgentRunner` path. |
-| 20 | todo | [ts_heartbeat_runtime_migration_design.md](ts_heartbeat_runtime_migration_design.md) | 最后接背景调度和通知组合能力 | 依赖 config、agent loop、context、channel、task/cron、API diagnostics |
+| 20 | active | [ts_heartbeat_runtime_migration_design.md](ts_heartbeat_runtime_migration_design.md) | 最后接背景调度和通知组合能力 | Phase 1 pure core now has heartbeat decision parsing, target selection, manual trigger, status snapshots, and tick service orchestration; Rust workspace read, native scheduler lifecycle, TS agent-loop execution bridge, session trimming, and diagnostics route exposure remain follow-up work. |
 
 ## Work Log
 
 | Date | Update |
 | --- | --- |
+| 2026-06-13 | Started Heartbeat runtime Phase 1: added pure TS heartbeat decision prompt/tool schema parsing, target selection with explicit enabled-channel filtering/fallback, `HeartbeatService.tick()` orchestration for missing/empty file skip, run execution, evaluator-gated notification, silencing, evaluator fail-open notify behavior, manual `triggerNow()`, and status snapshots. |
 | 2026-06-13 | Continued Channel Bus Phase 3 foundation: added TS-native `ChannelRuntime` to consume inbound channel envelopes, build `AgentRunInput` with Python-compatible session keys and streaming intent, publish final/usage outbound messages, and emit fallback error replies plus diagnostics on agent failures. |
 | 2026-06-13 | Continued Channel Bus Phase 2: added TS-native channel registry descriptors/default configs for WebSocket, Feishu, DingTalk, and Weixin, plus channel delivery and enabled-channel config selectors that merge Python-compatible defaults. |
 | 2026-06-13 | Continued Channel Bus Phase 2: added TS-native `BaseChannel` allow-list enforcement, streaming `_wants_stream` injection, inbound message normalization/publication, and `ChannelManager` start/stop plus enabled-channel/status projection. |
@@ -560,6 +563,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: wire desktop Cowork agent-activity and observation-detail actions through native-first facade routes with requester `agent_id` propagation.
 - [x] Continue Cowork Phase 10: switch desktop budget update actions to the documented native `PATCH /budget` route while preserving gateway POST compatibility.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
+- [x] Start Heartbeat runtime Phase 1: add pure TS heartbeat decision parsing, target selection, manual trigger/status, and tick service orchestration.
 - [x] Continue Command Runtime Phase 3: migrate the first native `/dream` conversation-evidence extraction path for explicit memory-intent evidence.
 - [x] Continue Command Runtime Phase 3: migrate the first native `/dream` legacy-history extraction path for explicit memory-intent records.
 
