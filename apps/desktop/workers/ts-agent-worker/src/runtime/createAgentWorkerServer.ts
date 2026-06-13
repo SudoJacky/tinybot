@@ -15,6 +15,7 @@ import { selectConfiguredChannelNames } from "../channels/channelConfig.ts";
 import { parseTinybotConfig } from "../config/configSchema.ts";
 import { HeartbeatRuntime } from "../heartbeat/heartbeatRuntime.ts";
 import { selectHeartbeatTarget } from "../heartbeat/heartbeatTarget.ts";
+import { currentTimeString } from "../support/messageHelpers.ts";
 import {
   createNativeApprovalTools,
   createNativeCronTools,
@@ -169,7 +170,7 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
         })),
       });
     },
-    currentTime: () => new Date().toISOString(),
+    currentTime: async () => currentTimeString((await heartbeatConfigFromNativeConfig(configBridge)).agents.defaults.timezone),
     trimHeartbeatSession: async (keepRecentMessages) => {
       await sessionBridge.trimSession(
         "heartbeat",

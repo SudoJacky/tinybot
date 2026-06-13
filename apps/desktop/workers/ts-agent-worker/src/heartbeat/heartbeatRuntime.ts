@@ -9,6 +9,7 @@ import type { HeartbeatTarget } from "./heartbeatTarget.ts";
 type HeartbeatTargetSelector = () => HeartbeatTarget | Promise<HeartbeatTarget>;
 type HeartbeatKeepRecentMessages = number | (() => number | Promise<number>);
 type HeartbeatRuntimeConfigResolver = () => Promise<HeartbeatRuntimeConfig> | HeartbeatRuntimeConfig;
+type HeartbeatCurrentTime = () => string | Promise<string>;
 
 export type HeartbeatRuntimeConfig = {
   enabled?: boolean;
@@ -21,7 +22,7 @@ export type HeartbeatRuntimeOptions = {
   runner: Pick<AgentRunner, "run">;
   readHeartbeatFile: () => Promise<string | null | undefined> | string | null | undefined;
   selectTarget: HeartbeatTargetSelector;
-  currentTime: () => string;
+  currentTime: HeartbeatCurrentTime;
   evaluateResponse?: (input: { response: string; taskContext: string }) => Promise<boolean> | boolean;
   notifyExternal?: (input: {
     channel: string;
@@ -62,11 +63,11 @@ export class HeartbeatRuntime {
     this.idGenerator = options.idGenerator ?? randomHeartbeatRunId;
     this.service = new HeartbeatService({
       readHeartbeatFile: options.readHeartbeatFile,
-      decide: ({ content }) => decideHeartbeat({
+      decide: async ({ content }) => decideHeartbeat({
         provider: options.provider,
         model: this.model,
         content,
-        currentTime: options.currentTime(),
+        currentTime: await options.currentTime(),
       }),
       executeTasks: ({ tasks }) => this.executeTasks(tasks),
       evaluateResponse: options.evaluateResponse,

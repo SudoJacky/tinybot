@@ -445,6 +445,11 @@ describe("createAgentWorkerServer", () => {
 
   test("wires heartbeat trigger to native workspace and session/config bridges", async () => {
     const lines: string[] = [];
+    const heartbeatConfigSnapshot = {
+      agents: { defaults: { model: "gpt-heartbeat", timezone: "Asia/Shanghai" } },
+      channels: { feishu: { enabled: true } },
+      gateway: { heartbeat: { enabled: true, interval_s: 120, keep_recent_messages: 5 } },
+    };
     const provider = new QueueProvider([
       {
         content: "",
@@ -480,11 +485,7 @@ describe("createAgentWorkerServer", () => {
       return { path: "HEARTBEAT.md", content: "- [ ] Review the stalled desktop task." };
     });
     await respondToWorkerRequest(server, lines, "config.snapshot_public", {
-      value: {
-        agents: { defaults: { model: "gpt-heartbeat" } },
-        channels: { feishu: { enabled: true } },
-        gateway: { heartbeat: { enabled: true, interval_s: 120, keep_recent_messages: 5 } },
-      },
+      value: heartbeatConfigSnapshot,
     });
     await respondToWorkerRequest(server, lines, "session.list_metadata", [
       {
@@ -494,6 +495,21 @@ describe("createAgentWorkerServer", () => {
       },
     ]);
     await waitFor(() => parsedLines(lines).filter((line) => line.method === "config.snapshot_public").length >= 2);
+    const targetConfigRequest = parsedLines(lines).filter((line) => line.method === "config.snapshot_public").at(-1);
+    if (!targetConfigRequest || typeof targetConfigRequest.id !== "string" || typeof targetConfigRequest.trace_id !== "string") {
+      throw new Error("missing heartbeat target config request");
+    }
+    await server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: targetConfigRequest.id,
+        trace_id: targetConfigRequest.trace_id,
+        result: {
+          value: heartbeatConfigSnapshot,
+        },
+      }),
+    );
+    await waitFor(() => parsedLines(lines).filter((line) => line.method === "config.snapshot_public").length >= 3);
     const trimConfigRequest = parsedLines(lines).filter((line) => line.method === "config.snapshot_public").at(-1);
     if (!trimConfigRequest || typeof trimConfigRequest.id !== "string" || typeof trimConfigRequest.trace_id !== "string") {
       throw new Error("missing trim config request");
@@ -504,11 +520,7 @@ describe("createAgentWorkerServer", () => {
         id: trimConfigRequest.id,
         trace_id: trimConfigRequest.trace_id,
         result: {
-          value: {
-            agents: { defaults: { model: "gpt-heartbeat" } },
-            channels: { feishu: { enabled: true } },
-            gateway: { heartbeat: { enabled: true, interval_s: 120, keep_recent_messages: 5 } },
-          },
+          value: heartbeatConfigSnapshot,
         },
       }),
     );
@@ -519,6 +531,7 @@ describe("createAgentWorkerServer", () => {
     await run;
 
     expect(provider.options[0]).toMatchObject({ model: "gpt-heartbeat" });
+    expect(provider.requests[0]?.[1]?.content).toContain("Asia/Shanghai");
     expect(provider.requests[1]).toContainEqual({
       role: "user",
       content: "Review the stalled desktop task.",
