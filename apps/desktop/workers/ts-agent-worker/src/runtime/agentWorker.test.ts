@@ -4941,6 +4941,21 @@ describe("AgentWorker", () => {
     await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
       method: "POST",
       path: `/api/cowork/sessions/${encodeURIComponent(String(sessionId))}/messages`,
+      body: { content: 12345 },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          message: expect.objectContaining({
+            content: "12345",
+          }),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(String(sessionId))}/messages`,
       body: { content: "   " },
     }))).resolves.toMatchObject({
       result: {
@@ -4987,6 +5002,22 @@ describe("AgentWorker", () => {
           title: "Follow up",
           assigned_agent_id: "reviewer",
         }),
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(String(sessionId))}/tasks`,
+      body: { title: 42 },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          task: expect.objectContaining({
+            id: "task_2",
+            title: "42",
+          }),
+        },
       },
     });
 

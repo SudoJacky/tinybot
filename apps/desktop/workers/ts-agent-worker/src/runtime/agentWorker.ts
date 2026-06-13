@@ -845,7 +845,7 @@ export class AgentWorker {
       if (!isJsonObject(route.body)) {
         return invalidCoworkJsonBodyRouteResponse();
       }
-      const content = stringParam(body, "content", "content")?.trim() ?? "";
+      const content = pythonRouteTextParam(body, "content", "content");
       if (!content) {
         return { status: 400, body: { error: "content is required" } };
       }
@@ -903,7 +903,7 @@ export class AgentWorker {
       if (!isJsonObject(route.body)) {
         return invalidCoworkJsonBodyRouteResponse();
       }
-      const title = stringParam(body, "title", "title")?.trim() ?? "";
+      const title = pythonRouteTextParam(body, "title", "title");
       if (!title) {
         return { status: 400, body: { error: "title is required" } };
       }
@@ -4624,6 +4624,20 @@ function pythonRouteBoolParam(params: Record<string, unknown>, camelKey: string,
     return Object.keys(value).length > 0;
   }
   return true;
+}
+
+function pythonRouteTextParam(params: Record<string, unknown>, camelKey: string, snakeKey: string): string {
+  const value = params[camelKey] ?? params[snakeKey];
+  if (pythonRouteBoolParam({ value }, "value", "value") !== true) {
+    return "";
+  }
+  if (typeof value === "string") {
+    return value.trim();
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? String(value).trim() : "";
+  }
+  return String(value).trim();
 }
 
 function providerRetryModeParam(params: Record<string, unknown>): "standard" | "persistent" | undefined {
