@@ -5083,7 +5083,15 @@ describe("AgentWorker", () => {
     await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
       method: "POST",
       path: `/api/cowork/sessions/${encodeURIComponent(String(sessionId))}/tasks`,
-      body: { title: "Numeric description", description: 9001 },
+      body: {
+        title: "Numeric description",
+        description: 9001,
+        expected_output: "direct-only expected output",
+        review_required: true,
+        reviewer_agent_ids: ["reviewer"],
+        fanout_group_id: "direct-only fanout",
+        merge_task_id: "direct-only merge",
+      },
     }))).resolves.toMatchObject({
       result: {
         status: 200,
@@ -5092,6 +5100,11 @@ describe("AgentWorker", () => {
             id: "task_3",
             title: "Numeric description",
             description: "9001",
+            expected_output: "",
+            review_required: false,
+            reviewer_agent_ids: [],
+            fanout_group_id: "",
+            merge_task_id: "",
           }),
         },
       },

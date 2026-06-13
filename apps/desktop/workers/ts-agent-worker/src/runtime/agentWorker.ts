@@ -911,13 +911,7 @@ export class AgentWorker {
       if (!session) {
         return { status: 200, body: { result: `Error: cowork session '${sessionId}' not found`, session: null } };
       }
-      const routeTaskBody = {
-        ...body,
-        session_id: sessionId,
-        title,
-        description: pythonRouteTextParam(body, "description", "description"),
-        assigned_agent_id: pythonRouteTextParam(body, "assignedAgentId", "assigned_agent_id"),
-      };
+      const routeTaskBody = coworkAddTaskRouteBody(body, sessionId, title);
       const params = parseCoworkAddTaskParams(routeTaskBody);
       const result = await this.coworkService.addTask({
         traceId,
@@ -3967,6 +3961,20 @@ function coworkSendMessageRouteBody(
   setRouteTextParam(routeBody, body, "topic", "topic", "topic");
   setRouteTextParam(routeBody, body, "event_type", "eventType", "event_type");
   return routeBody;
+}
+
+function coworkAddTaskRouteBody(
+  body: Record<string, unknown>,
+  sessionId: string,
+  title: string,
+): Record<string, unknown> {
+  return {
+    session_id: sessionId,
+    title,
+    description: pythonRouteTextParam(body, "description", "description"),
+    assigned_agent_id: pythonRouteTextParam(body, "assignedAgentId", "assigned_agent_id"),
+    dependencies: body.dependencies || [],
+  };
 }
 
 function setRouteTextParam(
