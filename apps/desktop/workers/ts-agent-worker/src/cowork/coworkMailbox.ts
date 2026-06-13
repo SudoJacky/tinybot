@@ -619,9 +619,15 @@ function reopenForUserMessage(
     }
   }
   if (reopened) {
+    const unreadMessageCount = countUnreadInboxMessages(session);
     session.completion_decision = {
       ...jsonSafeObject(session.completion_decision),
       next_action: "run_next_round",
+      reason: unreadMessageCount > 0
+        ? `${unreadMessageCount} unread message(s) need agent attention.`
+        : "Cowork session reopened for a new user message.",
+      ready_to_finish: false,
+      updated_at: now(),
     };
     session.events = [
       ...session.events,
@@ -632,6 +638,15 @@ function reopenForUserMessage(
     ];
     session.updated_at = now();
   }
+}
+
+function countUnreadInboxMessages(session: CoworkSession): number {
+  return Object.values(session.agents).reduce((total, agent) => {
+    if (agent.status === "done" || agent.status === "failed") {
+      return total;
+    }
+    return total + agent.inbox.filter((messageId) => Boolean(session.messages[messageId])).length;
+  }, 0);
 }
 
 function subscribedRecipients(session: CoworkSession, envelope: RequiredEnvelope): string[] {

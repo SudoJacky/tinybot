@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued Cowork Phase 10 mailbox parity: TS mailbox user-message reopen now resets stale completed-session readiness decisions to Python-compatible `run_next_round` with `ready_to_finish=false`, matching the post-delivery `assess_session()` behavior instead of preserving old completion state.
+
 - Continued session turn lifecycle parity: `AgentWorker` now leaves completed-turn checkpoint clearing to `TurnLifecycle.finalizeTurn()` instead of clearing once before lifecycle finalization and again during append fallback, matching the Python lifecycle owner boundary and restoring full worker checkpoint-clear test coverage.
 
 - Continued Channel Bus command parity: TS `ChannelRuntime` now handles channel slash commands before ordinary agent dispatch, and the worker `channel.dispatch_inbound` path reuses the backend command router so `/stop` over external channels cancels active runs for the same session without loading agent context or calling the provider.
@@ -745,6 +747,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: route non-swarm TS-native API messages through mailbox envelopes with `event_type` metadata.
 - [x] Continue Cowork Phase 10: expire overdue mailbox records before TS mailbox delivery.
 - [x] Continue Cowork Phase 10: reject missing bodies on TS-native Cowork `_json_body()` mutation routes.
+- [x] Continue Cowork Phase 10: reset stale completed-session readiness decisions when TS mailbox delivery reopens a session for a user message.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.

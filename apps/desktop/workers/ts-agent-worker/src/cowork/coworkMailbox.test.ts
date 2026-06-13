@@ -82,6 +82,31 @@ describe("CoworkMailbox", () => {
     });
   });
 
+  it("resets completed-session readiness when a user message reopens the session", async () => {
+    const session = await createTeamSession();
+    session.status = "completed";
+    session.agents.coordinator.status = "done";
+    session.completion_decision = {
+      next_action: "complete",
+      reason: "The cowork session is complete.",
+      ready_to_finish: true,
+    };
+
+    deliver(session, {
+      sender_id: "user",
+      content: "Please handle one more constraint.",
+      visibility: "group",
+    });
+
+    expect(session.status).toBe("active");
+    expect(session.agents.coordinator.status).toBe("waiting");
+    expect(session.completion_decision).toMatchObject({
+      next_action: "run_next_round",
+      reason: "2 unread message(s) need agent attention.",
+      ready_to_finish: false,
+    });
+  });
+
   it("routes lead group messages to the team without the user", async () => {
     const session = await createTeamSession();
 
