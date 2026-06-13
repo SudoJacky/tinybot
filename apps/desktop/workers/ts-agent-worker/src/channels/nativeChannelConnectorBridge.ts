@@ -46,7 +46,8 @@ async function sendConnectorRequest(
   method: string,
   params: Record<string, unknown>,
 ): Promise<void> {
-  await rpcClient.request(traceId, method, params);
+  const result = await rpcClient.request(traceId, method, params);
+  rejectUnhandledConnectorResult(result, params, operationFromMethod(method));
 }
 
 function textParams(input: NativeTextChannelSendTextInput): Record<string, unknown> {
@@ -62,4 +63,31 @@ function textParams(input: NativeTextChannelSendTextInput): Record<string, unkno
 
 function traceId(channel: string, operation: string): string {
   return `channel.connector.${channel}.${operation}`;
+}
+
+function rejectUnhandledConnectorResult(
+  result: unknown,
+  params: Record<string, unknown>,
+  operation: string,
+): void {
+  if (!isRecord(result) || result.handled !== false) {
+    return;
+  }
+  const channel = typeof result.channel === "string"
+    ? result.channel
+    : typeof params.channel === "string"
+      ? params.channel
+      : "unknown";
+  const reason = typeof result.reason === "string" && result.reason.length > 0
+    ? result.reason
+    : "unhandled";
+  throw new Error(`native connector ${channel} ${operation} unavailable: ${reason}`);
+}
+
+function operationFromMethod(method: string): string {
+  return method.replace(/^channel\.connector\./, "");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

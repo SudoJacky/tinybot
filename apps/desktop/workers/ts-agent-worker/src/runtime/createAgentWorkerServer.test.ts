@@ -319,6 +319,65 @@ describe("createAgentWorkerServer", () => {
     });
   });
 
+  test("reports host RPC connector unavailable responses as channel startup diagnostics", async () => {
+    const lines: string[] = [];
+    const server = createAgentWorkerServer({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      nativeChannelConnectorBridgeChannels: ["feishu"],
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const start = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "channel-start-unavailable",
+        trace_id: "trace-channel-start-unavailable",
+        method: "channel.start",
+        params: {},
+      }),
+    );
+    await respondToConfigSnapshot(server, lines, {
+      channels: {
+        feishu: {
+          enabled: true,
+          allow_from: ["ou_1"],
+        },
+      },
+    });
+    await respondToWorkerRequest(server, lines, "channel.connector.start", {
+      ok: true,
+      channel: "feishu",
+      operation: "start",
+      handled: false,
+      reason: "native_connector_unavailable",
+    });
+    await start;
+
+    expect(parsedLines(lines).find((line) => line.id === "channel-start-unavailable")).toMatchObject({
+      protocol_version: "1",
+      id: "channel-start-unavailable",
+      trace_id: "trace-channel-start-unavailable",
+      result: {
+        started: true,
+        status: {
+          running: true,
+          channels: [
+            { name: "feishu", displayName: "Feishu", supportsStreaming: true, running: false },
+          ],
+          diagnostics: [
+            {
+              kind: "start_failed",
+              channel: "feishu",
+              error: "native connector feishu start unavailable: native_connector_unavailable",
+            },
+          ],
+        },
+      },
+    });
+  });
+
   test("routes dream slash commands through native memory dream RPC", async () => {
     const lines: string[] = [];
     const provider = new QueueProvider([{ content: "unused", toolCalls: [], stopReason: "stop" }]);

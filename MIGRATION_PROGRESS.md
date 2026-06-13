@@ -18,6 +18,8 @@
 
 - Continued Channel Bus Phase 5 foundation: Rust worker-host RPC now recognizes `channel.connector.start/stop/send_text/send_delta/send_usage` behind a dedicated `channel.connector` capability and returns an explicit unavailable bridge result until real platform connectors are installed.
 
+- Continued Channel Bus Phase 5 foundation: TS host-RPC channel connectors now treat `handled: false` host responses as connector failures, so unavailable Rust/native connectors surface as `ChannelManager` startup or delivery diagnostics instead of marking channels as successfully running.
+
 - Continued Channel Bus Phase 5 foundation: native text channel adapters can now be instantiated from canonical enabled channel config plus host-provided connector registry, skipping channels without native connectors so Python bridge fallback can remain explicit during migration.
 
 - Continued Channel Bus Phase 5 foundation: added a reusable TS `NativeTextChannel` adapter boundary for native platform connectors, sharing `BaseChannel` allow-list/inbound normalization while forwarding outbound text, stream delta, usage, and lifecycle calls without the Python bridge.
@@ -495,6 +497,8 @@ Channel Bus row 18 update: Phase 5 now has an explicit TS host-RPC connector bri
 
 Channel Bus row 18 update: Rust now accepts the `channel.connector.*` worker-host RPC contract behind a dedicated `channel.connector` capability, returning a structured `native_connector_unavailable` bridge result while real platform connectors are not yet installed.
 
+Channel Bus row 18 update: TS host-RPC connector bridges now reject `handled: false` results, allowing `ChannelManager` to record `start_failed` / send failure diagnostics instead of reporting unavailable host connectors as running.
+
 Heartbeat row 20 update: Phase 4 now runs scheduled notifications through the shared Python-compatible evaluator, emits approved external notifications as `heartbeat.delivery` worker events, and projects those delivery events into target native desktop chats without requiring an active agent run.
 
 ## Work Log
@@ -502,6 +506,7 @@ Heartbeat row 20 update: Phase 4 now runs scheduled notifications through the sh
 | Date | Update |
 | --- | --- |
 | 2026-06-14 | Continued Channel Bus Phase 5 foundation: wired injected native `ChannelManager` lifecycle through `AgentWorker` and the stdio server via `channel.start/status/stop` RPCs. |
+| 2026-06-14 | Continued Channel Bus Phase 5 foundation: TS host-RPC channel connectors now convert `handled: false` host responses into channel lifecycle/delivery failures. |
 | 2026-06-14 | Continued Channel Bus Phase 5 foundation: Rust worker-host RPC now recognizes `channel.connector.*` behind a dedicated capability and returns explicit unavailable connector results. |
 | 2026-06-14 | Continued Channel Bus Phase 5 foundation: added an explicit host-RPC connector bridge for native text channel start/stop/send/delta/usage operations. |
 | 2026-06-14 | Continued Channel Bus Phase 5 foundation: default stdio worker channel lifecycle now assembles host-provided native text connectors from canonical channel config. |
@@ -1031,6 +1036,7 @@ Heartbeat row 20 update: Phase 4 now runs scheduled notifications through the sh
 - [x] Continue Channel Bus Phase 5 foundation: assemble host-provided native text connectors from canonical config in the default stdio worker lifecycle.
 - [x] Continue Channel Bus Phase 5 foundation: add an explicit host-RPC connector bridge contract for native text adapters.
 - [x] Continue Channel Bus Phase 5 foundation: add Rust host recognition and capability gating for `channel.connector.*` worker-host RPCs.
+- [x] Continue Channel Bus Phase 5 foundation: convert host `handled: false` connector responses into TS channel diagnostics.
 - [x] Start API Runtime Phase 1: expose TS-native public `GET /health` and OpenAI-compatible `GET /v1/models` through the worker route bridge.
 - [x] Continue API Runtime Phase 1: expose TS-native non-stream `POST /v1/chat/completions` through the worker route bridge and existing AgentRunner path.
 - [x] Continue API Runtime Phase 1: apply `api.timeout` and OpenAI-shaped 504 handling to TS-native chat completions.

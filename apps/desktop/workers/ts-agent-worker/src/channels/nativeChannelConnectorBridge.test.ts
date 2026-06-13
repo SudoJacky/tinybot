@@ -50,4 +50,26 @@ describe("nativeChannelConnectorBridge", () => {
       channel: "feishu",
     });
   });
+
+  test("rejects host RPC responses that report an unavailable native connector", async () => {
+    const request = vi.fn(async () => ({
+      ok: true,
+      channel: "feishu",
+      operation: "send_text",
+      handled: false,
+      reason: "native_connector_unavailable",
+    }));
+    const registry = createNativeChannelConnectorBridgeRegistry({
+      rpcClient: { request },
+      channels: ["feishu"],
+    });
+
+    await expect(registry.feishu?.sendText({
+      channel: "feishu",
+      chatId: "chat-1",
+      content: "hello",
+      media: [],
+      metadata: {},
+    })).rejects.toThrow("native connector feishu send_text unavailable: native_connector_unavailable");
+  });
 });
