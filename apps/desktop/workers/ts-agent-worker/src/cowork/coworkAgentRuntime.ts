@@ -1097,10 +1097,7 @@ export function selectReadyCoworkAgentCandidates(session: CoworkSession, limit: 
     };
   }
   if (session.workflow_mode === "swarm") {
-    const swarmSelection = selectSwarmReadyAgents(session, limit);
-    if (swarmSelection.agents.length > 0) {
-      return swarmSelection;
-    }
+    return selectSwarmReadyAgents(session, limit);
   }
   return selectTeamReadyAgents(session, limit);
 }

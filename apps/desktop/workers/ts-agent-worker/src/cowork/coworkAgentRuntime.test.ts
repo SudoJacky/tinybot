@@ -181,6 +181,22 @@ describe("CoworkAgentRuntime", () => {
     expect(selection.candidateScores).toEqual({});
   });
 
+  it("does not fall back to team selection for swarm sessions without ready swarm units", async () => {
+    const provider = new QueueProvider([]);
+    const seeded = await seedRuntime(provider);
+    const session = await seeded.store.readSnapshot("cw_1", "test");
+    if (!session) {
+      throw new Error("missing seeded session");
+    }
+    session.workflow_mode = "swarm";
+
+    const selection = selectReadyCoworkAgentCandidates(session, 1);
+
+    expect(selection.agents).toEqual([]);
+    expect(selection.candidateScores).toEqual({});
+    expect(selection.reasonProfile).toBe("swarm workstream readiness scoring");
+  });
+
   it("runs one agent round and applies completed task progress", async () => {
     const provider = new QueueProvider([{
       content: JSON.stringify({

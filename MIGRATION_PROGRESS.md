@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued Cowork Phase 10 scheduler parity: TS swarm active-agent selection now mirrors Python's direct swarm selector return, avoiding a fallback to team readiness when no swarm work units are ready.
+
 - Continued Cowork Phase 10 scheduler parity: TS active-agent selection now mirrors Python's inactive-session guard, returning no candidates for paused/completed/blocked sessions before team or swarm scheduling.
 
 - Continued Cowork Phase 10 scheduler parity: TS active-agent and swarm selection now mirror Python terminal-agent filtering, excluding `done` / `failed` / `retired` agents and retired lifecycle records even if stale inbox work remains.
@@ -789,6 +791,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: align TS active-agent selection with Python shared-task slot consumption for unassigned ready tasks.
 - [x] Continue Cowork Phase 10: align TS active-agent and swarm selection with Python terminal-agent filtering.
 - [x] Continue Cowork Phase 10: align TS active-agent selection with Python inactive-session early return.
+- [x] Continue Cowork Phase 10: align TS swarm active-agent selection with Python direct swarm selector return.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.
