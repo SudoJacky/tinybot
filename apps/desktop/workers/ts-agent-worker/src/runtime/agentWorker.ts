@@ -766,7 +766,7 @@ export class AgentWorker {
   }
 
   private async maybeAutoRunCoworkSession(session: CoworkSession, body: Record<string, unknown>, traceId: string): Promise<CoworkSession> {
-    const autoRun = booleanParam(body, "autoRun", "auto_run") === true;
+    const autoRun = pythonRouteBoolParam(body, "autoRun", "auto_run") === true;
     if (!autoRun || !this.coworkScheduler) {
       return session;
     }

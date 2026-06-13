@@ -3095,6 +3095,56 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("accepts Python-compatible truthy strings for create-session auto-run flags", async () => {
+    const store = createMemoryCoworkStore();
+    const idGenerator = (() => {
+      const counters = new Map<string, number>();
+      return (prefix: string) => {
+        const next = (counters.get(prefix) ?? 0) + 1;
+        counters.set(prefix, next);
+        return `${prefix}_${next}`;
+      };
+    })();
+    const coworkService = new CoworkService({
+      store,
+      now: () => "2026-06-12T08:00:00.000Z",
+      idGenerator,
+    });
+    const coworkScheduler = new CoworkScheduler({
+      store,
+      now: () => "2026-06-12T08:00:00.000Z",
+      idGenerator,
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      coworkService,
+      coworkScheduler,
+    });
+
+    await worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: "/api/cowork/sessions",
+      body: {
+        goal: "String auto-run route",
+        workflow_mode: "team",
+        auto_run: "false",
+        max_rounds: 1,
+        run_until_idle: "false",
+        stop_on_blocker: "false",
+      },
+    }));
+    const saved = await store.readSnapshot("cw_1", "trace-1");
+    const runSpan = saved?.trace_spans.find((span) => span.name === "Cowork run");
+
+    expect(runSpan?.input_ref).toBe("max_rounds=20, max_agents=3, max_agent_calls=30");
+    expect(runSpan?.data).toMatchObject({
+      run_until_idle: true,
+      stop_on_blocker: true,
+    });
+  });
+
   test("routes Python-compatible cowork run requests through the injected CoworkScheduler", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = (() => {
