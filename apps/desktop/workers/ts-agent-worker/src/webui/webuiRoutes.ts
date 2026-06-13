@@ -745,7 +745,7 @@ function parseOpenAiChatRequest(
   if (body.stream === true) {
     return { ok: false, message: "stream=true is not supported yet. Set stream=false or omit it." };
   }
-  const requestedModel = stringParam(body.model);
+  const requestedModel = pythonTruthy(body.model) ? pythonString(body.model) : undefined;
   if (requestedModel && requestedModel !== configuredModel) {
     return { ok: false, message: `Only configured model '${configuredModel}' is available` };
   }
@@ -770,6 +770,29 @@ function openAiMessageContent(content: unknown): string {
       .join(" ");
   }
   return "";
+}
+
+function pythonString(value: unknown): string {
+  return String(value);
+}
+
+function pythonTruthy(value: unknown): boolean {
+  if (value === undefined || value === null || value === false) {
+    return false;
+  }
+  if (typeof value === "number") {
+    return value !== 0;
+  }
+  if (typeof value === "string") {
+    return value.length > 0;
+  }
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+  if (typeof value === "object") {
+    return Object.keys(value).length > 0;
+  }
+  return true;
 }
 
 function openAiRequestTimeoutSeconds(config: Record<string, unknown>): number {
