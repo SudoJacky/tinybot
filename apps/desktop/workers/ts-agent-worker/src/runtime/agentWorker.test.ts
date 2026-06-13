@@ -701,6 +701,27 @@ describe("AgentWorker", () => {
 
   test("serves WebUI config route through TS worker RPC", async () => {
     const patchRequests: Array<{ body: Record<string, unknown>; traceId: string }> = [];
+    const heartbeatRuntime = {
+      start: vi.fn(async () => true),
+      stop: vi.fn(() => undefined),
+      triggerNow: vi.fn(async () => ({ status: "missing_file" as const })),
+      getStatus: vi.fn(() => ({
+        enabled: true,
+        running: true,
+        executing: false,
+        intervalMs: 120_000,
+        lastResult: null,
+        lastError: null,
+      })),
+      refreshConfig: vi.fn(async () => ({
+        enabled: false,
+        running: false,
+        executing: false,
+        intervalMs: 5_000,
+        lastResult: null,
+        lastError: null,
+      })),
+    };
     const worker = new AgentWorker({
       provider: new QueueProvider([]),
       tools: new ToolRegistry(),
@@ -724,6 +745,7 @@ describe("AgentWorker", () => {
           };
         },
       },
+      heartbeatRuntime,
     });
 
     await expect(worker.handleRequest(webuiRequest("webui.route_specs"))).resolves.toMatchObject({
@@ -777,6 +799,7 @@ describe("AgentWorker", () => {
         traceId: "trace-webui.handle_request",
       },
     ]);
+    expect(heartbeatRuntime.refreshConfig).toHaveBeenCalledTimes(1);
   });
 
   test("serves OpenAI-compatible health and models routes through TS worker RPC", async () => {

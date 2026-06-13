@@ -534,6 +534,88 @@ describe("createAgentWorkerServer", () => {
     });
   });
 
+  test("refreshes heartbeat config after native WebUI config patch", async () => {
+    const lines: string[] = [];
+    const server = createAgentWorkerServer({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const patch = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "webui-config-patch",
+        trace_id: "trace-webui-config-patch",
+        method: "webui.handle_request",
+        params: {
+          method: "PATCH",
+          path: "/api/config",
+          body: { gateway: { heartbeat: { enabled: true, interval_s: 3 } } },
+        },
+      }),
+    );
+
+    await respondToWorkerRequest(server, lines, "config.snapshot_public", {
+      value: {
+        gateway: { heartbeat: { enabled: false, interval_s: 120, keep_recent_messages: 6 } },
+      },
+    });
+    await respondToWorkerRequest(server, lines, "config.apply_patch_result", {
+      ok: true,
+      config: {
+        gateway: { heartbeat: { enabled: true, interval_s: 3, keep_recent_messages: 6 } },
+      },
+      updatedFields: ["gateway.heartbeat.enabled", "gateway.heartbeat.interval_s"],
+      sideEffects: { applied: [], restartRequired: [], warnings: [] },
+    });
+    await waitFor(() => parsedLines(lines).filter((line) => line.method === "config.snapshot_public").length >= 2);
+    const refreshRequest = parsedLines(lines).filter((line) => line.method === "config.snapshot_public").at(-1);
+    if (!refreshRequest || typeof refreshRequest.id !== "string" || typeof refreshRequest.trace_id !== "string") {
+      throw new Error("missing heartbeat refresh config request");
+    }
+    await server.handleLine(JSON.stringify({
+      protocol_version: "1",
+      id: refreshRequest.id,
+      trace_id: refreshRequest.trace_id,
+      result: {
+        value: {
+          gateway: { heartbeat: { enabled: true, interval_s: 3, keep_recent_messages: 6 } },
+        },
+      },
+    }));
+    await patch;
+
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      protocol_version: "1",
+      id: "webui-config-patch",
+      trace_id: "trace-webui-config-patch",
+      result: {
+        status: 200,
+        body: {
+          ok: true,
+          updatedFields: ["gateway.heartbeat.enabled", "gateway.heartbeat.interval_s"],
+        },
+      },
+    });
+
+    await server.handleLine(JSON.stringify({
+      protocol_version: "1",
+      id: "heartbeat-status-after-patch",
+      trace_id: "trace-heartbeat-status-after-patch",
+      method: "heartbeat.status",
+      params: {},
+    }));
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      id: "heartbeat-status-after-patch",
+      result: {
+        enabled: true,
+        intervalMs: 3_000,
+      },
+    });
+  });
+
   test("registers request_form tool that pauses the run through native form RPC", async () => {
     const form = {
       form_id: "travel_plan",

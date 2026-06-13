@@ -2782,7 +2782,7 @@ export class AgentWorker {
           this.tools,
           this.webuiApprovalProvider(),
           this.webuiProviderModelsProvider(),
-          this.webuiConfigProvider,
+          this.webuiConfigProviderForRoutes(),
           this.webuiProvidersProvider(),
           this.webuiSkillsProvider(),
           this.webuiAgentUiFormProvider(),
@@ -2812,6 +2812,22 @@ export class AgentWorker {
         ...base,
         heartbeat,
       };
+    };
+  }
+
+  private webuiConfigProviderForRoutes(): WebuiConfigProvider | undefined {
+    if (!this.webuiConfigProvider || !this.heartbeatRuntime?.refreshConfig) {
+      return this.webuiConfigProvider;
+    }
+    const configProvider = this.webuiConfigProvider;
+    const heartbeatRuntime = this.heartbeatRuntime;
+    return {
+      getConfig: (traceId) => configProvider.getConfig(traceId),
+      patchConfig: async (body, traceId) => {
+        const result = await configProvider.patchConfig(body, traceId);
+        await heartbeatRuntime.refreshConfig?.();
+        return result;
+      },
     };
   }
 
