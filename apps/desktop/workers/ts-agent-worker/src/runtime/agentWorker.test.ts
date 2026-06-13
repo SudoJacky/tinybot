@@ -4225,6 +4225,7 @@ describe("AgentWorker", () => {
       agents: [{ id: "lead", name: "Lead" }],
       tasks: [
         { id: "wu_retry_task", title: "Retry task", assigned_agent_id: "lead" },
+        { id: "wu_retry_numeric_task", title: "Retry numeric task", assigned_agent_id: "lead" },
         { id: "wu_retry_route_task", title: "Retry route task", assigned_agent_id: "lead" },
         { id: "wu_skip_invalid_task", title: "Skip invalid task", assigned_agent_id: "lead" },
         { id: "wu_skip_task", title: "Skip task", assigned_agent_id: "lead" },
@@ -4238,6 +4239,8 @@ describe("AgentWorker", () => {
     }
     seeded.tasks.wu_retry_task.status = "failed";
     seeded.tasks.wu_retry_task.error = "Needs retry";
+    seeded.tasks.wu_retry_numeric_task.status = "failed";
+    seeded.tasks.wu_retry_numeric_task.error = "Needs numeric retry";
     seeded.tasks.wu_retry_route_task.status = "failed";
     seeded.tasks.wu_retry_route_task.error = "Needs route retry";
     seeded.tasks.wu_skip_task.status = "pending";
@@ -4253,6 +4256,16 @@ describe("AgentWorker", () => {
           max_attempts: 3,
           priority: 2,
           error: "Needs retry",
+        },
+        {
+          id: "wu_retry_numeric",
+          title: "Retry numeric unit",
+          source_task_id: "wu_retry_numeric_task",
+          status: "failed",
+          attempts: 1,
+          max_attempts: 3,
+          priority: 2,
+          error: "Needs numeric retry",
         },
         {
           id: "wu_retry_route",
@@ -4319,6 +4332,32 @@ describe("AgentWorker", () => {
                 attempts: 2,
                 error: null,
                 priority_boost_reason: "User retry",
+              }),
+            ]),
+          }),
+        }),
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.retry_work_unit", {
+      session_id: session.id,
+      work_unit_id: "wu_retry_numeric",
+      reason: 404,
+    }))).resolves.toMatchObject({
+      result: {
+        result: "Work unit 'Retry numeric unit' queued for retry.",
+        session: expect.objectContaining({
+          tasks: expect.objectContaining({
+            wu_retry_numeric_task: expect.objectContaining({ status: "pending", error: null }),
+          }),
+          swarm_plan: expect.objectContaining({
+            work_units: expect.arrayContaining([
+              expect.objectContaining({
+                id: "wu_retry_numeric",
+                status: "ready",
+                attempts: 2,
+                error: null,
+                priority_boost_reason: "404",
               }),
             ]),
           }),

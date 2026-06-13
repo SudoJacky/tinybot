@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Cowork Phase 10 direct RPC parity: direct TS work-unit action RPCs now mirror Python route text coercion for `reason`, preserving truthy numeric retry/skip/cancel reasons through work-unit state, task results, and trace metadata.
+
 - Continued Cowork Phase 10 direct RPC parity: direct TS `cowork.emergency_stop_session` RPCs now mirror Python route text coercion for `reason`, preserving truthy numeric stop reasons in scheduler agent-step output instead of falling back to the default stop explanation.
 
 - Continued Cowork Phase 10 direct RPC parity: direct TS branch/final-result RPCs now mirror Python route text coercion for `branch_id`, preserving truthy numeric branch ids through service validation instead of failing at the worker protocol boundary.
@@ -1017,6 +1019,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS `cowork.add_task` descriptions.
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS `cowork.add_task` assignee ids.
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS `cowork.emergency_stop_session` reasons.
+- [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS work-unit action reasons.
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS `cowork.assign_task` assignee ids.
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for direct TS `cowork.request_task_review` reviewer ids.
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for Cowork create-session goals and titles.

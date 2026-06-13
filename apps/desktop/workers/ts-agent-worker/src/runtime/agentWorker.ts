@@ -4223,7 +4223,7 @@ function parseCoworkWorkUnitActionParams(params: Record<string, unknown> | undef
   return {
     sessionId,
     workUnitId,
-    reason: stringParam(params, "reason", "reason"),
+    reason: pythonRouteTextParam(params, "reason", "reason"),
   };
 }
 
