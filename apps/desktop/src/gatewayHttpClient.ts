@@ -1030,8 +1030,8 @@ function swarmBranchDeriveRoute(method: string, path: string, body: unknown): bo
   }
   const payload = asRecord(body);
   const targetArchitecture = firstPythonTruthyJsonValue(
-    payload?.target_architecture,
     payload?.targetArchitecture,
+    payload?.target_architecture,
     payload?.architecture,
   );
   return isSwarmMode(targetArchitecture);

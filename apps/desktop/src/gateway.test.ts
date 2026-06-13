@@ -2230,6 +2230,10 @@ describe("gateway HTTP client", () => {
       target_architecture: 404,
       architecture: "swarm",
     })).resolves.toEqual({ native: true });
+    await expect(client.cowork.deriveBranch("cw_1", null, {
+      targetArchitecture: "swarm",
+      target_architecture: "team",
+    })).resolves.toEqual({ gateway: true });
 
     expect(nativeCowork.route).toHaveBeenNthCalledWith(1, {
       method: "POST",
@@ -2241,7 +2245,10 @@ describe("gateway HTTP client", () => {
       path: "/api/cowork/sessions/cw_1/branches/derive",
       body: { target_architecture: 404, architecture: "swarm" },
     });
-    expect(fetchFn).not.toHaveBeenCalled();
+    expect(fetchFn.mock.calls.map((call) => String((call as unknown[])[0]))).toEqual([
+      "http://127.0.0.1:18790/webui/bootstrap",
+      "http://127.0.0.1:18790/api/cowork/sessions/cw_1/branches/derive",
+    ]);
   });
 
   test("does not fall back to Python when cowork native fallback is disabled", async () => {
