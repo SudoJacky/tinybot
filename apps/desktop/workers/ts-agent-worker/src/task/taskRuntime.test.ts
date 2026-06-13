@@ -82,11 +82,78 @@ describe("TaskRuntime", () => {
     const runtime = new TaskRuntime({ store: bridge });
 
     await expect(runtime.pausePlan("plan-1", "trace-pause")).resolves.toMatchObject({ status: "paused" });
-    await expect(runtime.cancelPlan("plan-1", "trace-cancel")).resolves.toMatchObject({ status: "paused" });
+    await expect(runtime.cancelPlan("plan-1", "trace-cancel")).resolves.toMatchObject({ status: "failed" });
     await expect(runtime.listPlans("trace-list")).resolves.toHaveLength(1);
     await expect(runtime.deletePlan("plan-1", "trace-delete")).resolves.toBe(true);
     await expect(runtime.listPlans("trace-list-2")).resolves.toEqual([]);
-    expect(saves.map((plan) => plan.status)).toEqual(["paused", "paused"]);
+    expect(saves.map((plan) => plan.status)).toEqual(["paused", "failed"]);
+  });
+
+  test("pauses executing plans like Python by resetting in-progress subtasks", async () => {
+    const plan = basePlan();
+    plan.currentSubtaskIds = ["b"];
+    plan.subtasks[1].status = "in_progress";
+    const { bridge, saves } = memoryBridge([plan]);
+    const runtime = new TaskRuntime({ store: bridge });
+
+    await expect(runtime.pausePlan("plan-1", "trace-pause")).resolves.toMatchObject({ status: "paused" });
+
+    expect(saves.at(-1)).toMatchObject({
+      status: "paused",
+      subtasks: [
+        expect.objectContaining({ id: "a", status: "completed" }),
+        expect.objectContaining({ id: "b", status: "pending", error: "Interrupted by pause" }),
+      ],
+    });
+  });
+
+  test("cancels active executor subagents when pausing an executing plan", async () => {
+    const plan = basePlan();
+    plan.currentSubtaskIds = ["b"];
+    plan.subtasks[1].status = "in_progress";
+    const { bridge, saves } = memoryBridge([plan]);
+    const pausedPlans: Array<{ planId: string; traceId: string }> = [];
+    const runtime = new TaskRuntime({
+      store: bridge,
+      executor: {
+        spawnSubtask: async () => {},
+        cancelPlan: async (candidate, traceId) => {
+          pausedPlans.push({ planId: candidate.id, traceId });
+          return 1;
+        },
+      },
+    });
+
+    await expect(runtime.pausePlan("plan-1", "trace-pause")).resolves.toMatchObject({ status: "paused" });
+
+    expect(pausedPlans).toEqual([{ planId: "plan-1", traceId: "trace-pause" }]);
+    expect(saves.at(-1)).toMatchObject({
+      status: "paused",
+      currentSubtaskIds: [],
+      subtasks: [
+        expect.objectContaining({ id: "a", status: "completed" }),
+        expect.objectContaining({ id: "b", status: "pending", error: "Interrupted by pause" }),
+      ],
+    });
+  });
+
+  test("cancels plans like Python by skipping unfinished subtasks", async () => {
+    const plan = basePlan();
+    plan.currentSubtaskIds = ["b"];
+    plan.subtasks[1].status = "in_progress";
+    const { bridge, saves } = memoryBridge([plan]);
+    const runtime = new TaskRuntime({ store: bridge });
+
+    await expect(runtime.cancelPlan("plan-1", "trace-cancel")).resolves.toMatchObject({ status: "failed" });
+
+    expect(saves.at(-1)).toMatchObject({
+      status: "failed",
+      context: { cancelled: true },
+      subtasks: [
+        expect.objectContaining({ id: "a", status: "completed" }),
+        expect.objectContaining({ id: "b", status: "skipped", error: "Cancelled by user" }),
+      ],
+    });
   });
 
   test("cancels active executor subagents when cancelling a plan", async () => {
@@ -106,10 +173,18 @@ describe("TaskRuntime", () => {
       },
     });
 
-    await expect(runtime.cancelPlan("plan-1", "trace-cancel")).resolves.toMatchObject({ status: "paused" });
+    await expect(runtime.cancelPlan("plan-1", "trace-cancel")).resolves.toMatchObject({ status: "failed" });
 
     expect(cancelledPlans).toEqual([{ planId: "plan-1", traceId: "trace-cancel" }]);
-    expect(saves.at(-1)).toMatchObject({ id: "plan-1", status: "paused" });
+    expect(saves.at(-1)).toMatchObject({
+      id: "plan-1",
+      status: "failed",
+      context: { cancelled: true },
+      subtasks: [
+        expect.objectContaining({ id: "a", status: "completed" }),
+        expect.objectContaining({ id: "b", status: "skipped", error: "Cancelled by user" }),
+      ],
+    });
   });
 
   test("adds and removes pending subtasks while maintaining DAG errors", async () => {

@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Task/Cron background runtime parity: TS-native task control now mirrors Python pause/cancel semantics, resetting in-progress subtasks on pause and marking unfinished subtasks skipped with failed/cancelled plan state on cancel.
+
 - Continued Task/Cron background runtime parity: TS-native subagent runtime now uses Python-compatible default concurrency of five background subagents before queueing, preserving Task auto-execution throughput when no explicit native limit is configured.
 
 - Continued Task/Cron background runtime parity: TS-native cron job creation now derives channel/chat delivery context from active desktop/WebUI session keys, so scheduled agent-turn deliveries target the original session instead of storing a synthetic native channel with the full session key as chat id.

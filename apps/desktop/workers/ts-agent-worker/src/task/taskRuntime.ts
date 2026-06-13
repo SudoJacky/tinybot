@@ -308,20 +308,41 @@ export class TaskRuntime {
 
   async pausePlan(planId: string, traceId: string): Promise<TaskPlan | null> {
     const plan = await this.store.getPlan(planId, traceId);
-    if (!plan || plan.status === "completed") {
+    if (!plan) {
       return plan;
     }
+    if (plan.status !== "executing") {
+      return plan;
+    }
+    await this.executor?.cancelPlan?.(plan, traceId);
+    for (const subtask of plan.subtasks) {
+      if (subtask.status === "in_progress") {
+        subtask.status = "pending";
+        subtask.error = "Interrupted by pause";
+      }
+    }
+    plan.currentSubtaskIds = [];
     plan.status = "paused";
     return this.store.savePlan(plan, traceId);
   }
 
   async cancelPlan(planId: string, traceId: string): Promise<TaskPlan | null> {
     const plan = await this.store.getPlan(planId, traceId);
-    if (!plan || plan.status === "completed") {
+    if (!plan) {
       return plan;
     }
     await this.executor?.cancelPlan?.(plan, traceId);
-    plan.status = "paused";
+    for (const subtask of plan.subtasks) {
+      if (subtask.status === "pending") {
+        subtask.status = "skipped";
+      } else if (subtask.status === "in_progress") {
+        subtask.status = "skipped";
+        subtask.error = "Cancelled by user";
+      }
+    }
+    plan.currentSubtaskIds = [];
+    plan.status = "failed";
+    plan.context = { ...plan.context, cancelled: true };
     return this.store.savePlan(plan, traceId);
   }
 
