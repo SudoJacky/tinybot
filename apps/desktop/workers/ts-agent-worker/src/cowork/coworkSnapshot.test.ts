@@ -267,6 +267,35 @@ describe("cowork session snapshot", () => {
     expect(snapshot.large_swarm_summary.workstreams).toHaveLength(8);
   });
 
+  test("preserves Python large swarm workstream order for equal-sized groups", () => {
+    const workUnits = Array.from({ length: 40 }, (_, index) => {
+      const value = index + 1;
+      const groupId = value <= 20 ? "zeta_stream" : "alpha_stream";
+      return {
+        id: `ordered_${String(value).padStart(2, "0")}`,
+        title: `Ordered unit ${value}`,
+        status: "pending",
+        kind: "fanout",
+        fanout_group_id: groupId,
+      };
+    });
+    const snapshot = coworkSessionSnapshot(normalizeCoworkSession({
+      ...rawSession,
+      id: "cw-large-swarm-order",
+      workflow_mode: "swarm",
+      swarm_plan: {
+        id: "swarm_order",
+        status: "active",
+        work_units: workUnits,
+      },
+    }));
+
+    expect(snapshot.large_swarm_summary.workstreams.map((stream) => stream.id)).toEqual([
+      "zeta_stream",
+      "alpha_stream",
+    ]);
+  });
+
   test("projects Python-compatible swarm scheduler queues and metrics", () => {
     const snapshot = coworkSessionSnapshot(normalizeCoworkSession({
       ...rawSession,

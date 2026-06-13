@@ -955,7 +955,7 @@ function buildCoworkLargeSwarmSummary(session: CoworkSession): JsonObject {
     total_work_units: units.length,
     status_counts: countBy(units, "status"),
     workstreams: [...groups.values()]
-      .sort((left, right) => right.count - left.count || left.id.localeCompare(right.id))
+      .sort((left, right) => right.count - left.count)
       .map((group) => ({
         id: group.id,
         title: group.title,
