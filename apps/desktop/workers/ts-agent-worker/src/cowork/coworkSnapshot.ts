@@ -38,6 +38,8 @@ export function coworkSessionSnapshot(session: CoworkSession, options: CoworkSna
   const currentBranch = session.branches[currentBranchId] ?? Object.values(session.branches)[0] ?? null;
   const architecture = currentBranch?.architecture || session.workflow_mode || "adaptive_starter";
   const budget = budgetSnapshot(session);
+  const swarmQueues = session.workflow_mode === "swarm" ? buildSwarmSchedulerQueues(session) : {};
+  const swarmMetrics = session.workflow_mode === "swarm" ? buildSwarmParallelMetrics(session) : {};
   const snapshot: CoworkSessionSnapshot = {
     id: session.id,
     title: session.title,
@@ -102,8 +104,8 @@ export function coworkSessionSnapshot(session: CoworkSession, options: CoworkSna
     evaluation_results: Array.isArray(session.runtime_state.swarm_evaluations)
       ? session.runtime_state.swarm_evaluations.filter(isJsonObject).map(jsonSafeObject)
       : [],
-    swarm_queues: {},
-    swarm_metrics: {},
+    swarm_queues: swarmQueues,
+    swarm_metrics: swarmMetrics,
     swarm_organization: buildCoworkSwarmOrganization(session),
     large_swarm_summary: buildCoworkLargeSwarmSummary(session),
   };
@@ -663,6 +665,269 @@ function redactedSensitiveArtifacts(input: Record<string, JsonObject>): JsonObje
 
 function orchestrationAssessment(swarmPlan: JsonObject): JsonObject {
   return isJsonObject(swarmPlan.orchestration) ? jsonSafeObject(swarmPlan.orchestration) : {};
+}
+
+function buildSwarmSchedulerQueues(session: CoworkSession): JsonObject {
+  const plan = jsonSafeObject(session.swarm_plan);
+  const units = swarmWorkUnits(session);
+  const completed = completedSwarmReferences(session, units);
+  const runningAgents = new Set(units
+    .filter((unit) => stringValue(unit.status) === "in_progress" && stringValue(unit.assigned_agent_id))
+    .map((unit) => stringValue(unit.assigned_agent_id)));
+  const queues: Record<string, JsonObject[]> = {
+    ready: [],
+    blocked: [],
+    running: [],
+    completed: [],
+    failed_retry: [],
+    cancelled: [],
+  };
+  for (const unit of units) {
+    const item = swarmQueueItem(unit, completed, runningAgents);
+    const status = stringValue(unit.status) || "pending";
+    if (status === "in_progress") {
+      queues.running.push(item);
+    } else if (["completed", "skipped"].includes(status)) {
+      queues.completed.push(item);
+    } else if (["failed", "needs_revision"].includes(status)) {
+      const attempts = Math.trunc(numberValue(unit.attempts) ?? 0);
+      const maxAttempts = Math.trunc(numberValue(unit.max_attempts) ?? 1);
+      if (attempts < maxAttempts) {
+        queues.failed_retry.push(item);
+      } else {
+        item.block_reason = "max_attempts_reached";
+        queues.blocked.push(item);
+      }
+    } else if (status === "cancelled") {
+      queues.cancelled.push(item);
+    } else if (arrayValue(item.blocked_by).length > 0) {
+      queues.blocked.push(item);
+    } else {
+      queues.ready.push(item);
+    }
+  }
+  for (const key of Object.keys(queues)) {
+    queues[key] = sortSwarmQueueItems(queues[key] ?? []);
+  }
+  queues.ready = fairOrderSwarmQueueByWorkstream(queues.ready);
+  queues.failed_retry = fairOrderSwarmQueueByWorkstream(queues.failed_retry);
+  const metrics = buildSwarmParallelMetrics(session);
+  const parallelWidth = Math.max(1, Math.trunc(numberValue(session.budget_limits.parallel_width) ?? 1));
+  return {
+    schema_version: "cowork.swarm_queues.v1",
+    plan_id: stringValue(plan.id),
+    plan_status: stringValue(plan.status),
+    generated_at: "",
+    parallel_width: parallelWidth,
+    available_slots: Math.max(0, parallelWidth - queues.running.length),
+    queues,
+    counts: Object.fromEntries(Object.entries(queues).map(([key, value]) => [key, value.length])),
+    budget: {
+      limits: jsonSafeObject(session.budget_limits),
+      usage: jsonSafeObject(session.budget_usage),
+    },
+    metrics,
+  };
+}
+
+function buildSwarmParallelMetrics(session: CoworkSession): JsonObject {
+  const plan = jsonSafeObject(session.swarm_plan);
+  const units = swarmWorkUnits(session);
+  const mainUnits = units.filter((unit) => !["reducer", "reviewer"].includes(stringValue(unit.kind)));
+  const requiredUnits = mainUnits.filter((unit) => stringValue(unit.status) !== "cancelled");
+  const completedUnits = requiredUnits.filter((unit) => stringValue(unit.status) === "completed");
+  const runningUnits = requiredUnits.filter((unit) => stringValue(unit.status) === "in_progress");
+  const blockedUnits = requiredUnits.filter((unit) => {
+    const status = stringValue(unit.status);
+    return ["failed", "blocked", "needs_revision"].includes(status) || metricBlockedBy(unit, units, session).length > 0;
+  });
+  const runnableUnits = requiredUnits.filter((unit) => {
+    const status = stringValue(unit.status) || "pending";
+    return ["ready", "pending"].includes(status) && metricBlockedBy(unit, units, session).length === 0;
+  });
+  const reducerUnits = units.filter((unit) => stringValue(unit.kind) === "reducer");
+  const reviewerUnits = units.filter((unit) => stringValue(unit.kind) === "reviewer");
+  const parallelWidth = Math.max(1, Math.trunc(numberValue(session.budget_limits.parallel_width) ?? 1));
+  const depth = criticalPathDepth(units);
+  const totalCriticalPathDepth = depth + (reducerUnits.length > 0 ? 1 : 0) + (reviewerUnits.length > 0 ? 1 : 0);
+  const rounds = Math.max(1, Math.trunc(numberValue(session.rounds) ?? 0) || totalCriticalPathDepth || 1);
+  const observedWidth = Math.max(
+    runningUnits.length,
+    observedWidthFromTrace(session.trace_spans),
+    runnableUnits.length > 1 ? Math.min(parallelWidth, runnableUnits.length) : 0,
+  );
+  const duplicateRejections = session.events.filter((event) => event.type === "swarm.duplicate_activation_skipped").length;
+  const blockedSlotCount = Math.max(0, Math.min(parallelWidth, blockedUnits.length) - runningUnits.length);
+  return {
+    schema_version: "cowork.swarm_metrics.v1",
+    plan_id: stringValue(plan.id),
+    critical_path_depth: totalCriticalPathDepth,
+    critical_rounds: rounds,
+    fanout_width_observed: observedWidth,
+    parallel_efficiency: roundRatio(completedUnits.length / Math.max(1, totalCriticalPathDepth || rounds)),
+    fanout_utilization: roundRatio(observedWidth / parallelWidth),
+    duplicate_rejection_count: duplicateRejections,
+    blocked_slot_count: blockedSlotCount,
+    reducer_coverage: roundRatio(reducerCoverage(session, completedUnits)),
+    counts: {
+      work_units: requiredUnits.length,
+      completed: completedUnits.length,
+      running: runningUnits.length,
+      blocked: blockedUnits.length,
+      reducer_units: reducerUnits.length,
+      reviewer_units: reviewerUnits.length,
+    },
+    generated_at: "",
+  };
+}
+
+function swarmQueueItem(unit: JsonObject, completed: Set<string>, runningAgents: Set<string>): JsonObject {
+  const dependencies = arrayValue(unit.dependencies).map(stringValue).filter((item) => item.trim());
+  const blockedBy = dependencies.filter((dependency) => !completed.has(dependency));
+  const attempts = Math.trunc(numberValue(unit.attempts) ?? 0);
+  const maxAttempts = Math.trunc(numberValue(unit.max_attempts) ?? 1);
+  return {
+    id: stringValue(unit.id),
+    title: stringValue(unit.title),
+    status: stringValue(unit.status) || "pending",
+    priority: Math.trunc(numberValue(unit.priority) ?? 0),
+    assigned_agent_id: stringValue(unit.assigned_agent_id) || null,
+    dependencies,
+    blocked_by: blockedBy,
+    attempts,
+    max_attempts: maxAttempts,
+    workstream: stringValue(unit.team_id) || stringValue(unit.fanout_group_id) || stringValue(unit.kind) || "default",
+    created_at: stringValue(unit.created_at),
+    updated_at: stringValue(unit.updated_at),
+    reason: swarmQueueReason(unit, blockedBy, runningAgents),
+  };
+}
+
+function swarmQueueReason(unit: JsonObject, blockedBy: string[], runningAgents: Set<string>): string {
+  if (blockedBy.length > 0) {
+    return `Waiting on dependencies: ${blockedBy.join(", ")}`;
+  }
+  const status = stringValue(unit.status) || "pending";
+  if (status === "in_progress") {
+    return `Running on ${stringValue(unit.assigned_agent_id) || "an agent"}`;
+  }
+  if (["failed", "needs_revision"].includes(status)) {
+    const attempts = Math.trunc(numberValue(unit.attempts) ?? 0);
+    const maxAttempts = Math.trunc(numberValue(unit.max_attempts) ?? 1);
+    return attempts < maxAttempts ? "Eligible for retry" : "Retry budget exhausted";
+  }
+  if (runningAgents.has(stringValue(unit.assigned_agent_id))) {
+    return "Owner is already running another work unit";
+  }
+  return "Dependencies satisfied and scheduling budget permitting";
+}
+
+function completedSwarmReferences(session: CoworkSession, units: JsonObject[]): Set<string> {
+  return new Set([
+    ...units
+      .filter((unit) => ["completed", "skipped"].includes(stringValue(unit.status)))
+      .map((unit) => stringValue(unit.id)),
+    ...Object.values(session.tasks)
+      .filter((task) => ["completed", "skipped"].includes(task.status))
+      .map((task) => task.id),
+  ].filter(Boolean));
+}
+
+function sortSwarmQueueItems(items: JsonObject[]): JsonObject[] {
+  return [...items].sort((left, right) => (numberValue(right.priority) ?? 0) - (numberValue(left.priority) ?? 0)
+    || stringValue(left.created_at).localeCompare(stringValue(right.created_at))
+    || stringValue(left.id).localeCompare(stringValue(right.id)));
+}
+
+function fairOrderSwarmQueueByWorkstream(items: JsonObject[]): JsonObject[] {
+  const groups = new Map<string, JsonObject[]>();
+  for (const item of items) {
+    const workstream = stringValue(item.workstream) || "default";
+    const group = groups.get(workstream) ?? [];
+    group.push(item);
+    groups.set(workstream, group);
+  }
+  const ordered: JsonObject[] = [];
+  while ([...groups.values()].some((group) => group.length > 0)) {
+    for (const key of [...groups.keys()].sort()) {
+      const group = groups.get(key);
+      const item = group?.shift();
+      if (item) {
+        ordered.push(item);
+      }
+    }
+  }
+  return ordered;
+}
+
+function metricBlockedBy(unit: JsonObject, units: JsonObject[], session: CoworkSession): string[] {
+  const completed = completedSwarmReferences(session, units);
+  return arrayValue(unit.dependencies).map(stringValue).filter((dependency) => dependency && !completed.has(dependency));
+}
+
+function criticalPathDepth(units: JsonObject[]): number {
+  const byId = new Map(units.map((unit) => [stringValue(unit.id), unit]));
+  const memo = new Map<string, number>();
+  const visit = (id: string, seen: Set<string>): number => {
+    if (!id || seen.has(id)) {
+      return 0;
+    }
+    const existing = memo.get(id);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const unit = byId.get(id);
+    if (!unit) {
+      return 0;
+    }
+    const nextSeen = new Set(seen);
+    nextSeen.add(id);
+    const depth = 1 + Math.max(0, ...arrayValue(unit.dependencies).map((dependency) => visit(stringValue(dependency), nextSeen)));
+    memo.set(id, depth);
+    return depth;
+  };
+  return Math.max(0, ...units.map((unit) => visit(stringValue(unit.id), new Set())));
+}
+
+function observedWidthFromTrace(traceSpans: JsonObject[]): number {
+  const starts = traceSpans
+    .filter((span) => stringValue(span.kind) === "swarm" && stringValue(span.status) === "in_progress")
+    .map((span) => stringValue(span.started_at))
+    .filter(Boolean);
+  if (starts.length === 0) {
+    return 0;
+  }
+  const counts = countStrings(starts);
+  return Math.max(0, ...Object.values(counts));
+}
+
+function countStrings(items: string[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const item of items) {
+    counts[item] = (counts[item] ?? 0) + 1;
+  }
+  return counts;
+}
+
+function reducerCoverage(session: CoworkSession, completedUnits: JsonObject[]): number {
+  if (completedUnits.length === 0) {
+    return 1;
+  }
+  const reducerIds = new Set(Object.values(session.tasks)
+    .filter((task) => task.status === "completed" && stringValue(task.source_event_id).startsWith("swarm_reducer:"))
+    .flatMap((task) => arrayValue(task.result_data.source_work_unit_ids).map(stringValue).filter(Boolean)));
+  if (reducerIds.size === 0) {
+    return 0;
+  }
+  const covered = completedUnits.filter((unit) => reducerIds.has(stringValue(unit.id))).length;
+  return covered / completedUnits.length;
+}
+
+function roundRatio(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.round(Math.max(0, Math.min(1, value)) * 1000) / 1000;
 }
 
 function buildCoworkLargeSwarmSummary(session: CoworkSession): JsonObject {

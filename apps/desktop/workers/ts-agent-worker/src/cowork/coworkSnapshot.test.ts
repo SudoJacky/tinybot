@@ -249,4 +249,107 @@ describe("cowork session snapshot", () => {
     });
     expect(snapshot.large_swarm_summary.workstreams).toHaveLength(8);
   });
+
+  test("projects Python-compatible swarm scheduler queues and metrics", () => {
+    const snapshot = coworkSessionSnapshot(normalizeCoworkSession({
+      ...rawSession,
+      id: "cw-swarm-queues",
+      workflow_mode: "swarm",
+      budget_limits: { parallel_width: 2 },
+      tasks: {
+        completed: {
+          ...rawSession.tasks.task_1,
+          id: "completed",
+          status: "completed",
+        },
+        ready: {
+          ...rawSession.tasks.task_1,
+          id: "ready",
+          title: "Ready work",
+          status: "pending",
+          dependencies: ["completed"],
+        },
+        blocked: {
+          ...rawSession.tasks.task_1,
+          id: "blocked",
+          title: "Blocked work",
+          status: "pending",
+          dependencies: ["missing"],
+        },
+      },
+      swarm_plan: {
+        id: "swarm_queues",
+        status: "active",
+        work_units: [
+          {
+            id: "wu_completed",
+            title: "Completed",
+            status: "completed",
+            source_task_id: "completed",
+            kind: "fanout",
+            priority: 1,
+          },
+          {
+            id: "wu_ready",
+            title: "Ready",
+            status: "pending",
+            source_task_id: "ready",
+            kind: "fanout",
+            dependencies: ["completed"],
+            priority: 5,
+          },
+          {
+            id: "wu_blocked",
+            title: "Blocked",
+            status: "pending",
+            source_task_id: "blocked",
+            kind: "fanout",
+            dependencies: ["missing"],
+            priority: 10,
+          },
+          {
+            id: "wu_retry",
+            title: "Retry",
+            status: "failed",
+            source_task_id: "blocked",
+            kind: "fanout",
+            attempts: 1,
+            max_attempts: 3,
+            priority: 3,
+          },
+        ],
+      },
+    }));
+
+    expect(snapshot.swarm_queues).toMatchObject({
+      schema_version: "cowork.swarm_queues.v1",
+      plan_id: "swarm_queues",
+      parallel_width: 2,
+      counts: {
+        ready: 1,
+        blocked: 1,
+        running: 0,
+        completed: 1,
+        failed_retry: 1,
+        cancelled: 0,
+      },
+      queues: {
+        ready: [expect.objectContaining({ id: "wu_ready", blocked_by: [] })],
+        blocked: [expect.objectContaining({ id: "wu_blocked", blocked_by: ["missing"] })],
+        failed_retry: [expect.objectContaining({ id: "wu_retry" })],
+      },
+    });
+    expect(snapshot.swarm_metrics).toMatchObject({
+      schema_version: "cowork.swarm_metrics.v1",
+      plan_id: "swarm_queues",
+      counts: {
+        work_units: 4,
+        completed: 1,
+        running: 0,
+        blocked: 2,
+        reducer_units: 0,
+        reviewer_units: 0,
+      },
+    });
+  });
 });
