@@ -212,6 +212,63 @@ describe("createTaskTool", () => {
     expect(spawned).toEqual([]);
   });
 
+  test("preserves Python resume guards before spawning ready subtasks", async () => {
+    const dagError = basePlan();
+    dagError.id = "dag-error";
+    dagError.status = "planning";
+    dagError.context = { dag_errors: ["cycle detected"] };
+
+    const blocked = basePlan();
+    blocked.id = "blocked";
+    blocked.status = "planning";
+    blocked.subtasks[1] = {
+      ...blocked.subtasks[1],
+      dependencies: ["missing"],
+    };
+
+    const allDone = basePlan();
+    allDone.id = "all-done";
+    allDone.status = "planning";
+    allDone.subtasks[1] = {
+      ...allDone.subtasks[1],
+      status: "completed",
+      result: "Runtime done",
+    };
+
+    const noReady = basePlan();
+    noReady.id = "no-ready";
+    noReady.status = "planning";
+    noReady.subtasks[1] = {
+      ...noReady.subtasks[1],
+      status: "failed",
+      result: null,
+      error: "failed",
+    };
+    const spawned: string[] = [];
+    const tool = createTaskTool({
+      store: memoryBridge([dagError, blocked, allDone, noReady]),
+      executor: {
+        spawnSubtask: async ({ subtask }) => {
+          spawned.push(subtask.id);
+        },
+      },
+    });
+
+    await expect(tool.execute({ action: "resume", plan_id: "dag-error" }, context)).resolves.toEqual({
+      content: "Cannot execute plan due to dependency errors: ['cycle detected']\nUse 'add_subtask' or 'remove_subtask' to fix the plan.",
+    });
+    await expect(tool.execute({ action: "resume", plan_id: "blocked" }, context)).resolves.toEqual({
+      content: "Error: Plan is blocked. All pending tasks have unmet dependencies.\nUse `task action=status plan_id=blocked` to inspect.",
+    });
+    await expect(tool.execute({ action: "resume", plan_id: "all-done" }, context)).resolves.toEqual({
+      content: "All subtasks are completed. Use `task action=summary plan_id={plan_id}` to get the final results.",
+    });
+    await expect(tool.execute({ action: "resume", plan_id: "no-ready" }, context)).resolves.toEqual({
+      content: "No ready subtasks found. Check plan status.",
+    });
+    expect(spawned).toEqual([]);
+  });
+
   test("returns final summary only for completed plans", async () => {
     const completed = basePlan();
     completed.status = "completed";

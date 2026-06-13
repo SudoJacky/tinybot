@@ -1,4 +1,5 @@
 import type { Tool, ToolContext, ToolResult } from "../tools/tool.ts";
+import { isPlanBlocked, isPlanCompleted, readySubtasks } from "./taskDag.ts";
 import { TaskRuntime, type TaskRuntimeOptions } from "./taskRuntime.ts";
 import { taskProgressPayload } from "./taskProgress.ts";
 import type { SubTask, TaskPlan } from "./taskTypes.ts";
@@ -167,6 +168,28 @@ async function resumeResult(runtime: TaskRuntime, args: Record<string, unknown>,
   }
   if (existingProgress.status === "executing") {
     return { content: `Plan is already executing.\n\n${formatProgress(existingProgress)}` };
+  }
+  const plans = await runtime.listPlans(traceId(context), { includeCompleted: true });
+  const plan = plans.find((candidate) => candidate.id === planId);
+  if (!plan) {
+    return { content: `Error: Plan ${planId} not found` };
+  }
+  const dagErrors = dagErrorsFor(plan);
+  if (dagErrors.length > 0) {
+    return {
+      content: `Cannot execute plan due to dependency errors: ${formatPythonList(dagErrors)}\nUse 'add_subtask' or 'remove_subtask' to fix the plan.`,
+    };
+  }
+  if (isPlanBlocked(plan)) {
+    return {
+      content: `Error: Plan is blocked. All pending tasks have unmet dependencies.\nUse \`task action=status plan_id=${planId}\` to inspect.`,
+    };
+  }
+  if (readySubtasks(plan).length === 0) {
+    if (isPlanCompleted(plan)) {
+      return { content: "All subtasks are completed. Use `task action=summary plan_id={plan_id}` to get the final results." };
+    }
+    return { content: "No ready subtasks found. Check plan status." };
   }
   const result = await runtime.resumePlan(planId, {
     parallel: booleanArg(args, "parallel", true),

@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued Batch 5 Task/Cron background runtime parity: TS native `task` resume now mirrors Python's pre-spawn guards for DAG errors, blocked plans, all-subtasks-complete plans, and no-ready-subtask plans.
+
 - Continued Batch 5 Task/Cron background runtime parity: TS native `task` resume now mirrors Python's completed/executing plan guards instead of re-entering background execution for terminal or already-running plans.
 
 - Continued Batch 5 Task/Cron background runtime parity: TS native task status/create summaries now mirror Python's plan-summary details, including created timestamps, DAG error rows, status icons, and result ellipses.
