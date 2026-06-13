@@ -1,7 +1,7 @@
 import type { JsonObject } from "../protocol/messages.ts";
 import type { NativeRpcClient } from "../tools/nativeToolProxy.ts";
 import type { TaskProgressEvent } from "./taskRuntime.ts";
-import type { TaskPlan } from "./taskTypes";
+import type { TaskPlan } from "./taskTypes.ts";
 
 export interface TaskNotificationBridge {
   notifyPlanCompleted(sessionKey: string, plan: TaskPlan, summary: string, traceId: string): Promise<void>;

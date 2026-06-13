@@ -1584,6 +1584,69 @@ fn worker_cron_next_wake_delay_with_options(
     Ok(Duration::from_millis((next_run_at_ms - now_ms) as u64).min(max_poll))
 }
 
+fn start_worker_heartbeat_runtime_with_options(
+    shared: &SharedGateway,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    send_worker_heartbeat_lifecycle_request(
+        shared,
+        workspace_root,
+        config_snapshot,
+        build_worker_heartbeat_lifecycle_request(now_unix_ms(), "start"),
+        timeout,
+    )
+}
+
+fn stop_worker_heartbeat_runtime_with_options(
+    shared: &SharedGateway,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    send_worker_heartbeat_lifecycle_request(
+        shared,
+        workspace_root,
+        config_snapshot,
+        build_worker_heartbeat_lifecycle_request(now_unix_ms(), "stop"),
+        timeout,
+    )
+}
+
+fn send_worker_heartbeat_lifecycle_request(
+    shared: &SharedGateway,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    request: WorkerRequest,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let worker = {
+        let runtime = lock_runtime(shared);
+        runtime.experimental_worker.clone()
+    };
+    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot)?;
+    let method = request.method.clone();
+    let response = worker
+        .send_stdio_request(&request, timeout)
+        .map_err(|error| format!("worker {method} request failed: {}", error.message))?;
+    if let Some(error) = response.error {
+        return Err(format!("worker {method} returned error: {}", error.message));
+    }
+    response
+        .result
+        .ok_or_else(|| format!("worker {method} response missing result"))
+}
+
+fn build_worker_heartbeat_lifecycle_request(request_id: u128, action: &str) -> WorkerRequest {
+    WorkerRequest::new(
+        format!("heartbeat-{action}-{request_id}"),
+        format!("trace-heartbeat-{action}-{request_id}"),
+        format!("heartbeat.{action}"),
+        serde_json::json!({}),
+    )
+}
+
 struct CronDispatchGuard {
     running: Arc<AtomicBool>,
 }
@@ -2822,6 +2885,17 @@ pub fn run() {
             });
             drop(runtime);
             start_worker_cron_timer(&setup_state);
+            if let Err(error) = start_worker_heartbeat_runtime_with_options(
+                &setup_state,
+                ts_agent_worker_workspace_root(),
+                experimental_worker_config_snapshot(),
+                Duration::from_secs(10),
+            ) {
+                push_log(
+                    &setup_state,
+                    &format!("native heartbeat start failed: {error}"),
+                );
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -2859,6 +2933,17 @@ pub fn run() {
         .on_window_event(move |_window, event| {
             if matches!(event, WindowEvent::CloseRequested { .. }) {
                 stop_worker_cron_timer(&close_state);
+                if let Err(error) = stop_worker_heartbeat_runtime_with_options(
+                    &close_state,
+                    ts_agent_worker_workspace_root(),
+                    experimental_worker_config_snapshot(),
+                    Duration::from_secs(10),
+                ) {
+                    push_log(
+                        &close_state,
+                        &format!("native heartbeat stop failed: {error}"),
+                    );
+                }
                 let _ = stop_owned_gateway(&close_state, false);
             }
         })
@@ -3129,6 +3214,21 @@ mod tests {
                 "stream": false
             })
         );
+    }
+
+    #[test]
+    fn worker_heartbeat_lifecycle_requests_target_ts_worker_methods() {
+        let start = build_worker_heartbeat_lifecycle_request(42, "start");
+        assert_eq!(start.id, "heartbeat-start-42");
+        assert_eq!(start.trace_id, "trace-heartbeat-start-42");
+        assert_eq!(start.method, "heartbeat.start");
+        assert_eq!(start.params, serde_json::json!({}));
+
+        let stop = build_worker_heartbeat_lifecycle_request(43, "stop");
+        assert_eq!(stop.id, "heartbeat-stop-43");
+        assert_eq!(stop.trace_id, "trace-heartbeat-stop-43");
+        assert_eq!(stop.method, "heartbeat.stop");
+        assert_eq!(stop.params, serde_json::json!({}));
     }
 
     #[test]

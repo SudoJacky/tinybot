@@ -1,7 +1,7 @@
 import type { JsonObject } from "../protocol/messages.ts";
 import type { NativeRpcClient } from "../tools/nativeToolProxy.ts";
-import { normalizeTaskPlan } from "./taskDag";
-import type { SubTask, TaskPlan, TaskPlanInput, TaskStore, TaskStoreInput } from "./taskTypes";
+import { normalizeTaskPlan } from "./taskDag.ts";
+import type { SubTask, TaskPlan, TaskPlanInput, TaskStore, TaskStoreInput } from "./taskTypes.ts";
 
 export interface ListTaskPlansOptions {
   includeCompleted?: boolean;

@@ -1,8 +1,8 @@
 import type { AgentMessage } from "../agent/agentRunSpec.ts";
 import type { ModelProvider, ToolCallRequest, ToolDefinition } from "../model/provider.ts";
 import { isJsonObject, type JsonObject } from "../protocol/messages.ts";
-import { normalizeArchitectureName } from "./coworkArchitecture";
-import { DEFAULT_COWORK_AGENT_TOOLS, type CoworkAgentInput, type CoworkTaskInput } from "./coworkService";
+import { normalizeArchitectureName } from "./coworkArchitecture.ts";
+import { DEFAULT_COWORK_AGENT_TOOLS, type CoworkAgentInput, type CoworkTaskInput } from "./coworkService.ts";
 
 export type CoworkTeamPlan = {
   title: string;

@@ -3,10 +3,10 @@ import type { AgentRunResult, AgentRunSpec } from "../agent/agentRunSpec.ts";
 import { isJsonObject, type JsonObject } from "../protocol/messages.ts";
 import type { Tool, ToolDefinition } from "../tools/tool.ts";
 import type { ToolRegistry } from "../tools/toolRegistry.ts";
-import { coworkInternalToolDefinition, createCoworkInternalTool } from "./coworkInternalTool";
-import { normalizeCoworkSession } from "./coworkSerde";
-import type { CoworkAgent, CoworkEvent, CoworkSession, CoworkTask } from "./coworkTypes";
-import type { CoworkIdGenerator, CoworkServiceStore } from "./coworkService";
+import { coworkInternalToolDefinition, createCoworkInternalTool } from "./coworkInternalTool.ts";
+import { normalizeCoworkSession } from "./coworkSerde.ts";
+import type { CoworkAgent, CoworkEvent, CoworkSession, CoworkTask } from "./coworkTypes.ts";
+import type { CoworkIdGenerator, CoworkServiceStore } from "./coworkService.ts";
 
 export type CoworkAgentRuntimeOptions = {
   store: CoworkServiceStore;

@@ -1,8 +1,8 @@
 import { isJsonObject, type JsonObject } from "../protocol/messages.ts";
 import type { Tool, ToolDefinition, ToolResult } from "../tools/tool.ts";
-import { normalizeCoworkSession } from "./coworkSerde";
-import type { CoworkAgent, CoworkEvent, CoworkSession, CoworkTask } from "./coworkTypes";
-import type { CoworkIdGenerator, CoworkServiceStore } from "./coworkService";
+import { normalizeCoworkSession } from "./coworkSerde.ts";
+import type { CoworkAgent, CoworkEvent, CoworkSession, CoworkTask } from "./coworkTypes.ts";
+import type { CoworkIdGenerator, CoworkServiceStore } from "./coworkService.ts";
 
 export type CoworkInternalToolOptions = {
   store: CoworkServiceStore;

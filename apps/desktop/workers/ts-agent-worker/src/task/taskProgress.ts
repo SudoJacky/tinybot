@@ -1,5 +1,5 @@
-import { canExecuteSubtask } from "./taskDag";
-import type { SubTaskStatus, TaskPlan, TaskPlanStatus } from "./taskTypes";
+import { canExecuteSubtask } from "./taskDag.ts";
+import type { SubTaskStatus, TaskPlan, TaskPlanStatus } from "./taskTypes.ts";
 
 export interface TaskProgressPayload {
   plan_id: string;

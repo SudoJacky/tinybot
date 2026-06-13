@@ -1,7 +1,7 @@
 import { isJsonObject, type JsonObject } from "../protocol/messages.ts";
 import type { NativeRpcClient } from "../tools/nativeToolProxy.ts";
-import { nativeCoworkSession, normalizeCoworkSession, normalizeCoworkStore } from "./coworkSerde";
-import type { CoworkEvent, CoworkSession } from "./coworkTypes";
+import { nativeCoworkSession, normalizeCoworkSession, normalizeCoworkStore } from "./coworkSerde.ts";
+import type { CoworkEvent, CoworkSession } from "./coworkTypes.ts";
 
 export class NativeCoworkStoreBridge {
   private readonly rpcClient: NativeRpcClient;

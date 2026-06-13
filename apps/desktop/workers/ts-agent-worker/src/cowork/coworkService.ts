@@ -1,10 +1,10 @@
 import { isJsonObject, type JsonObject } from "../protocol/messages.ts";
-import { normalizeArchitectureName } from "./coworkArchitecture";
-import { normalizeBlueprint, previewBlueprint } from "./coworkBlueprint";
-import { CoworkMailbox, type CoworkEnvelope, type CoworkMailboxMessage } from "./coworkMailbox";
-import { normalizeCoworkSession } from "./coworkSerde";
-import { coworkSessionSnapshot } from "./coworkSnapshot";
-import type { CoworkAgent, CoworkBranch, CoworkEvent, CoworkSession, CoworkTask } from "./coworkTypes";
+import { normalizeArchitectureName } from "./coworkArchitecture.ts";
+import { normalizeBlueprint, previewBlueprint } from "./coworkBlueprint.ts";
+import { CoworkMailbox, type CoworkEnvelope, type CoworkMailboxMessage } from "./coworkMailbox.ts";
+import { normalizeCoworkSession } from "./coworkSerde.ts";
+import { coworkSessionSnapshot } from "./coworkSnapshot.ts";
+import type { CoworkAgent, CoworkBranch, CoworkEvent, CoworkSession, CoworkTask } from "./coworkTypes.ts";
 
 const DEFAULT_BRANCH_ID = "default";
 const DEFAULT_BUDGET_LIMITS: JsonObject = {

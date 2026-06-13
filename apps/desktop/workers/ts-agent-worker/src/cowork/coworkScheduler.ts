@@ -1,8 +1,8 @@
 import { isJsonObject, type JsonObject } from "../protocol/messages.ts";
-import { selectReadyCoworkAgentCandidates, type CoworkAgentRuntime } from "./coworkAgentRuntime";
-import { normalizeCoworkSession } from "./coworkSerde";
-import type { CoworkEvent, CoworkSession, CoworkTask } from "./coworkTypes";
-import type { CoworkIdGenerator, CoworkServiceStore } from "./coworkService";
+import { selectReadyCoworkAgentCandidates, type CoworkAgentRuntime } from "./coworkAgentRuntime.ts";
+import { normalizeCoworkSession } from "./coworkSerde.ts";
+import type { CoworkEvent, CoworkSession, CoworkTask } from "./coworkTypes.ts";
+import type { CoworkIdGenerator, CoworkServiceStore } from "./coworkService.ts";
 
 const DEFAULT_BUDGET_USAGE: JsonObject = {
   rounds: 0,

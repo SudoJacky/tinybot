@@ -1,5 +1,5 @@
 import { isJsonObject, type JsonObject } from "../protocol/messages.ts";
-import type { CoworkEvent, CoworkSession } from "./coworkTypes";
+import type { CoworkEvent, CoworkSession } from "./coworkTypes.ts";
 
 export type CoworkEnvelope = {
   sender_id: string;

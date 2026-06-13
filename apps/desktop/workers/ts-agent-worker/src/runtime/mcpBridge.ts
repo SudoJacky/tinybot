@@ -57,10 +57,16 @@ export class NativeMcpBridge {
 }
 
 class NativeMcpToolSession implements McpToolSession {
+  private readonly rpcClient: NativeRpcClient;
+  private readonly serverName: string;
+
   constructor(
-    private readonly rpcClient: NativeRpcClient,
-    private readonly serverName: string,
-  ) {}
+    rpcClient: NativeRpcClient,
+    serverName: string,
+  ) {
+    this.rpcClient = rpcClient;
+    this.serverName = serverName;
+  }
 
   async callTool(
     rawToolName: string,

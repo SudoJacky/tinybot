@@ -1,5 +1,5 @@
 import { isJsonObject, type JsonObject } from "../protocol/messages.ts";
-import type { CoworkAgent, CoworkBranch, CoworkEvent, CoworkSession, CoworkStore, CoworkTask } from "./coworkTypes";
+import type { CoworkAgent, CoworkBranch, CoworkEvent, CoworkSession, CoworkStore, CoworkTask } from "./coworkTypes.ts";
 
 const ADAPTIVE_STARTER = "adaptive_starter";
 const DEFAULT_BRANCH_ID = "default";

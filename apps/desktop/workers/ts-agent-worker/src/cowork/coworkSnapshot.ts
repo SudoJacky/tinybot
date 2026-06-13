@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 
 import { isJsonObject, type JsonObject } from "../protocol/messages.ts";
-import { defaultPolicyRegistry } from "./coworkPolicy";
-import type { CoworkAgent, CoworkBranch, CoworkSession, CoworkTask } from "./coworkTypes";
+import { defaultPolicyRegistry } from "./coworkPolicy.ts";
+import type { CoworkAgent, CoworkBranch, CoworkSession, CoworkTask } from "./coworkTypes.ts";
 
 export interface CoworkSnapshotOptions {
   verbose?: boolean;

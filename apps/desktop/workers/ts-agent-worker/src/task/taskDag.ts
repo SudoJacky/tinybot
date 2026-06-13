@@ -1,4 +1,4 @@
-import type { SubTask, SubTaskInput, TaskPlan, TaskPlanInput } from "./taskTypes";
+import type { SubTask, SubTaskInput, TaskPlan, TaskPlanInput } from "./taskTypes.ts";
 
 export function normalizeSubTask(input: SubTaskInput): SubTask {
   return {

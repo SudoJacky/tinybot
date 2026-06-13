@@ -1,7 +1,7 @@
 import type { Tool, ToolContext, ToolResult } from "../tools/tool.ts";
-import { TaskRuntime, type TaskRuntimeOptions } from "./taskRuntime";
-import { taskProgressPayload } from "./taskProgress";
-import type { SubTask, TaskPlan } from "./taskTypes";
+import { TaskRuntime, type TaskRuntimeOptions } from "./taskRuntime.ts";
+import { taskProgressPayload } from "./taskProgress.ts";
+import type { SubTask, TaskPlan } from "./taskTypes.ts";
 
 const TASK_ACTIONS = [
   "create",

@@ -16,6 +16,8 @@
 
 - Continued Heartbeat runtime Phase 3 config hot update: TS-native `/api/config` PATCH now refreshes the injected heartbeat runtime after native config-store apply, so enabled/interval changes take effect without waiting for gateway restart or a status poll.
 
+- Continued Heartbeat runtime Phase 3 host lifecycle ownership: the native desktop host now starts TS heartbeat scheduling during app setup and stops it on window close through the experimental TS worker, with Node-runtime import/syntax fixes verified by real stdio `heartbeat.start` / `heartbeat.stop` responses.
+
 更新时间：2026-06-12
 
 本文档用于跟踪 `overall.md` 中建议的 TypeScript runtime migration 推进顺序。推进方式按依赖层分批完成，而不是逐个设计文档从 Phase 1 做到最后。
@@ -590,6 +592,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Heartbeat runtime Phase 2: expose worker `heartbeat.start`/`heartbeat.stop` and refresh native heartbeat enabled/interval config before scheduling.
 - [x] Continue Heartbeat runtime Phase 3: expose heartbeat scheduler diagnostics through TS-native `/api/status` with native config refresh.
 - [x] Continue Heartbeat runtime Phase 3: refresh heartbeat enabled/interval after TS-native `/api/config` PATCH applies to the native config store.
+- [x] Continue Heartbeat runtime Phase 3: start and stop TS heartbeat scheduling from the native desktop host lifecycle.
 - [x] Continue Command Runtime Phase 3: migrate the first native `/dream` conversation-evidence extraction path for explicit memory-intent evidence.
 - [x] Continue Command Runtime Phase 3: migrate the first native `/dream` legacy-history extraction path for explicit memory-intent records.
 

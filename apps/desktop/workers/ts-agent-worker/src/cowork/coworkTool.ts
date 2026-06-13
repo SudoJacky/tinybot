@@ -1,10 +1,10 @@
 import { isJsonObject, type JsonObject } from "../protocol/messages.ts";
 import type { Tool, ToolContext, ToolResult } from "../tools/tool.ts";
-import type { CoworkScheduler } from "./coworkScheduler";
-import { type CoworkService } from "./coworkService";
-import type { CoworkAgentInput, CoworkTaskInput } from "./coworkService";
-import type { CoworkTeamPlanner } from "./coworkTeamPlanner";
-import type { CoworkSession, CoworkTask } from "./coworkTypes";
+import type { CoworkScheduler } from "./coworkScheduler.ts";
+import { type CoworkService } from "./coworkService.ts";
+import type { CoworkAgentInput, CoworkTaskInput } from "./coworkService.ts";
+import type { CoworkTeamPlanner } from "./coworkTeamPlanner.ts";
+import type { CoworkSession, CoworkTask } from "./coworkTypes.ts";
 
 const COWORK_ACTIONS = [
   "start",

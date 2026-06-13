@@ -270,9 +270,12 @@ export type WebuiOpenAiCompatProvider = {
 };
 
 export class WebuiOpenAiRequestTimeoutError extends Error {
-  constructor(readonly timeoutSeconds: number) {
+  readonly timeoutSeconds: number;
+
+  constructor(timeoutSeconds: number) {
     super(`Request timed out after ${formatOpenAiTimeoutSeconds(timeoutSeconds)}s`);
     this.name = "WebuiOpenAiRequestTimeoutError";
+    this.timeoutSeconds = timeoutSeconds;
   }
 }
 

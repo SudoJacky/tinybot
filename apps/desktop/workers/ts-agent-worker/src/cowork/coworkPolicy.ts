@@ -1,6 +1,6 @@
 import { isJsonObject, type JsonObject } from "../protocol/messages.ts";
-import { ADAPTIVE_STARTER, normalizeArchitectureName } from "./coworkArchitecture";
-import type { CoworkAgent, CoworkSession, CoworkTask } from "./coworkTypes";
+import { ADAPTIVE_STARTER, normalizeArchitectureName } from "./coworkArchitecture.ts";
+import type { CoworkAgent, CoworkSession, CoworkTask } from "./coworkTypes.ts";
 
 export interface ArchitectureCapabilityResult {
   status: string;

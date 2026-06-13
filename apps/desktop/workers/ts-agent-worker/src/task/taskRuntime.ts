@@ -1,8 +1,8 @@
-import { isPlanCompleted, readySubtasks, validateTaskDag } from "./taskDag";
-import { taskProgressPayload, type TaskProgressPayload } from "./taskProgress";
-import type { TaskPlanContext } from "./taskPlanner";
-import type { TaskNotificationBridge, TaskProgressCardBridge } from "./taskNotificationBridge";
-import type { SubTask, SubTaskStatus, TaskPlan } from "./taskTypes";
+import { isPlanCompleted, readySubtasks, validateTaskDag } from "./taskDag.ts";
+import { taskProgressPayload, type TaskProgressPayload } from "./taskProgress.ts";
+import type { TaskPlanContext } from "./taskPlanner.ts";
+import type { TaskNotificationBridge, TaskProgressCardBridge } from "./taskNotificationBridge.ts";
+import type { SubTask, SubTaskStatus, TaskPlan } from "./taskTypes.ts";
 
 export interface TaskStoreBridge {
   listPlans(traceId: string, options?: { includeCompleted?: boolean }): Promise<TaskPlan[]>;
