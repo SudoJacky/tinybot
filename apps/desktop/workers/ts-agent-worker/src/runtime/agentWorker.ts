@@ -904,6 +904,10 @@ export class AgentWorker {
       if (!title) {
         return { status: 400, body: { error: "title is required" } };
       }
+      const session = await this.coworkService.getSession(sessionId, traceId);
+      if (!session) {
+        return { status: 200, body: { result: `Error: cowork session '${sessionId}' not found`, session: null } };
+      }
       const params = parseCoworkAddTaskParams({ ...body, session_id: sessionId, title });
       const result = await this.coworkService.addTask({
         traceId,
