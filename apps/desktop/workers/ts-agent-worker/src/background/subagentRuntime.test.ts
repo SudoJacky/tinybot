@@ -11,6 +11,37 @@ function deferred<T>() {
 }
 
 describe("SubagentRuntime", () => {
+  test("uses Python-compatible default concurrency before queueing subagents", async () => {
+    const started: string[] = [];
+    const runtime = new SubagentRuntime({
+      timeoutMs: 1000,
+      idGenerator: (() => {
+        let index = 0;
+        return () => `subagent-${index += 1}`;
+      })(),
+      runner: async (request: SubagentRunRequest) => {
+        started.push(request.id);
+        return new Promise(() => {});
+      },
+    });
+
+    const results = [];
+    for (let index = 0; index < 6; index += 1) {
+      results.push(await runtime.spawn({
+        task: `Task ${index + 1}`,
+        label: `Task ${index + 1}`,
+        sessionKey: "desktop:default-concurrency",
+      }));
+    }
+
+    expect(results.slice(0, 5).every((result) => result.queued === false)).toBe(true);
+    expect(results[4].message).toContain("Running: 5/5");
+    expect(results[5]).toMatchObject({ queued: true, runningCount: 5, queuedCount: 1 });
+    await waitFor(() => started.length === 5);
+    expect(runtime.cancelSession("desktop:default-concurrency")).toBe(6);
+    await waitFor(() => runtime.getRunningCount() === 0);
+  });
+
   test("limits concurrency and starts queued subagents after active runs complete", async () => {
     const gates = [deferred<string>(), deferred<string>()];
     const started: string[] = [];

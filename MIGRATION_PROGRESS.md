@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Task/Cron background runtime parity: TS-native subagent runtime now uses Python-compatible default concurrency of five background subagents before queueing, preserving Task auto-execution throughput when no explicit native limit is configured.
+
 - Continued Task/Cron background runtime parity: TS-native cron job creation now derives channel/chat delivery context from active desktop/WebUI session keys, so scheduled agent-turn deliveries target the original session instead of storing a synthetic native channel with the full session key as chat id.
 
 - Continued Task/Cron background runtime parity: TS-native task completion now detects blocked plans after a completed/skipped subtask leaves only non-executable pending work, pausing the plan, recording a Python-compatible blocked-dependency error, and notifying the owning session instead of leaving the chain stuck in `executing`.

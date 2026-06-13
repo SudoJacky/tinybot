@@ -62,7 +62,7 @@ type QueuedSubagent = {
   controller: AbortController;
 };
 
-const DEFAULT_MAX_CONCURRENT = 3;
+const DEFAULT_MAX_CONCURRENT = 5;
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
 
 export class SubagentRuntime {
