@@ -1018,7 +1018,7 @@ function recipientlessCoworkMessageRoute(method: string, path: string, body: unk
   }
   const payload = asRecord(body);
   const recipients = payload?.recipientIds ?? payload?.recipient_ids;
-  return !pythonTruthyJsonValue(recipients);
+  return coworkRecipientList(recipients).length === 0;
 }
 
 function swarmBranchDeriveRoute(method: string, path: string, body: unknown): boolean {
@@ -1065,6 +1065,16 @@ function pythonTruthyJsonValue(value: unknown): boolean {
 
 function firstPythonTruthyJsonValue(...values: unknown[]): unknown {
   return values.find((value) => pythonTruthyJsonValue(value));
+}
+
+function coworkRecipientList(value: unknown): string[] {
+  if (typeof value === "string") {
+    return value.replace(/\n/g, ",").split(",").map((item) => item.trim()).filter(Boolean);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item).trim()).filter(Boolean);
+  }
+  return [];
 }
 
 async function bootstrapGateway(
