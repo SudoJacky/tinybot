@@ -3991,7 +3991,12 @@ function coworkTaskReviewRouteBody(
     session_id: sessionId,
     task_id: taskId,
   };
-  setRouteTextParam(routeBody, body, "reviewer_agent_id", "reviewerAgentId", "reviewer_agent_id");
+  if (Object.prototype.hasOwnProperty.call(body, "reviewer_agent_id") || Object.prototype.hasOwnProperty.call(body, "reviewerAgentId")) {
+    const reviewerAgentId = pythonRouteTextParam(body, "reviewer_agent_id", "reviewer_agent_id")
+      || pythonRouteTextParam(body, "reviewerAgentId", "reviewerAgentId");
+    routeBody.reviewer_agent_id = reviewerAgentId;
+    routeBody.reviewerAgentId = reviewerAgentId;
+  }
   return routeBody;
 }
 

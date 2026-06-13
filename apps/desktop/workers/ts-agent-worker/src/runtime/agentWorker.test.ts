@@ -5812,6 +5812,62 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("honors Python reviewer_agent_id precedence over blank reviewerAgentId on task review routes", async () => {
+    const store = createMemoryCoworkStore();
+    const coworkService = new CoworkService({
+      store,
+      now: () => "2026-06-12T08:00:00.000Z",
+      idGenerator: (() => {
+        const counters = new Map<string, number>();
+        return (prefix: string) => {
+          const next = (counters.get(prefix) ?? 0) + 1;
+          counters.set(prefix, next);
+          return `${prefix}_${next}`;
+        };
+      })(),
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      coworkService,
+    });
+    const create = await worker.handleRequest(coworkRequest("cowork.create_session", {
+      goal: "Review route alias precedence",
+      title: "Review Route Alias",
+      agents: [
+        { id: "lead", name: "Lead", role: "Lead" },
+        { id: "123_5", name: "Numeric Assignee", role: "Analyst" },
+      ],
+      tasks: [{ id: "answer", title: "Answer", description: "Answer task", assigned_agent_id: "lead" }],
+    }));
+    const session = ((create.result as Record<string, unknown>).session as CoworkSession);
+    session.tasks.answer.status = "completed";
+    session.tasks.answer.result = "answer";
+    await store.writeSnapshot(session, "seed-completed");
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/tasks/answer/review`,
+      body: {
+        reviewerAgentId: "",
+        reviewer_agent_id: 123.5,
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          review_task_id: "task_1",
+          reviewTask: expect.objectContaining({
+            title: "Review Answer",
+            assigned_agent_id: "123_5",
+            dependencies: ["answer"],
+          }),
+        },
+      },
+    });
+  });
+
   test("routes cowork session control and budget requests through the injected CoworkService", async () => {
     const coworkService = new CoworkService({
       store: createMemoryCoworkStore(),
