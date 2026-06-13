@@ -4,6 +4,8 @@
 
 - Continued Cowork internal delegation parity: TS `cowork_internal` `spawn_agent` and `spawn_subteam` now honor explicit spawned-agent budget exhaustion with Python-compatible guardrail records, `spawn_budget_exhausted` stop state, delegation-denied events, and no accidental sub-agent creation.
 
+- Continued session turn lifecycle evidence durability: native `session.persist_turn` now returns the exact `saved_messages` it appended, and TS `TurnLifecycle` uses that contract for memory evidence capture instead of guessing from `savedMessageCount`, so partial duplicate turns capture only newly persisted messages.
+
 - Continued Cowork Phase 10 desktop route parity: desktop `buildDesktopCoworkActionRequest()` now preserves Python-compatible `limit` query options for agent-activity requests, keeping root/native action requests aligned with the native-first gateway facade.
 
 - Continued session turn lifecycle evidence durability: TS `TurnLifecycle.finalizeTurn()` now skips conversation evidence capture when native `session.persist_turn` reports a duplicate-only turn with `savedMessageCount=0`, preventing repeated persisted turns from generating duplicate memory evidence.
@@ -125,7 +127,7 @@
 | Order | Status | Document | Goal | Notes |
 | --- | --- | --- | --- | --- |
 | 5 | active | [ts_tool_runtime_migration_design.md](ts_tool_runtime_migration_design.md) | 建立 tool schema、registry、prepare/execute metadata | 已具备 schema casting/validation、registry/runtime/native proxy 起点；本轮补齐 approval-aware policy，approval-gated 工具要求 `approval.request` 并限制在可交互通道 |
-| 6 | active | [ts_session_turn_lifecycle_migration_design.md](ts_session_turn_lifecycle_migration_design.md) | 明确 persistence/checkpoint/resume 语义 | 已建立 `persistedMessages` 起点和 Rust/TS `session.persist_turn` RPC；AgentWorker 在可用时优先通过 `TurnLifecycle.finalizeTurn()` 写 completed turn，并通过 `TurnLifecycle.writeCheckpoint()` / `clearCheckpoint()` / `restoreCheckpoint()` 收敛 checkpoint write-clear 与 restore materialization；`checkpoint.ts` 已承载 approval/form resume projection helper；`agent.done.payload.lifecycle` 暴露 persisted/saved/checkpoint/omitted side-effect metadata；已补齐 TS persistence helper 的 Python-key dedupe/tool truncate、versioned checkpoint helper、append fallback evidence cursor alignment，以及 Rust `session.get_history` 的 user/tool legal boundary projection；真实 TS worker 连续两轮可读取上一轮 persisted history |
+| 6 | active | [ts_session_turn_lifecycle_migration_design.md](ts_session_turn_lifecycle_migration_design.md) | 明确 persistence/checkpoint/resume 语义 | 已建立 `persistedMessages` 起点和 Rust/TS `session.persist_turn` RPC；AgentWorker 在可用时优先通过 `TurnLifecycle.finalizeTurn()` 写 completed turn，并通过 `TurnLifecycle.writeCheckpoint()` / `clearCheckpoint()` / `restoreCheckpoint()` 收敛 checkpoint write-clear 与 restore materialization；`checkpoint.ts` 已承载 approval/form resume projection helper；`agent.done.payload.lifecycle` 暴露 persisted/saved/checkpoint/omitted side-effect metadata；已补齐 TS persistence helper 的 Python-key dedupe/tool truncate、versioned checkpoint helper、append fallback evidence cursor alignment、partial-duplicate `saved_messages` evidence capture contract，以及 Rust `session.get_history` 的 user/tool legal boundary projection；真实 TS worker 连续两轮可读取上一轮 persisted history |
 | 7 | active | [ts_context_builder_migration_design.md](ts_context_builder_migration_design.md) | 接入 deterministic context assembly | 已有 deterministic `contextBuilder.ts`、`NativeContextBridge` 与 `agent.run_input` product path；已新增 `runInputContext.ts`，把 ContextBridge 输出投影为 AgentRunSpec 和 context metadata；本轮补齐 run_input context metadata -> TurnLifecycle persist-turn 传递，下一步补连续会话 round-trip 验收，再挂 memory/RAG/skills |
 
 ### Batch 3: Safety And Real Model Runtime
@@ -167,6 +169,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 
 | Date | Update |
 | --- | --- |
+| 2026-06-13 | Continued session turn lifecycle evidence durability: Rust `session.persist_turn` now returns exact `saved_messages`, TS `NativeSessionBridge` normalizes them, and `TurnLifecycle` captures evidence from those messages for partial-duplicate persisted turns. |
 | 2026-06-13 | Continued session turn lifecycle evidence durability: duplicate-only append fallback results now skip memory evidence capture just like native persist-turn results. |
 | 2026-06-13 | Continued session turn lifecycle evidence durability: duplicate-only native persist-turn results now skip memory evidence capture instead of recording evidence for messages that were not saved. |
 | 2026-06-13 | Continued Cowork Phase 10 desktop route parity: agent-activity desktop action requests now preserve `limit` query options for the native-first Cowork facade. |
@@ -677,6 +680,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.
+- [x] Continue session turn lifecycle evidence durability: capture memory evidence from native `saved_messages` for partial-duplicate persisted turns.
 - [x] Start Heartbeat runtime Phase 1: add pure TS heartbeat decision parsing, target selection, manual trigger/status, and tick service orchestration.
 - [x] Continue Heartbeat runtime Phase 1: add start/stop interval lifecycle with disabled guard, first-delay scheduling, and no-overlap scheduled ticks.
 - [x] Continue Heartbeat runtime bridge foundation: route heartbeat tasks through TS `AgentRunner` with fixed heartbeat session, trim callback, and external-notify gating.

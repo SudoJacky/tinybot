@@ -1,4 +1,5 @@
 import type { AgentMessage } from "../agent/agentRunSpec.ts";
+import type { ToolCallRequest } from "../model/provider.ts";
 import type { JsonObject } from "../protocol/messages.ts";
 import type { NativeRpcClient } from "../tools/nativeToolProxy.ts";
 import type {
@@ -174,6 +175,7 @@ function normalizePersistTurnResult(result: unknown, fallbackSessionId: string):
     messagesBefore: numberField(payload, "messagesBefore", "messages_before"),
     messagesAfter: numberField(payload, "messagesAfter", "messages_after"),
     savedMessageCount: numberField(payload, "savedMessageCount", "saved_message_count"),
+    savedMessages: agentMessagesField(payload, "savedMessages", "saved_messages"),
     checkpointCleared: booleanField(payload, "checkpointCleared", "checkpoint_cleared"),
     duplicateMessageCount: numberField(payload, "duplicateMessageCount", "duplicate_message_count"),
     truncatedToolResultCount: numberField(payload, "truncatedToolResultCount", "truncated_tool_result_count"),
@@ -404,6 +406,78 @@ function isAgentMessageLike(value: unknown): value is AgentMessage {
     (value.role === "system" || value.role === "user" || value.role === "assistant" || value.role === "tool") &&
     typeof value.content === "string"
   );
+}
+
+function agentMessagesField(payload: Record<string, unknown>, camelKey: string, snakeKey: string): AgentMessage[] | undefined {
+  const value = payload[camelKey] ?? payload[snakeKey];
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const messages = value.map(nativeAgentMessage).filter((message) => message !== undefined);
+  return messages.length > 0 ? messages : undefined;
+}
+
+function nativeAgentMessage(value: unknown): AgentMessage | undefined {
+  if (!isAgentMessageLike(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const reasoningContent = typeof record.reasoningContent === "string"
+    ? record.reasoningContent
+    : typeof record.reasoning_content === "string"
+      ? record.reasoning_content
+      : undefined;
+  const thinkingBlocks = Array.isArray(record.thinkingBlocks)
+    ? record.thinkingBlocks.filter(isJsonObject)
+    : Array.isArray(record.thinking_blocks)
+      ? record.thinking_blocks.filter(isJsonObject)
+      : undefined;
+  const toolCalls = Array.isArray(record.toolCalls)
+    ? record.toolCalls.map(nativeToolCall).filter((toolCall): toolCall is ToolCallRequest => toolCall !== undefined)
+    : Array.isArray(record.tool_calls)
+      ? record.tool_calls.map(nativeToolCall).filter((toolCall): toolCall is ToolCallRequest => toolCall !== undefined)
+      : undefined;
+  const toolCallId = typeof record.toolCallId === "string"
+    ? record.toolCallId
+    : typeof record.tool_call_id === "string"
+      ? record.tool_call_id
+      : undefined;
+  return {
+    role: value.role,
+    content: value.content,
+    ...(reasoningContent !== undefined ? { reasoningContent } : {}),
+    ...(thinkingBlocks && thinkingBlocks.length > 0 ? { thinkingBlocks } : {}),
+    ...(toolCalls && toolCalls.length > 0 ? { toolCalls } : {}),
+    ...(toolCallId ? { toolCallId } : {}),
+    ...(typeof record.name === "string" ? { name: record.name } : {}),
+    ...(isJsonObject(record.metadata) ? { metadata: record.metadata } : {}),
+  };
+}
+
+function nativeToolCall(value: unknown): ToolCallRequest | undefined {
+  if (!isJsonObject(value) || typeof value.id !== "string") {
+    return undefined;
+  }
+  if (isJsonObject(value.function) && typeof value.function.name === "string" && typeof value.function.arguments === "string") {
+    return {
+      id: value.id,
+      name: value.function.name,
+      argumentsJson: value.function.arguments,
+    };
+  }
+  if (typeof value.name === "string") {
+    const argumentsJson = typeof value.argumentsJson === "string"
+      ? value.argumentsJson
+      : typeof value.arguments_json === "string"
+        ? value.arguments_json
+        : "{}";
+    return {
+      id: value.id,
+      name: value.name,
+      argumentsJson,
+    };
+  }
+  return undefined;
 }
 
 function hasNativeToolFields(value: Record<string, unknown>): boolean {

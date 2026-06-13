@@ -304,6 +304,55 @@ describe("TurnLifecycle", () => {
     expect(metadata?.omittedSideEffects).toContain("conversation_evidence");
   });
 
+  test("captures actual saved messages when persisted turn skips non-tail duplicates", async () => {
+    const capturedEvidence: Array<{ messages: AgentMessage[]; startIndex: number }> = [];
+    const savedMessages: AgentMessage[] = [
+      { role: "assistant", content: "new middle note" },
+    ];
+    const bridge: SessionBridge = {
+      setCheckpoint: async () => undefined,
+      clearCheckpoint: async () => undefined,
+      appendMessages: async () => undefined,
+      persistTurn: async (_sessionId, turn) => ({
+        sessionId: "session-1",
+        messagesBefore: 3,
+        messagesAfter: 4,
+        savedMessageCount: savedMessages.length,
+        checkpointCleared: turn.clearCheckpoint,
+        duplicateMessageCount: turn.messages.length - savedMessages.length,
+        truncatedToolResultCount: 0,
+        omittedSideEffects: ["conversation_evidence"],
+        savedMessages,
+      }),
+      getCheckpoint: async () => null,
+    };
+    const memoryBridge: MemoryEvidenceBridge = {
+      captureEvidence: async (_sessionId, request) => {
+        capturedEvidence.push({ messages: request.messages, startIndex: request.startIndex });
+        return { evidence: [{ id: "ev-1" }] };
+      },
+    };
+    const turnResult = result({
+      messages: [
+        { role: "user", content: "already saved" },
+        { role: "assistant", content: "new middle note" },
+        { role: "assistant", content: "already saved tail" },
+      ],
+    });
+
+    const metadata = await new TurnLifecycle(bridge, memoryBridge).finalizeTurn("trace-1", spec(), turnResult);
+
+    expect(capturedEvidence).toEqual([
+      {
+        startIndex: 3,
+        messages: savedMessages,
+      },
+    ]);
+    expect(metadata?.savedMessageCount).toBe(1);
+    expect(metadata?.evidenceCapturedCount).toBe(1);
+    expect(metadata?.omittedSideEffects).toEqual([]);
+  });
+
   test("falls back to append_messages when persist_turn is unavailable", async () => {
     const appended: Array<{ sessionId: string; messages: AgentMessage[] }> = [];
     const clearedCheckpoints: string[] = [];

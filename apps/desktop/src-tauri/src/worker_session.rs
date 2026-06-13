@@ -444,6 +444,7 @@ impl WorkerSessionRpc {
             .map_or(0, Vec::len);
         let mut saved_message_count = 0;
         let mut duplicate_message_count = 0;
+        let mut saved_messages = Vec::new();
         if let Some(existing) = session
             .extra
             .get_mut("messages")
@@ -457,6 +458,7 @@ impl WorkerSessionRpc {
                     continue;
                 }
                 seen.insert(key);
+                saved_messages.push(message.clone());
                 existing.push(message);
                 saved_message_count += 1;
             }
@@ -492,6 +494,7 @@ impl WorkerSessionRpc {
             messages_before,
             messages_after,
             saved_message_count,
+            saved_messages,
             checkpoint_cleared,
             duplicate_message_count,
             truncated_tool_result_count: 0,
@@ -611,6 +614,7 @@ pub struct PersistTurnResult {
     pub messages_before: usize,
     pub messages_after: usize,
     pub saved_message_count: usize,
+    pub saved_messages: Vec<Value>,
     pub checkpoint_cleared: bool,
     pub duplicate_message_count: usize,
     pub truncated_tool_result_count: usize,
@@ -1746,6 +1750,13 @@ mod tests {
         assert_eq!(result.messages_before, 1);
         assert_eq!(result.messages_after, 3);
         assert_eq!(result.saved_message_count, 2);
+        assert_eq!(
+            result.saved_messages,
+            vec![
+                json!({ "role": "user", "content": "hello" }),
+                json!({ "role": "assistant", "content": "done" })
+            ]
+        );
         assert!(result.checkpoint_cleared);
         assert_eq!(result.duplicate_message_count, 0);
         assert_eq!(result.truncated_tool_result_count, 0);
@@ -1815,6 +1826,10 @@ mod tests {
         assert_eq!(result.messages_before, 3);
         assert_eq!(result.messages_after, 4);
         assert_eq!(result.saved_message_count, 1);
+        assert_eq!(
+            result.saved_messages,
+            vec![json!({ "role": "assistant", "content": "next" })]
+        );
         assert_eq!(result.duplicate_message_count, 2);
         let updated = rpc.get_metadata("session-1").expect("session should exist");
         assert_eq!(
@@ -1880,6 +1895,10 @@ mod tests {
         assert_eq!(result.messages_before, 1);
         assert_eq!(result.messages_after, 2);
         assert_eq!(result.saved_message_count, 1);
+        assert_eq!(
+            result.saved_messages,
+            vec![json!({ "role": "assistant", "content": "done" })]
+        );
         assert_eq!(result.duplicate_message_count, 1);
         let updated = rpc.get_metadata("session-1").expect("session should exist");
         assert_eq!(updated.extra["messages"].as_array().map(Vec::len), Some(2));

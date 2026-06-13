@@ -512,6 +512,10 @@ describe("NativeSessionBridge", () => {
           messages_before: 1,
           messages_after: 3,
           saved_message_count: 2,
+          saved_messages: [
+            { role: "user", content: "hello" },
+            { role: "assistant", content: "done" },
+          ],
           checkpoint_cleared: true,
           duplicate_message_count: 0,
           truncated_tool_result_count: 0,
@@ -535,6 +539,10 @@ describe("NativeSessionBridge", () => {
       messagesBefore: 1,
       messagesAfter: 3,
       savedMessageCount: 2,
+      savedMessages: [
+        { role: "user", content: "hello" },
+        { role: "assistant", content: "done" },
+      ],
       checkpointCleared: true,
       duplicateMessageCount: 0,
       truncatedToolResultCount: 0,

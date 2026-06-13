@@ -40,6 +40,7 @@ export type PersistTurnResult = {
   messagesBefore: number;
   messagesAfter: number;
   savedMessageCount: number;
+  savedMessages?: AgentMessage[];
   checkpointCleared: boolean;
   duplicateMessageCount: number;
   truncatedToolResultCount: number;
@@ -149,7 +150,7 @@ export class TurnLifecycle {
       const evidenceCapturedCount = await this.captureEvidence(
         traceId,
         spec.sessionId,
-        savedMessagesForEvidence(messages, persisted.savedMessageCount),
+        persisted.savedMessages ?? savedMessagesForEvidence(messages, persisted.savedMessageCount),
         persisted.messagesBefore,
       );
       return lifecycleMetadataFromPersistedTurn(spec, result, persisted, evidenceCapturedCount);
