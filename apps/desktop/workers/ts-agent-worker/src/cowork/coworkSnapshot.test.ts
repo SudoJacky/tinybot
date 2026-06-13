@@ -208,7 +208,7 @@ describe("cowork session snapshot", () => {
         assigned_agent_id: `worker_${((value - 1) % 8) + 1}`,
         fanout_group_id: `stream_${Math.floor((value - 1) / 15) + 1}`,
         source_task_id: `unit_${String(value).padStart(3, "0")}`,
-        dependencies: value === 1 ? ["already_done_dependency"] : [],
+        dependencies: value === 1 ? ["already_done_dependency"] : value === 61 ? ["   "] : [],
       };
     });
     const snapshot = coworkSessionSnapshot(normalizeCoworkSession({

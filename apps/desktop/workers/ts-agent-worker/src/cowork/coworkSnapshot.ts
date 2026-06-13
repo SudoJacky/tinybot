@@ -1151,7 +1151,7 @@ function workUnitBlockers(unit: JsonObject): string[] {
   return [
     ...arrayValue(unit.blocked_by),
     ...arrayValue(unit.dependencies),
-  ].map(stringValue).filter(Boolean);
+  ].map(stringValue).filter((item) => item.trim().length > 0);
 }
 
 function addEdge(edges: JsonObject[], source: string, target: string, kind: string, extra: JsonObject = {}): void {
