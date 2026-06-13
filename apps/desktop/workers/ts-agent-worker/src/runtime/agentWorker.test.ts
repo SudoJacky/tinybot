@@ -5922,6 +5922,64 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("honors Python result_id precedence over blank resultId on branch final-result routes", async () => {
+    const store = createMemoryCoworkStore();
+    const coworkService = new CoworkService({
+      store,
+      now: () => "2026-06-12T08:00:00.000Z",
+      idGenerator: (() => {
+        const counters = new Map<string, number>();
+        return (prefix: string) => {
+          const next = (counters.get(prefix) ?? 0) + 1;
+          counters.set(prefix, next);
+          return `${prefix}_${next}`;
+        };
+      })(),
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      coworkService,
+    });
+    const create = await worker.handleRequest(coworkRequest("cowork.create_session", {
+      goal: "Final result route alias precedence",
+      title: "Final Result Alias",
+      agents: [{ id: "lead", name: "Lead", role: "Lead" }],
+      tasks: [{ id: "draft", title: "Draft", description: "Draft answer", assigned_agent_id: "lead" }],
+    }));
+    const session = ((create.result as Record<string, unknown>).session as CoworkSession);
+    session.branches.default.branch_result = {
+      id: "brres_default",
+      source_branch_id: "default",
+      source_architecture: "adaptive_starter",
+      summary: "Default result",
+      artifacts: [],
+      decision: {},
+      confidence: 0.7,
+      result_type: "branch",
+      source_result_ids: [],
+      created_at: "2026-06-12T08:00:00.000Z",
+    };
+    await store.writeSnapshot(session, "seed-default-result");
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(session.id)}/branches/default/result/select-final`,
+      body: {
+        resultId: "",
+        result_id: "missing",
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: {
+          error: "Error: branch result 'missing' not found on branch 'default'.",
+        },
+      },
+    });
+  });
+
   test("routes cowork session control and budget requests through the injected CoworkService", async () => {
     const coworkService = new CoworkService({
       store: createMemoryCoworkStore(),

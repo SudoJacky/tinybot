@@ -4024,7 +4024,8 @@ function routeTextParamIfPresent(
   if (!Object.prototype.hasOwnProperty.call(source, camelKey) && !Object.prototype.hasOwnProperty.call(source, snakeKey)) {
     return undefined;
   }
-  return pythonRouteTextParam(source, camelKey, snakeKey);
+  return pythonRouteTextParam(source, snakeKey, snakeKey)
+    || pythonRouteTextParam(source, camelKey, camelKey);
 }
 
 function unavailableCoworkRouteResponse(): CoworkRouteResponse {
