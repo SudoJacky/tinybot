@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Knowledge/RAG tool-output traceability parity: TS-native `query_knowledge` formatting now preserves Python-compatible source snippets, claims, relation evidence, conflict metadata, and derived projection sections after retrieved content while keeping evidence-first ordering.
+
 - Continued API Runtime OpenAI-compatible parity: TS-native `/v1/chat/completions` now retries an empty final agent response once at the API facade boundary with the original user content before returning the empty-response fallback, matching Python `handle_chat_completions`.
 
 - Continued API Runtime OpenAI-compatible parity: TS-native `/v1/chat/completions` now mirrors Python truthiness for `session_id`, so truthy non-string API session ids map to distinct `api:<value>` locks instead of falling back to `api:default`.

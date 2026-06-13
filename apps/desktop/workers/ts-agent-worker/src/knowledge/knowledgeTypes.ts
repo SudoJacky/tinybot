@@ -10,4 +10,11 @@ export type KnowledgeQueryResult = {
   page?: number;
   sectionPath?: string;
   retrievalMethod?: string;
+  sourceSnippets?: unknown[];
+  matchedClaims?: unknown[];
+  matchedClaimEvidence?: unknown[];
+  matchedRelations?: unknown[];
+  matchedRelationEvidence?: unknown[];
+  conflictMetadata?: unknown[];
+  projectionMetadata?: unknown[];
 };
