@@ -2,6 +2,8 @@
 
 ## 2026-06-13 Progress Note
 
+- Continued TS worker packaging/build boundary: `apps/desktop` now has a `typecheck:worker` gate backed by a dedicated `workers/ts-agent-worker/tsconfig.json` plus a Node source-runtime smoke check, and the main desktop build runs it before Vite packaging so worker type/runtime syntax regressions are no longer hidden by the app-only `tsconfig`.
+
 - Continued Batch 5 Task/Cron background runtime parity: TS `cron.run_due` now runs Python-compatible evaluator gating for `deliver=true` cron results, suppresses routine responses, emits `cron.delivery` for notify decisions, records delivery decisions in per-job run records, and preserves Python's fail-open notify behavior when evaluator calls fail.
 
 - Continued Heartbeat runtime Phase 2 worker bridge: TS worker now exposes `heartbeat.trigger_now` and `heartbeat.status` request methods over the worker protocol, delegating to the injected `HeartbeatRuntime` while preserving explicit unavailable-runtime errors for native host callers.
@@ -593,6 +595,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Heartbeat runtime Phase 3: expose heartbeat scheduler diagnostics through TS-native `/api/status` with native config refresh.
 - [x] Continue Heartbeat runtime Phase 3: refresh heartbeat enabled/interval after TS-native `/api/config` PATCH applies to the native config store.
 - [x] Continue Heartbeat runtime Phase 3: start and stop TS heartbeat scheduling from the native desktop host lifecycle.
+- [x] Add a dedicated TS worker typecheck/runtime smoke build boundary and run it from the desktop build.
 - [x] Continue Command Runtime Phase 3: migrate the first native `/dream` conversation-evidence extraction path for explicit memory-intent evidence.
 - [x] Continue Command Runtime Phase 3: migrate the first native `/dream` legacy-history extraction path for explicit memory-intent records.
 

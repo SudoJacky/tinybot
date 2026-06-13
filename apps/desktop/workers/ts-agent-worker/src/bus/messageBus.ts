@@ -151,13 +151,13 @@ export class MessageBus {
     if (first === null) {
       return [];
     }
-    const messages = [first];
+    const messages: T[] = [first as T];
     while (messages.length < maxBatch) {
       const next = queue.shiftNow();
       if (next === undefined) {
         break;
       }
-      messages.push(next);
+      messages.push(next as T);
     }
     return messages;
   }

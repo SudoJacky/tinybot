@@ -7,7 +7,7 @@ export function maskConfigSecrets(value: unknown, mode: SecretMaskMode = "public
 }
 
 export function isSensitiveConfigPath(path: string | readonly string[]): boolean {
-  const segments = Array.isArray(path) ? path : normalizeConfigPath(path);
+  const segments = typeof path === "string" ? normalizeConfigPath(path) : path;
   return segments.some(isSensitiveConfigKey);
 }
 

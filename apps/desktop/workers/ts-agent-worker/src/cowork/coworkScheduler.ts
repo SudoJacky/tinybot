@@ -620,7 +620,7 @@ function budgetRemaining(limits: JsonObject, usage: JsonObject): JsonObject {
 
 function progressSignature(session: CoworkSession): number[] {
   const memoryCount = Object.values(jsonSafeObject(session.shared_memory))
-    .reduce((count, entries) => count + (Array.isArray(entries) ? entries.length : 0), 0);
+    .reduce<number>((count, entries) => count + (Array.isArray(entries) ? entries.length : 0), 0);
   const completedCount = Object.values(session.tasks)
     .filter((task) => task.status === "completed")
     .length;

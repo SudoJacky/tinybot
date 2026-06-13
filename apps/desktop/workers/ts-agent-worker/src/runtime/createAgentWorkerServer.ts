@@ -170,11 +170,13 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
       });
     },
     currentTime: () => new Date().toISOString(),
-    trimHeartbeatSession: (keepRecentMessages) => sessionBridge.trimSession(
-      "heartbeat",
-      keepRecentMessages,
-      "trace-heartbeat-trim",
-    ),
+    trimHeartbeatSession: async (keepRecentMessages) => {
+      await sessionBridge.trimSession(
+        "heartbeat",
+        keepRecentMessages,
+        "trace-heartbeat-trim",
+      );
+    },
   });
   const worker = new AgentWorker({
     provider,

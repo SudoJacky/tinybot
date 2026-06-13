@@ -798,8 +798,8 @@ function swarmWorkstreamGroups(units: JsonObject[]): JsonObject[] {
       };
     })
     .sort((left, right) => {
-      const leftCount = Object.values(jsonSafeObject(left.unit_counts)).reduce((sum, value) => sum + (numberValue(value) ?? 0), 0);
-      const rightCount = Object.values(jsonSafeObject(right.unit_counts)).reduce((sum, value) => sum + (numberValue(value) ?? 0), 0);
+      const leftCount = Object.values(jsonSafeObject(left.unit_counts)).reduce<number>((sum, value) => sum + (numberValue(value) ?? 0), 0);
+      const rightCount = Object.values(jsonSafeObject(right.unit_counts)).reduce<number>((sum, value) => sum + (numberValue(value) ?? 0), 0);
       return rightCount - leftCount || stringValue(left.id).localeCompare(stringValue(right.id));
     });
 }

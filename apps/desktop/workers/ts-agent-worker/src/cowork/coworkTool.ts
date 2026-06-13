@@ -1,5 +1,6 @@
 import { isJsonObject, type JsonObject } from "../protocol/messages.ts";
 import type { Tool, ToolContext, ToolResult } from "../tools/tool.ts";
+import { previewBlueprint, validateBlueprint } from "./coworkBlueprint.ts";
 import type { CoworkScheduler } from "./coworkScheduler.ts";
 import { type CoworkService } from "./coworkService.ts";
 import type { CoworkAgentInput, CoworkTaskInput } from "./coworkService.ts";
@@ -82,9 +83,9 @@ async function executeCoworkAction(
   const action = stringArg(args, "action") as CoworkAction;
   switch (action) {
     case "validate_blueprint":
-      return { content: JSON.stringify(service.validateBlueprint(objectArg(args, "blueprint") ?? args), null, 2) };
+      return { content: JSON.stringify(validateBlueprint(objectArg(args, "blueprint") ?? args), null, 2) };
     case "preview_blueprint":
-      return { content: JSON.stringify(service.previewBlueprint(objectArg(args, "blueprint") ?? args), null, 2) };
+      return { content: JSON.stringify(previewBlueprint(objectArg(args, "blueprint") ?? args), null, 2) };
     case "start":
       return startSession(options, args, context);
     case "list":

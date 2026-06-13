@@ -23,11 +23,12 @@ import type { CoworkEnvelope } from "../cowork/coworkMailbox.ts";
 import type { CoworkScheduler } from "../cowork/coworkScheduler.ts";
 import type { CoworkService } from "../cowork/coworkService.ts";
 import { coworkSessionSnapshot } from "../cowork/coworkSnapshot.ts";
-import type { CoworkBranch, CoworkSession, JsonObject } from "../cowork/coworkTypes.ts";
+import type { CoworkBranch, CoworkSession } from "../cowork/coworkTypes.ts";
 import type { HeartbeatRuntime } from "../heartbeat/heartbeatRuntime.ts";
 import type { ModelProvider, ToolDefinition } from "../model/provider.ts";
 import {
   isJsonObject,
+  type JsonObject,
   workerError,
   WORKER_PROTOCOL_VERSION,
   type WorkerEvent,

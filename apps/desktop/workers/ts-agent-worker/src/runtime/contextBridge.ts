@@ -249,7 +249,7 @@ function normalizeHistoryMessage(value: unknown): AgentMessage | null {
   };
 }
 
-function normalizeToolCalls(value: unknown): AgentMessage["toolCalls"] {
+function normalizeToolCalls(value: unknown): NonNullable<AgentMessage["toolCalls"]> {
   if (!Array.isArray(value)) {
     return [];
   }
@@ -276,12 +276,16 @@ function normalizeBootstrapFiles(value: unknown): BootstrapFile[] {
   if (!Array.isArray(value)) {
     return [];
   }
-  return value.map((entry) => {
+  const files: BootstrapFile[] = [];
+  for (const entry of value) {
     const object = asObject(entry);
     const path = asString(object?.path);
     const contents = asString(object?.contents);
-    return path && contents !== undefined ? { path, contents } : null;
-  }).filter((file): file is BootstrapFile => file !== null);
+    if (path && contents !== undefined) {
+      files.push({ path, contents });
+    }
+  }
+  return files;
 }
 
 function normalizeUserProfile(value: unknown): UserProfile | undefined {
@@ -302,7 +306,8 @@ function normalizeMemoryNotes(value: unknown): MemoryRecallNote[] {
   if (!Array.isArray(value)) {
     return [];
   }
-  return value.map((entry) => {
+  const notes: MemoryRecallNote[] = [];
+  for (const entry of value) {
     const object = asObject(entry);
     const id = asString(object?.id ?? object?.note_id ?? object?.noteId);
     const scope = asString(object?.scope);
@@ -310,12 +315,12 @@ function normalizeMemoryNotes(value: unknown): MemoryRecallNote[] {
     const status = asString(object?.status);
     const content = asString(object?.content);
     if (!id || !scope || !type || !status || content === undefined) {
-      return null;
+      continue;
     }
     const metadata = asObject(object?.metadata);
     const viewLine = numberValue(object?.view_line ?? object?.viewLine);
     const evidenceIds = memoryEvidenceIds(object?.sources ?? object?.evidence_ids ?? object?.evidenceIds);
-    return {
+    notes.push({
       id,
       scope,
       type,
@@ -330,8 +335,9 @@ function normalizeMemoryNotes(value: unknown): MemoryRecallNote[] {
       line: numberValue(object?.line),
       viewFile: asString(object?.view_file ?? object?.viewFile),
       viewLine,
-    };
-  }).filter((note): note is MemoryRecallNote => note !== null);
+    });
+  }
+  return notes;
 }
 
 function normalizeKnowledgeReferences(value: unknown): KnowledgeReferenceMetadata[] {
@@ -340,6 +346,9 @@ function normalizeKnowledgeReferences(value: unknown): KnowledgeReferenceMetadat
   }
   return value.map((entry) => {
     const object = asObject(entry);
+    if (!object) {
+      return null;
+    }
     const docId = asString(object?.doc_id ?? object?.docId);
     const docName = asString(object?.doc_name ?? object?.docName);
     const chunkId = asString(object?.chunk_id ?? object?.chunkId);

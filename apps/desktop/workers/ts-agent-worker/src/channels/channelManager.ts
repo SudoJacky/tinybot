@@ -296,8 +296,9 @@ function restartNoticeSource(options: ChannelManagerOptions): ChannelRestartNoti
   if (typeof options.restartNotice === "function") {
     return options.restartNotice;
   }
-  if (options.restartNotice !== undefined) {
-    return () => options.restartNotice ?? null;
+  const notice = options.restartNotice;
+  if (notice !== undefined) {
+    return () => notice;
   }
   return () => consumeRestartNoticeFromEnv(options.env ?? process.env);
 }
