@@ -148,6 +148,7 @@ describe("gateway HTTP client", () => {
     const temporaryForm = new FormData();
     temporaryForm.append("file", new File(["temporary"], "temporary.txt", { type: "text/plain" }));
     await client.sessions.uploadTemporaryFile("WebSocket:chat-1", temporaryForm);
+    await client.sessions.clearTemporaryFiles("WebSocket:chat-1");
     await client.knowledge.documents();
     const knowledgeForm = new FormData();
     knowledgeForm.append("file", new File(["knowledge"], "knowledge.md", { type: "text/markdown" }));
@@ -199,6 +200,7 @@ describe("gateway HTTP client", () => {
       "http://127.0.0.1:18790/api/sessions/WebSocket%3Achat-1/messages",
       "http://127.0.0.1:18790/api/sessions/WebSocket%3Achat-1/temporary-files",
       "http://127.0.0.1:18790/api/sessions/WebSocket%3Achat-1/temporary-files",
+      "http://127.0.0.1:18790/api/sessions/WebSocket%3Achat-1/temporary-files",
       "http://127.0.0.1:18790/v1/knowledge/documents",
       "http://127.0.0.1:18790/v1/knowledge/documents",
       "http://127.0.0.1:18790/v1/knowledge/documents/docs%2Fknowledge.md",
@@ -239,7 +241,10 @@ describe("gateway HTTP client", () => {
       method: "POST",
       body: temporaryForm,
     });
-    expect(fetchFn.mock.calls[6][1]).toMatchObject({
+    expect(fetchFn.mock.calls[5][1]).toMatchObject({
+      method: "DELETE",
+    });
+    expect(fetchFn.mock.calls[7][1]).toMatchObject({
       method: "POST",
       headers: expect.objectContaining({
         Authorization: "Bearer token-1",
@@ -247,20 +252,20 @@ describe("gateway HTTP client", () => {
       }),
       body: JSON.stringify({ name: "Inline Knowledge", content: "Notes", file_type: "md" }),
     });
-    expect(fetchFn.mock.calls[8][1]).toMatchObject({
+    expect(fetchFn.mock.calls[9][1]).toMatchObject({
       method: "POST",
       body: knowledgeForm,
     });
     expect((fetchFn.mock.calls[4][1] as RequestInit).headers).not.toMatchObject({
       "Content-Type": expect.any(String),
     });
-    expect((fetchFn.mock.calls[8][1] as RequestInit).headers).not.toMatchObject({
+    expect((fetchFn.mock.calls[9][1] as RequestInit).headers).not.toMatchObject({
       "Content-Type": expect.any(String),
     });
-    expect(fetchFn.mock.calls[9][1]).toMatchObject({
+    expect(fetchFn.mock.calls[10][1]).toMatchObject({
       method: "DELETE",
     });
-    expect(fetchFn.mock.calls[15][1]).toMatchObject({
+    expect(fetchFn.mock.calls[16][1]).toMatchObject({
       method: "POST",
       headers: expect.objectContaining({
         Authorization: "Bearer token-1",
@@ -268,7 +273,7 @@ describe("gateway HTTP client", () => {
       }),
       body: JSON.stringify({ query: "desktop", mode: "hybrid", top_k: 5 }),
     });
-    expect(fetchFn.mock.calls[17][1]).toMatchObject({
+    expect(fetchFn.mock.calls[18][1]).toMatchObject({
       method: "PUT",
       headers: expect.objectContaining({
         Authorization: "Bearer token-1",
@@ -279,7 +284,7 @@ describe("gateway HTTP client", () => {
         expected_updated_at: "2026-05-31T10:00:00+00:00",
       }),
     });
-    expect(fetchFn.mock.calls[20][1]).toMatchObject({
+    expect(fetchFn.mock.calls[21][1]).toMatchObject({
       method: "POST",
       headers: expect.objectContaining({
         Authorization: "Bearer token-1",
@@ -291,7 +296,7 @@ describe("gateway HTTP client", () => {
         session_id: "desktop-chat",
       }),
     });
-    expect(fetchFn.mock.calls[23][1]).toMatchObject({
+    expect(fetchFn.mock.calls[24][1]).toMatchObject({
       method: "PATCH",
       headers: expect.objectContaining({
         Authorization: "Bearer token-1",
@@ -299,13 +304,13 @@ describe("gateway HTTP client", () => {
       }),
       body: JSON.stringify({ content: "# Updated" }),
     });
-    expect(fetchFn.mock.calls[24][1]).toMatchObject({ method: "POST" });
-    expect(fetchFn.mock.calls[25][1]).toMatchObject({ method: "DELETE" });
-    expect(fetchFn.mock.calls[27][1]).toMatchObject({
+    expect(fetchFn.mock.calls[25][1]).toMatchObject({ method: "POST" });
+    expect(fetchFn.mock.calls[26][1]).toMatchObject({ method: "DELETE" });
+    expect(fetchFn.mock.calls[28][1]).toMatchObject({
       method: "POST",
       body: JSON.stringify({ goal: "Ship desktop" }),
     });
-    expect(fetchFn.mock.calls[39][1]).toMatchObject({
+    expect(fetchFn.mock.calls[40][1]).toMatchObject({
       method: "POST",
       body: JSON.stringify({ blueprint: {} }),
     });
@@ -825,6 +830,32 @@ describe("gateway HTTP client", () => {
         content: "hello native",
         size_bytes: 12,
       },
+    });
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  test("prefers native WebUI session temporary file clear when available", async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
+    const nativeWebui = {
+      route: vi.fn(async (request: { method: string; path: string }) => ({
+        items: [],
+        cleared: 2,
+        request,
+      })),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeWebui,
+    });
+
+    await expect(client.sessions.clearTemporaryFiles("websocket:chat-1")).resolves.toMatchObject({
+      items: [],
+      cleared: 2,
+    });
+    expect(nativeWebui.route).toHaveBeenCalledWith({
+      method: "DELETE",
+      path: "/api/sessions/websocket%3Achat-1/temporary-files",
     });
     expect(fetchFn).not.toHaveBeenCalled();
   });

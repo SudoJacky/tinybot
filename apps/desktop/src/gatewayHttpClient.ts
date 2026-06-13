@@ -328,6 +328,14 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         () => request(`/api/sessions/${encodePathSegment(key)}/temporary-files`, formRequest("POST", body)),
         "webui.sessions.uploadTemporaryFile",
       ),
+      clearTemporaryFiles: (key: string) => nativeOrGateway(
+        () => options.nativeWebui?.route({
+          method: "DELETE",
+          path: `/api/sessions/${encodePathSegment(key)}/temporary-files`,
+        }),
+        () => request(`/api/sessions/${encodePathSegment(key)}/temporary-files`, { method: "DELETE" }),
+        "webui.sessions.clearTemporaryFiles",
+      ),
       delete: (key: string) => nativeOrGateway(
         () => options.nativeWebui?.route({ method: "DELETE", path: `/api/sessions/${encodePathSegment(key)}` }),
         () => request(`/api/sessions/${encodePathSegment(key)}`, { method: "DELETE" }),
