@@ -4141,13 +4141,14 @@ function parseCoworkRunSessionParams(params: Record<string, unknown> | undefined
   if (!sessionId) {
     throw new Error("cowork.run_session requires params.session_id");
   }
-  const maxAgents = numberParam(params, "maxAgents", "max_agents")
-    ?? numberParam(params, "parallelWidth", "parallel_width");
+  const maxAgents = hasParam(params, "maxAgents", "max_agents")
+    ? positiveNumberParam(params, "maxAgents", "max_agents")
+    : positiveNumberParam(params, "parallelWidth", "parallel_width");
   return {
     sessionId,
     maxRounds: numberParam(params, "maxRounds", "max_rounds"),
     maxAgents,
-    maxAgentCalls: numberParam(params, "maxAgentCalls", "max_agent_calls"),
+    maxAgentCalls: positiveNumberParam(params, "maxAgentCalls", "max_agent_calls"),
     runUntilIdle: pythonRouteBoolParam(params, "runUntilIdle", "run_until_idle"),
     stopOnBlocker: pythonRouteBoolParam(params, "stopOnBlocker", "stop_on_blocker"),
   };
@@ -4569,6 +4570,16 @@ function numberParam(params: Record<string, unknown>, camelKey: string, snakeKey
     return Number.isFinite(parsed) ? parsed : undefined;
   }
   return undefined;
+}
+
+function hasParam(params: Record<string, unknown>, camelKey: string, snakeKey: string): boolean {
+  return Object.prototype.hasOwnProperty.call(params, camelKey)
+    || Object.prototype.hasOwnProperty.call(params, snakeKey);
+}
+
+function positiveNumberParam(params: Record<string, unknown>, camelKey: string, snakeKey: string): number | undefined {
+  const value = numberParam(params, camelKey, snakeKey);
+  return value !== undefined && value > 0 ? value : undefined;
 }
 
 function booleanParam(params: Record<string, unknown>, camelKey: string, snakeKey: string): boolean | undefined {

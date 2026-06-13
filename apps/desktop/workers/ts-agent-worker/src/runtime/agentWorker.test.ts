@@ -3396,6 +3396,22 @@ describe("AgentWorker", () => {
     const runSpan = saved?.trace_spans.find((span) => span.name === "Cowork run");
 
     expect(runSpan?.input_ref).toBe("max_rounds=2, max_agents=2, max_agent_calls=3");
+
+    const defaultLimitSession = await coworkService.createSession({
+      traceId: "seed-zero",
+      goal: "Zero-valued route limits",
+      workflowMode: "team",
+      agents: [{ id: "lead", name: "Lead", role: "Lead" }],
+    });
+    await worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(defaultLimitSession.id)}/run`,
+      body: { max_rounds: "2", max_agents: "0", max_agent_calls: "0" },
+    }));
+    const zeroLimitSaved = await store.readSnapshot(defaultLimitSession.id, "trace-1");
+    const zeroLimitRunSpan = zeroLimitSaved?.trace_spans.find((span) => span.name === "Cowork run");
+
+    expect(zeroLimitRunSpan?.input_ref).toBe("max_rounds=2, max_agents=3, max_agent_calls=30");
   });
 
   test("accepts Python-compatible truthy strings for cowork run route flags", async () => {
