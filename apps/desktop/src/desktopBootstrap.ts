@@ -1075,7 +1075,7 @@ async function handleNativeCoworkAction(event: DesktopCoworkActionEvent): Promis
       return;
     }
     if (event.action === "loadAgentActivity" && event.agentId) {
-      await gatewayApi.cowork.agentActivity(sessionId, event.agentId);
+      await gatewayApi.cowork.agentActivity(sessionId, event.agentId, { limit: event.limit });
       setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork agent activity loaded." }));
       return;
     }

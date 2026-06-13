@@ -2986,6 +2986,7 @@ describe("desktop workbench shell", () => {
             message: event.message ?? "",
             ...(event.maxRounds ? { maxRounds: event.maxRounds } : {}),
             ...(event.agentId ? { agentId: event.agentId } : {}),
+            ...(event.limit ? { limit: event.limit } : {}),
           });
         },
       },
@@ -3044,7 +3045,7 @@ describe("desktop workbench shell", () => {
       pane?.querySelector(`[data-desktop-cowork-action="${action}"]`)?.click();
     }
     expect(actionEvents).toEqual([
-      { action: "loadAgentActivity", sessionId: "cowork-1", goal: "", message: "", agentId: "agent-1" },
+      { action: "loadAgentActivity", sessionId: "cowork-1", goal: "", message: "", agentId: "agent-1", limit: 20 },
       { action: "createSession", sessionId: "", goal: "Create a desktop run", message: "" },
       { action: "runSession", sessionId: "cowork-1", goal: "", message: "" },
       { action: "pauseSession", sessionId: "cowork-1", goal: "", message: "" },

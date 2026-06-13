@@ -158,7 +158,7 @@ describe("cowork inspector Vue island", () => {
     host.querySelector<HTMLButtonElement>('[data-desktop-cowork-entity-action="loadAgentActivity"]')?.click();
 
     expect(events).toEqual([
-      { action: "loadAgentActivity", sessionId: "cowork-1", agentId: "agent-1" },
+      { action: "loadAgentActivity", sessionId: "cowork-1", agentId: "agent-1", limit: 20 },
     ]);
   });
 });

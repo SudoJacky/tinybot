@@ -293,6 +293,7 @@ const COWORK_RETRYABLE_STATUSES = new Set(["failed", "error"]);
 const DEFAULT_RUN_ROUNDS = 20;
 const DEFAULT_RUN_AGENTS = 3;
 const DEFAULT_RUN_AGENT_CALLS = 30;
+export const DEFAULT_COWORK_AGENT_ACTIVITY_LIMIT = 20;
 
 export function buildDesktopCoworkSessionRows(payload: unknown): DesktopCoworkSessionRow[] {
   return arrayFromPayload(payload, "items", "sessions").map((session) => buildDesktopCoworkSessionRow(safeSession(session)));

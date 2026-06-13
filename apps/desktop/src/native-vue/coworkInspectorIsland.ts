@@ -1,11 +1,11 @@
 import { createApp, defineComponent, h, ref, type App } from "vue";
 import { NButton, NCard, NConfigProvider, NSpace } from "naive-ui";
-import type { DesktopCoworkCockpitView } from "../desktopCowork";
+import { DEFAULT_COWORK_AGENT_ACTIVITY_LIMIT, type DesktopCoworkCockpitView } from "../desktopCowork";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 
 export type CoworkInspectorActionEvent =
   | { action: "task"; sessionId: string; taskId: string; taskAction: "assign" | "retry" | "review"; assignedAgentId?: string }
-  | { action: "loadAgentActivity"; sessionId: string; agentId: string }
+  | { action: "loadAgentActivity"; sessionId: string; agentId: string; limit?: number }
   | { action: "workUnit"; sessionId: string; workUnitId: string; workUnitAction: "retry" | "skip" | "cancel" }
   | { action: "selectBranch"; sessionId: string; branchId: string }
   | { action: "deriveBranch"; sessionId: string; sourceBranchId: string; targetArchitecture: string }
@@ -141,6 +141,7 @@ function selectedActionControls(
         action: "loadAgentActivity",
         sessionId,
         agentId: id,
+        limit: DEFAULT_COWORK_AGENT_ACTIVITY_LIMIT,
       })),
     ];
   }

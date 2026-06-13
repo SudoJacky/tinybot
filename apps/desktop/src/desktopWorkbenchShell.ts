@@ -16,6 +16,7 @@ import {
 import {
   buildDesktopCoworkTaskOperation,
   buildDesktopCoworkCockpitView,
+  DEFAULT_COWORK_AGENT_ACTIVITY_LIMIT,
   type DesktopCoworkCockpitView,
   type DesktopCoworkActionInput,
   type DesktopCoworkSelectionType,
@@ -327,6 +328,7 @@ export interface DesktopCoworkActionEvent {
   resultId?: string;
   branchIds?: string[];
   agentId?: string;
+  limit?: number;
   detailRef?: string;
   requesterAgentId?: string;
 }
@@ -4617,6 +4619,7 @@ function appendCoworkSelectedActions(
         pane,
         sessionId,
         agentId: id,
+        limit: DEFAULT_COWORK_AGENT_ACTIVITY_LIMIT,
       });
     });
     actions.append(button);
