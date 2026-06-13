@@ -76,7 +76,7 @@ export class ChannelManager {
   private readonly pendingOutbound: OutboundMessage[] = [];
   private readonly runningChannels = new Set<string>();
   private dispatcherTask: Promise<void> | null = null;
-  private wakeDispatcher: (() => void) | null = null;
+  private dispatcherAbortController: AbortController | null = null;
   private running = false;
 
   constructor(options: ChannelManagerOptions) {
@@ -127,9 +127,10 @@ export class ChannelManager {
 
   async stopAll(): Promise<void> {
     this.running = false;
-    this.wakeDispatcher?.();
+    this.dispatcherAbortController?.abort();
     await this.dispatcherTask;
     this.dispatcherTask = null;
+    this.dispatcherAbortController = null;
     for (const channel of this.channels.values()) {
       await channel.stop?.();
       this.runningChannels.delete(channel.name);
@@ -140,42 +141,24 @@ export class ChannelManager {
     if (this.dispatcherTask) {
       return;
     }
+    this.dispatcherAbortController = new AbortController();
     this.dispatcherTask = this.runOutboundDispatcher();
   }
 
   private async runOutboundDispatcher(): Promise<void> {
+    const signal = this.dispatcherAbortController?.signal;
     while (this.running) {
       const dispatched = await this.dispatchAvailable();
       if (!this.running) {
         break;
       }
       if (dispatched === 0) {
-        await this.waitForDispatcherPoll();
+        const message = await this.bus.consumeOutboundWithTimeout(this.dispatchPollMs, signal);
+        if (message) {
+          this.pendingOutbound.push(message);
+        }
       }
     }
-  }
-
-  private async waitForDispatcherPoll(): Promise<void> {
-    if (this.dispatchPollMs <= 0) {
-      await Promise.resolve();
-      return;
-    }
-    await new Promise<void>((resolve) => {
-      const timeout = setTimeout(() => {
-        if (this.wakeDispatcher === wake) {
-          this.wakeDispatcher = null;
-        }
-        resolve();
-      }, this.dispatchPollMs);
-      const wake = () => {
-        clearTimeout(timeout);
-        if (this.wakeDispatcher === wake) {
-          this.wakeDispatcher = null;
-        }
-        resolve();
-      };
-      this.wakeDispatcher = wake;
-    });
   }
 
   async dispatchAvailable(maxMessages = 100): Promise<number> {

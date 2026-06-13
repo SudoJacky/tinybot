@@ -5,6 +5,13 @@ export class AsyncQueueClosedError extends Error {
   }
 }
 
+export class AsyncQueueConsumeCancelledError extends Error {
+  constructor() {
+    super("AsyncQueue consume cancelled");
+    this.name = "AsyncQueueConsumeCancelledError";
+  }
+}
+
 type PendingConsumer<T> = {
   resolve: (value: T) => void;
   reject: (error: unknown) => void;
@@ -52,7 +59,7 @@ export class AsyncQueue<T> {
     });
   }
 
-  async shiftWithTimeout(timeoutMs: number): Promise<T | undefined> {
+  async shiftWithTimeout(timeoutMs: number, signal?: AbortSignal): Promise<T | undefined> {
     const item = this.shiftNow();
     if (item !== undefined) {
       return item;
@@ -60,24 +67,37 @@ export class AsyncQueue<T> {
     if (this.closed) {
       throw new AsyncQueueClosedError();
     }
+    if (signal?.aborted) {
+      throw new AsyncQueueConsumeCancelledError();
+    }
     const timeout = Math.max(0, timeoutMs);
     return new Promise<T | undefined>((resolve, reject) => {
       const consumer: PendingConsumer<T> = { resolve, reject };
-      const timeoutId = setTimeout(() => {
+      const cleanup = () => {
+        clearTimeout(timeoutId);
+        signal?.removeEventListener("abort", onAbort);
         const index = this.consumers.indexOf(consumer);
         if (index >= 0) {
           this.consumers.splice(index, 1);
         }
+      };
+      const onAbort = () => {
+        cleanup();
+        reject(new AsyncQueueConsumeCancelledError());
+      };
+      const timeoutId = setTimeout(() => {
+        cleanup();
         resolve(undefined);
       }, timeout);
       consumer.resolve = (value) => {
-        clearTimeout(timeoutId);
+        cleanup();
         resolve(value);
       };
       consumer.reject = (error) => {
-        clearTimeout(timeoutId);
+        cleanup();
         reject(error);
       };
+      signal?.addEventListener("abort", onAbort, { once: true });
       this.consumers.push(consumer);
     });
   }

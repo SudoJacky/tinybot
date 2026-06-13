@@ -1,4 +1,4 @@
-import { AsyncQueue, AsyncQueueClosedError } from "./asyncQueue.ts";
+import { AsyncQueue, AsyncQueueClosedError, AsyncQueueConsumeCancelledError } from "./asyncQueue.ts";
 import type { InboundMessage, OutboundMessage } from "./messageTypes.ts";
 
 export const DEFAULT_QUEUE_WARNING_THRESHOLD = 100;
@@ -54,8 +54,8 @@ export class MessageBus {
     return this.consume(this.inbound);
   }
 
-  async consumeInboundWithTimeout(timeoutMs: number): Promise<InboundMessage | null> {
-    return this.consumeWithTimeout(this.inbound, timeoutMs);
+  async consumeInboundWithTimeout(timeoutMs: number, signal?: AbortSignal): Promise<InboundMessage | null> {
+    return this.consumeWithTimeout(this.inbound, timeoutMs, signal);
   }
 
   async consumeInboundBatch(options: MessageBusBatchOptions = {}): Promise<InboundMessage[]> {
@@ -78,8 +78,8 @@ export class MessageBus {
     return this.consume(this.outbound);
   }
 
-  async consumeOutboundWithTimeout(timeoutMs: number): Promise<OutboundMessage | null> {
-    return this.consumeWithTimeout(this.outbound, timeoutMs);
+  async consumeOutboundWithTimeout(timeoutMs: number, signal?: AbortSignal): Promise<OutboundMessage | null> {
+    return this.consumeWithTimeout(this.outbound, timeoutMs, signal);
   }
 
   async consumeOutboundBatch(options: MessageBusBatchOptions = {}): Promise<OutboundMessage[]> {
@@ -131,14 +131,14 @@ export class MessageBus {
     }
   }
 
-  private async consumeWithTimeout<T>(queue: AsyncQueue<T>, timeoutMs: number): Promise<T | null> {
+  private async consumeWithTimeout<T>(queue: AsyncQueue<T>, timeoutMs: number, signal?: AbortSignal): Promise<T | null> {
     if (this.closed || queue.isClosed) {
       return null;
     }
     try {
-      return await queue.shiftWithTimeout(timeoutMs) ?? null;
+      return await queue.shiftWithTimeout(timeoutMs, signal) ?? null;
     } catch (error) {
-      if (error instanceof AsyncQueueClosedError) {
+      if (error instanceof AsyncQueueClosedError || error instanceof AsyncQueueConsumeCancelledError) {
         return null;
       }
       throw error;

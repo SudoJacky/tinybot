@@ -115,6 +115,30 @@ describe("ChannelManager", () => {
     await manager.stopAll();
   });
 
+  test("wakes the outbound dispatcher when messages arrive after startup", async () => {
+    const bus = new MessageBus();
+    const websocket = adapter({
+      start: vi.fn(async () => undefined),
+      stop: vi.fn(async () => undefined),
+    });
+    const manager = new ChannelManager({
+      bus,
+      channels: [websocket],
+      dispatchPollMs: 60_000,
+    });
+
+    await manager.startAll();
+    await Promise.resolve();
+    await bus.publishOutbound(outbound({ content: "late reply" }));
+    for (let index = 0; index < 3; index += 1) {
+      await Promise.resolve();
+    }
+
+    expect(websocket.send).toHaveBeenCalledWith(expect.objectContaining({ content: "late reply" }));
+
+    await manager.stopAll();
+  });
+
   test("routes usage and streaming metadata through channel-specific methods", async () => {
     const bus = new MessageBus();
     const websocket = adapter();

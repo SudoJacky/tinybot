@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Channel Bus dispatcher parity: TS `ChannelManager` now waits on the outbound `MessageBus` with a cancellable timeout, so messages published after startup wake the dispatcher immediately like Python's blocking outbound consumer instead of waiting for the idle poll interval.
+
 - Continued Channel Bus manager lifecycle parity: TS `ChannelManager.startAll()` now starts a Python-like outbound dispatcher loop that drains the outbound `MessageBus` without manual `dispatchAvailable()` calls, and `stopAll()` stops the loop before stopping channel adapters.
 
 - Continued Channel Bus manager parity: TS `ChannelManager` now treats `sendMaxRetries` as Python does for `channels.send_max_retries`: a total delivery-attempt count including the initial send, decoupled from the retry delay table.
@@ -952,6 +954,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Channel Bus manager parity: swallow stream/reasoning/end frames on adapters without `sendDelta`, matching Python `BaseChannel.send_delta()` no-op behavior.
 - [x] Continue Channel Bus manager parity: align `sendMaxRetries` with Python `send_max_retries` total-attempt semantics.
 - [x] Continue Channel Bus manager lifecycle parity: start and stop a background outbound dispatcher with `ChannelManager` lifecycle.
+- [x] Continue Channel Bus dispatcher parity: wake the outbound dispatcher from `MessageBus` delivery instead of waiting for idle polling.
 - [x] Start API Runtime Phase 1: expose TS-native public `GET /health` and OpenAI-compatible `GET /v1/models` through the worker route bridge.
 - [x] Continue API Runtime Phase 1: expose TS-native non-stream `POST /v1/chat/completions` through the worker route bridge and existing AgentRunner path.
 - [x] Continue API Runtime Phase 1: apply `api.timeout` and OpenAI-shaped 504 handling to TS-native chat completions.
