@@ -1061,6 +1061,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: align gateway auto-run rollout alias precedence with the native TS worker route.
 - [x] Continue Cowork Phase 10: align gateway recipientless message rollout normalization with the native TS worker route.
 - [x] Continue Cowork Phase 10: align gateway branch-derive rollout alias precedence with the native TS worker route.
+- [x] Continue Cowork Phase 10: align gateway create-session rollout architecture alias precedence with native TS worker and blueprint normalization.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.

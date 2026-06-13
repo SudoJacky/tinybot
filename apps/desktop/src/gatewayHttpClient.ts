@@ -998,15 +998,15 @@ function swarmCoworkCreateRoute(method: string, path: string, body: unknown): bo
   const blueprint = asRecord(payload?.blueprint);
   const mode = blueprint
     ? firstPythonTruthyJsonValue(
+      blueprint.architecture,
       blueprint.workflow_mode,
       blueprint.workflowMode,
-      blueprint.architecture,
       blueprint.mode,
     )
     : firstPythonTruthyJsonValue(
       payload?.architecture,
-      payload?.workflow_mode,
       payload?.workflowMode,
+      payload?.workflow_mode,
       payload?.mode,
     );
   return isSwarmMode(mode);

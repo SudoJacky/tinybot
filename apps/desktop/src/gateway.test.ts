@@ -2077,6 +2077,19 @@ describe("gateway HTTP client", () => {
       workflow_mode: "adaptive_starter",
       architecture: "swarm",
     })).resolves.toEqual({ gateway: true });
+    await expect(client.cowork.create({
+      goal: "Camel workflow mode wins",
+      workflowMode: "swarm",
+      workflow_mode: "team",
+    })).resolves.toEqual({ gateway: true });
+    await expect(client.cowork.create({
+      goal: "Blueprint architecture wins",
+      blueprint: {
+        workflow_mode: "team",
+        architecture: "swarm",
+        agents: [],
+      },
+    })).resolves.toEqual({ gateway: true });
 
     expect(nativeCowork.route).toHaveBeenCalledTimes(2);
     expect(nativeCowork.route).toHaveBeenCalledWith({
@@ -2099,6 +2112,8 @@ describe("gateway HTTP client", () => {
     });
     expect(fetchFn.mock.calls.map((call) => String((call as unknown[])[0]))).toEqual([
       "http://127.0.0.1:18790/webui/bootstrap",
+      "http://127.0.0.1:18790/api/cowork/sessions",
+      "http://127.0.0.1:18790/api/cowork/sessions",
       "http://127.0.0.1:18790/api/cowork/sessions",
     ]);
   });
