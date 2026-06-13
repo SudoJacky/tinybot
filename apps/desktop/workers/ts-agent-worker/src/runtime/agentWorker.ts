@@ -849,10 +849,13 @@ export class AgentWorker {
       if (!content) {
         return { status: 400, body: { error: "content is required" } };
       }
+      const session = await this.coworkService.getSession(sessionId, traceId);
+      if (!session) {
+        return { status: 200, body: { result: `Error: cowork session '${sessionId}' not found`, session: null } };
+      }
       const params = parseCoworkSendMessageParams({ ...body, session_id: sessionId, content });
       if (params.recipientIds.length === 0) {
-        const session = await this.coworkService.getSession(params.sessionId, traceId);
-        if (session?.workflow_mode === "swarm") {
+        if (session.workflow_mode === "swarm") {
           const result = await this.coworkService.steerSwarm({
             traceId,
             sessionId: params.sessionId,

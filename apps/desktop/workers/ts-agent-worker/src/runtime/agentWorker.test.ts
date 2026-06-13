@@ -4923,6 +4923,20 @@ describe("AgentWorker", () => {
 
     await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
       method: "POST",
+      path: "/api/cowork/sessions/missing-session/messages",
+      body: { content: "Hello missing session" },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          result: "Error: cowork session 'missing-session' not found",
+          session: null,
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
       path: `/api/cowork/sessions/${encodeURIComponent(String(sessionId))}/messages`,
       body: ["not", "an", "object"],
     }))).resolves.toMatchObject({
