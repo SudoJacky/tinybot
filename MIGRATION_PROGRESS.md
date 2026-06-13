@@ -18,6 +18,8 @@
 
 - Continued Cowork Phase 10 emergency-stop route parity: TS-native emergency-stop routes now apply Python route text coercion to `reason` bodies, preserving truthy numeric JSON reasons in scheduler agent-step output instead of falling back to the default stop explanation.
 
+- Continued Cowork Phase 10 assign-task route parity: TS-native assign-task routes now apply Python route text coercion to assigned agent ids, preserving truthy numeric JSON `assigned_agent_id` values in route-level service errors instead of falling back to the empty-id slug.
+
 - Continued Cowork Phase 10 summary route parity: TS-native summary routes now mirror Python `CoworkTool` missing-session responses by returning a `summary` error string with HTTP 200 instead of a route-level 404.
 
 - Continued Cowork Phase 10 message route parity: TS-native message routes now mirror Python `CoworkTool` missing-session responses after JSON/content validation, returning a Python-shaped `result` error with `session: null` instead of a route-level 404.
@@ -929,6 +931,7 @@ Cowork row 16 update: Phase 3 now has a minimal TS `CoworkService` for Python-st
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for Cowork message content and task title validation.
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for Cowork add-task optional description and assignee fields.
 - [x] Continue Cowork Phase 10: mirror Python route text coercion for Cowork emergency-stop reasons.
+- [x] Continue Cowork Phase 10: mirror Python route text coercion for Cowork assign-task agent ids.
 - [ ] Continue Cowork Phase 10: continue actual desktop/runtime default-route regression coverage and close remaining Python fallback parity gaps.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.

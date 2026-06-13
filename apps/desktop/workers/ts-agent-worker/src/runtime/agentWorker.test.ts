@@ -5105,6 +5105,22 @@ describe("AgentWorker", () => {
     await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
       method: "POST",
       path: `/api/cowork/sessions/${encodeURIComponent(String(sessionId))}/tasks/open/assign`,
+      body: { assigned_agent_id: 123 },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: {
+          result: "Error: agent '123' not found",
+          session: expect.objectContaining({
+            tasks: expect.arrayContaining([expect.objectContaining({ id: "open", assigned_agent_id: "reviewer" })]),
+          }),
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(coworkRequest("cowork.route_request", {
+      method: "POST",
+      path: `/api/cowork/sessions/${encodeURIComponent(String(sessionId))}/tasks/open/assign`,
       body: ["not", "an", "object"],
     }))).resolves.toMatchObject({
       result: {
