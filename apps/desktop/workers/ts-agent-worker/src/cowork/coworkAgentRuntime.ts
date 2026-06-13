@@ -4,6 +4,7 @@ import { isJsonObject, type JsonObject } from "../protocol/messages.ts";
 import type { Tool, ToolDefinition } from "../tools/tool.ts";
 import type { ToolRegistry } from "../tools/toolRegistry.ts";
 import { coworkInternalToolDefinition, createCoworkInternalTool } from "./coworkInternalTool.ts";
+import { defaultPolicyRegistry } from "./coworkPolicy.ts";
 import { normalizeCoworkSession } from "./coworkSerde.ts";
 import type { CoworkAgent, CoworkEvent, CoworkSession, CoworkTask } from "./coworkTypes.ts";
 import type { CoworkIdGenerator, CoworkServiceStore } from "./coworkService.ts";
@@ -1094,28 +1095,45 @@ export function selectReadyCoworkAgentCandidates(session: CoworkSession, limit: 
       return swarmSelection;
     }
   }
-  const agents = selectReadyCoworkAgents(session, limit);
-  return {
-    agents,
-    candidateScores: Object.fromEntries(agents.map((agent) => [agent.id, 1])),
-    reasonProfile: "team readiness scoring",
-  };
+  return selectTeamReadyAgents(session, limit);
 }
 
 export function selectReadyCoworkAgents(session: CoworkSession, limit: number): CoworkAgent[] {
+  return selectTeamReadyAgents(session, limit).agents;
+}
+
+function selectTeamReadyAgents(session: CoworkSession, limit: number): CoworkReadyAgentSelection {
   const ready: CoworkAgent[] = [];
+  const candidateScores: JsonObject = {};
+  const profile = defaultPolicyRegistry().resolve(session.workflow_mode).runtimeProfile;
+  const leadId = leadAgentId(session);
+  let unassignedReadySlots = unassignedReadyTasks(session).length;
   for (const agent of Object.values(session.agents)) {
     if (!["idle", "waiting", "blocked", "done"].includes(agent.status)) {
       continue;
     }
-    if (selectTaskForAgent(session, agent.id) || agent.inbox.length > 0) {
+    const hasDirectWork = Boolean(selectDirectTaskForAgent(session, agent.id)) || agent.inbox.length > 0;
+    const canClaimShared = ["hybrid", "team", "shared_state", "message_bus"].includes(profile);
+    let hasSharedTask = canClaimShared && !hasDirectWork && unassignedReadySlots > 0;
+    if (profile === "orchestrator" && !hasDirectWork && agent.id !== leadId) {
+      hasSharedTask = false;
+    }
+    if (hasDirectWork || hasSharedTask) {
       ready.push(agent);
+      candidateScores[agent.id] = hasSharedTask ? 18 : 1;
+      if (hasSharedTask) {
+        unassignedReadySlots -= 1;
+      }
     }
     if (ready.length >= limit) {
       break;
     }
   }
-  return ready;
+  return {
+    agents: ready,
+    candidateScores,
+    reasonProfile: "team readiness scoring",
+  };
 }
 
 function selectSwarmReadyAgents(session: CoworkSession, limit: number): CoworkReadyAgentSelection {
@@ -2781,6 +2799,37 @@ function selectTaskForAgent(session: CoworkSession, agentId: string): CoworkTask
     .filter((task) => !task.assigned_agent_id || task.assigned_agent_id === agentId)
     .filter((task) => task.dependencies.every((dependency) => completed.has(dependency)))
     .sort((left, right) => right.priority - left.priority || left.created_at.localeCompare(right.created_at) || left.id.localeCompare(right.id))[0];
+}
+
+function selectDirectTaskForAgent(session: CoworkSession, agentId: string): CoworkTask | undefined {
+  const agent = session.agents[agentId];
+  if (agent?.current_task_id) {
+    const current = session.tasks[agent.current_task_id];
+    if (current && ["pending", "in_progress"].includes(current.status) && current.assigned_agent_id === agentId) {
+      return current;
+    }
+  }
+  const completed = completedTaskIds(session);
+  return Object.values(session.tasks)
+    .filter((task) => task.status === "pending")
+    .filter((task) => task.assigned_agent_id === agentId)
+    .filter((task) => task.dependencies.every((dependency) => completed.has(dependency)))
+    .sort((left, right) => right.priority - left.priority || left.created_at.localeCompare(right.created_at) || left.id.localeCompare(right.id))[0];
+}
+
+function unassignedReadyTasks(session: CoworkSession): CoworkTask[] {
+  const completed = completedTaskIds(session);
+  return Object.values(session.tasks)
+    .filter((task) => task.status === "pending")
+    .filter((task) => !task.assigned_agent_id)
+    .filter((task) => task.dependencies.every((dependency) => completed.has(dependency)))
+    .sort((left, right) => right.priority - left.priority || left.created_at.localeCompare(right.created_at) || left.id.localeCompare(right.id));
+}
+
+function completedTaskIds(session: CoworkSession): Set<string> {
+  return new Set(Object.values(session.tasks)
+    .filter((task) => ["completed", "skipped"].includes(task.status))
+    .map((task) => task.id));
 }
 
 function parseAgentProgress(content: string): CoworkAgentProgress {

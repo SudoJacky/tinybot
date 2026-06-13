@@ -5,7 +5,7 @@ import type { AgentMessage } from "../agent/agentRunSpec";
 import type { ModelProvider, ModelRequestOptions, ModelResponse } from "../model/provider";
 import type { ToolCallDelta } from "../model/streamParser";
 import { ToolRegistry } from "../tools/toolRegistry";
-import { CoworkAgentRuntime } from "./coworkAgentRuntime";
+import { CoworkAgentRuntime, selectReadyCoworkAgentCandidates } from "./coworkAgentRuntime";
 import { CoworkService, createMemoryCoworkStore, type CoworkIdGenerator, type CoworkServiceStore } from "./coworkService";
 
 const fixedNow = "2026-06-12T10:00:00.000Z";
@@ -91,6 +91,56 @@ async function seedRuntime(provider: ModelProvider): Promise<{
 }
 
 describe("CoworkAgentRuntime", () => {
+  it("allocates each unassigned ready shared task to one active candidate", async () => {
+    const provider = new QueueProvider([]);
+    const seeded = await seedRuntime(provider);
+    const session = await seeded.store.readSnapshot("cw_1", "test");
+    if (!session) {
+      throw new Error("missing seeded session");
+    }
+    session.agents.researcher = {
+      ...session.agents.lead,
+      id: "researcher",
+      name: "Researcher",
+      role: "Research",
+      inbox: [],
+      current_task_id: null,
+      current_task_title: null,
+    };
+    session.agents.lead.inbox = [];
+    session.tasks = {
+      shared: {
+        id: "shared",
+        title: "Shared task",
+        description: "Any active agent can claim this task.",
+        assigned_agent_id: null,
+        status: "pending",
+        dependencies: [],
+        result: null,
+        result_data: {},
+        confidence: null,
+        error: null,
+        priority: 0,
+        expected_output: "",
+        review_required: false,
+        reviewer_agent_ids: [],
+        review_status: "",
+        fanout_group_id: "",
+        merge_task_id: "",
+        source_blueprint_id: "",
+        source_event_id: "",
+        runtime_created: false,
+        created_at: fixedNow,
+        updated_at: fixedNow,
+      },
+    };
+
+    const selection = selectReadyCoworkAgentCandidates(session, 2);
+
+    expect(selection.agents.map((agent) => agent.id)).toEqual(["lead"]);
+    expect(selection.candidateScores).toEqual({ lead: 18 });
+  });
+
   it("runs one agent round and applies completed task progress", async () => {
     const provider = new QueueProvider([{
       content: JSON.stringify({
