@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued WebUI transport Phase 5 Skills create parity: native TS skill creation now mirrors Python create-route coercion for truthy non-string `name`, explicit `description`, and truthy `always` values while keeping skill body content string-bounded.
+
 - Continued WebUI transport Phase 5 Skills create parity: native TS skill creation now only treats existing workspace skills as duplicates, allowing workspace skills to override builtin skills like Python's workspace-directory existence check.
 
 - Continued WebUI transport Phase 5 Skills create parity: native TS skill creation now wraps skill file write failures in Python-compatible create errors and best-effort cleanup, so partial parent directories do not survive failed `SKILL.md` writes.

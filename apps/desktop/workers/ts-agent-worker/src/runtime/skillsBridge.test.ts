@@ -100,6 +100,49 @@ describe("NativeSkillsBridge", () => {
     ]);
   });
 
+  test("coerces create name description and always fields like Python", async () => {
+    const rpcClient = new FakeRpcClient({
+      "skills.list": [
+        { skills: [] },
+      ],
+      "workspace.write_file": [
+        { path: "skills/404/SKILL.md", bytes_written: 65 },
+      ],
+    });
+    const bridge = new NativeSkillsBridge(rpcClient, {});
+
+    await expect(bridge.createWebuiSkill({
+      name: 404,
+      description: 123,
+      always: "yes",
+    }, "trace-coerce")).resolves.toMatchObject({
+      created: true,
+      name: "404",
+      path: "skills/404/SKILL.md",
+    });
+    expect(rpcClient.calls).toEqual([
+      { traceId: "trace-coerce", method: "skills.list", params: {} },
+      {
+        traceId: "trace-coerce",
+        method: "workspace.write_file",
+        params: {
+          path: "skills/404/SKILL.md",
+          contents: [
+            "---",
+            "name: 404",
+            "description: 123",
+            "always: true",
+            "---",
+            "",
+            "# 404",
+            "",
+            "[TODO: Add skill instructions here]",
+          ].join("\n"),
+        },
+      },
+    ]);
+  });
+
   test("rejects missing and builtin skill deletes before deleting files", async () => {
     const rpcClient = new FakeRpcClient({
       "skills.list": [

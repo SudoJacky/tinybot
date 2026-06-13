@@ -28,7 +28,7 @@ export class NativeSkillsBridge implements SkillsBridge {
   }
 
   async createWebuiSkill(body: Record<string, unknown>, traceId: string): Promise<unknown> {
-    const name = normalizeSkillName(asString(body.name) ?? "");
+    const name = normalizeSkillName(pythonTruthyString(body.name) ?? "");
     if (!name) {
       throw new NativeWebuiSkillError("name is required", 400);
     }
@@ -39,9 +39,9 @@ export class NativeSkillsBridge implements SkillsBridge {
     if (existing.some((skill) => skill.name === name && skill.source === "workspace")) {
       throw new NativeWebuiSkillError(`skill '${name}' already exists`, 409);
     }
-    const description = asString(body.description) ?? `Custom skill: ${name}`;
+    const description = body.description === undefined ? `Custom skill: ${name}` : String(body.description);
     const content = asString(body.content) ?? "";
-    const contents = createSkillContent(name, description, content, body.always === true);
+    const contents = createSkillContent(name, description, content, pythonTruthy(body.always));
     const path = skillFilePath(name);
     try {
       await this.rpcClient.request(traceId, "workspace.write_file", { path, contents });
@@ -357,6 +357,23 @@ function asObject(value: unknown): JsonObject | undefined {
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+function pythonTruthyString(value: unknown): string | undefined {
+  return pythonTruthy(value) ? String(value) : undefined;
+}
+
+function pythonTruthy(value: unknown): boolean {
+  if (value === undefined || value === null || value === false || value === 0 || value === "") {
+    return false;
+  }
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+  if (typeof value === "object") {
+    return Object.keys(value).length > 0;
+  }
+  return true;
 }
 
 function errorMessage(error: unknown): string {
