@@ -237,8 +237,9 @@ export class CoworkAgentRuntime {
       const freshAgent = fresh.agents[agent.id] ?? agent;
       const taskId = cleanString(freshAgent.current_task_id) || task?.id || "";
       const freshTask = taskId ? fresh.tasks[taskId] : undefined;
-      this.applyFailure(fresh, freshAgent, freshTask, message, stepId, agentSpanId);
+      const traceSpanIds = this.applyFailure(fresh, freshAgent, freshTask, message, stepId, agentSpanId);
       const saved = await this.store.writeSnapshot(normalizeCoworkSession(fresh), traceId);
+      await this.appendTraceSpanEventLogRecords(saved, traceSpanIds, traceId);
       await this.appendObservationEventLogRecords(saved, stepId, toolObservationState.pending, traceId);
       await this.appendAgentStepFinishedEvent(saved, stepId, traceId);
       return {
@@ -262,6 +263,7 @@ export class CoworkAgentRuntime {
     const freshTask = task ? fresh.tasks[task.id] : undefined;
     this.applyProgress(fresh, freshAgent, freshTask, progress, result, stepId, agentSpanId);
     const saved = await this.store.writeSnapshot(normalizeCoworkSession(fresh), traceId);
+    await this.appendTraceSpanEventLogRecords(saved, [agentSpanId], traceId);
     await this.appendObservationEventLogRecords(saved, stepId, toolObservationState.pending, traceId);
     await this.appendAgentStepFinishedEvent(saved, stepId, traceId);
     return {
@@ -844,8 +846,9 @@ export class CoworkAgentRuntime {
     error: string,
     stepId: string,
     agentSpanId: string,
-  ): void {
+  ): string[] {
     const taskId = task?.id ?? cleanString(agent.current_task_id);
+    const failureSpanId = this.idGenerator("span");
     agent.status = "failed";
     agent.last_active_at = this.now();
     if (task) {
@@ -883,7 +886,7 @@ export class CoworkAgentRuntime {
     session.trace_spans = [
       ...session.trace_spans,
       {
-        id: this.idGenerator("span"),
+        id: failureSpanId,
         session_id: session.id,
         kind: "agent",
         name: "Agent failed",
@@ -918,6 +921,20 @@ export class CoworkAgentRuntime {
       };
     });
     session.updated_at = this.now();
+    return [agentSpanId, failureSpanId];
+  }
+
+  private async appendTraceSpanEventLogRecords(session: CoworkSession, spanIds: string[], traceId: string): Promise<void> {
+    if (!this.store.appendEvent || spanIds.length === 0) {
+      return;
+    }
+    const pendingIds = new Set(spanIds.map(cleanString).filter(Boolean));
+    for (const span of session.trace_spans) {
+      if (!pendingIds.has(cleanString(span.id))) {
+        continue;
+      }
+      await this.store.appendEvent(session.id, traceSpanRecordedEvent(session.id, span, this.now), traceId);
+    }
   }
 
   private async appendObservationEventLogRecords(
@@ -1047,6 +1064,20 @@ function agentStepFinishedEvent(sessionId: string, step: JsonObject, now: () => 
     actor_id: cleanString(step.agent_id) || null,
     payload: { agent_step: jsonSafeObject(step) },
     created_at: cleanString(step.ended_at) || now(),
+  };
+}
+
+function traceSpanRecordedEvent(sessionId: string, span: JsonObject, now: () => string): JsonObject {
+  const spanId = cleanString(span.id);
+  return {
+    schema: "cowork.event_log.v1",
+    id: spanId,
+    session_id: sessionId,
+    category: "trace",
+    type: "trace.span_recorded",
+    actor_id: cleanString(span.actor_id) || null,
+    payload: { span: jsonSafeObject(span) },
+    created_at: cleanString(span.ended_at) || cleanString(span.started_at) || now(),
   };
 }
 

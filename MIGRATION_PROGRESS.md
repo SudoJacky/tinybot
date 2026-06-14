@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Cowork observability durability parity: TS-native AgentRunner now appends Python-compatible trace span event-log records for completed and failed agent spans, preserving replayable `trace.span_recorded` entries alongside snapshot updates.
+
 - Continued Cowork observability durability parity: TS-native AgentRunner tool and browser observations now append Python-compatible observation event-log records, preserving replayable `tool_observation.recorded` and `browser_observation.recorded` entries alongside snapshot updates.
 
 - Continued Cowork observability durability parity: TS-native AgentRunner completion and failure paths now append Python-compatible `agent_step.finished` observation event-log records after persisting the final agent step snapshot.
@@ -1442,6 +1444,7 @@ Heartbeat row 20 update: Phase 4 now runs scheduled notifications through the sh
 - [x] Continue Cowork observability parity: finish AgentRunner steps with Python-compatible structured summaries.
 - [x] Continue Cowork observability durability parity: append AgentRunner `agent_step.finished` event-log records like Python.
 - [x] Continue Cowork observability durability parity: append AgentRunner tool/browser observation event-log records like Python.
+- [x] Continue Cowork observability durability parity: append AgentRunner trace span event-log records like Python.
 - [x] Continue Cowork agent readiness parity: sort team ready agents by Python-style readiness scores before applying scheduler limits.
 - [x] Continue Cowork agent readiness parity: select agents with pending reply mailbox work and score mailbox pressure like Python.
 - [x] Continue Cowork agent readiness parity: refresh mailbox expiry and stale-blocker escalation before selecting active agents like Python.
