@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued API Runtime Knowledge add-request parity: TS-native direct add-document now fills Python-compatible provider defaults for omitted `tags`, `category`, and `file_type` before native provider dispatch.
+
 - Continued API Runtime Knowledge ValueError parity: TS-native direct add-document and text-like upload routes now map provider `ValueError` failures to Python-compatible 400 invalid-request envelopes instead of route-level 500 server errors.
 
 - Continued API Runtime Knowledge query facade parity: TS-native `POST /v1/knowledge/query` now mirrors Python `body.get(...)` defaults, applying `top_k=5` and `mode="hybrid"` only when those fields are absent while preserving explicit JSON values before provider dispatch.
@@ -837,6 +839,7 @@ API Runtime row 19 update: TS-native OpenAI-compatible chat completions now retr
 
 | Date | Update |
 | --- | --- |
+| 2026-06-14 | Continued API Runtime Knowledge add-request parity: native direct add-document now fills Python-compatible provider defaults for omitted `tags`, `category`, and `file_type`. |
 | 2026-06-14 | Continued API Runtime Knowledge ValueError parity: native add-document and text-like upload provider `ValueError` failures now return Python-compatible 400 invalid-request envelopes. |
 | 2026-06-14 | Continued Channel Bus runtime parity: native channel status now exposes MessageBus queue stats and backlog warnings for TS-managed channels. |
 | 2026-06-14 | Continued Channel Bus runtime parity: worker/native lifecycle control now exposes `channel.login` and routes it through default native channel adapters plus the Rust command surface. |
@@ -1415,6 +1418,7 @@ API Runtime row 19 update: TS-native OpenAI-compatible chat completions now retr
 - [x] Continue API Runtime Knowledge validation parity: reject whitespace-only direct add-document content before native provider dispatch.
 - [x] Continue API Runtime Knowledge query parity: return empty result lists for whitespace-only query text before native provider dispatch.
 - [x] Continue API Runtime Knowledge query parity: mirror Python `body.get(...)` defaults for `top_k` and `mode` before native provider dispatch.
+- [x] Continue API Runtime Knowledge add-request parity: fill Python-compatible direct add-document defaults for omitted `tags`, `category`, and `file_type` before native provider dispatch.
 - [x] Continue API Runtime Knowledge ValueError parity: map direct add-document and text-like upload provider `ValueError` failures to Python-compatible invalid-request envelopes.
 - [x] Continue API Runtime Knowledge job-envelope parity: include lifecycle timestamps on completed native upload/rebuild job payloads.
 - [x] Continue API Runtime Phase 1: harden the TS worker upload route and Rust `knowledge.add_document` core so `.json` and `.csv` text-like Knowledge uploads are accepted end-to-end on the native path.

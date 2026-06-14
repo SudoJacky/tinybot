@@ -2211,6 +2211,13 @@ describe("AgentWorker", () => {
     await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
       method: "POST",
       path: "/v1/knowledge/documents",
+      body: { name: "Defaulted", content: "Body" },
+    }))).resolves.toMatchObject({
+      result: { status: 200, body: { id: "doc-2", name: "Defaulted", message: "Document 'Defaulted' added successfully" } },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/v1/knowledge/documents",
       body: { name: "Added", content: "Body", file_type: "md" },
     }))).resolves.toMatchObject({
       result: { status: 200, body: { id: "doc-2", name: "Added", message: "Document 'Added' added successfully" } },
@@ -2805,11 +2812,16 @@ describe("AgentWorker", () => {
     expect(calls).toEqual([
       { method: "list", traceId: "trace-webui.handle_request", params: { category: "docs", limit: 10 } },
       { method: "list", traceId: "trace-webui.handle_request", params: { limit: 20 } },
-      { method: "add", traceId: "trace-webui.handle_request", params: { name: "Added", content: "Body", file_type: "md" } },
       {
         method: "add",
         traceId: "trace-webui.handle_request",
-        params: { name: "Async Added", content: "Body", file_type: "md", async_index: true },
+        params: { name: "Defaulted", content: "Body", tags: [], category: "", file_type: "txt" },
+      },
+      { method: "add", traceId: "trace-webui.handle_request", params: { name: "Added", content: "Body", file_type: "md", tags: [], category: "" } },
+      {
+        method: "add",
+        traceId: "trace-webui.handle_request",
+        params: { name: "Async Added", content: "Body", file_type: "md", async_index: true, tags: [], category: "" },
       },
       {
         method: "add",

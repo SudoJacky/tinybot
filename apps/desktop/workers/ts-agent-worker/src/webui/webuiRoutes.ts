@@ -1154,8 +1154,9 @@ async function knowledgeAddDocumentResponse(
   if (!content.trim()) {
     return { status: 400, body: knowledgeApiError(400, "Document content cannot be empty") };
   }
+  const providerBody = knowledgeAddDocumentProviderBody(body);
   try {
-    const result = await provider.addDocument(body, traceId);
+    const result = await provider.addDocument(providerBody, traceId);
     const document = documentFromResult(result);
     const id = stringValue(document?.id) ?? "";
     const resultName = stringValue(document?.name) ?? name;
@@ -1179,6 +1180,15 @@ async function knowledgeAddDocumentResponse(
   } catch (error) {
     return knowledgeValueError(error) ?? knowledgeServerError("Error adding document", error);
   }
+}
+
+function knowledgeAddDocumentProviderBody(body: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...body,
+    tags: hasOwn(body, "tags") ? body.tags : [],
+    category: hasOwn(body, "category") ? body.category : "",
+    file_type: hasOwn(body, "file_type") ? body.file_type : "txt",
+  };
 }
 
 async function knowledgeUploadDocumentResponse(
@@ -1962,6 +1972,10 @@ function isNamedError(error: unknown, name: string): boolean {
     return error.name === name;
   }
   return isJsonObject(error) && error.name === name;
+}
+
+function hasOwn(value: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
 }
 
 async function webuiApprovalsResponse(
