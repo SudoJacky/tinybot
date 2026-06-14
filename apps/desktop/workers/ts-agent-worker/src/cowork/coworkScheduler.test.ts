@@ -608,6 +608,82 @@ describe("CoworkScheduler", () => {
     })]);
   });
 
+  it("stops as ready_to_finish after a round when completion is ready and no agents remain active like Python", async () => {
+    const store = createMemoryCoworkStore();
+    const idGenerator = deterministicIds();
+    const service = new CoworkService({
+      store,
+      now: () => fixedNow,
+      idGenerator,
+    });
+    const session = await service.createSession({
+      traceId: "seed",
+      goal: "Summarize completed coordination",
+      title: "Ready summary",
+      workflowMode: "team",
+      agents: [{ id: "lead", name: "Lead", role: "Coordinator" }],
+      tasks: [],
+    });
+    session.completion_decision = {
+      next_action: "summarize",
+      ready_to_finish: true,
+      reason: "Known task results appear sufficient.",
+    };
+    await store.writeSnapshot(session, "setup");
+    const provider = new QueueProvider([{
+      content: JSON.stringify({
+        status: "done",
+        action: "complete",
+        private_note: "Ready to summarize.",
+      }),
+      toolCalls: [],
+      stopReason: "stop",
+    }]);
+    const agentRuntime = new CoworkAgentRuntime({
+      store,
+      runner: new AgentRunner({ provider, tools: new ToolRegistry() }),
+      model: "test-model",
+      now: () => fixedNow,
+      idGenerator,
+    });
+    const scheduler = new CoworkScheduler({
+      store,
+      now: () => fixedNow,
+      idGenerator,
+      agentRuntime,
+    });
+
+    const result = await scheduler.runSession({
+      sessionId: session.id,
+      traceId: "trace-run",
+      maxRounds: 1,
+      maxAgents: 1,
+    });
+
+    expect(result.result).toContain("Round 1: running lead");
+    expect(result.result).toContain("Session is ready for summary.");
+    expect(provider.messages).toHaveLength(1);
+    const saved = await store.readSnapshot(session.id, "assert");
+    expect(saved?.stop_reason).toBe("ready_to_finish");
+    expect(saved?.budget_usage).toMatchObject({ rounds: 1, agent_calls: 1, stop_reason: "ready_to_finish" });
+    expect(saved?.run_metrics).toEqual([expect.objectContaining({
+      id: "run_1",
+      status: "stopped",
+      rounds: 1,
+      agent_calls: 1,
+      stop_reason: "ready_to_finish",
+    })]);
+    expect(saved?.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "scheduler.stop",
+        data: expect.objectContaining({
+          stop_reason: "ready_to_finish",
+          round_id: "run_1:round:1",
+        }),
+      }),
+    ]));
+  });
+
   it("runs a ready agent through CoworkAgentRuntime when configured", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = deterministicIds();

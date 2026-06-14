@@ -351,6 +351,15 @@ export class CoworkScheduler {
         });
         break;
       }
+      if (readyToFinishWithoutActiveAgents(working)) {
+        lines.push("Session is ready for summary.");
+        this.applyStopReason(working, "ready_to_finish", "Cowork scheduler stopped because the session is ready for summary", {
+          runId,
+          roundId,
+          parentId: runSpanId,
+        });
+        break;
+      }
       if (!request.runUntilIdle && completedRounds >= roundLimit) {
         this.applyStopReason(working, "max_rounds", "Cowork scheduler stopped at the requested round limit", {
           runId,
@@ -675,6 +684,13 @@ function leadReadyToSynthesizeReplies(session: CoworkSession): boolean {
       (stringValue(record.reply_to_envelope_id) && leadRequestIds.has(stringValue(record.reply_to_envelope_id)))
       || (stringValue(record.correlation_id) && leadRequestCorrelations.has(stringValue(record.correlation_id)))
     ));
+}
+
+function readyToFinishWithoutActiveAgents(session: CoworkSession): boolean {
+  if (jsonSafeObject(session.completion_decision).ready_to_finish !== true) {
+    return false;
+  }
+  return selectReadyCoworkAgentCandidates(session, 1).agents.length === 0;
 }
 
 function leadAgentId(session: CoworkSession): string {

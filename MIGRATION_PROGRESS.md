@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Cowork scheduler parity: TS-native `CoworkScheduler` now mirrors Python by stopping with `ready_to_finish` after a round when the session completion decision is ready and no active agents remain, instead of falling through to `max_rounds`.
+
 - Continued Cowork internal task mutation parity: TS-native `cowork_internal add_task` now leaves omitted/invalid assignees in the shared task pool like Python, and `assign_task` now rejects terminal task statuses while using Python-shaped success responses, events, and trace spans without emitting extra messages.
 
 - Continued Cowork internal lifecycle metadata parity: TS-native `cowork_internal` now mirrors Python fallbacks for retire reasons, spawned-agent source envelope ids, and generated mailbox draft ids from `_tool_call_id`.
@@ -1391,6 +1393,7 @@ Heartbeat row 20 update: Phase 4 now runs scheduled notifications through the sh
 - [x] Continue Cowork Phase 10: preserve target-branch architecture on desktop branch select requests so non-swarm branch selections use the mutation rollout gate.
 - [x] Continue Cowork internal lifecycle metadata parity: mirror Python retire reason fallback, spawned-agent source envelope ids, and `_tool_call_id` draft ids.
 - [x] Continue Cowork internal task mutation parity: keep omitted/invalid `add_task` assignees in the shared pool, reject terminal `assign_task` statuses, and preserve Python-shaped assign success events/traces without extra messages.
+- [x] Continue Cowork scheduler parity: stop with `ready_to_finish` after a ready completion decision when no active agents remain.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.
 - [x] Continue session turn lifecycle evidence durability: capture memory evidence from native `saved_messages` for partial-duplicate persisted turns.
