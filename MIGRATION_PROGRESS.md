@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued WebUI transport temporary-file parity: TS-native session temporary file upload and clear routes now honor the configured WebUI channel prefix instead of hard-coding `websocket:`, matching Python's runtime channel-name boundary for migrated route handlers.
+
 - Continued Channel Bus runtime parity: TS `channel.status` now includes MessageBus queue stats and backlog warnings, giving the native host visibility into inbound/outbound bus health during TS-managed channel operation.
 
 - Continued Channel Bus runtime parity: TS channel lifecycle control now exposes `channel.login` through AgentWorker, default native channel managers, host-RPC native connectors, and the Rust `worker_channel_login` command.
@@ -760,6 +762,8 @@ Channel Bus row 18 update: Phase 5 foundation now has a reusable TS `NativeTextC
 Channel Bus row 18 update: Phase 5 native adapter assembly now creates `NativeTextChannel` adapters from enabled canonical channel config and host-provided connector registry, with explicit missing-connector skips for channels still served by the Python bridge during migration.
 
 Channel Bus row 18 update: Phase 5 worker lifecycle wiring now accepts an injected native `ChannelManager` and exposes `channel.start`, `channel.status`, and `channel.stop` worker RPCs so TS-managed adapters can be started, inspected, and stopped by the native host.
+
+WebUI row 17 update: TS session temporary-file upload and clear routes now honor the configured WebUI channel prefix like Python's runtime channel-name guard, while keeping `websocket:` as the default migrated desktop channel.
 
 Channel Bus row 18 update: Phase 5 default stdio worker lifecycle now reads canonical native config and assembles host-provided native text connectors into `ChannelManager` adapters at channel startup, preserving the empty-manager fallback when no connectors are available.
 

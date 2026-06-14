@@ -2259,7 +2259,7 @@ async function webuiTemporaryFilesClearResponse(
   sessionProvider: WebuiSessionProvider | undefined,
   traceId: string,
 ): Promise<WebuiRouteResponse> {
-  if (!sessionId.startsWith("websocket:")) {
+  if (!isTemporaryFileSession(sessionId, sessionProvider)) {
     return { status: 400, body: { error: "temporary files are only supported for websocket sessions" } };
   }
   if (!sessionProvider?.clearTemporaryFiles) {
@@ -2277,7 +2277,7 @@ async function webuiTemporaryFileUploadResponse(
   sessionProvider: WebuiSessionProvider | undefined,
   traceId: string,
 ): Promise<WebuiRouteResponse> {
-  if (!sessionId.startsWith("websocket:")) {
+  if (!isTemporaryFileSession(sessionId, sessionProvider)) {
     return { status: 400, body: { error: "temporary files are only supported for websocket sessions" } };
   }
   if (!sessionProvider?.uploadTemporaryFile) {
@@ -2304,6 +2304,11 @@ async function webuiTemporaryFileUploadResponse(
       : 500;
     return { status, body: { error: status === 500 ? `failed to upload temporary file: ${message}` : message } };
   }
+}
+
+function isTemporaryFileSession(sessionId: string, sessionProvider: WebuiSessionProvider | undefined): boolean {
+  const channelName = sessionProvider?.channelName ?? "websocket";
+  return sessionId.startsWith(`${channelName}:`);
 }
 
 function temporaryFileUploadFromBody(body: Record<string, unknown>): WebuiTemporaryFileUpload | undefined {
