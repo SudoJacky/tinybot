@@ -1184,6 +1184,12 @@ function reviewGoalCompletion(session: CoworkSession): JsonObject {
     "document",
     "app",
     "page",
+    "代码",
+    "实现",
+    "修复",
+    "文件",
+    "页面",
+    "文档",
   ].some((marker) => goalText.includes(marker));
   if (likelyDeliveryGoal && session.artifacts.length === 0) {
     return {

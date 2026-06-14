@@ -519,6 +519,62 @@ describe("cowork_internal tool", () => {
     expect(saved?.agents.lead.status).toBe("idle");
   });
 
+  it("keeps Chinese delivery-oriented sessions active until artifact paths are confirmed", async () => {
+    const store = createMemoryCoworkStore();
+    const idGenerator = deterministicIds();
+    const service = new CoworkService({
+      store,
+      now: () => fixedNow,
+      idGenerator,
+    });
+    const session = await service.createSession({
+      traceId: "trace-create",
+      goal: "写文件，总结迁移结果",
+      title: "中文交付物检查",
+      workflowMode: "team",
+      agents: [{
+        id: "lead",
+        name: "Lead",
+        role: "Lead",
+        goal: "Coordinate",
+        responsibilities: ["Finish"],
+      }],
+      tasks: [{
+        id: "finish",
+        title: "Finish",
+        description: "Write the file",
+        assigned_agent_id: "lead",
+      }],
+    });
+    const tool = createCoworkInternalTool({
+      store,
+      sessionId: session.id,
+      senderId: "lead",
+      now: () => fixedNow,
+      idGenerator,
+    });
+
+    await tool.execute({
+      action: "complete_task",
+      task_id: "finish",
+      content: JSON.stringify({
+        answer: "迁移结果已总结。",
+      }),
+    }, { runId: "run-1", traceId: "trace-complete" });
+
+    const saved = await store.readSnapshot(session.id, "trace-read");
+    expect(saved?.status).toBe("active");
+    expect(saved?.completion_decision).toMatchObject({
+      next_action: "review_goal_completion",
+      reason: "The goal appears to require concrete deliverables, but no artifact paths are confirmed yet.",
+      ready_to_finish: false,
+      goal_review: {
+        ready: false,
+        missing: ["artifacts"],
+      },
+    });
+  });
+
   it("keeps fanout sessions active until fanout work has an explicit merge", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = deterministicIds();
