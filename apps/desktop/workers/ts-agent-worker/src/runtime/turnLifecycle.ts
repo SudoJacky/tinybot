@@ -125,6 +125,7 @@ export class TurnLifecycle {
     if (!checkpoint) {
       return { checkpoint, restored: false, restoredMessageCount: 0 };
     }
+    assertSupportedCheckpointVersion(checkpoint);
     const shouldKeepCheckpointForResume = checkpointRequiresUserInputResume(checkpoint);
     const restoredMessages = shouldKeepCheckpointForResume ? [] : materializeCheckpointMessages(checkpoint);
     if (restoredMessages.length > 0) {
@@ -207,6 +208,14 @@ export class TurnLifecycle {
       return 0;
     }
   }
+}
+
+function assertSupportedCheckpointVersion(checkpoint: Record<string, unknown>): void {
+  const version = checkpoint.version;
+  if (version === undefined || version === 1) {
+    return;
+  }
+  throw new Error(`unsupported checkpoint version: ${String(version)}`);
 }
 
 function savedMessagesForEvidence(messages: AgentMessage[], savedMessageCount: number): AgentMessage[] {

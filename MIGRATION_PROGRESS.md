@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued session turn lifecycle checkpoint parity: TS `restoreCheckpoint()` now rejects unsupported checkpoint versions before materializing messages, preserving legacy unversioned and version 1 checkpoint compatibility while blocking unknown payloads.
+
 - Continued WebUI transport Agent UI form structured-continuation parity: TS-native form submissions with explicit `structured_message` continuation now append Python-compatible session user messages with `_agent_ui_form_response` metadata instead of resuming the agent run.
 
 - Continued WebUI transport Agent UI form correlation parity: TS-native form continuation now rejects checkpoint correlation mismatches with Python-compatible `409 {"error": "form correlation mismatch"}` responses before resuming the agent run.

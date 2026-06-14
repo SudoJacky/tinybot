@@ -200,6 +200,32 @@ describe("TurnLifecycle", () => {
     expect(cleared).toEqual([]);
   });
 
+  test("rejects unsupported checkpoint versions during restore", async () => {
+    const appended: AgentMessage[][] = [];
+    const cleared: string[] = [];
+    const bridge: SessionBridge = {
+      setCheckpoint: async () => undefined,
+      clearCheckpoint: async (sessionId) => {
+        cleared.push(sessionId);
+      },
+      appendMessages: async (_sessionId, messages) => {
+        appended.push(messages);
+      },
+      getCheckpoint: async () => ({
+        version: 2,
+        runId: "run-newer",
+        phase: "awaiting_tools",
+        iteration: 1,
+        model: "test-model",
+      }),
+    };
+
+    await expect(new TurnLifecycle(bridge).restoreCheckpoint("trace-1", "session-1"))
+      .rejects.toThrow("unsupported checkpoint version: 2");
+    expect(appended).toEqual([]);
+    expect(cleared).toEqual([]);
+  });
+
   test("persists completed turns through session.persist_turn and returns lifecycle metadata", async () => {
     const persistedTurns: Array<{ sessionId: string; messages: AgentMessage[]; clearCheckpoint: boolean }> = [];
     const capturedEvidence: Array<{ sessionId: string; messages: AgentMessage[]; startIndex: number; traceId: string }> = [];
