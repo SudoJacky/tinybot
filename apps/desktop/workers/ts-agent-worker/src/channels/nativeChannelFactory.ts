@@ -57,6 +57,7 @@ function createNativeTextChannelAdapter(
   bus: MessageBus,
   connector: NativeTextChannelConnector,
 ): NativeTextChannel {
+  validateAllowFrom(selected.name, selected.config);
   return new NativeTextChannel({
     name: selected.name,
     displayName: selected.descriptor.displayName,
@@ -64,4 +65,12 @@ function createNativeTextChannelAdapter(
     bus,
     connector,
   });
+}
+
+function validateAllowFrom(name: string, config: Record<string, unknown>): void {
+  if (Array.isArray(config.allowFrom) && config.allowFrom.length === 0) {
+    throw new Error(
+      `Error: "${name}" has empty allowFrom (denies all). Set ["*"] to allow everyone, or add specific user IDs.`,
+    );
+  }
 }

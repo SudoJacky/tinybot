@@ -82,4 +82,29 @@ describe("nativeChannelFactory", () => {
       replyTo: null,
     });
   });
+
+  test("rejects enabled native channels with an explicit empty allowFrom list", () => {
+    const bus = new MessageBus();
+    const feishuConnector: NativeTextChannelConnector = {
+      sendText: vi.fn(async () => undefined),
+    };
+    const config = parseTinybotConfig({
+      channels: {
+        feishu: {
+          enabled: true,
+          allow_from: [],
+        },
+      },
+    });
+
+    expect(() => createNativeTextChannelAdapters({
+      config,
+      bus,
+      connectors: {
+        feishu: feishuConnector,
+      },
+    })).toThrow(
+      'Error: "feishu" has empty allowFrom (denies all). Set ["*"] to allow everyone, or add specific user IDs.',
+    );
+  });
 });
