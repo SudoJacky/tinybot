@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued WebUI transport attach parity: the desktop native root-WebUI WebSocket shim now checks session existence before TS-native `attach` dispatch and passes `sessionExists` into the worker mapper, restoring Python-compatible `session not found` attach errors on the native path.
+
 - Continued WebUI transport interrupt parity: TS-native WebSocket `interrupt` frames now cancel active runs for the target `websocket:{chat_id}` session and return Python-compatible `interrupted` frames, closing another root-WebUI native shim gap before Python WebSocketChannel fallback can be retired.
 
 - Continued WebUI transport session-history parity: TS-native `GET /api/sessions/{key}/messages` now restores Python-compatible task progress cards from persisted task plans when history only contains the internal task notification, instead of dropping the task row from WebUI history.
@@ -777,6 +779,8 @@ WebUI row 17 update: TS session-message history now restores task progress cards
 
 WebUI row 17 update: TS-native WebSocket `interrupt` handling now cancels active worker runs by session key and returns legacy `interrupted` frames with cancellation status, matching Python WebSocketChannel's immediate interrupt response for root WebUI clients.
 
+WebUI row 17 update: desktop native root-WebUI WebSocket attach now performs native-first session existence checks and forwards `sessionExists` into the TS transport mapper, so missing-session attaches return Python-compatible `session not found` frames instead of attaching blindly.
+
 Channel Bus row 18 update: Phase 5 default stdio worker lifecycle now reads canonical native config and assembles host-provided native text connectors into `ChannelManager` adapters at channel startup, preserving the empty-manager fallback when no connectors are available.
 
 Channel Bus row 18 update: Phase 5 now has an explicit TS host-RPC connector bridge for native text adapters, so host-provided connectors can be expressed as stable `channel.connector.start/stop/send_text/send_delta/send_usage` worker-host calls while Python bridge fallback remains opt-in by absence of connectors.
@@ -1338,6 +1342,7 @@ API Runtime row 19 update: TS-native completed Knowledge upload/rebuild job enve
 - [x] Continue WebUI transport Batch 6: project TS worker browser frame events through the root-WebUI native WebSocket shim while preserving `source_command`.
 - [x] Continue WebUI transport Batch 6: project TS worker cancellation events through the root-WebUI native WebSocket shim as legacy `interrupted` frames.
 - [x] Continue WebUI transport Batch 6: cancel active TS worker runs and return legacy `interrupted` frames for native WebSocket `interrupt` client frames.
+- [x] Continue WebUI transport Batch 6: validate native WebSocket `attach` session existence before dispatching through the root-WebUI shim.
 - [x] Start Channel Bus Phase 1: add TS-native message envelopes, Python-compatible session keys, async inbound/outbound queues, batch/timeout consumption, close semantics, and backlog diagnostics.
 - [x] Continue Channel Bus Phase 1: add TS-native ChannelManager outbound dispatch with send routing, progress filtering, stream coalescing, and retry diagnostics.
 - [x] Continue Channel Bus Phase 2: add TS-native BaseChannel allow-list/inbound normalization and ChannelManager lifecycle/status projection.

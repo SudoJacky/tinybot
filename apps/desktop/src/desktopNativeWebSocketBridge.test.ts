@@ -195,6 +195,47 @@ describe("desktop native WebSocket bridge", () => {
     socket.close();
   });
 
+  test("passes attach session existence into the native transport mapper", async () => {
+    const dispatched: unknown[] = [];
+    const nativeTransport: NativeTransportApi = {
+      gatewayFrame: vi.fn(),
+      websocketMessage: vi.fn(),
+      dispatchWebsocketMessage: vi.fn(async (request) => {
+        dispatched.push(request);
+        return {
+          transport: {
+            kind: "error",
+            frames: [{ event: "error", message: "session not found", chat_id: "missing" }],
+          },
+        };
+      }),
+      dispatchChannelInbound: vi.fn(),
+      startChannels: vi.fn(),
+      channelStatus: vi.fn(),
+      stopChannels: vi.fn(),
+    };
+    const socket = createDesktopNativeWebSocket({
+      url: "/ws",
+      nativeTransport,
+      resolveSessionExists: async (sessionId) => sessionId !== "websocket:missing",
+    });
+    const events: Array<Record<string, unknown>> = [];
+    socket.addEventListener("message", (event) => {
+      events.push(JSON.parse(String((event as MessageEvent).data)) as Record<string, unknown>);
+    });
+
+    await flushMicrotasks();
+    socket.send(JSON.stringify({ type: "attach", chat_id: "missing" }));
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(dispatched).toContainEqual(expect.objectContaining({
+      frame: { type: "attach", chat_id: "missing" },
+      sessionExists: false,
+    }));
+    expect(events).toContainEqual({ event: "error", message: "session not found", chat_id: "missing" });
+  });
+
   test("projects TS worker tool progress into legacy WebUI message frames", async () => {
     const handlers = new Map<DesktopNativeWebSocketAgentEventName, (payload: unknown) => void>();
     const nativeTransport: NativeTransportApi = {

@@ -224,6 +224,7 @@ async function bootDesktopWebUi(): Promise<void> {
     installDesktopGatewayBridge({
       config: gatewayConfig,
       nativeTransport: gatewayClientOptions.nativeTransport,
+      resolveNativeWebSocketSessionExists,
       listenToNativeAgentEvent: (eventName, handler) => listen(eventName, (event) => {
         handler(event.payload);
       }),
@@ -321,6 +322,20 @@ async function bootDesktopWebUi(): Promise<void> {
       true,
     );
   }
+}
+
+async function resolveNativeWebSocketSessionExists(sessionId: string): Promise<boolean | undefined> {
+  try {
+    await gatewayApi.sessions.messages(sessionId);
+    return true;
+  } catch (error) {
+    return isGatewayNotFoundError(error) ? false : undefined;
+  }
+}
+
+function isGatewayNotFoundError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /\bHTTP 404\b/.test(message) || message.toLowerCase().includes("session not found");
 }
 
 async function loadNativeChatRuntime(): Promise<DesktopNativeWorkbenchRuntime> {

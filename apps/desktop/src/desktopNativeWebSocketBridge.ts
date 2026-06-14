@@ -6,6 +6,7 @@ export type DesktopNativeWebSocketOptions = {
   nativeTransport: NativeTransportApi;
   clientId?: string;
   editablePaths?: string[];
+  resolveSessionExists?: (sessionId: string) => Promise<boolean | undefined> | boolean | undefined;
   listenToAgentEvent?: DesktopNativeWebSocketAgentEventListener;
 };
 
@@ -93,6 +94,7 @@ class DesktopNativeWebSocket extends EventTarget {
   private readonly nativeTransport: NativeTransportApi;
   private readonly clientId: string;
   private readonly editablePaths?: string[];
+  private readonly resolveSessionExists?: DesktopNativeWebSocketOptions["resolveSessionExists"];
   private readonly listenToAgentEvent?: DesktopNativeWebSocketAgentEventListener;
   private readonly agentEventUnlisteners: Array<() => void> = [];
   private readonly pendingAgentEvents = new Map<string, Array<{ eventName: DesktopNativeWebSocketAgentEventName; payload: Record<string, unknown> }>>();
@@ -107,6 +109,7 @@ class DesktopNativeWebSocket extends EventTarget {
     this.nativeTransport = options.nativeTransport;
     this.clientId = options.clientId ?? createClientId();
     this.editablePaths = options.editablePaths ?? ["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md", "HEARTBEAT.md", "memory/MEMORY.md"];
+    this.resolveSessionExists = options.resolveSessionExists;
     this.listenToAgentEvent = options.listenToAgentEvent;
     this.registerAgentEventListeners();
     queueMicrotask(() => {
@@ -136,17 +139,35 @@ class DesktopNativeWebSocket extends EventTarget {
       return;
     }
 
+    void this.dispatchFrame(frame);
+  }
+
+  private async dispatchFrame(frame: Record<string, unknown>): Promise<void> {
+    const sessionExists = await this.resolveAttachSessionExists(frame);
     const request: NativeTransportWebSocketDispatchRequest = {
       clientId: this.clientId,
       frame,
       ...(this.attachedChatId ? { attachedChatId: this.attachedChatId } : {}),
+      ...(sessionExists !== undefined ? { sessionExists } : {}),
       ...(this.editablePaths ? { editablePaths: this.editablePaths } : {}),
     };
-    void this.nativeTransport.dispatchWebsocketMessage(request)
-      .then((result) => this.applyDispatchResult(result))
-      .catch((error) => {
-        this.emitJson({ event: "error", message: error instanceof Error ? error.message : String(error) });
-      });
+    try {
+      this.applyDispatchResult(await this.nativeTransport.dispatchWebsocketMessage(request));
+    } catch (error) {
+      this.emitJson({ event: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  private async resolveAttachSessionExists(frame: Record<string, unknown>): Promise<boolean | undefined> {
+    if (!this.resolveSessionExists || frame.type !== "attach") {
+      return undefined;
+    }
+    const chatId = stringValue(frame.chat_id) || stringValue(frame.chatId);
+    try {
+      return chatId ? await this.resolveSessionExists(`websocket:${chatId}`) : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   close(): void {

@@ -226,6 +226,56 @@ describe("desktop gateway bridge", () => {
 
     bridge.restore();
   });
+
+  test("passes native WebSocket attach session checks through the gateway bridge", async () => {
+    const dispatched: unknown[] = [];
+    const target = {
+      location: { origin: pageOrigin },
+      fetch: vi.fn(),
+      WebSocket: class TestWebSocket {
+        static OPEN = 1;
+        readyState = 0;
+        constructor(readonly url: string | URL) {}
+      } as unknown as typeof WebSocket,
+    } as unknown as typeof globalThis;
+    const bridge = installDesktopGatewayBridge({
+      config: DEFAULT_GATEWAY_CONFIG,
+      pageOrigin,
+      fetchTarget: target,
+      webSocketTarget: target,
+      nativeTransport: {
+        gatewayFrame: vi.fn(),
+        websocketMessage: vi.fn(),
+        dispatchWebsocketMessage: vi.fn(async (request) => {
+          dispatched.push(request);
+          return {
+            transport: {
+              kind: "error",
+              frames: [{ event: "error", message: "session not found", chat_id: "missing" }],
+            },
+          };
+        }),
+        dispatchChannelInbound: vi.fn(),
+        startChannels: vi.fn(),
+        channelStatus: vi.fn(),
+        stopChannels: vi.fn(),
+      },
+      resolveNativeWebSocketSessionExists: async (sessionId) => sessionId !== "websocket:missing",
+    });
+
+    const socket = new target.WebSocket("/ws?token=abc");
+    await flushMicrotasks();
+    socket.send(JSON.stringify({ type: "attach", chat_id: "missing" }));
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(dispatched).toContainEqual(expect.objectContaining({
+      frame: { type: "attach", chat_id: "missing" },
+      sessionExists: false,
+    }));
+
+    bridge.restore();
+  });
 });
 
 async function flushMicrotasks(): Promise<void> {

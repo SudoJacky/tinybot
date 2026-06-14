@@ -17,6 +17,7 @@ export type DesktopGatewayBridgeOptions = {
   fetchTarget?: typeof globalThis;
   webSocketTarget?: typeof globalThis;
   nativeTransport?: NativeTransportApi;
+  resolveNativeWebSocketSessionExists?: (sessionId: string) => Promise<boolean | undefined> | boolean | undefined;
   listenToNativeAgentEvent?: DesktopNativeWebSocketAgentEventListener;
 };
 
@@ -95,6 +96,7 @@ export function installDesktopGatewayBridge(options: DesktopGatewayBridgeOptions
         url,
         protocols,
         nativeTransport,
+        resolveSessionExists: options.resolveNativeWebSocketSessionExists,
         listenToAgentEvent: listenToNativeAgentEvent,
       });
     }
