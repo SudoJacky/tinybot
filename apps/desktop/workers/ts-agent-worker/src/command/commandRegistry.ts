@@ -68,11 +68,18 @@ async function stopResult(context: CommandContext, capabilities: CommandCapabili
 }
 
 async function statusResult(context: CommandContext, capabilities: CommandCapabilities): Promise<CommandResult> {
-  const snapshot = (await capabilities.getStatusSnapshot?.(context)) ?? {
-    activeRunCount: 0,
-    activeSessionRunCount: 0,
-    sessionId: context.sessionId,
-  };
+  let snapshot: Awaited<ReturnType<NonNullable<CommandCapabilities["getStatusSnapshot"]>>>;
+  try {
+    snapshot = (await capabilities.getStatusSnapshot?.(context)) ?? {
+      activeRunCount: 0,
+      activeSessionRunCount: 0,
+      sessionId: context.sessionId,
+    };
+  } catch (error) {
+    return textCommandResult("/status", `Status failed: ${errorMessage(error)}`, {
+      available: false,
+    });
+  }
   const richStatusContent = statusContentFromSnapshot(snapshot);
   return {
     handled: true,
@@ -128,11 +135,17 @@ async function restartResult(context: CommandContext, capabilities: CommandCapab
       },
     };
   }
-  await capabilities.requestRestart({
-    traceId: context.traceId,
-    runId: context.runId,
-    sessionId: context.sessionId,
-  });
+  try {
+    await capabilities.requestRestart({
+      traceId: context.traceId,
+      runId: context.runId,
+      sessionId: context.sessionId,
+    });
+  } catch (error) {
+    return textCommandResult("/restart", `Restart failed: ${errorMessage(error)}`, {
+      restart_requested: false,
+    });
+  }
   return {
     handled: true,
     output: "Restarting...",
@@ -180,9 +193,17 @@ async function newSessionResult(context: CommandContext, capabilities: CommandCa
 }
 
 async function approvalsResult(context: CommandContext, capabilities: CommandCapabilities): Promise<CommandResult> {
-  const result = context.sessionId && capabilities.listPendingApprovals
-    ? await capabilities.listPendingApprovals(context.sessionId, context.traceId)
-    : { approvals: [] };
+  let result: Awaited<ReturnType<NonNullable<CommandCapabilities["listPendingApprovals"]>>>;
+  try {
+    result = context.sessionId && capabilities.listPendingApprovals
+      ? await capabilities.listPendingApprovals(context.sessionId, context.traceId)
+      : { approvals: [] };
+  } catch (error) {
+    return textCommandResult("/approvals", `Approvals failed: ${errorMessage(error)}`, {
+      pending_count: 0,
+      available: false,
+    });
+  }
   const approvals = Array.isArray(result.approvals) ? result.approvals : [];
   return {
     handled: true,

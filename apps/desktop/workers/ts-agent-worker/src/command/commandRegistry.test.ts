@@ -197,6 +197,42 @@ describe("createDefaultCommandRouter", () => {
     });
   });
 
+  test("reports status bridge failures as command text instead of leaking the error", async () => {
+    const router = createDefaultCommandRouter({
+      getStatusSnapshot: async () => {
+        throw new Error("status bridge unavailable");
+      },
+    });
+
+    await expect(router.dispatch("/status", { traceId: "trace-1", sessionId: "session-1" })).resolves.toMatchObject({
+      handled: true,
+      output: "Status failed: status bridge unavailable",
+      metadata: {
+        command: "/status",
+        render_as: "text",
+        available: false,
+      },
+    });
+  });
+
+  test("reports restart bridge failures as command text instead of leaking the error", async () => {
+    const router = createDefaultCommandRouter({
+      requestRestart: async () => {
+        throw new Error("restart bridge unavailable");
+      },
+    });
+
+    await expect(router.dispatch("/restart", { traceId: "trace-1", sessionId: "session-1", runId: "run-1" })).resolves.toMatchObject({
+      handled: true,
+      output: "Restart failed: restart bridge unavailable",
+      metadata: {
+        command: "/restart",
+        render_as: "text",
+        restart_requested: false,
+      },
+    });
+  });
+
   test("clears session temporary knowledge when starting a new session", async () => {
     const calls: unknown[] = [];
     const router = createDefaultCommandRouter({
@@ -233,6 +269,25 @@ describe("createDefaultCommandRouter", () => {
       { type: "session", sessionId: "websocket:chat-1", traceId: "trace-new" },
       { type: "temporary-files", sessionId: "websocket:chat-1", traceId: "trace-new" },
     ]);
+  });
+
+  test("reports approval list bridge failures as command text instead of leaking the error", async () => {
+    const router = createDefaultCommandRouter({
+      listPendingApprovals: async () => {
+        throw new Error("approval store unavailable");
+      },
+    });
+
+    await expect(router.dispatch("/approvals", { traceId: "trace-1", sessionId: "session-1" })).resolves.toMatchObject({
+      handled: true,
+      output: "Approvals failed: approval store unavailable",
+      metadata: {
+        command: "/approvals",
+        render_as: "text",
+        pending_count: 0,
+        available: false,
+      },
+    });
   });
 
   test("returns Python-compatible usage for malformed approve commands", async () => {
