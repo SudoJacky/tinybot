@@ -1613,6 +1613,10 @@ async function handleNativeKnowledgeAction(event: DesktopKnowledgeActionEvent): 
       document.getElementById("desktop-knowledge-upload")?.click();
       return;
     }
+    if (event.action === "settings") {
+      outcome = "ignored";
+      return;
+    }
     if (event.action === "runQuery" && event.pane.actions.query) {
       const result = await gatewayApi.knowledge.query(event.pane.query.request);
       const pane = await loadNativeKnowledgePane({
@@ -1622,7 +1626,7 @@ async function handleNativeKnowledgeAction(event: DesktopKnowledgeActionEvent): 
       setNativeKnowledgePane(pane);
       return;
     }
-    if (event.action === "refreshGraph") {
+    if (event.action === "refreshGraph" || event.action === "refreshAll") {
       const pane = await loadNativeKnowledgePane({
         queryResultPayload: nativeKnowledgeQueryResult,
         selectedDocumentId: event.pane.selectedDocument?.id,
@@ -1643,8 +1647,18 @@ async function handleNativeKnowledgeAction(event: DesktopKnowledgeActionEvent): 
       setNativeKnowledgePane(pane);
       return;
     }
-    if (event.action === "deleteDocument" && event.pane.selectedDocument) {
-      await gatewayApi.knowledge.deleteDocument(event.pane.selectedDocument.id);
+    if (event.action === "deleteDocument") {
+      const documentId = event.documentId || event.pane.selectedDocument?.id;
+      if (!documentId) {
+        outcome = "ignored";
+        return;
+      }
+      const confirmed = window.confirm("Delete this knowledge document? This will remove it from the global knowledge base.");
+      if (!confirmed) {
+        outcome = "ignored";
+        return;
+      }
+      await gatewayApi.knowledge.deleteDocument(documentId);
       const pane = await loadNativeKnowledgePane({ queryResultPayload: nativeKnowledgeQueryResult });
       setNativeKnowledgePane(pane);
       return;

@@ -98,9 +98,11 @@ function createMainUtilitiesRegionApp(options: MainUtilitiesRegionIslandOptions)
 
       onMounted(() => {
         mountChild(mountedChildren, commandPalette.value, (host) => mountCommandPaletteIsland(host));
-        mountChild(mountedChildren, fileActions.value, (host) => mountFileActionsSurfaceIsland(host, {
-          activeSessionKey: options.activeSessionKey ?? null,
-        }));
+        if (!options.knowledgePane) {
+          mountChild(mountedChildren, fileActions.value, (host) => mountFileActionsSurfaceIsland(host, {
+            activeSessionKey: options.activeSessionKey ?? null,
+          }));
+        }
         mountChild(mountedChildren, helpSurface.value, (host) => mountHelpSurfaceIsland(host, {
           onAction: options.onHelpAction,
         }));
@@ -161,7 +163,7 @@ function createMainUtilitiesRegionApp(options: MainUtilitiesRegionIslandOptions)
         }, {
           default: () => [
             h("section", { ref: commandPalette }),
-            h("section", { ref: fileActions }),
+            options.knowledgePane ? null : h("section", { ref: fileActions }),
             h("section", { ref: helpSurface }),
             h("section", { ref: agentUiForms }),
             h("section", { ref: workspaceFiles }),

@@ -2878,6 +2878,7 @@ describe("desktop workbench shell", () => {
       statsPayload: {
         total_documents: 1,
         total_chunks: 4,
+        last_indexed_at: "2026-06-14T09:41:00Z",
         indexed_dense: 4,
         indexed_sparse: 4,
         claims_ready: true,
@@ -2888,7 +2889,7 @@ describe("desktop workbench shell", () => {
         },
       },
       config: { knowledge: { enabled: true, retrieval_mode: "hybrid", max_chunks: 5 } },
-      documentsPayload: { documents: [{ id: "doc-1", title: "Desktop UX", path: "docs/desktop.md", chunk_count: 4, status: "indexed" }] },
+      documentsPayload: { documents: [{ id: "doc-1", title: "Desktop UX", path: "docs/desktop.md", category: "MD", size_bytes: 86000, chunk_count: 4, status: "indexed", updated_at: "2h ago" }] },
       selectedDocumentId: "doc-1",
       queryDraft: { query: "desktop", mode: "hybrid", topK: 5 },
       queryResultPayload: { data: [{ doc_id: "doc-1", doc_name: "Desktop UX", content: "Desktop knowledge pane", score: 0.7 }] },
@@ -2913,34 +2914,66 @@ describe("desktop workbench shell", () => {
 
     const pane = targetDocument.body.querySelector(".desktop-knowledge-pane");
     expect(pane?.getAttribute("aria-label")).toBe("Knowledge workbench");
-    expect(pane?.querySelector(".desktop-knowledge-workbench-grid")?.getAttribute("data-desktop-knowledge-layout")).toBe(
-      "filters-graph-detail-results",
+    expect(pane?.querySelector(".desktop-knowledge-toolbar")?.textContent).toContain("Refresh All");
+    expect(pane?.querySelector(".desktop-knowledge-toolbar")?.textContent).toContain("Settings");
+    expect(pane?.querySelector(".desktop-knowledge-toolbar")?.textContent).toContain("Upload Documents");
+    expect(pane?.querySelector(".desktop-knowledge-management-grid")?.getAttribute("data-desktop-knowledge-layout")).toBe(
+      "source-left-graph-right",
     );
     expect(pane?.querySelectorAll("[data-desktop-knowledge-region]").map((node) => node.getAttribute("data-desktop-knowledge-region"))).toEqual([
-      "filters",
+      "overview",
+      "upload",
+      "queue",
+      "documents",
       "graph",
-      "detail",
-      "results",
+      "pipeline",
     ]);
-    expect(pane?.textContent).toContain("Knowledge");
+    expect(pane?.textContent).toContain("Knowledge Base");
+    expect(pane?.textContent).toContain("Manage your knowledge base, monitor ingestion, and explore the knowledge graph.");
     expect(pane?.textContent).toContain("1 doc / readiness 100% / graph 1 nodes / 0 edges");
+    expect(pane?.querySelector('[data-desktop-knowledge-region="overview"]')?.textContent).toContain("Documents");
+    expect(pane?.querySelector('[data-desktop-knowledge-region="overview"]')?.textContent).toContain("Graph Nodes");
+    expect(pane?.querySelector('[data-desktop-knowledge-region="overview"]')?.textContent).toContain("Last Indexed");
+    expect(pane?.querySelector('[data-desktop-knowledge-region="overview"]')?.textContent).toContain("2026-06-14 09:41");
+    expect(targetDocument.body.querySelector(".desktop-file-actions")).toBeNull();
+    expect(targetDocument.body.textContent).not.toContain("File imports");
+    const uploadRegion = pane?.querySelector('[data-desktop-knowledge-region="upload"]');
+    expect(uploadRegion?.querySelector(".desktop-knowledge-drop-zone")?.getAttribute("data-desktop-drop-target")).toBe("knowledge-document");
+    expect(uploadRegion?.textContent).toContain("Drag & drop files here or click to browse");
+    expect(uploadRegion?.textContent).toContain("Max 200MB per file");
+    expect(uploadRegion?.querySelector("#desktop-knowledge-upload")?.getAttribute("data-desktop-file-upload")).toBe("knowledge-document");
+    expect(pane?.querySelector('[data-desktop-knowledge-region="queue"]')?.textContent).toContain("Ingestion Queue");
+    const documentsRegion = pane?.querySelector('[data-desktop-knowledge-region="documents"]');
+    expect(documentsRegion?.textContent).toContain("Documents (1)");
+    expect(documentsRegion?.querySelector("[data-desktop-knowledge-document-search]")?.getAttribute("placeholder")).toBe("Search documents...");
+    expect(documentsRegion?.querySelector("[data-desktop-knowledge-documents-table]")?.textContent).toContain("Actions");
+    expect(documentsRegion?.querySelector('[data-desktop-knowledge-document-action="deleteDocument"]')?.textContent).toContain("Delete");
     expect(pane?.textContent).toContain("Knowledge enabled");
-    expect(pane?.querySelector('[data-desktop-knowledge-region="filters"]')?.textContent).toContain("Desktop UX: indexed / 4 chunks");
+    expect(documentsRegion?.textContent).toContain("Desktop UX");
     expect(findEntityRow(pane, "knowledge", "doc-1")?.textContent).toContain("Desktop UX");
-    expect(pane?.querySelector('[data-desktop-knowledge-region="detail"]')?.textContent).toContain("Document detail: Desktop UX");
-    expect(pane?.querySelector('[data-desktop-knowledge-region="detail"]')?.textContent).toContain("docs/desktop.md / indexed / 4 chunks");
-    expect(pane?.querySelector('[data-desktop-knowledge-region="results"]')?.textContent).toContain("Query: desktop");
-    expect(pane?.querySelector('[data-desktop-knowledge-region="results"]')?.textContent).toContain("Results: 1");
+    expect(documentsRegion?.textContent).toContain("Document detail: Desktop UX");
+    expect(documentsRegion?.textContent).toContain("docs/desktop.md / indexed / 4 chunks");
     expect(pane?.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Graph: 1 nodes / 0 edges / 0 evidence");
+    expect(pane?.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Build Graph");
+    expect(pane?.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Refresh Graph");
+    expect(pane?.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Fit View");
+    expect(pane?.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Layout");
+    expect(pane?.querySelector(".desktop-knowledge-graph-tools")?.textContent).toContain("Zoom in");
+    expect(pane?.querySelector(".desktop-knowledge-graph-legend")?.textContent).toContain("Entity");
+    expect(pane?.querySelector(".desktop-knowledge-graph-minimap")).not.toBeNull();
+    expect(pane?.querySelector('[data-desktop-knowledge-region="pipeline"]')?.textContent).toContain("Graph Build");
+    expect(pane?.querySelector('[data-desktop-knowledge-region="pipeline"]')?.textContent).toContain("6 steps");
     expect(pane?.textContent).toContain("Community: Desktop cluster");
     expect(pane?.textContent).toContain("Report: Desktop report");
     expect(pane?.textContent).toContain("Claim: Desktop knowledge pane");
 
-    pane?.querySelector('[data-desktop-knowledge-action="runQuery"]')?.click();
+    pane?.querySelector('[data-desktop-knowledge-action="refreshAll"]')?.click();
+    pane?.querySelector('[data-desktop-knowledge-action="settings"]')?.click();
+    pane?.querySelector('[data-desktop-knowledge-action="uploadDocument"]')?.click();
     pane?.querySelector('[data-desktop-knowledge-action="refreshGraph"]')?.click();
     pane?.querySelector('[data-desktop-knowledge-action="rebuildIndex"]')?.click();
-    pane?.querySelector('[data-desktop-knowledge-action="deleteDocument"]')?.click();
-    expect(actionEvents).toEqual(["runQuery", "refreshGraph", "rebuildIndex", "deleteDocument"]);
+    pane?.querySelector('[data-desktop-knowledge-document-action="deleteDocument"]')?.click();
+    expect(actionEvents).toEqual(["refreshAll", "settings", "uploadDocument", "refreshGraph", "rebuildIndex", "deleteDocument"]);
   });
 
   test("renders a desktop Cowork cockpit with session list, graph, inspector, actions, and task feed", () => {

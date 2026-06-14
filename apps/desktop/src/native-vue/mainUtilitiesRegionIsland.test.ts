@@ -6,6 +6,7 @@ import {
   buildDesktopSettingsFormState,
   buildDesktopSettingsPaneModel,
 } from "../desktopSettingsProviders";
+import { buildDesktopKnowledgePaneModel } from "../desktopKnowledgeTraceability";
 import type { AgentUiForm } from "../agentUiEvents";
 import type { DesktopSettingsActionEvent } from "../desktopWorkbenchShell";
 import { mountMainUtilitiesRegionIsland } from "./mainUtilitiesRegionIsland";
@@ -91,5 +92,23 @@ describe("main utilities region Vue island", () => {
 
     mounted.unmount();
     expect(host.textContent).toBe("");
+  });
+
+  test("omits the generic file imports surface when the Knowledge pane is active", async () => {
+    const host = document.createElement("div");
+    const mounted = mountMainUtilitiesRegionIsland(host, {
+      activeSessionKey: "session-1",
+      agentUiForms: [],
+      knowledgePane: buildDesktopKnowledgePaneModel(),
+    });
+    await nextTick();
+    await nextTick();
+
+    expect(host.querySelector(".desktop-file-actions")).toBeNull();
+    expect(host.textContent).not.toContain("File imports");
+    expect(host.querySelector(".desktop-knowledge-pane")).not.toBeNull();
+    expect(host.querySelector("#desktop-knowledge-upload")?.getAttribute("data-desktop-file-upload")).toBe("knowledge-document");
+
+    mounted.unmount();
   });
 });

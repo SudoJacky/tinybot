@@ -9,6 +9,7 @@ const pane = buildDesktopKnowledgePaneModel({
   statsPayload: {
     total_documents: 2,
     total_chunks: 18,
+    last_indexed_at: "2026-06-14T09:41:00Z",
     indexed_dense: 18,
     indexed_sparse: 18,
     claim_count: 3,
@@ -32,8 +33,8 @@ const pane = buildDesktopKnowledgePaneModel({
   },
   documentsPayload: {
     documents: [
-      { id: "doc-1", title: "Desktop UX", path: "docs/desktop.md", tags: ["desktop"], chunk_count: 10, status: "indexed" },
-      { id: "doc-2", title: "Gateway", path: "docs/gateway.md", chunk_count: 8, status: "indexed" },
+      { id: "doc-1", title: "Desktop UX", path: "docs/desktop.md", tags: ["desktop"], category: "MD", size_bytes: 86000, chunk_count: 10, status: "indexed", updated_at: "2h ago" },
+      { id: "doc-2", title: "Gateway", path: "docs/gateway.md", category: "PDF", size_bytes: 1260000, chunk_count: 8, status: "indexing", updated_at: "5h ago" },
     ],
   },
   selectedDocumentId: "doc-1",
@@ -99,47 +100,94 @@ describe("knowledge pane Vue island", () => {
     expect(host.getAttribute("data-desktop-vue-island")).toBe("knowledge-pane");
     expect(host.getAttribute("data-desktop-module-surface")).toBe("knowledge");
     expect(host.getAttribute("aria-label")).toBe("Knowledge workbench");
-    expect(host.querySelector(".desktop-knowledge-workbench-grid")?.getAttribute("data-desktop-knowledge-layout")).toBe(
-      "filters-graph-detail-results",
+    expect(host.querySelector(".desktop-knowledge-toolbar")?.textContent).toContain("Refresh All");
+    expect(host.querySelector(".desktop-knowledge-toolbar")?.textContent).toContain("Settings");
+    expect(host.querySelector(".desktop-knowledge-toolbar")?.textContent).toContain("Upload Documents");
+    expect(host.querySelector(".desktop-knowledge-management-grid")?.getAttribute("data-desktop-knowledge-layout")).toBe(
+      "source-left-graph-right",
     );
     expect(Array.from(host.querySelectorAll("[data-desktop-knowledge-region]"), (node) => node.getAttribute("data-desktop-knowledge-region"))).toEqual([
-      "filters",
+      "overview",
+      "upload",
+      "queue",
+      "documents",
       "graph",
-      "detail",
-      "results",
+      "pipeline",
     ]);
-    expect(host.textContent).toContain("Knowledge");
+    expect(host.querySelector(".desktop-knowledge-title-block h2")?.textContent).toBe("Knowledge Base");
+    expect(host.textContent).toContain("Manage your knowledge base, monitor ingestion, and explore the knowledge graph.");
     expect(host.textContent).toContain("2 docs / readiness 100% / graph 2 nodes / 1 edge");
 
-    expect(host.querySelector(".desktop-knowledge-actions")?.getAttribute("data-desktop-vue-island")).toBe("knowledge-actions");
-    expect(host.querySelector('[data-desktop-knowledge-action="runQuery"]')?.textContent).toContain("Run query");
-    expect(host.querySelector('[data-desktop-knowledge-region="filters"] .desktop-knowledge-readiness')?.getAttribute("data-desktop-vue-island")).toBe(
-      "knowledge-readiness",
+    expect(host.querySelector('[data-desktop-knowledge-region="overview"]')?.textContent).toContain("Documents");
+    expect(host.querySelector('[data-desktop-knowledge-region="overview"]')?.textContent).toContain("2");
+    expect(host.querySelector('[data-desktop-knowledge-region="overview"]')?.textContent).toContain("Graph Nodes");
+    expect(host.querySelector('[data-desktop-knowledge-region="overview"]')?.textContent).toContain("Relations");
+    expect(host.querySelector('[data-desktop-knowledge-region="overview"]')?.textContent).toContain("Last Indexed");
+    expect(host.querySelector('[data-desktop-knowledge-region="overview"]')?.textContent).toContain("2026-06-14 09:41");
+    expect(host.querySelector('[data-desktop-knowledge-region="upload"] .desktop-knowledge-drop-zone')?.textContent).toContain("Drag & drop files here or click to browse");
+    expect(host.querySelector('[data-desktop-knowledge-region="upload"] .desktop-knowledge-drop-zone')?.textContent).toContain("PDF, DOCX, MD, TXT, CSV, JSON");
+    expect(host.querySelector('[data-desktop-knowledge-region="upload"] .desktop-knowledge-drop-zone')?.textContent).toContain("Max 200MB per file");
+    expect(host.querySelector('[data-desktop-knowledge-region="upload"] .desktop-knowledge-drop-zone')?.getAttribute("data-desktop-drop-target")).toBe(
+      "knowledge-document",
     );
-    expect(host.querySelector('[data-desktop-knowledge-region="filters"] .desktop-knowledge-readiness')?.textContent).toContain("Readiness");
-    expect(host.querySelector('[data-desktop-knowledge-region="filters"] .desktop-knowledge-documents')?.getAttribute("data-desktop-vue-island")).toBe(
+    expect(host.querySelector('[data-desktop-knowledge-region="upload"] [data-desktop-knowledge-action="uploadDocument"]')?.textContent).toContain("Upload Documents");
+    expect(host.querySelector('[data-desktop-knowledge-region="upload"] #desktop-knowledge-upload')?.getAttribute("data-desktop-file-upload")).toBe(
+      "knowledge-document",
+    );
+    expect(host.querySelector('[data-desktop-knowledge-region="queue"]')?.textContent).toContain("Ingestion Queue");
+    expect(host.querySelector('[data-desktop-knowledge-region="queue"]')?.textContent).toContain("Desktop UX");
+    expect(host.querySelector('[data-desktop-knowledge-queue-action="pause"]')?.getAttribute("type")).toBe("button");
+    expect(host.querySelector('[data-desktop-knowledge-queue-action="cancel"]')?.getAttribute("type")).toBe("button");
+    expect(host.querySelector('[data-desktop-knowledge-region="documents"]')?.textContent).toContain("Documents (2)");
+    expect(host.querySelector('[data-desktop-knowledge-document-search]')?.getAttribute("placeholder")).toBe("Search documents...");
+    expect(host.querySelector('[data-desktop-knowledge-document-filter]')?.textContent).toContain("Filter");
+    expect(host.querySelector('[data-desktop-knowledge-documents-table]')?.textContent).toContain("Name");
+    expect(host.querySelector('[data-desktop-knowledge-documents-table]')?.textContent).toContain("Type");
+    expect(host.querySelector('[data-desktop-knowledge-documents-table]')?.textContent).toContain("Size");
+    expect(host.querySelector('[data-desktop-knowledge-documents-table]')?.textContent).toContain("Status");
+    expect(host.querySelector('[data-desktop-knowledge-documents-table]')?.textContent).toContain("Actions");
+    expect(host.querySelector('[data-desktop-knowledge-document-action="deleteDocument"]')?.textContent).toContain("Delete");
+    expect(host.querySelector('[data-desktop-knowledge-region="documents"] .desktop-knowledge-documents')?.getAttribute("data-desktop-vue-island")).toBe(
       "knowledge-documents",
     );
     expect(host.querySelector('[data-desktop-entity-module="knowledge"]')?.getAttribute("data-desktop-entity-id")).toBe("doc-1");
-    expect(host.querySelector('[data-desktop-knowledge-region="detail"] .desktop-knowledge-document-detail')?.getAttribute("data-desktop-vue-island")).toBe(
+    expect(host.querySelector('[data-desktop-knowledge-region="documents"] .desktop-knowledge-document-detail')?.getAttribute("data-desktop-vue-island")).toBe(
       "knowledge-document-detail",
     );
-    expect(host.querySelector('[data-desktop-knowledge-region="detail"] .desktop-knowledge-document-detail')?.textContent).toContain("Document detail: Desktop UX");
-    expect(host.querySelector('[data-desktop-knowledge-region="results"] .desktop-knowledge-query')?.getAttribute("data-desktop-vue-island")).toBe(
-      "knowledge-query",
-    );
-    expect(host.querySelector('[data-desktop-knowledge-query-result]')?.textContent).toContain("Desktop panes expose graph evidence.");
-    expect(host.querySelector('[data-desktop-knowledge-region="graph"].desktop-knowledge-graph')?.getAttribute("data-desktop-vue-island")).toBe(
+    expect(host.querySelector('[data-desktop-knowledge-region="documents"] .desktop-knowledge-document-detail')?.textContent).toContain("Document detail: Desktop UX");
+    expect(host.querySelector('[data-desktop-knowledge-region="graph"] .desktop-knowledge-graph')?.getAttribute("data-desktop-vue-island")).toBe(
       "knowledge-graph",
     );
+    expect(host.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Build Graph");
+    expect(host.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Refresh Graph");
+    expect(host.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Fit View");
+    expect(host.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Layout");
+    expect(host.querySelector(".desktop-knowledge-graph-tools")?.textContent).toContain("Zoom in");
+    expect(host.querySelector(".desktop-knowledge-graph-legend")?.textContent).toContain("Entity");
+    expect(host.querySelector(".desktop-knowledge-graph-minimap")).not.toBeNull();
     expect(host.querySelector('[data-desktop-knowledge-graph-reference="Community:community-1"]')?.textContent).toContain("Desktop cluster");
-    expect(host.querySelector('[data-desktop-knowledge-region="detail"] .desktop-module-work')?.getAttribute("data-desktop-vue-island")).toBe("module-work");
+    expect(host.querySelector('[data-desktop-knowledge-region="pipeline"] .desktop-knowledge-readiness')?.getAttribute("data-desktop-vue-island")).toBe(
+      "knowledge-readiness",
+    );
+    expect(host.querySelector('[data-desktop-knowledge-region="pipeline"] .desktop-knowledge-readiness')?.textContent).toContain("Upload");
+    expect(host.querySelector('[data-desktop-knowledge-region="pipeline"] .desktop-knowledge-readiness')?.textContent).toContain("Parse");
+    expect(host.querySelector('[data-desktop-knowledge-region="pipeline"] .desktop-knowledge-readiness')?.textContent).toContain("Chunk");
+    expect(host.querySelector('[data-desktop-knowledge-region="pipeline"] .desktop-knowledge-readiness')?.textContent).toContain("Embed");
+    expect(host.querySelector('[data-desktop-knowledge-region="pipeline"] .desktop-knowledge-readiness')?.textContent).toContain("Graph Build");
+    expect(host.querySelector('[data-desktop-knowledge-region="pipeline"] .desktop-knowledge-readiness')?.textContent).toContain("Complete");
+    expect(host.querySelector('[data-desktop-knowledge-region="pipeline"] .desktop-knowledge-readiness')?.textContent).toContain("6 steps");
+    expect(host.querySelector('[data-desktop-knowledge-region="pipeline"] .desktop-module-work')?.getAttribute("data-desktop-vue-island")).toBe("module-work");
     expect(host.querySelector('[data-desktop-module-work="knowledge:rebuild"]')?.textContent).toContain("Rebuild knowledge index");
 
-    host.querySelector<HTMLButtonElement>('[data-desktop-knowledge-action="runQuery"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-knowledge-action="refreshAll"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-knowledge-action="settings"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-knowledge-action="uploadDocument"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-knowledge-action="refreshGraph"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-knowledge-action="rebuildIndex"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-knowledge-document-action="deleteDocument"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-desktop-module-work="knowledge:rebuild"]')?.click();
 
-    expect(actions).toEqual(["runQuery"]);
+    expect(actions).toEqual(["refreshAll", "settings", "uploadDocument", "refreshGraph", "rebuildIndex", "deleteDocument"]);
     expect(inspected).toEqual(["knowledge:rebuild"]);
 
     mounted.unmount();
