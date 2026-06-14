@@ -424,6 +424,7 @@ impl WorkerRpcRouter {
                 self.memory.recall(params)
             }
             "memory.rebuild_index" => self.memory.rebuild_index(),
+            "memory.refresh_views" => self.memory.refresh_views(),
             "memory.dream_run" => {
                 let params: MemoryDreamParams = parse_params(request)?;
                 self.memory.dream_run(params)
@@ -1226,6 +1227,20 @@ impl WorkerMemoryRpc {
             "indexed": 0,
             "backend": null,
             "reason": "vector memory index is not available in the native runtime"
+        }))
+    }
+
+    fn refresh_views(&self) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
+        self.require(WorkerCapability::MemoryWrite)?;
+        let notes = self.read_notes()?;
+        self.refresh_memory_views(&notes)?;
+        Ok(serde_json::json!({
+            "views_refreshed": true,
+            "note_count": notes.len(),
+            "view_files": MEMORY_VIEW_TITLES
+                .iter()
+                .map(|(view_file, _)| *view_file)
+                .collect::<Vec<_>>()
         }))
     }
 
@@ -7251,6 +7266,57 @@ mod tests {
             }))
         );
         assert!(response.error.is_none());
+    }
+
+    #[test]
+    fn dispatches_memory_refresh_views_from_canonical_notes() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::MemoryRead, WorkerCapability::MemoryWrite]),
+        );
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-save",
+            "trace-1",
+            "memory.save",
+            json!({
+                "content": "User prefers concise implementation handoffs.",
+                "note_type": "preference",
+                "priority": 0.8,
+                "confidence": 0.7,
+                "tags": ["handoff"]
+            }),
+        ));
+        assert!(save_response.error.is_none());
+        fixture.write(
+            "USER.md",
+            "# User Profile\n\nKeep this unmanaged note.\n\n## User Memory Notes\n\n(Stale managed content.)\n\n*Edit unmanaged sections for manual profile details.*\n",
+        );
+
+        let refresh_response = router.dispatch(&WorkerRequest::new(
+            "req-refresh",
+            "trace-1",
+            "memory.refresh_views",
+            json!({}),
+        ));
+
+        let user_view = fixture.read("USER.md");
+        assert_eq!(
+            refresh_response.result,
+            Some(json!({
+                "views_refreshed": true,
+                "note_count": 1,
+                "view_files": ["memory/MEMORY.md", "USER.md", "SOUL.md"]
+            }))
+        );
+        assert!(refresh_response.error.is_none());
+        assert!(user_view.contains("Keep this unmanaged note."));
+        assert!(user_view.contains("### Preference"));
+        assert!(user_view.contains("User prefers concise implementation handoffs."));
+        assert!(!user_view.contains("Stale managed content"));
     }
 
     #[test]
