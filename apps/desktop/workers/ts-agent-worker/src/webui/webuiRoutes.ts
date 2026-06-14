@@ -493,7 +493,7 @@ export async function handleWebuiRouteRequest(
     return knowledgeGraphResponse(url.searchParams, knowledgeProvider, traceId);
   }
   if (method === "GET" && path === "/v1/knowledge/graphrag") {
-    return knowledgeGraphRagResponse(url.searchParams, knowledgeProvider, traceId);
+    return knowledgeGraphRagResponse(url.searchParams, knowledgeProvider, configProvider, traceId);
   }
   if (method === "GET" && path === "/webui/bootstrap") {
     if (!bootstrapProvider) {
@@ -1475,9 +1475,12 @@ function parseKnowledgeGraphQuery(query: URLSearchParams): { ok: true; value: Kn
   };
 }
 
-function parseKnowledgeGraphRagQuery(query: URLSearchParams): { ok: true; value: KnowledgeGraphRagQuery } | { ok: false } {
+function parseKnowledgeGraphRagQuery(
+  query: URLSearchParams,
+  defaultLevel: number,
+): { ok: true; value: KnowledgeGraphRagQuery } | { ok: false } {
   const minConfidence = clampedNumberQuery(query.get("min_confidence"), 0, 0, 1, false);
-  const level = clampedNumberQuery(query.get("level"), 0, 0, 3, true);
+  const level = clampedNumberQuery(query.get("level"), defaultLevel, 0, 3, true);
   if (minConfidence === undefined || level === undefined) {
     return { ok: false };
   }
@@ -1534,12 +1537,14 @@ function knowledgeGraphBody(
 async function knowledgeGraphRagResponse(
   query: URLSearchParams,
   provider: WebuiKnowledgeProvider | undefined,
+  configProvider: WebuiConfigProvider | undefined,
   traceId: string,
 ): Promise<WebuiRouteResponse> {
   if (!provider) {
     return { status: 503, body: { error: "Knowledge store not initialized" } };
   }
-  const params = parseKnowledgeGraphRagQuery(query);
+  const config = configProvider ? await configProvider.getConfig(traceId) : {};
+  const params = parseKnowledgeGraphRagQuery(query, graphRagCommunityLevel(config));
   if (!params.ok) {
     return { status: 400, body: { error: "Invalid GraphRAG query params" } };
   }
@@ -1684,6 +1689,20 @@ function booleanQueryDefault(value: string | null, fallback: boolean): boolean {
     return fallback;
   }
   return ["1", "true", "yes", "on"].includes(value.toLowerCase());
+}
+
+function graphRagCommunityLevel(config: Record<string, unknown>): number {
+  const knowledge = asObject(config.knowledge);
+  const value = knowledge?.graphragCommunityLevel ?? knowledge?.graphrag_community_level;
+  return clampedConfigInteger(value, 0, 0, 3);
+}
+
+function clampedConfigInteger(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : fallback;
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.max(min, Math.min(max, Math.trunc(parsed)));
 }
 
 function knowledgeUploadJobDocumentId(jobId: string): string | undefined {

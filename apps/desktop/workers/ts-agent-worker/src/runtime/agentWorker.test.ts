@@ -2019,6 +2019,10 @@ describe("AgentWorker", () => {
       provider: new QueueProvider([]),
       tools: new ToolRegistry(),
       emitEvent: () => undefined,
+      webuiConfigProvider: {
+        getConfig: () => ({ knowledge: { graphragCommunityLevel: 2 } }),
+        patchConfig: () => ({}),
+      },
       knowledgeProvider: {
         listDocuments: async (params, traceId) => {
           calls.push({ method: "list", traceId, params });
@@ -2337,6 +2341,22 @@ describe("AgentWorker", () => {
       },
     });
     await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
+      path: "/v1/knowledge/graphrag?min_confidence=0.1",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          stats: {
+            min_confidence: 0.1,
+            level: 2,
+            include_reports: true,
+            include_covariates: true,
+          },
+        },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
       method: "POST",
       path: "/v1/knowledge/rebuild-index?type=bm25&async_index=true",
     }))).resolves.toMatchObject({
@@ -2542,6 +2562,7 @@ describe("AgentWorker", () => {
       { method: "get", traceId: "trace-webui.handle_request", params: { docId: "doc-1" } },
       { method: "delete", traceId: "trace-webui.handle_request", params: { docId: "doc-1" } },
       { method: "query", traceId: "trace-webui.handle_request", params: { query: "native knowledge", mode: "sparse", top_k: 3 } },
+      { method: "stats", traceId: "trace-webui.handle_request" },
       { method: "stats", traceId: "trace-webui.handle_request" },
       { method: "stats", traceId: "trace-webui.handle_request" },
       { method: "stats", traceId: "trace-webui.handle_request" },
