@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued WebUI config PATCH response parity: TS-native `/api/config` PATCH now returns Python-compatible `updated_fields` and placeholder-masks returned config secrets while preserving the existing TS camelCase bridge fields for internal callers.
+
 - Continued WebUI transport Agent UI form history parity: TS-native session message serialization now restores nested form display/response metadata as Python-compatible top-level WebUI fields and hides nested internal Agent UI form tool messages.
 
 - Continued WebUI transport Agent UI form validation parity: TS-native form continuation now validates checkpoint-backed form schemas before resume, returns Python-compatible validation/expired events and HTTP statuses, and leaves the paused run untouched on invalid or expired submissions.

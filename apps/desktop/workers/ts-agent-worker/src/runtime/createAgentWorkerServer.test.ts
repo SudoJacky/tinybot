@@ -1260,6 +1260,7 @@ describe("createAgentWorkerServer", () => {
       ok: true,
       config: {
         gateway: { heartbeat: { enabled: true, interval_s: 3, keep_recent_messages: 6 } },
+        providers: { openai: { apiKey: "sk-live-secret" } },
       },
       updatedFields: ["gateway.heartbeat.enabled", "gateway.heartbeat.interval_s"],
       sideEffects: { applied: [], restartRequired: [], warnings: [] },
@@ -1289,7 +1290,11 @@ describe("createAgentWorkerServer", () => {
         status: 200,
         body: {
           ok: true,
+          config: {
+            providers: { openai: { apiKey: "********" } },
+          },
           updatedFields: ["gateway.heartbeat.enabled", "gateway.heartbeat.interval_s"],
+          updated_fields: ["gateway.heartbeat.enabled", "gateway.heartbeat.interval_s"],
         },
       },
     });
@@ -4675,7 +4680,7 @@ describe("createAgentWorkerServer", () => {
     expect(provider.requests).toHaveLength(1);
     expect(provider.requests[0]).toContainEqual({
       role: "tool",
-      content: "Agent UI form submitted: travel_plan\n{\"destination\":\"Paris\"}",
+      content: "Agent UI form `travel_plan` was submitted for travel_plan.\n\nStructured values:\n```json\n{\"destination\": \"Paris\"}\n```",
       toolCallId: "form-call-1",
       name: "request_form",
       metadata: {

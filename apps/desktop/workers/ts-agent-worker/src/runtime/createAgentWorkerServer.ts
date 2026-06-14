@@ -19,6 +19,7 @@ import {
   createNativeTextChannelAdapters,
   type NativeTextChannelConnectorRegistry,
 } from "../channels/nativeChannelFactory.ts";
+import { maskConfigSecrets } from "../config/configMasking.ts";
 import { parseTinybotConfig } from "../config/configSchema.ts";
 import type { TinybotConfig } from "../config/configTypes.ts";
 import { HeartbeatRuntime } from "../heartbeat/heartbeatRuntime.ts";
@@ -44,6 +45,7 @@ import { NativeApprovalBridge } from "./approvalBridge.ts";
 import { AgentWorker, type ChannelLifecycleManager } from "./agentWorker.ts";
 import {
   NativeConfigBridge,
+  type NativeConfigPatchApplyResponse,
   modelProviderConfigFromNativeConfig,
   providerCatalogForSettings,
   providerModelValidationResult,
@@ -274,7 +276,7 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
           await mcpBridge.close();
           await mcpBridge.ensureConnected(traceId, result.config);
         }
-        return result;
+        return webuiConfigPatchResponse(result);
       },
     },
     knowledgeProvider: new NativeKnowledgeBridge(rpcClient),
@@ -419,6 +421,15 @@ function configPatchTouchesMcpServers(updatedFields: unknown): boolean {
       }
       return field.includes("tools.mcpServers") || field.includes("tools.mcp_servers");
     });
+}
+
+function webuiConfigPatchResponse(result: NativeConfigPatchApplyResponse): Record<string, unknown> {
+  return {
+    ...result,
+    config: maskConfigSecrets(result.config, "ui-placeholder"),
+    updated_fields: result.updatedFields,
+    side_effects: result.sideEffects,
+  };
 }
 
 async function heartbeatConfigFromNativeConfig(configBridge: NativeConfigBridge) {
