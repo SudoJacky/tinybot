@@ -4937,6 +4937,7 @@ async function respondToMemoryCapture(server: ReturnType<typeof createAgentWorke
       result: { evidence: [] },
     }),
   );
+  await respondToWorkerRequest(server, lines, "session.get_metadata", { session_id: "session-1" });
 }
 
 async function respondToSkillsList(server: ReturnType<typeof createAgentWorkerServer>, lines: string[], skills: unknown[]): Promise<void> {
