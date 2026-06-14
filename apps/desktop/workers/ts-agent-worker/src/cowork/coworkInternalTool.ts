@@ -1270,8 +1270,9 @@ function mergeTaskArtifacts(session: CoworkSession, resultData: JsonObject): voi
       artifacts.push(raw.trim());
     }
   }
-  const rawOutputDir = typeof resultData.output_dir === "string" ? resultData.output_dir : resultData.workspace_dir;
-  const outputDir = typeof rawOutputDir === "string" ? rawOutputDir.trim() : "";
+  const outputDir =
+    (typeof resultData.output_dir === "string" ? resultData.output_dir.trim() : "")
+    || (typeof resultData.workspace_dir === "string" ? resultData.workspace_dir.trim() : "");
   if (outputDir) {
     session.workspace_dir = outputDir;
   }
