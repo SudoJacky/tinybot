@@ -5,6 +5,7 @@ import { applyConfigPatch } from "../config/configPatch.ts";
 import { parseTinybotConfig } from "../config/configSchema.ts";
 import type { JsonRecord } from "../config/configTypes.ts";
 import { createPublicConfigSnapshot } from "../config/configSnapshot.ts";
+import type { SecretMaskMode } from "../config/configMasking.ts";
 import { probeOpenAICompatibleModels, type JsonFetcher } from "../providers/modelDiscovery.ts";
 import { listCatalogEntries } from "../providers/providerCatalog.ts";
 import { listProviderModels, validateModelForProvider } from "../providers/providerModels.ts";
@@ -38,14 +39,14 @@ export class NativeConfigBridge {
     return object?.value;
   }
 
-  async snapshotPublic(): Promise<TinybotPublicConfig> {
+  async snapshotPublic(maskMode: SecretMaskMode = "public-rpc-null"): Promise<TinybotPublicConfig> {
     const result = await this.rpcClient.request(CONFIG_TRACE_ID, "config.snapshot_public", {});
     const object = asObject(result);
     const value = asObject(object?.value);
     if (!value) {
       throw new Error("config.snapshot_public did not return an object snapshot");
     }
-    return createPublicConfigSnapshot(value);
+    return createPublicConfigSnapshot(value, maskMode);
   }
 
   async applyPatch(current: JsonRecord, patch: JsonRecord): Promise<NativeConfigPatchApplyResponse> {

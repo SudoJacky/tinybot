@@ -1228,6 +1228,58 @@ describe("createAgentWorkerServer", () => {
     });
   });
 
+  test("placeholder-masks secrets in native WebUI config snapshots", async () => {
+    const lines: string[] = [];
+    const server = createAgentWorkerServer({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const get = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "webui-config-get",
+        trace_id: "trace-webui-config-get",
+        method: "webui.handle_request",
+        params: {
+          method: "GET",
+          path: "/api/config",
+        },
+      }),
+    );
+
+    await respondToWorkerRequest(server, lines, "config.snapshot_public", {
+      value: {
+        providers: {
+          openai: {
+            apiKey: "sk-live-secret",
+            apiBase: "https://api.example/v1",
+          },
+        },
+      },
+    });
+    await get;
+
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      protocol_version: "1",
+      id: "webui-config-get",
+      trace_id: "trace-webui-config-get",
+      result: {
+        status: 200,
+        body: {
+          providers: {
+            openai: {
+              apiKey: "********",
+              apiBase: "https://api.example/v1",
+            },
+          },
+        },
+      },
+    });
+  });
+
   test("refreshes heartbeat config after native WebUI config patch", async () => {
     const lines: string[] = [];
     const server = createAgentWorkerServer({

@@ -266,7 +266,7 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     workspaceBridge,
     webuiSessionProvider: sessionBridge,
     webuiConfigProvider: {
-      getConfig: () => configBridge.snapshotPublic(),
+      getConfig: () => configBridge.snapshotPublic("ui-placeholder"),
       patchConfig: async (body, traceId = "trace-config-patch") => {
         const result = await configBridge.applyPatch(
           await configBridge.snapshotPublic(),
