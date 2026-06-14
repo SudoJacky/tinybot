@@ -285,13 +285,13 @@ export function createCoworkInternalTool(options: CoworkInternalToolOptions): To
         if (!assignedAgentId) {
           return { content: "Error: assigned_agent_id is required" };
         }
-        const assigned = assignTask(session, agent, taskId, assignedAgentId, now, idGenerator);
+        const assigned = assignTask(session, taskId, assignedAgentId, now, idGenerator);
         if (typeof assigned === "string") {
           return { content: assigned };
         }
         await options.store.writeSnapshot(normalizeCoworkSession(session), traceId);
         return {
-          content: `Assigned task ${assigned.task.id} to ${assigned.agent.id}`,
+          content: `Task '${assigned.task.title}' assigned to ${assigned.agent.name}.`,
           metadata: internalMetadata(session.id, agent.id, action, {
             task_id: assigned.task.id,
             assigned_agent_id: assigned.agent.id,
@@ -528,31 +528,27 @@ function claimTask(
 
 function assignTask(
   session: CoworkSession,
-  sender: CoworkAgent,
   taskId: string,
   assignedAgentId: string,
   now: () => string,
   idGenerator: CoworkIdGenerator,
-): { task: CoworkTask; agent: CoworkAgent; message: JsonObject } | string {
+): { task: CoworkTask; agent: CoworkAgent } | string {
   const task = session.tasks[taskId];
   if (!task) {
     return `Error: task '${taskId}' not found`;
   }
   const assignedAgent = session.agents[assignedAgentId];
   if (!assignedAgent) {
-    return `Error: assigned agent '${assignedAgentId}' not found`;
+    return `Error: agent '${assignedAgentId}' not found`;
+  }
+  if (task.status !== "pending" && task.status !== "in_progress") {
+    return `Error: task '${taskId}' is already ${task.status}`;
   }
   task.assigned_agent_id = assignedAgent.id;
   task.updated_at = now();
-  if (task.status === "failed" || task.status === "skipped") {
-    task.status = "pending";
-    task.error = null;
+  if (session.status === "completed") {
+    session.status = "active";
   }
-  const message = sendMessage(session, sender.id, {
-    recipientIds: [assignedAgent.id],
-    content: `Task '${task.title}' assigned to ${assignedAgent.name}.`,
-    threadId: "",
-  }, now, idGenerator);
   if (assignedAgent.status === "idle" || assignedAgent.status === "done") {
     assignedAgent.status = "waiting";
   }
@@ -560,17 +556,38 @@ function assignTask(
   session.events = [
     ...session.events,
     event(idGenerator, now, "task.assigned", `Task '${task.title}' assigned to ${assignedAgent.name}`, {
-      actorId: sender.id,
+      actorId: assignedAgent.id,
       data: {
         task_id: task.id,
         assigned_agent_id: assignedAgent.id,
-        message_id: message.id,
         source: "cowork_internal",
       },
     }),
   ];
+  const traceNow = now();
+  session.trace_spans = [
+    ...session.trace_spans,
+    {
+      id: idGenerator("span"),
+      session_id: session.id,
+      kind: "task",
+      name: "Task assigned",
+      actor_id: assignedAgent.id,
+      status: task.status,
+      started_at: traceNow,
+      ended_at: traceNow,
+      input_ref: task.description,
+      output_ref: assignedAgent.id,
+      summary: `Task '${task.title}' assigned to ${assignedAgent.name}`,
+      data: {
+        task_id: task.id,
+        assigned_agent_id: assignedAgent.id,
+        source: "cowork_internal",
+      },
+    },
+  ];
   session.updated_at = now();
-  return { task, agent: assignedAgent, message };
+  return { task, agent: assignedAgent };
 }
 
 function denySpawnAgentWhenBudgetExhausted(
@@ -1074,7 +1091,7 @@ function addTask(
 ): CoworkTask {
   const assignedAgentId = request.assignedAgentId && session.agents[request.assignedAgentId]
     ? request.assignedAgentId
-    : sender.id;
+    : null;
   const taskId = idGenerator("task");
   const task: CoworkTask = {
     id: taskId,
@@ -1102,13 +1119,15 @@ function addTask(
   };
   session.tasks[taskId] = task;
   session.current_focus_task = `${task.title}: ${task.description}`;
-  const assignedAgent = session.agents[assignedAgentId];
+  const assignedAgent = assignedAgentId ? session.agents[assignedAgentId] : undefined;
   if (assignedAgent && (assignedAgent.status === "idle" || assignedAgent.status === "done")) {
     assignedAgent.status = "waiting";
   }
   session.events = [
     ...session.events,
-    event(idGenerator, now, "task.created", `Task '${task.title}' suggested by ${sender.name}`, {
+    event(idGenerator, now, "task.created", assignedAgent
+      ? `Task '${task.title}' assigned to ${assignedAgent.name}`
+      : `Task '${task.title}' added to the shared task pool`, {
       actorId: sender.id,
       data: {
         task_id: task.id,

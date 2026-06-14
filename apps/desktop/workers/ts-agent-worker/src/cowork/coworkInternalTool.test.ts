@@ -36,6 +36,193 @@ describe("cowork_internal tool", () => {
     });
   });
 
+  it("adds unassigned internal tasks to the shared pool like Python", async () => {
+    const store = createMemoryCoworkStore();
+    const idGenerator = deterministicIds();
+    const service = new CoworkService({
+      store,
+      now: () => fixedNow,
+      idGenerator,
+    });
+    const session = await service.createSession({
+      traceId: "trace-create",
+      goal: "Coordinate shared work",
+      title: "Shared pool",
+      workflowMode: "team",
+      agents: [{
+        id: "lead",
+        name: "Lead",
+        role: "Lead",
+        goal: "Coordinate",
+        responsibilities: ["Coordinate"],
+      }],
+      tasks: [],
+    });
+    const tool = createCoworkInternalTool({
+      store,
+      sessionId: session.id,
+      senderId: "lead",
+      now: () => fixedNow,
+      idGenerator,
+    });
+    const before = await store.readSnapshot(session.id, "trace-before");
+
+    const result = await tool.execute({
+      action: "add_task",
+      title: "Review parity",
+      description: "Review TS/Python behavior",
+    }, { runId: "run-1", traceId: "trace-add" });
+
+    const saved = await store.readSnapshot(session.id, "trace-read");
+    const taskId = String(result.metadata?.task_id ?? "");
+    expect(saved?.tasks[taskId]).toMatchObject({
+      title: "Review parity",
+      description: "Review TS/Python behavior",
+      assigned_agent_id: null,
+    });
+    expect(saved?.agents.lead.status).toBe(before?.agents.lead.status);
+    expect(saved?.events.at(-1)).toMatchObject({
+      type: "task.created",
+      message: "Task 'Review parity' added to the shared task pool",
+      data: {
+        assigned_agent_id: null,
+      },
+    });
+  });
+
+  it("rejects assigning completed internal tasks like Python", async () => {
+    const store = createMemoryCoworkStore();
+    const idGenerator = deterministicIds();
+    const service = new CoworkService({
+      store,
+      now: () => fixedNow,
+      idGenerator,
+    });
+    const session = await service.createSession({
+      traceId: "trace-create",
+      goal: "Do not reopen completed work",
+      title: "Assign terminal task",
+      workflowMode: "team",
+      agents: [
+        {
+          id: "lead",
+          name: "Lead",
+          role: "Lead",
+          goal: "Coordinate",
+          responsibilities: ["Coordinate"],
+        },
+        {
+          id: "helper",
+          name: "Helper",
+          role: "Helper",
+          goal: "Help",
+          responsibilities: ["Help"],
+        },
+      ],
+      tasks: [{
+        id: "done",
+        title: "Done task",
+        description: "Already finished",
+        assigned_agent_id: "lead",
+      }],
+    });
+    session.tasks.done.status = "completed";
+    await store.writeSnapshot(session, "trace-seed");
+    const before = await store.readSnapshot(session.id, "trace-before");
+    const tool = createCoworkInternalTool({
+      store,
+      sessionId: session.id,
+      senderId: "lead",
+      now: () => fixedNow,
+      idGenerator,
+    });
+
+    const result = await tool.execute({
+      action: "assign_task",
+      task_id: "done",
+      assigned_agent_id: "helper",
+    }, { runId: "run-1", traceId: "trace-assign" });
+
+    const saved = await store.readSnapshot(session.id, "trace-read");
+    expect(result.content).toBe("Error: task 'done' is already completed");
+    expect(saved?.tasks.done).toMatchObject({
+      status: "completed",
+      assigned_agent_id: "lead",
+    });
+    expect(Object.keys(saved?.messages ?? {})).toEqual(Object.keys(before?.messages ?? {}));
+  });
+
+  it("assigns pending internal tasks without emitting extra messages like Python", async () => {
+    const store = createMemoryCoworkStore();
+    const idGenerator = deterministicIds();
+    const service = new CoworkService({
+      store,
+      now: () => fixedNow,
+      idGenerator,
+    });
+    const session = await service.createSession({
+      traceId: "trace-create",
+      goal: "Assign pending work",
+      title: "Assign task",
+      workflowMode: "team",
+      agents: [
+        {
+          id: "lead",
+          name: "Lead",
+          role: "Lead",
+          goal: "Coordinate",
+          responsibilities: ["Coordinate"],
+        },
+        {
+          id: "helper",
+          name: "Helper",
+          role: "Helper",
+          goal: "Help",
+          responsibilities: ["Help"],
+        },
+      ],
+      tasks: [{
+        id: "pending",
+        title: "Pending task",
+        description: "Needs help",
+      }],
+    });
+    const before = await store.readSnapshot(session.id, "trace-before");
+    const tool = createCoworkInternalTool({
+      store,
+      sessionId: session.id,
+      senderId: "lead",
+      now: () => fixedNow,
+      idGenerator,
+    });
+
+    const result = await tool.execute({
+      action: "assign_task",
+      task_id: "pending",
+      assigned_agent_id: "helper",
+    }, { runId: "run-1", traceId: "trace-assign" });
+
+    const saved = await store.readSnapshot(session.id, "trace-read");
+    expect(result.content).toBe("Task 'Pending task' assigned to Helper.");
+    expect(saved?.tasks.pending.assigned_agent_id).toBe("helper");
+    expect(saved?.agents.helper.status).toBe("waiting");
+    expect(Object.keys(saved?.messages ?? {})).toEqual(Object.keys(before?.messages ?? {}));
+    expect(saved?.events.at(-1)).toMatchObject({
+      type: "task.assigned",
+      actor_id: "helper",
+      data: {
+        task_id: "pending",
+        assigned_agent_id: "helper",
+      },
+    });
+    expect(saved?.trace_spans.at(-1)).toMatchObject({
+      kind: "task",
+      name: "Task assigned",
+      actor_id: "helper",
+      status: "pending",
+    });
+  });
+
   it("marks non-swarm sessions completed after the final task is completed", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = deterministicIds();

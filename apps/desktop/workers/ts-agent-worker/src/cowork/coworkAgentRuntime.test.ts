@@ -2859,7 +2859,7 @@ describe("CoworkAgentRuntime", () => {
     expect(provider.messages[1]).toContainEqual(expect.objectContaining({
       role: "tool",
       name: "cowork_internal",
-      content: "Assigned task review to reviewer",
+      content: "Task 'Review' assigned to Reviewer.",
     }));
     expect(provider.messages[1]).toContainEqual(expect.objectContaining({
       role: "tool",
@@ -2873,10 +2873,11 @@ describe("CoworkAgentRuntime", () => {
     });
     expect(saved?.agents.reviewer).toMatchObject({
       status: "waiting",
-      inbox: expect.arrayContaining([expect.stringMatching(/^msg_/)]),
+      inbox: [],
     });
     expect(saved?.agents.lead.status).toBe("waiting");
     expect(saved?.events.map((event) => event.type)).toEqual(expect.arrayContaining(["task.assigned", "agent.status"]));
+    expect(saved?.trace_spans.map((span) => span.name)).toEqual(expect.arrayContaining(["Task assigned"]));
   });
 
   it("lets an agent claim the first ready shared task through cowork_internal", async () => {
