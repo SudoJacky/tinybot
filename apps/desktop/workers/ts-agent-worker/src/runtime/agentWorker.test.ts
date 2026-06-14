@@ -1733,13 +1733,60 @@ describe("AgentWorker", () => {
         },
       },
     });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/api/provider-models",
+      body: { profile: "dashscope-coding", manualModels: ["qwen-profile-extra"] },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          ok: true,
+          models: ["qwen-max", "qwen-manual"],
+        },
+      },
+    });
     expect(requests).toEqual([
       {
         providerId: "dashscope",
         manualModelIds: ["qwen-manual"],
         refreshLive: true,
       },
+      {
+        profileName: "dashscope-coding",
+        manualModelIds: ["qwen-profile-extra"],
+        refreshLive: false,
+      },
     ]);
+  });
+
+  test("returns Python-compatible provider models invalid body errors", async () => {
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      listProviderModels: () => ({ providerId: "dashscope", models: [] }),
+    });
+
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/api/provider-models",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: { ok: false, error: "invalid json body" },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/api/provider-models",
+      body: "dashscope",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: { ok: false, error: "payload must be a dict" },
+      },
+    });
   });
 
   test("serves WebUI pending approvals control route through TS worker RPC", async () => {

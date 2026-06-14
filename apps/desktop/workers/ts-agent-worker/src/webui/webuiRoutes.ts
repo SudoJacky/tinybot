@@ -188,7 +188,8 @@ export type WebuiApprovalResolution = {
 };
 
 export type WebuiProviderModelsRequest = {
-  providerId: string;
+  providerId?: string;
+  profileName?: string;
   model?: string;
   apiKey?: string;
   apiBase?: string;
@@ -1026,12 +1027,16 @@ async function webuiProviderModelsResponse(
   providerModelsProvider: WebuiProviderModelsProvider | undefined,
   traceId: string,
 ): Promise<WebuiRouteResponse> {
-  if (body !== undefined && !isJsonObject(body)) {
+  if (body === undefined) {
+    return { status: 400, body: { ok: false, error: "invalid json body" } };
+  }
+  if (!isJsonObject(body)) {
     return { status: 400, body: { ok: false, error: "payload must be a dict" } };
   }
-  const payload = isJsonObject(body) ? body : {};
+  const payload = body;
   const providerId = stringValue(payload.provider) ?? stringValue(payload.providerId) ?? stringValue(payload.provider_id);
-  if (!providerId) {
+  const profileName = stringValue(payload.profile) ?? stringValue(payload.profileName) ?? stringValue(payload.profile_id);
+  if (!providerId && !profileName) {
     return { status: 200, body: { ok: false, error: "provider is required" } };
   }
   if (!providerModelsProvider) {
@@ -1040,7 +1045,8 @@ async function webuiProviderModelsResponse(
   try {
     const result = await providerModelsProvider.listProviderModels(
       {
-        providerId: providerId.trim().toLowerCase(),
+        ...(providerId ? { providerId: providerId.trim().toLowerCase() } : {}),
+        ...(profileName ? { profileName: profileName.trim() } : {}),
         ...(stringValue(payload.model) ? { model: stringValue(payload.model) } : {}),
         ...(stringValue(payload.apiKey ?? payload.api_key) ? { apiKey: stringValue(payload.apiKey ?? payload.api_key) } : {}),
         ...(stringValue(payload.apiBase ?? payload.api_base) ? { apiBase: stringValue(payload.apiBase ?? payload.api_base) } : {}),

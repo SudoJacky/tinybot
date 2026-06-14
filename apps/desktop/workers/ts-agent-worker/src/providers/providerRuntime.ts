@@ -30,6 +30,7 @@ export type ResolveRuntimeProviderInput = {
   secretResolver?: ProviderSecretResolver;
   model?: string;
   provider?: string;
+  profileName?: string;
 };
 
 export type ResolvedRuntimeProvider = {
@@ -54,6 +55,14 @@ export async function resolveRuntimeProvider(input: ResolveRuntimeProviderInput)
   const configuredModel = input.model?.trim() || stringAt(input.config, "agents.defaults.model");
   const runtimeInput = selectProviderRuntimeInput(config, configuredModel);
   const selectedModel = configuredModel || "gpt-4.1-mini";
+  const requestedProfile = input.profileName?.trim();
+  if (requestedProfile) {
+    const profileConfig = config.providers.profiles[requestedProfile];
+    const profileProvider = normalizeProviderId(profileConfig?.provider);
+    if (profileConfig && profileProvider) {
+      return resolveEntry(input, config, profileProvider, selectedModel, "profile", requestedProfile, profileConfig);
+    }
+  }
 
   const explicitOverride = normalizeProviderId(input.provider);
   if (explicitOverride && explicitOverride !== "auto") {

@@ -108,7 +108,8 @@ export async function providerModelsFromNativeConfig(
   configBridge: NativeConfigBridge,
   env: Record<string, string | undefined>,
   input: {
-    providerId: string;
+    providerId?: string;
+    profileName?: string;
     model?: string;
     apiKey?: string;
     apiBase?: string;
@@ -130,6 +131,7 @@ export async function providerModelsFromNativeConfig(
     config: snapshot,
     env,
     provider: input.providerId,
+    profileName: input.profileName,
     model: input.model,
     secretResolver: input.apiKey ? undefined : (secretInput) => configBridge.resolveProviderSecret(secretInput),
   });
@@ -137,7 +139,7 @@ export async function providerModelsFromNativeConfig(
   const apiKey = input.apiKey ?? resolved.apiKey;
   const apiBase = input.apiBase ?? resolved.apiBase;
   const modelList = await listProviderModels({
-    providerId: resolved.providerId ?? input.providerId,
+    providerId: resolved.providerId ?? input.providerId ?? "",
     profileModels: resolved.models,
     manualModelIds,
     supportsModelDiscovery: resolved.supportsModelDiscovery,
@@ -153,7 +155,7 @@ export async function providerModelsFromNativeConfig(
   });
   const modelSources = Object.fromEntries(modelList.models.map((model) => [model.id, model.sources]));
   return {
-    providerId: resolved.providerId ?? input.providerId,
+    providerId: resolved.providerId ?? input.providerId ?? "",
     model: resolved.model,
     profileName: resolved.profileName ?? null,
     source: resolved.source,

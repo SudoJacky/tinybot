@@ -273,6 +273,64 @@ describe("NativeConfigBridge", () => {
     expect(rpcClient.requests.map((request) => request.method)).not.toContain("provider.resolve_secret");
   });
 
+  test("lists provider models from a named profile when provider is omitted", async () => {
+    const rpcClient = new FakeRpcClient(
+      {},
+      {
+        agents: { defaults: { provider: "openai", model: "qwen-max" } },
+        providers: {
+          profiles: {
+            "dashscope-coding": {
+              provider: "dashscope",
+              api_base: "https://dashscope.test/compatible-mode/v1",
+              models: ["qwen-profile"],
+              manual_models: ["qwen-manual"],
+            },
+          },
+        },
+      },
+    );
+
+    const result = await providerModelsFromNativeConfig(
+      new NativeConfigBridge(rpcClient),
+      {},
+      {
+        profileName: "dashscope-coding",
+        manualModelIds: ["qwen-extra"],
+      },
+    );
+
+    expect(result).toMatchObject({
+      providerId: "dashscope",
+      profileName: "dashscope-coding",
+      source: "profile",
+      apiBase: "https://dashscope.test/compatible-mode/v1",
+      models: expect.arrayContaining(["qwen-profile", "qwen-manual", "qwen-extra"]),
+      modelSources: expect.objectContaining({
+        "qwen-profile": ["profile"],
+        "qwen-manual": ["manual"],
+        "qwen-extra": ["manual"],
+      }),
+      sourceCounts: { curated: 11, profile: 1, live: 0, manual: 2 },
+    });
+    expect(rpcClient.requests).toEqual([
+      {
+        traceId: "worker-config",
+        method: "config.snapshot_public",
+        params: {},
+      },
+      {
+        traceId: "worker-config",
+        method: "provider.resolve_secret",
+        params: {
+          providerId: "dashscope",
+          profileName: "dashscope-coding",
+          apiKeyEnvVars: ["DASHSCOPE_API_KEY"],
+        },
+      },
+    ]);
+  });
+
   test("lists provider models from request overrides when native snapshot is unavailable", async () => {
     const discoveryCalls: Array<{ url: string; authorization?: string }> = [];
     const rpcClient = new FakeRpcClient({}, undefined, new Error("secret unavailable"));

@@ -140,7 +140,8 @@ export type ProviderReloadResult = {
 };
 
 export type ProviderModelsListRequest = {
-  providerId: string;
+  providerId?: string;
+  profileName?: string;
   model?: string;
   apiKey?: string;
   apiBase?: string;
@@ -5029,11 +5030,13 @@ function parseProviderModelsListRequest(params: Record<string, unknown> | undefi
     throw new Error("provider.models.list requires object params");
   }
   const providerId = stringParam(params, "providerId", "provider_id");
-  if (!providerId) {
-    throw new Error("provider.models.list params.providerId must be a string");
+  const profileName = stringParam(params, "profileName", "profile_name");
+  if (!providerId && !profileName) {
+    throw new Error("provider.models.list params.providerId or params.profileName must be a string");
   }
   return {
-    providerId,
+    ...(providerId ? { providerId } : {}),
+    ...(profileName ? { profileName } : {}),
     model: stringParam(params, "model", "model"),
     apiKey: stringParam(params, "apiKey", "api_key"),
     apiBase: stringParam(params, "apiBase", "api_base"),
