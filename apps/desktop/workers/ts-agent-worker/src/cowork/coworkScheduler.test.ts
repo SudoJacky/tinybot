@@ -684,6 +684,103 @@ describe("CoworkScheduler", () => {
     ]));
   });
 
+  it("limits repeated self-activation after three consecutive agent runs like Python", async () => {
+    const store = createMemoryCoworkStore();
+    const idGenerator = deterministicIds();
+    const service = new CoworkService({
+      store,
+      now: () => fixedNow,
+      idGenerator,
+    });
+    const session = await service.createSession({
+      traceId: "seed",
+      goal: "Avoid self-activation loops",
+      title: "Self activation",
+      workflowMode: "team",
+      agents: [{ id: "lead", name: "Lead", role: "Coordinator" }],
+      tasks: [],
+    });
+    await store.writeSnapshot(session, "setup");
+    const provider = new QueueProvider([
+      {
+        content: JSON.stringify({
+          status: "waiting",
+          action: "continue",
+          private_note: "Seeded follow-up 1.",
+          new_task_suggestions: [{ title: "Follow-up 1", assigned_agent_id: "lead" }],
+        }),
+        toolCalls: [],
+        stopReason: "stop",
+      },
+      {
+        content: JSON.stringify({
+          status: "waiting",
+          action: "continue",
+          private_note: "Seeded follow-up 2.",
+          new_task_suggestions: [{ title: "Follow-up 2", assigned_agent_id: "lead" }],
+        }),
+        toolCalls: [],
+        stopReason: "stop",
+      },
+      {
+        content: JSON.stringify({
+          status: "waiting",
+          action: "continue",
+          private_note: "Seeded follow-up 3.",
+          new_task_suggestions: [{ title: "Follow-up 3", assigned_agent_id: "lead" }],
+        }),
+        toolCalls: [],
+        stopReason: "stop",
+      },
+      {
+        content: JSON.stringify({
+          status: "waiting",
+          action: "continue",
+          private_note: "This fourth self-activation should not run.",
+        }),
+        toolCalls: [],
+        stopReason: "stop",
+      },
+    ]);
+    const agentRuntime = new CoworkAgentRuntime({
+      store,
+      runner: new AgentRunner({ provider, tools: new ToolRegistry() }),
+      model: "test-model",
+      now: () => fixedNow,
+      idGenerator,
+    });
+    const scheduler = new CoworkScheduler({
+      store,
+      now: () => fixedNow,
+      idGenerator,
+      agentRuntime,
+    });
+
+    const result = await scheduler.runSession({
+      sessionId: session.id,
+      traceId: "trace-run",
+      maxRounds: 5,
+      maxAgents: 1,
+    });
+
+    expect(result.result).toContain("Round 4: no ready agents.");
+    expect(provider.messages).toHaveLength(3);
+    const saved = await store.readSnapshot(session.id, "assert");
+    expect(saved?.stop_reason).toBe("idle");
+    expect(saved?.budget_usage).toMatchObject({ rounds: 3, agent_calls: 3, stop_reason: "idle" });
+    expect(saved?.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "scheduler.self_activation_limited",
+        actor_id: "lead",
+        message: "Lead was skipped after repeated self-activation",
+        data: expect.objectContaining({
+          agent_id: "lead",
+          limit: 3,
+        }),
+      }),
+    ]));
+  });
+
   it("runs a ready agent through CoworkAgentRuntime when configured", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = deterministicIds();

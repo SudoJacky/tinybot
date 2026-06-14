@@ -1,7 +1,7 @@
 import { isJsonObject, type JsonObject } from "../protocol/messages.ts";
 import { selectReadyCoworkAgentCandidates, type CoworkAgentRuntime } from "./coworkAgentRuntime.ts";
 import { normalizeCoworkSession } from "./coworkSerde.ts";
-import type { CoworkEvent, CoworkSession, CoworkTask } from "./coworkTypes.ts";
+import type { CoworkAgent, CoworkEvent, CoworkSession, CoworkTask } from "./coworkTypes.ts";
 import type { CoworkIdGenerator, CoworkServiceStore } from "./coworkService.ts";
 
 const DEFAULT_BUDGET_USAGE: JsonObject = {
@@ -32,6 +32,7 @@ const DEFAULT_BUDGET_LIMITS: JsonObject = {
 };
 
 const CONVERGENCE_IDLE_ROUNDS = 2;
+const MAX_AGENT_SELF_ACTIVATIONS = 3;
 
 export type CoworkSchedulerOptions = {
   store: CoworkServiceStore;
@@ -183,6 +184,7 @@ export class CoworkScheduler {
     let completedRounds = 0;
     let agentCalls = 0;
     let synthesisRan = false;
+    const consecutiveRuns = new Map<string, number>();
     for (let roundIndex = 0; roundIndex < roundLimit; roundIndex += 1) {
       const roundNumber = roundIndex + 1;
       const roundId = `${runId}:round:${roundNumber}`;
@@ -234,7 +236,7 @@ export class CoworkScheduler {
       ensureSwarmReducerGate(working, this.now, this.idGenerator);
       const effectiveAgentLimit = Math.min(agentLimit, remainingCalls);
       const selection = selectReadyCoworkAgentCandidates(working, effectiveAgentLimit);
-      const active = selection.agents;
+      const active = this.filterSelfActivatedAgents(working, selection.agents, consecutiveRuns);
       if (active.length === 0) {
         lines.push(`Round ${roundNumber}: no ready agents.`);
         this.applyStopReason(working, "idle", "Cowork scheduler stopped because no agents are ready", {
@@ -321,6 +323,7 @@ export class CoworkScheduler {
       completedRounds += 1;
       agentCalls += selectedIds.length;
       this.recordRoundProgress(working, beforeSignature);
+      updateConsecutiveRuns(consecutiveRuns, selectedIds);
       if (convergenceReached(working)) {
         lines.push(`Session stopped after ${working.no_progress_rounds} no-progress rounds.`);
         this.applyStopReason(working, "convergence", "Cowork scheduler stopped because recent rounds produced no new tracked progress", {
@@ -414,6 +417,24 @@ export class CoworkScheduler {
         }),
       ];
     }
+  }
+
+  private filterSelfActivatedAgents(session: CoworkSession, active: CoworkAgent[], consecutiveRuns: Map<string, number>): CoworkAgent[] {
+    const filtered: CoworkAgent[] = [];
+    for (const agent of active) {
+      if ((consecutiveRuns.get(agent.id) ?? 0) < MAX_AGENT_SELF_ACTIVATIONS) {
+        filtered.push(agent);
+        continue;
+      }
+      session.events = [
+        ...session.events,
+        this.event("scheduler.self_activation_limited", `${agent.name} was skipped after repeated self-activation`, {
+          actorId: agent.id,
+          data: { agent_id: agent.id, limit: MAX_AGENT_SELF_ACTIVATIONS },
+        }),
+      ];
+    }
+    return filtered;
   }
 
   private async runLeadSynthesis(
@@ -626,6 +647,7 @@ function budgetRemaining(limits: JsonObject, usage: JsonObject): JsonObject {
     const limit = numberValue(limits[limitKey]);
     remaining[limitKey] = limit === null ? null : Math.max(0, limit - (numberValue(usage[usageKey]) ?? 0));
   }
+
   remaining.parallel_width = limits.parallel_width;
   return remaining;
 }
@@ -691,6 +713,18 @@ function readyToFinishWithoutActiveAgents(session: CoworkSession): boolean {
     return false;
   }
   return selectReadyCoworkAgentCandidates(session, 1).agents.length === 0;
+}
+
+function updateConsecutiveRuns(consecutiveRuns: Map<string, number>, selectedIds: string[]): void {
+  const selected = new Set(selectedIds);
+  for (const agentId of selected) {
+    consecutiveRuns.set(agentId, (consecutiveRuns.get(agentId) ?? 0) + 1);
+  }
+  for (const agentId of [...consecutiveRuns.keys()]) {
+    if (!selected.has(agentId)) {
+      consecutiveRuns.set(agentId, 0);
+    }
+  }
 }
 
 function leadAgentId(session: CoworkSession): string {
