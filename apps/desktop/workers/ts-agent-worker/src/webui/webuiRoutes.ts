@@ -2123,10 +2123,13 @@ async function webuiAgentUiFormResponse(
   if (!sessionId) {
     return { status: 400, body: { error: "session_key or session_id is required" } };
   }
-  const values = payload.values === undefined ? {} : payload.values;
-  if (!isJsonObject(values)) {
+  const rawValues = payload.values === undefined ? {} : payload.values;
+  if (formAction.action === "submitted" && !isJsonObject(rawValues)) {
     return { status: 400, body: { error: "values must be a dict" } };
   }
+  const values = formAction.action === "submitted"
+    ? rawValues as Record<string, unknown>
+    : {};
   if (!agentUiFormProvider) {
     return { status: 503, body: { error: "webui control route unavailable", route: agentUiFormRouteKey(formAction.action) } };
   }

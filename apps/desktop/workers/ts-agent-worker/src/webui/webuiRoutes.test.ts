@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import { EMPTY_FINAL_RESPONSE_MESSAGE } from "../support/runtimeHelpers.ts";
 import {
   handleWebuiRouteRequest,
+  type WebuiAgentUiFormProvider,
   type WebuiConfigProvider,
   type WebuiOpenAiCompatProvider,
   type WebuiSessionProvider,
@@ -269,5 +270,65 @@ describe("WebUI route temporary files", () => {
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ items: [], cleared: 2 });
     expect(clears).toEqual([{ sessionId: "native:chat-1", traceId: "trace-temp-clear" }]);
+  });
+});
+
+describe("WebUI Agent UI form routes", () => {
+  test("ignores invalid values on cancel like Python form cancellation", async () => {
+    const continuations: Array<{ formId: string; sessionId: string; action: string; values: Record<string, unknown> }> = [];
+    const agentUiFormProvider: WebuiAgentUiFormProvider = {
+      continueForm: (request) => {
+        continuations.push({
+          formId: request.formId,
+          sessionId: request.sessionId,
+          action: request.action,
+          values: request.values,
+        });
+        return {
+          cancelled: true,
+          form_id: request.formId,
+          continuation: { mode: "resume", delivered: true, target: "agent_loop" },
+        };
+      },
+    };
+
+    const response = await handleWebuiRouteRequest(
+      {
+        method: "POST",
+        path: "/api/agent-ui/forms/travel%2Fplan/cancel",
+        body: {
+          correlation: { session_key: "websocket:chat-1" },
+          values: "ignored",
+        },
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      agentUiFormProvider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "trace-form-cancel",
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      cancelled: true,
+      form_id: "travel/plan",
+      continuation: { mode: "resume", delivered: true, target: "agent_loop" },
+    });
+    expect(continuations).toEqual([{
+      formId: "travel/plan",
+      sessionId: "websocket:chat-1",
+      action: "cancelled",
+      values: {},
+    }]);
   });
 });

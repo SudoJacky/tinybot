@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued WebUI transport Agent UI form parity: TS-native form cancel routes now ignore malformed `values` payloads like Python cancellation handlers while keeping submit-route `values` validation strict.
+
 - Continued MCP runtime lazy-connect parity: TS-native agent runs now include MCP connection fields such as `command`, `args`, `type`, `url`, `env`, and `headers` in the native discovery cache signature, so config changes trigger rediscovery instead of reusing stale tools.
 
 - Continued MCP runtime lazy-connect parity: TS-native agent runs now reuse active native MCP discovery for unchanged config snapshots, matching Python's one-time `_mcp_connected` behavior instead of reconnecting MCP tools every turn.
