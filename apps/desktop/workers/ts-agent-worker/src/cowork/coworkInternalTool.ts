@@ -1015,7 +1015,7 @@ function completeTask(
   const confidence = coerceConfidence(resultData.confidence);
   task.status = status;
   task.result = content;
-  task.result_data = Object.keys(resultData).length > 0 ? resultData : { content };
+  task.result_data = resultData;
   task.confidence = confidence;
   task.error = status === "failed" ? content : null;
   task.updated_at = now();

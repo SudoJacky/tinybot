@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Cowork runtime parity: TS-native `cowork_internal complete_task` now keeps plain-text task completion `result_data` empty like Python, while preserving structured JSON result extraction for confidence/artifact handling.
+
 - Continued Cowork runtime parity: TS-native `cowork_internal complete_task` now preserves Python-compatible `skipped` task completion status, including task events, trace spans, and final session completion handling.
 
 - Continued Cowork runtime parity: TS-native `cowork_internal complete_task` now applies Python-compatible non-swarm completion state when the final task finishes with no unresolved reply requests, marking the session completed, agents done, and recording the completion decision.
