@@ -28,6 +28,13 @@ export type ChannelRuntimeDiagnostic = {
   error: string;
 };
 
+type ChannelDispatchTarget = {
+  channel: string;
+  chatId: string;
+  sessionId: string;
+  stream: boolean;
+};
+
 export class ChannelRuntime {
   private readonly bus: MessageBus;
   private readonly runAgent: ChannelRuntimeRunAgent;
@@ -55,18 +62,19 @@ export class ChannelRuntime {
         break;
       }
       const runId = this.createRunId(message, this.runCounter++);
+      const target = targetForMessage(message);
       try {
         const commandResult = await this.handleCommand?.(message, {
           runId,
-          sessionId: sessionKeyOf(message),
+          sessionId: target.sessionId,
         });
         if (commandResult) {
-          await this.publishResult(message, commandResult, { forceNonStream: true });
+          await this.publishResult(target, commandResult, { forceNonStream: true });
           completed += 1;
           continue;
         }
-        const result = await this.runAgent(this.inputFromMessage(message, runId), { message });
-        await this.publishResult(message, result);
+        const result = await this.runAgent(this.inputFromMessage(message, runId, target), { message });
+        await this.publishResult(target, result);
         completed += 1;
       } catch (error) {
         this.runtimeDiagnostics.push({
@@ -88,18 +96,18 @@ export class ChannelRuntime {
     return completed;
   }
 
-  private inputFromMessage(message: InboundMessage, runId: string): AgentRunInput {
+  private inputFromMessage(message: InboundMessage, runId: string, target: ChannelDispatchTarget): AgentRunInput {
     return {
       runId,
-      sessionId: sessionKeyOf(message),
+      sessionId: target.sessionId,
       input: {
         role: "user",
         content: message.content,
         media: message.media,
       },
-      channel: message.channel,
-      chatId: message.chatId,
-      stream: message.metadata._wants_stream === true,
+      channel: target.channel,
+      chatId: target.chatId,
+      stream: target.stream,
       metadata: {
         ...message.metadata,
         senderId: message.senderId,
@@ -108,14 +116,14 @@ export class ChannelRuntime {
   }
 
   private async publishResult(
-    message: InboundMessage,
+    target: ChannelDispatchTarget,
     result: AgentRunResult,
     options: { forceNonStream?: boolean } = {},
   ): Promise<void> {
-    if (result.usage && message.channel === "websocket") {
+    if (result.usage && target.channel === "websocket") {
       await this.bus.publishOutbound({
-        channel: message.channel,
-        chatId: message.chatId,
+        channel: target.channel,
+        chatId: target.chatId,
         content: "",
         media: [],
         metadata: {
@@ -127,18 +135,38 @@ export class ChannelRuntime {
     const metadata: MessageMetadata = {
       ...metadataRecord(result.metadata),
     };
-    const streamed = !options.forceNonStream && message.metadata._wants_stream === true;
+    const streamed = !options.forceNonStream && target.stream;
     if (streamed) {
       metadata._streamed = true;
     }
     await this.bus.publishOutbound({
-      channel: message.channel,
-      chatId: message.chatId,
+      channel: target.channel,
+      chatId: target.chatId,
       content: streamed ? "" : result.finalContent,
       media: [],
       metadata,
     });
   }
+}
+
+function targetForMessage(message: InboundMessage): ChannelDispatchTarget {
+  if (message.channel === "system") {
+    const separator = message.chatId.indexOf(":");
+    const channel = separator >= 0 ? message.chatId.slice(0, separator) : "cli";
+    const chatId = separator >= 0 ? message.chatId.slice(separator + 1) : message.chatId;
+    return {
+      channel,
+      chatId,
+      sessionId: `${channel}:${chatId}`,
+      stream: true,
+    };
+  }
+  return {
+    channel: message.channel,
+    chatId: message.chatId,
+    sessionId: sessionKeyOf(message),
+    stream: message.metadata._wants_stream === true,
+  };
 }
 
 function defaultRunId(message: InboundMessage, index: number): string {

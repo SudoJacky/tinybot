@@ -174,4 +174,49 @@ describe("ChannelRuntime", () => {
       }),
     ]);
   });
+
+  test("routes system notifications to the target channel encoded in chat id", async () => {
+    const bus = new MessageBus();
+    const inputs: AgentRunInput[] = [];
+    const runtime = new ChannelRuntime({
+      bus,
+      createRunId: () => "run-system",
+      runAgent: async (input) => {
+        inputs.push(input);
+        return result({
+          finalContent: "Background task completed.",
+          metadata: { notification: "task_done" },
+        });
+      },
+    });
+
+    await bus.publishInbound(inbound({
+      channel: "system",
+      senderId: "subagent",
+      chatId: "feishu:oc_1",
+      content: "Task finished",
+    }));
+
+    await expect(runtime.dispatchInboundAvailable()).resolves.toBe(1);
+    expect(inputs).toEqual([
+      expect.objectContaining({
+        runId: "run-system",
+        sessionId: "feishu:oc_1",
+        channel: "feishu",
+        chatId: "oc_1",
+        stream: true,
+      }),
+    ]);
+    expect(bus.drainOutboundForTest()).toEqual([
+      expect.objectContaining({
+        channel: "feishu",
+        chatId: "oc_1",
+        content: "",
+        metadata: expect.objectContaining({
+          _streamed: true,
+          notification: "task_done",
+        }),
+      }),
+    ]);
+  });
 });

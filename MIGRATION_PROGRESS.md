@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Channel Bus runtime parity: TS-native channel inbound dispatch now routes `system` notifications through the target `channel:chat_id` encoded in `chatId`, matching Python background-task notification delivery and forced streaming behavior.
+
 - Continued API Runtime Knowledge query-param parity: TS-native Knowledge graph and GraphRAG `min_confidence` parsing now accepts Python-compatible `nan` / `inf` float spellings and clamps them through the same 0..1 range as the Python store.
 
 - Continued API Runtime OpenAI-compatible parity: TS-native chat completion model validation now treats structured `model` values like Python string formatting, so array/object values cannot accidentally match the configured model.
@@ -755,6 +757,8 @@ Channel Bus row 18 update: Rust now accepts the `channel.connector.*` worker-hos
 
 Channel Bus row 18 update: TS host-RPC connector bridges now reject `handled: false` results, allowing `ChannelManager` to record `start_failed` / send failure diagnostics instead of reporting unavailable host connectors as running.
 
+Channel Bus row 18 update: TS channel inbound dispatch now treats `system` notifications like Python by projecting `chatId` values such as `feishu:oc_1` to the target channel/chat, target session key, and forced stream response path instead of replying on a literal `system` channel.
+
 Heartbeat row 20 update: Phase 4 now runs scheduled notifications through the shared Python-compatible evaluator, emits approved external notifications as `heartbeat.delivery` worker events, and projects those delivery events into target native desktop chats without requiring an active agent run.
 
 API Runtime row 19 update: direct TS-native `POST /v1/knowledge/documents` now honors `async_index` query params or true JSON body flags and returns Python-compatible completed job envelopes for deferred indexing.
@@ -769,6 +773,7 @@ API Runtime row 19 update: TS-native completed Knowledge upload/rebuild job enve
 
 | Date | Update |
 | --- | --- |
+| 2026-06-14 | Continued Channel Bus runtime parity: channel inbound dispatch now projects Python-style `system` notifications to the encoded target channel/chat and forced stream path. |
 | 2026-06-14 | Continued API Runtime Knowledge query-param parity: graph and GraphRAG `min_confidence` now accepts Python-compatible `nan` / `inf` float spellings and clamps them through the native route. |
 | 2026-06-14 | Continued API Runtime Knowledge job-envelope parity: completed native upload/rebuild job payloads now include Python-compatible lifecycle timestamps. |
 | 2026-06-14 | Continued API Runtime Knowledge query parity: native query route now returns an empty list for whitespace-only query text instead of surfacing native searchable-term errors. |
