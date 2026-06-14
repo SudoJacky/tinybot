@@ -255,6 +255,9 @@ export class CoworkScheduler {
       const selectedIds = active.map((agent) => agent.id);
       lines.push(`Round ${roundNumber}: running ${selectedIds.join(", ")}`);
       const currentBudget = budgetState(working);
+      const swarmMetrics = working.workflow_mode === "swarm"
+        ? jsonSafeObject(jsonSafeObject(working.runtime_state).swarm_metrics)
+        : {};
       working.scheduler_decisions = [
         ...working.scheduler_decisions,
         {
@@ -291,7 +294,12 @@ export class CoworkScheduler {
           input_ref: selectedIds.join(", "),
           output_ref: "",
           summary: `Running ${selectedIds.join(", ")}`,
-          data: { agent_ids: selectedIds, profile: working.workflow_mode, candidate_scores: selection.candidateScores },
+          data: {
+            agent_ids: selectedIds,
+            profile: working.workflow_mode,
+            candidate_scores: selection.candidateScores,
+            swarm_metrics: swarmMetrics,
+          },
         },
       ];
       working.events = [

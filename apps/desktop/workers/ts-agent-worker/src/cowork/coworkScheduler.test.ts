@@ -1384,6 +1384,13 @@ describe("CoworkScheduler", () => {
           },
         ],
       },
+      runtime_state: {
+        ...session.runtime_state,
+        swarm_metrics: {
+          queue_counts: { ready: 3, in_progress: 0 },
+          active_workstreams: ["alpha", "beta"],
+        },
+      },
     }, "setup");
     const provider = new QueueProvider([
       {
@@ -1435,6 +1442,17 @@ describe("CoworkScheduler", () => {
       alpha1: expect.objectContaining({ work_unit_id: "wu_alpha_1", workstream: "alpha", rank: 1 }),
       beta1: expect.objectContaining({ work_unit_id: "wu_beta_1", workstream: "beta", rank: 2 }),
     });
+    expect(saved?.trace_spans).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: "Scheduler round 1",
+        data: expect.objectContaining({
+          swarm_metrics: expect.objectContaining({
+            queue_counts: { ready: 3, in_progress: 0 },
+            active_workstreams: ["alpha", "beta"],
+          }),
+        }),
+      }),
+    ]));
     expect(provider.messages).toHaveLength(2);
     expect(provider.messages[0]?.at(1)?.content).toContain("Alpha one");
     expect(provider.messages[1]?.at(1)?.content).toContain("Beta one");
