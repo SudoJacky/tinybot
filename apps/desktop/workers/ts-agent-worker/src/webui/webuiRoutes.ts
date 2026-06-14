@@ -1142,6 +1142,9 @@ async function knowledgeAddDocumentResponse(
   if (!content) {
     return { status: 400, body: knowledgeApiError(400, "Document content is required") };
   }
+  if (!content.trim()) {
+    return { status: 400, body: knowledgeApiError(400, "Document content cannot be empty") };
+  }
   try {
     const result = await provider.addDocument(body, traceId);
     const document = documentFromResult(result);

@@ -2659,6 +2659,7 @@ describe("AgentWorker", () => {
   });
 
   test("returns Python-compatible Knowledge API error envelopes through TS worker RPC", async () => {
+    const calls: string[] = [];
     const workerWithoutKnowledge = new AgentWorker({
       provider: new QueueProvider([]),
       tools: new ToolRegistry(),
@@ -2686,7 +2687,10 @@ describe("AgentWorker", () => {
       emitEvent: () => undefined,
       knowledgeProvider: {
         listDocuments: () => ({ documents: [] }),
-        addDocument: () => ({ document: { id: "doc-1", name: "Doc" } }),
+        addDocument: () => {
+          calls.push("add");
+          return { document: { id: "doc-1", name: "Doc" } };
+        },
         getDocument: () => undefined,
         deleteDocument: () => ({ deleted: false }),
         query: () => ({ results: [] }),
@@ -2709,6 +2713,23 @@ describe("AgentWorker", () => {
         },
       },
     });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/v1/knowledge/documents",
+      body: { name: "Blank", content: "   ", file_type: "md" },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: {
+          error: {
+            message: "Document content cannot be empty",
+            type: "invalid_request_error",
+            code: 400,
+          },
+        },
+      },
+    });
+    expect(calls).toEqual([]);
     await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
       method: "POST",
       path: "/v1/knowledge/query",
