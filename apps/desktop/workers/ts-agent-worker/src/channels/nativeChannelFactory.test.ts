@@ -14,6 +14,7 @@ describe("nativeChannelFactory", () => {
       stop: vi.fn(async () => undefined),
       sendText: vi.fn(async () => undefined),
       sendDelta: vi.fn(async () => undefined),
+      transcribeAudio: vi.fn(async () => "voice text"),
     };
     const dingtalkConnector: NativeTextChannelConnector = {
       sendText: vi.fn(async () => undefined),
@@ -44,12 +45,15 @@ describe("nativeChannelFactory", () => {
         feishu: feishuConnector,
         dingtalk: dingtalkConnector,
       },
+      transcriptionApiKey: "groq-key",
     });
 
     expect(result.skipped).toEqual([{ name: "weixin", reason: "missing_connector" }]);
     expect(result.adapters.map((adapter) => adapter.name)).toEqual(["feishu", "dingtalk"]);
     expect(result.adapters.map((adapter) => adapter.displayName)).toEqual(["Feishu", "DingTalk"]);
     expect(result.adapters.map((adapter) => adapter.supportsStreaming)).toEqual([true, false]);
+    await expect(result.adapters[0]?.transcribeAudio("voice.opus")).resolves.toBe("voice text");
+    expect(feishuConnector.transcribeAudio).toHaveBeenCalledWith("voice.opus", "groq-key");
 
     await expect(result.adapters[0]?.handleMessage({
       senderId: "ou_1",

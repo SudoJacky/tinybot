@@ -85,4 +85,32 @@ describe("BaseChannel", () => {
       metadata: { existing: true, _wants_stream: true },
     });
   });
+
+  test("returns empty audio transcription text when no transcription API key is configured", async () => {
+    const transcriber = vi.fn(async () => "ignored");
+    const bus = new MessageBus();
+    const channel = new TestChannel({ config: {}, bus, transcriber });
+
+    await expect(channel.transcribeAudio("voice.opus")).resolves.toBe("");
+    expect(transcriber).not.toHaveBeenCalled();
+  });
+
+  test("uses configured audio transcriber and returns empty text on transcription failure", async () => {
+    const transcriber = vi
+      .fn()
+      .mockResolvedValueOnce("hello from voice")
+      .mockRejectedValueOnce(new Error("provider down"));
+    const bus = new MessageBus();
+    const channel = new TestChannel({
+      config: {},
+      bus,
+      transcriptionApiKey: "groq-key",
+      transcriber,
+    });
+
+    await expect(channel.transcribeAudio("voice.opus")).resolves.toBe("hello from voice");
+    await expect(channel.transcribeAudio("broken.opus")).resolves.toBe("");
+    expect(transcriber).toHaveBeenNthCalledWith(1, "voice.opus", "groq-key");
+    expect(transcriber).toHaveBeenNthCalledWith(2, "broken.opus", "groq-key");
+  });
 });

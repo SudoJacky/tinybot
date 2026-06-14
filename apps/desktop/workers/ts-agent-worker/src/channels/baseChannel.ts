@@ -17,9 +17,16 @@ export type HandleChannelMessageRequest = {
   sessionKey?: string | null;
 };
 
+export type ChannelAudioTranscriber = (
+  filePath: string,
+  apiKey: string,
+) => Promise<string> | string;
+
 export type BaseChannelOptions = {
   config: BaseChannelConfig;
   bus: MessageBus;
+  transcriptionApiKey?: string;
+  transcriber?: ChannelAudioTranscriber;
 };
 
 export abstract class BaseChannel implements ChannelAdapter {
@@ -28,11 +35,15 @@ export abstract class BaseChannel implements ChannelAdapter {
 
   protected readonly config: BaseChannelConfig;
   protected readonly bus: MessageBus;
+  private readonly transcriptionApiKey: string;
+  private readonly transcriber?: ChannelAudioTranscriber;
   private running = false;
 
   constructor(options: BaseChannelOptions) {
     this.config = options.config;
     this.bus = options.bus;
+    this.transcriptionApiKey = options.transcriptionApiKey ?? "";
+    this.transcriber = options.transcriber;
   }
 
   abstract start(): Promise<void>;
@@ -41,6 +52,17 @@ export abstract class BaseChannel implements ChannelAdapter {
 
   async login(_options: { force?: boolean } = {}): Promise<boolean> {
     return true;
+  }
+
+  async transcribeAudio(filePath: string): Promise<string> {
+    if (!this.transcriptionApiKey || !this.transcriber) {
+      return "";
+    }
+    try {
+      return await this.transcriber(filePath, this.transcriptionApiKey);
+    } catch {
+      return "";
+    }
   }
 
   async sendDelta(_chatId: string, _delta: string, _metadata: MessageMetadata = {}): Promise<void> {

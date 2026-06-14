@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Channel Bus runtime parity: TS-native base channels now expose Python-compatible audio transcription fallback semantics, and native channel assembly passes `GROQ_API_KEY` into connector-backed transcribers for future platform audio handlers.
+
 - Continued Channel Bus runtime parity: TS-native channel adapter assembly now rejects enabled native channels with an empty `allowFrom` list, matching Python's fail-fast startup guard for deny-all channel configs.
 
 - Continued Channel Bus runtime parity: TS-native channel inbound dispatch now routes `system` notifications through the target `channel:chat_id` encoded in `chatId`, matching Python background-task notification delivery and forced streaming behavior.
@@ -763,6 +765,8 @@ Channel Bus row 18 update: TS channel inbound dispatch now treats `system` notif
 
 Channel Bus row 18 update: TS native channel adapter assembly now fails fast for enabled channels whose merged config has `allowFrom: []`, preserving Python's startup guard against deny-all channel configs.
 
+Channel Bus row 18 update: TS `BaseChannel` now has a Python-compatible `transcribeAudio()` hook with empty-string fallback when no key or provider failure occurs; `NativeTextChannel` can delegate transcription through connector-backed transcribers, and default native channel assembly passes `GROQ_API_KEY` from the worker env.
+
 Heartbeat row 20 update: Phase 4 now runs scheduled notifications through the shared Python-compatible evaluator, emits approved external notifications as `heartbeat.delivery` worker events, and projects those delivery events into target native desktop chats without requiring an active agent run.
 
 API Runtime row 19 update: direct TS-native `POST /v1/knowledge/documents` now honors `async_index` query params or true JSON body flags and returns Python-compatible completed job envelopes for deferred indexing.
@@ -777,6 +781,7 @@ API Runtime row 19 update: TS-native completed Knowledge upload/rebuild job enve
 
 | Date | Update |
 | --- | --- |
+| 2026-06-14 | Continued Channel Bus runtime parity: base/native channel audio transcription hooks now mirror Python empty-string fallback behavior and receive `GROQ_API_KEY` during native assembly. |
 | 2026-06-14 | Continued Channel Bus runtime parity: native channel adapter assembly now rejects enabled deny-all `allowFrom: []` configs like Python startup validation. |
 | 2026-06-14 | Continued Channel Bus runtime parity: channel inbound dispatch now projects Python-style `system` notifications to the encoded target channel/chat and forced stream path. |
 | 2026-06-14 | Continued API Runtime Knowledge query-param parity: graph and GraphRAG `min_confidence` now accepts Python-compatible `nan` / `inf` float spellings and clamps them through the native route. |

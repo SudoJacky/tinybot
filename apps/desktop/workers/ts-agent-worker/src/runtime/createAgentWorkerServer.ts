@@ -357,6 +357,7 @@ class DefaultNativeChannelLifecycleManager implements ChannelLifecycleManager {
       config,
       bus: this.bus,
       connectors: this.connectors,
+      transcriptionApiKey: this.env.GROQ_API_KEY,
     });
     for (const skip of skipped) {
       this.writeLog(`native channel ${skip.name} skipped: ${skip.reason}`);

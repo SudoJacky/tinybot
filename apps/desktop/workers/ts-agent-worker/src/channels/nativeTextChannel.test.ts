@@ -112,4 +112,23 @@ describe("NativeTextChannel", () => {
     await plain.sendDelta("chat-2", "ignored", { _stream_delta: true });
     await plain.sendUsage("chat-2", { total_tokens: 5 });
   });
+
+  test("uses connector-backed audio transcription when an API key is available", async () => {
+    const bus = new MessageBus();
+    const connector: NativeTextChannelConnector = {
+      sendText: vi.fn(async () => undefined),
+      transcribeAudio: vi.fn(async () => "transcribed voice"),
+    };
+    const channel = new NativeTextChannel({
+      name: "feishu",
+      displayName: "Feishu",
+      config: { allowFrom: ["*"] },
+      bus,
+      connector,
+      transcriptionApiKey: "groq-key",
+    });
+
+    await expect(channel.transcribeAudio("voice.opus")).resolves.toBe("transcribed voice");
+    expect(connector.transcribeAudio).toHaveBeenCalledWith("voice.opus", "groq-key");
+  });
 });

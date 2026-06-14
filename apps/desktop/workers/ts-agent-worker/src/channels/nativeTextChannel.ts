@@ -1,6 +1,6 @@
 import type { MessageBus } from "../bus/messageBus.ts";
 import type { MessageMetadata, OutboundMessage } from "../bus/messageTypes.ts";
-import { BaseChannel, type BaseChannelConfig } from "./baseChannel.ts";
+import { BaseChannel, type BaseChannelConfig, type ChannelAudioTranscriber } from "./baseChannel.ts";
 
 export type NativeTextChannelSendTextInput = {
   channel: string;
@@ -17,6 +17,7 @@ export type NativeTextChannelConnector = {
   sendText: (input: NativeTextChannelSendTextInput) => Promise<void> | void;
   sendDelta?: (chatId: string, delta: string, metadata: MessageMetadata) => Promise<void> | void;
   sendUsage?: (chatId: string, usage: Record<string, unknown>) => Promise<void> | void;
+  transcribeAudio?: ChannelAudioTranscriber;
 };
 
 export type NativeTextChannelOptions = {
@@ -25,6 +26,7 @@ export type NativeTextChannelOptions = {
   config: BaseChannelConfig;
   bus: MessageBus;
   connector: NativeTextChannelConnector;
+  transcriptionApiKey?: string;
 };
 
 export class NativeTextChannel extends BaseChannel {
@@ -33,7 +35,12 @@ export class NativeTextChannel extends BaseChannel {
   private readonly connector: NativeTextChannelConnector;
 
   constructor(options: NativeTextChannelOptions) {
-    super({ config: options.config, bus: options.bus });
+    super({
+      config: options.config,
+      bus: options.bus,
+      transcriptionApiKey: options.transcriptionApiKey,
+      transcriber: options.connector.transcribeAudio,
+    });
     this.name = options.name;
     this.displayName = options.displayName;
     this.connector = options.connector;

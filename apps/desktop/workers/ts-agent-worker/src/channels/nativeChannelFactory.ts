@@ -25,6 +25,7 @@ export type CreateNativeTextChannelAdaptersOptions = {
   bus: MessageBus;
   connectors: NativeTextChannelConnectorRegistry;
   descriptors?: ChannelDescriptor[];
+  transcriptionApiKey?: string;
 };
 
 export type CreateNativeTextChannelAdaptersResult = {
@@ -47,7 +48,12 @@ export function createNativeTextChannelAdapters(
       skipped.push({ name: channelConfig.name, reason: "missing_connector" });
       continue;
     }
-    adapters.push(createNativeTextChannelAdapter(channelConfig, options.bus, connector));
+    adapters.push(createNativeTextChannelAdapter(
+      channelConfig,
+      options.bus,
+      connector,
+      options.transcriptionApiKey,
+    ));
   }
   return { adapters, skipped };
 }
@@ -56,6 +62,7 @@ function createNativeTextChannelAdapter(
   selected: SelectedChannelConfig,
   bus: MessageBus,
   connector: NativeTextChannelConnector,
+  transcriptionApiKey?: string,
 ): NativeTextChannel {
   validateAllowFrom(selected.name, selected.config);
   return new NativeTextChannel({
@@ -64,6 +71,7 @@ function createNativeTextChannelAdapter(
     config: selected.config,
     bus,
     connector,
+    transcriptionApiKey,
   });
 }
 

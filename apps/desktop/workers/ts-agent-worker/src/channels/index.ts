@@ -2,6 +2,7 @@ export {
   BaseChannel,
   type BaseChannelConfig,
   type BaseChannelOptions,
+  type ChannelAudioTranscriber,
   type HandleChannelMessageRequest,
 } from "./baseChannel.ts";
 export {
