@@ -635,6 +635,7 @@ describe("CoworkScheduler", () => {
         status: "done",
         action: "complete",
         private_note: "Ready to summarize.",
+        completed_task_ids: ["1"],
       }),
       toolCalls: [],
       stopReason: "stop",
@@ -832,13 +833,13 @@ describe("CoworkScheduler", () => {
     expect(result.result).toContain("Round 1: running lead");
     const saved = await store.readSnapshot("cw_1", "assert");
     expect(saved?.tasks.draft.status).toBe("completed");
-    expect(saved?.stop_reason).toBe("max_rounds");
-    expect(saved?.budget_usage).toMatchObject({ rounds: 1, agent_calls: 1, stop_reason: "max_rounds" });
+    expect(saved?.stop_reason).toBe("ready_to_finish");
+    expect(saved?.budget_usage).toMatchObject({ rounds: 1, agent_calls: 1, stop_reason: "ready_to_finish" });
     expect(saved?.run_metrics).toEqual([expect.objectContaining({
       status: "stopped",
       rounds: 1,
       agent_calls: 1,
-      stop_reason: "max_rounds",
+      stop_reason: "ready_to_finish",
     })]);
     expect(saved?.scheduler_decisions).toEqual([expect.objectContaining({
       selected_agent_ids: ["lead"],
@@ -902,9 +903,11 @@ describe("CoworkScheduler", () => {
       now: () => fixedNow,
       idGenerator,
     });
+    let nowTick = 0;
+    const advancingNow = () => new Date(Date.parse(fixedNow) + nowTick++ * 1000).toISOString();
     const scheduler = new CoworkScheduler({
       store,
-      now: () => fixedNow,
+      now: advancingNow,
       idGenerator,
       agentRuntime,
     });
@@ -922,14 +925,20 @@ describe("CoworkScheduler", () => {
     const saved = await store.readSnapshot("cw_1", "assert");
     expect(saved?.tasks.draft.status).toBe("completed");
     expect(saved?.tasks.review.status).toBe("completed");
-    expect(saved?.stop_reason).toBe("max_rounds");
-    expect(saved?.budget_usage).toMatchObject({ rounds: 2, agent_calls: 2, stop_reason: "max_rounds" });
+    expect(saved?.stop_reason).toBe("ready_to_finish");
+    expect(saved?.completion_decision).toMatchObject({
+      next_action: "summarize",
+      ready_to_finish: true,
+      reason: "All known tasks are complete or skipped.",
+    });
+    expect(saved?.budget_usage).toMatchObject({ rounds: 2, agent_calls: 2, stop_reason: "ready_to_finish" });
+    expect(Number(saved?.budget_usage.wall_time_seconds)).toBeGreaterThan(0);
     expect(saved?.run_metrics).toEqual([expect.objectContaining({
       id: "run_1",
       status: "stopped",
       rounds: 2,
       agent_calls: 2,
-      stop_reason: "max_rounds",
+      stop_reason: "ready_to_finish",
     })]);
     expect(saved?.scheduler_decisions).toEqual([
       expect.objectContaining({

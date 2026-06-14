@@ -164,7 +164,7 @@ export class CoworkScheduler {
         parentId: runSpanId,
         data: { scheduler_runtime: "deferred_agent_runtime" },
       });
-      this.finishRun(session, runId, runSpanId, "stopped", 0, 0);
+      this.finishRun(session, runId, runSpanId, "stopped", 0, 0, runStartedAt);
       const saved = await this.store.writeSnapshot(normalizeCoworkSession(session), traceId);
       return {
         session: saved,
@@ -185,6 +185,7 @@ export class CoworkScheduler {
     let agentCalls = 0;
     let synthesisRan = false;
     const consecutiveRuns = new Map<string, number>();
+    const initialCompletionDecision = jsonSafeObject(session.completion_decision);
     for (let roundIndex = 0; roundIndex < roundLimit; roundIndex += 1) {
       const roundNumber = roundIndex + 1;
       const roundId = `${runId}:round:${roundNumber}`;
@@ -323,6 +324,7 @@ export class CoworkScheduler {
       completedRounds += 1;
       agentCalls += selectedIds.length;
       this.recordRoundProgress(working, beforeSignature);
+      refreshCompletionDecision(working, this.now(), initialCompletionDecision);
       updateConsecutiveRuns(consecutiveRuns, selectedIds);
       if (convergenceReached(working)) {
         lines.push(`Session stopped after ${working.no_progress_rounds} no-progress rounds.`);
@@ -345,6 +347,7 @@ export class CoworkScheduler {
         });
         agentCalls += 1;
         synthesisRan = true;
+        refreshCompletionDecision(working, this.now(), initialCompletionDecision);
       }
       if (working.status === "completed") {
         this.applyStopReason(working, "completed", "Cowork scheduler stopped because the session completed", {
@@ -379,7 +382,8 @@ export class CoworkScheduler {
         parentId: runSpanId,
       });
     }
-    this.finishRun(working, runId, runSpanId, working.status === "completed" ? "completed" : "stopped", completedRounds, agentCalls);
+    refreshCompletionDecision(working, this.now(), initialCompletionDecision);
+    this.finishRun(working, runId, runSpanId, working.status === "completed" ? "completed" : "stopped", completedRounds, agentCalls, runStartedAt);
     const saved = await this.store.writeSnapshot(normalizeCoworkSession(working), traceId);
     return {
       session: saved,
@@ -512,15 +516,25 @@ export class CoworkScheduler {
     session.updated_at = timestamp;
   }
 
-  private finishRun(session: CoworkSession, runId: string, runSpanId: string, status: string, rounds: number, agentCalls: number): void {
+  private finishRun(
+    session: CoworkSession,
+    runId: string,
+    runSpanId: string,
+    status: string,
+    rounds: number,
+    agentCalls: number,
+    runStartedAt: string,
+  ): void {
     const stopReason = cleanString(session.stop_reason) || cleanString(session.budget_usage.stop_reason);
+    const endedAt = this.now();
+    const wallTimeSeconds = elapsedSeconds(runStartedAt, endedAt);
     session.run_metrics = session.run_metrics.map((metric) => {
       if (stringValue(metric.id) !== runId) {
         return metric;
       }
       return {
         ...metric,
-        ended_at: this.now(),
+        ended_at: endedAt,
         status,
         rounds,
         agent_calls: agentCalls,
@@ -533,7 +547,7 @@ export class CoworkScheduler {
       }
       return {
         ...span,
-        ended_at: this.now(),
+        ended_at: endedAt,
         status,
         output_ref: `rounds=${rounds}, agent_calls=${agentCalls}`,
         summary: `Cowork run ${status}`,
@@ -544,9 +558,10 @@ export class CoworkScheduler {
       ...jsonSafeObject(session.budget_usage),
       rounds: (numberValue(session.budget_usage.rounds) ?? 0) + rounds,
       agent_calls: (numberValue(session.budget_usage.agent_calls) ?? 0) + agentCalls,
+      wall_time_seconds: (numberValue(session.budget_usage.wall_time_seconds) ?? 0) + wallTimeSeconds,
       stop_reason: stopReason,
     };
-    session.updated_at = this.now();
+    session.updated_at = endedAt;
   }
 
   private event(type: string, message: string, options: { actorId?: string; data?: JsonObject } = {}): CoworkEvent {
@@ -712,7 +727,168 @@ function readyToFinishWithoutActiveAgents(session: CoworkSession): boolean {
   if (jsonSafeObject(session.completion_decision).ready_to_finish !== true) {
     return false;
   }
+  const tasks = Object.values(session.tasks);
+  const hasUnfinishedTask = tasks.some((task) => ["pending", "in_progress", "failed"].includes(task.status));
+  const blockers = assessBlockers(session);
+  if (!hasUnfinishedTask && blockers.blocked.length === 0 && blockers.review_blockers.length === 0 && blockers.fanout_blockers.length === 0) {
+    return true;
+  }
   return selectReadyCoworkAgentCandidates(session, 1).agents.length === 0;
+}
+
+function refreshCompletionDecision(session: CoworkSession, updatedAt: string, initialDecision: JsonObject = {}): JsonObject {
+  const tasks = Object.values(session.tasks);
+  const pendingTasks = tasks.filter((task) => task.status === "pending");
+  const activeTasks = tasks.filter((task) => task.status === "in_progress");
+  const failedTasks = tasks.filter((task) => task.status === "failed");
+  const blockers = assessBlockers(session);
+  const existingDecision = jsonSafeObject(session.completion_decision);
+  const preservedDecision = tasks.length === 0 && initialDecision.ready_to_finish === true
+    ? initialDecision
+    : existingDecision;
+  const inboxMessages = Object.values(session.agents)
+    .filter((agent) => !["done", "failed"].includes(cleanString(agent.status)))
+    .flatMap((agent) => agent.inbox)
+    .filter((messageId) => Boolean(session.messages[messageId]));
+  const goalReview = reviewGoalCompletion(session);
+  let nextAction = "";
+  let reason = "";
+
+  if (session.status === "completed") {
+    nextAction = "complete";
+    reason = "The cowork session is complete.";
+  } else if (
+    preservedDecision.ready_to_finish === true
+    && failedTasks.length === 0
+    && blockers.review_blockers.length === 0
+    && blockers.fanout_blockers.length === 0
+    && blockers.blocked.length === 0
+    && pendingTasks.length === 0
+    && activeTasks.length === 0
+  ) {
+    nextAction = "summarize";
+    reason = cleanString(preservedDecision.reason) || "All known tasks are complete or skipped.";
+  } else if (failedTasks.length > 0) {
+    nextAction = "review_failed_tasks";
+    reason = `${failedTasks.length} task(s) failed and need review.`;
+  } else if (blockers.review_blockers.length > 0) {
+    nextAction = "resolve_review_gates";
+    reason = `${blockers.review_blockers.length} review gate(s) must pass before completion.`;
+  } else if (blockers.fanout_blockers.length > 0) {
+    nextAction = "merge_fanout_work";
+    reason = `${blockers.fanout_blockers.length} fanout group(s) require synthesis.`;
+  } else if (blockers.blocked.length > 0) {
+    nextAction = "resolve_blockers";
+    reason = `${blockers.blocked.length} reply request(s) are still open.`;
+  } else if (convergenceReached(session)) {
+    nextAction = "review_convergence";
+    reason = `No tracked progress for ${session.no_progress_rounds} consecutive round(s).`;
+  } else if (inboxMessages.length > 0) {
+    nextAction = "run_next_round";
+    reason = `${inboxMessages.length} unread message(s) need agent attention.`;
+  } else if (pendingTasks.length > 0 || activeTasks.length > 0) {
+    nextAction = "run_next_round";
+    reason = `${pendingTasks.length + activeTasks.length} task(s) still need progress.`;
+  } else if (tasks.length > 0 && goalReview.ready === true) {
+    nextAction = "summarize";
+    reason = "All known tasks are complete or skipped.";
+  } else if (tasks.length > 0) {
+    nextAction = "review_goal_completion";
+    reason = cleanString(goalReview.reason) || "Completed task outputs need review before summarizing.";
+  } else {
+    nextAction = "plan";
+    reason = "No tasks exist yet.";
+  }
+
+  const decision = {
+    next_action: nextAction,
+    reason,
+    blocked: blockers.blocked,
+    review_blockers: blockers.review_blockers,
+    fanout_blockers: blockers.fanout_blockers,
+    disagreements: [],
+    ready_to_finish: nextAction === "summarize",
+    no_progress_rounds: numberValue(session.no_progress_rounds) ?? 0,
+    convergence_limit: CONVERGENCE_IDLE_ROUNDS,
+    budget: budgetState(session),
+    stop_reason: cleanString(session.stop_reason),
+    workflow_mode: session.workflow_mode,
+    workflow_profile: session.workflow_mode,
+    focus_task: deriveFocusTask(session),
+    workspace_dir: session.workspace_dir,
+    artifacts: session.artifacts.slice(-8),
+    shared_memory_counts: sharedMemoryCounts(session),
+    goal_review: goalReview,
+    updated_at: updatedAt,
+  };
+  session.current_focus_task = stringValue(decision.focus_task);
+  session.completion_decision = decision;
+  session.updated_at = updatedAt;
+  return decision;
+}
+
+function reviewGoalCompletion(session: CoworkSession): JsonObject {
+  const tasks = Object.values(session.tasks);
+  const completedTasks = tasks.filter((task) => task.status === "completed");
+  const unfinished = tasks.filter((task) => !["completed", "skipped"].includes(task.status));
+  if (unfinished.length > 0) {
+    return {
+      ready: false,
+      reason: `${unfinished.length} task(s) still need progress.`,
+      unfinished_task_ids: unfinished.map((task) => task.id),
+    };
+  }
+  if (completedTasks.length === 0) {
+    return {
+      ready: false,
+      reason: "No completed task output is available yet.",
+    };
+  }
+  const hasUserVisibleOutput = completedTasks.some((task) => cleanString(task.result)
+    || Object.keys(jsonSafeObject(task.result_data)).length > 0
+    || cleanString(task.public_note)
+    || cleanString(task.private_note))
+    || cleanString(session.final_draft)
+    || cleanString(session.shared_summary)
+    || session.artifacts.length > 0;
+  if (!hasUserVisibleOutput) {
+    return {
+      ready: false,
+      reason: "Completed task outputs need review before summarizing.",
+      completed_task_ids: completedTasks.map((task) => task.id),
+    };
+  }
+  return {
+    ready: true,
+    reason: "All known tasks are complete or skipped.",
+    completed_task_ids: completedTasks.map((task) => task.id),
+  };
+}
+
+function deriveFocusTask(session: CoworkSession): string {
+  const active = Object.values(session.tasks).find((task) => task.status === "in_progress");
+  if (active) {
+    return active.title;
+  }
+  const pending = Object.values(session.tasks).find((task) => task.status === "pending");
+  if (pending) {
+    return pending.title;
+  }
+  if (Object.values(session.tasks).some((task) => task.status === "failed")) {
+    return "Review failed cowork tasks.";
+  }
+  if (Object.values(session.tasks).length > 0) {
+    return "Summarize completed cowork work.";
+  }
+  return "Plan cowork work.";
+}
+
+function sharedMemoryCounts(session: CoworkSession): JsonObject {
+  const counts: JsonObject = {};
+  for (const [key, entries] of Object.entries(jsonSafeObject(session.shared_memory))) {
+    counts[key] = Array.isArray(entries) ? entries.length : 0;
+  }
+  return counts;
 }
 
 function updateConsecutiveRuns(consecutiveRuns: Map<string, number>, selectedIds: string[]): void {
