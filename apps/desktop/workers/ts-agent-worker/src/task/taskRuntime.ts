@@ -432,6 +432,9 @@ export class TaskRuntime {
       subtask.completedAt = this.now();
       plan.currentSubtaskIds = plan.currentSubtaskIds.filter((id) => id !== subtask.id);
     }
+    if (isPlanCompleted(plan)) {
+      plan.status = "completed";
+    }
     plan.context = { ...plan.context, dagErrors: validateTaskDag(plan) };
     await this.store.savePlan(plan, traceId);
     return subtask;

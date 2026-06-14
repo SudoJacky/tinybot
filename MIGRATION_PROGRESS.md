@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Task/Cron background runtime parity: TS-native manual subtask result updates now complete the owning plan when all subtasks are completed or skipped, matching Python TaskManager's update-result completion transition.
+
 - Continued Task/Cron background runtime parity: TS-native subtask spawn prompts now build Python-compatible completed-task context, separating dependency results from bounded "other completed steps" for chained subagent execution.
 
 - Continued Task/Cron background runtime parity: TS-native task runtime now truncates stored subtask results with Python's 1500-character context cap before summaries and chained subagent context reuse.

@@ -228,6 +228,7 @@ describe("TaskRuntime", () => {
       result: "runtime complete",
       completedAt: "2026-06-12T00:00:00.000Z",
     });
+    expect(saves.at(-1)?.status).toBe("completed");
   });
 
   test("truncates manually updated subtask results like Python", async () => {
