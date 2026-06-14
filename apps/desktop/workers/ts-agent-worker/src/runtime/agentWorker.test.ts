@@ -1214,6 +1214,25 @@ describe("AgentWorker", () => {
       method: "POST",
       path: "/v1/chat/completions",
       body: {
+        model: ["openai/gpt-4o-mini"],
+        messages: [{ role: "user", content: "Hello" }],
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: {
+          error: {
+            message: "Only configured model 'openai/gpt-4o-mini' is available",
+            type: "invalid_request_error",
+            code: 400,
+          },
+        },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/v1/chat/completions",
+      body: {
         stream: true,
         messages: [{ role: "user", content: "Hello" }],
       },

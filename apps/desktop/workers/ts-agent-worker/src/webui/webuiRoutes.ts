@@ -856,7 +856,7 @@ function parseOpenAiChatRequest(
   if (!isJsonObject(messages[0]) || messages[0].role !== "user") {
     return { ok: false, message: "Only a single user message is supported" };
   }
-  const requestedModel = pythonTruthy(body.model) ? pythonString(body.model) : undefined;
+  const requestedModel = pythonTruthy(body.model) ? pythonFormatString(body.model) : undefined;
   if (requestedModel && requestedModel !== configuredModel) {
     return { ok: false, message: `Only configured model '${configuredModel}' is available` };
   }
@@ -881,10 +881,6 @@ function openAiMessageContent(content: unknown): string {
       .join(" ");
   }
   return "";
-}
-
-function pythonString(value: unknown): string {
-  return String(value);
 }
 
 function pythonFormatString(value: unknown): string {

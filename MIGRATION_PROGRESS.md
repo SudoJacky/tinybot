@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued API Runtime OpenAI-compatible parity: TS-native chat completion model validation now treats structured `model` values like Python string formatting, so array/object values cannot accidentally match the configured model.
+
 - Continued API Runtime Knowledge query-param parity: TS-native Knowledge graph and GraphRAG routes now reject fractional integer query values like Python `int(...)` parsing instead of truncating them.
 
 - Continued API Runtime Knowledge GraphRAG parity: TS-native `/v1/knowledge/graphrag` now preserves explicit community `level` values above 3 like Python instead of clamping them to the previous native facade range.
