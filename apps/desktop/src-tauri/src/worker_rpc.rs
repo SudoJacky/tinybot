@@ -391,6 +391,10 @@ impl WorkerRpcRouter {
                 let params: ChannelConnectorParams = parse_params(request)?;
                 self.channel_connector.send_usage(params)
             }
+            "channel.connector.transcribe_audio" => {
+                let params: ChannelConnectorParams = parse_params(request)?;
+                self.channel_connector.transcribe_audio(params)
+            }
             "shell.execute" => {
                 let params: ShellExecuteParams = parse_params(request)?;
                 serde_json::to_value(self.shell.execute(params)?).map_err(serialization_error)
@@ -3049,6 +3053,13 @@ impl WorkerChannelConnectorRpc {
         self.unavailable(params.channel, "send_usage")
     }
 
+    fn transcribe_audio(
+        &self,
+        params: ChannelConnectorParams,
+    ) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
+        self.unavailable(params.channel, "transcribe_audio")
+    }
+
     fn unavailable(
         &self,
         channel: String,
@@ -4575,6 +4586,38 @@ mod tests {
         assert_eq!(result["ok"], true);
         assert_eq!(result["channel"], "weixin");
         assert_eq!(result["operation"], "login");
+        assert_eq!(result["handled"], false);
+        assert_eq!(result["reason"], "native_connector_unavailable");
+    }
+
+    #[test]
+    fn channel_connector_transcribe_audio_returns_explicit_unavailable_bridge_result() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::ChannelConnector]),
+        );
+        let request = WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "channel.connector.transcribe_audio",
+            json!({
+                "channel": "feishu",
+                "file_path": "voice.opus",
+                "api_key": "groq-key"
+            }),
+        );
+
+        let response = router.dispatch(&request);
+
+        assert!(response.error.is_none());
+        let result = response.result.expect("connector result should be present");
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["channel"], "feishu");
+        assert_eq!(result["operation"], "transcribe_audio");
         assert_eq!(result["handled"], false);
         assert_eq!(result["reason"], "native_connector_unavailable");
     }

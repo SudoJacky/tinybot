@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Channel Bus runtime parity: TS host-RPC connector bridges now forward native channel audio transcription through `channel.connector.transcribe_audio`, with Rust placeholder handling until real platform connectors are installed.
+
 - Continued Channel Bus runtime parity: TS-native channel connectors now expose Python-style interactive `login(force)` delegation, including a host-RPC `channel.connector.login` contract and Rust unavailable-connector placeholder.
 
 - Continued Channel Bus runtime parity: TS-native base channels now expose Python-compatible audio transcription fallback semantics, and native channel assembly passes `GROQ_API_KEY` into connector-backed transcribers for future platform audio handlers.
@@ -769,6 +771,8 @@ Channel Bus row 18 update: TS native channel adapter assembly now fails fast for
 
 Channel Bus row 18 update: TS `BaseChannel` now has a Python-compatible `transcribeAudio()` hook with empty-string fallback when no key or provider failure occurs; `NativeTextChannel` can delegate transcription through connector-backed transcribers, and default native channel assembly passes `GROQ_API_KEY` from the worker env.
 
+Channel Bus row 18 update: TS host-RPC connector bridges now expose native audio transcription as `channel.connector.transcribe_audio`, passing file path/API-key inputs through to the host and preserving explicit Rust unavailable-connector responses until platform connectors are installed.
+
 Channel Bus row 18 update: TS `NativeTextChannel.login({ force })` now delegates to native connectors, the host-RPC bridge exposes `channel.connector.login`, and Rust recognizes the method behind the existing `channel.connector` capability with the same explicit unavailable result used by other connector operations.
 
 Heartbeat row 20 update: Phase 4 now runs scheduled notifications through the shared Python-compatible evaluator, emits approved external notifications as `heartbeat.delivery` worker events, and projects those delivery events into target native desktop chats without requiring an active agent run.
@@ -785,6 +789,7 @@ API Runtime row 19 update: TS-native completed Knowledge upload/rebuild job enve
 
 | Date | Update |
 | --- | --- |
+| 2026-06-14 | Continued Channel Bus runtime parity: host-RPC native connector bridges now forward channel audio transcription through `channel.connector.transcribe_audio` with Rust placeholder support. |
 | 2026-06-14 | Continued Channel Bus runtime parity: native text channel login now delegates through connector and host-RPC `channel.connector.login` with Rust placeholder support. |
 | 2026-06-14 | Continued Channel Bus runtime parity: base/native channel audio transcription hooks now mirror Python empty-string fallback behavior and receive `GROQ_API_KEY` during native assembly. |
 | 2026-06-14 | Continued Channel Bus runtime parity: native channel adapter assembly now rejects enabled deny-all `allowFrom: []` configs like Python startup validation. |

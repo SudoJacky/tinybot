@@ -46,6 +46,16 @@ function createNativeChannelConnectorBridge(
       chat_id: chatId,
       usage,
     }),
+    transcribeAudio: (filePath, apiKey) => sendConnectorTranscribeAudioRequest(
+      rpcClient,
+      traceId(channel, "transcribe_audio"),
+      "channel.connector.transcribe_audio",
+      {
+        channel,
+        file_path: filePath,
+        api_key: apiKey,
+      },
+    ),
   };
 }
 
@@ -68,6 +78,17 @@ async function sendConnectorLoginRequest(
   const result = await rpcClient.request(traceId, method, params);
   rejectUnhandledConnectorResult(result, params, operationFromMethod(method));
   return connectorLoginResult(result);
+}
+
+async function sendConnectorTranscribeAudioRequest(
+  rpcClient: NativeRpcClient,
+  traceId: string,
+  method: string,
+  params: Record<string, unknown>,
+): Promise<string> {
+  const result = await rpcClient.request(traceId, method, params);
+  rejectUnhandledConnectorResult(result, params, operationFromMethod(method));
+  return connectorTranscriptionText(result);
 }
 
 function textParams(input: NativeTextChannelSendTextInput): Record<string, unknown> {
@@ -118,6 +139,18 @@ function connectorLoginResult(result: unknown): boolean {
     }
   }
   return true;
+}
+
+function connectorTranscriptionText(result: unknown): string {
+  if (!isRecord(result)) {
+    return "";
+  }
+  for (const key of ["text", "transcription", "content"]) {
+    if (typeof result[key] === "string") {
+      return result[key];
+    }
+  }
+  return "";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

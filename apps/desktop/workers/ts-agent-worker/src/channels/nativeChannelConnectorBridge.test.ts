@@ -81,4 +81,24 @@ describe("nativeChannelConnectorBridge", () => {
       metadata: {},
     })).rejects.toThrow("native connector feishu send_text unavailable: native_connector_unavailable");
   });
+
+  test("forwards native audio transcription to host RPC methods", async () => {
+    const request = vi.fn(async () => ({ ok: true, text: "voice text" }));
+    const registry = createNativeChannelConnectorBridgeRegistry({
+      rpcClient: { request },
+      channels: ["feishu"],
+    });
+
+    await expect(registry.feishu?.transcribeAudio?.("voice.opus", "groq-key")).resolves.toBe("voice text");
+
+    expect(request).toHaveBeenCalledWith(
+      "channel.connector.feishu.transcribe_audio",
+      "channel.connector.transcribe_audio",
+      {
+        channel: "feishu",
+        file_path: "voice.opus",
+        api_key: "groq-key",
+      },
+    );
+  });
 });
