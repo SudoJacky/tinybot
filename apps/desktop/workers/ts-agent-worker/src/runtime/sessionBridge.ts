@@ -1,4 +1,7 @@
 import type { AgentMessage } from "../agent/agentRunSpec.ts";
+import { taskProgressPayload } from "../task/taskProgress.ts";
+import { NativeTaskStoreBridge } from "../task/taskStoreBridge.ts";
+import type { TaskPlan } from "../task/taskTypes.ts";
 import type { ToolCallRequest } from "../model/provider.ts";
 import type { JsonObject } from "../protocol/messages.ts";
 import type { NativeRpcClient } from "../tools/nativeToolProxy.ts";
@@ -44,6 +47,11 @@ export class NativeSessionBridge implements SessionBridge, WebuiSessionProvider 
 
   async getWebuiSessionMessages(sessionId: string, traceId: string): Promise<WebuiSessionMessages | null> {
     return this.getSessionMessages(sessionId, traceId);
+  }
+
+  async getTaskProgressCard(planId: string, traceId: string): Promise<Record<string, unknown> | null> {
+    const plan = await new NativeTaskStoreBridge(this.rpcClient).getPlan(planId, traceId);
+    return plan ? taskProgressCardFromPlan(plan) : null;
   }
 
   async getSessionProfile(sessionId: string, traceId: string): Promise<WebuiSessionProfile | null> {
@@ -368,6 +376,34 @@ function nativeSessionMessage(message: AgentMessage): JsonObject {
       ? { thinking_blocks: message.thinkingBlocks }
       : {}),
     ...(message.metadata ? { metadata: message.metadata as JsonObject } : {}),
+  };
+}
+
+function taskProgressCardFromPlan(plan: TaskPlan): Record<string, unknown> {
+  return {
+    role: "progress",
+    content: `Task Progress: ${plan.title}`,
+    timestamp: plan.updatedAt ?? plan.createdAt ?? "",
+    _progress: true,
+    _tool_name: "task",
+    _task_event: true,
+    _task_progress: {
+      event: "restored",
+      plan_id: plan.id,
+      plan_title: plan.title,
+      plan_status: plan.status,
+      progress: taskProgressPayload(plan),
+      subtasks: plan.subtasks.map((subtask) => ({
+        id: subtask.id,
+        title: subtask.title,
+        status: subtask.status,
+        dependencies: subtask.dependencies,
+        parallel_safe: subtask.parallelSafe,
+        result: subtask.result ?? null,
+        error: subtask.error ?? null,
+      })),
+    },
+    _task_plan_id: plan.id,
   };
 }
 

@@ -86,6 +86,106 @@ describe("NativeSessionBridge", () => {
     ]);
   });
 
+  test("restores WebUI task progress cards from native task plans", async () => {
+    const requests: Array<{ traceId: string; method: string; params: Record<string, unknown> }> = [];
+    const bridge = new NativeSessionBridge({
+      request: async (traceId, method, params) => {
+        requests.push({ traceId, method, params });
+        return {
+          plan: {
+            id: "plan-1",
+            title: "Demo plan",
+            original_request: "Run demo plan",
+            created_at: "2026-06-13T08:00:00.000Z",
+            updated_at: "2026-06-13T08:02:00.000Z",
+            status: "executing",
+            current_subtask_ids: ["subtask-2"],
+            context: {},
+            subtasks: [
+              {
+                id: "subtask-1",
+                title: "First step",
+                description: "Do the first step",
+                status: "completed",
+                dependencies: [],
+                parallel_safe: true,
+                result: "done",
+                error: null,
+              },
+              {
+                id: "subtask-2",
+                title: "Second step",
+                description: "Do the second step",
+                status: "in_progress",
+                dependencies: ["subtask-1"],
+                parallel_safe: false,
+                result: null,
+                error: null,
+              },
+            ],
+          },
+        };
+      },
+    });
+
+    await expect((bridge as any).getTaskProgressCard("plan-1", "trace-task")).resolves.toEqual({
+      role: "progress",
+      content: "Task Progress: Demo plan",
+      timestamp: "2026-06-13T08:02:00.000Z",
+      _progress: true,
+      _tool_name: "task",
+      _task_event: true,
+      _task_progress: {
+        event: "restored",
+        plan_id: "plan-1",
+        plan_title: "Demo plan",
+        plan_status: "executing",
+        progress: {
+          plan_id: "plan-1",
+          title: "Demo plan",
+          status: "executing",
+          total: 2,
+          completed: 1,
+          in_progress: 1,
+          pending: 0,
+          failed: 0,
+          skipped: 0,
+          current: "Second step",
+          current_all: ["Second step"],
+          next: null,
+        },
+        subtasks: [
+          {
+            id: "subtask-1",
+            title: "First step",
+            status: "completed",
+            dependencies: [],
+            parallel_safe: true,
+            result: "done",
+            error: null,
+          },
+          {
+            id: "subtask-2",
+            title: "Second step",
+            status: "in_progress",
+            dependencies: ["subtask-1"],
+            parallel_safe: false,
+            result: null,
+            error: null,
+          },
+        ],
+      },
+      _task_plan_id: "plan-1",
+    });
+    expect(requests).toEqual([
+      {
+        traceId: "trace-task",
+        method: "task.plan.get",
+        params: { plan_id: "plan-1" },
+      },
+    ]);
+  });
+
   test("patches WebUI session metadata through native session.patch_metadata", async () => {
     const requests: Array<{ traceId: string; method: string; params: Record<string, unknown> }> = [];
     const bridge = new NativeSessionBridge({

@@ -3,6 +3,80 @@ import { describe, expect, test } from "vitest";
 import { handleWebuiRouteRequest, type WebuiSessionProvider } from "./webuiRoutes.ts";
 
 describe("WebUI route temporary files", () => {
+  test("restores task progress cards when session history only has the internal notification", async () => {
+    const progressRequests: Array<{ planId: string; traceId: string }> = [];
+    const sessionProvider: WebuiSessionProvider = {
+      channelName: "websocket",
+      listSessions: () => [],
+      getSessionMessages: () => ({
+        sessionId: "websocket:chat-1",
+        messages: [
+          { role: "user", content: "Start task", timestamp: "2026-06-13T08:00:00.000Z" },
+          {
+            role: "user",
+            content: "Task plan created.\n\n**Plan ID:** plan-1",
+            timestamp: "2026-06-13T08:01:00.000Z",
+            _task_event: true,
+          },
+        ],
+      }),
+      getTaskProgressCard: (planId, traceId) => {
+        progressRequests.push({ planId, traceId });
+        return {
+          role: "progress",
+          content: "Task Progress: Demo plan",
+          timestamp: "2026-06-13T08:02:00.000Z",
+          _progress: true,
+          _tool_name: "task",
+          _task_event: true,
+          _task_progress: { event: "restored", plan_id: planId },
+          _task_plan_id: planId,
+        };
+      },
+    };
+
+    const response = await handleWebuiRouteRequest(
+      {
+        method: "GET",
+        path: "/api/sessions/websocket%3Achat-1/messages",
+      },
+      undefined,
+      undefined,
+      sessionProvider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "trace-messages",
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      key: "websocket:chat-1",
+      messages: [
+        { role: "user", content: "Start task", timestamp: "2026-06-13T08:00:00.000Z" },
+        {
+          role: "progress",
+          content: "Task Progress: Demo plan",
+          timestamp: "2026-06-13T08:02:00.000Z",
+          _progress: true,
+          _tool_name: "task",
+          _task_event: true,
+          _task_progress: { event: "restored", plan_id: "plan-1" },
+          _task_plan_id: "plan-1",
+        },
+      ],
+    });
+    expect(progressRequests).toEqual([{ planId: "plan-1", traceId: "trace-messages" }]);
+  });
+
   test("allows temporary file upload for the configured WebUI channel prefix", async () => {
     const uploads: Array<{ sessionId: string; traceId: string; name: string }> = [];
     const sessionProvider: WebuiSessionProvider = {

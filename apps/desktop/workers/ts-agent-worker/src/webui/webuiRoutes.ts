@@ -131,6 +131,10 @@ export type WebuiSessionProvider = {
     sessionId: string,
     traceId: string,
   ): Promise<WebuiSessionMessages | null> | WebuiSessionMessages | null;
+  getTaskProgressCard?(
+    planId: string,
+    traceId: string,
+  ): Promise<Record<string, unknown> | null> | Record<string, unknown> | null;
   getSessionProfile?(
     sessionId: string,
     traceId: string,
@@ -641,7 +645,7 @@ export async function handleWebuiRouteRequest(
     if (!session) {
       return { status: 404, body: { error: "session not found" } };
     }
-    return { status: 200, body: webuiSessionMessagesBody(session) };
+    return { status: 200, body: await webuiSessionMessagesBody(session, sessionProvider, traceId) };
   }
   const sessionProfileKey = sessionProfilePathKey(method, path);
   if (sessionProfileKey !== undefined) {
@@ -2222,13 +2226,38 @@ function webuiClearSessionBody(result: WebuiClearSessionResult): Record<string, 
   };
 }
 
-function webuiSessionMessagesBody(session: WebuiSessionMessages): Record<string, unknown> {
+async function webuiSessionMessagesBody(
+  session: WebuiSessionMessages,
+  sessionProvider: WebuiSessionProvider,
+  traceId: string,
+): Promise<Record<string, unknown>> {
+  const emittedTaskPlanIds = new Set(
+    session.messages
+      .filter((message) => isInternalTaskNotification(message))
+      .map(taskPlanIdFromMetadata)
+      .filter((planId): planId is string => !!planId),
+  );
+  const messages: Record<string, unknown>[] = [];
+  for (const message of session.messages) {
+    if (isInternalAgentUiToolResult(message)) {
+      continue;
+    }
+    if (isInternalTaskNotification(message)) {
+      const planId = extractTaskPlanId(message);
+      if (planId && !emittedTaskPlanIds.has(planId) && sessionProvider.getTaskProgressCard) {
+        const progressCard = await sessionProvider.getTaskProgressCard(planId, traceId);
+        if (progressCard) {
+          messages.push(serializeWebuiMessage(progressCard));
+          emittedTaskPlanIds.add(planId);
+        }
+      }
+      continue;
+    }
+    messages.push(serializeWebuiMessage(message));
+  }
   return {
     key: session.sessionId,
-    messages: session.messages
-      .filter((message) => !isInternalAgentUiToolResult(message))
-      .filter((message) => !isInternalTaskNotification(message))
-      .map(serializeWebuiMessage),
+    messages,
   };
 }
 
@@ -2372,6 +2401,17 @@ function sessionMessages(extra: Record<string, unknown>): Record<string, unknown
 function isInternalTaskNotification(message: Record<string, unknown>): boolean {
   const metadata = isJsonObject(message.metadata) ? message.metadata : {};
   return message._task_event === true || metadata._task_event === true;
+}
+
+function taskPlanIdFromMetadata(message: Record<string, unknown>): string {
+  const metadata = isJsonObject(message.metadata) ? message.metadata : {};
+  const planId = message._task_plan_id ?? metadata._task_plan_id;
+  return typeof planId === "string" ? planId : "";
+}
+
+function extractTaskPlanId(message: Record<string, unknown>): string {
+  const content = typeof message.content === "string" ? message.content : "";
+  return /\*\*Plan ID:\*\*\s*([A-Za-z0-9_-]+)/.exec(content)?.[1] ?? "";
 }
 
 function isInternalAgentUiToolResult(message: Record<string, unknown>): boolean {

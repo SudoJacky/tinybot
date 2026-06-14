@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued WebUI transport session-history parity: TS-native `GET /api/sessions/{key}/messages` now restores Python-compatible task progress cards from persisted task plans when history only contains the internal task notification, instead of dropping the task row from WebUI history.
+
 - Continued WebUI transport temporary-file validation parity: TS-native temporary-file uploads now pass empty text content through to the temporary knowledge store so validation returns Python-compatible `Uploaded file contains no extractable text` errors instead of treating the file as missing.
 
 - Continued WebUI transport temporary-file parity: TS-native session temporary file upload and clear routes now honor the configured WebUI channel prefix instead of hard-coding `websocket:`, matching Python's runtime channel-name boundary for migrated route handlers.
@@ -769,6 +771,8 @@ WebUI row 17 update: TS session temporary-file upload and clear routes now honor
 
 WebUI row 17 update: TS temporary-file upload parsing now preserves empty string content so native session upload validation can report Python-compatible empty-text errors.
 
+WebUI row 17 update: TS session-message history now restores task progress cards from native `task.plan.get` data when internal task notifications contain `**Plan ID:** ...`, matching Python's WebUI history reconstruction instead of filtering those entries away.
+
 Channel Bus row 18 update: Phase 5 default stdio worker lifecycle now reads canonical native config and assembles host-provided native text connectors into `ChannelManager` adapters at channel startup, preserving the empty-manager fallback when no connectors are available.
 
 Channel Bus row 18 update: Phase 5 now has an explicit TS host-RPC connector bridge for native text adapters, so host-provided connectors can be expressed as stable `channel.connector.start/stop/send_text/send_delta/send_usage` worker-host calls while Python bridge fallback remains opt-in by absence of connectors.
@@ -1291,6 +1295,7 @@ API Runtime row 19 update: TS-native completed Knowledge upload/rebuild job enve
 - [x] Start WebUI transport Batch 6: expose TS-native `/api/status` via worker route specs, Rust `worker_webui_route`, and desktop native status facade.
 - [x] Continue WebUI transport Batch 6: expose TS-native `/api/sessions` list via session metadata bridge and desktop native facade.
 - [x] Continue WebUI transport Batch 6: expose TS-native `/api/sessions/{key}/messages` via session metadata bridge and desktop native facade.
+- [x] Continue WebUI transport Batch 6: restore task progress cards from native task plans in TS-native `/api/sessions/{key}/messages` history.
 - [x] Continue WebUI transport Batch 6: expose TS-native `/api/sessions/{key}/clear` via native session clear bridge and desktop native facade.
 - [x] Continue WebUI transport Batch 6: expose TS-native `/api/sessions/{key}` delete via native session delete bridge and desktop native facade.
 - [x] Continue WebUI transport Batch 6: expose TS-native `/api/sessions/{key}/profile` via session metadata bridge and desktop native facade.
