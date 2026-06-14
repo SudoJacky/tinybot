@@ -4,6 +4,7 @@ import { isJsonObject, type JsonObject } from "../protocol/messages.ts";
 import type { Tool, ToolDefinition } from "../tools/tool.ts";
 import type { ToolRegistry } from "../tools/toolRegistry.ts";
 import { coworkInternalToolDefinition, createCoworkInternalTool } from "./coworkInternalTool.ts";
+import { CoworkMailbox } from "./coworkMailbox.ts";
 import { defaultPolicyRegistry } from "./coworkPolicy.ts";
 import { normalizeCoworkSession } from "./coworkSerde.ts";
 import type { CoworkAgent, CoworkEvent, CoworkSession, CoworkTask } from "./coworkTypes.ts";
@@ -1096,6 +1097,7 @@ export function selectReadyCoworkAgentCandidates(session: CoworkSession, limit: 
       reasonProfile: "inactive session",
     };
   }
+  refreshMailboxReadinessState(session);
   if (session.workflow_mode === "swarm") {
     return selectSwarmReadyAgents(session, limit);
   }
@@ -1103,7 +1105,13 @@ export function selectReadyCoworkAgentCandidates(session: CoworkSession, limit: 
 }
 
 export function selectReadyCoworkAgents(session: CoworkSession, limit: number): CoworkAgent[] {
-  return selectTeamReadyAgents(session, limit).agents;
+  return selectReadyCoworkAgentCandidates(session, limit).agents;
+}
+
+function refreshMailboxReadinessState(session: CoworkSession): void {
+  const mailbox = new CoworkMailbox();
+  mailbox.expireRecords(session);
+  mailbox.escalateStaleBlockers(session);
 }
 
 function selectTeamReadyAgents(session: CoworkSession, limit: number): CoworkReadyAgentSelection {

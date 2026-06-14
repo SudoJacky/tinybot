@@ -211,6 +211,111 @@ describe("CoworkAgentRuntime", () => {
     expect(selection.candidateScores).toEqual({ lead: 100 });
   });
 
+  it("expires overdue mailbox records before selecting ready agents like Python", async () => {
+    const provider = new QueueProvider([]);
+    const seeded = await seedRuntime(provider);
+    const session = await seeded.store.readSnapshot("cw_1", "test");
+    if (!session) {
+      throw new Error("missing seeded session");
+    }
+    session.rounds = 3;
+    session.agents.lead.inbox = [];
+    session.agents.lead.current_task_id = null;
+    session.agents.lead.status = "idle";
+    session.tasks = {};
+    session.mailbox.reply_1 = {
+      id: "reply_1",
+      sender_id: "worker",
+      recipient_ids: ["lead"],
+      content: "Need a lead decision before continuing.",
+      kind: "request",
+      status: "delivered",
+      requires_reply: true,
+      request_type: "decision",
+      thread_id: "thread_1",
+      correlation_id: "corr_1",
+      reply_to_message_id: "",
+      blocking_task_id: "draft",
+      priority: 80,
+      deadline_round: 2,
+      created_at: fixedNow,
+      updated_at: fixedNow,
+    };
+
+    const selection = selectReadyCoworkAgentCandidates(session, 1);
+
+    expect(selection.agents).toEqual([]);
+    expect(selection.candidateScores).toEqual({});
+    expect(session.mailbox.reply_1.status).toBe("expired");
+    expect(session.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "mailbox.expired",
+        message: "Mailbox envelope reply_1 expired",
+        actor_id: "worker",
+        data: expect.objectContaining({
+          envelope_id: "reply_1",
+          correlation_id: "corr_1",
+        }),
+      }),
+    ]));
+  });
+
+  it("escalates stale mailbox blockers before selecting ready agents like Python", async () => {
+    const provider = new QueueProvider([]);
+    const seeded = await seedRuntime(provider);
+    const session = await seeded.store.readSnapshot("cw_1", "test");
+    if (!session) {
+      throw new Error("missing seeded session");
+    }
+    session.rounds = 3;
+    session.agents.lead.inbox = [];
+    session.agents.lead.current_task_id = null;
+    session.agents.lead.status = "idle";
+    session.tasks = {};
+    session.mailbox.reply_1 = {
+      id: "reply_1",
+      sender_id: "worker",
+      recipient_ids: ["worker"],
+      content: "Need implementation details before continuing.",
+      kind: "request",
+      status: "delivered",
+      requires_reply: true,
+      request_type: "decision",
+      thread_id: "thread_1",
+      correlation_id: "corr_1",
+      reply_to_message_id: "",
+      blocking_task_id: "draft",
+      priority: 80,
+      escalate_after_rounds: 2,
+      created_at: fixedNow,
+      updated_at: fixedNow,
+    };
+
+    const selection = selectReadyCoworkAgentCandidates(session, 1);
+
+    expect(selection.agents.map((agent) => agent.id)).toEqual(["lead"]);
+    expect(session.mailbox.reply_1.escalated_at).toEqual(expect.any(String));
+    expect(session.agents.lead.inbox).toHaveLength(1);
+    expect(session.messages[session.agents.lead.inbox[0]]).toEqual(expect.objectContaining({
+      sender_id: "user",
+      recipient_ids: ["lead"],
+      content: "Escalate stale blocker reply_1 from worker: Need implementation details before continuing.",
+      thread_id: "thread_1",
+    }));
+    expect(session.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "mailbox.stale_blocker",
+        message: "Mailbox envelope reply_1 escalated as a stale blocker",
+        actor_id: "lead",
+        data: expect.objectContaining({
+          envelope_id: "reply_1",
+          target_agent_id: "lead",
+          blocking_task_id: "draft",
+        }),
+      }),
+    ]));
+  });
+
   it("does not select done agents even when they still have inbox work", async () => {
     const provider = new QueueProvider([]);
     const seeded = await seedRuntime(provider);

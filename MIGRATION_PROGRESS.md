@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Cowork agent readiness parity: TS-native ready-agent selection now refreshes mailbox expiry and stale-blocker escalation before choosing active agents, matching Python's scheduler pre-selection mailbox maintenance for team and swarm sessions.
+
 - Continued Cowork agent readiness parity: TS-native team ready-agent selection now treats delivered/read `requires_reply` mailbox records as pending direct work and applies Python-compatible mailbox pressure to readiness scores even when the agent inbox is empty.
 
 - Continued Cowork agent readiness parity: TS-native team ready-agent selection now mirrors Python readiness scoring before applying scheduler limits, including direct/shared work, waiting/current-task state, and team/generator-verifier profile boosts.
@@ -1415,6 +1417,7 @@ Heartbeat row 20 update: Phase 4 now runs scheduled notifications through the sh
 - [x] Continue Cowork scheduler budget-usage parity: record per-round and lead-synthesis usage during the run for fresh session remaining snapshots.
 - [x] Continue Cowork agent readiness parity: sort team ready agents by Python-style readiness scores before applying scheduler limits.
 - [x] Continue Cowork agent readiness parity: select agents with pending reply mailbox work and score mailbox pressure like Python.
+- [x] Continue Cowork agent readiness parity: refresh mailbox expiry and stale-blocker escalation before selecting active agents like Python.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.
 - [x] Continue session turn lifecycle evidence durability: capture memory evidence from native `saved_messages` for partial-duplicate persisted turns.
