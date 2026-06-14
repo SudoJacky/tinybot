@@ -933,6 +933,75 @@ describe("CoworkScheduler", () => {
     })]);
   });
 
+  it("updates session budget usage between scheduler rounds like Python", async () => {
+    const store = createMemoryCoworkStore();
+    const idGenerator = deterministicIds();
+    const service = new CoworkService({
+      store,
+      now: () => fixedNow,
+      idGenerator,
+    });
+    const session = await service.createSession({
+      traceId: "seed",
+      goal: "Continue a multi-round migration task",
+      title: "Budgeted scheduler session",
+      workflowMode: "team",
+      agents: [{ id: "lead", name: "Lead", role: "Coordinator" }],
+      tasks: [{ id: "draft", title: "Draft", description: "Draft scheduler slice", assigned_agent_id: "lead" }],
+      budgets: {
+        max_rounds_per_run: 5,
+        max_agent_calls_per_run: 10,
+      },
+    });
+    const agentRuns: string[] = [];
+    const agentRuntime = {
+      async runAgent(request: { sessionId: string; agentId: string; traceId?: string }) {
+        agentRuns.push(request.agentId);
+        const current = await store.readSnapshot(request.sessionId, request.traceId ?? "");
+        if (!current) {
+          throw new Error("session not found");
+        }
+        await store.writeSnapshot({
+          ...current,
+          shared_memory: {
+            ...current.shared_memory,
+            notes: [
+              ...(Array.isArray(current.shared_memory.notes) ? current.shared_memory.notes : []),
+              { content: `round ${agentRuns.length}` },
+            ],
+          },
+        }, request.traceId ?? "");
+      },
+    } as unknown as CoworkAgentRuntime;
+    const scheduler = new CoworkScheduler({
+      store,
+      now: () => fixedNow,
+      idGenerator,
+      agentRuntime,
+    });
+
+    await scheduler.runSession({
+      sessionId: session.id,
+      traceId: "trace-run",
+      maxRounds: 2,
+      maxAgents: 1,
+      maxAgentCalls: 10,
+    });
+
+    const saved = await store.readSnapshot(session.id, "assert");
+    expect(agentRuns).toEqual(["lead", "lead"]);
+    expect(saved?.scheduler_decisions).toHaveLength(2);
+    expect(saved?.scheduler_decisions[0].budget_remaining.session).toMatchObject({
+      max_agent_calls_per_run: 10,
+      max_rounds_per_run: 5,
+    });
+    expect(saved?.scheduler_decisions[1].budget_remaining.session).toMatchObject({
+      max_agent_calls_per_run: 9,
+      max_rounds_per_run: 4,
+    });
+    expect(saved?.budget_usage).toMatchObject({ rounds: 2, agent_calls: 2 });
+  });
+
   it("reports when an agent round completes the session like Python", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = deterministicIds();

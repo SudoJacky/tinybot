@@ -326,9 +326,11 @@ export class CoworkScheduler {
       });
       completedRounds += 1;
       agentCalls += selectedIds.length;
+      recordBudgetUsage(working, { rounds: 1, agentCalls: selectedIds.length });
       this.recordRoundProgress(working, beforeSignature);
       refreshCompletionDecision(working, this.now(), initialCompletionDecision);
       updateConsecutiveRuns(consecutiveRuns, selectedIds);
+      await this.store.writeSnapshot(normalizeCoworkSession(working), traceId);
       if (convergenceReached(working)) {
         lines.push(`Session stopped after ${working.no_progress_rounds} no-progress rounds.`);
         this.applyStopReason(working, "convergence", "Cowork scheduler stopped because recent rounds produced no new tracked progress", {
@@ -349,8 +351,10 @@ export class CoworkScheduler {
           lines,
         });
         agentCalls += 1;
+        recordBudgetUsage(working, { agentCalls: 1 });
         synthesisRan = true;
         refreshCompletionDecision(working, this.now(), initialCompletionDecision);
+        await this.store.writeSnapshot(normalizeCoworkSession(working), traceId);
       }
       if (working.status === "completed") {
         lines.push("Session completed.");
@@ -564,8 +568,8 @@ export class CoworkScheduler {
     session.budget_usage = {
       ...DEFAULT_BUDGET_USAGE,
       ...jsonSafeObject(session.budget_usage),
-      rounds: (numberValue(session.budget_usage.rounds) ?? 0) + rounds,
-      agent_calls: (numberValue(session.budget_usage.agent_calls) ?? 0) + agentCalls,
+      rounds: numberValue(session.budget_usage.rounds) ?? rounds,
+      agent_calls: numberValue(session.budget_usage.agent_calls) ?? agentCalls,
       wall_time_seconds: (numberValue(session.budget_usage.wall_time_seconds) ?? 0) + wallTimeSeconds,
       stop_reason: stopReason,
     };
@@ -660,6 +664,15 @@ function budgetState(session: CoworkSession): JsonObject {
     usage,
     remaining: budgetRemaining(limits, usage),
     stop_reason: stopReason,
+  };
+}
+
+function recordBudgetUsage(session: CoworkSession, usage: { rounds?: number; agentCalls?: number }): void {
+  session.budget_usage = {
+    ...DEFAULT_BUDGET_USAGE,
+    ...jsonSafeObject(session.budget_usage),
+    rounds: (numberValue(session.budget_usage.rounds) ?? 0) + (usage.rounds ?? 0),
+    agent_calls: (numberValue(session.budget_usage.agent_calls) ?? 0) + (usage.agentCalls ?? 0),
   };
 }
 
