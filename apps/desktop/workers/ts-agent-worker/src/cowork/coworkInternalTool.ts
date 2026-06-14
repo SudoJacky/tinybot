@@ -64,7 +64,7 @@ export function coworkInternalToolDefinition(): ToolDefinition {
         },
         status: {
           type: "string",
-          enum: ["idle", "working", "waiting", "blocked", "done", "failed", "completed"],
+          enum: ["idle", "working", "waiting", "blocked", "done", "failed", "completed", "skipped"],
           description: "Completion or agent status.",
         },
         role: {
@@ -326,7 +326,7 @@ export function createCoworkInternalTool(options: CoworkInternalToolOptions): To
         return { content: `Error: task '${taskId}' is assigned to ${task.assigned_agent_id}` };
       }
 
-      const status = cleanString(args.status) === "failed" ? "failed" : "completed";
+      const status = normalizeTaskCompletionStatus(args.status);
       const content = cleanString(args.content) || "Completed.";
       completeTask(session, task, agent.id, status, content, now, idGenerator);
       await options.store.writeSnapshot(normalizeCoworkSession(session), traceId);
@@ -1006,7 +1006,7 @@ function completeTask(
   session: CoworkSession,
   task: CoworkTask,
   agentId: string,
-  status: "completed" | "failed",
+  status: "completed" | "failed" | "skipped",
   content: string,
   now: () => string,
   idGenerator: CoworkIdGenerator,
@@ -1029,7 +1029,7 @@ function completeTask(
   session.current_focus_task = "";
   session.events = [
     ...session.events,
-    event(idGenerator, now, status === "failed" ? "task.failed" : "task.completed", `Task '${task.title}' ${status} by ${agentId}`, {
+    event(idGenerator, now, `task.${status}`, `Task '${task.title}' ${status} by ${agentId}`, {
       actorId: agentId,
       data: { task_id: task.id, source: "cowork_internal" },
     }),
@@ -1063,6 +1063,11 @@ function completeTask(
   }
   updateCompletionState(session, now);
   session.updated_at = now();
+}
+
+function normalizeTaskCompletionStatus(value: unknown): "completed" | "failed" | "skipped" {
+  const status = cleanString(value);
+  return status === "failed" || status === "skipped" ? status : "completed";
 }
 
 function updateCompletionState(session: CoworkSession, now: () => string): void {

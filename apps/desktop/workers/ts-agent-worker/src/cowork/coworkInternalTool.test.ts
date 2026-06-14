@@ -69,4 +69,64 @@ describe("cowork_internal tool", () => {
     expect(saved?.agents.lead.status).toBe("done");
     expect(saved?.tasks.finish.status).toBe("completed");
   });
+
+  it("preserves skipped status when completing internal tasks", async () => {
+    const store = createMemoryCoworkStore();
+    const idGenerator = deterministicIds();
+    const service = new CoworkService({
+      store,
+      now: () => fixedNow,
+      idGenerator,
+    });
+    const session = await service.createSession({
+      traceId: "trace-create",
+      goal: "Skip optional work",
+      title: "Skip task",
+      workflowMode: "team",
+      agents: [{
+        id: "lead",
+        name: "Lead",
+        role: "Lead",
+        goal: "Coordinate",
+        responsibilities: ["Decide"],
+      }],
+      tasks: [{
+        id: "optional",
+        title: "Optional",
+        description: "Optional work",
+        assigned_agent_id: "lead",
+      }],
+    });
+    const tool = createCoworkInternalTool({
+      store,
+      sessionId: session.id,
+      senderId: "lead",
+      now: () => fixedNow,
+      idGenerator,
+    });
+
+    await tool.execute({
+      action: "complete_task",
+      task_id: "optional",
+      status: "skipped",
+      content: "No longer needed.",
+    }, { runId: "run-1", traceId: "trace-skip" });
+
+    const saved = await store.readSnapshot(session.id, "trace-read");
+    expect(saved?.tasks.optional).toMatchObject({
+      status: "skipped",
+      result: "No longer needed.",
+      error: null,
+    });
+    expect(saved?.events.at(-1)).toMatchObject({
+      type: "task.skipped",
+      message: "Task 'Optional' skipped by lead",
+    });
+    expect(saved?.trace_spans.at(-1)).toMatchObject({
+      name: "Task skipped",
+      status: "skipped",
+    });
+    expect(saved?.status).toBe("completed");
+    expect(saved?.agents.lead.status).toBe("done");
+  });
 });
