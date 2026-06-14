@@ -2442,6 +2442,7 @@ function isSupportedTemporaryFileType(fileType: string): boolean {
 }
 
 function serializeWebuiMessage(message: Record<string, unknown>): Record<string, unknown> {
+  const metadata = isJsonObject(message.metadata) ? message.metadata : {};
   const payload: Record<string, unknown> = {
     role: typeof message.role === "string" ? message.role : "",
     content: message.content ?? "",
@@ -2450,6 +2451,8 @@ function serializeWebuiMessage(message: Record<string, unknown>): Record<string,
   for (const key of WEBUI_MESSAGE_METADATA_KEYS) {
     if (key in message) {
       payload[key] = message[key];
+    } else if (key in metadata) {
+      payload[key] = metadata[key];
     }
   }
   return payload;
@@ -2491,7 +2494,8 @@ function extractTaskPlanId(message: Record<string, unknown>): string {
 }
 
 function isInternalAgentUiToolResult(message: Record<string, unknown>): boolean {
-  if (message._agent_ui_internal === true) {
+  const metadata = isJsonObject(message.metadata) ? message.metadata : {};
+  if (message._agent_ui_internal === true || metadata._agent_ui_internal === true) {
     return true;
   }
   if (message.role !== "tool" || message.name !== "request_form") {

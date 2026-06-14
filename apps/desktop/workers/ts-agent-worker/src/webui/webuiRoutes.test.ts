@@ -150,6 +150,108 @@ describe("WebUI route temporary files", () => {
     expect(progressRequests).toEqual([{ planId: "plan-1", traceId: "trace-messages" }]);
   });
 
+  test("restores Agent UI form metadata and hides nested internal form messages", async () => {
+    const sessionProvider: WebuiSessionProvider = {
+      channelName: "websocket",
+      listSessions: () => [],
+      getSessionMessages: () => ({
+        sessionId: "websocket:chat-forms",
+        messages: [
+          {
+            role: "assistant",
+            content: "Please fill the form.",
+            timestamp: "2026-06-14T08:00:00.000Z",
+            metadata: {
+              _agent_ui_form_id: "travel_plan",
+              _agent_ui_form_status: "pending",
+              _agent_ui_form_display: {
+                form_id: "travel_plan",
+                status: "pending",
+                values: {},
+                errors: {},
+              },
+            },
+          },
+          {
+            role: "tool",
+            name: "request_form",
+            content: "internal form request",
+            timestamp: "2026-06-14T08:00:01.000Z",
+            metadata: { _agent_ui_internal: true },
+          },
+          {
+            role: "user",
+            content: "Agent UI form submitted: Travel plan",
+            timestamp: "2026-06-14T08:00:02.000Z",
+            metadata: {
+              _agent_ui_form_response: {
+                action: "submitted",
+                form_id: "travel_plan",
+                status: "submitted",
+                values: { destination: "Paris" },
+                errors: {},
+              },
+            },
+          },
+        ],
+      }),
+    };
+
+    const response = await handleWebuiRouteRequest(
+      {
+        method: "GET",
+        path: "/api/sessions/websocket%3Achat-forms/messages",
+      },
+      undefined,
+      undefined,
+      sessionProvider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "trace-form-history",
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      key: "websocket:chat-forms",
+      messages: [
+        {
+          role: "assistant",
+          content: "Please fill the form.",
+          timestamp: "2026-06-14T08:00:00.000Z",
+          _agent_ui_form_id: "travel_plan",
+          _agent_ui_form_status: "pending",
+          _agent_ui_form_display: {
+            form_id: "travel_plan",
+            status: "pending",
+            values: {},
+            errors: {},
+          },
+        },
+        {
+          role: "user",
+          content: "Agent UI form submitted: Travel plan",
+          timestamp: "2026-06-14T08:00:02.000Z",
+          _agent_ui_form_response: {
+            action: "submitted",
+            form_id: "travel_plan",
+            status: "submitted",
+            values: { destination: "Paris" },
+            errors: {},
+          },
+        },
+      ],
+    });
+  });
+
   test("allows temporary file upload for the configured WebUI channel prefix", async () => {
     const uploads: Array<{ sessionId: string; traceId: string; name: string }> = [];
     const sessionProvider: WebuiSessionProvider = {

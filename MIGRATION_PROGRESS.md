@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued WebUI transport Agent UI form history parity: TS-native session message serialization now restores nested form display/response metadata as Python-compatible top-level WebUI fields and hides nested internal Agent UI form tool messages.
+
 - Continued WebUI transport Agent UI form validation parity: TS-native form continuation now validates checkpoint-backed form schemas before resume, returns Python-compatible validation/expired events and HTTP statuses, and leaves the paused run untouched on invalid or expired submissions.
 
 - Continued WebUI transport Agent UI form event parity: TS-native form submit/cancel responses now derive Python-shaped `agent_ui_event` identity and full correlation payloads from checkpoint metadata instead of echoing only the request correlation.
