@@ -2620,6 +2620,90 @@ describe("AgentWorker", () => {
     ]);
   });
 
+  test("returns Python-compatible Knowledge API error envelopes through TS worker RPC", async () => {
+    const workerWithoutKnowledge = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+    });
+    await expect(workerWithoutKnowledge.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
+      path: "/v1/knowledge/stats",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 503,
+        body: {
+          error: {
+            message: "Knowledge store not initialized",
+            type: "invalid_request_error",
+            code: 503,
+          },
+        },
+      },
+    });
+
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      knowledgeProvider: {
+        listDocuments: () => ({ documents: [] }),
+        addDocument: () => ({ document: { id: "doc-1", name: "Doc" } }),
+        getDocument: () => undefined,
+        deleteDocument: () => ({ deleted: false }),
+        query: () => ({ results: [] }),
+        stats: () => ({ total_documents: 0, total_chunks: 0 }),
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/v1/knowledge/documents",
+      body: { content: "body" },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: {
+          error: {
+            message: "Document name is required",
+            type: "invalid_request_error",
+            code: 400,
+          },
+        },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/v1/knowledge/query",
+      body: undefined,
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: {
+          error: {
+            message: "Invalid JSON body",
+            type: "invalid_request_error",
+            code: 400,
+          },
+        },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
+      path: "/v1/knowledge/jobs/missing",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 404,
+        body: {
+          error: {
+            message: "Knowledge job missing not found",
+            type: "invalid_request_error",
+            code: 404,
+          },
+        },
+      },
+    });
+  });
+
   test("serves WebUI session list control route through TS worker RPC", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),

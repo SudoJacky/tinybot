@@ -478,7 +478,7 @@ export async function handleWebuiRouteRequest(
   }
   if (method === "GET" && path === "/v1/knowledge/stats") {
     if (!knowledgeProvider) {
-      return { status: 503, body: { error: "Knowledge store not initialized" } };
+      return { status: 503, body: knowledgeApiError(503, "Knowledge store not initialized") };
     }
     return { status: 200, body: knowledgeStatsBody(await knowledgeProvider.stats(traceId)) };
   }
@@ -1091,7 +1091,7 @@ async function knowledgeListDocumentsResponse(
   traceId: string,
 ): Promise<WebuiRouteResponse> {
   if (!provider) {
-    return { status: 503, body: { error: "Knowledge store not initialized" } };
+    return { status: 503, body: knowledgeApiError(503, "Knowledge store not initialized") };
   }
   const request: WebuiKnowledgeListRequest = {};
   const category = query.get("category");
@@ -1120,18 +1120,18 @@ async function knowledgeAddDocumentResponse(
   traceId: string,
 ): Promise<WebuiRouteResponse> {
   if (!provider) {
-    return { status: 503, body: { error: "Knowledge store not initialized" } };
+    return { status: 503, body: knowledgeApiError(503, "Knowledge store not initialized") };
   }
   if (!isJsonObject(body)) {
-    return { status: 400, body: { error: "Invalid JSON body" } };
+    return { status: 400, body: knowledgeApiError(400, "Invalid JSON body") };
   }
   const name = stringValue(body.name);
   const content = stringValue(body.content);
   if (!name) {
-    return { status: 400, body: { error: "Document name is required" } };
+    return { status: 400, body: knowledgeApiError(400, "Document name is required") };
   }
   if (!content) {
-    return { status: 400, body: { error: "Document content is required" } };
+    return { status: 400, body: knowledgeApiError(400, "Document content is required") };
   }
   const result = await provider.addDocument(body, traceId);
   const document = documentFromResult(result);
@@ -1154,22 +1154,22 @@ async function knowledgeUploadDocumentResponse(
   traceId: string,
 ): Promise<WebuiRouteResponse> {
   if (!provider) {
-    return { status: 503, body: { error: "Knowledge store not initialized" } };
+    return { status: 503, body: knowledgeApiError(503, "Knowledge store not initialized") };
   }
   if (!isJsonObject(body)) {
-    return { status: 400, body: { error: "No file uploaded" } };
+    return { status: 400, body: knowledgeApiError(400, "No file uploaded") };
   }
   const name = stringValue(body.name) ?? stringValue(body.filename);
   const content = stringValue(body.content);
   if (!name || content === undefined) {
-    return { status: 400, body: { error: "No file uploaded" } };
+    return { status: 400, body: knowledgeApiError(400, "No file uploaded") };
   }
   const fileType = canonicalTextFileType(stringValue(body.file_type) ?? stringValue(body.fileType) ?? extensionFromName(name));
   if (!isTextLikeKnowledgeUploadType(fileType)) {
-    return { status: 400, body: { error: `Unsupported file type '${fileType}'. Supported: csv, json, md, txt` } };
+    return { status: 400, body: knowledgeApiError(400, `Unsupported file type '${fileType}'. Supported: csv, json, md, txt`) };
   }
   if (!content.trim()) {
-    return { status: 400, body: { error: "File content is empty" } };
+    return { status: 400, body: knowledgeApiError(400, "File content is empty") };
   }
   const uploadBody: Record<string, unknown> = {
     name,
@@ -1218,19 +1218,19 @@ async function knowledgeDocumentResponse(
   traceId: string,
 ): Promise<WebuiRouteResponse> {
   if (!provider) {
-    return { status: 503, body: { error: "Knowledge store not initialized" } };
+    return { status: 503, body: knowledgeApiError(503, "Knowledge store not initialized") };
   }
   if (method === "DELETE") {
     const result = asObject(await provider.deleteDocument(docId, traceId));
     if (result?.deleted !== true) {
-      return { status: 404, body: { error: `Document ${docId} not found` } };
+      return { status: 404, body: knowledgeApiError(404, `Document ${docId} not found`) };
     }
     return { status: 200, body: { id: docId, message: `Document ${docId} deleted successfully` } };
   }
   const result = await provider.getDocument(docId, traceId);
   const document = documentFromResult(result);
   if (!document) {
-    return { status: 404, body: { error: `Document ${docId} not found` } };
+    return { status: 404, body: knowledgeApiError(404, `Document ${docId} not found`) };
   }
   return {
     status: 200,
@@ -1247,7 +1247,7 @@ async function knowledgeJobResponse(
   traceId: string,
 ): Promise<WebuiRouteResponse> {
   if (!provider) {
-    return { status: 503, body: { error: "Knowledge store not initialized" } };
+    return { status: 503, body: knowledgeApiError(503, "Knowledge store not initialized") };
   }
   if (jobId === "kjob_rebuild_bm25") {
     const stats = knowledgeStatsBody(await provider.stats(traceId));
@@ -1263,12 +1263,12 @@ async function knowledgeJobResponse(
   }
   const docId = knowledgeUploadJobDocumentId(jobId);
   if (!docId) {
-    return { status: 404, body: { error: `Knowledge job ${jobId} not found` } };
+    return { status: 404, body: knowledgeApiError(404, `Knowledge job ${jobId} not found`) };
   }
   const result = await provider.getDocument(docId, traceId);
   const document = documentFromResult(result);
   if (!document) {
-    return { status: 404, body: { error: `Knowledge job ${jobId} not found` } };
+    return { status: 404, body: knowledgeApiError(404, `Knowledge job ${jobId} not found`) };
   }
   const name = stringValue(document.name) ?? docId;
   return { status: 200, body: completedKnowledgeUploadJob(docId, name) };
@@ -1280,7 +1280,7 @@ async function knowledgeRebuildIndexResponse(
   traceId: string,
 ): Promise<WebuiRouteResponse> {
   if (!provider) {
-    return { status: 503, body: { error: "Knowledge store not initialized" } };
+    return { status: 503, body: knowledgeApiError(503, "Knowledge store not initialized") };
   }
   const rebuildType = query.get("type") ?? "bm25";
   if (rebuildType !== "bm25" && rebuildType !== "all" && rebuildType !== "semantic") {
@@ -1338,7 +1338,7 @@ async function knowledgeGraphResponse(
   traceId: string,
 ): Promise<WebuiRouteResponse> {
   if (!provider) {
-    return { status: 503, body: { error: "Knowledge store not initialized" } };
+    return { status: 503, body: knowledgeApiError(503, "Knowledge store not initialized") };
   }
   const params = parseKnowledgeGraphQuery(query);
   if (!params.ok) {
@@ -1354,14 +1354,14 @@ async function knowledgeQueryResponse(
   traceId: string,
 ): Promise<WebuiRouteResponse> {
   if (!provider) {
-    return { status: 503, body: { error: "Knowledge store not initialized" } };
+    return { status: 503, body: knowledgeApiError(503, "Knowledge store not initialized") };
   }
   if (!isJsonObject(body)) {
-    return { status: 400, body: { error: "Invalid JSON body" } };
+    return { status: 400, body: knowledgeApiError(400, "Invalid JSON body") };
   }
   const query = stringValue(body.query);
   if (!query) {
-    return { status: 400, body: { error: "Query text is required" } };
+    return { status: 400, body: knowledgeApiError(400, "Query text is required") };
   }
   const result = await provider.query(body, traceId);
   const data = arrayFromResult(result, "results");
@@ -1541,7 +1541,7 @@ async function knowledgeGraphRagResponse(
   traceId: string,
 ): Promise<WebuiRouteResponse> {
   if (!provider) {
-    return { status: 503, body: { error: "Knowledge store not initialized" } };
+    return { status: 503, body: knowledgeApiError(503, "Knowledge store not initialized") };
   }
   const config = configProvider ? await configProvider.getConfig(traceId) : {};
   const params = parseKnowledgeGraphRagQuery(query, graphRagCommunityLevel(config));
