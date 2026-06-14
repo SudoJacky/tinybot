@@ -105,6 +105,14 @@ export type KnowledgeDocumentsOptions = {
   limit?: number;
 };
 
+export type KnowledgeGraphOptions = {
+  docId?: string;
+  limit?: number;
+  edgeLimit?: number;
+  minConfidence?: number;
+  includeOrphans?: boolean;
+};
+
 export type KnowledgeGraphRagOptions = {
   docId?: string;
   minConfidence?: number;
@@ -563,11 +571,14 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         () => request("/v1/knowledge/stats"),
         "knowledge.stats",
       ),
-      graph: () => nativeOrGateway(
-        () => options.nativeWebui?.route({ method: "GET", path: "/v1/knowledge/graph" }),
-        () => request("/v1/knowledge/graph"),
-        "knowledge.graph",
-      ),
+      graph: (graphOptions: KnowledgeGraphOptions = {}) => {
+        const path = knowledgeGraphPath(graphOptions);
+        return nativeOrGateway(
+          () => options.nativeWebui?.route({ method: "GET", path }),
+          () => request(path),
+          "knowledge.graph",
+        );
+      },
       graphrag: (graphRagOptions: KnowledgeGraphRagOptions = {}) => {
         const path = knowledgeGraphRagPath(graphRagOptions);
         return nativeOrGateway(
@@ -1530,6 +1541,27 @@ function knowledgeDocumentsPath(options: KnowledgeDocumentsOptions): string {
   }
   const query = params.toString();
   return query ? `/v1/knowledge/documents?${query}` : "/v1/knowledge/documents";
+}
+
+function knowledgeGraphPath(options: KnowledgeGraphOptions): string {
+  const params = new URLSearchParams();
+  if (options.docId) {
+    params.set("doc_id", options.docId);
+  }
+  if (typeof options.limit === "number" && Number.isFinite(options.limit)) {
+    params.set("limit", String(options.limit));
+  }
+  if (typeof options.edgeLimit === "number" && Number.isFinite(options.edgeLimit)) {
+    params.set("edge_limit", String(options.edgeLimit));
+  }
+  if (typeof options.minConfidence === "number" && Number.isFinite(options.minConfidence)) {
+    params.set("min_confidence", String(options.minConfidence));
+  }
+  if (typeof options.includeOrphans === "boolean") {
+    params.set("include_orphans", String(options.includeOrphans));
+  }
+  const query = params.toString();
+  return query ? `/v1/knowledge/graph?${query}` : "/v1/knowledge/graph";
 }
 
 function knowledgeGraphRagPath(options: KnowledgeGraphRagOptions): string {

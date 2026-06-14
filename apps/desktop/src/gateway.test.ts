@@ -1247,6 +1247,19 @@ describe("gateway HTTP client", () => {
         path: "/v1/knowledge/graph",
       },
     });
+    await expect(client.knowledge.graph({
+      docId: "docs/knowledge.md",
+      limit: 20,
+      edgeLimit: 40,
+      minConfidence: 0.2,
+      includeOrphans: true,
+    })).resolves.toEqual({
+      native: true,
+      request: {
+        method: "GET",
+        path: "/v1/knowledge/graph?doc_id=docs%2Fknowledge.md&limit=20&edge_limit=40&min_confidence=0.2&include_orphans=true",
+      },
+    });
     await expect(client.knowledge.graphrag()).resolves.toEqual({
       native: true,
       request: {
