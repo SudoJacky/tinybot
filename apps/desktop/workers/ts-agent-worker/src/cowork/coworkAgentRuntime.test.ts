@@ -2228,6 +2228,29 @@ describe("CoworkAgentRuntime", () => {
         }),
       }),
     ]));
+    const appendedToolEvents = seeded.appendedEvents.filter((item) => item.event.type === "tool_observation.recorded");
+    expect(appendedToolEvents).toEqual([
+      expect.objectContaining({
+        sessionId: "cw_1",
+        traceId: "trace-agent",
+        event: expect.objectContaining({
+          schema: "cowork.event_log.v1",
+          id: "toolobs_1",
+          type: "tool_observation.recorded",
+          category: "observation",
+          actor_id: "lead",
+          created_at: fixedNow,
+          payload: expect.objectContaining({
+            tool_observation: expect.objectContaining({
+              id: "toolobs_1",
+              step_id: "step_1",
+              tool_name: "cowork_internal",
+              detail_ref: "obsdetail_1",
+            }),
+          }),
+        }),
+      }),
+    ]);
   });
 
   it("derives sensitive browser observations from URL-bearing tool events", async () => {
@@ -2307,6 +2330,31 @@ describe("CoworkAgentRuntime", () => {
       redacted: true,
       created_at: fixedNow,
     });
+    const appendedBrowserEvents = seeded.appendedEvents.filter((item) => item.event.type === "browser_observation.recorded");
+    expect(appendedBrowserEvents).toEqual([
+      expect.objectContaining({
+        sessionId: "cw_1",
+        traceId: "trace-agent",
+        event: expect.objectContaining({
+          schema: "cowork.event_log.v1",
+          id: "browserobs_1",
+          type: "browser_observation.recorded",
+          category: "observation",
+          actor_id: "lead",
+          created_at: fixedNow,
+          payload: expect.objectContaining({
+            browser_observation: expect.objectContaining({
+              id: "browserobs_1",
+              step_id: "step_1",
+              resource_ref: "http://localhost:3000/preview",
+              detail_ref: "obsdetail_2",
+              sensitive: true,
+              redacted: true,
+            }),
+          }),
+        }),
+      }),
+    ]);
   });
 
   it("parses structured complete_task results from cowork_internal", async () => {

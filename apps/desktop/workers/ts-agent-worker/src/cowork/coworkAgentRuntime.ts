@@ -239,6 +239,7 @@ export class CoworkAgentRuntime {
       const freshTask = taskId ? fresh.tasks[taskId] : undefined;
       this.applyFailure(fresh, freshAgent, freshTask, message, stepId, agentSpanId);
       const saved = await this.store.writeSnapshot(normalizeCoworkSession(fresh), traceId);
+      await this.appendObservationEventLogRecords(saved, stepId, toolObservationState.pending, traceId);
       await this.appendAgentStepFinishedEvent(saved, stepId, traceId);
       return {
         session: saved,
@@ -261,6 +262,7 @@ export class CoworkAgentRuntime {
     const freshTask = task ? fresh.tasks[task.id] : undefined;
     this.applyProgress(fresh, freshAgent, freshTask, progress, result, stepId, agentSpanId);
     const saved = await this.store.writeSnapshot(normalizeCoworkSession(fresh), traceId);
+    await this.appendObservationEventLogRecords(saved, stepId, toolObservationState.pending, traceId);
     await this.appendAgentStepFinishedEvent(saved, stepId, traceId);
     return {
       session: saved,
@@ -918,6 +920,33 @@ export class CoworkAgentRuntime {
     session.updated_at = this.now();
   }
 
+  private async appendObservationEventLogRecords(
+    session: CoworkSession,
+    stepId: string,
+    pending: PendingToolObservation[],
+    traceId: string,
+  ): Promise<void> {
+    if (!this.store.appendEvent || pending.length === 0) {
+      return;
+    }
+    const step = session.agent_steps.find((item) => stringValue(item.id) === stepId);
+    const actorId = cleanString(step?.agent_id);
+    for (const item of pending) {
+      await this.store.appendEvent(
+        session.id,
+        toolObservationRecordedEvent(session.id, item.observation, actorId, this.now),
+        traceId,
+      );
+      if (item.browserObservation) {
+        await this.store.appendEvent(
+          session.id,
+          browserObservationRecordedEvent(session.id, item.browserObservation, actorId, this.now),
+          traceId,
+        );
+      }
+    }
+  }
+
   private async appendAgentStepFinishedEvent(session: CoworkSession, stepId: string, traceId: string): Promise<void> {
     if (!this.store.appendEvent) {
       return;
@@ -1018,6 +1047,34 @@ function agentStepFinishedEvent(sessionId: string, step: JsonObject, now: () => 
     actor_id: cleanString(step.agent_id) || null,
     payload: { agent_step: jsonSafeObject(step) },
     created_at: cleanString(step.ended_at) || now(),
+  };
+}
+
+function toolObservationRecordedEvent(sessionId: string, observation: JsonObject, actorId: string, now: () => string): JsonObject {
+  const observationId = cleanString(observation.id);
+  return {
+    schema: "cowork.event_log.v1",
+    id: observationId,
+    session_id: sessionId,
+    category: "observation",
+    type: "tool_observation.recorded",
+    actor_id: cleanString(observation.calling_agent_id) || actorId || null,
+    payload: { tool_observation: jsonSafeObject(observation) },
+    created_at: cleanString(observation.ended_at) || now(),
+  };
+}
+
+function browserObservationRecordedEvent(sessionId: string, observation: JsonObject, actorId: string, now: () => string): JsonObject {
+  const observationId = cleanString(observation.id);
+  return {
+    schema: "cowork.event_log.v1",
+    id: observationId,
+    session_id: sessionId,
+    category: "observation",
+    type: "browser_observation.recorded",
+    actor_id: actorId || null,
+    payload: { browser_observation: jsonSafeObject(observation) },
+    created_at: cleanString(observation.ended_at) || now(),
   };
 }
 
