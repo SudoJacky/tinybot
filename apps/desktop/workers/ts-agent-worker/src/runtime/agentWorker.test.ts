@@ -2034,6 +2034,77 @@ describe("AgentWorker", () => {
     ]));
   });
 
+  test("rejects WebUI Agent UI form routes with mismatched checkpoint correlation", async () => {
+    const appendedMessages: AgentMessage[][] = [];
+    const clearedSessions: string[] = [];
+    const worker = new AgentWorker({
+      provider: new QueueProvider([{ content: "should not continue", toolCalls: [], stopReason: "stop" }]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      sessionBridge: {
+        setCheckpoint: async () => undefined,
+        clearCheckpoint: async (sessionId) => {
+          clearedSessions.push(sessionId);
+        },
+        appendMessages: async (_sessionId, messages) => {
+          appendedMessages.push(messages);
+        },
+        getCheckpoint: async (sessionId) => ({
+          sessionId,
+          runId: "run-form-1",
+          phase: "tools_completed",
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+          messages: [
+            { role: "user", content: "collect preferences" },
+            {
+              role: "assistant",
+              content: "",
+              toolCalls: [{ id: "form-call-1", name: "request_form", argumentsJson: "{}" }],
+            },
+            {
+              role: "tool",
+              content: "Waiting for form submission.",
+              toolCallId: "form-call-1",
+              name: "request_form",
+              metadata: {
+                awaitingUserInput: true,
+                stopReason: "awaiting_form",
+                formId: "travel_plan",
+                correlation: {
+                  session_key: "websocket:chat-forms",
+                  run_id: "run-form-1",
+                  interaction_id: "interaction-1",
+                },
+              },
+            },
+          ],
+        }),
+      },
+    });
+
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/api/agent-ui/forms/travel_plan/submit",
+      body: {
+        correlation: {
+          session_key: "websocket:chat-forms",
+          run_id: "other-run",
+          interaction_id: "interaction-1",
+        },
+        values: { destination: "Paris" },
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 409,
+        body: { error: "form correlation mismatch" },
+      },
+    });
+    expect(appendedMessages).toEqual([]);
+    expect(clearedSessions).toEqual([]);
+  });
+
   test("serves WebUI workspace file routes through TS worker RPC", async () => {
     const calls: Array<{ method: string; path?: string; contents?: string; expectedUpdatedAt?: string | null }> = [];
     const worker = new AgentWorker({

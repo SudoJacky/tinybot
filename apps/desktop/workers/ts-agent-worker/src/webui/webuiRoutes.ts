@@ -2148,6 +2148,9 @@ async function webuiAgentUiFormResponse(
       ),
     };
   } catch (error) {
+    if (error instanceof Error && error.message === "form correlation mismatch") {
+      return { status: 409, body: { error: "form correlation mismatch" } };
+    }
     return {
       status: 409,
       body: {

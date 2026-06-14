@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued WebUI transport Agent UI form correlation parity: TS-native form continuation now rejects checkpoint correlation mismatches with Python-compatible `409 {"error": "form correlation mismatch"}` responses before resuming the agent run.
+
 - Continued WebUI transport Agent UI form resume parity: TS checkpoint resume projections now mirror Python `schedule_form_response` text for submitted and cancelled forms, including sorted JSON structured values in the model-facing tool result.
 
 - Continued WebUI transport Agent UI form parity: TS-native form cancel routes now ignore malformed `values` payloads like Python cancellation handlers while keeping submit-route `values` validation strict.

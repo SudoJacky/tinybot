@@ -253,6 +253,7 @@ type FormSubmissionRequest = {
   formId: string;
   values: Record<string, unknown>;
   action: "submitted" | "cancelled";
+  correlation?: Record<string, unknown>;
 };
 
 export class AgentWorker {
@@ -3437,6 +3438,7 @@ export class AgentWorker {
       formId: form.formId,
       action: form.action,
       values: form.values,
+      correlation: form.correlation,
     }, checkpoint);
     const event = webuiAgentUiFormEvent(form);
     return {
@@ -4003,12 +4005,16 @@ function parseSubmitFormParams(params: Record<string, unknown> | undefined): For
   if (object.values !== undefined && !isJsonObject(object.values)) {
     throw new Error("agent.submit_form params.values must be an object when provided");
   }
+  if (object.correlation !== undefined && !isJsonObject(object.correlation)) {
+    throw new Error("agent.submit_form params.correlation must be an object when provided");
+  }
   const action = parseFormSubmissionAction(object.action);
   return {
     sessionId,
     formId,
     values: isJsonObject(object.values) ? object.values : {},
     action,
+    correlation: isJsonObject(object.correlation) ? object.correlation : undefined,
   };
 }
 

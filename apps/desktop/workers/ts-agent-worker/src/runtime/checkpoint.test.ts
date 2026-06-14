@@ -248,4 +248,44 @@ describe("checkpoint resume helpers", () => {
       ],
     });
   });
+
+  test("rejects submitted forms with mismatched checkpoint correlation", () => {
+    const checkpoint = {
+      runId: "run-form",
+      model: "test-model",
+      messages: [
+        { role: "user", content: "book trip" },
+        {
+          role: "tool",
+          content: "Waiting for form submission.",
+          toolCallId: "call-form",
+          name: "request_form",
+          metadata: {
+            awaitingUserInput: true,
+            stopReason: "awaiting_form",
+            formId: "travel_plan",
+            correlation: {
+              session_key: "websocket:chat-1",
+              run_id: "run-form",
+              message_id: "message-1",
+              interaction_id: "interaction-1",
+            },
+          },
+        },
+      ],
+    };
+
+    expect(() => resumedSpecFromSubmittedForm(checkpoint, {
+      sessionId: "websocket:chat-1",
+      formId: "travel_plan",
+      action: "submitted",
+      values: { destination: "Tokyo" },
+      correlation: {
+        session_key: "websocket:chat-1",
+        run_id: "other-run",
+        message_id: "message-1",
+        interaction_id: "interaction-1",
+      },
+    })).toThrow("form correlation mismatch");
+  });
 });

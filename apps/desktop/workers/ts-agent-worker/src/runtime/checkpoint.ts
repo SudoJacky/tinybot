@@ -84,6 +84,7 @@ export type FormProjection = {
   formId: string;
   action: "submitted" | "cancelled";
   values: Record<string, unknown>;
+  correlation?: Record<string, unknown>;
 };
 
 export function approvalOperationFromCheckpoint(
@@ -164,6 +165,7 @@ export function resumedSpecFromSubmittedForm(
     throw new Error("form checkpoint does not contain a matching awaiting form tool result");
   }
   const formToolMessage = messages[formToolIndex];
+  assertFormCorrelationMatches(formToolMessage.metadata, projection.correlation);
   const formResultMessage: AgentMessage = {
     role: "tool",
     content: formatFormSubmissionContent(projection),
@@ -315,6 +317,31 @@ function formatFormSubmissionContent(submission: FormProjection): string {
     return `Agent UI form \`${submission.formId}\` was cancelled by the user for ${formTitle}.`;
   }
   return `Agent UI form \`${submission.formId}\` was submitted for ${formTitle}.\n\nStructured values:\n\`\`\`json\n${formatPythonJsonValue(submission.values)}\n\`\`\``;
+}
+
+function assertFormCorrelationMatches(
+  metadata: Record<string, unknown> | undefined,
+  suppliedCorrelation: Record<string, unknown> | undefined,
+): void {
+  if (!metadata || !suppliedCorrelation) {
+    return;
+  }
+  const expectedCorrelation = isJsonObject(metadata.correlation) ? metadata.correlation : metadata;
+  for (const key of ["session_key", "chat_id", "run_id", "message_id", "interaction_id"]) {
+    const expected = stringCorrelationValue(expectedCorrelation[key]);
+    const supplied = stringCorrelationValue(suppliedCorrelation[key]);
+    if (expected && supplied && expected !== supplied) {
+      throw new Error("form correlation mismatch");
+    }
+  }
+}
+
+function stringCorrelationValue(value: unknown): string | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  const normalized = String(value);
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 function formatPythonJsonValue(value: unknown): string {
