@@ -219,6 +219,8 @@ export function createCoworkInternalTool(options: CoworkInternalToolOptions): To
         const correlationId = cleanString(args.correlation_id);
         const replyToEnvelopeId = cleanString(args.reply_to_envelope_id);
         const inferred = inferReplyContext(session, agent.id, recipientIds, threadId, correlationId, replyToEnvelopeId);
+        const toolCallId = cleanString(args._tool_call_id);
+        const draftId = cleanString(args._draft_id) || (toolCallId ? `${session.id}:${agent.id}:${toolCallId}` : "");
         const mailbox = new CoworkMailbox({ now, idGenerator });
         const message = mailbox.deliver(session, {
           sender_id: agent.id,
@@ -241,8 +243,8 @@ export function createCoworkInternalTool(options: CoworkInternalToolOptions): To
           expected_output_schema: isJsonObject(args.expected_output_schema) ? args.expected_output_schema : {},
           blocking_task_id: cleanString(args.blocking_task_id) || null,
           escalate_after_rounds: boundedIntOrNull(args.escalate_after_rounds, 1, 20),
-          tool_call_id: cleanString(args._tool_call_id) || null,
-          draft_id: cleanString(args._draft_id) || null,
+          tool_call_id: toolCallId || null,
+          draft_id: draftId || null,
         } satisfies CoworkEnvelope);
         await options.store.writeSnapshot(normalizeCoworkSession(session), traceId);
         const record = Object.values(session.mailbox).find((item) => item.message_id === message.id);
@@ -313,7 +315,7 @@ export function createCoworkInternalTool(options: CoworkInternalToolOptions): To
       }
       if (action === "retire_agent") {
         const targetAgentId = cleanString(args.assigned_agent_id) || cleanString(args.agent_id) || agent.id;
-        const retired = retireAgent(session, targetAgentId, cleanString(args.content), now, idGenerator);
+        const retired = retireAgent(session, targetAgentId, cleanString(args.content) || cleanString(args.reason), now, idGenerator);
         if (typeof retired === "string") {
           await options.store.writeSnapshot(normalizeCoworkSession(session), traceId);
           return {
@@ -348,7 +350,7 @@ export function createCoworkInternalTool(options: CoworkInternalToolOptions): To
           subscriptions: stringList(args.subscriptions),
           reason: cleanString(args.content) || cleanString(args.reason),
           name: "",
-          sourceEventId: "",
+          sourceEventId: cleanString(args.caused_by_envelope_id) || cleanString(args.reply_to_envelope_id),
           teamId: cleanString(args.team_id),
           workUnitId: cleanString(args.work_unit_id),
         }, now, idGenerator);

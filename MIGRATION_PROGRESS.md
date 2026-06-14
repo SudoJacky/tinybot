@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Cowork internal lifecycle metadata parity: TS-native `cowork_internal` now mirrors Python fallbacks for retire reasons, spawned-agent source envelope ids, and generated mailbox draft ids from `_tool_call_id`.
+
 - Continued Cowork internal reply lifecycle parity: TS-native `cowork_internal send_message` now infers reply context for responses to pending mailbox requests like Python, reusing the original thread/correlation and marking the source envelope as replied.
 
 - Continued Cowork internal mailbox parity: TS-native `cowork_internal send_message` now delivers through the migrated `CoworkMailbox`, creating Python-style mailbox records, queued/delivered events, trace spans, correlation/lineage ids, wake decisions, and reply metadata instead of bypassing the mailbox with a raw message write.
@@ -1385,6 +1387,7 @@ Heartbeat row 20 update: Phase 4 now runs scheduled notifications through the sh
 - [x] Continue Cowork Phase 10: preserve selected-session architecture on desktop Cowork run action requests for swarm rollout fallback gating.
 - [x] Continue Cowork Phase 10: preserve selected-session architecture on desktop recipientless message requests so non-swarm group messages use the mutation rollout gate.
 - [x] Continue Cowork Phase 10: preserve target-branch architecture on desktop branch select requests so non-swarm branch selections use the mutation rollout gate.
+- [x] Continue Cowork internal lifecycle metadata parity: mirror Python retire reason fallback, spawned-agent source envelope ids, and `_tool_call_id` draft ids.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.
 - [x] Continue session turn lifecycle evidence durability: capture memory evidence from native `saved_messages` for partial-duplicate persisted turns.

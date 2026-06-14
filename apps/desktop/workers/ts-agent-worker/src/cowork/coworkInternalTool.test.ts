@@ -204,7 +204,7 @@ describe("cowork_internal tool", () => {
     const result = await tool.execute({
       action: "retire_agent",
       agent_id: "helper",
-      content: "Helper is no longer needed.",
+      reason: "Helper is no longer needed.",
     }, { runId: "run-1", traceId: "trace-retire" });
 
     const saved = await store.readSnapshot(session.id, "trace-read");
@@ -258,6 +258,7 @@ describe("cowork_internal tool", () => {
       action: "spawn_agent",
       role: "Researcher",
       content: "Investigate TS cowork internal parity.",
+      caused_by_envelope_id: "env_request",
     }, { runId: "run-1", traceId: "trace-spawn" });
 
     const saved = await store.readSnapshot(session.id, "trace-read");
@@ -265,11 +266,18 @@ describe("cowork_internal tool", () => {
     expect(saved?.agents.researcher).toMatchObject({
       goal: "Investigate TS cowork internal parity.",
       spawn_reason: "Investigate TS cowork internal parity.",
+      source_event_id: "env_request",
     });
     const delegatedTaskId = saved?.agents.researcher.delegated_task_id ?? "";
     const delegatedBriefId = saved?.delegated_tasks[delegatedTaskId]?.brief_id ?? "";
     expect(saved?.delegated_briefs[delegatedBriefId]).toMatchObject({
       task_goal: "Investigate TS cowork internal parity.",
+    });
+    expect(saved?.events.at(-1)).toMatchObject({
+      type: "agent.spawned",
+      data: {
+        source_event_id: "env_request",
+      },
     });
   });
 
@@ -321,6 +329,7 @@ describe("cowork_internal tool", () => {
       event_type: "review_requested",
       request_type: "verify",
       priority: 250,
+      _tool_call_id: "tool-call-1",
     }, { runId: "run-1", traceId: "trace-message" });
 
     const saved = await store.readSnapshot(session.id, "trace-read");
@@ -342,6 +351,8 @@ describe("cowork_internal tool", () => {
       correlation_id: expect.any(String),
       lineage_id: expect.any(String),
       wake_recipients: true,
+      tool_call_id: "tool-call-1",
+      draft_id: `${session.id}:lead:tool-call-1`,
     });
     expect(saved?.events.map((event) => event.type)).toEqual(expect.arrayContaining([
       "mailbox.queued",
