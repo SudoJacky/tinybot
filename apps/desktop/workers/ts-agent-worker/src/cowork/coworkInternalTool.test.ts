@@ -252,6 +252,80 @@ describe("cowork_internal tool", () => {
     });
   });
 
+  it("preserves Python send_message envelope metadata on internal messages", async () => {
+    const store = createMemoryCoworkStore();
+    const idGenerator = deterministicIds();
+    const service = new CoworkService({
+      store,
+      now: () => fixedNow,
+      idGenerator,
+    });
+    const session = await service.createSession({
+      traceId: "trace-create",
+      goal: "Ask for verification",
+      title: "Verify",
+      workflowMode: "team",
+      agents: [
+        {
+          id: "lead",
+          name: "Lead",
+          role: "Lead",
+          goal: "Coordinate",
+          responsibilities: ["Coordinate"],
+        },
+        {
+          id: "helper",
+          name: "Helper",
+          role: "Helper",
+          goal: "Verify",
+          responsibilities: ["Verify"],
+        },
+      ],
+      tasks: [],
+    });
+    const tool = createCoworkInternalTool({
+      store,
+      sessionId: session.id,
+      senderId: "lead",
+      now: () => fixedNow,
+      idGenerator,
+    });
+
+    const result = await tool.execute({
+      action: "send_message",
+      recipient_ids: ["helper"],
+      content: "Please verify the runtime parity.",
+      requires_reply: true,
+      topic: "verification",
+      event_type: "review_requested",
+      request_type: "verify",
+      priority: 250,
+    }, { runId: "run-1", traceId: "trace-message" });
+
+    const saved = await store.readSnapshot(session.id, "trace-read");
+    const messageId = String(result.metadata?.message_id ?? "");
+    expect(saved?.messages[messageId]).toMatchObject({
+      sender_id: "lead",
+      recipient_ids: ["helper"],
+      content: "Please verify the runtime parity.",
+      visibility: "direct",
+      kind: "question",
+      topic: "verification",
+      event_type: "review_requested",
+      request_type: "verify",
+      requires_reply: true,
+      priority: 100,
+    });
+    expect(saved?.events.at(-1)?.data).toMatchObject({
+      message_id: messageId,
+      topic: "verification",
+      event_type: "review_requested",
+      request_type: "verify",
+      requires_reply: true,
+      priority: 100,
+    });
+  });
+
   it("leaves confidence unset when structured task results omit confidence", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = deterministicIds();

@@ -151,6 +151,11 @@ export function createCoworkInternalTool(options: CoworkInternalToolOptions): To
           content,
           recipientIds: stringList(args.recipient_ids),
           threadId: cleanString(args.thread_id),
+          topic: cleanString(args.topic),
+          eventType: cleanString(args.event_type),
+          requestType: normalizeRequestType(args.request_type),
+          requiresReply: booleanValue(args.requires_reply),
+          priority: clampPriority(args.priority),
         }, now, idGenerator);
         await options.store.writeSnapshot(normalizeCoworkSession(session), traceId);
         return {
@@ -859,7 +864,16 @@ function retireAgent(
 function sendMessage(
   session: CoworkSession,
   senderId: string,
-  request: { content: string; recipientIds: string[]; threadId: string },
+  request: {
+    content: string;
+    recipientIds: string[];
+    threadId: string;
+    topic?: string;
+    eventType?: string;
+    requestType?: string;
+    requiresReply?: boolean;
+    priority?: number;
+  },
   now: () => string,
   idGenerator: CoworkIdGenerator,
 ): JsonObject {
@@ -873,7 +887,12 @@ function sendMessage(
     recipient_ids: recipients,
     content: request.content,
     visibility: recipients.length > 0 ? "direct" : "group",
-    kind: "message",
+    kind: request.requiresReply ? "question" : "message",
+    topic: cleanString(request.topic),
+    event_type: cleanString(request.eventType),
+    request_type: normalizeRequestType(request.requestType),
+    requires_reply: request.requiresReply === true,
+    priority: clampPriority(request.priority),
     created_at: now(),
     read_by: [senderId],
     envelope_id: null,
@@ -895,7 +914,17 @@ function sendMessage(
     ...session.events,
     event(idGenerator, now, "message.sent", `${senderId} sent a message to ${recipients.join(", ") || "group"}`, {
       actorId: senderId,
-      data: { message_id: messageId, thread_id: message.thread_id, recipients, source: "cowork_internal" },
+      data: {
+        message_id: messageId,
+        thread_id: message.thread_id,
+        recipients,
+        topic: message.topic,
+        event_type: message.event_type,
+        request_type: message.request_type,
+        requires_reply: message.requires_reply,
+        priority: message.priority,
+        source: "cowork_internal",
+      },
     }),
   ];
   session.updated_at = now();
@@ -1328,6 +1357,27 @@ function stringList(value: unknown): string[] {
 
 function objectList(value: unknown): JsonObject[] {
   return Array.isArray(value) ? value.filter(isJsonObject) : [];
+}
+
+function booleanValue(value: unknown): boolean {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    return value !== 0;
+  }
+  const text = cleanString(value).toLowerCase();
+  return ["1", "true", "yes", "on"].includes(text);
+}
+
+function clampPriority(value: unknown): number {
+  const priority = Number.isFinite(value) && typeof value === "number" ? value : Number(cleanString(value) || 0);
+  return Math.max(0, Math.min(100, Number.isFinite(priority) ? Math.trunc(priority) : 0));
+}
+
+function normalizeRequestType(value: unknown): string {
+  const requestType = cleanString(value);
+  return ["", "clarify", "verify", "produce", "review", "unblock"].includes(requestType) ? requestType : "";
 }
 
 function unique(values: string[]): string[] {
