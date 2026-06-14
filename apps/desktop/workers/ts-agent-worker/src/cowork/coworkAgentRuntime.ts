@@ -1107,7 +1107,7 @@ export function selectReadyCoworkAgents(session: CoworkSession, limit: number): 
 }
 
 function selectTeamReadyAgents(session: CoworkSession, limit: number): CoworkReadyAgentSelection {
-  const ready: CoworkAgent[] = [];
+  const candidates: Array<{ agent: CoworkAgent; score: number }> = [];
   const candidateScores: JsonObject = {};
   const profile = defaultPolicyRegistry().resolve(session.workflow_mode).runtimeProfile;
   const leadId = leadAgentId(session);
@@ -1123,21 +1123,71 @@ function selectTeamReadyAgents(session: CoworkSession, limit: number): CoworkRea
       hasSharedTask = false;
     }
     if (hasDirectWork || hasSharedTask) {
-      ready.push(agent);
-      candidateScores[agent.id] = hasSharedTask ? 18 : 1;
+      const score = teamReadinessScore(session, agent, profile, hasSharedTask);
+      candidates.push({ agent, score });
+      candidateScores[agent.id] = score;
       if (hasSharedTask) {
         unassignedReadySlots -= 1;
       }
     }
-    if (ready.length >= limit) {
-      break;
-    }
   }
+  candidates.sort((left, right) => right.score - left.score);
+  const ready = candidates.slice(0, Math.max(1, limit)).map((candidate) => candidate.agent);
   return {
     agents: ready,
     candidateScores,
     reasonProfile: "team readiness scoring",
   };
+}
+
+function teamReadinessScore(session: CoworkSession, agent: CoworkAgent, profile: string, hasSharedTask: boolean): number {
+  let score = 0;
+  score += Math.min(agent.inbox.length, 5) * 8;
+  if (selectDirectTaskForAgent(session, agent.id)) {
+    score += 45;
+  }
+  if (hasSharedTask) {
+    score += 18;
+  }
+  if (agent.status === "blocked") {
+    score -= 25;
+  }
+  if (agent.status === "waiting") {
+    score += 10;
+  }
+  if (agent.current_task_id) {
+    score += 8;
+  }
+  const rounds = numberValue(agent.rounds);
+  if (rounds !== null && rounds > 0) {
+    score -= Math.min(rounds, 8);
+  }
+  const leadId = leadAgentId(session);
+  if (profile === "orchestrator") {
+    score += agent.id === leadId ? 25 : -12;
+  } else if (profile === "team") {
+    score += agent.id !== leadId ? 10 : 0;
+  } else if (profile === "peer_handoff") {
+    score += agent.current_task_id || selectDirectTaskForAgent(session, agent.id) ? 30 : 0;
+  } else if (profile === "generator_verifier") {
+    const reviewer = isReviewerLikeAgent(agent);
+    const hasPendingReview = Object.values(session.tasks).some((task) => task.status === "pending"
+      && task.assigned_agent_id === agent.id
+      && looksLikeReviewTask(task.title, task.description));
+    score += reviewer && hasPendingReview ? 40 : 0;
+    score -= reviewer && !hasPendingReview ? 8 : 0;
+  }
+  return score;
+}
+
+function isReviewerLikeAgent(agent: CoworkAgent): boolean {
+  const text = `${agent.id} ${agent.name} ${agent.role}`.toLowerCase();
+  return text.includes("review") || text.includes("verify") || text.includes("validator");
+}
+
+function looksLikeReviewTask(title: string, description: string): boolean {
+  const text = `${title} ${description}`.toLowerCase();
+  return text.includes("review") || text.includes("verify") || text.includes("validate") || text.includes("check");
 }
 
 function selectSwarmReadyAgents(session: CoworkSession, limit: number): CoworkReadyAgentSelection {

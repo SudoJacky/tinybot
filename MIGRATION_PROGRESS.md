@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Cowork agent readiness parity: TS-native team ready-agent selection now mirrors Python readiness scoring before applying scheduler limits, including direct/shared work, waiting/current-task state, and team/generator-verifier profile boosts.
+
 - Continued Cowork scheduler budget-usage parity: TS-native `CoworkScheduler` now mirrors Python by recording round and lead-synthesis agent-call usage during the run, so later scheduler decisions see updated session budget remaining instead of stale initial limits.
 
 - Continued Cowork scheduler profile-limit parity: TS-native `CoworkScheduler` now mirrors Python's one-agent effective round limit for orchestrator, generator-verifier, and peer-handoff profiles while preserving wider scheduling for swarm/team modes.
@@ -1409,6 +1411,7 @@ Heartbeat row 20 update: Phase 4 now runs scheduled notifications through the sh
 - [x] Continue Cowork scheduler completion-output parity: include Python-style completed-session result text and refresh run metric counts.
 - [x] Continue Cowork scheduler profile-limit parity: constrain orchestrator/generator-verifier/peer-handoff scheduler rounds to one selected agent.
 - [x] Continue Cowork scheduler budget-usage parity: record per-round and lead-synthesis usage during the run for fresh session remaining snapshots.
+- [x] Continue Cowork agent readiness parity: sort team ready agents by Python-style readiness scores before applying scheduler limits.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.
 - [x] Continue session turn lifecycle evidence durability: capture memory evidence from native `saved_messages` for partial-duplicate persisted turns.

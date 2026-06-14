@@ -138,7 +138,42 @@ describe("CoworkAgentRuntime", () => {
     const selection = selectReadyCoworkAgentCandidates(session, 2);
 
     expect(selection.agents.map((agent) => agent.id)).toEqual(["lead"]);
-    expect(selection.candidateScores).toEqual({ lead: 18 });
+    expect(selection.candidateScores).toEqual({ lead: 28 });
+  });
+
+  it("orders team ready agents by Python readiness scores before applying the limit", async () => {
+    const provider = new QueueProvider([]);
+    const seeded = await seedRuntime(provider);
+    const session = await seeded.store.readSnapshot("cw_1", "test");
+    if (!session) {
+      throw new Error("missing seeded session");
+    }
+    session.agents.worker = {
+      ...session.agents.lead,
+      id: "worker",
+      name: "Worker",
+      role: "Implementation",
+      inbox: [],
+      current_task_id: null,
+      current_task_title: null,
+    };
+    session.tasks.implement = {
+      ...session.tasks.draft,
+      id: "implement",
+      title: "Implement",
+      description: "Implement the TS migration slice.",
+      assigned_agent_id: "worker",
+      status: "pending",
+      dependencies: [],
+    };
+
+    const selection = selectReadyCoworkAgentCandidates(session, 1);
+
+    expect(selection.agents.map((agent) => agent.id)).toEqual(["worker"]);
+    expect(selection.candidateScores).toMatchObject({
+      lead: 63,
+      worker: 65,
+    });
   });
 
   it("does not select done agents even when they still have inbox work", async () => {

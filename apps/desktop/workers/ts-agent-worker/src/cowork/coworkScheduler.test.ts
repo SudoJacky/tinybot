@@ -924,7 +924,7 @@ describe("CoworkScheduler", () => {
     const saved = await store.readSnapshot(session.id, "assert");
     expect(provider.messages).toHaveLength(1);
     expect(saved?.scheduler_decisions).toEqual([expect.objectContaining({
-      selected_agent_ids: ["generator"],
+      selected_agent_ids: ["verifier"],
     })]);
     expect(saved?.budget_usage).toMatchObject({ rounds: 1, agent_calls: 1 });
     expect(saved?.run_metrics).toEqual([expect.objectContaining({
