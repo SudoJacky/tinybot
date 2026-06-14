@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued WebUI transport Agent UI form structured-continuation parity: TS-native form submissions with explicit `structured_message` continuation now append Python-compatible session user messages with `_agent_ui_form_response` metadata instead of resuming the agent run.
+
 - Continued WebUI transport Agent UI form correlation parity: TS-native form continuation now rejects checkpoint correlation mismatches with Python-compatible `409 {"error": "form correlation mismatch"}` responses before resuming the agent run.
 
 - Continued WebUI transport Agent UI form resume parity: TS checkpoint resume projections now mirror Python `schedule_form_response` text for submitted and cancelled forms, including sorted JSON structured values in the model-facing tool result.

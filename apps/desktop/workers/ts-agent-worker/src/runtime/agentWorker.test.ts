@@ -2105,6 +2105,118 @@ describe("AgentWorker", () => {
     expect(clearedSessions).toEqual([]);
   });
 
+  test("records structured Agent UI form responses without resuming the run", async () => {
+    const appendedMessages: AgentMessage[][] = [];
+    const clearedSessions: string[] = [];
+    const provider = new QueueProvider([{ content: "should not continue", toolCalls: [], stopReason: "stop" }]);
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      sessionBridge: {
+        setCheckpoint: async () => undefined,
+        clearCheckpoint: async (sessionId) => {
+          clearedSessions.push(sessionId);
+        },
+        appendMessages: async (_sessionId, messages) => {
+          appendedMessages.push(messages);
+          return {
+            sessionId: _sessionId,
+            messagesBefore: 1,
+            messagesAfter: 2,
+            savedMessageCount: messages.length,
+          };
+        },
+        getCheckpoint: async (sessionId) => ({
+          sessionId,
+          runId: "run-form-structured",
+          phase: "tools_completed",
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+          messages: [
+            { role: "user", content: "collect preferences" },
+            {
+              role: "assistant",
+              content: "",
+              toolCalls: [{ id: "form-call-1", name: "request_form", argumentsJson: "{}" }],
+            },
+            {
+              role: "tool",
+              content: "Waiting for form submission.",
+              toolCallId: "form-call-1",
+              name: "request_form",
+              metadata: {
+                awaitingUserInput: true,
+                stopReason: "awaiting_form",
+                formId: "travel_plan",
+                continuationMode: "structured_message",
+                form: {
+                  form_id: "travel_plan",
+                  title: "Travel plan",
+                  fields: [{ name: "destination", type: "text", label: "Destination" }],
+                },
+                correlation: { session_key: "websocket:chat-forms" },
+              },
+            },
+          ],
+        }),
+      },
+    });
+
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/api/agent-ui/forms/travel_plan/submit",
+      body: {
+        correlation: { session_key: "websocket:chat-forms" },
+        values: { destination: "Paris", nights: 3 },
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          submitted: true,
+          form_id: "travel_plan",
+          values: { destination: "Paris", nights: 3 },
+          continuation: {
+            mode: "structured_message",
+            delivered: true,
+            target: "session_message",
+          },
+        },
+      },
+    });
+
+    expect(provider.messages).toEqual([]);
+    expect(clearedSessions).toEqual([]);
+    expect(appendedMessages).toEqual([[
+      {
+        role: "user",
+        content: "Agent UI form submitted: Travel plan",
+        metadata: {
+          _agent_ui_form_response: {
+            action: "submitted",
+            form_id: "travel_plan",
+            status: "submitted",
+            values: { destination: "Paris", nights: 3 },
+            errors: {},
+            correlation: {
+              session_key: "websocket:chat-forms",
+              form_id: "travel_plan",
+            },
+            schema: {
+              form_id: "travel_plan",
+              title: "Travel plan",
+              fields: [{ name: "destination", type: "text", label: "Destination" }],
+            },
+            continuation: {},
+            continuation_mode: "structured_message",
+          },
+        },
+      },
+    ]]);
+  });
+
   test("serves WebUI workspace file routes through TS worker RPC", async () => {
     const calls: Array<{ method: string; path?: string; contents?: string; expectedUpdatedAt?: string | null }> = [];
     const worker = new AgentWorker({

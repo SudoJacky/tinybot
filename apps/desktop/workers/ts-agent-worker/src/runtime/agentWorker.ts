@@ -3433,6 +3433,23 @@ export class AgentWorker {
     if (!checkpoint) {
       throw new Error("agent ui form continuation requires a checkpoint");
     }
+    const formMetadata = findAwaitingFormMetadata(checkpoint, form.formId);
+    if (formContinuationMode(formMetadata) === "structured_message") {
+      assertStructuredFormCorrelationMatches(formMetadata, form.correlation);
+      const event = webuiAgentUiFormEvent(form);
+      await this.sessionBridge.appendMessages(form.sessionId, [structuredFormMessage(form, formMetadata)], traceId);
+      return {
+        ...(form.action === "cancelled" ? { cancelled: true } : { submitted: true }),
+        form_id: form.formId,
+        ...(form.action === "submitted" ? { values: form.values } : {}),
+        event,
+        continuation: {
+          mode: "structured_message",
+          delivered: true,
+          target: "session_message",
+        },
+      };
+    }
     const result = await this.resumeSubmittedFormCheckpoint(traceId, {
       sessionId: form.sessionId,
       formId: form.formId,
@@ -3904,6 +3921,97 @@ export class AgentWorker {
     });
     return result;
   }
+}
+
+function findAwaitingFormMetadata(checkpoint: Record<string, unknown>, formId: string): Record<string, unknown> | undefined {
+  if (!Array.isArray(checkpoint.messages)) {
+    return undefined;
+  }
+  for (const message of checkpoint.messages) {
+    if (!isJsonObject(message) || message.role !== "tool" || message.name !== "request_form") {
+      continue;
+    }
+    const metadata = isJsonObject(message.metadata) ? message.metadata : undefined;
+    if (
+      metadata?.awaitingUserInput === true &&
+      metadata.stopReason === "awaiting_form" &&
+      metadata.formId === formId
+    ) {
+      return metadata;
+    }
+  }
+  return undefined;
+}
+
+function formContinuationMode(metadata: Record<string, unknown> | undefined): "resume" | "structured_message" {
+  const rawMode = typeof metadata?.continuationMode === "string"
+    ? metadata.continuationMode
+    : typeof metadata?.continuation_mode === "string"
+      ? metadata.continuation_mode
+      : isJsonObject(metadata?.form) && isJsonObject(metadata.form.metadata) && typeof metadata.form.metadata.continuation_mode === "string"
+        ? metadata.form.metadata.continuation_mode
+        : undefined;
+  return rawMode === "structured_message" ? "structured_message" : "resume";
+}
+
+function structuredFormMessage(form: WebuiAgentUiFormRequest, metadata: Record<string, unknown> | undefined): AgentMessage {
+  const schema = isJsonObject(metadata?.form) ? metadata.form : { form_id: form.formId };
+  const title = typeof schema.title === "string" && schema.title.length > 0 ? schema.title : form.formId;
+  const actionText = form.action === "cancelled" ? "cancelled" : "submitted";
+  return {
+    role: "user",
+    content: `Agent UI form ${actionText}: ${title}`,
+    metadata: {
+      _agent_ui_form_response: {
+        action: form.action,
+        form_id: form.formId,
+        status: form.action,
+        values: form.action === "submitted" ? form.values : {},
+        errors: {},
+        correlation: structuredFormCorrelation(form, metadata),
+        schema,
+        continuation: isJsonObject(metadata?.continuation) ? metadata.continuation : {},
+        continuation_mode: "structured_message",
+      },
+    },
+  };
+}
+
+function structuredFormCorrelation(
+  form: WebuiAgentUiFormRequest,
+  metadata: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const expected = isJsonObject(metadata?.correlation) ? metadata.correlation : {};
+  return {
+    ...expected,
+    ...form.correlation,
+    form_id: form.formId,
+  };
+}
+
+function assertStructuredFormCorrelationMatches(
+  metadata: Record<string, unknown> | undefined,
+  suppliedCorrelation: Record<string, unknown>,
+): void {
+  if (!metadata) {
+    return;
+  }
+  const expectedCorrelation = isJsonObject(metadata.correlation) ? metadata.correlation : metadata;
+  for (const key of ["session_key", "chat_id", "run_id", "message_id", "interaction_id"]) {
+    const expected = stringCorrelationValue(expectedCorrelation[key]);
+    const supplied = stringCorrelationValue(suppliedCorrelation[key]);
+    if (expected && supplied && expected !== supplied) {
+      throw new Error("form correlation mismatch");
+    }
+  }
+}
+
+function stringCorrelationValue(value: unknown): string | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  const normalized = String(value);
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 function parseCancelRunId(params: Record<string, unknown> | undefined): string {
