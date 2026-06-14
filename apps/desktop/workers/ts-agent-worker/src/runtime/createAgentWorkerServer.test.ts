@@ -3291,6 +3291,84 @@ describe("createAgentWorkerServer", () => {
     });
   });
 
+  test("preserves OpenAI-compatible multimodal empty text parts like Python", async () => {
+    const lines: string[] = [];
+    const provider = new QueueProvider([{ content: "empty text handled", toolCalls: [], stopReason: "stop" }]);
+    const server = createAgentWorkerServer({
+      provider,
+      tools: new ToolRegistry(),
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const request = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "openai-chat-multimodal",
+        trace_id: "trace-openai-chat-multimodal",
+        method: "webui.handle_request",
+        params: {
+          method: "POST",
+          path: "/v1/chat/completions",
+          body: {
+            model: "tinybot",
+            messages: [{
+              role: "user",
+              content: [
+                { type: "text", text: "prefix" },
+                { type: "text" },
+                { type: "image_url", image_url: { url: "ignored" } },
+              ],
+            }],
+          },
+        },
+      }),
+    );
+
+    await respondToConfigSnapshot(server, lines, {});
+    await waitFor(() => parsedLines(lines).some((line) => line.method === "session.set_checkpoint"));
+    const checkpointRequest = parsedLines(lines).find((line) => line.method === "session.set_checkpoint");
+    if (!checkpointRequest || typeof checkpointRequest.id !== "string") {
+      throw new Error("missing checkpoint request");
+    }
+    await server.handleLine(JSON.stringify({
+      protocol_version: "1",
+      id: checkpointRequest.id,
+      trace_id: "trace-openai-chat-multimodal",
+      result: { session_id: "api:default" },
+    }));
+    await waitFor(() => parsedLines(lines).some((line) => line.method === "session.persist_turn"));
+    const persistRequest = parsedLines(lines).find((line) => line.method === "session.persist_turn");
+    if (!persistRequest || typeof persistRequest.id !== "string") {
+      throw new Error("missing persist request");
+    }
+    await server.handleLine(JSON.stringify({
+      protocol_version: "1",
+      id: persistRequest.id,
+      trace_id: "trace-openai-chat-multimodal",
+      result: { session_id: "api:default", saved_message_count: 2 },
+    }));
+    await respondToMemoryCapture(server, lines, "trace-openai-chat-multimodal");
+    await request;
+
+    expect(provider.requests[0]?.[0]).toMatchObject({
+      role: "user",
+      content: "prefix ",
+    });
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      protocol_version: "1",
+      id: "openai-chat-multimodal",
+      trace_id: "trace-openai-chat-multimodal",
+      result: {
+        status: 200,
+        body: {
+          object: "chat.completion",
+          choices: [{ message: { role: "assistant", content: "empty text handled" } }],
+        },
+      },
+    });
+  });
+
   test("projects WebUI skills list and detail through native RPC", async () => {
     const lines: string[] = [];
     const server = createAgentWorkerServer({

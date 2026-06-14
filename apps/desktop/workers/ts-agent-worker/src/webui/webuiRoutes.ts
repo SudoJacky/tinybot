@@ -871,7 +871,7 @@ function openAiMessageContent(content: unknown): string {
   }
   if (Array.isArray(content)) {
     return content
-      .map((part) => isJsonObject(part) && part.type === "text" ? stringParam(part.text) : undefined)
+      .map((part) => isJsonObject(part) && part.type === "text" ? stringParam(part.text) ?? "" : undefined)
       .filter((text): text is string => text !== undefined)
       .join(" ");
   }

@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued API Runtime OpenAI-compatible parity: TS-native multimodal chat content extraction now preserves Python-compatible empty text segments in content arrays, keeping separator behavior aligned when text parts omit `text`.
+
 - Continued Cowork runtime parity: TS-native `cowork_internal complete_task` now mirrors Python shared-memory merging by ignoring non-list non-string structured memory bucket fields while preserving string/list values and structured answers.
 
 - Continued Cowork runtime parity: TS-native `cowork_internal complete_task` now recognizes Python-compatible Chinese delivery-goal markers for artifact gating, so Chinese file/code/document goals do not auto-complete without confirmed artifact paths.
