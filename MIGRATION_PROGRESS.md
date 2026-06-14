@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Cowork internal reply lifecycle parity: TS-native `cowork_internal send_message` now infers reply context for responses to pending mailbox requests like Python, reusing the original thread/correlation and marking the source envelope as replied.
+
 - Continued Cowork internal mailbox parity: TS-native `cowork_internal send_message` now delivers through the migrated `CoworkMailbox`, creating Python-style mailbox records, queued/delivered events, trace spans, correlation/lineage ids, wake decisions, and reply metadata instead of bypassing the mailbox with a raw message write.
 
 - Continued Cowork internal tool schema parity: TS-native `cowork_internal` now exposes Python-compatible mailbox envelope fields and agent action aliases such as `wake_recipients`, `priority`, `deadline_round`, correlation/reply ids, `expected_output_schema`, `blocking_task_id`, `escalate_after_rounds`, `agent_id`, and `reason`.

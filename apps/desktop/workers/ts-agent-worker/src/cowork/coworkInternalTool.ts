@@ -214,13 +214,18 @@ export function createCoworkInternalTool(options: CoworkInternalToolOptions): To
         if (!content) {
           return { content: "Error: content is required" };
         }
+        const recipientIds = stringList(args.recipient_ids);
+        const threadId = cleanString(args.thread_id);
+        const correlationId = cleanString(args.correlation_id);
+        const replyToEnvelopeId = cleanString(args.reply_to_envelope_id);
+        const inferred = inferReplyContext(session, agent.id, recipientIds, threadId, correlationId, replyToEnvelopeId);
         const mailbox = new CoworkMailbox({ now, idGenerator });
         const message = mailbox.deliver(session, {
           sender_id: agent.id,
-          recipient_ids: stringList(args.recipient_ids),
+          recipient_ids: recipientIds,
           content,
-          thread_id: cleanString(args.thread_id) || null,
-          visibility: stringList(args.recipient_ids).length > 0 ? "direct" : "group",
+          thread_id: threadId || cleanString(inferred?.thread_id) || null,
+          visibility: recipientIds.length > 0 ? "direct" : "group",
           kind: booleanValue(args.requires_reply) ? "question" : "message",
           topic: cleanString(args.topic),
           event_type: cleanString(args.event_type),
@@ -229,9 +234,9 @@ export function createCoworkInternalTool(options: CoworkInternalToolOptions): To
           wake_recipients: nullableBooleanValue(args.wake_recipients),
           priority: clampPriority(args.priority),
           deadline_round: boundedIntOrNull(args.deadline_round, 1, Number.MAX_SAFE_INTEGER),
-          correlation_id: cleanString(args.correlation_id) || null,
+          correlation_id: correlationId || cleanString(inferred?.correlation_id) || null,
           lineage_id: cleanString(args.lineage_id) || null,
-          reply_to_envelope_id: cleanString(args.reply_to_envelope_id) || null,
+          reply_to_envelope_id: replyToEnvelopeId || cleanString(inferred?.id) || null,
           caused_by_envelope_id: cleanString(args.caused_by_envelope_id) || null,
           expected_output_schema: isJsonObject(args.expected_output_schema) ? args.expected_output_schema : {},
           blocking_task_id: cleanString(args.blocking_task_id) || null,
@@ -1409,6 +1414,29 @@ function validRecipients(session: CoworkSession, recipients: string[], senderId:
   return clean.length > 0 ? clean : Object.keys(session.agents).filter((agentId) => agentId !== senderId);
 }
 
+function inferReplyContext(
+  session: CoworkSession,
+  senderId: string,
+  recipientIds: string[],
+  threadId: string,
+  correlationId: string,
+  replyToEnvelopeId: string,
+): JsonObject | null {
+  if (threadId || correlationId || replyToEnvelopeId) {
+    return null;
+  }
+  const recipients = new Set(recipientIds);
+  if (recipients.size === 0) {
+    return null;
+  }
+  const candidates = Object.values(session.mailbox)
+    .filter((record) => arrayIncludesString(record.recipient_ids, senderId))
+    .filter((record) => recipients.has(cleanString(record.sender_id)))
+    .filter((record) => record.requires_reply === true)
+    .filter((record) => ["delivered", "read"].includes(cleanString(record.status)));
+  return candidates.sort((left, right) => cleanString(right.created_at).localeCompare(cleanString(left.created_at)))[0] ?? null;
+}
+
 function claimableTasksFor(session: CoworkSession, agentId: string): CoworkTask[] {
   const completed = new Set(Object.values(session.tasks)
     .filter((task) => task.status === "completed" || task.status === "skipped")
@@ -1443,6 +1471,10 @@ function stringList(value: unknown): string[] {
 
 function objectList(value: unknown): JsonObject[] {
   return Array.isArray(value) ? value.filter(isJsonObject) : [];
+}
+
+function arrayIncludesString(value: unknown, needle: string): boolean {
+  return Array.isArray(value) && value.map(cleanString).includes(needle);
 }
 
 function booleanValue(value: unknown): boolean {

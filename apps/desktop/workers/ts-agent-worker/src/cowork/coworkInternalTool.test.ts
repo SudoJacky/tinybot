@@ -372,6 +372,85 @@ describe("cowork_internal tool", () => {
     });
   });
 
+  it("infers reply context for internal replies to pending mailbox requests like Python", async () => {
+    const store = createMemoryCoworkStore();
+    const idGenerator = deterministicIds();
+    const service = new CoworkService({
+      store,
+      now: () => fixedNow,
+      idGenerator,
+    });
+    const session = await service.createSession({
+      traceId: "trace-create",
+      goal: "Answer peer requests",
+      title: "Reply inference",
+      workflowMode: "team",
+      agents: [
+        {
+          id: "lead",
+          name: "Lead",
+          role: "Lead",
+          goal: "Coordinate",
+          responsibilities: ["Coordinate"],
+        },
+        {
+          id: "helper",
+          name: "Helper",
+          role: "Helper",
+          goal: "Verify",
+          responsibilities: ["Verify"],
+        },
+      ],
+      tasks: [],
+    });
+    const leadTool = createCoworkInternalTool({
+      store,
+      sessionId: session.id,
+      senderId: "lead",
+      now: () => fixedNow,
+      idGenerator,
+    });
+    const helperTool = createCoworkInternalTool({
+      store,
+      sessionId: session.id,
+      senderId: "helper",
+      now: () => fixedNow,
+      idGenerator,
+    });
+
+    const request = await leadTool.execute({
+      action: "send_message",
+      recipient_ids: ["helper"],
+      content: "Please verify the scheduler path.",
+      requires_reply: true,
+      request_type: "verify",
+    }, { runId: "run-1", traceId: "trace-request" });
+
+    await helperTool.execute({
+      action: "send_message",
+      recipient_ids: ["lead"],
+      content: "Verified the scheduler path.",
+    }, { runId: "run-1", traceId: "trace-reply" });
+
+    const saved = await store.readSnapshot(session.id, "trace-read");
+    const requestEnvelopeId = String(request.metadata?.envelope_id ?? "");
+    const requestRecord = saved?.mailbox[requestEnvelopeId];
+    const replyRecord = Object.values(saved?.mailbox ?? {})
+      .find((record) => record.reply_to_envelope_id === requestEnvelopeId);
+    expect(requestRecord).toMatchObject({
+      status: "replied",
+      replied_by: ["helper"],
+    });
+    expect(replyRecord).toMatchObject({
+      sender_id: "helper",
+      recipient_ids: ["lead"],
+      correlation_id: requestRecord?.correlation_id,
+      reply_to_envelope_id: requestEnvelopeId,
+      thread_id: requestRecord?.thread_id,
+    });
+    expect(saved?.events.map((event) => event.type)).toEqual(expect.arrayContaining(["mailbox.replied"]));
+  });
+
   it("leaves confidence unset when structured task results omit confidence", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = deterministicIds();
