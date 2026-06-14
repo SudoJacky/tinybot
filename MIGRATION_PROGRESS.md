@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Channel Bus runtime parity: TS channel lifecycle control now exposes `channel.login` through AgentWorker, default native channel managers, host-RPC native connectors, and the Rust `worker_channel_login` command.
+
 - Continued Channel Bus runtime parity: TS host-RPC connector bridges now forward native channel audio transcription through `channel.connector.transcribe_audio`, with Rust placeholder handling until real platform connectors are installed.
 
 - Continued Channel Bus runtime parity: TS-native channel connectors now expose Python-style interactive `login(force)` delegation, including a host-RPC `channel.connector.login` contract and Rust unavailable-connector placeholder.
@@ -775,6 +777,8 @@ Channel Bus row 18 update: TS host-RPC connector bridges now expose native audio
 
 Channel Bus row 18 update: TS `NativeTextChannel.login({ force })` now delegates to native connectors, the host-RPC bridge exposes `channel.connector.login`, and Rust recognizes the method behind the existing `channel.connector` capability with the same explicit unavailable result used by other connector operations.
 
+Channel Bus row 18 update: TS worker channel lifecycle control now exposes `channel.login`, delegating to configured native adapters with Python-compatible default success semantics and exposing the path to the desktop host through `worker_channel_login`.
+
 Heartbeat row 20 update: Phase 4 now runs scheduled notifications through the shared Python-compatible evaluator, emits approved external notifications as `heartbeat.delivery` worker events, and projects those delivery events into target native desktop chats without requiring an active agent run.
 
 API Runtime row 19 update: direct TS-native `POST /v1/knowledge/documents` now honors `async_index` query params or true JSON body flags and returns Python-compatible completed job envelopes for deferred indexing.
@@ -789,6 +793,7 @@ API Runtime row 19 update: TS-native completed Knowledge upload/rebuild job enve
 
 | Date | Update |
 | --- | --- |
+| 2026-06-14 | Continued Channel Bus runtime parity: worker/native lifecycle control now exposes `channel.login` and routes it through default native channel adapters plus the Rust command surface. |
 | 2026-06-14 | Continued Channel Bus runtime parity: host-RPC native connector bridges now forward channel audio transcription through `channel.connector.transcribe_audio` with Rust placeholder support. |
 | 2026-06-14 | Continued Channel Bus runtime parity: native text channel login now delegates through connector and host-RPC `channel.connector.login` with Rust placeholder support. |
 | 2026-06-14 | Continued Channel Bus runtime parity: base/native channel audio transcription hooks now mirror Python empty-string fallback behavior and receive `GROQ_API_KEY` during native assembly. |

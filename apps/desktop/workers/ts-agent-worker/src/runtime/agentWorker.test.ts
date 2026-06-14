@@ -7685,6 +7685,7 @@ describe("AgentWorker", () => {
     const channelManager = {
       startAll: vi.fn(async () => undefined),
       stopAll: vi.fn(async () => undefined),
+      login: vi.fn(async () => false),
       status: vi.fn(() => ({
         running: true,
         channels: [
@@ -7706,6 +7707,22 @@ describe("AgentWorker", () => {
       trace_id: "trace-channel.start",
       result: {
         started: true,
+        status: {
+          running: true,
+          channels: [
+            { name: "feishu", displayName: "Feishu", supportsStreaming: true, running: true },
+          ],
+          diagnostics: [],
+        },
+      },
+    });
+    await expect(worker.handleRequest(channelRequest("channel.login", {
+      channel: "feishu",
+      force: true,
+    }))).resolves.toMatchObject({
+      result: {
+        channel: "feishu",
+        logged_in: false,
         status: {
           running: true,
           channels: [
@@ -7737,8 +7754,9 @@ describe("AgentWorker", () => {
       },
     });
     expect(channelManager.startAll).toHaveBeenCalledTimes(1);
+    expect(channelManager.login).toHaveBeenCalledWith("feishu", { force: true });
     expect(channelManager.stopAll).toHaveBeenCalledTimes(1);
-    expect(channelManager.status).toHaveBeenCalledTimes(3);
+    expect(channelManager.status).toHaveBeenCalledTimes(4);
   });
 
   test("returns an explicit error when channel manager is unavailable", async () => {
@@ -7758,6 +7776,12 @@ describe("AgentWorker", () => {
       error: {
         code: "worker_error",
         message: "channel.start requires a channel manager",
+      },
+    });
+    await expect(worker.handleRequest(channelRequest("channel.login", { channel: "feishu" }))).resolves.toMatchObject({
+      error: {
+        code: "worker_error",
+        message: "channel.login requires a channel manager",
       },
     });
   });

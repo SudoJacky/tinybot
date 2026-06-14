@@ -150,6 +150,28 @@ describe("ChannelManager", () => {
     await manager.stopAll();
   });
 
+  test("delegates channel login and defaults to already authenticated", async () => {
+    const bus = new MessageBus();
+    const login = vi.fn(async () => false);
+    const feishu = adapter({
+      name: "feishu",
+      displayName: "Feishu",
+      login,
+    });
+    const plain = adapter({
+      name: "plain",
+      displayName: "Plain",
+      login: undefined,
+    });
+    const manager = new ChannelManager({ bus, channels: [feishu, plain] });
+
+    await expect(manager.login("feishu", { force: true })).resolves.toBe(false);
+    await expect(manager.login("plain")).resolves.toBe(true);
+    await expect(manager.login("missing")).rejects.toThrow("unknown channel: missing");
+
+    expect(login).toHaveBeenCalledWith({ force: true });
+  });
+
   test("dispatches ordinary outbound messages to their channel adapter", async () => {
     const bus = new MessageBus();
     const websocket = adapter();

@@ -99,6 +99,7 @@ describe("createAgentWorkerServer", () => {
         startCalls += 1;
       },
       stopAll: async () => undefined,
+      login: async () => true,
       status: () => ({
         running: true,
         channels: [
@@ -307,6 +308,20 @@ describe("createAgentWorkerServer", () => {
     });
     await respondToWorkerRequest(server, lines, "channel.connector.start", { ok: true });
     await start;
+    const login = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "channel-login-bridge",
+        trace_id: "trace-channel-login-bridge",
+        method: "channel.login",
+        params: {
+          channel: "feishu",
+          force: true,
+        },
+      }),
+    );
+    await respondToWorkerRequest(server, lines, "channel.connector.login", { ok: true, logged_in: false });
+    await login;
 
     expect(parsedLines(lines).find((line) => line.method === "channel.connector.start")).toMatchObject({
       trace_id: "channel.connector.feishu.start",
@@ -321,6 +336,30 @@ describe("createAgentWorkerServer", () => {
       trace_id: "trace-channel-start-bridge",
       result: {
         started: true,
+        status: {
+          running: true,
+          channels: [
+            { name: "feishu", displayName: "Feishu", supportsStreaming: true, running: true },
+          ],
+          diagnostics: [],
+        },
+      },
+    });
+    expect(parsedLines(lines).find((line) => line.method === "channel.connector.login")).toMatchObject({
+      trace_id: "channel.connector.feishu.login",
+      method: "channel.connector.login",
+      params: {
+        channel: "feishu",
+        force: true,
+      },
+    });
+    expect(parsedLines(lines).find((line) => line.id === "channel-login-bridge")).toMatchObject({
+      protocol_version: "1",
+      id: "channel-login-bridge",
+      trace_id: "trace-channel-login-bridge",
+      result: {
+        channel: "feishu",
+        logged_in: false,
         status: {
           running: true,
           channels: [

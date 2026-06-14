@@ -230,6 +230,14 @@ struct WorkerChannelDispatchInboundInput {
     message: serde_json::Value,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerChannelLoginInput {
+    channel: String,
+    #[serde(default)]
+    force: bool,
+}
+
 #[derive(Clone, Debug, Default)]
 struct WorkerTransportWebSocketDispatchOptions {
     model: Option<String>,
@@ -730,6 +738,21 @@ fn worker_channel_stop(state: State<'_, SharedGateway>) -> Result<serde_json::Va
         ts_agent_worker_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(60),
+    )
+}
+
+#[tauri::command]
+fn worker_channel_login(
+    input: WorkerChannelLoginInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_channel_login_with_options(
+        state.inner(),
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(60),
+        input.channel,
+        input.force,
     )
 }
 
@@ -2452,6 +2475,24 @@ fn worker_channel_stop_with_options(
     )
 }
 
+fn worker_channel_login_with_options(
+    shared: &SharedGateway,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+    channel: String,
+    force: bool,
+) -> Result<serde_json::Value, String> {
+    send_channel_lifecycle_worker_request(
+        shared,
+        workspace_root,
+        config_snapshot,
+        build_worker_channel_login_request(now_unix_ms(), channel, force),
+        timeout,
+        "login",
+    )
+}
+
 fn send_channel_lifecycle_worker_request(
     shared: &SharedGateway,
     workspace_root: PathBuf,
@@ -2506,6 +2547,22 @@ fn build_worker_channel_stop_request(request_id: u128) -> WorkerRequest {
         format!("trace-channel-stop-{request_id}"),
         "channel.stop",
         serde_json::json!({}),
+    )
+}
+
+fn build_worker_channel_login_request(
+    request_id: u128,
+    channel: String,
+    force: bool,
+) -> WorkerRequest {
+    WorkerRequest::new(
+        format!("channel-login-{request_id}"),
+        format!("trace-channel-login-{request_id}"),
+        "channel.login",
+        serde_json::json!({
+            "channel": channel,
+            "force": force,
+        }),
     )
 }
 
@@ -3096,6 +3153,7 @@ pub fn run() {
             worker_channel_start,
             worker_channel_status,
             worker_channel_stop,
+            worker_channel_login,
             worker_cancel_agent,
             worker_restore_agent_checkpoint,
             worker_submit_agent_form,
@@ -3881,6 +3939,7 @@ mod tests {
         let start_request = build_worker_channel_start_request(42);
         let status_request = build_worker_channel_status_request(43);
         let stop_request = build_worker_channel_stop_request(44);
+        let login_request = build_worker_channel_login_request(45, "feishu".to_string(), true);
 
         assert_eq!(start_request.id, "channel-start-42");
         assert_eq!(start_request.trace_id, "trace-channel-start-42");
@@ -3896,6 +3955,14 @@ mod tests {
         assert_eq!(stop_request.trace_id, "trace-channel-stop-44");
         assert_eq!(stop_request.method, "channel.stop");
         assert_eq!(stop_request.params, serde_json::json!({}));
+
+        assert_eq!(login_request.id, "channel-login-45");
+        assert_eq!(login_request.trace_id, "trace-channel-login-45");
+        assert_eq!(login_request.method, "channel.login");
+        assert_eq!(
+            login_request.params,
+            serde_json::json!({ "channel": "feishu", "force": true })
+        );
     }
 
     #[test]

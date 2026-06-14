@@ -14,6 +14,7 @@ export type ChannelAdapter = {
   send: (message: OutboundMessage) => Promise<void>;
   sendDelta?: (chatId: string, delta: string, metadata: Record<string, unknown>) => Promise<void>;
   sendUsage?: (chatId: string, usage: Record<string, unknown>) => Promise<void>;
+  login?: (options?: { force?: boolean }) => Promise<boolean>;
 };
 
 export type ChannelStatus = {
@@ -113,6 +114,14 @@ export class ChannelManager {
       })),
       diagnostics: this.diagnostics(),
     };
+  }
+
+  async login(channelName: string, options: { force?: boolean } = {}): Promise<boolean> {
+    const channel = this.channels.get(channelName);
+    if (!channel) {
+      throw new Error(`unknown channel: ${channelName}`);
+    }
+    return await channel.login?.({ force: options.force === true }) ?? true;
   }
 
   async startAll(): Promise<void> {

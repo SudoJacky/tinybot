@@ -335,6 +335,11 @@ class DefaultNativeChannelLifecycleManager implements ChannelLifecycleManager {
     await this.manager?.stopAll();
   }
 
+  async login(channelName: string, options: { force?: boolean } = {}): Promise<boolean> {
+    const manager = await this.managerForCurrentConfig();
+    return manager.login(channelName, options);
+  }
+
   status() {
     return this.manager?.status() ?? emptyChannelManagerStatus();
   }

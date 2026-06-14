@@ -121,7 +121,13 @@ export type AgentWorkerOptions = {
 export type ChannelLifecycleManager = {
   startAll(): Promise<void>;
   stopAll(): Promise<void>;
+  login(channelName: string, options?: { force?: boolean }): Promise<boolean>;
   status(): ChannelManagerStatus;
+};
+
+type ChannelLoginRequest = {
+  channel: string;
+  force: boolean;
 };
 
 export type PrepareToolsHandler = (traceId: string) => Promise<unknown> | unknown;
@@ -571,6 +577,10 @@ export class AgentWorker {
 
     if (request.method === "channel.stop") {
       return this.handleChannelStopRequest(request);
+    }
+
+    if (request.method === "channel.login") {
+      return this.handleChannelLoginRequest(request);
     }
 
     if (request.method === "channel.status") {
@@ -2385,6 +2395,29 @@ export class AgentWorker {
         trace_id: request.trace_id,
         result: {
           stopped: true,
+          status: this.channelManager.status(),
+        },
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error));
+    }
+  }
+
+  private async handleChannelLoginRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.channelManager) {
+      return this.failure(request, "channel.login requires a channel manager");
+    }
+    try {
+      const params = parseChannelLoginRequest(request.params);
+      const loggedIn = await this.channelManager.login(params.channel, { force: params.force });
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: {
+          channel: params.channel,
+          logged_in: loggedIn,
+          loggedIn,
           status: this.channelManager.status(),
         },
       };
@@ -4953,6 +4986,20 @@ function parseChannelDispatchInboundMessage(params: Record<string, unknown> | un
     throw new Error("channel.dispatch_inbound requires object params.message");
   }
   return parsePythonBridgeInboundMessage(params.message);
+}
+
+function parseChannelLoginRequest(params: Record<string, unknown> | undefined): ChannelLoginRequest {
+  if (!isJsonObject(params)) {
+    throw new Error("channel.login requires object params");
+  }
+  const channel = stringParam(params, "channel", "channel");
+  if (!channel) {
+    throw new Error("channel.login requires string params.channel");
+  }
+  return {
+    channel,
+    force: booleanParam(params, "force", "force") ?? false,
+  };
 }
 
 function parseProviderModelsListRequest(params: Record<string, unknown> | undefined): ProviderModelsListRequest {
