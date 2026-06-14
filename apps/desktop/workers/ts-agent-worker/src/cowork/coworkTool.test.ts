@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AgentMessage } from "../agent/agentRunSpec";
 import type { ModelProvider, ModelRequestOptions, ModelResponse } from "../model/provider";
+import { ToolRegistry } from "../tools/toolRegistry";
 import { CoworkScheduler } from "./coworkScheduler";
 import { createCoworkTool } from "./coworkTool";
 import { CoworkService, createMemoryCoworkStore, type CoworkServiceStore } from "./coworkService";
@@ -203,5 +204,44 @@ describe("createCoworkTool", () => {
     const snapshot = await store.readSnapshot("cw_1", "assert");
     expect(snapshot?.stop_reason).toBe("idle");
     expect(snapshot?.run_metrics).toHaveLength(1);
+  });
+
+  it("rejects scheduler limits outside the Python cowork tool integer schema", () => {
+    const registry = new ToolRegistry();
+    registry.register(createCoworkTool({ service: serviceWithStore() }));
+
+    expect(registry.prepareCall("cowork", {
+      action: "run",
+      session_id: "cw_1",
+      max_rounds: "2.5",
+      max_agents: 51,
+      max_agent_calls: 501,
+    })).toMatchObject({
+      ok: false,
+      error: {
+        kind: "invalid_params",
+        message: expect.stringContaining("max_rounds should be integer"),
+      },
+    });
+    expect(registry.prepareCall("cowork", {
+      action: "run",
+      session_id: "cw_1",
+      max_rounds: "2",
+      max_agents: "3",
+      max_agent_calls: "4",
+      run_until_idle: "yes",
+      stop_on_blocker: "no",
+    })).toMatchObject({
+      ok: true,
+      args: {
+        action: "run",
+        session_id: "cw_1",
+        max_rounds: 2,
+        max_agents: 3,
+        max_agent_calls: 4,
+        run_until_idle: true,
+        stop_on_blocker: false,
+      },
+    });
   });
 });
