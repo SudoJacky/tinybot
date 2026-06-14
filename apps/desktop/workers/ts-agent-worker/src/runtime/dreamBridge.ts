@@ -260,6 +260,8 @@ function parseDreamOperations(content: string): ParsedDreamOperations | null {
     ? parsed
     : isJsonObject(parsed) && Array.isArray(parsed.operations)
       ? parsed.operations
+      : isJsonObject(parsed)
+        ? [parsed]
       : null;
   if (!items) {
     return null;
@@ -271,6 +273,9 @@ function parseDreamOperations(content: string): ParsedDreamOperations | null {
       continue;
     }
     const action = dreamAction(item.action);
+    if (action === "invalid") {
+      continue;
+    }
     if (action === "skip") {
       skippedOperations += 1;
       continue;
@@ -330,9 +335,12 @@ function dreamNoteFromOperation(value: JsonObject, action: "save" | "supersede" 
   };
 }
 
-function dreamAction(value: unknown): "save" | "supersede" | "reject" | "skip" {
-  const action = typeof value === "string" ? value.trim().toLowerCase() : "save";
-  return action === "supersede" || action === "reject" || action === "skip" ? action : "save";
+function dreamAction(value: unknown): "save" | "supersede" | "reject" | "skip" | "invalid" {
+  const action = typeof value === "string" && value.trim() ? value.trim().toLowerCase() : "save";
+  if (action === "save" || action === "supersede" || action === "reject" || action === "skip") {
+    return action;
+  }
+  return "invalid";
 }
 
 function dreamBatch(value: JsonObject): DreamBatch {

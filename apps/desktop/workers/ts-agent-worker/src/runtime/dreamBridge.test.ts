@@ -298,6 +298,141 @@ describe("ProviderBackedDreamBridge", () => {
     });
   });
 
+  test("accepts a single provider JSON operation object like Python Dream", async () => {
+    const { client, calls } = sequenceRpcClient([
+      {
+        content: "Dream deferred 1 legacy history record(s) for provider-backed memory extraction.",
+        metadata: { deferred: true, pending_legacy_history: 1 },
+      },
+      {
+        kind: "legacy_history",
+        records: [{ cursor: 4, timestamp: "2026-06-13 12:00", content: "User prefers direct handoffs." }],
+        cursor_start: 4,
+        cursor_end: 4,
+      },
+      {
+        changed: true,
+        applied_notes: 1,
+        last_dream_cursor: 4,
+      },
+    ]);
+    const provider = new RecordingProvider({
+      content: JSON.stringify({
+        action: "save",
+        scope: "user",
+        type: "preference",
+        content: "User prefers direct handoffs.",
+        priority: 0.75,
+        confidence: 0.85,
+        tags: ["dream"],
+        metadata: { reason: "legacy history" },
+      }),
+      toolCalls: [],
+      stopReason: "stop",
+    });
+    const bridge = new ProviderBackedDreamBridge({
+      nativeBridge: new NativeDreamBridge(client),
+      provider,
+      model: "dream-model",
+    });
+
+    const result = await bridge.runDream({ traceId: "trace-dream", sessionId: "session-1" });
+
+    expect(calls.map((call) => call.method)).toEqual(["memory.dream_run", "memory.dream_pending", "memory.dream_apply"]);
+    expect(calls[2]?.params).toMatchObject({
+      session_id: "session-1",
+      kind: "legacy_history",
+      cursor_start: 4,
+      cursor_end: 4,
+      notes: [
+        expect.objectContaining({
+          action: "save",
+          content: "User prefers direct handoffs.",
+          note_type: "preference",
+          scope: "user",
+        }),
+      ],
+    });
+    expect(result).toEqual({
+      content: "Dream applied 1 provider memory note operation(s) from 1 legacy history record(s).",
+      metadata: {
+        changed: true,
+        provider_backed: true,
+        applied_notes: 1,
+        skipped_operations: 0,
+        last_dream_cursor: 4,
+      },
+    });
+  });
+
+  test("ignores provider JSON operations with unsupported actions like Python Dream", async () => {
+    const { client, calls } = sequenceRpcClient([
+      {
+        content: "Dream deferred 1 conversation evidence record(s) for provider-backed memory extraction.",
+        metadata: { deferred: true, pending_evidence: 1 },
+      },
+      {
+        kind: "conversation_evidence",
+        records: [{ id: "ev_1", cursor: 9, content: "Temporary note." }],
+        cursor_start: 9,
+        cursor_end: 9,
+        evidence_ids: ["ev_1"],
+      },
+      {
+        changed: false,
+        applied_notes: 0,
+        last_evidence_cursor: 9,
+      },
+    ]);
+    const provider = new RecordingProvider({
+      content: JSON.stringify([
+        {
+          action: "delete",
+          scope: "user",
+          type: "preference",
+          content: "Unsupported action must not save this.",
+          evidence_ids: ["ev_1"],
+        },
+        {
+          action: "skip",
+          scope: "project",
+          type: "project",
+          content: "",
+          evidence_ids: [],
+        },
+      ]),
+      toolCalls: [],
+      stopReason: "stop",
+    });
+    const bridge = new ProviderBackedDreamBridge({
+      nativeBridge: new NativeDreamBridge(client),
+      provider,
+      model: "dream-model",
+    });
+
+    const result = await bridge.runDream({ traceId: "trace-dream", sessionId: "session-1" });
+
+    expect(calls.map((call) => call.method)).toEqual(["memory.dream_run", "memory.dream_pending", "memory.dream_apply"]);
+    expect(calls[2]?.params).toMatchObject({
+      session_id: "session-1",
+      kind: "conversation_evidence",
+      cursor_start: 9,
+      cursor_end: 9,
+      evidence_ids: ["ev_1"],
+      notes: [],
+    });
+    expect(result).toEqual({
+      content: "Dream applied 0 provider memory note operation(s) from 1 conversation evidence record(s).",
+      metadata: {
+        changed: false,
+        provider_backed: true,
+        applied_notes: 0,
+        skipped_operations: 1,
+        last_evidence_cursor: 9,
+      },
+    });
+  });
+
   test("leaves deferred cursors untouched when provider output is not JSON operations", async () => {
     const { client, calls } = sequenceRpcClient([
       {

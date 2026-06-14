@@ -2195,6 +2195,31 @@ describe("createAgentWorkerServer", () => {
       );
       return request;
     };
+    const respondToPendingAppendEvents = async (): Promise<number> => {
+      let count = 0;
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const request = parsedLines(lines).find((line) => line.method === "cowork_store.append_event" && !handledStoreRequests.has(line.id));
+        if (!request || typeof request.id !== "string" || typeof request.trace_id !== "string") {
+          break;
+        }
+        handledStoreRequests.add(request.id);
+        await server.handleLine(
+          JSON.stringify({
+            protocol_version: "1",
+            id: request.id,
+            trace_id: request.trace_id,
+            result: {
+              event_id: typeof request.params?.event === "object" && request.params.event !== null && "id" in request.params.event
+                ? request.params.event.id
+                : "",
+            },
+          }),
+        );
+        count += 1;
+      }
+      return count;
+    };
 
     await respondToNextStoreRequest("cowork_store.ensure_session_workspace", {
       workspace_dir: "D:/tmp/cowork/cw-scheduler",
@@ -2232,9 +2257,15 @@ describe("createAgentWorkerServer", () => {
       "cowork_store.write_snapshot",
       (request) => ({ session: request.params?.session }),
     );
+    expect(await respondToPendingAppendEvents()).toBe(2);
     await respondToNextStoreRequest("cowork_store.read_snapshot", {
       session: agentFinishWrite.params?.session,
     });
+    await respondToNextStoreRequest(
+      "cowork_store.write_snapshot",
+      (request) => ({ session: request.params?.session }),
+    );
+    await respondToPendingAppendEvents();
     const schedulerWrite = await respondToNextStoreRequest(
       "cowork_store.write_snapshot",
       (request) => ({ session: request.params?.session }),
@@ -2243,11 +2274,11 @@ describe("createAgentWorkerServer", () => {
 
     expect(schedulerWrite.params?.session).toMatchObject({
       title: "Scheduler Cowork",
-      stop_reason: "max_rounds",
+      stop_reason: "ready_to_finish",
       tasks: expect.objectContaining({
         plan: expect.objectContaining({ status: "completed" }),
       }),
-      run_metrics: [expect.objectContaining({ status: "stopped", stop_reason: "max_rounds", agent_calls: 1 })],
+      run_metrics: [expect.objectContaining({ status: "stopped", stop_reason: "ready_to_finish", agent_calls: 1 })],
       scheduler_decisions: [expect.objectContaining({ selected_agent_ids: ["lead"] })],
     });
     expect(provider.requests[1][1]).toMatchObject({
