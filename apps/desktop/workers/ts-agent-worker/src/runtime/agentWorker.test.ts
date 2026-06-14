@@ -11041,7 +11041,7 @@ describe("AgentWorker", () => {
     });
     expect(appendedMessages.at(-1)).toContainEqual({
       role: "tool",
-      content: "Agent UI form submitted: travel_plan\n{\"destination\":\"Paris\",\"nights\":3}",
+      content: "Agent UI form `travel_plan` was submitted for travel_plan.\n\nStructured values:\n```json\n{\"destination\": \"Paris\", \"nights\": 3}\n```",
       toolCallId: "form-call-1",
       name: "request_form",
       metadata: {
@@ -11195,7 +11195,7 @@ describe("AgentWorker", () => {
     });
     expect(appendedMessages.at(-1)).toContainEqual({
       role: "tool",
-      content: "Agent UI form cancelled: travel_plan",
+      content: "Agent UI form `travel_plan` was cancelled by the user for travel_plan.",
       toolCallId: "form-call-1",
       name: "request_form",
       metadata: {
@@ -11270,7 +11270,7 @@ describe("AgentWorker", () => {
     });
     expect(appendedMessages.at(-1)).toContainEqual({
       role: "tool",
-      content: "Agent UI form submitted: travel_plan\n{\"destination\":\"Paris\"}",
+      content: "Agent UI form `travel_plan` was submitted for travel_plan.\n\nStructured values:\n```json\n{\"destination\": \"Paris\"}\n```",
       toolCallId: "form-call-1",
       name: "request_form",
       metadata: {

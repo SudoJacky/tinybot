@@ -310,10 +310,43 @@ function findFormToolMessageIndex(messages: AgentMessage[], formId: string): num
 }
 
 function formatFormSubmissionContent(submission: FormProjection): string {
+  const formTitle = submission.formId;
   if (submission.action === "cancelled") {
-    return `Agent UI form cancelled: ${submission.formId}`;
+    return `Agent UI form \`${submission.formId}\` was cancelled by the user for ${formTitle}.`;
   }
-  return `Agent UI form submitted: ${submission.formId}\n${JSON.stringify(submission.values)}`;
+  return `Agent UI form \`${submission.formId}\` was submitted for ${formTitle}.\n\nStructured values:\n\`\`\`json\n${formatPythonJsonValue(submission.values)}\n\`\`\``;
+}
+
+function formatPythonJsonValue(value: unknown): string {
+  if (value === null) {
+    return "null";
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => item === undefined ? "null" : formatPythonJsonValue(item)).join(", ")}]`;
+  }
+  if (isJsonObject(value)) {
+    return formatPythonJsonObject(value);
+  }
+  if (typeof value === "string" || typeof value === "boolean") {
+    return JSON.stringify(value);
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? String(value) : "null";
+  }
+  return "null";
+}
+
+function formatPythonJsonObject(value: Record<string, unknown>): string {
+  const entries = Object.entries(value)
+    .filter(([, entryValue]) => (
+      entryValue !== undefined &&
+      typeof entryValue !== "function" &&
+      typeof entryValue !== "symbol"
+    ))
+    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
+  return `{${entries
+    .map(([key, entryValue]) => `${JSON.stringify(key)}: ${formatPythonJsonValue(entryValue)}`)
+    .join(", ")}}`;
 }
 
 function parseApprovedOperation(metadata: Record<string, unknown> | undefined): { toolName: string; arguments: Record<string, unknown> } {

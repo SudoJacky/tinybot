@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued WebUI transport Agent UI form resume parity: TS checkpoint resume projections now mirror Python `schedule_form_response` text for submitted and cancelled forms, including sorted JSON structured values in the model-facing tool result.
+
 - Continued WebUI transport Agent UI form parity: TS-native form cancel routes now ignore malformed `values` payloads like Python cancellation handlers while keeping submit-route `values` validation strict.
 
 - Continued MCP runtime lazy-connect parity: TS-native agent runs now include MCP connection fields such as `command`, `args`, `type`, `url`, `env`, and `headers` in the native discovery cache signature, so config changes trigger rediscovery instead of reusing stale tools.

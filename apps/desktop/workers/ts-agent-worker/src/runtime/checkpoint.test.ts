@@ -200,7 +200,7 @@ describe("checkpoint resume helpers", () => {
       sessionId: "session-1",
       formId: "travel_plan",
       action: "submitted",
-      values: { destination: "Tokyo" },
+      values: { nights: 3, destination: "Tokyo" },
     })).toMatchObject({
       runId: "run-form",
       sessionId: "session-1",
@@ -210,13 +210,39 @@ describe("checkpoint resume helpers", () => {
         { role: "user", content: "book trip" },
         {
           role: "tool",
-          content: "Agent UI form submitted: travel_plan\n{\"destination\":\"Tokyo\"}",
+          content: "Agent UI form `travel_plan` was submitted for travel_plan.\n\nStructured values:\n```json\n{\"destination\": \"Tokyo\", \"nights\": 3}\n```",
           toolCallId: "call-form",
           name: "request_form",
           metadata: {
             formId: "travel_plan",
             action: "submitted",
-            values: { destination: "Tokyo" },
+            values: { nights: 3, destination: "Tokyo" },
+          },
+        },
+      ],
+    });
+
+    expect(resumedSpecFromSubmittedForm(checkpoint, {
+      sessionId: "session-1",
+      formId: "travel_plan",
+      action: "cancelled",
+      values: {},
+    })).toMatchObject({
+      runId: "run-form",
+      sessionId: "session-1",
+      model: "test-model",
+      toolResultBudget: 900,
+      messages: [
+        { role: "user", content: "book trip" },
+        {
+          role: "tool",
+          content: "Agent UI form `travel_plan` was cancelled by the user for travel_plan.",
+          toolCallId: "call-form",
+          name: "request_form",
+          metadata: {
+            formId: "travel_plan",
+            action: "cancelled",
+            values: {},
           },
         },
       ],
