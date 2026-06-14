@@ -159,7 +159,7 @@ class CronToolRuntime {
       return `every ${schedule.everyMs}ms`;
     }
     if (schedule.kind === "at" && schedule.atMs) {
-      return `at ${new Date(schedule.atMs).toISOString()} (${this.defaultTimezone})`;
+      return `at ${formatTimestamp(schedule.atMs, displayTimezone(schedule, this.defaultTimezone))}`;
     }
     return schedule.kind;
   }
@@ -218,7 +218,9 @@ function displayTimezone(schedule: CronSchedule, defaultTimezone: string): strin
 }
 
 function formatTimestamp(ms: number, timezone: string): string {
-  return `${new Date(ms).toISOString()} (${timezone})`;
+  const parts = timezoneDateTimeParts(ms, timezone);
+  const offset = timezoneOffsetMs(ms, timezone);
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}${formatOffset(offset)} (${timezone})`;
 }
 
 function parseAtTimestampMs(value: string, defaultTimezone: string): number {
@@ -246,7 +248,27 @@ function hasExplicitTimezone(value: string): boolean {
 }
 
 function timezoneOffsetMs(timestampMs: number, timezone: string): number {
-  const parts = new Intl.DateTimeFormat("en-US", {
+  const parts = timezoneDateTimeFormat(timezone).formatToParts(new Date(timestampMs));
+  const value = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value);
+  const asUtc = Date.UTC(value("year"), value("month") - 1, value("day"), value("hour"), value("minute"), value("second"));
+  return asUtc - timestampMs;
+}
+
+function timezoneDateTimeParts(timestampMs: number, timezone: string): Record<"year" | "month" | "day" | "hour" | "minute" | "second", string> {
+  const parts = timezoneDateTimeFormat(timezone).formatToParts(new Date(timestampMs));
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "00";
+  return {
+    year: value("year"),
+    month: value("month"),
+    day: value("day"),
+    hour: value("hour"),
+    minute: value("minute"),
+    second: value("second"),
+  };
+}
+
+function timezoneDateTimeFormat(timezone: string): Intl.DateTimeFormat {
+  return new Intl.DateTimeFormat("en-US", {
     timeZone: timezone,
     year: "numeric",
     month: "2-digit",
@@ -254,11 +276,19 @@ function timezoneOffsetMs(timestampMs: number, timezone: string): number {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
-    hour12: false,
-  }).formatToParts(new Date(timestampMs));
-  const value = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value);
-  const asUtc = Date.UTC(value("year"), value("month") - 1, value("day"), value("hour"), value("minute"), value("second"));
-  return asUtc - timestampMs;
+    hourCycle: "h23",
+  });
+}
+
+function formatOffset(offsetMs: number): string {
+  if (offsetMs === 0) {
+    return "+00:00";
+  }
+  const sign = offsetMs < 0 ? "-" : "+";
+  const absMinutes = Math.abs(offsetMs) / 60_000;
+  const hours = Math.floor(absMinutes / 60).toString().padStart(2, "0");
+  const minutes = Math.floor(absMinutes % 60).toString().padStart(2, "0");
+  return `${sign}${hours}:${minutes}`;
 }
 
 function traceId(context: ToolContext): string {

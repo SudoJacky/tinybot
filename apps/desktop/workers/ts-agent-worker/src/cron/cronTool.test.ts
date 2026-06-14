@@ -163,6 +163,34 @@ describe("createCronTool", () => {
     });
   });
 
+  test("formats list timestamps in the schedule timezone like Python", async () => {
+    const nextRunAtMs = Date.UTC(2026, 3, 1, 16, 0, 0);
+    const tool = createCronTool({
+      bridge: memoryBridge([
+        {
+          id: "job-vancouver",
+          name: "Morning check",
+          enabled: true,
+          schedule: { kind: "cron", expr: "0 9 * * *", tz: "America/Vancouver" },
+          payload: { kind: "agent_turn", message: "Morning check", deliver: true, channel: "websocket", to: "chat-1" },
+          state: { nextRunAtMs },
+          createdAtMs: nextRunAtMs,
+          updatedAtMs: nextRunAtMs,
+          deleteAfterRun: false,
+        },
+      ]),
+      defaultTimezone: "UTC",
+    });
+
+    await expect(tool.execute({ action: "list" }, context)).resolves.toEqual({
+      content: [
+        "Scheduled jobs:",
+        "- Morning check (id: job-vancouver, cron: 0 9 * * * (America/Vancouver))",
+        "  Next run: 2026-04-01T09:00:00-07:00 (America/Vancouver)",
+      ].join("\n"),
+    });
+  });
+
   test("formats protected system jobs like Python", async () => {
     const tool = createCronTool({
       bridge: memoryBridge([
@@ -187,7 +215,7 @@ describe("createCronTool", () => {
         "- dream (id: dream, every 1h)",
         "  Purpose: Dream memory consolidation for long-term memory.",
         "  Protected: visible for inspection, but cannot be removed.",
-        "  Next run: 2026-04-01T00:33:20.000Z (UTC)",
+        "  Next run: 2026-04-01T00:33:20+00:00 (UTC)",
       ].join("\n"),
     });
     await expect(tool.execute({ action: "remove", job_id: "dream" }, context)).resolves.toEqual({
