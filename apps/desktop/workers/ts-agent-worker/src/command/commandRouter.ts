@@ -128,5 +128,5 @@ function normalizeCommand(command: string): { command: string; key: string } {
 }
 
 function prefixMatches(rawKey: string, prefixKey: string): boolean {
-  return rawKey === prefixKey || rawKey.startsWith(`${prefixKey} `);
+  return rawKey.startsWith(`${prefixKey} `);
 }

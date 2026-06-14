@@ -72,6 +72,23 @@ describe("CommandRouter", () => {
     });
   });
 
+  test("requires prefix commands to include arguments like Python", async () => {
+    const router = new CommandRouter();
+    router.prefix("/approve", handler("approve"));
+    router.intercept(handler("fallback"));
+
+    await expect(router.dispatch("/approve", { traceId: "trace-1" })).resolves.toMatchObject({
+      handled: true,
+      output: "fallback:/approve:",
+      metadata: { label: "fallback" },
+    });
+    await expect(router.dispatch("/approve approval-1 once", { traceId: "trace-1" })).resolves.toMatchObject({
+      handled: true,
+      output: "approve:/approve:approval-1 once",
+      metadata: { label: "approve" },
+    });
+  });
+
   test("falls back to interceptor when no command matches", async () => {
     const router = new CommandRouter();
     router.intercept(handler("fallback"));

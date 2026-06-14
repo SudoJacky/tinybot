@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Command Runtime router parity: TS prefix slash commands now require an argument separator like Python, so bare `/approve` / `/deny` no longer get consumed by prefix handlers before fallback/model handling.
+
 - Continued Command Runtime router parity: TS command interceptors now mirror Python by preserving multiple fallback handlers and trying them in registration order instead of overwriting earlier interceptors.
 
 - Continued Command Runtime router parity: TS exact slash commands now require whole-line matches like Python, so `/new extra` and other parameterized exact commands no longer bypass fallback/model handling.
