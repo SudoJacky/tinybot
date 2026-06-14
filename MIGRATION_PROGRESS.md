@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued context builder Phase 5: TS-native run input context now carries active task progress from session history `_task_progress` metadata into runtime context, removing `active_task_progress` from omitted metadata when present.
+
 - Continued WebUI provider catalog parity: TS-native `/api/providers` now projects catalog status from native config, including configured/default built-ins, disabled providers, credential state, base URLs, model counts, and custom provider entries.
 
 - Continued WebUI config snapshot parity: TS-native `GET /api/config` now uses UI placeholder secret masking for browser responses while preserving null-masked public snapshots for internal runtime/provider resolution.

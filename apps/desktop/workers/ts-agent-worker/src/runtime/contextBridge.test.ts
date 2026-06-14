@@ -177,6 +177,46 @@ describe("NativeContextBridge", () => {
     expect(result.metadata.malformedHistoryCount).toBe(0);
   });
 
+  test("projects latest task progress from session history into runtime context", async () => {
+    const rpcClient = new FakeRpcClient({
+      "runtime.now": { current_time: "2026-06-10 09:00:00 Asia/Shanghai" },
+      "config.snapshot_public": { value: { agents: { defaults: { provider_retry_mode: "standard" } } } },
+      "session.get_history": {
+        session_id: "session-1",
+        messages: [
+          {
+            role: "progress",
+            content: "Task Progress: Backend migration",
+            metadata: {
+              _task_event: true,
+              _task_progress: {
+                title: "Backend migration",
+                completed: 1,
+                total: 3,
+                in_progress: 1,
+                current_all: ["Runtime bridge", "Context parity"],
+              },
+            },
+          },
+          { role: "user", content: "Earlier" },
+        ],
+      },
+      "workspace.read_bootstrap_files": { files: [], missing: [] },
+    });
+    const bridge = new NativeContextBridge(rpcClient);
+
+    const result = await bridge.loadContextInput(runInput(), "trace-1");
+
+    expect(result.input.history).toEqual([{ role: "user", content: "Earlier" }]);
+    expect(result.input.runtime.activeTaskProgress).toEqual({
+      title: "Backend migration",
+      completed: 1,
+      total: 3,
+      inProgress: 1,
+      currentAll: ["Runtime bridge", "Context parity"],
+    });
+  });
+
   test("falls back to per-file bootstrap reads when the batch RPC is unavailable", async () => {
     const rpcClient = new FakeRpcClient({
       "runtime.now": { current_time: "fixed now" },

@@ -82,6 +82,10 @@ export function buildRuntimeContext(runtime: RuntimeContext): string {
   if (userContext) {
     lines.push(`User Context: ${userContext}`);
   }
+  const taskProgress = formatActiveTaskProgress(runtime.activeTaskProgress);
+  if (taskProgress.length > 0) {
+    lines.push(...taskProgress);
+  }
   return `${RUNTIME_CONTEXT_TAG}\n${lines.join("\n")}`;
 }
 
@@ -122,6 +126,9 @@ function buildMetadata(
       }
       if (name === "skills_detail") {
         return !skillsContextIncluded;
+      }
+      if (name === "active_task_progress") {
+        return !input.runtime.activeTaskProgress;
       }
       return true;
     }),
@@ -229,6 +236,25 @@ function formatUserProfile(profile: UserProfile | undefined): string {
 
 function nonemptyList(value: string[] | undefined): value is string[] {
   return Array.isArray(value) && value.length > 0;
+}
+
+function formatActiveTaskProgress(progress: RuntimeContext["activeTaskProgress"]): string[] {
+  if (!progress) {
+    return [];
+  }
+  const lines: string[] = [];
+  if (progress.title) {
+    lines.push(`Active Task: ${progress.title}`);
+  }
+  lines.push(
+    `Task Progress: ${progress.completed}/${progress.total} completed, ${progress.inProgress} in progress`,
+  );
+  if (progress.currentAll && progress.currentAll.length > 0) {
+    lines.push(`Current Steps: ${progress.currentAll.join(", ")}`);
+  } else if (progress.current) {
+    lines.push(`Current Step: ${progress.current}`);
+  }
+  return lines;
 }
 
 function nonemptyString(value: string | undefined): value is string {

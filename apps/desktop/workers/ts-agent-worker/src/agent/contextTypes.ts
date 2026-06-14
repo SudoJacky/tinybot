@@ -31,6 +31,16 @@ export type RuntimeContext = {
   channel?: string;
   chatId?: string;
   userProfile?: UserProfile;
+  activeTaskProgress?: ActiveTaskProgress;
+};
+
+export type ActiveTaskProgress = {
+  title?: string;
+  completed: number;
+  total: number;
+  inProgress: number;
+  current?: string;
+  currentAll?: string[];
 };
 
 export type MemoryRecallNote = {

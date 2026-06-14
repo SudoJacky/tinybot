@@ -4,6 +4,7 @@ import { delimiter, join } from "node:path";
 import type { AgentMessage } from "../agent/agentRunSpec.ts";
 import {
   type AgentRunDefaults,
+  type ActiveTaskProgress,
   BOOTSTRAP_FILE_ORDER,
   type AgentRunInput,
   type BootstrapFile,
@@ -56,6 +57,7 @@ export class NativeContextBridge implements ContextBridge {
           channel: input.channel,
           chatId: input.chatId,
           userProfile: history.userProfile,
+          activeTaskProgress: history.activeTaskProgress,
         },
       },
       runDefaults,
@@ -83,6 +85,7 @@ export class NativeContextBridge implements ContextBridge {
   private async loadHistory(input: AgentRunInput, traceId: string): Promise<{
     messages: AgentMessage[];
     userProfile?: UserProfile;
+    activeTaskProgress?: ActiveTaskProgress;
     missingSession: boolean;
     malformedHistoryCount: number;
   }> {
@@ -97,6 +100,7 @@ export class NativeContextBridge implements ContextBridge {
       return {
         messages,
         userProfile: normalizeUserProfile(result?.user_profile ?? result?.userProfile),
+        activeTaskProgress: latestTaskProgress(rawMessages),
         missingSession: false,
         malformedHistoryCount: normalizedMessages.length - messages.length,
       };
@@ -246,6 +250,40 @@ function normalizeHistoryMessage(value: unknown): AgentMessage | null {
     ...(toolCallId ? { toolCallId } : {}),
     ...(asString(object.name) ? { name: asString(object.name) } : {}),
     ...(metadata ? { metadata } : {}),
+  };
+}
+
+function latestTaskProgress(messages: unknown[]): ActiveTaskProgress | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const object = asObject(messages[index]);
+    const metadata = asObject(object?.metadata);
+    const progress = normalizeTaskProgress(metadata?._task_progress ?? object?._task_progress);
+    if (progress) {
+      return progress;
+    }
+  }
+  return undefined;
+}
+
+function normalizeTaskProgress(value: unknown): ActiveTaskProgress | undefined {
+  const object = asObject(value);
+  if (!object) {
+    return undefined;
+  }
+  const completed = numberValue(object.completed);
+  const total = numberValue(object.total);
+  const inProgress = numberValue(object.in_progress ?? object.inProgress);
+  if (completed === undefined || total === undefined || inProgress === undefined) {
+    return undefined;
+  }
+  const currentAll = normalizeStringArray(object.current_all ?? object.currentAll);
+  return {
+    title: asString(object.title),
+    completed,
+    total,
+    inProgress,
+    current: asString(object.current),
+    currentAll,
   };
 }
 

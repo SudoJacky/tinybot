@@ -59,6 +59,28 @@ describe("buildContextMessages", () => {
     );
   });
 
+  test("includes active task progress in runtime context metadata", () => {
+    const result = buildContextMessages({
+      identity: "Identity",
+      currentMessage: "Continue task work.",
+      runtime: {
+        currentTime: "2026-06-10 09:00:00 Asia/Shanghai",
+        activeTaskProgress: {
+          title: "Backend migration",
+          completed: 1,
+          total: 3,
+          inProgress: 1,
+          currentAll: ["Runtime bridge", "Context parity"],
+        },
+      },
+    });
+
+    expect(result.messages[1].content).toContain("Active Task: Backend migration");
+    expect(result.messages[1].content).toContain("Task Progress: 1/3 completed, 1 in progress");
+    expect(result.messages[1].content).toContain("Current Steps: Runtime bridge, Context parity");
+    expect(result.metadata.omittedContext).not.toContain("active_task_progress");
+  });
+
   test("appends history before current message when trailing role differs", () => {
     const result = buildContextMessages({
       identity: "Identity",
