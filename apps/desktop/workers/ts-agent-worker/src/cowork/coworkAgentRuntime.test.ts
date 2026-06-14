@@ -2075,6 +2075,9 @@ describe("CoworkAgentRuntime", () => {
           argumentsJson: JSON.stringify({
             action: "complete_task",
             content: "Observation-backed completion.",
+            api_token: "secret",
+            nested: { value: "hidden" },
+            items: ["a", "b"],
           }),
         }],
         stopReason: "tool_calls",
@@ -2113,6 +2116,9 @@ describe("CoworkAgentRuntime", () => {
         parameter_summary: {
           action: "complete_task",
           content: "Observation-backed completion.",
+          api_token: "[redacted]",
+          nested: "object[1]",
+          items: "list[2]",
         },
         result_summary: "Completed task draft: Draft",
         status: "completed",

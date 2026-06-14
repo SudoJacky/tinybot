@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Cowork observability parity: TS-native AgentRunner tool observations now sanitize parameter summaries like Python, redacting secret/token/password/API key fields and compacting list/object parameters instead of persisting raw tool-call arguments.
+
 - Continued Cowork agent-runtime failure parity: TS-native `CoworkAgentRuntime` now catches AgentRunner/provider exceptions like Python, persists failed agent/task state, records failed step/trace observability, and returns a failed agent result instead of leaking the runner exception.
 
 - Continued Cowork lead-synthesis trace parity: TS-native scheduler lead synthesis now runs the lead agent with Python-compatible standalone agent trace linkage instead of inheriting the scheduler run/round ids.
@@ -1430,6 +1432,7 @@ Heartbeat row 20 update: Phase 4 now runs scheduled notifications through the sh
 - [x] Continue Cowork scheduler trace parity: include swarm metrics in scheduler round trace spans like Python.
 - [x] Continue Cowork lead-synthesis trace parity: keep synthesis agent trace linkage standalone like Python.
 - [x] Continue Cowork agent-runtime failure parity: persist failed agent/task state and observability when AgentRunner raises.
+- [x] Continue Cowork observability parity: sanitize AgentRunner tool observation parameters like Python.
 - [x] Continue Cowork agent readiness parity: sort team ready agents by Python-style readiness scores before applying scheduler limits.
 - [x] Continue Cowork agent readiness parity: select agents with pending reply mailbox work and score mailbox pressure like Python.
 - [x] Continue Cowork agent readiness parity: refresh mailbox expiry and stale-blocker escalation before selecting active agents like Python.

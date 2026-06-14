@@ -512,7 +512,7 @@ export class CoworkAgentRuntime {
     const detailId = this.idGenerator("obsdetail");
     const resultSummary = compactText(result, 400);
     const purpose = compactText(`${agentId || "agent"} called ${toolName}`, 240);
-    const parameterSummary = started.parameters;
+    const parameterSummary = sanitizeObservationParameters(started.parameters);
     const details: JsonObject[] = [{
       id: detailId,
       subject_id: observationId,
@@ -943,6 +943,26 @@ function wantsAgentStreaming(session: CoworkSession): boolean {
 
 function toolObservationKey(payload: Record<string, unknown>): string {
   return `${cleanString(payload.runId)}:${cleanString(payload.toolCallId)}:${cleanString(payload.toolName)}`;
+}
+
+function sanitizeObservationParameters(parameters: JsonObject): JsonObject {
+  const sensitiveTerms = ["secret", "token", "password", "api_key", "apikey", "credential", "authorization"];
+  const sanitized: JsonObject = {};
+  for (const [key, value] of Object.entries(parameters)) {
+    const keyText = String(key);
+    if (sensitiveTerms.some((term) => keyText.toLowerCase().includes(term))) {
+      sanitized[keyText] = "[redacted]";
+    } else if (typeof value === "string" || typeof value === "number" || typeof value === "boolean" || value === null) {
+      sanitized[keyText] = compactText(value, 160);
+    } else if (Array.isArray(value)) {
+      sanitized[keyText] = `list[${value.length}]`;
+    } else if (isJsonObject(value)) {
+      sanitized[keyText] = `object[${Object.keys(value).length}]`;
+    } else {
+      sanitized[keyText] = typeof value;
+    }
+  }
+  return sanitized;
 }
 
 function looksLikeBrowserTool(toolName: string, parameters: JsonObject): boolean {
