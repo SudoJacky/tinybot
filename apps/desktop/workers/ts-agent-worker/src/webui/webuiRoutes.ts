@@ -1429,7 +1429,7 @@ async function knowledgeQueryResponse(
   if (!query) {
     return { status: 400, body: knowledgeApiError(400, "Query text is required") };
   }
-  const mode = stringValue(body.mode) ?? "hybrid";
+  const mode = Object.prototype.hasOwnProperty.call(body, "mode") ? body.mode : "hybrid";
   if (!query.trim()) {
     return {
       status: 200,
@@ -1443,7 +1443,7 @@ async function knowledgeQueryResponse(
     };
   }
   try {
-    const result = await provider.query(body, traceId);
+    const result = await provider.query(knowledgeQueryProviderRequest(body, query, mode), traceId);
     const data = arrayFromResult(result, "results");
     return {
       status: 200,
@@ -1458,6 +1458,19 @@ async function knowledgeQueryResponse(
   } catch (error) {
     return knowledgeServerError("Error querying knowledge", error);
   }
+}
+
+function knowledgeQueryProviderRequest(
+  body: Record<string, unknown>,
+  query: string,
+  mode: unknown,
+): Record<string, unknown> {
+  return {
+    ...body,
+    query,
+    mode,
+    top_k: Object.prototype.hasOwnProperty.call(body, "top_k") ? body.top_k : 5,
+  };
 }
 
 function knowledgeStatsBody(result: unknown): Record<string, unknown> {

@@ -2398,6 +2398,36 @@ describe("AgentWorker", () => {
       },
     });
     await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/v1/knowledge/query",
+      body: { query: "default query" },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          object: "list",
+          query: "default query",
+          mode: "hybrid",
+          total: 1,
+        },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/v1/knowledge/query",
+      body: { query: "explicit query", mode: 404, top_k: null },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          object: "list",
+          query: "explicit query",
+          mode: 404,
+          total: 1,
+        },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
       method: "GET",
       path: "/v1/knowledge/stats",
     }))).resolves.toMatchObject({
@@ -2827,6 +2857,8 @@ describe("AgentWorker", () => {
       { method: "get", traceId: "trace-webui.handle_request", params: { docId: "doc-1" } },
       { method: "delete", traceId: "trace-webui.handle_request", params: { docId: "doc-1" } },
       { method: "query", traceId: "trace-webui.handle_request", params: { query: "native knowledge", mode: "sparse", top_k: 3 } },
+      { method: "query", traceId: "trace-webui.handle_request", params: { query: "default query", mode: "hybrid", top_k: 5 } },
+      { method: "query", traceId: "trace-webui.handle_request", params: { query: "explicit query", mode: 404, top_k: null } },
       { method: "stats", traceId: "trace-webui.handle_request" },
       { method: "stats", traceId: "trace-webui.handle_request" },
       { method: "stats", traceId: "trace-webui.handle_request" },
