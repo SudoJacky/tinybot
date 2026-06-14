@@ -449,6 +449,73 @@ describe("createTaskTool", () => {
     expect(spawned).toEqual(["a"]);
   });
 
+  test("mirrors Python truthiness for task boolean arguments", async () => {
+    const spawned: string[] = [];
+    const tool = createTaskTool({
+      store: memoryBridge([]),
+      now: () => "2026-06-12T00:00:00.000Z",
+      planner: {
+        createPlan: async (request, planContext) => ({
+          id: "plan-truthy",
+          title: "Truthy native plan",
+          originalRequest: request,
+          status: "planning",
+          currentSubtaskIds: [],
+          context: planContext,
+          subtasks: [
+            {
+              id: "a",
+              title: "Inspect",
+              description: "Inspect Python",
+              status: "pending",
+              dependencies: [],
+              parallelSafe: true,
+              result: null,
+              error: null,
+              startedAt: null,
+              completedAt: null,
+              retryCount: 0,
+              maxRetries: 2,
+            },
+            {
+              id: "b",
+              title: "Compare",
+              description: "Compare TS",
+              status: "pending",
+              dependencies: [],
+              parallelSafe: true,
+              result: null,
+              error: null,
+              startedAt: null,
+              completedAt: null,
+              retryCount: 0,
+              maxRetries: 2,
+            },
+          ],
+        }),
+      },
+      executor: {
+        spawnSubtask: async ({ subtask }) => {
+          spawned.push(subtask.id);
+        },
+      },
+    });
+
+    await expect(tool.execute({
+      action: "create",
+      request: "Plan this",
+      auto_execute: "yes",
+      parallel: [],
+    }, context)).resolves.toMatchObject({
+      metadata: {
+        _task_event: true,
+        _task_plan_id: "plan-truthy",
+        _task_progress: expect.objectContaining({ in_progress: 1, pending: 1 }),
+      },
+    });
+    expect(spawned).toEqual(["a"]);
+  });
+
   test("resumes a task plan through the configured executor", async () => {
     const plan = basePlan();
     plan.status = "planning";

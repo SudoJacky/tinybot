@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Task/Cron background runtime parity: TS-native `task` boolean arguments now mirror Python truthiness for `auto_execute`, `parallel`, and `subtask_parallel_safe`, preserving compatibility for non-boolean JSON/RPC inputs.
+
 - Continued Task/Cron background runtime parity: TS-native cron job creation now resolves the default timezone from native `agents.defaults.timezone` before interpreting cron expressions and naive `at` schedules, matching the configured-timezone behavior used by the Python runtime.
 
 - Continued Task/Cron background runtime parity: TS-native `cron action=list` now formats `Last run`, `Next run`, and one-shot `at` timestamps in the job/default timezone with Python-style ISO offsets instead of UTC-only strings.

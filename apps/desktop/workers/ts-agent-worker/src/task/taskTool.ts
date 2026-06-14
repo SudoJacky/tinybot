@@ -469,7 +469,25 @@ function stringArrayArg(args: Record<string, unknown>, key: string): string[] {
 
 function booleanArg(args: Record<string, unknown>, key: string, fallback: boolean): boolean {
   const value = args[key];
-  return typeof value === "boolean" ? value : fallback;
+  if (value === undefined || value === null) {
+    return fallback;
+  }
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    return value !== 0;
+  }
+  if (typeof value === "string") {
+    return value.length > 0;
+  }
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+  if (typeof value === "object") {
+    return Object.keys(value).length > 0;
+  }
+  return Boolean(value);
 }
 
 function truncate(value: string, maxLength: number): string {
