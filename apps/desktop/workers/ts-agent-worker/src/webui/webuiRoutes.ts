@@ -2584,15 +2584,37 @@ function clampedNumberQuery(
   max: number,
   integer: boolean,
 ): number | undefined {
-  const parsed = value === null || value === "" ? fallback : Number(value);
-  if (!Number.isFinite(parsed)) {
+  const parsed = queryNumberValue(value, fallback);
+  if (parsed === undefined) {
     return undefined;
   }
-  if (integer && !Number.isInteger(parsed)) {
+  if (integer && (!Number.isFinite(parsed) || !Number.isInteger(parsed))) {
     return undefined;
   }
-  const normalized = integer ? Math.trunc(parsed) : parsed;
+  const normalized = integer
+    ? Math.trunc(parsed)
+    : Number.isNaN(parsed)
+      ? min
+      : parsed;
   return Math.max(min, Math.min(max, normalized));
+}
+
+function queryNumberValue(value: string | null, fallback: number): number | undefined {
+  if (value === null || value === "") {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (/^[+-]?nan$/.test(normalized)) {
+    return Number.NaN;
+  }
+  if (/^[+]?inf(?:inity)?$/.test(normalized)) {
+    return Number.POSITIVE_INFINITY;
+  }
+  if (/^-inf(?:inity)?$/.test(normalized)) {
+    return Number.NEGATIVE_INFINITY;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function asObject(value: unknown): Record<string, unknown> | undefined {

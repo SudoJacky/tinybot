@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued API Runtime Knowledge query-param parity: TS-native Knowledge graph and GraphRAG `min_confidence` parsing now accepts Python-compatible `nan` / `inf` float spellings and clamps them through the same 0..1 range as the Python store.
+
 - Continued API Runtime OpenAI-compatible parity: TS-native chat completion model validation now treats structured `model` values like Python string formatting, so array/object values cannot accidentally match the configured model.
 
 - Continued API Runtime Knowledge query-param parity: TS-native Knowledge graph and GraphRAG routes now reject fractional integer query values like Python `int(...)` parsing instead of truncating them.
@@ -767,6 +769,7 @@ API Runtime row 19 update: TS-native completed Knowledge upload/rebuild job enve
 
 | Date | Update |
 | --- | --- |
+| 2026-06-14 | Continued API Runtime Knowledge query-param parity: graph and GraphRAG `min_confidence` now accepts Python-compatible `nan` / `inf` float spellings and clamps them through the native route. |
 | 2026-06-14 | Continued API Runtime Knowledge job-envelope parity: completed native upload/rebuild job payloads now include Python-compatible lifecycle timestamps. |
 | 2026-06-14 | Continued API Runtime Knowledge query parity: native query route now returns an empty list for whitespace-only query text instead of surfacing native searchable-term errors. |
 | 2026-06-14 | Continued API Runtime Knowledge validation parity: native add-document route now rejects whitespace-only content with Python-compatible 400 invalid-request envelopes. |
