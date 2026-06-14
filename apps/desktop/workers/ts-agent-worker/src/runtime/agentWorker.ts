@@ -3434,8 +3434,26 @@ export class AgentWorker {
       throw new Error("agent ui form continuation requires a checkpoint");
     }
     const formMetadata = findAwaitingFormMetadata(checkpoint, form.formId);
+    assertStructuredFormCorrelationMatches(formMetadata, form.correlation);
+    if (isAgentUiFormExpired(formMetadata)) {
+      return {
+        error: "form expired",
+        event: webuiAgentUiFormEvent(form, formMetadata, { eventType: "ui.form.expired" }),
+      };
+    }
+    const validation = validateSubmittedAgentUiForm(form, formMetadata);
+    if (!validation.valid) {
+      return {
+        error: "invalid form values",
+        errors: validation.errors,
+        event: webuiAgentUiFormEvent(form, formMetadata, {
+          eventType: "ui.form.validation_failed",
+          values: form.values,
+          errors: validation.errors,
+        }),
+      };
+    }
     if (formContinuationMode(formMetadata) === "structured_message") {
-      assertStructuredFormCorrelationMatches(formMetadata, form.correlation);
       const event = webuiAgentUiFormEvent(form, formMetadata);
       await this.sessionBridge.appendMessages(form.sessionId, [structuredFormMessage(form, formMetadata)], traceId);
       return {
@@ -4129,17 +4147,23 @@ function parseSubmitFormParams(params: Record<string, unknown> | undefined): For
 function webuiAgentUiFormEvent(
   form: WebuiAgentUiFormRequest,
   metadata: Record<string, unknown> | undefined,
+  options: {
+    eventType?: string;
+    values?: Record<string, unknown>;
+    errors?: Record<string, string>;
+  } = {},
 ): Record<string, unknown> {
   const correlation = agentUiFormEventCorrelation(form, metadata);
   return {
-    event_type: form.action === "cancelled" ? "ui.form.cancelled" : "ui.form.submitted",
+    event_type: options.eventType ?? (form.action === "cancelled" ? "ui.form.cancelled" : "ui.form.submitted"),
     chat_id: stringCorrelationValue(correlation.chat_id) ?? "",
     message_id: stringCorrelationValue(correlation.message_id) ?? "",
     run_id: stringCorrelationValue(correlation.run_id) ?? "",
     payload: {
       form_id: form.formId,
       correlation,
-      ...(form.action === "submitted" ? { values: form.values } : {}),
+      ...(form.action === "submitted" ? { values: options.values ?? form.values } : {}),
+      ...(options.errors ? { errors: options.errors } : {}),
     },
   };
 }
@@ -4154,6 +4178,123 @@ function agentUiFormEventCorrelation(
     ...expected,
     form_id: form.formId,
   };
+}
+
+function validateSubmittedAgentUiForm(
+  form: WebuiAgentUiFormRequest,
+  metadata: Record<string, unknown> | undefined,
+): { valid: true } | { valid: false; errors: Record<string, string> } {
+  if (form.action !== "submitted" || !isJsonObject(metadata?.form) || !Array.isArray(metadata.form.fields)) {
+    return { valid: true };
+  }
+  const errors: Record<string, string> = {};
+  for (const rawField of metadata.form.fields) {
+    if (!isJsonObject(rawField) || typeof rawField.name !== "string") {
+      continue;
+    }
+    const error = validateSubmittedAgentUiFormField(rawField, form.values[rawField.name]);
+    if (error) {
+      errors[rawField.name] = error;
+    }
+  }
+  return Object.keys(errors).length > 0 ? { valid: false, errors } : { valid: true };
+}
+
+function isAgentUiFormExpired(metadata: Record<string, unknown> | undefined): boolean {
+  if (metadata?.status === "expired" || (isJsonObject(metadata?.form) && metadata.form.status === "expired")) {
+    return true;
+  }
+  const expiresAt = isJsonObject(metadata?.form) && typeof metadata.form.expires_at === "string"
+    ? metadata.form.expires_at
+    : typeof metadata?.expires_at === "string"
+      ? metadata.expires_at
+      : undefined;
+  if (!expiresAt) {
+    return false;
+  }
+  const expiresAtMs = Date.parse(expiresAt);
+  return Number.isFinite(expiresAtMs) && Date.now() >= expiresAtMs;
+}
+
+function validateSubmittedAgentUiFormField(field: Record<string, unknown>, value: unknown): string | undefined {
+  const name = typeof field.name === "string" ? field.name : "";
+  const path = `values.${name}`;
+  const required = field.required === true;
+  const fieldType = typeof field.type === "string" ? field.type : "";
+  if (
+    value === undefined ||
+    value === null ||
+    value === "" ||
+    (required && fieldType === "multiselect" && Array.isArray(value) && value.length === 0)
+  ) {
+    return required ? `${path} is required` : undefined;
+  }
+  if (fieldType === "number") {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return `${path} must be a finite number`;
+    }
+    if (typeof field.min === "number" && value < field.min) {
+      return `${path} is below the minimum`;
+    }
+    if (typeof field.max === "number" && value > field.max) {
+      return `${path} is above the maximum`;
+    }
+    return undefined;
+  }
+  if (fieldType === "checkbox") {
+    return typeof value === "boolean" ? undefined : `${path} must be a boolean`;
+  }
+  if (fieldType === "multiselect") {
+    if (!Array.isArray(value)) {
+      return `${path} must be an array`;
+    }
+    return value.every((item) => agentUiFormOptionMatches(field, item))
+      ? undefined
+      : `${path} contains an unsupported option`;
+  }
+  if (fieldType === "select" || fieldType === "radio") {
+    return agentUiFormOptionMatches(field, value) ? undefined : `${path} contains an unsupported option`;
+  }
+  if (fieldType === "text" || fieldType === "textarea" || fieldType === "date" || fieldType === "time" ||
+    fieldType === "datetime" || fieldType === "file_path") {
+    if (typeof value !== "string") {
+      return `${path} must be a string`;
+    }
+    if (value.length > 2000) {
+      return `${path} is too long`;
+    }
+    if (typeof field.min_length === "number" && value.length < field.min_length) {
+      return `${path} is shorter than the minimum length`;
+    }
+    if (typeof field.max_length === "number" && value.length > field.max_length) {
+      return `${path} is longer than the maximum length`;
+    }
+    if (typeof field.pattern === "string" && !new RegExp(`^(?:${field.pattern})$`).test(value)) {
+      return `${path} does not match the required pattern`;
+    }
+  }
+  return undefined;
+}
+
+function agentUiFormOptionMatches(field: Record<string, unknown>, value: unknown): boolean {
+  if (!Array.isArray(field.options)) {
+    return false;
+  }
+  return field.options.some((option) => (
+    isJsonObject(option) &&
+    Object.prototype.hasOwnProperty.call(option, "value") &&
+    agentUiFormChoiceValueMatches(value, option.value)
+  ));
+}
+
+function agentUiFormChoiceValueMatches(actual: unknown, expected: unknown): boolean {
+  if (typeof actual === "boolean" || typeof expected === "boolean") {
+    return typeof actual === "boolean" && typeof expected === "boolean" && actual === expected;
+  }
+  if (typeof actual === "number" && typeof expected === "number") {
+    return actual === expected;
+  }
+  return typeof actual === typeof expected && actual === expected;
 }
 
 function parseFormSubmissionAction(value: unknown): FormSubmissionRequest["action"] {

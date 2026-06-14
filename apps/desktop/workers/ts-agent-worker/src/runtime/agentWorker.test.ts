@@ -2297,6 +2297,203 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("returns validation failed Agent UI form events without resuming the run", async () => {
+    const clearedSessions: string[] = [];
+    const appendedMessages: AgentMessage[][] = [];
+    const provider = new QueueProvider([{ content: "should not continue", toolCalls: [], stopReason: "stop" }]);
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      sessionBridge: {
+        setCheckpoint: async () => undefined,
+        clearCheckpoint: async (sessionId) => {
+          clearedSessions.push(sessionId);
+        },
+        appendMessages: async (_sessionId, messages) => {
+          appendedMessages.push(messages);
+        },
+        getCheckpoint: async (sessionId) => ({
+          sessionId,
+          runId: "run-form-1",
+          phase: "tools_completed",
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+          messages: [
+            { role: "user", content: "collect preferences" },
+            {
+              role: "assistant",
+              content: "",
+              toolCalls: [{ id: "form-call-1", name: "request_form", argumentsJson: "{}" }],
+            },
+            {
+              role: "tool",
+              content: "Waiting for form submission.",
+              toolCallId: "form-call-1",
+              name: "request_form",
+              metadata: {
+                awaitingUserInput: true,
+                stopReason: "awaiting_form",
+                formId: "travel_plan",
+                form: {
+                  form_id: "travel_plan",
+                  title: "Travel plan",
+                  fields: [
+                    { name: "destination", type: "text", label: "Destination", required: true },
+                    { name: "nights", type: "number", label: "Nights", required: false },
+                  ],
+                },
+                correlation: {
+                  session_key: "websocket:chat-forms",
+                  chat_id: "chat-forms",
+                  run_id: "run-form-1",
+                  message_id: "message-form-1",
+                  interaction_id: "interaction-1",
+                },
+              },
+            },
+          ],
+        }),
+      },
+    });
+
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/api/agent-ui/forms/travel_plan/submit",
+      body: {
+        correlation: { session_key: "websocket:chat-forms" },
+        values: { nights: 3 },
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: {
+          error: "invalid form values",
+          errors: { destination: "values.destination is required" },
+          event: {
+            event_type: "ui.form.validation_failed",
+            chat_id: "chat-forms",
+            message_id: "message-form-1",
+            run_id: "run-form-1",
+            payload: {
+              form_id: "travel_plan",
+              values: { nights: 3 },
+              errors: { destination: "values.destination is required" },
+              correlation: {
+                session_key: "websocket:chat-forms",
+                chat_id: "chat-forms",
+                run_id: "run-form-1",
+                message_id: "message-form-1",
+                interaction_id: "interaction-1",
+                form_id: "travel_plan",
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(provider.messages).toEqual([]);
+    expect(clearedSessions).toEqual([]);
+    expect(appendedMessages).toEqual([]);
+  });
+
+  test("returns expired Agent UI form events without resuming the run", async () => {
+    const clearedSessions: string[] = [];
+    const appendedMessages: AgentMessage[][] = [];
+    const provider = new QueueProvider([{ content: "should not continue", toolCalls: [], stopReason: "stop" }]);
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      sessionBridge: {
+        setCheckpoint: async () => undefined,
+        clearCheckpoint: async (sessionId) => {
+          clearedSessions.push(sessionId);
+        },
+        appendMessages: async (_sessionId, messages) => {
+          appendedMessages.push(messages);
+        },
+        getCheckpoint: async (sessionId) => ({
+          sessionId,
+          runId: "run-form-1",
+          phase: "tools_completed",
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+          messages: [
+            { role: "user", content: "collect preferences" },
+            {
+              role: "assistant",
+              content: "",
+              toolCalls: [{ id: "form-call-1", name: "request_form", argumentsJson: "{}" }],
+            },
+            {
+              role: "tool",
+              content: "Waiting for form submission.",
+              toolCallId: "form-call-1",
+              name: "request_form",
+              metadata: {
+                awaitingUserInput: true,
+                stopReason: "awaiting_form",
+                formId: "travel_plan",
+                form: {
+                  form_id: "travel_plan",
+                  title: "Travel plan",
+                  expires_at: "2000-01-01T00:00:00Z",
+                  fields: [{ name: "destination", type: "text", label: "Destination", required: true }],
+                },
+                correlation: {
+                  session_key: "websocket:chat-forms",
+                  chat_id: "chat-forms",
+                  run_id: "run-form-1",
+                  message_id: "message-form-1",
+                  interaction_id: "interaction-1",
+                },
+              },
+            },
+          ],
+        }),
+      },
+    });
+
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/api/agent-ui/forms/travel_plan/submit",
+      body: {
+        correlation: { session_key: "websocket:chat-forms" },
+        values: { destination: "Paris" },
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 409,
+        body: {
+          error: "form expired",
+          event: {
+            event_type: "ui.form.expired",
+            chat_id: "chat-forms",
+            message_id: "message-form-1",
+            run_id: "run-form-1",
+            payload: {
+              form_id: "travel_plan",
+              correlation: {
+                session_key: "websocket:chat-forms",
+                chat_id: "chat-forms",
+                run_id: "run-form-1",
+                message_id: "message-form-1",
+                interaction_id: "interaction-1",
+                form_id: "travel_plan",
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(provider.messages).toEqual([]);
+    expect(clearedSessions).toEqual([]);
+    expect(appendedMessages).toEqual([]);
+  });
+
   test("serves WebUI workspace file routes through TS worker RPC", async () => {
     const calls: Array<{ method: string; path?: string; contents?: string; expectedUpdatedAt?: string | null }> = [];
     const worker = new AgentWorker({

@@ -2134,18 +2134,19 @@ async function webuiAgentUiFormResponse(
     return { status: 503, body: { error: "webui control route unavailable", route: agentUiFormRouteKey(formAction.action) } };
   }
   try {
+    const result = await agentUiFormProvider.continueForm(
+      {
+        formId: formAction.formId,
+        sessionId,
+        action: formAction.action,
+        values,
+        correlation,
+      },
+      traceId,
+    );
     return {
-      status: 200,
-      body: await agentUiFormProvider.continueForm(
-        {
-          formId: formAction.formId,
-          sessionId,
-          action: formAction.action,
-          values,
-          correlation,
-        },
-        traceId,
-      ),
+      status: agentUiFormResultStatus(result),
+      body: result,
     };
   } catch (error) {
     if (error instanceof Error && error.message === "form correlation mismatch") {
@@ -2159,6 +2160,16 @@ async function webuiAgentUiFormResponse(
       },
     };
   }
+}
+
+function agentUiFormResultStatus(result: Record<string, unknown>): number {
+  if (result.error === "invalid form values") {
+    return 400;
+  }
+  if (result.error === "form expired") {
+    return 409;
+  }
+  return 200;
 }
 
 function agentUiFormSessionId(payload: Record<string, unknown>, correlation: Record<string, unknown>): string | undefined {
