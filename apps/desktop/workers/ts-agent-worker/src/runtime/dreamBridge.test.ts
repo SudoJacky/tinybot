@@ -317,7 +317,6 @@ describe("ProviderBackedDreamBridge", () => {
     const provider = new RecordingProvider({
       content: JSON.stringify({
         action: "save",
-        scope: "user",
         type: "preference",
         content: "User prefers direct handoffs.",
         priority: 0.75,
@@ -428,6 +427,55 @@ describe("ProviderBackedDreamBridge", () => {
         skipped_operations: 1,
         last_evidence_cursor: 9,
       },
+    });
+  });
+
+  test("coerces unsupported provider note type and scope like Python Dream", async () => {
+    const { client, calls } = sequenceRpcClient([
+      {
+        content: "Dream deferred 1 conversation evidence record(s) for provider-backed memory extraction.",
+        metadata: { deferred: true, pending_evidence: 1 },
+      },
+      {
+        kind: "conversation_evidence",
+        records: [{ id: "ev_2", cursor: 10, content: "Remember the repository migration policy." }],
+        cursor_start: 10,
+        cursor_end: 10,
+        evidence_ids: ["ev_2"],
+      },
+      {
+        changed: true,
+        applied_notes: 1,
+        last_evidence_cursor: 10,
+      },
+    ]);
+    const provider = new RecordingProvider({
+      content: JSON.stringify([{
+        action: "save",
+        type: "memory",
+        scope: "global",
+        content: "Repository migration policy belongs in project memory.",
+        evidence_ids: ["ev_2"],
+      }]),
+      toolCalls: [],
+      stopReason: "stop",
+    });
+    const bridge = new ProviderBackedDreamBridge({
+      nativeBridge: new NativeDreamBridge(client),
+      provider,
+      model: "dream-model",
+    });
+
+    await bridge.runDream({ traceId: "trace-dream", sessionId: "session-1" });
+
+    expect(calls[2]?.params).toMatchObject({
+      notes: [
+        expect.objectContaining({
+          content: "Repository migration policy belongs in project memory.",
+          note_type: "project",
+          scope: "project",
+        }),
+      ],
     });
   });
 

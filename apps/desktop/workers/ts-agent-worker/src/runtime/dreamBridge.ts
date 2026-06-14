@@ -321,11 +321,12 @@ function dreamNoteFromOperation(value: JsonObject, action: "save" | "supersede" 
   if (!content) {
     return null;
   }
+  const noteType = dreamNoteType(stringValue(value.type) ?? stringValue(value.note_type));
   return {
     action,
     content,
-    noteType: stringValue(value.type) ?? stringValue(value.note_type) ?? "project",
-    scope: stringValue(value.scope),
+    noteType,
+    scope: dreamNoteScope(stringValue(value.scope), noteType),
     priority: numberValue(value.priority),
     confidence: numberValue(value.confidence) ?? 0.65,
     tags: stringListValue(value.tags, ["dream"]),
@@ -341,6 +342,30 @@ function dreamAction(value: unknown): "save" | "supersede" | "reject" | "skip" |
     return action;
   }
   return "invalid";
+}
+
+function dreamNoteType(value: string | undefined): string {
+  return [
+    "preference",
+    "instruction",
+    "project",
+    "decision",
+    "fix",
+    "followup",
+  ].includes(value ?? "") ? value! : "project";
+}
+
+function dreamNoteScope(value: string | undefined, noteType: string): string {
+  if (["user", "assistant", "project", "session"].includes(value ?? "")) {
+    return value!;
+  }
+  if (noteType === "preference") {
+    return "user";
+  }
+  if (noteType === "instruction") {
+    return "assistant";
+  }
+  return "project";
 }
 
 function dreamBatch(value: JsonObject): DreamBatch {
