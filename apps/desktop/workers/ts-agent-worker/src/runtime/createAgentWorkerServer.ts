@@ -228,9 +228,15 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     provider,
     tools: options.tools,
     emitEvent: writeEvent,
-    prepareTools: mcpBridge ? (traceId) => mcpBridge.ensureConnected(traceId).catch((error) => {
-      options.writeLog(`native MCP discovery failed: ${errorMessage(error)}`);
-    }) : undefined,
+    prepareTools: mcpBridge ? async (traceId) => {
+      const configSnapshot = await configBridge.snapshotPublic().catch((error) => {
+        options.writeLog(`native MCP config snapshot failed: ${errorMessage(error)}`);
+        return undefined;
+      });
+      await mcpBridge.ensureConnected(traceId, configSnapshot).catch((error) => {
+        options.writeLog(`native MCP discovery failed: ${errorMessage(error)}`);
+      });
+    } : undefined,
     reloadProvider: lazyProvider ? () => lazyProvider.reload() : undefined,
     requestRestart: async (request) => {
       await rpcClient.request(request.traceId, "runtime.restart", {

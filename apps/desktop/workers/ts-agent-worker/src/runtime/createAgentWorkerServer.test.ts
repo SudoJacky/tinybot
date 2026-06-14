@@ -2805,6 +2805,9 @@ describe("createAgentWorkerServer", () => {
       }),
     );
 
+    await respondToConfigSnapshot(server, lines, {
+      tools: { mcpServers: { docs: { enabledTools: ["*"] } } },
+    });
     await waitFor(() => parsedLines(lines).some((line) => line.method === "mcp.list_tools"));
     const listRequest = parsedLines(lines).find((line) => line.method === "mcp.list_tools");
     await server.handleLine(
@@ -2887,6 +2890,77 @@ describe("createAgentWorkerServer", () => {
     });
   });
 
+  test("filters native MCP discovery with the current config snapshot during agent runs", async () => {
+    const lines: string[] = [];
+    const provider = new QueueProvider([
+      { content: "mcp config filtered", toolCalls: [], stopReason: "stop" },
+    ]);
+    const server = createAgentWorkerServer({
+      provider,
+      tools: new ToolRegistry(),
+      enableNativeMcpDiscovery: true,
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const run = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "req-mcp-filter",
+        trace_id: "trace-mcp-filter",
+        method: "agent.run",
+        params: {
+          spec: {
+            runId: "run-mcp-filter",
+            messages: [{ role: "user", content: "use configured MCP tools" }],
+            model: "test-model",
+            maxIterations: 1,
+            stream: false,
+          },
+        },
+      }),
+    );
+
+    await respondToConfigSnapshot(server, lines, {
+      tools: {
+        mcpServers: {
+          docs: { enabledTools: ["search"], toolTimeout: 9 },
+        },
+      },
+    });
+    await waitFor(() => parsedLines(lines).some((line) => line.method === "mcp.list_tools"));
+    const listRequest = parsedLines(lines).find((line) => line.method === "mcp.list_tools");
+    await server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: listRequest?.id,
+        trace_id: "trace-mcp-filter",
+        result: {
+          servers: [
+            {
+              name: "docs",
+              tools: [
+                { name: "search", description: "Search docs", inputSchema: { type: "object" } },
+                { name: "delete", description: "Delete docs", inputSchema: { type: "object" } },
+              ],
+            },
+          ],
+        },
+      }),
+    );
+
+    await run;
+
+    expect(provider.options[0].tools?.map((tool) => tool.name)).toContain("mcp_docs_search");
+    expect(provider.options[0].tools?.map((tool) => tool.name)).not.toContain("mcp_docs_delete");
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      protocol_version: "1",
+      id: "req-mcp-filter",
+      trace_id: "trace-mcp-filter",
+      result: { finalContent: "mcp config filtered", stopReason: "final_response" },
+    });
+  });
+
   test("continues agent runs when native MCP discovery fails", async () => {
     const lines: string[] = [];
     const logs: string[] = [];
@@ -2919,6 +2993,7 @@ describe("createAgentWorkerServer", () => {
       }),
     );
 
+    await respondToConfigSnapshot(server, lines, {});
     await waitFor(() => parsedLines(lines).some((line) => line.method === "mcp.list_tools"));
     const listRequest = parsedLines(lines).find((line) => line.method === "mcp.list_tools");
     await server.handleLine(
