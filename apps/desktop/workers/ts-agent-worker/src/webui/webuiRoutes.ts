@@ -1110,7 +1110,8 @@ async function knowledgeListDocumentsResponse(
   if (category) {
     request.category = category;
   }
-  const limit = integerFromString(query.get("limit"));
+  const limitParam = query.get("limit");
+  const limit = limitParam === null ? 20 : integerFromString(limitParam);
   if (limit !== undefined) {
     request.limit = limit;
   }

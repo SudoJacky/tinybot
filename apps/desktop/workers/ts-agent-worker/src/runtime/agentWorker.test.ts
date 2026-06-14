@@ -2197,6 +2197,18 @@ describe("AgentWorker", () => {
       },
     });
     await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
+      path: "/v1/knowledge/documents",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          object: "list",
+          total: 1,
+        },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
       method: "POST",
       path: "/v1/knowledge/documents",
       body: { name: "Added", content: "Body", file_type: "md" },
@@ -2762,6 +2774,7 @@ describe("AgentWorker", () => {
     });
     expect(calls).toEqual([
       { method: "list", traceId: "trace-webui.handle_request", params: { category: "docs", limit: 10 } },
+      { method: "list", traceId: "trace-webui.handle_request", params: { limit: 20 } },
       { method: "add", traceId: "trace-webui.handle_request", params: { name: "Added", content: "Body", file_type: "md" } },
       {
         method: "add",

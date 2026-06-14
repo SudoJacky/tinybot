@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued API Runtime Knowledge list parity: TS-native `GET /v1/knowledge/documents` now applies Python's API facade default `limit=20` before calling the Knowledge provider, preventing provider/store defaults from leaking through the migrated route.
+
 - Continued API Runtime Knowledge graph facade parity: the desktop native-first gateway client now forwards Python-compatible `/v1/knowledge/graph` query options (`doc_id`, `limit`, `edge_limit`, `min_confidence`, and `include_orphans`) to the TS WebUI route instead of dropping them on the native path.
 
 - Continued WebUI transport native-first parity: the desktop root-WebUI fetch bridge now sends same-origin gateway GET/JSON requests through the Rust `worker_webui_route` / TS `webui.handle_request` path before falling back to the HTTP gateway, reducing Python control-plane dependence for migrated root WebUI routes.
@@ -1409,6 +1411,7 @@ API Runtime row 19 update: TS-native OpenAI-compatible chat completions now retr
 - [x] Continue API Runtime Knowledge query parity: return empty result lists for whitespace-only query text before native provider dispatch.
 - [x] Continue API Runtime Knowledge job-envelope parity: include lifecycle timestamps on completed native upload/rebuild job payloads.
 - [x] Continue API Runtime Phase 1: harden the TS worker upload route and Rust `knowledge.add_document` core so `.json` and `.csv` text-like Knowledge uploads are accepted end-to-end on the native path.
+- [x] Continue API Runtime Knowledge list parity: apply Python's default `limit=20` in the TS-native documents list route.
 - [x] Continue API Runtime Phase 1: parameterize the desktop native-first Knowledge graph facade for Python-compatible query options.
 - [x] Continue API Runtime Phase 1: parameterize the desktop native-first Knowledge GraphRAG facade for Python-compatible query options.
 - [x] Continue API Runtime Phase 1: mirror Python truthiness for OpenAI-compatible chat completion `model` validation on TS-native routes.
