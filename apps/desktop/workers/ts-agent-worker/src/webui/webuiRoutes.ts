@@ -2592,6 +2592,9 @@ function clampedNumberQuery(
   if (!Number.isFinite(parsed)) {
     return undefined;
   }
+  if (integer && !Number.isInteger(parsed)) {
+    return undefined;
+  }
   const normalized = integer ? Math.trunc(parsed) : parsed;
   return Math.max(min, Math.min(max, normalized));
 }

@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued API Runtime Knowledge query-param parity: TS-native Knowledge graph and GraphRAG routes now reject fractional integer query values like Python `int(...)` parsing instead of truncating them.
+
 - Continued API Runtime Knowledge GraphRAG parity: TS-native `/v1/knowledge/graphrag` now preserves explicit community `level` values above 3 like Python instead of clamping them to the previous native facade range.
 
 - Continued API Runtime Knowledge job-envelope parity: TS-native completed upload and rebuild job payloads now include Python-compatible `created_at`, `updated_at`, and `completed_at` lifecycle fields.
