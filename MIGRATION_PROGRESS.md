@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Cowork lead-synthesis trace parity: TS-native scheduler lead synthesis now runs the lead agent with Python-compatible standalone agent trace linkage instead of inheriting the scheduler run/round ids.
+
 - Continued Cowork scheduler trace parity: TS-native swarm scheduler round trace spans now include Python-compatible `runtime_state.swarm_metrics` alongside selected agents and candidate scores.
 
 - Continued Cowork scheduler convergence parity: TS-native `CoworkScheduler` now mirrors Python by checking the next ready agents when convergence is reached and reporting `idle` if self-activation limits filter them all out, instead of always stopping as `convergence`.
@@ -1424,6 +1426,7 @@ Heartbeat row 20 update: Phase 4 now runs scheduled notifications through the sh
 - [x] Continue Cowork scheduler round execution parity: start same-round selected agents concurrently like Python.
 - [x] Continue Cowork scheduler convergence parity: report idle when self-activation limits remove all next ready agents.
 - [x] Continue Cowork scheduler trace parity: include swarm metrics in scheduler round trace spans like Python.
+- [x] Continue Cowork lead-synthesis trace parity: keep synthesis agent trace linkage standalone like Python.
 - [x] Continue Cowork agent readiness parity: sort team ready agents by Python-style readiness scores before applying scheduler limits.
 - [x] Continue Cowork agent readiness parity: select agents with pending reply mailbox work and score mailbox pressure like Python.
 - [x] Continue Cowork agent readiness parity: refresh mailbox expiry and stale-blocker escalation before selecting active agents like Python.

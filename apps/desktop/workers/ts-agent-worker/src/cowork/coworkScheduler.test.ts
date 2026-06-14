@@ -751,6 +751,15 @@ describe("CoworkScheduler", () => {
       agent_calls: 2,
       stop_reason: "max_rounds",
     })]);
+    expect(saved?.trace_spans).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "agent",
+        name: "Run Lead",
+        run_id: "",
+        round_id: "",
+        parent_id: null,
+      }),
+    ]));
   });
 
   it("stops as ready_to_finish after a round when completion is ready and no agents remain active like Python", async () => {

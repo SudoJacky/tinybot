@@ -488,9 +488,6 @@ export class CoworkScheduler {
       traceId: request.traceId,
       sessionId: session.id,
       agentId: lead.id,
-      runId: request.runId,
-      roundId: request.roundId,
-      parentSpanId: request.parentSpanId,
     });
     return await this.store.readSnapshot(session.id, request.traceId) ?? session;
   }
