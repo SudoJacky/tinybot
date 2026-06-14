@@ -476,6 +476,88 @@ describe("CoworkScheduler", () => {
     })]);
   });
 
+  it("reports idle instead of convergence when the only next agent is self-activation limited like Python", async () => {
+    const store = createMemoryCoworkStore();
+    const idGenerator = deterministicIds();
+    const service = new CoworkService({
+      store,
+      now: () => fixedNow,
+      idGenerator,
+    });
+    const session = await service.createSession({
+      traceId: "seed",
+      goal: "Coordinate TS cowork scheduler migration",
+      title: "Scheduler session",
+      workflowMode: "team",
+      agents: [{ id: "lead", name: "Lead", role: "Coordinator" }],
+      tasks: [{ id: "draft", title: "Draft", description: "Draft scheduler slice", assigned_agent_id: "lead" }],
+    });
+    let calls = 0;
+    const agentRuntime = {
+      async runAgent(request: { sessionId: string; traceId?: string }) {
+        calls += 1;
+        const current = await store.readSnapshot(request.sessionId, request.traceId ?? "");
+        if (!current) {
+          throw new Error("missing session");
+        }
+        if (calls === 1) {
+          await store.writeSnapshot({
+            ...current,
+            messages: {
+              ...current.messages,
+              progress_1: {
+                id: "progress_1",
+                thread_id: "thread_1",
+                sender_id: "lead",
+                recipient_ids: ["user"],
+                content: "First pass made observable progress.",
+                visibility: "public",
+                kind: "message",
+                created_at: fixedNow,
+                read_by: [],
+              },
+            },
+          }, request.traceId ?? "");
+        }
+        return { session: current, result: "ok", agentId: "lead" };
+      },
+    } as unknown as CoworkAgentRuntime;
+    const scheduler = new CoworkScheduler({
+      store,
+      now: () => fixedNow,
+      idGenerator,
+      agentRuntime,
+    });
+
+    const result = await scheduler.runSession({
+      sessionId: session.id,
+      traceId: "trace-run",
+      maxRounds: 4,
+      maxAgents: 1,
+    });
+
+    expect(result.result).toContain("Round 4: no ready agents.");
+    expect(calls).toBe(3);
+    const saved = await store.readSnapshot(session.id, "assert");
+    expect(saved?.no_progress_rounds).toBe(2);
+    expect(saved?.stop_reason).toBe("idle");
+    expect(saved?.budget_usage).toMatchObject({ rounds: 3, agent_calls: 3, stop_reason: "idle" });
+    expect(saved?.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "scheduler.self_activation_limited",
+        actor_id: "lead",
+        data: expect.objectContaining({ agent_id: "lead", limit: 3 }),
+      }),
+      expect.objectContaining({
+        type: "scheduler.stop",
+        data: expect.objectContaining({
+          stop_reason: "idle",
+          round_id: "run_1:round:3",
+        }),
+      }),
+    ]));
+  });
+
   it("starts selected agents in the same scheduler round concurrently like Python", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = deterministicIds();

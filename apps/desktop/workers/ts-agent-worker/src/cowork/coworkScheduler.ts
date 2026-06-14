@@ -331,6 +331,16 @@ export class CoworkScheduler {
       updateConsecutiveRuns(consecutiveRuns, selectedIds);
       await this.store.writeSnapshot(normalizeCoworkSession(working), traceId);
       if (convergenceReached(working)) {
+        const nextActive = selectReadyCoworkAgentCandidates(working, effectiveAgentLimit).agents;
+        if (nextActive.length > 0 && this.filterSelfActivatedAgents(working, nextActive, consecutiveRuns).length === 0) {
+          lines.push(`Round ${roundNumber + 1}: no ready agents.`);
+          this.applyStopReason(working, "idle", "Cowork scheduler stopped because no agents are ready", {
+            runId,
+            roundId,
+            parentId: runSpanId,
+          });
+          break;
+        }
         lines.push(`Session stopped after ${working.no_progress_rounds} no-progress rounds.`);
         this.applyStopReason(working, "convergence", "Cowork scheduler stopped because recent rounds produced no new tracked progress", {
           runId,

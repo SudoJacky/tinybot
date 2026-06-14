@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Cowork scheduler convergence parity: TS-native `CoworkScheduler` now mirrors Python by checking the next ready agents when convergence is reached and reporting `idle` if self-activation limits filter them all out, instead of always stopping as `convergence`.
+
 - Continued Cowork scheduler round execution parity: TS-native `CoworkScheduler` now starts all agents selected for the same round concurrently like Python's `asyncio.gather`, preserving team/swarm parallel-width semantics instead of serializing same-round agent work.
 
 - Continued Cowork agent readiness parity: TS-native ready-agent selection now refreshes mailbox expiry and stale-blocker escalation before choosing active agents, matching Python's scheduler pre-selection mailbox maintenance for team and swarm sessions.
@@ -1418,6 +1420,7 @@ Heartbeat row 20 update: Phase 4 now runs scheduled notifications through the sh
 - [x] Continue Cowork scheduler profile-limit parity: constrain orchestrator/generator-verifier/peer-handoff scheduler rounds to one selected agent.
 - [x] Continue Cowork scheduler budget-usage parity: record per-round and lead-synthesis usage during the run for fresh session remaining snapshots.
 - [x] Continue Cowork scheduler round execution parity: start same-round selected agents concurrently like Python.
+- [x] Continue Cowork scheduler convergence parity: report idle when self-activation limits remove all next ready agents.
 - [x] Continue Cowork agent readiness parity: sort team ready agents by Python-style readiness scores before applying scheduler limits.
 - [x] Continue Cowork agent readiness parity: select agents with pending reply mailbox work and score mailbox pressure like Python.
 - [x] Continue Cowork agent readiness parity: refresh mailbox expiry and stale-blocker escalation before selecting active agents like Python.
