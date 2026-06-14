@@ -25,6 +25,15 @@ function createNativeChannelConnectorBridge(
   return {
     start: () => sendConnectorRequest(rpcClient, traceId(channel, "start"), "channel.connector.start", { channel }),
     stop: () => sendConnectorRequest(rpcClient, traceId(channel, "stop"), "channel.connector.stop", { channel }),
+    login: (options = {}) => sendConnectorLoginRequest(
+      rpcClient,
+      traceId(channel, "login"),
+      "channel.connector.login",
+      {
+        channel,
+        force: options.force === true,
+      },
+    ),
     sendText: (input) => sendConnectorRequest(rpcClient, traceId(channel, "send_text"), "channel.connector.send_text", textParams(input)),
     sendDelta: (chatId, delta, metadata) => sendConnectorRequest(rpcClient, traceId(channel, "send_delta"), "channel.connector.send_delta", {
       channel,
@@ -48,6 +57,17 @@ async function sendConnectorRequest(
 ): Promise<void> {
   const result = await rpcClient.request(traceId, method, params);
   rejectUnhandledConnectorResult(result, params, operationFromMethod(method));
+}
+
+async function sendConnectorLoginRequest(
+  rpcClient: NativeRpcClient,
+  traceId: string,
+  method: string,
+  params: Record<string, unknown>,
+): Promise<boolean> {
+  const result = await rpcClient.request(traceId, method, params);
+  rejectUnhandledConnectorResult(result, params, operationFromMethod(method));
+  return connectorLoginResult(result);
 }
 
 function textParams(input: NativeTextChannelSendTextInput): Record<string, unknown> {
@@ -86,6 +106,18 @@ function rejectUnhandledConnectorResult(
 
 function operationFromMethod(method: string): string {
   return method.replace(/^channel\.connector\./, "");
+}
+
+function connectorLoginResult(result: unknown): boolean {
+  if (!isRecord(result)) {
+    return true;
+  }
+  for (const key of ["logged_in", "loggedIn", "success", "ok"]) {
+    if (typeof result[key] === "boolean") {
+      return result[key];
+    }
+  }
+  return true;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

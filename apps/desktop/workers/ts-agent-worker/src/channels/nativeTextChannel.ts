@@ -14,6 +14,7 @@ export type NativeTextChannelSendTextInput = {
 export type NativeTextChannelConnector = {
   start?: () => Promise<void> | void;
   stop?: () => Promise<void> | void;
+  login?: (options?: { force?: boolean }) => Promise<boolean> | boolean;
   sendText: (input: NativeTextChannelSendTextInput) => Promise<void> | void;
   sendDelta?: (chatId: string, delta: string, metadata: MessageMetadata) => Promise<void> | void;
   sendUsage?: (chatId: string, usage: Record<string, unknown>) => Promise<void> | void;
@@ -58,6 +59,10 @@ export class NativeTextChannel extends BaseChannel {
   async stop(): Promise<void> {
     await this.connector.stop?.();
     this.setRunning(false);
+  }
+
+  override async login(options: { force?: boolean } = {}): Promise<boolean> {
+    return await this.connector.login?.(options) ?? true;
   }
 
   async send(message: OutboundMessage): Promise<void> {

@@ -4,7 +4,11 @@ import { createNativeChannelConnectorBridgeRegistry } from "./nativeChannelConne
 
 describe("nativeChannelConnectorBridge", () => {
   test("forwards native text connector operations to host RPC methods", async () => {
-    const request = vi.fn(async () => ({ ok: true }));
+    const request = vi.fn(async (_traceId: string, method: string) => (
+      method === "channel.connector.login"
+        ? { ok: true, logged_in: false }
+        : { ok: true }
+    ));
     const registry = createNativeChannelConnectorBridgeRegistry({
       rpcClient: { request },
       channels: ["feishu"],
@@ -22,6 +26,7 @@ describe("nativeChannelConnectorBridge", () => {
     });
     await connector?.sendDelta?.("chat-1", "partial", { stream_id: "stream-1" });
     await connector?.sendUsage?.("chat-1", { input_tokens: 3, output_tokens: 5 });
+    await expect(connector?.login?.({ force: true })).resolves.toBe(false);
     await connector?.stop?.();
 
     expect(request).toHaveBeenNthCalledWith(1, "channel.connector.feishu.start", "channel.connector.start", {
@@ -46,7 +51,11 @@ describe("nativeChannelConnectorBridge", () => {
       chat_id: "chat-1",
       usage: { input_tokens: 3, output_tokens: 5 },
     });
-    expect(request).toHaveBeenNthCalledWith(5, "channel.connector.feishu.stop", "channel.connector.stop", {
+    expect(request).toHaveBeenNthCalledWith(5, "channel.connector.feishu.login", "channel.connector.login", {
+      channel: "feishu",
+      force: true,
+    });
+    expect(request).toHaveBeenNthCalledWith(6, "channel.connector.feishu.stop", "channel.connector.stop", {
       channel: "feishu",
     });
   });

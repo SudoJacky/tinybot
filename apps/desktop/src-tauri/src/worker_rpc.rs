@@ -375,6 +375,10 @@ impl WorkerRpcRouter {
                 let params: ChannelConnectorParams = parse_params(request)?;
                 self.channel_connector.stop(params)
             }
+            "channel.connector.login" => {
+                let params: ChannelConnectorParams = parse_params(request)?;
+                self.channel_connector.login(params)
+            }
             "channel.connector.send_text" => {
                 let params: ChannelConnectorParams = parse_params(request)?;
                 self.channel_connector.send_text(params)
@@ -3017,6 +3021,13 @@ impl WorkerChannelConnectorRpc {
         self.unavailable(params.channel, "stop")
     }
 
+    fn login(
+        &self,
+        params: ChannelConnectorParams,
+    ) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
+        self.unavailable(params.channel, "login")
+    }
+
     fn send_text(
         &self,
         params: ChannelConnectorParams,
@@ -4533,6 +4544,37 @@ mod tests {
         assert_eq!(result["ok"], true);
         assert_eq!(result["channel"], "feishu");
         assert_eq!(result["operation"], "send_text");
+        assert_eq!(result["handled"], false);
+        assert_eq!(result["reason"], "native_connector_unavailable");
+    }
+
+    #[test]
+    fn channel_connector_login_returns_explicit_unavailable_bridge_result() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::ChannelConnector]),
+        );
+        let request = WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "channel.connector.login",
+            json!({
+                "channel": "weixin",
+                "force": true
+            }),
+        );
+
+        let response = router.dispatch(&request);
+
+        assert!(response.error.is_none());
+        let result = response.result.expect("connector result should be present");
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["channel"], "weixin");
+        assert_eq!(result["operation"], "login");
         assert_eq!(result["handled"], false);
         assert_eq!(result["reason"], "native_connector_unavailable");
     }

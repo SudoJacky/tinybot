@@ -131,4 +131,22 @@ describe("NativeTextChannel", () => {
     await expect(channel.transcribeAudio("voice.opus")).resolves.toBe("transcribed voice");
     expect(connector.transcribeAudio).toHaveBeenCalledWith("voice.opus", "groq-key");
   });
+
+  test("delegates interactive login to native connectors", async () => {
+    const bus = new MessageBus();
+    const connector: NativeTextChannelConnector = {
+      sendText: vi.fn(async () => undefined),
+      login: vi.fn(async () => false),
+    };
+    const channel = new NativeTextChannel({
+      name: "weixin",
+      displayName: "Weixin",
+      config: { allowFrom: ["*"] },
+      bus,
+      connector,
+    });
+
+    await expect(channel.login({ force: true })).resolves.toBe(false);
+    expect(connector.login).toHaveBeenCalledWith({ force: true });
+  });
 });
