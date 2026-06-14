@@ -1,12 +1,21 @@
+import { existsSync } from "node:fs";
+import { delimiter, join } from "node:path";
+
 import type { AgentMessage } from "../agent/agentRunSpec.ts";
 import {
+  type AgentRunDefaults,
+  type ActiveTaskProgress,
   BOOTSTRAP_FILE_ORDER,
   type AgentRunInput,
   type BootstrapFile,
   type ContextBridgeLoadResult,
+  type KnowledgeReferenceMetadata,
+  type MemoryRecallNote,
+  type SkillsContext,
   type UserProfile,
 } from "../agent/contextTypes.ts";
 import type { JsonObject } from "../protocol/messages.ts";
+import { SkillsRuntime, type SkillStoreEntry } from "../skills/skillsRuntime.ts";
 import type { NativeRpcClient } from "../tools/nativeToolProxy.ts";
 
 const DEFAULT_IDENTITY = "You are TinyBot running in the desktop native TS worker.";
@@ -25,13 +34,22 @@ export class NativeContextBridge implements ContextBridge {
 
   async loadContextInput(input: AgentRunInput, traceId: string): Promise<ContextBridgeLoadResult> {
     const runtime = await this.loadRuntime(input, traceId);
+    const runDefaults = await this.loadRunDefaults(traceId);
     const history = await this.loadHistory(input, traceId);
     const bootstrap = await this.loadBootstrapFiles(traceId);
+    const memoryRecall = await this.loadMemoryRecall(input, traceId);
+    const knowledgeContext = await this.loadKnowledgeContext(input, traceId);
+    const skills = await this.loadSkillsContext(runDefaults.enabledSkills, traceId);
     return {
       input: {
         identity: DEFAULT_IDENTITY,
         bootstrapFiles: bootstrap.files,
         history: history.messages,
+        memoryNotes: memoryRecall.notes,
+        memoryRecallContext: memoryRecall.context,
+        knowledgeContext: knowledgeContext.context,
+        knowledgeReferences: knowledgeContext.references,
+        skills,
         currentMessage: input.input.content,
         currentRole: input.input.role ?? "user",
         runtime: {
@@ -39,8 +57,10 @@ export class NativeContextBridge implements ContextBridge {
           channel: input.channel,
           chatId: input.chatId,
           userProfile: history.userProfile,
+          activeTaskProgress: history.activeTaskProgress,
         },
       },
+      runDefaults,
       metadata: {
         missingSession: history.missingSession,
         malformedHistoryCount: history.malformedHistoryCount,
@@ -65,6 +85,7 @@ export class NativeContextBridge implements ContextBridge {
   private async loadHistory(input: AgentRunInput, traceId: string): Promise<{
     messages: AgentMessage[];
     userProfile?: UserProfile;
+    activeTaskProgress?: ActiveTaskProgress;
     missingSession: boolean;
     malformedHistoryCount: number;
   }> {
@@ -79,6 +100,7 @@ export class NativeContextBridge implements ContextBridge {
       return {
         messages,
         userProfile: normalizeUserProfile(result?.user_profile ?? result?.userProfile),
+        activeTaskProgress: latestTaskProgress(rawMessages),
         missingSession: false,
         malformedHistoryCount: normalizedMessages.length - messages.length,
       };
@@ -124,6 +146,89 @@ export class NativeContextBridge implements ContextBridge {
       return { files: fallbackFiles, missing, fallbackUsed: true };
     }
   }
+
+  private async loadRunDefaults(traceId: string): Promise<AgentRunDefaults> {
+    try {
+      const result = asObject(await this.rpcClient.request(traceId, "config.snapshot_public", {}));
+      const snapshot = asObject(result?.value);
+      const agents = asObject(snapshot?.agents);
+      const defaults = asObject(agents?.defaults);
+      const skills = asObject(snapshot?.skills);
+      return {
+        providerRetryMode: providerRetryModeValue(defaults?.providerRetryMode ?? defaults?.provider_retry_mode),
+        ...(Array.isArray(skills?.enabled) ? { enabledSkills: normalizeStringArray(skills.enabled) } : {}),
+      };
+    } catch {
+      return {};
+    }
+  }
+
+  private async loadSkillsContext(enabledSkills: string[] | undefined, traceId: string): Promise<SkillsContext | undefined> {
+    try {
+      const result = asObject(await this.rpcClient.request(traceId, "skills.list", {}));
+      const skills = normalizeSkillEntries(result?.skills);
+      if (skills.length === 0) {
+        return undefined;
+      }
+      return new SkillsRuntime({
+        skills,
+        hasBin: hasExecutableOnPath,
+        hasEnv: (name) => process.env[name] !== undefined,
+      }).buildContext(enabledSkills);
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async loadMemoryRecall(input: AgentRunInput, traceId: string): Promise<{
+    notes: MemoryRecallNote[];
+    context?: string;
+  }> {
+    if (!shouldLoadMemoryNotes(input.input.content)) {
+      return { notes: [] };
+    }
+    try {
+      const result = asObject(await this.rpcClient.request(traceId, "memory.recall", {
+        query: input.input.content,
+        max_notes: 6,
+        max_chars: 1600,
+      }));
+      const references = normalizeMemoryNotes(result?.references);
+      const notes = references.length > 0 ? references : normalizeMemoryNotes(result?.notes);
+      const context = asString(result?.context);
+      return {
+        notes,
+        ...(context && context.trim().length > 0 ? { context } : {}),
+      };
+    } catch {
+      return { notes: [] };
+    }
+  }
+
+  private async loadKnowledgeContext(input: AgentRunInput, traceId: string): Promise<{
+    context?: string;
+    references: KnowledgeReferenceMetadata[];
+  }> {
+    const usePersistentKnowledge = shouldLoadPersistentKnowledgeContext(input.input.content);
+    if (!usePersistentKnowledge && !shouldLoadSessionTemporaryKnowledgeContext(input.input.content)) {
+      return { references: [] };
+    }
+    try {
+      const result = asObject(await this.rpcClient.request(traceId, "knowledge.context", {
+        current_message: input.input.content,
+        session_key: input.sessionId,
+        max_chunks: 5,
+        use_persistent_knowledge: usePersistentKnowledge,
+      }));
+      const context = asString(result?.context);
+      return {
+        ...(context && context.trim().length > 0 ? { context } : {}),
+        references: normalizeKnowledgeReferences(result?.references),
+      };
+    } catch {
+      return { references: [] };
+    }
+  }
 }
 
 function normalizeHistoryMessage(value: unknown): AgentMessage | null {
@@ -148,7 +253,41 @@ function normalizeHistoryMessage(value: unknown): AgentMessage | null {
   };
 }
 
-function normalizeToolCalls(value: unknown): AgentMessage["toolCalls"] {
+function latestTaskProgress(messages: unknown[]): ActiveTaskProgress | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const object = asObject(messages[index]);
+    const metadata = asObject(object?.metadata);
+    const progress = normalizeTaskProgress(metadata?._task_progress ?? object?._task_progress);
+    if (progress) {
+      return progress;
+    }
+  }
+  return undefined;
+}
+
+function normalizeTaskProgress(value: unknown): ActiveTaskProgress | undefined {
+  const object = asObject(value);
+  if (!object) {
+    return undefined;
+  }
+  const completed = numberValue(object.completed);
+  const total = numberValue(object.total);
+  const inProgress = numberValue(object.in_progress ?? object.inProgress);
+  if (completed === undefined || total === undefined || inProgress === undefined) {
+    return undefined;
+  }
+  const currentAll = normalizeStringArray(object.current_all ?? object.currentAll);
+  return {
+    title: asString(object.title),
+    completed,
+    total,
+    inProgress,
+    current: asString(object.current),
+    currentAll,
+  };
+}
+
+function normalizeToolCalls(value: unknown): NonNullable<AgentMessage["toolCalls"]> {
   if (!Array.isArray(value)) {
     return [];
   }
@@ -175,12 +314,16 @@ function normalizeBootstrapFiles(value: unknown): BootstrapFile[] {
   if (!Array.isArray(value)) {
     return [];
   }
-  return value.map((entry) => {
+  const files: BootstrapFile[] = [];
+  for (const entry of value) {
     const object = asObject(entry);
     const path = asString(object?.path);
     const contents = asString(object?.contents);
-    return path && contents !== undefined ? { path, contents } : null;
-  }).filter((file): file is BootstrapFile => file !== null);
+    if (path && contents !== undefined) {
+      files.push({ path, contents });
+    }
+  }
+  return files;
 }
 
 function normalizeUserProfile(value: unknown): UserProfile | undefined {
@@ -195,6 +338,142 @@ function normalizeUserProfile(value: unknown): UserProfile | undefined {
     communicationStyle: asString(object.communicationStyle ?? object.communication_style),
     keyFacts: normalizeStringArray(object.keyFacts ?? object.key_facts),
   };
+}
+
+function normalizeMemoryNotes(value: unknown): MemoryRecallNote[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const notes: MemoryRecallNote[] = [];
+  for (const entry of value) {
+    const object = asObject(entry);
+    const id = asString(object?.id ?? object?.note_id ?? object?.noteId);
+    const scope = asString(object?.scope);
+    const type = asString(object?.type);
+    const status = asString(object?.status);
+    const content = asString(object?.content);
+    if (!id || !scope || !type || !status || content === undefined) {
+      continue;
+    }
+    const metadata = asObject(object?.metadata);
+    const viewLine = numberValue(object?.view_line ?? object?.viewLine);
+    const evidenceIds = memoryEvidenceIds(object?.sources ?? object?.evidence_ids ?? object?.evidenceIds);
+    notes.push({
+      id,
+      scope,
+      type,
+      status,
+      content,
+      priority: numberValue(object?.priority),
+      confidence: numberValue(object?.confidence),
+      tags: normalizeStringArray(object?.tags),
+      ...(metadata ? { metadata } : {}),
+      ...(evidenceIds.length > 0 ? { evidenceIds } : {}),
+      file: asString(object?.file),
+      line: numberValue(object?.line),
+      viewFile: asString(object?.view_file ?? object?.viewFile),
+      viewLine,
+    });
+  }
+  return notes;
+}
+
+function normalizeKnowledgeReferences(value: unknown): KnowledgeReferenceMetadata[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((entry) => {
+    const object = asObject(entry);
+    if (!object) {
+      return null;
+    }
+    const docId = asString(object?.doc_id ?? object?.docId);
+    const docName = asString(object?.doc_name ?? object?.docName);
+    const chunkId = asString(object?.chunk_id ?? object?.chunkId);
+    const filePath = asString(object?.file_path ?? object?.filePath);
+    const lineStart = numberValue(object?.line_start ?? object?.lineStart);
+    const lineEnd = numberValue(object?.line_end ?? object?.lineEnd);
+    const retrievalMethod = asString(object?.retrieval_method ?? object?.retrievalMethod);
+    if (!docId || !docName || !chunkId || !filePath || lineStart === undefined || lineEnd === undefined || !retrievalMethod) {
+      return null;
+    }
+    return {
+      doc_id: docId,
+      doc_name: docName,
+      chunk_id: chunkId,
+      file_path: filePath,
+      line_start: lineStart,
+      line_end: lineEnd,
+      retrieval_method: retrievalMethod,
+      ...(object.temporary === true ? { temporary: true } : {}),
+    };
+  }).filter((reference): reference is KnowledgeReferenceMetadata => reference !== null);
+}
+
+function normalizeSkillEntries(value: unknown): SkillStoreEntry[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((entry) => {
+    const object = asObject(entry);
+    const name = asString(object?.name);
+    const path = asString(object?.path);
+    const source = asString(object?.source);
+    const content = asString(object?.content);
+    if (!name || !path || (source !== "workspace" && source !== "builtin") || content === undefined) {
+      return null;
+    }
+    return { name, path, source, content };
+  }).filter((skill): skill is SkillStoreEntry => skill !== null);
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" ? value : undefined;
+}
+
+function providerRetryModeValue(value: unknown): AgentRunDefaults["providerRetryMode"] {
+  return value === "standard" || value === "persistent" ? value : undefined;
+}
+
+function memoryEvidenceIds(value: unknown): string[] {
+  if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
+    return [...new Set(value)].sort();
+  }
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const ids = new Set<string>();
+  for (const source of value) {
+    const object = asObject(source);
+    for (const evidenceId of normalizeStringArray(object?.evidence_ids ?? object?.evidenceIds)) {
+      ids.add(evidenceId);
+    }
+  }
+  return Array.from(ids).sort();
+}
+
+function shouldLoadMemoryNotes(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return false;
+  }
+  return trimmed.length > 12 || /memory|remember|prefer|preference|project|decision|fix|followup|implement/i.test(trimmed);
+}
+
+function shouldLoadPersistentKnowledgeContext(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return false;
+  }
+  return /\b(knowledge|evidence|retrieval|document|documents|docs|source|sources|reference|context)\b/i.test(trimmed);
+}
+
+function shouldLoadSessionTemporaryKnowledgeContext(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return false;
+  }
+  return /\b(upload|uploaded|attachment|attached|file|files|this|summari[sz]e|read|explain|analy[sz]e|review)\b/i.test(trimmed);
 }
 
 function normalizeStringArray(value: unknown): string[] {
@@ -215,4 +494,22 @@ function asString(value: unknown): string | undefined {
 
 function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasExecutableOnPath(name: string): boolean {
+  const pathValue = process.env.PATH ?? "";
+  if (!name || pathValue.length === 0) {
+    return false;
+  }
+  const extensions = process.platform === "win32"
+    ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM").split(";").filter(Boolean)
+    : [""];
+  for (const directory of pathValue.split(delimiter)) {
+    for (const extension of extensions) {
+      if (existsSync(join(directory, `${name}${extension}`)) || existsSync(join(directory, name))) {
+        return true;
+      }
+    }
+  }
+  return false;
 }

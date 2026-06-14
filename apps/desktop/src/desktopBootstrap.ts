@@ -28,6 +28,8 @@ import {
 } from "./desktopKnowledgeTraceability";
 import { installWebUiRenderGlobals } from "./desktopMarkdownGlobals";
 import { logDesktopNativeChatDebug, logDesktopNativeDebug, summarizeDebugText } from "./desktopNativeChatDebug";
+import { applyNativeConfigPatch } from "./desktopNativeConfigPatch";
+import { saveDesktopSettingsConfig } from "./desktopSettingsSave";
 import { buildDesktopTsAgentFormSubmissionInput } from "./desktopTsAgentFormActions";
 import { installDesktopNavigation } from "./desktopNavigation";
 import { applyDesktopWorkbenchRouteState } from "./desktopEntityFocus";
@@ -89,7 +91,18 @@ import { installWebUiShell } from "./desktopWebUiShell";
 import { resolveDesktopWorkbenchStartupMode } from "./desktopWorkbenchGate";
 import { installDesktopWindowFrame, setDesktopWindowRuntimeStatus } from "./desktopWindowFrame";
 import { DEFAULT_GATEWAY_CONFIG, resolveGatewayConfig } from "./gatewayConfig";
-import { checkGatewayHealth, createGatewayApiClient } from "./gatewayHttpClient";
+import {
+  DEFAULT_TS_COWORK_RUNTIME_ROLLOUT,
+  checkGatewayHealth,
+  createGatewayApiClient,
+  resolveTsCoworkRuntimeRollout,
+  type TsCoworkRuntimeRollout,
+} from "./gatewayHttpClient";
+import { createDesktopNativeCoworkApi } from "./desktopNativeCowork";
+import { createDesktopNativeSkillsApi } from "./desktopNativeSkills";
+import { createDesktopNativeWebuiApi } from "./desktopNativeWebui";
+import { startDesktopNativeChannelRuntime } from "./desktopNativeChannelLifecycle";
+import { createDesktopNativeTransportApi } from "./desktopNativeTransport";
 import { normalizeSessionsPayload } from "./nativeChat";
 import {
   flushGatewaySocketQueue,
@@ -114,7 +127,22 @@ import {
 import { resolveDesktopAgentRoute } from "./desktopAgentRoute";
 
 const gatewayConfig = resolveGatewayConfig(DEFAULT_GATEWAY_CONFIG);
-const gatewayApi = createGatewayApiClient({ config: gatewayConfig });
+const gatewayClientOptions: {
+  config: typeof gatewayConfig;
+  nativeCowork: ReturnType<typeof createDesktopNativeCoworkApi>;
+  nativeSkills: ReturnType<typeof createDesktopNativeSkillsApi>;
+  nativeWebui: ReturnType<typeof createDesktopNativeWebuiApi>;
+  nativeTransport: ReturnType<typeof createDesktopNativeTransportApi>;
+  tsCoworkRuntime: TsCoworkRuntimeRollout;
+} = {
+  config: gatewayConfig,
+  nativeCowork: createDesktopNativeCoworkApi({ invoke }),
+  nativeSkills: createDesktopNativeSkillsApi({ invoke }),
+  nativeWebui: createDesktopNativeWebuiApi({ invoke }),
+  nativeTransport: createDesktopNativeTransportApi({ invoke }),
+  tsCoworkRuntime: DEFAULT_TS_COWORK_RUNTIME_ROLLOUT,
+};
+const gatewayApi = createGatewayApiClient(gatewayClientOptions);
 const WEBUI_ENTRY = "/assets/src/main.js";
 const nativeKnowledgeTaskOperations = new Map<string, DesktopTaskSourceOperation>();
 const nativeCoworkTaskOperations = new Map<string, DesktopTaskSourceOperation>();
@@ -178,6 +206,10 @@ async function bootDesktopWebUi(): Promise<void> {
     const status = await ensureGatewayReady(gatewayConfig, { invoke, hasTauriRuntime });
     nativeRuntimeStatus = status;
     updateNativeGatewayTask(buildDesktopGatewayTaskOperation("startup", status));
+    await startDesktopNativeChannelRuntime({
+      nativeTransport: gatewayClientOptions.nativeTransport,
+      logDebug: logDesktopNativeDebug,
+    });
     const workbenchMode = resolveDesktopWorkbenchStartupMode();
     document.documentElement.dataset.desktopWorkbenchMode = workbenchMode.mode;
     document.documentElement.dataset.desktopWorkbenchRequestedMode = workbenchMode.requestedMode;
@@ -189,7 +221,15 @@ async function bootDesktopWebUi(): Promise<void> {
       });
       console.info("Tinybot desktop loading root WebUI fallback", workbenchMode);
     }
-    installDesktopGatewayBridge({ config: gatewayConfig });
+    installDesktopGatewayBridge({
+      config: gatewayConfig,
+      nativeTransport: gatewayClientOptions.nativeTransport,
+      nativeWebui: gatewayClientOptions.nativeWebui,
+      resolveNativeWebSocketSessionExists,
+      listenToNativeAgentEvent: (eventName, handler) => listen(eventName, (event) => {
+        handler(event.payload);
+      }),
+    });
     installWebUiRenderGlobals();
     if (workbenchMode.mode === "native-workbench") {
       const nativeChatRuntime = await loadNativeChatRuntime();
@@ -285,6 +325,20 @@ async function bootDesktopWebUi(): Promise<void> {
   }
 }
 
+async function resolveNativeWebSocketSessionExists(sessionId: string): Promise<boolean | undefined> {
+  try {
+    await gatewayApi.sessions.messages(sessionId);
+    return true;
+  } catch (error) {
+    return isGatewayNotFoundError(error) ? false : undefined;
+  }
+}
+
+function isGatewayNotFoundError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /\bHTTP 404\b/.test(message) || message.toLowerCase().includes("session not found");
+}
+
 async function loadNativeChatRuntime(): Promise<DesktopNativeWorkbenchRuntime> {
   logDesktopNativeDebug("bootstrap.nativeChat.load.start", {
     gatewayHttp: gatewayConfig.httpBaseUrl,
@@ -354,6 +408,7 @@ function installNativeTsAgentEventListeners(): void {
     "agent.awaiting_approval",
     "agent.memory_reference",
     "agent.task_progress",
+    "heartbeat.delivery",
     "agent.cancelled",
     "agent.done",
     "agent.error",
@@ -965,7 +1020,11 @@ async function handleNativeCoworkAction(event: DesktopCoworkActionEvent): Promis
       return;
     }
     if (event.action === "runSession") {
-      const request = buildDesktopCoworkActionRequest({ action: "runSession", sessionId });
+      const request = buildDesktopCoworkActionRequest({
+        action: "runSession",
+        sessionId,
+        architecture: selectedCoworkSessionArchitecture(event.pane, sessionId),
+      });
       await gatewayApi.cowork.run(sessionId, requestBody(request));
       setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork run started." }));
       return;
@@ -976,7 +1035,8 @@ async function handleNativeCoworkAction(event: DesktopCoworkActionEvent): Promis
         : event.action === "pauseSession"
           ? "pause"
           : "resume";
-      await gatewayApi.cowork.action(sessionId, apiAction);
+      const request = buildDesktopCoworkActionRequest({ action: event.action, sessionId });
+      await gatewayApi.cowork.action(sessionId, apiAction, "body" in request ? request.body : undefined);
       setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: `Cowork ${apiAction} requested.` }));
       return;
     }
@@ -990,10 +1050,17 @@ async function handleNativeCoworkAction(event: DesktopCoworkActionEvent): Promis
       return;
     }
     if (event.action === "sendMessage") {
-      await gatewayApi.cowork.message(sessionId, {
+      const request = buildDesktopCoworkActionRequest({
+        action: "sendMessage",
+        sessionId,
         content: event.message ?? "",
-        recipient_ids: [],
+        recipientIds: [],
+        architecture: selectedCoworkSessionArchitecture(event.pane, sessionId),
+        threadId: event.threadId,
+        topic: event.topic,
+        eventType: event.eventType,
       });
+      await gatewayApi.cowork.message(sessionId, requestBody(request));
       setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork message sent." }));
       return;
     }
@@ -1004,6 +1071,70 @@ async function handleNativeCoworkAction(event: DesktopCoworkActionEvent): Promis
         actionStatus: "Cowork summary loaded.",
         summaryText: extractCoworkSummary(summaryPayload),
       }));
+      return;
+    }
+    if (event.action === "loadBlueprint") {
+      await gatewayApi.cowork.blueprint(sessionId);
+      setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork blueprint loaded." }));
+      return;
+    }
+    if (event.action === "loadTrace") {
+      await gatewayApi.cowork.trace(sessionId);
+      setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork trace loaded." }));
+      return;
+    }
+    if (event.action === "loadDag") {
+      await gatewayApi.cowork.dag(sessionId);
+      setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork DAG loaded." }));
+      return;
+    }
+    if (event.action === "loadArtifacts") {
+      await gatewayApi.cowork.artifacts(sessionId);
+      setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork artifacts loaded." }));
+      return;
+    }
+    if (event.action === "loadOrganization") {
+      await gatewayApi.cowork.organization(sessionId);
+      setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork organization loaded." }));
+      return;
+    }
+    if (event.action === "loadQueues") {
+      await gatewayApi.cowork.queues(sessionId);
+      setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork queues loaded." }));
+      return;
+    }
+    if (event.action === "loadBranches") {
+      await gatewayApi.cowork.branches(sessionId);
+      setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork branches loaded." }));
+      return;
+    }
+    if (event.action === "loadAgentActivity" && event.agentId) {
+      await gatewayApi.cowork.agentActivity(sessionId, event.agentId, { limit: event.limit });
+      setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork agent activity loaded." }));
+      return;
+    }
+    if (event.action === "loadObservation" && event.detailRef) {
+      await gatewayApi.cowork.observation(sessionId, event.detailRef, { requesterAgentId: event.requesterAgentId });
+      setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork observation loaded." }));
+      return;
+    }
+    if (event.action === "updateBudget") {
+      if (!event.maxRounds) {
+        outcome = "blocked";
+        setNativeCoworkPane({
+          ...event.pane,
+          actionStatus: "Enter a positive Cowork max rounds value before updating the budget.",
+        });
+        return;
+      }
+      const request = buildDesktopCoworkActionRequest({
+        action: "updateBudget",
+        sessionId,
+        body: { max_rounds: event.maxRounds },
+      });
+      const method = request.method === "PATCH" ? "PATCH" : "POST";
+      await gatewayApi.cowork.updateBudget(sessionId, requestBody(request), { method });
+      setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork budget updated." }));
       return;
     }
     if (event.action === "addTask") {
@@ -1042,8 +1173,30 @@ async function handleNativeCoworkAction(event: DesktopCoworkActionEvent): Promis
       return;
     }
     if (event.action === "selectBranch" && event.branchId) {
-      await gatewayApi.cowork.selectBranch(sessionId, event.branchId);
+      const request = buildDesktopCoworkActionRequest({
+        action: "selectBranch",
+        sessionId,
+        branchId: event.branchId,
+        architecture: selectedCoworkBranchArchitecture(event.pane, event.branchId),
+      });
+      await gatewayApi.cowork.selectBranch(
+        sessionId,
+        event.branchId,
+        "body" in request ? request.body : undefined,
+      );
       setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork branch selected." }));
+      return;
+    }
+    if (event.action === "deriveBranch" && (event.sourceBranchId || event.branchId)) {
+      const sourceBranchId = event.sourceBranchId || event.branchId || null;
+      const request = buildDesktopCoworkActionRequest({
+        action: "deriveBranch",
+        sessionId,
+        sourceBranchId,
+        body: { target_architecture: event.targetArchitecture || "swarm" },
+      });
+      await gatewayApi.cowork.deriveBranch(sessionId, sourceBranchId, requestBody(request));
+      setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork branch derived." }));
       return;
     }
     if (event.action === "selectBranchResult" && event.branchId && event.resultId) {
@@ -1052,6 +1205,7 @@ async function handleNativeCoworkAction(event: DesktopCoworkActionEvent): Promis
         sessionId,
         branchId: event.branchId,
         resultId: event.resultId,
+        architecture: selectedCoworkBranchArchitecture(event.pane, event.branchId),
       });
       await gatewayApi.cowork.selectBranchResult(sessionId, event.branchId, requestBody(request));
       setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork final branch result selected." }));
@@ -1074,6 +1228,35 @@ async function handleNativeCoworkAction(event: DesktopCoworkActionEvent): Promis
       });
       await gatewayApi.cowork.mergeBranchResults(sessionId, requestBody(request));
       setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork branch results merged." }));
+      return;
+    }
+    if (event.action === "selectFinalResult" && event.branchId && event.resultId) {
+      const request = buildDesktopCoworkActionRequest({
+        action: "selectFinalResult",
+        sessionId,
+        body: { branch_id: event.branchId, result_id: event.resultId },
+      });
+      await gatewayApi.cowork.selectFinalResult(sessionId, requestBody(request));
+      setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork final result selected." }));
+      return;
+    }
+    if (event.action === "mergeFinalResult") {
+      const branchIds = event.branchIds ?? [];
+      if (branchIds.length < 2) {
+        outcome = "blocked";
+        setNativeCoworkPane({
+          ...event.pane,
+          actionStatus: "Select at least two Cowork final result branches before merging.",
+        });
+        return;
+      }
+      const request = buildDesktopCoworkActionRequest({
+        action: "mergeFinalResult",
+        sessionId,
+        body: { branch_ids: branchIds },
+      });
+      await gatewayApi.cowork.mergeFinalResult(sessionId, requestBody(request));
+      setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork final results merged." }));
     }
   } catch (error) {
     outcome = "failed";
@@ -1141,6 +1324,26 @@ function extractCoworkSessionId(payload: unknown): string | null {
 function extractCoworkSummary(payload: unknown): string {
   const record = asRecord(payload);
   return stringValue(record.summary) || stringValue(record.text) || JSON.stringify(record, null, 2);
+}
+
+function selectedCoworkSessionArchitecture(pane: DesktopCoworkPaneModel, sessionId: string): string {
+  const cockpitSession = asRecord(pane.cockpitView?.raw);
+  const cockpitArchitecture = stringValue(cockpitSession.architecture).trim()
+    || stringValue(cockpitSession.workflow_mode).trim();
+  if (cockpitArchitecture) {
+    return cockpitArchitecture;
+  }
+  const row = pane.sessionRows.find((item) => item.id === sessionId);
+  const rowSession = asRecord(row?.raw);
+  return stringValue(rowSession.architecture).trim() || stringValue(rowSession.workflow_mode).trim();
+}
+
+function selectedCoworkBranchArchitecture(pane: DesktopCoworkPaneModel, branchId: string): string {
+  const branch = pane.cockpitView?.branches.find((item) => item.branchId === branchId || item.resultId === branchId);
+  const raw = asRecord(branch?.raw);
+  return stringValue(raw.architecture).trim()
+    || stringValue(raw.workflow_mode).trim()
+    || stringValue(raw.target_architecture).trim();
 }
 
 async function handleNativeKnowledgeAction(event: DesktopKnowledgeActionEvent): Promise<void> {
@@ -1404,6 +1607,7 @@ async function loadNativeSettingsPane(): Promise<DesktopSettingsPaneModel> {
     const providerCatalog = buildDesktopProviderCatalogItems(providersPayload);
     const state = buildDesktopSettingsFormState(config, providerCatalog);
     nativeSettingsConfig = config;
+    syncTsCoworkRuntimeRollout(config);
     nativeSettingsState = state;
     nativeSettingsLastSavedState = state;
     nativeSettingsProviderCatalog = providerCatalog;
@@ -1461,7 +1665,14 @@ async function saveNativeSettingsPane(): Promise<void> {
       nativeSettingsConfig,
       nativeSettingsProviderCatalog,
     );
-    nativeSettingsConfig = await gatewayApi.config.patch(patch);
+    nativeSettingsConfig = await saveDesktopSettingsConfig(nativeSettingsConfig, patch, {
+      applyNativeConfigPatch,
+      applyGatewayConfigPatch: (fallbackPatch) => gatewayApi.config.patch(fallbackPatch),
+      onNativeFallback: (fallbackError) => {
+        logDesktopNativeDebug("settings.save.nativeFallback", { error: stringifyError(fallbackError) });
+      },
+    });
+    syncTsCoworkRuntimeRollout(nativeSettingsConfig);
     nativeSettingsState = buildDesktopSettingsFormState(nativeSettingsConfig, nativeSettingsProviderCatalog);
     nativeSettingsLastSavedState = nativeSettingsState;
     updateNativeSettingsPane("saved");
@@ -1521,6 +1732,11 @@ async function refreshNativeProviderModels(): Promise<void> {
       provider: request.provider,
     });
   }
+}
+
+function syncTsCoworkRuntimeRollout(config: unknown): void {
+  gatewayClientOptions.tsCoworkRuntime = resolveTsCoworkRuntimeRollout(config);
+  logDesktopNativeDebug("cowork.rollout.sync", gatewayClientOptions.tsCoworkRuntime);
 }
 
 function updateNativeSettingsPane(

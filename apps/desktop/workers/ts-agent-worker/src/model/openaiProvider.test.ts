@@ -9,6 +9,13 @@ async function* chunks(values: unknown[]): AsyncIterable<unknown> {
   }
 }
 
+async function* stalledChunks(): AsyncIterable<unknown> {
+  yield { choices: [{ delta: { content: "partial" }, finish_reason: null }] };
+  await new Promise(() => {
+    // Intentionally never resolves; OpenAIProvider must pass the idle timeout through.
+  });
+}
+
 describe("OpenAIProvider", () => {
   test("calls an injected OpenAI-compatible chat completions client and parses the stream", async () => {
     const requests: unknown[] = [];
@@ -370,5 +377,54 @@ describe("OpenAIProvider", () => {
       toolCalls: [],
       stopReason: "error",
     });
+  });
+
+  test("returns nested provider response body when the OpenAI stream cannot be created", async () => {
+    const client = {
+      chat: {
+        completions: {
+          create: async () => {
+            throw Object.assign(new Error("bad request"), {
+              response: {
+                body: "provider body error",
+              },
+            });
+          },
+        },
+      },
+    };
+    const provider = new OpenAIProvider({ client, defaultModel: "gpt-test" });
+
+    const response = await provider.complete([{ role: "user", content: "hello" }]);
+
+    expect(response).toMatchObject({
+      content: "Error: provider body error",
+      toolCalls: [],
+      stopReason: "error",
+    });
+  });
+
+  test("returns an error response when the OpenAI stream stalls past the idle timeout", async () => {
+    const client = {
+      chat: {
+        completions: {
+          create: async () => stalledChunks(),
+        },
+      },
+    };
+    const provider = new OpenAIProvider({ client, defaultModel: "gpt-test" });
+    const contentDeltas: string[] = [];
+
+    const response = await provider.complete([{ role: "user", content: "hello" }], {
+      streamIdleTimeoutMs: 5,
+      onContentDelta: (delta) => contentDeltas.push(delta),
+    });
+
+    expect(response).toEqual({
+      content: "Error calling LLM: stream stalled for more than 5 ms",
+      toolCalls: [],
+      stopReason: "error",
+    });
+    expect(contentDeltas).toEqual(["partial"]);
   });
 });

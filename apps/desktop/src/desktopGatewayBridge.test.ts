@@ -14,8 +14,17 @@ describe("desktop gateway bridge", () => {
     expect(String(rewriteGatewayRequest("/webui/bootstrap", DEFAULT_GATEWAY_CONFIG, pageOrigin))).toBe(
       "http://127.0.0.1:18790/webui/bootstrap",
     );
+    expect(String(rewriteGatewayRequest("/health", DEFAULT_GATEWAY_CONFIG, pageOrigin))).toBe(
+      "http://127.0.0.1:18790/health",
+    );
     expect(String(rewriteGatewayRequest("/api/sessions", DEFAULT_GATEWAY_CONFIG, pageOrigin))).toBe(
       "http://127.0.0.1:18790/api/sessions",
+    );
+    expect(String(rewriteGatewayRequest("/v1/models", DEFAULT_GATEWAY_CONFIG, pageOrigin))).toBe(
+      "http://127.0.0.1:18790/v1/models",
+    );
+    expect(String(rewriteGatewayRequest("/v1/chat/completions", DEFAULT_GATEWAY_CONFIG, pageOrigin))).toBe(
+      "http://127.0.0.1:18790/v1/chat/completions",
     );
     expect(String(rewriteGatewayRequest("/api/cowork/sessions?include_completed=1", DEFAULT_GATEWAY_CONFIG, pageOrigin))).toBe(
       "http://127.0.0.1:18790/api/cowork/sessions?include_completed=1",
@@ -123,6 +132,52 @@ describe("desktop gateway bridge", () => {
     bridge.restore();
   });
 
+  test("prefers native WebUI routes for root WebUI JSON fetches", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
+    const nativeWebui = {
+      routeResponse: vi.fn(async (request: { method: string; path: string; body?: unknown }) => ({
+        status: 200,
+        body: { native: true, request },
+      })),
+    };
+    const target = {
+      location: { origin: pageOrigin },
+      fetch: fetchMock,
+      WebSocket: class TestWebSocket {} as unknown as typeof WebSocket,
+    } as unknown as typeof globalThis;
+    const bridge = installDesktopGatewayBridge({
+      config: DEFAULT_GATEWAY_CONFIG,
+      pageOrigin,
+      fetchTarget: target,
+      webSocketTarget: target,
+      nativeWebui,
+    });
+
+    const response = await target.fetch("/api/status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ping: true }),
+    });
+
+    await expect(response.json()).resolves.toEqual({
+      native: true,
+      request: {
+        method: "POST",
+        path: "/api/status",
+        headers: { "Content-Type": "application/json" },
+        body: { ping: true },
+      },
+    });
+    expect(nativeWebui.routeResponse).toHaveBeenCalledWith({
+      method: "POST",
+      path: "/api/status",
+      headers: { "Content-Type": "application/json" },
+      body: { ping: true },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    bridge.restore();
+  });
+
   test("routes WebUI WebSocket URLs with original query parameters", () => {
     expect(String(rewriteGatewayWebSocketUrl("/ws?token=abc&chat=1", DEFAULT_GATEWAY_CONFIG, pageOrigin))).toBe(
       "ws://127.0.0.1:18790/ws?token=abc&chat=1",
@@ -137,4 +192,148 @@ describe("desktop gateway bridge", () => {
       "wss://example.com/ws?token=abc",
     );
   });
+
+  test("can route WebUI WebSocket traffic through the native TS transport shim", async () => {
+    const dispatched: unknown[] = [];
+    const target = {
+      location: { origin: pageOrigin },
+      fetch: vi.fn(),
+      WebSocket: class TestWebSocket {
+        static OPEN = 1;
+        readyState = 0;
+        constructor(readonly url: string | URL) {}
+      } as unknown as typeof WebSocket,
+    } as unknown as typeof globalThis;
+    const bridge = installDesktopGatewayBridge({
+      config: DEFAULT_GATEWAY_CONFIG,
+      pageOrigin,
+      fetchTarget: target,
+      webSocketTarget: target,
+      nativeTransport: {
+        gatewayFrame: vi.fn(),
+        websocketMessage: vi.fn(),
+        dispatchWebsocketMessage: vi.fn(async (request) => {
+          dispatched.push(request);
+          const frame = request.frame;
+          if (frame.type === "new_chat") {
+            return {
+              transport: {
+                kind: "new_chat",
+                chatId: "chat-native",
+                sessionId: "websocket:chat-native",
+                attachedChatId: "chat-native",
+                frames: [{ event: "chat_created", chat_id: "chat-native" }],
+              },
+            };
+          }
+          return {
+            transport: {
+              kind: "message",
+              chatId: "chat-native",
+              sessionId: "websocket:chat-native",
+              frames: [],
+            },
+            agent: {
+              finalContent: "native done",
+              stopReason: "final_response",
+            },
+          };
+        }),
+        dispatchChannelInbound: vi.fn(),
+        startChannels: vi.fn(),
+        channelStatus: vi.fn(),
+        stopChannels: vi.fn(),
+      },
+    });
+
+    const socket = new target.WebSocket("/ws?token=abc");
+    const events: Array<Record<string, unknown>> = [];
+    socket.addEventListener("message", (event) => {
+      events.push(JSON.parse(String((event as MessageEvent).data)) as Record<string, unknown>);
+    });
+    await flushMicrotasks();
+
+    expect(socket.readyState).toBe(WebSocket.OPEN);
+    expect(events).toContainEqual(expect.objectContaining({ event: "ready", client_id: expect.any(String) }));
+
+    socket.send(JSON.stringify({ type: "new_chat" }));
+    await flushMicrotasks();
+    socket.send(JSON.stringify({ type: "message", chat_id: "chat-native", content: "hello" }));
+    await flushMicrotasks();
+
+    expect(events).toContainEqual({ event: "chat_created", chat_id: "chat-native" });
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "message",
+      chat_id: "chat-native",
+      text: "native done",
+    }));
+    expect(dispatched).toEqual([
+      expect.objectContaining({
+        clientId: expect.any(String),
+        frame: { type: "new_chat" },
+      }),
+      expect.objectContaining({
+        attachedChatId: "chat-native",
+        clientId: expect.any(String),
+        frame: { type: "message", chat_id: "chat-native", content: "hello" },
+      }),
+    ]);
+
+    bridge.restore();
+  });
+
+  test("passes native WebSocket attach session checks through the gateway bridge", async () => {
+    const dispatched: unknown[] = [];
+    const target = {
+      location: { origin: pageOrigin },
+      fetch: vi.fn(),
+      WebSocket: class TestWebSocket {
+        static OPEN = 1;
+        readyState = 0;
+        constructor(readonly url: string | URL) {}
+      } as unknown as typeof WebSocket,
+    } as unknown as typeof globalThis;
+    const bridge = installDesktopGatewayBridge({
+      config: DEFAULT_GATEWAY_CONFIG,
+      pageOrigin,
+      fetchTarget: target,
+      webSocketTarget: target,
+      nativeTransport: {
+        gatewayFrame: vi.fn(),
+        websocketMessage: vi.fn(),
+        dispatchWebsocketMessage: vi.fn(async (request) => {
+          dispatched.push(request);
+          return {
+            transport: {
+              kind: "error",
+              frames: [{ event: "error", message: "session not found", chat_id: "missing" }],
+            },
+          };
+        }),
+        dispatchChannelInbound: vi.fn(),
+        startChannels: vi.fn(),
+        channelStatus: vi.fn(),
+        stopChannels: vi.fn(),
+      },
+      resolveNativeWebSocketSessionExists: async (sessionId) => sessionId !== "websocket:missing",
+    });
+
+    const socket = new target.WebSocket("/ws?token=abc");
+    await flushMicrotasks();
+    socket.send(JSON.stringify({ type: "attach", chat_id: "missing" }));
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(dispatched).toContainEqual(expect.objectContaining({
+      frame: { type: "attach", chat_id: "missing" },
+      sessionExists: false,
+    }));
+
+    bridge.restore();
+  });
 });
+
+async function flushMicrotasks(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}

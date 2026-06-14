@@ -6,13 +6,31 @@ import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 export type CoworkActionsIslandEvent =
   | { action: "validateBlueprint"; blueprintText: string; preview: boolean }
   | { action: "createSession"; goal: string }
-  | { action: "runSession" | "pauseSession" | "resumeSession" | "emergencyStopSession" | "deleteSession" | "loadSummary"; sessionId: string }
-  | { action: "sendMessage"; sessionId: string; message: string }
+  | {
+      action:
+        | "runSession"
+        | "pauseSession"
+        | "resumeSession"
+        | "emergencyStopSession"
+        | "deleteSession"
+        | "loadSummary"
+        | "loadBlueprint"
+        | "loadTrace"
+        | "loadDag"
+        | "loadArtifacts"
+        | "loadOrganization"
+        | "loadQueues"
+        | "loadBranches";
+      sessionId: string;
+    }
+  | { action: "updateBudget"; sessionId: string; maxRounds?: number }
+  | { action: "sendMessage"; sessionId: string; message: string; threadId?: string; topic?: string; eventType?: string }
   | { action: "addTask"; sessionId: string; taskTitle: string; assignedAgentId: string };
 
 export interface CoworkActionsIslandOptions {
   sessionId: string;
   agents: DesktopCoworkAgentRow[];
+  budgetMaxRounds?: string;
   actionStatus?: string;
   summaryText?: string;
   blueprintDiagnostics?: string;
@@ -49,6 +67,7 @@ function createCoworkActionsApp(options: CoworkActionsIslandOptions): App {
       const blueprint = ref<HTMLTextAreaElement | null>(null);
       const taskTitle = ref<HTMLInputElement | null>(null);
       const assignedAgentId = ref<HTMLInputElement | null>(null);
+      const budgetMaxRounds = ref<HTMLInputElement | null>(null);
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
         default: () => [
           h("textarea", {
@@ -82,6 +101,15 @@ function createCoworkActionsApp(options: CoworkActionsIslandOptions): App {
             "data-desktop-cowork-input": "assignedAgentId",
             value: options.agents[0]?.id ?? "",
           }),
+          h("input", {
+            ref: budgetMaxRounds,
+            class: "desktop-cowork-action-input",
+            "aria-label": "Cowork max rounds",
+            "data-desktop-cowork-input": "budgetMaxRounds",
+            type: "number",
+            min: "1",
+            value: options.budgetMaxRounds ?? "",
+          }),
           options.actionStatus ? h("p", { class: "desktop-cowork-action-status" }, options.actionStatus) : null,
           options.summaryText ? h("p", { class: "desktop-cowork-action-summary" }, `Summary: ${options.summaryText}`) : null,
           options.blueprintDiagnostics ? h("p", { class: "desktop-cowork-blueprint-diagnostics" }, `Blueprint: ${options.blueprintDiagnostics}`) : null,
@@ -91,6 +119,7 @@ function createCoworkActionsApp(options: CoworkActionsIslandOptions): App {
             blueprint,
             taskTitle,
             assignedAgentId,
+            budgetMaxRounds,
           }),
         ],
       });
@@ -106,6 +135,7 @@ function renderButtons(
     blueprint: { value: HTMLTextAreaElement | null };
     taskTitle: { value: HTMLInputElement | null };
     assignedAgentId: { value: HTMLInputElement | null };
+    budgetMaxRounds: { value: HTMLInputElement | null };
   },
 ) {
   const sessionId = options.sessionId;
@@ -118,6 +148,14 @@ function renderButtons(
     ["delete", "Delete", "deleteSession", Boolean(sessionId)],
     ["message", "Message", "sendMessage", Boolean(sessionId)],
     ["summary", "Summary", "loadSummary", Boolean(sessionId)],
+    ["blueprint", "Blueprint", "loadBlueprint", Boolean(sessionId)],
+    ["trace", "Trace", "loadTrace", Boolean(sessionId)],
+    ["dag", "DAG", "loadDag", Boolean(sessionId)],
+    ["artifacts", "Artifacts", "loadArtifacts", Boolean(sessionId)],
+    ["organization", "Organization", "loadOrganization", Boolean(sessionId)],
+    ["queues", "Queues", "loadQueues", Boolean(sessionId)],
+    ["branches", "Branches", "loadBranches", Boolean(sessionId)],
+    ["updateBudget", "Update budget", "updateBudget", Boolean(sessionId)],
   ] as const;
 
   return h(NSpace, { size: 8, wrap: true }, {
@@ -137,6 +175,12 @@ function renderButtons(
           options.onAction?.({ action: eventAction, goal: refs.goal.value?.value.trim() ?? "" });
         } else if (eventAction === "sendMessage") {
           options.onAction?.({ action: eventAction, sessionId, message: refs.message.value?.value.trim() ?? "" });
+        } else if (eventAction === "updateBudget") {
+          options.onAction?.({
+            action: eventAction,
+            sessionId,
+            maxRounds: parsePositiveInteger(refs.budgetMaxRounds.value?.value ?? ""),
+          });
         } else {
           options.onAction?.({ action: eventAction, sessionId });
         }
@@ -164,4 +208,9 @@ function renderActionButton(action: string, label: string, enabled: boolean, onC
       }
     },
   }, { default: () => label });
+}
+
+function parsePositiveInteger(value: string): number | undefined {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }

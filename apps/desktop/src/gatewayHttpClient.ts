@@ -6,6 +6,119 @@ type FetchFn = typeof fetch;
 type ClientOptions = {
   config?: GatewayConfig;
   fetchFn?: FetchFn;
+  nativeSkills?: NativeSkillsApi;
+  nativeCowork?: NativeCoworkApi;
+  nativeWebui?: NativeWebuiApi;
+  tsCoworkRuntime?: TsCoworkRuntimeRollout;
+};
+
+export type TsCoworkRuntimeRollout = {
+  enabled?: boolean;
+  readOnlySnapshot?: boolean;
+  mutations?: boolean;
+  scheduler?: boolean;
+  swarm?: boolean;
+  fallbackToPython?: boolean;
+};
+
+export const DEFAULT_TS_COWORK_RUNTIME_ROLLOUT: Required<TsCoworkRuntimeRollout> = {
+  enabled: true,
+  readOnlySnapshot: true,
+  mutations: true,
+  scheduler: true,
+  swarm: true,
+  fallbackToPython: false,
+};
+
+export function resolveTsCoworkRuntimeRollout(config: unknown): Required<TsCoworkRuntimeRollout> {
+  const desktop = asRecord(config)?.desktop;
+  const rollout = asRecord(asRecord(desktop)?.tsCoworkRuntime ?? asRecord(desktop)?.ts_cowork_runtime);
+  return {
+    enabled: booleanValue(rollout?.enabled, DEFAULT_TS_COWORK_RUNTIME_ROLLOUT.enabled),
+    readOnlySnapshot: booleanValue(
+      rollout?.readOnlySnapshot ?? rollout?.read_only_snapshot,
+      DEFAULT_TS_COWORK_RUNTIME_ROLLOUT.readOnlySnapshot,
+    ),
+    mutations: booleanValue(rollout?.mutations, DEFAULT_TS_COWORK_RUNTIME_ROLLOUT.mutations),
+    scheduler: booleanValue(rollout?.scheduler, DEFAULT_TS_COWORK_RUNTIME_ROLLOUT.scheduler),
+    swarm: booleanValue(rollout?.swarm, DEFAULT_TS_COWORK_RUNTIME_ROLLOUT.swarm),
+    fallbackToPython: booleanValue(
+      rollout?.fallbackToPython ?? rollout?.fallback_to_python,
+      DEFAULT_TS_COWORK_RUNTIME_ROLLOUT.fallbackToPython,
+    ),
+  };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function booleanValue(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+export type NativeSkillsApi = {
+  list: () => Promise<unknown>;
+  detail: (name: string) => Promise<unknown>;
+  create: (body: unknown) => Promise<unknown>;
+  update: (name: string, body: unknown) => Promise<unknown>;
+  delete: (name: string) => Promise<unknown>;
+  validate: (name: string) => Promise<unknown>;
+};
+
+export type NativeCoworkRouteRequest = {
+  method: string;
+  path: string;
+  query?: Record<string, string>;
+  body?: unknown;
+};
+
+export type NativeCoworkApi = {
+  route: (request: NativeCoworkRouteRequest) => Promise<unknown>;
+};
+
+export type NativeWebuiRouteRequest = {
+  method: string;
+  path: string;
+  headers?: Record<string, unknown>;
+  body?: unknown;
+};
+
+export type NativeWebuiRouteResponse = {
+  status: number;
+  body?: unknown;
+};
+
+export type NativeWebuiApi = {
+  route: (request: NativeWebuiRouteRequest) => Promise<unknown>;
+  routeResponse?: (request: NativeWebuiRouteRequest) => Promise<NativeWebuiRouteResponse>;
+};
+
+export type WebuiApprovalsListOptions = {
+  sessionKey?: string;
+  chatId?: string;
+  channel?: string;
+};
+
+export type KnowledgeDocumentsOptions = {
+  category?: string;
+  limit?: number;
+};
+
+export type KnowledgeGraphOptions = {
+  docId?: string;
+  limit?: number;
+  edgeLimit?: number;
+  minConfidence?: number;
+  includeOrphans?: boolean;
+};
+
+export type KnowledgeGraphRagOptions = {
+  docId?: string;
+  minConfidence?: number;
+  level?: number;
+  includeReports?: boolean;
+  includeCovariates?: boolean;
 };
 
 type WebSocketProbe = (url: string, timeoutMs: number) => Promise<ProbeResult>;
@@ -139,8 +252,8 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
       }
       return trackSession(result.session);
     });
-  const getSession = async (options: { forceBootstrap?: boolean } = {}) => {
-    if (options.forceBootstrap) {
+  const getSession = async (sessionOptions: { forceBootstrap?: boolean } = {}) => {
+    if (sessionOptions.forceBootstrap) {
       sessionPromise = startBootstrap();
       return sessionPromise;
     }
@@ -149,7 +262,7 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
     if (!shouldRefreshSession(session)) {
       return session;
     }
-    refreshPromise ??= refreshGateway(config, fetchFn, session)
+    refreshPromise ??= refreshGateway(config, fetchFn, session, options.nativeWebui)
       .then((result) => {
         if (result.ok) {
           return trackSession(result.session);
@@ -180,108 +293,881 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
 
   return {
     runtime: {
-      status: () => request("/api/status"),
+      status: () => nativeOrGateway(
+        () => options.nativeWebui?.route({ method: "GET", path: "/api/status" }),
+        () => request("/api/status"),
+        "webui.status",
+      ),
+    },
+    openAi: {
+      health: () => nativeOrGateway(
+        () => options.nativeWebui?.route({ method: "GET", path: "/health" }),
+        () => request("/health"),
+        "openai.health",
+      ),
+      models: () => nativeOrGateway(
+        () => options.nativeWebui?.route({ method: "GET", path: "/v1/models" }),
+        () => request("/v1/models"),
+        "openai.models",
+      ),
+      chatCompletions: (body: unknown) => nativeOrGateway(
+        () => options.nativeWebui?.route({ method: "POST", path: "/v1/chat/completions", body }),
+        () => request("/v1/chat/completions", jsonRequest("POST", body)),
+        "openai.chatCompletions",
+      ),
     },
     sessions: {
-      list: () => request("/api/sessions"),
-      messages: (key: string) => request(`/api/sessions/${encodePathSegment(key)}/messages`),
-      temporaryFiles: (key: string) => request(`/api/sessions/${encodePathSegment(key)}/temporary-files`),
-      uploadTemporaryFile: (key: string, body: FormData) =>
-        request(`/api/sessions/${encodePathSegment(key)}/temporary-files`, formRequest("POST", body)),
-      delete: (key: string) => request(`/api/sessions/${encodePathSegment(key)}`, { method: "DELETE" }),
-      patch: (key: string, body: unknown) =>
-        request(`/api/sessions/${encodePathSegment(key)}`, jsonRequest("PATCH", body)),
-      clear: (key: string) => request(`/api/sessions/${encodePathSegment(key)}/clear`, { method: "POST" }),
+      list: () => nativeOrGateway(
+        () => options.nativeWebui?.route({ method: "GET", path: "/api/sessions" }),
+        () => request("/api/sessions"),
+        "webui.sessions.list",
+      ),
+      messages: (key: string) => nativeOrGateway(
+        () => options.nativeWebui?.route({ method: "GET", path: `/api/sessions/${encodePathSegment(key)}/messages` }),
+        () => request(`/api/sessions/${encodePathSegment(key)}/messages`),
+        "webui.sessions.messages",
+      ),
+      profile: (key: string) => nativeOrGateway(
+        () => options.nativeWebui?.route({ method: "GET", path: `/api/sessions/${encodePathSegment(key)}/profile` }),
+        () => request(`/api/sessions/${encodePathSegment(key)}/profile`),
+        "webui.sessions.profile",
+      ),
+      temporaryFiles: (key: string) => nativeOrGateway(
+        () => options.nativeWebui?.route({
+          method: "GET",
+          path: `/api/sessions/${encodePathSegment(key)}/temporary-files`,
+        }),
+        () => request(`/api/sessions/${encodePathSegment(key)}/temporary-files`),
+        "webui.sessions.temporaryFiles",
+      ),
+      uploadTemporaryFile: (key: string, body: FormData) => nativeOrGateway(
+        () => {
+          const uploadBody = nativeTemporaryFileUploadBody(body);
+          return options.nativeWebui && uploadBody
+            ? uploadBody.then((payload) => options.nativeWebui?.route({
+              method: "POST",
+              path: `/api/sessions/${encodePathSegment(key)}/temporary-files`,
+              body: payload,
+            }))
+            : undefined;
+        },
+        () => request(`/api/sessions/${encodePathSegment(key)}/temporary-files`, formRequest("POST", body)),
+        "webui.sessions.uploadTemporaryFile",
+      ),
+      clearTemporaryFiles: (key: string) => nativeOrGateway(
+        () => options.nativeWebui?.route({
+          method: "DELETE",
+          path: `/api/sessions/${encodePathSegment(key)}/temporary-files`,
+        }),
+        () => request(`/api/sessions/${encodePathSegment(key)}/temporary-files`, { method: "DELETE" }),
+        "webui.sessions.clearTemporaryFiles",
+      ),
+      delete: (key: string) => nativeOrGateway(
+        () => options.nativeWebui?.route({ method: "DELETE", path: `/api/sessions/${encodePathSegment(key)}` }),
+        () => request(`/api/sessions/${encodePathSegment(key)}`, { method: "DELETE" }),
+        "webui.sessions.delete",
+      ),
+      patch: (key: string, body: unknown) => nativeOrGateway(
+        () => options.nativeWebui?.route({
+          method: "PATCH",
+          path: `/api/sessions/${encodePathSegment(key)}`,
+          body,
+        }),
+        () => request(`/api/sessions/${encodePathSegment(key)}`, jsonRequest("PATCH", body)),
+        "webui.sessions.patch",
+      ),
+      clear: (key: string) => nativeOrGateway(
+        () => options.nativeWebui?.route({
+          method: "POST",
+          path: `/api/sessions/${encodePathSegment(key)}/clear`,
+        }),
+        () => request(`/api/sessions/${encodePathSegment(key)}/clear`, { method: "POST" }),
+        "webui.sessions.clear",
+      ),
     },
     config: {
-      get: () => request("/api/config"),
-      patch: (body: unknown) => request("/api/config", jsonRequest("PATCH", body)),
-      providers: () => request("/api/providers"),
-      providerModels: (body: unknown) => request("/api/provider-models", jsonRequest("POST", body)),
+      get: () => nativeOrGateway(
+        () => options.nativeWebui?.route({ method: "GET", path: "/api/config" }),
+        () => request("/api/config"),
+        "webui.config.get",
+      ),
+      patch: (body: unknown) => nativeOrGateway(
+        () => options.nativeWebui?.route({ method: "PATCH", path: "/api/config", body }),
+        () => request("/api/config", jsonRequest("PATCH", body)),
+        "webui.config.patch",
+      ),
+      providers: () => nativeOrGateway(
+        () => options.nativeWebui?.route({ method: "GET", path: "/api/providers" }),
+        () => request("/api/providers"),
+        "webui.providers",
+      ),
+      providerModels: (body: unknown) => nativeOrGateway(
+        () => options.nativeWebui?.route({ method: "POST", path: "/api/provider-models", body }),
+        () => request("/api/provider-models", jsonRequest("POST", body)),
+        "webui.providerModels",
+      ),
     },
     tools: {
-      list: () => request("/api/tools"),
-      approvals: () => request("/api/approvals"),
-      approveApproval: (approvalId: string, body: unknown) =>
-        request(`/api/approvals/${encodePathSegment(approvalId)}/approve`, jsonRequest("POST", body)),
-      denyApproval: (approvalId: string, body: unknown) =>
-        request(`/api/approvals/${encodePathSegment(approvalId)}/deny`, jsonRequest("POST", body)),
+      list: () => nativeOrGateway(
+        () => options.nativeWebui?.route({ method: "GET", path: "/api/tools" }),
+        () => request("/api/tools"),
+        "webui.tools.list",
+      ),
+      approvals: (approvalOptions?: WebuiApprovalsListOptions) => {
+        const path = approvalsListPath(approvalOptions);
+        return nativeOrGateway(
+          () => options.nativeWebui?.route({ method: "GET", path }),
+          () => request(path),
+          "webui.approvals.list",
+        );
+      },
+      approveApproval: (approvalId: string, body: unknown) => {
+        const path = `/api/approvals/${encodePathSegment(approvalId)}/approve`;
+        return nativeOrGateway(
+          () => options.nativeWebui?.route({ method: "POST", path, body }),
+          () => request(path, jsonRequest("POST", body)),
+          "webui.approvals.approve",
+        );
+      },
+      denyApproval: (approvalId: string, body: unknown) => {
+        const path = `/api/approvals/${encodePathSegment(approvalId)}/deny`;
+        return nativeOrGateway(
+          () => options.nativeWebui?.route({ method: "POST", path, body }),
+          () => request(path, jsonRequest("POST", body)),
+          "webui.approvals.deny",
+        );
+      },
     },
     skills: {
-      list: () => request("/api/skills"),
-      detail: (name: string) => request(`/api/skills/${encodePathSegment(name)}`),
-      create: (body: unknown) => request("/api/skills", jsonRequest("POST", body)),
+      list: () => nativeOrGateway(
+        () => options.nativeWebui?.route({ method: "GET", path: "/api/skills" }) ?? options.nativeSkills?.list(),
+        () => request("/api/skills"),
+        "skills.list",
+      ),
+      detail: (name: string) => nativeOrGateway(
+        () => options.nativeWebui?.route({
+          method: "GET",
+          path: `/api/skills/${encodePathSegment(name)}`,
+        }) ?? options.nativeSkills?.detail(name),
+        () => request(`/api/skills/${encodePathSegment(name)}`),
+        "skills.detail",
+      ),
+      create: (body: unknown) => nativeOrGateway(
+        () => options.nativeWebui?.route({ method: "POST", path: "/api/skills", body })
+          ?? options.nativeSkills?.create(body),
+        () => request("/api/skills", jsonRequest("POST", body)),
+        "skills.create",
+      ),
       update: (name: string, body: unknown) =>
-        request(`/api/skills/${encodePathSegment(name)}`, jsonRequest("PATCH", body)),
-      delete: (name: string) => request(`/api/skills/${encodePathSegment(name)}`, { method: "DELETE" }),
-      validate: (name: string) => request(`/api/skills/${encodePathSegment(name)}/validate`, { method: "POST" }),
+        nativeOrGateway(
+          () => options.nativeWebui?.route({
+            method: "PATCH",
+            path: `/api/skills/${encodePathSegment(name)}`,
+            body,
+          }) ?? options.nativeSkills?.update(name, body),
+          () => request(`/api/skills/${encodePathSegment(name)}`, jsonRequest("PATCH", body)),
+          "skills.update",
+        ),
+      delete: (name: string) => nativeOrGateway(
+        () => options.nativeWebui?.route({
+          method: "DELETE",
+          path: `/api/skills/${encodePathSegment(name)}`,
+        }) ?? options.nativeSkills?.delete(name),
+        () => request(`/api/skills/${encodePathSegment(name)}`, { method: "DELETE" }),
+        "skills.delete",
+      ),
+      validate: (name: string) => nativeOrGateway(
+        () => options.nativeWebui?.route({
+          method: "POST",
+          path: `/api/skills/${encodePathSegment(name)}/validate`,
+        }) ?? options.nativeSkills?.validate(name),
+        () => request(`/api/skills/${encodePathSegment(name)}/validate`, { method: "POST" }),
+        "skills.validate",
+      ),
     },
     agentUi: {
-      submitForm: (formId: string, body: unknown) =>
-        request(`/api/agent-ui/forms/${encodePathSegment(formId)}/submit`, jsonRequest("POST", body)),
-      cancelForm: (formId: string, body: unknown) =>
-        request(`/api/agent-ui/forms/${encodePathSegment(formId)}/cancel`, jsonRequest("POST", body)),
+      submitForm: (formId: string, body: unknown) => {
+        const path = `/api/agent-ui/forms/${encodePathSegment(formId)}/submit`;
+        return nativeOrGateway(
+          () => options.nativeWebui?.route({ method: "POST", path, body }),
+          () => request(path, jsonRequest("POST", body)),
+          "webui.agentUi.submitForm",
+        );
+      },
+      cancelForm: (formId: string, body: unknown) => {
+        const path = `/api/agent-ui/forms/${encodePathSegment(formId)}/cancel`;
+        return nativeOrGateway(
+          () => options.nativeWebui?.route({ method: "POST", path, body }),
+          () => request(path, jsonRequest("POST", body)),
+          "webui.agentUi.cancelForm",
+        );
+      },
     },
     knowledge: {
-      documents: () => request("/v1/knowledge/documents"),
-      uploadDocument: (body: FormData) => request("/v1/knowledge/documents/upload?async_index=true", formRequest("POST", body)),
-      deleteDocument: (documentId: string) => request(`/v1/knowledge/documents/${encodePathSegment(documentId)}`, { method: "DELETE" }),
-      job: (jobId: string) => request(`/v1/knowledge/jobs/${encodePathSegment(jobId)}`),
-      rebuildIndex: (type: string = "all") =>
-        request(`/v1/knowledge/rebuild-index?type=${encodeURIComponent(type)}&async_index=true`, { method: "POST" }),
-      stats: () => request("/v1/knowledge/stats"),
-      graph: () => request("/v1/knowledge/graph"),
-      graphrag: () => request("/v1/knowledge/graphrag?min_confidence=0&include_reports=true&include_covariates=true"),
-      query: (body: unknown) => request("/v1/knowledge/query", jsonRequest("POST", body)),
+      documents: (documentOptions: KnowledgeDocumentsOptions = {}) => {
+        const path = knowledgeDocumentsPath(documentOptions);
+        return nativeOrGateway(
+          () => options.nativeWebui?.route({ method: "GET", path }),
+          () => request(path),
+          "knowledge.documents",
+        );
+      },
+      addDocument: (body: unknown) => nativeOrGateway(
+        () => options.nativeWebui?.route({ method: "POST", path: "/v1/knowledge/documents", body }),
+        () => request("/v1/knowledge/documents", jsonRequest("POST", body)),
+        "knowledge.addDocument",
+      ),
+      document: (documentId: string) => {
+        const path = `/v1/knowledge/documents/${encodePathSegment(documentId)}`;
+        return nativeOrGateway(
+          () => options.nativeWebui?.route({ method: "GET", path }),
+          () => request(path),
+          "knowledge.document",
+        );
+      },
+      uploadDocument: (body: FormData) => nativeOrGateway(
+        () => {
+          if (!options.nativeWebui) {
+            return undefined;
+          }
+          const uploadBody = nativeKnowledgeUploadBody(body);
+          return uploadBody
+            ? uploadBody.then((payload) => options.nativeWebui?.route({
+              method: "POST",
+              path: "/v1/knowledge/documents/upload?async_index=true",
+              body: payload,
+            }))
+            : undefined;
+        },
+        () => request("/v1/knowledge/documents/upload?async_index=true", formRequest("POST", body)),
+        "knowledge.uploadDocument",
+      ),
+      deleteDocument: (documentId: string) => {
+        const path = `/v1/knowledge/documents/${encodePathSegment(documentId)}`;
+        return nativeOrGateway(
+          () => options.nativeWebui?.route({ method: "DELETE", path }),
+          () => request(path, { method: "DELETE" }),
+          "knowledge.deleteDocument",
+        );
+      },
+      job: (jobId: string) => {
+        const path = `/v1/knowledge/jobs/${encodePathSegment(jobId)}`;
+        return nativeOrGateway(
+          () => options.nativeWebui?.route({ method: "GET", path }),
+          () => request(path),
+          "knowledge.job",
+        );
+      },
+      rebuildIndex: (type: string = "all") => {
+        const path = `/v1/knowledge/rebuild-index?type=${encodeURIComponent(type)}&async_index=true`;
+        return nativeOrGateway(
+          () => ["bm25", "all", "semantic"].includes(type) ? options.nativeWebui?.route({ method: "POST", path }) : undefined,
+          () => request(path, { method: "POST" }),
+          "knowledge.rebuildIndex",
+        );
+      },
+      stats: () => nativeOrGateway(
+        () => options.nativeWebui?.route({ method: "GET", path: "/v1/knowledge/stats" }),
+        () => request("/v1/knowledge/stats"),
+        "knowledge.stats",
+      ),
+      graph: (graphOptions: KnowledgeGraphOptions = {}) => {
+        const path = knowledgeGraphPath(graphOptions);
+        return nativeOrGateway(
+          () => options.nativeWebui?.route({ method: "GET", path }),
+          () => request(path),
+          "knowledge.graph",
+        );
+      },
+      graphrag: (graphRagOptions: KnowledgeGraphRagOptions = {}) => {
+        const path = knowledgeGraphRagPath(graphRagOptions);
+        return nativeOrGateway(
+          () => options.nativeWebui?.route({
+            method: "GET",
+            path,
+          }),
+          () => request(path),
+          "knowledge.graphrag",
+        );
+      },
+      query: (body: unknown) => nativeOrGateway(
+        () => options.nativeWebui?.route({ method: "POST", path: "/v1/knowledge/query", body }),
+        () => request("/v1/knowledge/query", jsonRequest("POST", body)),
+        "knowledge.query",
+      ),
     },
     workspace: {
-      files: () => request("/api/workspace/files"),
-      file: (path: string) => request(`/api/workspace/files/${encodePathSegment(path)}`),
-      putFile: (path: string, body: unknown) =>
-        request(`/api/workspace/files/${encodePathSegment(path)}`, jsonRequest("PUT", body)),
+      files: () => nativeOrGateway(
+        () => options.nativeWebui?.route({ method: "GET", path: "/api/workspace/files" }),
+        () => request("/api/workspace/files"),
+        "webui.workspace.files",
+      ),
+      file: (path: string) => {
+        const routePath = `/api/workspace/files/${encodePathSegment(path)}`;
+        return nativeOrGateway(
+          () => options.nativeWebui?.route({ method: "GET", path: routePath }),
+          () => request(routePath),
+          "webui.workspace.file",
+        );
+      },
+      putFile: (path: string, body: unknown) => {
+        const routePath = `/api/workspace/files/${encodePathSegment(path)}`;
+        return nativeOrGateway(
+          () => options.nativeWebui?.route({ method: "PUT", path: routePath, body }),
+          () => request(routePath, jsonRequest("PUT", body)),
+          "webui.workspace.putFile",
+        );
+      },
     },
     cowork: {
-      sessions: (options: { includeCompleted?: boolean; originChatId?: string } = {}) => {
+      sessions: (sessionOptions: { includeCompleted?: boolean; originChatId?: string } = {}) => {
         const params = new URLSearchParams();
-        if (options.includeCompleted) {
+        if (sessionOptions.includeCompleted) {
           params.set("include_completed", "true");
         }
-        if (options.originChatId) {
-          params.set("origin_chat_id", options.originChatId);
+        if (sessionOptions.originChatId) {
+          params.set("origin_chat_id", sessionOptions.originChatId);
         }
-        return request(`/api/cowork/sessions${params.toString() ? `?${params}` : ""}`);
+        const path = `/api/cowork/sessions${params.toString() ? `?${params}` : ""}`;
+        return coworkNativeOrGateway(
+          options.nativeCowork,
+          options.tsCoworkRuntime,
+          request,
+          "GET",
+          path,
+          undefined,
+          "cowork.sessions",
+        );
       },
-      session: (sessionId: string) => request(`/api/cowork/sessions/${encodePathSegment(sessionId)}`),
-      summary: (sessionId: string) => request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/summary`),
-      graph: (sessionId: string) => request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/graph`),
-      agentActivity: (sessionId: string, agentId: string) =>
-        request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/agents/${encodePathSegment(agentId)}/activity`),
-      observation: (sessionId: string, detailRef: string) =>
-        request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/observations/${encodePathSegment(detailRef)}`),
-      create: (body: unknown) => request("/api/cowork/sessions", jsonRequest("POST", body)),
-      run: (sessionId: string, body: unknown) =>
-        request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/run`, jsonRequest("POST", body)),
-      action: (sessionId: string, action: "pause" | "resume" | "emergency-stop") =>
-        request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/${action}`, { method: "POST" }),
-      delete: (sessionId: string) => request(`/api/cowork/sessions/${encodePathSegment(sessionId)}`, { method: "DELETE" }),
-      message: (sessionId: string, body: unknown) =>
-        request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/messages`, jsonRequest("POST", body)),
-      addTask: (sessionId: string, body: unknown) =>
-        request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/tasks`, jsonRequest("POST", body)),
-      taskAction: (sessionId: string, taskId: string, action: "assign" | "retry" | "review", body: unknown = {}) =>
-        request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/tasks/${encodePathSegment(taskId)}/${action}`, jsonRequest("POST", body)),
-      workUnitAction: (sessionId: string, workUnitId: string, action: "retry" | "skip" | "cancel", body: unknown = {}) =>
-        request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/work-units/${encodePathSegment(workUnitId)}/${action}`, jsonRequest("POST", body)),
-      selectBranch: (sessionId: string, branchId: string) =>
-        request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/branches/${encodePathSegment(branchId)}/select`, { method: "POST" }),
-      selectBranchResult: (sessionId: string, branchId: string, body: unknown) =>
-        request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/branches/${encodePathSegment(branchId)}/result/select-final`, jsonRequest("POST", body)),
-      mergeBranchResults: (sessionId: string, body: unknown) =>
-        request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/branch-results/merge`, jsonRequest("POST", body)),
-      validateBlueprint: (body: unknown, options: { preview?: boolean } = {}) =>
-        request(`/api/cowork/blueprints/${options.preview ? "preview" : "validate"}`, jsonRequest("POST", body)),
+      session: (sessionId: string) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "GET",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}`,
+        undefined,
+        "cowork.session",
+      ),
+      summary: (sessionId: string) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "GET",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/summary`,
+        undefined,
+        "cowork.summary",
+      ),
+      graph: (sessionId: string) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "GET",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/graph`,
+        undefined,
+        "cowork.graph",
+      ),
+      agentActivity: (sessionId: string, agentId: string, activityOptions: { limit?: number } = {}) => {
+        const params = new URLSearchParams();
+        if (activityOptions.limit !== undefined) {
+          params.set("limit", String(activityOptions.limit));
+        }
+        const path = `/api/cowork/sessions/${encodePathSegment(sessionId)}/agents/${encodePathSegment(agentId)}/activity${params.toString() ? `?${params}` : ""}`;
+        return coworkNativeOrGateway(
+          options.nativeCowork,
+          options.tsCoworkRuntime,
+          request,
+          "GET",
+          path,
+          undefined,
+          "cowork.agentActivity",
+        );
+      },
+      observation: (sessionId: string, detailRef: string, observationOptions: { requesterAgentId?: string } = {}) => {
+        const params = new URLSearchParams();
+        if (observationOptions.requesterAgentId) {
+          params.set("agent_id", observationOptions.requesterAgentId);
+        }
+        const path = `/api/cowork/sessions/${encodePathSegment(sessionId)}/observations/${encodePathSegment(detailRef)}${params.toString() ? `?${params}` : ""}`;
+        return coworkNativeOrGateway(
+          options.nativeCowork,
+          options.tsCoworkRuntime,
+          request,
+          "GET",
+          path,
+          undefined,
+          "cowork.observation",
+        );
+      },
+      blueprint: (sessionId: string) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "GET",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/blueprint`,
+        undefined,
+        "cowork.blueprint",
+      ),
+      trace: (sessionId: string) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "GET",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/trace`,
+        undefined,
+        "cowork.trace",
+      ),
+      dag: (sessionId: string) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "GET",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/dag`,
+        undefined,
+        "cowork.dag",
+      ),
+      artifacts: (sessionId: string) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "GET",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/artifacts`,
+        undefined,
+        "cowork.artifacts",
+      ),
+      organization: (sessionId: string) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "GET",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/organization`,
+        undefined,
+        "cowork.organization",
+      ),
+      queues: (sessionId: string) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "GET",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/queues`,
+        undefined,
+        "cowork.queues",
+      ),
+      branches: (sessionId: string) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "GET",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/branches`,
+        undefined,
+        "cowork.branches",
+      ),
+      create: (body: unknown) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "POST",
+        "/api/cowork/sessions",
+        body,
+        "cowork.create",
+      ),
+      run: (sessionId: string, body: unknown) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "POST",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/run`,
+        body,
+        "cowork.run",
+      ),
+      updateBudget: (sessionId: string, body: unknown, budgetOptions: { method?: "POST" | "PATCH" } = {}) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        budgetOptions.method ?? "POST",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/budget`,
+        body,
+        "cowork.updateBudget",
+      ),
+      action: (sessionId: string, action: "pause" | "resume" | "emergency-stop", body?: unknown) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "POST",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/${action}`,
+        body,
+        `cowork.${action}`,
+      ),
+      delete: (sessionId: string) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "DELETE",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}`,
+        undefined,
+        "cowork.delete",
+      ),
+      message: (sessionId: string, body: unknown) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "POST",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/messages`,
+        body,
+        "cowork.message",
+      ),
+      addTask: (sessionId: string, body: unknown) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "POST",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/tasks`,
+        body,
+        "cowork.addTask",
+      ),
+      taskAction: (sessionId: string, taskId: string, action: "assign" | "retry" | "review", body: unknown = {}) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "POST",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/tasks/${encodePathSegment(taskId)}/${action}`,
+        body,
+        `cowork.task.${action}`,
+      ),
+      workUnitAction: (sessionId: string, workUnitId: string, action: "retry" | "skip" | "cancel", body: unknown = {}) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "POST",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/work-units/${encodePathSegment(workUnitId)}/${action}`,
+        body,
+        `cowork.workUnit.${action}`,
+      ),
+      selectBranch: (sessionId: string, branchId: string, body: unknown = undefined) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "POST",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/branches/${encodePathSegment(branchId)}/select`,
+        body,
+        "cowork.selectBranch",
+      ),
+      deriveBranch: (sessionId: string, sourceBranchId: string | null, body: unknown) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "POST",
+        sourceBranchId
+          ? `/api/cowork/sessions/${encodePathSegment(sessionId)}/branches/${encodePathSegment(sourceBranchId)}/derive`
+          : `/api/cowork/sessions/${encodePathSegment(sessionId)}/branches/derive`,
+        body,
+        "cowork.deriveBranch",
+      ),
+      selectBranchResult: (sessionId: string, branchId: string, body: unknown) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "POST",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/branches/${encodePathSegment(branchId)}/result/select-final`,
+        body,
+        "cowork.selectBranchResult",
+      ),
+      mergeBranchResults: (sessionId: string, body: unknown) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "POST",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/branch-results/merge`,
+        body,
+        "cowork.mergeBranchResults",
+      ),
+      selectFinalResult: (sessionId: string, body: unknown) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "POST",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/final-result/select`,
+        body,
+        "cowork.selectFinalResult",
+      ),
+      mergeFinalResult: (sessionId: string, body: unknown) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "POST",
+        `/api/cowork/sessions/${encodePathSegment(sessionId)}/final-result/merge`,
+        body,
+        "cowork.mergeFinalResult",
+      ),
+      validateBlueprint: (body: unknown, validateOptions: { preview?: boolean } = {}) => coworkNativeOrGateway(
+        options.nativeCowork,
+        options.tsCoworkRuntime,
+        request,
+        "POST",
+        `/api/cowork/blueprints/${validateOptions.preview ? "preview" : "validate"}`,
+        body,
+        "cowork.validateBlueprint",
+      ),
     },
   };
+}
+
+function coworkNativeOrGateway(
+  nativeCowork: NativeCoworkApi | undefined,
+  rollout: TsCoworkRuntimeRollout | undefined,
+  request: (path: string, init?: RequestInit) => Promise<unknown>,
+  method: string,
+  path: string,
+  body: unknown,
+  label: string,
+): Promise<unknown> {
+  const effectiveRollout = { ...DEFAULT_TS_COWORK_RUNTIME_ROLLOUT, ...(rollout ?? {}) };
+  const nativeRequest = nativeCoworkRouteRequest(method, path, body);
+  const gatewayInit = method === "GET"
+    ? undefined
+    : body === undefined
+      ? { method }
+      : jsonRequest(method, body);
+  if (!coworkRouteEnabledByRollout(method, path, body, effectiveRollout)) {
+    return request(path, gatewayInit);
+  }
+  return nativeOrGateway(
+    () => nativeCowork?.route(nativeRequest),
+    () => request(path, gatewayInit),
+    label,
+    effectiveRollout.fallbackToPython,
+  );
+}
+
+function nativeCoworkRouteRequest(method: string, path: string, body: unknown): NativeCoworkRouteRequest {
+  const url = new URL(path, "http://desktop.local");
+  const query = Object.fromEntries(url.searchParams.entries());
+  return {
+    method,
+    path: url.pathname,
+    ...(Object.keys(query).length ? { query } : {}),
+    ...(body === undefined ? {} : { body }),
+  };
+}
+
+function coworkRouteEnabledByRollout(
+  method: string,
+  path: string,
+  body: unknown,
+  rollout: TsCoworkRuntimeRollout | undefined,
+): boolean {
+  if (!rollout) {
+    return true;
+  }
+  if (rollout.enabled === false) {
+    return false;
+  }
+  if (autoRunCoworkCreateRoute(method, path, body) && swarmCoworkCreateRoute(method, path, body)) {
+    return rollout.scheduler !== false && rollout.swarm !== false;
+  }
+  const group = coworkRouteGroup(method, path, body);
+  return rollout[group] !== false;
+}
+
+function coworkRouteGroup(method: string, path: string, body: unknown): "readOnlySnapshot" | "mutations" | "scheduler" | "swarm" {
+  if (method === "GET") {
+    return "readOnlySnapshot";
+  }
+  if (/\/api\/cowork\/blueprints\/(?:validate|preview)(?:$|\?)/.test(path)) {
+    return "readOnlySnapshot";
+  }
+  if (swarmCoworkRunRoute(method, path, body)) {
+    return "swarm";
+  }
+  if (/\/api\/cowork\/sessions\/[^/]+\/run(?:$|\?)/.test(path)) {
+    return "scheduler";
+  }
+  if (autoRunCoworkCreateRoute(method, path, body)) {
+    return "scheduler";
+  }
+  if (swarmCoworkCreateRoute(method, path, body)) {
+    return "swarm";
+  }
+  if (recipientlessCoworkMessageRoute(method, path, body)) {
+    return "swarm";
+  }
+  if (swarmBranchDeriveRoute(method, path, body)) {
+    return "swarm";
+  }
+  if (
+    path.includes("/work-units/")
+    || path.includes("/branch-results/")
+    || path.includes("/final-result/")
+    || swarmBranchSelectRoute(method, path, body)
+    || swarmBranchResultSelectRoute(method, path, body)
+  ) {
+    return "swarm";
+  }
+  return "mutations";
+}
+
+function autoRunCoworkCreateRoute(method: string, path: string, body: unknown): boolean {
+  if (method !== "POST" || !/\/api\/cowork\/sessions(?:$|\?)/.test(path)) {
+    return false;
+  }
+  const payload = asRecord(body);
+  return pythonTruthyJsonValue(payload?.autoRun) || pythonTruthyJsonValue(payload?.auto_run);
+}
+
+function swarmCoworkCreateRoute(method: string, path: string, body: unknown): boolean {
+  if (method !== "POST" || !/\/api\/cowork\/sessions(?:$|\?)/.test(path)) {
+    return false;
+  }
+  const payload = asRecord(body);
+  const blueprint = asRecord(payload?.blueprint);
+  const mode = blueprint
+    ? firstPythonTruthyTextValue(
+      blueprint.architecture,
+      blueprint.workflow_mode,
+      blueprint.workflowMode,
+      blueprint.mode,
+    )
+    : firstPythonTruthyTextValue(
+      payload?.architecture,
+      payload?.workflowMode,
+      payload?.workflow_mode,
+      payload?.mode,
+    );
+  return isSwarmMode(mode);
+}
+
+function swarmCoworkRunRoute(method: string, path: string, body: unknown): boolean {
+  if (method !== "POST" || !/\/api\/cowork\/sessions\/[^/]+\/run(?:$|\?)/.test(path)) {
+    return false;
+  }
+  const payload = asRecord(body);
+  const mode = firstPythonTruthyTextValue(
+    payload?.architecture,
+    payload?.workflowMode,
+    payload?.workflow_mode,
+    payload?.mode,
+  );
+  return isSwarmMode(mode);
+}
+
+function recipientlessCoworkMessageRoute(method: string, path: string, body: unknown): boolean {
+  if (method !== "POST" || !/\/api\/cowork\/sessions\/[^/]+\/messages(?:$|\?)/.test(path)) {
+    return false;
+  }
+  const payload = asRecord(body);
+  const recipients = payload?.recipientIds ?? payload?.recipient_ids;
+  if (coworkRecipientList(recipients).length > 0) {
+    return false;
+  }
+  const mode = firstPythonTruthyTextValue(
+    payload?.architecture,
+    payload?.workflowMode,
+    payload?.workflow_mode,
+    payload?.mode,
+  );
+  return mode ? isSwarmMode(mode) : true;
+}
+
+function swarmBranchDeriveRoute(method: string, path: string, body: unknown): boolean {
+  if (
+    method !== "POST"
+    || !/\/api\/cowork\/sessions\/[^/]+\/branches(?:\/[^/]+)?\/derive(?:$|\?)/.test(path)
+  ) {
+    return false;
+  }
+  const payload = asRecord(body);
+  const targetArchitecture = firstPythonTruthyTextValue(
+    payload?.targetArchitecture,
+    payload?.target_architecture,
+    payload?.architecture,
+  );
+  return isSwarmMode(targetArchitecture);
+}
+
+function swarmBranchSelectRoute(method: string, path: string, body: unknown): boolean {
+  if (method !== "POST" || !/\/api\/cowork\/sessions\/[^/]+\/branches\/[^/]+\/select(?:$|\?)/.test(path)) {
+    return false;
+  }
+  const payload = asRecord(body);
+  const architecture = firstPythonTruthyTextValue(
+    payload?.architecture,
+    payload?.workflowMode,
+    payload?.workflow_mode,
+    payload?.mode,
+  );
+  return architecture ? isSwarmMode(architecture) : true;
+}
+
+function swarmBranchResultSelectRoute(method: string, path: string, body: unknown): boolean {
+  if (method !== "POST" || !/\/api\/cowork\/sessions\/[^/]+\/branches\/[^/]+\/result\/select-final(?:$|\?)/.test(path)) {
+    return false;
+  }
+  const payload = asRecord(body);
+  const architecture = firstPythonTruthyTextValue(
+    payload?.architecture,
+    payload?.workflowMode,
+    payload?.workflow_mode,
+    payload?.mode,
+  );
+  return architecture ? isSwarmMode(architecture) : true;
+}
+
+function isSwarmMode(value: unknown): boolean {
+  return typeof value === "string" && value.trim().toLowerCase().replace(/-/g, "_") === "swarm";
+}
+
+function pythonTruthyJsonValue(value: unknown): boolean {
+  if (value === null || value === undefined) {
+    return false;
+  }
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    return value !== 0 && Number.isFinite(value);
+  }
+  if (typeof value === "string") {
+    return value.length > 0;
+  }
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+  if (typeof value === "object") {
+    return Object.keys(value).length > 0;
+  }
+  return true;
+}
+
+function firstPythonTruthyTextValue(...values: unknown[]): string {
+  for (const value of values) {
+    const text = pythonTextValue(value);
+    if (text) {
+      return text;
+    }
+  }
+  return "";
+}
+
+function pythonTextValue(value: unknown): string {
+  if (!pythonTruthyJsonValue(value)) {
+    return "";
+  }
+  if (typeof value === "string") {
+    return value.trim();
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? String(value).trim() : "";
+  }
+  return String(value).trim();
+}
+
+function coworkRecipientList(value: unknown): string[] {
+  if (typeof value === "string") {
+    return value.replace(/\n/g, ",").split(",").map((item) => item.trim()).filter(Boolean);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item).trim()).filter(Boolean);
+  }
+  return [];
 }
 
 async function bootstrapGateway(
@@ -351,6 +1237,7 @@ async function refreshGateway(
   config: GatewayConfig,
   fetchFn: FetchFn,
   session: BootstrapSession,
+  nativeWebui?: NativeWebuiApi,
 ): Promise<
   | {
       ok: true;
@@ -368,6 +1255,29 @@ async function refreshGateway(
     timeoutMs: config.requestTimeoutMs,
   });
   try {
+    if (nativeWebui) {
+      try {
+        const payload = await nativeWebui.route({
+          method: "POST",
+          path: session.refreshTokenPath,
+          headers: { Authorization: `Bearer ${session.token}` },
+        });
+        const parsed = parseRefreshSessionPayload(payload, session);
+        if (!parsed.ok) {
+          logDesktopNativeDebug("gateway.refresh.nativeFallback", { error: parsed.error });
+        } else {
+          logDesktopNativeDebug("gateway.refresh.complete", {
+            refreshTokenPath: parsed.session.refreshTokenPath,
+            tokenReady: true,
+            tokenTtlS: parsed.session.tokenTtlS,
+            wsPath: parsed.session.wsPath,
+          });
+          return parsed;
+        }
+      } catch (error) {
+        logDesktopNativeDebug("gateway.refresh.nativeFallback", { error: stringifyError(error) });
+      }
+    }
     const response = await fetchFn(`${config.httpBaseUrl}${session.refreshTokenPath}`, {
       method: "POST",
       headers: authHeaders(session.token),
@@ -380,30 +1290,20 @@ async function refreshGateway(
       return { ok: false, error: `HTTP ${response.status}` };
     }
     const payload = await response.json();
-    const token = typeof payload.token === "string" ? payload.token : "";
-    if (!token) {
+    const parsed = parseRefreshSessionPayload(payload, session);
+    if (!parsed.ok) {
       logDesktopNativeDebug("gateway.refresh.error", {
-        error: "missing token",
+        error: parsed.error,
       });
-      return { ok: false, error: "refresh response missing token" };
+      return parsed;
     }
-    const nextSession = {
-      token,
-      wsPath: typeof payload.ws_path === "string" ? payload.ws_path : session.wsPath,
-      refreshTokenPath:
-        typeof payload.refresh_token_path === "string" ? payload.refresh_token_path : session.refreshTokenPath,
-      tokenTtlS: typeof payload.token_ttl_s === "number" ? payload.token_ttl_s : session.tokenTtlS,
-    };
     logDesktopNativeDebug("gateway.refresh.complete", {
-      refreshTokenPath: nextSession.refreshTokenPath,
+      refreshTokenPath: parsed.session.refreshTokenPath,
       tokenReady: true,
-      tokenTtlS: nextSession.tokenTtlS,
-      wsPath: nextSession.wsPath,
+      tokenTtlS: parsed.session.tokenTtlS,
+      wsPath: parsed.session.wsPath,
     });
-    return {
-      ok: true,
-      session: nextSession,
-    };
+    return parsed;
   } catch (error) {
     logDesktopNativeDebug("gateway.refresh.error", {
       error: stringifyError(error),
@@ -412,6 +1312,28 @@ async function refreshGateway(
   } finally {
     globalThis.clearTimeout(timeout);
   }
+}
+
+function parseRefreshSessionPayload(
+  payload: unknown,
+  previousSession: BootstrapSession,
+): { ok: true; session: BootstrapSession } | { ok: false; error: string } {
+  const record = asRecord(payload);
+  const token = typeof record?.token === "string" ? record.token : "";
+  if (!token) {
+    return { ok: false, error: "refresh response missing token" };
+  }
+  return {
+    ok: true,
+    session: {
+      token,
+      wsPath: typeof record?.ws_path === "string" ? record.ws_path : previousSession.wsPath,
+      refreshTokenPath: typeof record?.refresh_token_path === "string"
+        ? record.refresh_token_path
+        : previousSession.refreshTokenPath,
+      tokenTtlS: typeof record?.token_ttl_s === "number" ? record.token_ttl_s : previousSession.tokenTtlS,
+    },
+  };
 }
 
 async function requestJson(config: GatewayConfig, fetchFn: FetchFn, path: string, init?: RequestInit): Promise<unknown> {
@@ -461,6 +1383,27 @@ function trackSession(session: BootstrapSession): TrackedSession {
   };
 }
 
+async function nativeOrGateway(
+  nativeRequest: () => Promise<unknown> | undefined,
+  gatewayRequest: () => Promise<unknown>,
+  label: string,
+  fallbackToGateway = true,
+): Promise<unknown> {
+  const request = nativeRequest();
+  if (!request) {
+    return gatewayRequest();
+  }
+  try {
+    return await request;
+  } catch (error) {
+    logDesktopNativeDebug(`${label}.nativeFallback`, { error: stringifyError(error) });
+    if (!fallbackToGateway) {
+      throw error;
+    }
+    return gatewayRequest();
+  }
+}
+
 function shouldRefreshSession(session: TrackedSession): boolean {
   return Date.now() + TOKEN_REFRESH_MARGIN_MS >= session.expiresAtMs;
 }
@@ -505,8 +1448,137 @@ function formRequest(method: string, body: FormData): RequestInit {
   };
 }
 
+function nativeTemporaryFileUploadBody(body: FormData): Promise<Record<string, unknown>> | undefined {
+  const file = body.get("file");
+  if (!(file instanceof File)) {
+    return undefined;
+  }
+  const fileType = canonicalNativeTextFileType(extensionFromName(file.name));
+  if (!fileType || !["txt", "md"].includes(fileType)) {
+    return undefined;
+  }
+  return file.text().then((content) => ({
+    name: file.name,
+    file_type: fileType,
+    content,
+    size_bytes: file.size,
+  }));
+}
+
+function nativeKnowledgeUploadBody(body: FormData): Promise<Record<string, unknown>> | undefined {
+  const file = body.get("file");
+  if (!(file instanceof File)) {
+    return undefined;
+  }
+  const fileType = canonicalNativeTextFileType(extensionFromName(file.name));
+  if (!fileType) {
+    return undefined;
+  }
+  return file.text().then((content) => {
+    const payload: Record<string, unknown> = {
+      name: file.name,
+      file_type: fileType,
+      content,
+      size_bytes: file.size,
+    };
+    const category = formString(body.get("category"));
+    if (category) {
+      payload.category = category;
+    }
+    const tags = formString(body.get("tags"));
+    if (tags) {
+      payload.tags = tags.split(",").map((tag) => tag.trim()).filter(Boolean);
+    }
+    return payload;
+  });
+}
+
+function formString(value: FormDataEntryValue | null): string | undefined {
+  return typeof value === "string" ? value.trim() : undefined;
+}
+
+function canonicalNativeTextFileType(fileType: string): string | undefined {
+  if (fileType === "markdown") {
+    return "md";
+  }
+  if (["txt", "md", "json", "csv"].includes(fileType)) {
+    return fileType;
+  }
+  return undefined;
+}
+
+function extensionFromName(name: string): string {
+  const match = /\.([^.\\/]+)$/.exec(name);
+  return match?.[1]?.toLowerCase() ?? "";
+}
+
 function encodePathSegment(value: string): string {
   return encodeURIComponent(value);
+}
+
+function approvalsListPath(options: WebuiApprovalsListOptions | undefined): string {
+  const params = new URLSearchParams();
+  if (options?.sessionKey) {
+    params.set("session_key", options.sessionKey);
+  }
+  if (options?.chatId) {
+    params.set("chat_id", options.chatId);
+  }
+  if (options?.channel) {
+    params.set("channel", options.channel);
+  }
+  const query = params.toString();
+  return query ? `/api/approvals?${query}` : "/api/approvals";
+}
+
+function knowledgeDocumentsPath(options: KnowledgeDocumentsOptions): string {
+  const params = new URLSearchParams();
+  if (options.category) {
+    params.set("category", options.category);
+  }
+  if (typeof options.limit === "number" && Number.isFinite(options.limit)) {
+    params.set("limit", String(options.limit));
+  }
+  const query = params.toString();
+  return query ? `/v1/knowledge/documents?${query}` : "/v1/knowledge/documents";
+}
+
+function knowledgeGraphPath(options: KnowledgeGraphOptions): string {
+  const params = new URLSearchParams();
+  if (options.docId) {
+    params.set("doc_id", options.docId);
+  }
+  if (typeof options.limit === "number" && Number.isFinite(options.limit)) {
+    params.set("limit", String(options.limit));
+  }
+  if (typeof options.edgeLimit === "number" && Number.isFinite(options.edgeLimit)) {
+    params.set("edge_limit", String(options.edgeLimit));
+  }
+  if (typeof options.minConfidence === "number" && Number.isFinite(options.minConfidence)) {
+    params.set("min_confidence", String(options.minConfidence));
+  }
+  if (typeof options.includeOrphans === "boolean") {
+    params.set("include_orphans", String(options.includeOrphans));
+  }
+  const query = params.toString();
+  return query ? `/v1/knowledge/graph?${query}` : "/v1/knowledge/graph";
+}
+
+function knowledgeGraphRagPath(options: KnowledgeGraphRagOptions): string {
+  const params = new URLSearchParams();
+  if (options.docId) {
+    params.set("doc_id", options.docId);
+  }
+  const minConfidence = typeof options.minConfidence === "number" && Number.isFinite(options.minConfidence)
+    ? options.minConfidence
+    : 0;
+  params.set("min_confidence", String(minConfidence));
+  if (typeof options.level === "number" && Number.isFinite(options.level)) {
+    params.set("level", String(options.level));
+  }
+  params.set("include_reports", String(options.includeReports ?? true));
+  params.set("include_covariates", String(options.includeCovariates ?? true));
+  return `/v1/knowledge/graphrag?${params}`;
 }
 
 function stringifyError(error: unknown): string {

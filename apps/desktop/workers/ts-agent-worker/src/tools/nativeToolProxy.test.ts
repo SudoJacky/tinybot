@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 
 import type { JsonObject } from "../protocol/messages";
+import type { AgentMessage } from "../agent/agentRunSpec";
+import type { ModelProvider, ModelRequestOptions, ModelResponse } from "../model/provider";
 import {
   createNativeApprovalTools,
   createNativeShellTools,
@@ -10,6 +12,8 @@ import {
   createNativeMemoryTools,
   createNativeRagTools,
   createNativeReadOnlyTools,
+  createNativeSpawnTools,
+  createNativeTaskTools,
 } from "./nativeToolProxy";
 
 class FakeRpcClient {
@@ -25,6 +29,21 @@ class FakeRpcClient {
     const response = this.responses.shift();
     if (response instanceof Error) {
       throw response;
+    }
+    return response;
+  }
+}
+
+class QueueProvider implements ModelProvider {
+  readonly requests: Array<{ messages: AgentMessage[]; options?: ModelRequestOptions }> = [];
+
+  constructor(private readonly responses: ModelResponse[]) {}
+
+  async complete(messages: AgentMessage[], options?: ModelRequestOptions): Promise<ModelResponse> {
+    this.requests.push({ messages, options });
+    const response = this.responses.shift();
+    if (!response) {
+      throw new Error("no queued model response");
     }
     return response;
   }
@@ -252,6 +271,9 @@ describe("createNativeApprovalTools", () => {
     const operation = {
       toolName: "write_file",
       arguments: { path: "notes/today.md", contents: "hello" },
+    };
+    const classification = {
+      action: "require_approval",
       category: "filesystem_write",
       risk: "medium",
       reason: "File write/edit/delete tools can modify workspace state.",
@@ -268,7 +290,13 @@ describe("createNativeApprovalTools", () => {
     const [requestApproval] = createNativeApprovalTools(rpc);
 
     const result = await requestApproval.execute(
-      { operation },
+      {
+        operation,
+        classification,
+        fingerprint: "write_file:notes/today.md",
+        sessionFingerprint: "write_file:notes/today.md",
+        summary: "write_file path=\"notes/today.md\"",
+      },
       { runId: "run-1", traceId: "trace-1", sessionId: "session-1" },
     );
 
@@ -290,6 +318,10 @@ describe("createNativeApprovalTools", () => {
           run_id: "run-1",
           session_id: "session-1",
           operation,
+          classification,
+          fingerprint: "write_file:notes/today.md",
+          session_fingerprint: "write_file:notes/today.md",
+          summary: "write_file path=\"notes/today.md\"",
         },
       },
     ]);
@@ -406,44 +438,371 @@ describe("createNativeMemoryTools", () => {
       },
     ]);
   });
+
+  test("creates trace, reject, and supersede memory tools backed by native RPC", async () => {
+    const rpc = new FakeRpcClient([
+      {
+        note: {
+          id: "mem_1",
+          scope: "assistant",
+          type: "instruction",
+          status: "active",
+          content: "Use pytest for TS worker tests.",
+        },
+        locations: {
+          file: "memory/notes.jsonl",
+          line: 1,
+          view_file: "SOUL.md",
+          view_line: 12,
+        },
+      },
+      {
+        note: {
+          id: "mem_1",
+          scope: "assistant",
+          type: "instruction",
+          status: "rejected",
+          content: "Use pytest for TS worker tests.",
+        },
+        views_refreshed: true,
+      },
+      {
+        old_note: {
+          id: "mem_1",
+          status: "superseded",
+          superseded_by: "mem_2",
+        },
+        note: {
+          id: "mem_2",
+          scope: "assistant",
+          type: "instruction",
+          status: "active",
+          content: "Use vitest for TS worker tests.",
+          supersedes: ["mem_1"],
+        },
+        views_refreshed: true,
+      },
+    ]);
+    const [, , traceMemoryNote, rejectMemoryNote, supersedeMemoryNote] = createNativeMemoryTools(rpc);
+
+    const trace = await traceMemoryNote.execute({ note_id: "mem_1" }, { runId: "run-1", traceId: "trace-1" });
+    const reject = await rejectMemoryNote.execute(
+      { note_id: "mem_1", reason: "obsolete" },
+      { runId: "run-1", traceId: "trace-1" },
+    );
+    const supersede = await supersedeMemoryNote.execute(
+      {
+        note_id: "mem_1",
+        replacement_content: "Use vitest for TS worker tests.",
+        note_type: "instruction",
+        scope: "assistant",
+        priority: 0.8,
+        confidence: 0.9,
+        tags: "testing, typescript",
+        metadata: "{\"reason\":\"TS worker tests run in Vitest\"}",
+        message_start: 5,
+        message_end: 6,
+      },
+      { runId: "run-1", traceId: "trace-1", sessionId: "session-1" },
+    );
+
+    expect(traceMemoryNote.name).toBe("trace_memory_note");
+    expect(rejectMemoryNote.name).toBe("reject_memory_note");
+    expect(supersedeMemoryNote.name).toBe("supersede_memory_note");
+    expect(trace.content).toContain("Memory Note mem_1");
+    expect(trace.content).toContain("memory/notes.jsonl:1");
+    expect(reject.content).toBe("Memory Note rejected: mem_1");
+    expect(supersede.content).toBe("Memory Note superseded: mem_1 -> mem_2");
+    expect(rpc.requests).toEqual([
+      {
+        traceId: "trace-1",
+        method: "memory.trace",
+        params: { note_id: "mem_1" },
+      },
+      {
+        traceId: "trace-1",
+        method: "memory.reject",
+        params: { note_id: "mem_1", reason: "obsolete" },
+      },
+      {
+        traceId: "trace-1",
+        method: "memory.supersede",
+        params: {
+          session_id: "session-1",
+          note_id: "mem_1",
+          replacement_content: "Use vitest for TS worker tests.",
+          note_type: "instruction",
+          scope: "assistant",
+          priority: 0.8,
+          confidence: 0.9,
+          tags: ["testing", "typescript"],
+          metadata: { reason: "TS worker tests run in Vitest" },
+          message_start: 5,
+          message_end: 6,
+        },
+      },
+    ]);
+  });
+});
+
+describe("createNativeTaskTools", () => {
+  test("runs resumed subtasks through an isolated AgentRunner tool registry", async () => {
+    const plan = taskPlan({ status: "planning", subtaskStatus: "pending" });
+    const inProgressPlan = taskPlan({ status: "executing", subtaskStatus: "in_progress" });
+    const completedPlan = taskPlan({ status: "completed", subtaskStatus: "completed", result: "inspection used tools" });
+    const rpc = new FakeRpcClient([
+      { plan },
+      { plan },
+      { plan: inProgressPlan },
+      { path: "AGENTS.md", content: "Use UV for Python." },
+      { plan: inProgressPlan },
+      { plan: completedPlan },
+    ]);
+    const provider = new QueueProvider([
+      {
+        content: "",
+        toolCalls: [{ id: "call-1", name: "read_file", argumentsJson: "{\"path\":\"AGENTS.md\"}" }],
+        stopReason: "tool_calls",
+      },
+      { content: "inspection used tools", toolCalls: [], stopReason: "stop" },
+    ]);
+    const [taskTool] = createNativeTaskTools(rpc, { provider, model: "test-model" });
+
+    const result = await taskTool.execute(
+      { action: "resume", plan_id: "plan-1", parallel: false },
+      { runId: "run-1", traceId: "trace-1", sessionId: "desktop:chat-1" },
+    );
+    await waitFor(() => rpc.requests.filter((request) => request.method === "task.plan.save").length === 2);
+
+    expect(result.content).toBe("任务已后台启动，SubAgent自动执行中。完成后会通知你。无需主动干预。（plan_id: plan-1，启动 1 个子任务）");
+    expect(provider.requests[0]?.options?.tools?.map((tool) => tool.name)).toEqual([
+      "read_file",
+      "list_dir",
+      "write_file",
+      "edit_file",
+      "delete_file",
+      "exec",
+      "request_approval",
+    ]);
+    expect(provider.requests[0]?.options?.tools?.map((tool) => tool.name)).not.toContain("task");
+    expect(provider.requests[0]?.options?.tools?.map((tool) => tool.name)).not.toContain("cron");
+    expect(rpc.requests.map((request) => request.method)).toEqual([
+      "task.plan.get",
+      "task.plan.get",
+      "task.plan.save",
+      "workspace.read_file",
+      "task.plan.get",
+      "task.plan.save",
+    ]);
+    expect(rpc.requests[3]).toMatchObject({
+      traceId: "trace-1",
+      method: "workspace.read_file",
+      params: { path: "AGENTS.md", format: "numbered_lines" },
+    });
+  });
+});
+
+describe("createNativeSpawnTools", () => {
+  test("runs spawned subagents through an isolated AgentRunner tool registry", async () => {
+    const rpc = new FakeRpcClient([{ path: "AGENTS.md", content: "1| Use UV for Python." }]);
+    const provider = new QueueProvider([
+      {
+        content: "",
+        toolCalls: [{ id: "call-1", name: "read_file", argumentsJson: "{\"path\":\"AGENTS.md\"}" }],
+        stopReason: "tool_calls",
+      },
+      { content: "inspection complete", toolCalls: [], stopReason: "stop" },
+    ]);
+    const [spawnTool] = createNativeSpawnTools(rpc, {
+      provider,
+      model: "test-model",
+      idGenerator: () => "spawn-1",
+    });
+
+    const result = await spawnTool.execute(
+      { task: "Inspect AGENTS.md", label: "Inspect" },
+      { runId: "run-1", traceId: "trace-1", sessionId: "desktop:chat-1" },
+    );
+    await waitFor(() => rpc.requests.some((request) => request.method === "workspace.read_file"));
+
+    expect(result.content).toBe("Subagent [Inspect] started (id: spawn-1). Running: 1/5");
+    expect(result.metadata).toMatchObject({
+      _background_event: true,
+      _background_run_id: "spawn-1",
+      _background_label: "Inspect",
+      _background_status: "running",
+    });
+    expect(provider.requests[0]?.options?.tools?.map((tool) => tool.name)).toEqual([
+      "read_file",
+      "list_dir",
+      "write_file",
+      "edit_file",
+      "delete_file",
+      "exec",
+      "request_approval",
+    ]);
+    expect(provider.requests[0]?.options?.tools?.map((tool) => tool.name)).not.toContain("task");
+    expect(provider.requests[0]?.options?.tools?.map((tool) => tool.name)).not.toContain("cron");
+    expect(provider.requests[0]?.options?.tools?.map((tool) => tool.name)).not.toContain("spawn");
+    expect(provider.requests[0]?.options?.model).toBe("test-model");
+    expect(provider.requests[0]?.messages.at(-1)).toMatchObject({
+      role: "user",
+      content: "Inspect AGENTS.md",
+    });
+    expect(rpc.requests).toEqual([
+      {
+        traceId: "trace-1",
+        method: "workspace.read_file",
+        params: { path: "AGENTS.md", format: "numbered_lines" },
+      },
+    ]);
+  });
 });
 
 describe("createNativeRagTools", () => {
-  test("creates a query_rag tool backed by rag.query", async () => {
+  test("creates a query_knowledge tool backed by knowledge.query", async () => {
     const rpc = new FakeRpcClient([
       {
-        documents: [
+        results: [
           {
             id: "doc-1",
-            title: "TS Agent Loop Design",
-            path: "docs/ts-agent-loop.md",
+            doc_name: "TS Agent Loop Design",
+            file_path: "docs/ts-agent-loop.md",
+            line_start: 12,
+            line_end: 18,
             score: 0.91,
-            excerpt: "TS worker should proxy product integrations through Rust.",
+            content: "TS worker should proxy product integrations through Rust.",
           },
         ],
       },
     ]);
-    const [queryRag] = createNativeRagTools(rpc);
+    const queryKnowledge = createNativeRagTools(rpc).find((tool) => tool.name === "query_knowledge");
 
-    const result = await queryRag.execute(
-      { query: "TS worker bridge", collection: "docs", limit: 3 },
+    const result = await queryKnowledge?.execute(
+      { query: "TS worker bridge", category: "docs", limit: 3 },
       { runId: "run-1", traceId: "trace-1", sessionId: "session-1" },
     );
 
-    expect(queryRag.name).toBe("query_rag");
-    expect(result.content).toContain("## RAG Results");
-    expect(result.content).toContain("[doc-1] TS Agent Loop Design");
-    expect(result.content).toContain("TS worker should proxy product integrations through Rust.");
+    expect(queryKnowledge?.name).toBe("query_knowledge");
+    expect(result?.content).toContain("## Knowledge Results");
+    expect(result?.content).toContain("contextual evidence");
+    expect(result?.content).toContain("[doc-1] TS Agent Loop Design");
+    expect(result?.content).toContain("docs/ts-agent-loop.md:12-18");
+    expect(result?.content).toContain("TS worker should proxy product integrations through Rust.");
     expect(rpc.requests).toEqual([
       {
         traceId: "trace-1",
-        method: "rag.query",
+        method: "knowledge.query",
         params: {
           session_id: "session-1",
           query: "TS worker bridge",
-          collection: "docs",
+          category: "docs",
           limit: 3,
         },
+      },
+    ]);
+  });
+
+  test("creates knowledge document tools backed by native knowledge RPCs", async () => {
+    const rpc = new FakeRpcClient([
+      {
+        document: {
+          id: "doc-1",
+          name: "Desktop Knowledge Notes",
+          file_path: "knowledge/files/doc-1.md",
+          file_type: "md",
+          category: "desktop",
+          tags: ["ts"],
+          chunk_count: 1,
+          created_at: "2026-06-12T03:45:00",
+          content: "TS worker knowledge store should persist chunks.",
+        },
+      },
+      {
+        documents: [
+          {
+            id: "doc-1",
+            name: "Desktop Knowledge Notes",
+            file_path: "knowledge/files/doc-1.md",
+            file_type: "md",
+            category: "desktop",
+            tags: ["ts"],
+            chunk_count: 1,
+            created_at: "2026-06-12T03:45:00",
+            content: "TS worker knowledge store should persist chunks.",
+          },
+        ],
+      },
+      {
+        document: { id: "doc-1", name: "Desktop Knowledge Notes" },
+        content: "TS worker knowledge store should persist chunks.",
+      },
+      { deleted: true, doc_id: "doc-1" },
+    ]);
+    const tools = Object.fromEntries(createNativeRagTools(rpc).map((tool) => [tool.name, tool]));
+
+    const addResult = await tools.add_document.execute(
+      {
+        name: "Desktop Knowledge Notes",
+        content: "TS worker knowledge store should persist chunks.",
+        category: "desktop",
+        tags: "ts",
+        file_type: "md",
+        original_path: "docs/desktop-knowledge.md",
+      },
+      { runId: "run-1", traceId: "trace-1" },
+    );
+    const listResult = await tools.list_documents.execute(
+      { category: "desktop", limit: 10 },
+      { runId: "run-1", traceId: "trace-1" },
+    );
+    const getResult = await tools.get_document.execute(
+      { doc_id: "doc-1" },
+      { runId: "run-1", traceId: "trace-1" },
+    );
+    const deleteResult = await tools.delete_document.execute(
+      { doc_id: "doc-1" },
+      { runId: "run-1", traceId: "trace-1" },
+    );
+
+    expect(tools.add_document.requiresApproval).toBe(true);
+    expect(tools.add_document.capabilities).toEqual(["knowledge.write"]);
+    expect(tools.list_documents.readOnly).toBe(true);
+    expect(tools.list_documents.capabilities).toEqual(["knowledge.read"]);
+    expect(tools.get_document.capabilities).toEqual(["knowledge.read"]);
+    expect(tools.delete_document.requiresApproval).toBe(true);
+    expect(addResult.content).toContain("Successfully added document 'Desktop Knowledge Notes'");
+    expect(listResult.content).toContain("## Knowledge Base Documents");
+    expect(listResult.content).toContain("ID: doc-1");
+    expect(getResult.content).toBe("## Document Content (ID: doc-1)\n\nTS worker knowledge store should persist chunks.");
+    expect(deleteResult.content).toBe("Successfully deleted document doc-1 and all associated data.");
+    expect(rpc.requests).toEqual([
+      {
+        traceId: "trace-1",
+        method: "knowledge.add_document",
+        params: {
+          name: "Desktop Knowledge Notes",
+          content: "TS worker knowledge store should persist chunks.",
+          category: "desktop",
+          tags: ["ts"],
+          file_type: "md",
+          original_path: "docs/desktop-knowledge.md",
+        },
+      },
+      {
+        traceId: "trace-1",
+        method: "knowledge.list_documents",
+        params: { category: "desktop", limit: 10 },
+      },
+      {
+        traceId: "trace-1",
+        method: "knowledge.get_document",
+        params: { doc_id: "doc-1" },
+      },
+      {
+        traceId: "trace-1",
+        method: "knowledge.delete_document",
+        params: { doc_id: "doc-1" },
       },
     ]);
   });
@@ -485,3 +844,40 @@ describe("createNativeMcpTools", () => {
     ]);
   });
 });
+
+function taskPlan(options: { status: string; subtaskStatus: string; result?: string }) {
+  return {
+    id: "plan-1",
+    title: "Backend migration",
+    original_request: "Move backend runtime to TS",
+    status: options.status,
+    current_subtask_ids: options.subtaskStatus === "in_progress" ? ["a"] : [],
+    context: { session_key: "desktop:chat-1" },
+    subtasks: [
+      {
+        id: "a",
+        title: "Inspect",
+        description: "Inspect workspace instructions",
+        status: options.subtaskStatus,
+        dependencies: [],
+        parallel_safe: true,
+        result: options.result ?? null,
+        error: null,
+        started_at: null,
+        completed_at: null,
+        retry_count: 0,
+        max_retries: 2,
+      },
+    ],
+  };
+}
+
+async function waitFor(condition: () => boolean, attempts = 30): Promise<void> {
+  for (let index = 0; index < attempts; index += 1) {
+    if (condition()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  throw new Error("condition was not met");
+}

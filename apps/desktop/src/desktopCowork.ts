@@ -243,7 +243,7 @@ export type DesktopCoworkActionRequest =
       path: string;
     }
   | {
-      method: "POST";
+      method: "POST" | "PATCH";
       path: string;
       body?: UnknownRecord;
     };
@@ -253,19 +253,39 @@ export type DesktopCoworkActionInput =
   | { action: "loadSession"; sessionId: string }
   | { action: "loadSummary"; sessionId: string }
   | { action: "loadGraph"; sessionId: string }
-  | { action: "loadAgentActivity"; sessionId: string; agentId: string }
-  | { action: "loadObservation"; sessionId: string; detailRef: string }
+  | { action: "loadBlueprint"; sessionId: string }
+  | { action: "loadTrace"; sessionId: string }
+  | { action: "loadDag"; sessionId: string }
+  | { action: "loadArtifacts"; sessionId: string }
+  | { action: "loadOrganization"; sessionId: string }
+  | { action: "loadQueues"; sessionId: string }
+  | { action: "loadBranches"; sessionId: string }
+  | { action: "loadAgentActivity"; sessionId: string; agentId: string; limit?: number }
+  | { action: "loadObservation"; sessionId: string; detailRef: string; requesterAgentId?: string }
   | { action: "createSession"; goal?: string; blueprint?: unknown; architecture?: string; autoRun?: boolean }
-  | { action: "runSession"; sessionId: string }
-  | { action: "pauseSession" | "resumeSession" | "emergencyStopSession"; sessionId: string }
+  | { action: "runSession"; sessionId: string; architecture?: string }
+  | { action: "pauseSession" | "resumeSession" | "emergencyStopSession"; sessionId: string; reason?: string }
   | { action: "deleteSession"; sessionId: string }
-  | { action: "sendMessage"; sessionId: string; content: string; recipientIds?: string[] }
+  | {
+      action: "sendMessage";
+      sessionId: string;
+      content: string;
+      recipientIds?: string[];
+      architecture?: string;
+      threadId?: string;
+      topic?: string;
+      eventType?: string;
+    }
   | { action: "addTask"; sessionId: string; title: string; assignedAgentId: string }
   | { action: "task"; sessionId: string; taskId: string; taskAction: "assign" | "retry" | "review"; assignedAgentId?: string }
   | { action: "workUnit"; sessionId: string; workUnitId: string; workUnitAction: "retry" | "skip" | "cancel"; reason?: string }
-  | { action: "selectBranch"; sessionId: string; branchId: string }
-  | { action: "selectBranchResult"; sessionId: string; branchId: string; resultId: string }
+  | { action: "updateBudget"; sessionId: string; body: UnknownRecord }
+  | { action: "deriveBranch"; sessionId: string; sourceBranchId?: string | null; body: UnknownRecord }
+  | { action: "selectBranch"; sessionId: string; branchId: string; architecture?: string }
+  | { action: "selectBranchResult"; sessionId: string; branchId: string; resultId: string; architecture?: string }
   | { action: "mergeBranchResults"; sessionId: string; branchIds: string[] }
+  | { action: "selectFinalResult"; sessionId: string; body: UnknownRecord }
+  | { action: "mergeFinalResult"; sessionId: string; body: UnknownRecord }
   | { action: "validateBlueprint"; preview?: boolean; blueprint: unknown };
 
 type UnknownRecord = Record<string, unknown>;
@@ -282,6 +302,7 @@ const COWORK_RETRYABLE_STATUSES = new Set(["failed", "error"]);
 const DEFAULT_RUN_ROUNDS = 20;
 const DEFAULT_RUN_AGENTS = 3;
 const DEFAULT_RUN_AGENT_CALLS = 30;
+export const DEFAULT_COWORK_AGENT_ACTIVITY_LIMIT = 20;
 
 export function buildDesktopCoworkSessionRows(payload: unknown): DesktopCoworkSessionRow[] {
   return arrayFromPayload(payload, "items", "sessions").map((session) => buildDesktopCoworkSessionRow(safeSession(session)));
@@ -481,15 +502,38 @@ export function buildDesktopCoworkActionRequest(input: DesktopCoworkActionInput)
       return { method: "GET", path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/summary` };
     case "loadGraph":
       return { method: "GET", path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/graph` };
-    case "loadAgentActivity":
+    case "loadBlueprint":
+      return { method: "GET", path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/blueprint` };
+    case "loadTrace":
+      return { method: "GET", path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/trace` };
+    case "loadDag":
+      return { method: "GET", path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/dag` };
+    case "loadArtifacts":
+      return { method: "GET", path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/artifacts` };
+    case "loadOrganization":
+      return { method: "GET", path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/organization` };
+    case "loadQueues":
+      return { method: "GET", path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/queues` };
+    case "loadBranches":
+      return { method: "GET", path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/branches` };
+    case "loadAgentActivity": {
+      const params = new URLSearchParams();
+      if (typeof input.limit === "number" && Number.isFinite(input.limit)) {
+        params.set("limit", String(input.limit));
+      }
       return {
         method: "GET",
-        path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/agents/${encodePathSegment(input.agentId)}/activity`,
+        path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/agents/${encodePathSegment(input.agentId)}/activity${params.toString() ? `?${params}` : ""}`,
       };
+    }
     case "loadObservation":
+      const params = new URLSearchParams();
+      if (input.requesterAgentId) {
+        params.set("agent_id", input.requesterAgentId);
+      }
       return {
         method: "GET",
-        path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/observations/${encodePathSegment(input.detailRef)}`,
+        path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/observations/${encodePathSegment(input.detailRef)}${params.toString() ? `?${params}` : ""}`,
       };
     case "createSession": {
       const architecture = coworkArchitectureValue(input.architecture);
@@ -509,32 +553,64 @@ export function buildDesktopCoworkActionRequest(input: DesktopCoworkActionInput)
         },
       };
     }
-    case "runSession":
+    case "runSession": {
+      const body: UnknownRecord = {
+        max_rounds: DEFAULT_RUN_ROUNDS,
+        max_agents: DEFAULT_RUN_AGENTS,
+        max_agent_calls: DEFAULT_RUN_AGENT_CALLS,
+        run_until_idle: true,
+        stop_on_blocker: false,
+      };
+      const architecture = stringValue(input.architecture).trim();
+      if (architecture) {
+        const normalizedArchitecture = coworkArchitectureValue(architecture);
+        body.architecture = normalizedArchitecture;
+        body.workflow_mode = normalizedArchitecture;
+      }
       return {
         method: "POST",
         path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/run`,
-        body: {
-          max_rounds: DEFAULT_RUN_ROUNDS,
-          max_agents: DEFAULT_RUN_AGENTS,
-          max_agent_calls: DEFAULT_RUN_AGENT_CALLS,
-          run_until_idle: true,
-          stop_on_blocker: false,
-        },
+        body,
       };
+    }
     case "pauseSession":
       return { method: "POST", path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/pause` };
     case "resumeSession":
       return { method: "POST", path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/resume` };
     case "emergencyStopSession":
-      return { method: "POST", path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/emergency-stop` };
+      return {
+        method: "POST",
+        path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/emergency-stop`,
+        body: { reason: stringValue(input.reason).trim() || "emergency stop from desktop" },
+      };
     case "deleteSession":
       return { method: "DELETE", path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}` };
-    case "sendMessage":
+    case "sendMessage": {
+      const body: UnknownRecord = { content: stringValue(input.content).trim(), recipient_ids: input.recipientIds ?? [] };
+      const architecture = stringValue(input.architecture).trim();
+      if (architecture) {
+        const normalizedArchitecture = coworkArchitectureValue(architecture);
+        body.architecture = normalizedArchitecture;
+        body.workflow_mode = normalizedArchitecture;
+      }
+      const threadId = stringValue(input.threadId).trim();
+      const topic = stringValue(input.topic).trim();
+      const eventType = stringValue(input.eventType).trim();
+      if (threadId) {
+        body.thread_id = threadId;
+      }
+      if (topic) {
+        body.topic = topic;
+      }
+      if (eventType) {
+        body.event_type = eventType;
+      }
       return {
         method: "POST",
         path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/messages`,
-        body: { content: stringValue(input.content).trim(), recipient_ids: input.recipientIds ?? [] },
+        body,
       };
+    }
     case "addTask":
       return {
         method: "POST",
@@ -555,22 +631,63 @@ export function buildDesktopCoworkActionRequest(input: DesktopCoworkActionInput)
         path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/work-units/${encodePathSegment(input.workUnitId)}/${input.workUnitAction}`,
         body: { reason: input.reason ?? `${input.workUnitAction} from desktop` },
       };
-    case "selectBranch":
+    case "updateBudget":
+      return {
+        method: "PATCH",
+        path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/budget`,
+        body: input.body,
+      };
+    case "deriveBranch":
+      return {
+        method: "POST",
+        path: input.sourceBranchId
+          ? `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/branches/${encodePathSegment(input.sourceBranchId)}/derive`
+          : `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/branches/derive`,
+        body: input.body,
+      };
+    case "selectBranch": {
+      const architecture = stringValue(input.architecture).trim();
+      const normalizedArchitecture = architecture ? coworkArchitectureValue(architecture) : "";
+      const body: UnknownRecord | undefined = normalizedArchitecture
+        ? { architecture: normalizedArchitecture, workflow_mode: normalizedArchitecture }
+        : undefined;
       return {
         method: "POST",
         path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/branches/${encodePathSegment(input.branchId)}/select`,
+        ...(body ? { body } : {}),
       };
-    case "selectBranchResult":
+    }
+    case "selectBranchResult": {
+      const architecture = stringValue(input.architecture).trim();
+      const normalizedArchitecture = architecture ? coworkArchitectureValue(architecture) : "";
+      const body: UnknownRecord = { result_id: input.resultId };
+      if (normalizedArchitecture) {
+        body.architecture = normalizedArchitecture;
+        body.workflow_mode = normalizedArchitecture;
+      }
       return {
         method: "POST",
         path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/branches/${encodePathSegment(input.branchId)}/result/select-final`,
-        body: { result_id: input.resultId },
+        body,
       };
+    }
     case "mergeBranchResults":
       return {
         method: "POST",
         path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/branch-results/merge`,
         body: { branch_ids: input.branchIds },
+      };
+    case "selectFinalResult":
+      return {
+        method: "POST",
+        path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/final-result/select`,
+        body: input.body,
+      };
+    case "mergeFinalResult":
+      return {
+        method: "POST",
+        path: `/api/cowork/sessions/${encodePathSegment(input.sessionId)}/final-result/merge`,
+        body: input.body,
       };
     case "validateBlueprint":
       return {
@@ -695,16 +812,31 @@ function buildThreadRows(threads: unknown): DesktopCoworkThreadRow[] {
 }
 
 function buildBranchRows(session: UnknownRecord): DesktopCoworkBranchRow[] {
-  const activeBranchId = stringValue(session.active_branch_id) || stringValue(asRecord(session.session_final_result).branch_id);
-  return arrayValue(session.branch_results).filter(isRecord).map((branch) => {
-    const branchId = stringValue(branch.branch_id) || stringValue(branch.id);
-    const resultId = stringValue(branch.result_id) || stringValue(branch.selected_result_id);
+  const activeBranchId = stringValue(session.current_branch_id)
+    || stringValue(session.active_branch_id)
+    || stringValue(asRecord(session.session_final_result).branch_id);
+  const resultByBranchId = new Map<string, UnknownRecord>();
+  for (const result of arrayValue(session.branch_results).filter(isRecord)) {
+    const branchId = stringValue(result.branch_id) || stringValue(result.source_branch_id) || stringValue(result.id);
+    if (branchId) {
+      resultByBranchId.set(branchId, result);
+    }
+  }
+  const branchSources = arrayValue(session.branches).filter(isRecord);
+  const sources = branchSources.length ? branchSources : arrayValue(session.branch_results).filter(isRecord);
+  return sources.map((branch) => {
+    const branchId = stringValue(branch.branch_id) || stringValue(branch.id) || stringValue(branch.source_branch_id);
+    const branchResult = asRecord(branch.branch_result);
+    const result = resultByBranchId.get(branchId) ?? branchResult;
+    const resultId = stringValue(result.result_id)
+      || stringValue(result.selected_result_id)
+      || stringValue(result.id);
     return {
       branchId,
       resultId,
-      title: stringValue(branch.title) || stringValue(branch.summary) || branchId,
+      title: stringValue(branch.title) || stringValue(result.summary) || stringValue(branch.summary) || branchId,
       status: stringValue(branch.status) || "ready",
-      selected: Boolean(activeBranchId && activeBranchId === branchId),
+      selected: Boolean(stringValue(branch.current) === "true" || (activeBranchId && activeBranchId === branchId)),
       meta: [stringValue(branch.status) || "ready", resultId ? `Result ${resultId}` : ""].filter(Boolean).join(" / "),
       raw: branch,
     };

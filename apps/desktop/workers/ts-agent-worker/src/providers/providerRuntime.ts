@@ -7,6 +7,9 @@ import {
   type ProviderCatalogEntry,
   type RequestTraits,
 } from "./providerCatalog.ts";
+import { selectProviderConfig, selectProviderRuntimeInput } from "../config/configSelectors.ts";
+import { parseTinybotConfig } from "../config/configSchema.ts";
+import type { TinybotConfig } from "../config/configTypes.ts";
 
 export type TinybotPublicConfig = Record<string, unknown>;
 
@@ -27,6 +30,7 @@ export type ResolveRuntimeProviderInput = {
   secretResolver?: ProviderSecretResolver;
   model?: string;
   provider?: string;
+  profileName?: string;
 };
 
 export type ResolvedRuntimeProvider = {
@@ -47,33 +51,49 @@ export type ResolvedRuntimeProvider = {
 };
 
 export async function resolveRuntimeProvider(input: ResolveRuntimeProviderInput): Promise<ResolvedRuntimeProvider> {
+  const config = parseTinybotConfig(input.config);
   const configuredModel = input.model?.trim() || stringAt(input.config, "agents.defaults.model");
+  const runtimeInput = selectProviderRuntimeInput(config, configuredModel);
   const selectedModel = configuredModel || "gpt-4.1-mini";
+  const requestedProfile = input.profileName?.trim();
+  if (requestedProfile) {
+    const profileConfig = config.providers.profiles[requestedProfile];
+    const profileProvider = normalizeProviderId(profileConfig?.provider);
+    if (profileConfig && profileProvider) {
+      return resolveEntry(input, config, profileProvider, selectedModel, "profile", requestedProfile, profileConfig);
+    }
+  }
 
   const explicitOverride = normalizeProviderId(input.provider);
   if (explicitOverride && explicitOverride !== "auto") {
-    return resolveEntry(input, explicitOverride, selectedModel, "explicit");
+    return resolveEntry(input, config, explicitOverride, selectedModel, "explicit");
   }
 
-  const activeProfile = stringAt(input.config, "agents.defaults.active_profile") ?? stringAt(input.config, "agents.defaults.activeProfile");
-  const profile = activeProfile ? profileConfig(input.config, activeProfile) : undefined;
-  if (activeProfile && profile) {
-    return resolveEntry(input, normalizeProviderId(stringValue(field(profile, "provider"))), selectedModel, "profile", activeProfile, profile);
+  if (runtimeInput.source === "profile" && runtimeInput.activeProfile) {
+    return resolveEntry(
+      input,
+      config,
+      normalizeProviderId(runtimeInput.providerId),
+      selectedModel,
+      "profile",
+      runtimeInput.activeProfile,
+      runtimeInput.providerConfig,
+    );
   }
 
-  const explicitProvider = normalizeProviderId(stringAt(input.config, "agents.defaults.provider"));
-  if (explicitProvider && explicitProvider !== "auto") {
-    return resolveEntry(input, explicitProvider, selectedModel, "explicit");
+  const explicitProvider = normalizeProviderId(runtimeInput.providerId);
+  if (runtimeInput.source === "explicit" && explicitProvider) {
+    return resolveEntry(input, config, explicitProvider, selectedModel, "explicit", undefined, runtimeInput.providerConfig);
   }
 
   const inferred = configuredModel ? inferProviderFromModel(configuredModel) : undefined;
   if (inferred) {
-    return resolveEntry(input, inferred.id, selectedModel, "model");
+    return resolveEntry(input, config, inferred.id, selectedModel, "model");
   }
 
   for (const catalogEntry of listCatalogEntries()) {
-    if (await hasUsableConfig(input, catalogEntry)) {
-      return resolveEntry(input, catalogEntry.id, selectedModel, "credentials");
+    if (await hasUsableConfig(input, config, catalogEntry)) {
+      return resolveEntry(input, config, catalogEntry.id, selectedModel, "credentials");
     }
   }
 
@@ -82,6 +102,7 @@ export async function resolveRuntimeProvider(input: ResolveRuntimeProviderInput)
 
 async function resolveEntry(
   input: ResolveRuntimeProviderInput,
+  config: TinybotConfig,
   providerId: string | undefined,
   model: string,
   source: ResolvedRuntimeProvider["source"],
@@ -93,7 +114,7 @@ async function resolveEntry(
   if (!normalizedId) {
     return unresolved(model);
   }
-  const providerConfig = explicitProviderConfig ?? configForProvider(input.config, normalizedId);
+  const providerConfig = explicitProviderConfig ?? selectProviderConfig(config, normalizedId);
   const secret = await configuredOrResolvedOrEnvKey(input, providerConfig, catalog, normalizedId, profileName);
   return {
     providerId: normalizedId,
@@ -119,8 +140,8 @@ async function resolveEntry(
   };
 }
 
-async function hasUsableConfig(input: ResolveRuntimeProviderInput, catalog: ProviderCatalogEntry): Promise<boolean> {
-  const providerConfig = configForProvider(input.config, catalog.id);
+async function hasUsableConfig(input: ResolveRuntimeProviderInput, config: TinybotConfig, catalog: ProviderCatalogEntry): Promise<boolean> {
+  const providerConfig = selectProviderConfig(config, catalog.id);
   if (stringValue(field(providerConfig, "api_key", "apiKey")) || stringValue(field(providerConfig, "api_base", "apiBase")) || isLocalProvider(catalog)) {
     return true;
   }
@@ -177,14 +198,6 @@ function normalizeProviderId(value: unknown): string | undefined {
     return catalog.id;
   }
   return text.trim().toLowerCase().replace(/[-\s]+/g, "_") || undefined;
-}
-
-function configForProvider(config: TinybotPublicConfig, providerId: string): Record<string, unknown> | undefined {
-  return recordValue(pathValue(config, ["providers", providerId]));
-}
-
-function profileConfig(config: TinybotPublicConfig, profileName: string): Record<string, unknown> | undefined {
-  return recordValue(pathValue(config, ["providers", "profiles", profileName]));
 }
 
 function stringAt(config: TinybotPublicConfig, dottedPath: string): string | undefined {

@@ -28,6 +28,15 @@ async function* interruptedToolCallStream(): AsyncIterable<unknown> {
   throw new Error("connection dropped");
 }
 
+async function* stalledStream(): AsyncIterable<unknown> {
+  yield {
+    choices: [{ delta: { content: "partial" }, finish_reason: null }],
+  };
+  await new Promise(() => {
+    // Intentionally never resolves; the parser must enforce its own idle timeout.
+  });
+}
+
 describe("collectChatCompletionStream", () => {
   test("collects streamed content, reasoning, tool-call arguments, finish reason, and usage", async () => {
     const contentDeltas: string[] = [];
@@ -350,10 +359,41 @@ describe("collectChatCompletionStream", () => {
         status: "streaming",
         completed: false,
       },
+      {
+        index: 0,
+        toolCallIndex: 0,
+        providerCallId: undefined,
+        sequence: 2,
+        deltaText: "",
+        toolCallId: "call-1",
+        toolName: "send_message",
+        phase: "terminal",
+        status: "error",
+        completed: false,
+      },
     ]);
     expect(response).toMatchObject({
       content: "Error calling LLM: connection dropped",
       stopReason: "error",
     });
+  });
+
+  test("returns an error response when the provider stream stalls past the idle timeout", async () => {
+    const contentDeltas: string[] = [];
+
+    const result = await Promise.race([
+      collectChatCompletionStream(stalledStream(), {
+        streamIdleTimeoutMs: 5,
+        onContentDelta: (delta) => contentDeltas.push(delta),
+      }),
+      new Promise((resolve) => setTimeout(() => resolve("hung"), 100)),
+    ]);
+
+    expect(result).toEqual({
+      content: "Error calling LLM: stream stalled for more than 5 ms",
+      toolCalls: [],
+      stopReason: "error",
+    });
+    expect(contentDeltas).toEqual(["partial"]);
   });
 });

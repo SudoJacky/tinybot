@@ -1,3 +1,7 @@
+use crate::config_store::{
+    ConfigPatchApplyResult, ConfigPatchBridgeResult, ConfigPatchSideEffects, ConfigStore,
+    ConfigStoreError,
+};
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_protocol::{
     WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource,
@@ -14,6 +18,10 @@ pub struct WorkerConfigRpc {
 impl WorkerConfigRpc {
     pub fn new(snapshot: Value, policy: CapabilityPolicy) -> Self {
         Self { snapshot, policy }
+    }
+
+    pub fn snapshot(&self) -> &Value {
+        &self.snapshot
     }
 
     pub fn get(&self, path: &str) -> Result<ConfigGetResult, WorkerProtocolError> {
@@ -35,6 +43,61 @@ impl WorkerConfigRpc {
         self.require(WorkerCapability::ConfigRead)?;
         Ok(ConfigSnapshotPublicResult {
             value: redact_sensitive_value(&self.snapshot),
+        })
+    }
+
+    pub fn apply_patch_result(
+        &mut self,
+        result: ConfigPatchBridgeResult,
+    ) -> Result<ConfigPatchApplyResult, WorkerProtocolError> {
+        self.require(WorkerCapability::ConfigWrite)?;
+        if !result.ok {
+            return Ok(ConfigPatchApplyResult {
+                ok: false,
+                config: redact_sensitive_value(&self.snapshot),
+                updated_fields: Vec::new(),
+                side_effects: ConfigPatchSideEffects::default(),
+                error: result.error,
+            });
+        }
+        if !result.config.is_object() {
+            return Ok(ConfigPatchApplyResult {
+                ok: false,
+                config: redact_sensitive_value(&self.snapshot),
+                updated_fields: Vec::new(),
+                side_effects: ConfigPatchSideEffects::default(),
+                error: Some(
+                    "validated config patch result must contain an object config".to_string(),
+                ),
+            });
+        }
+
+        self.snapshot = result.config;
+        Ok(ConfigPatchApplyResult {
+            ok: true,
+            config: redact_sensitive_value(&self.snapshot),
+            updated_fields: result.updated_fields,
+            side_effects: result.side_effects,
+            error: None,
+        })
+    }
+
+    pub fn apply_patch_result_to_store(
+        &mut self,
+        store: &mut ConfigStore,
+        result: ConfigPatchBridgeResult,
+    ) -> Result<ConfigPatchApplyResult, WorkerProtocolError> {
+        self.require(WorkerCapability::ConfigWrite)?;
+        let result = store
+            .apply_validated_patch_result(result)
+            .map_err(config_store_protocol_error)?;
+        self.snapshot = store.snapshot().clone();
+        Ok(ConfigPatchApplyResult {
+            ok: result.ok,
+            config: redact_sensitive_value(&result.config),
+            updated_fields: result.updated_fields,
+            side_effects: result.side_effects,
+            error: result.error,
         })
     }
 
@@ -95,9 +158,7 @@ fn redact_sensitive_value(value: &Value) -> Value {
                 })
                 .collect(),
         ),
-        Value::Array(values) => {
-            Value::Array(values.iter().map(redact_sensitive_value).collect())
-        }
+        Value::Array(values) => Value::Array(values.iter().map(redact_sensitive_value).collect()),
         other => other.clone(),
     }
 }
@@ -129,6 +190,16 @@ fn sensitive_config_error(path: &str) -> WorkerProtocolError {
         WorkerProtocolErrorCode::CapabilityDenied,
         "worker config path is sensitive",
         serde_json::json!({ "path": path }),
+        false,
+        WorkerProtocolErrorSource::RustCore,
+    )
+}
+
+fn config_store_protocol_error(error: ConfigStoreError) -> WorkerProtocolError {
+    WorkerProtocolError::new(
+        WorkerProtocolErrorCode::WorkerError,
+        "failed to apply config patch result",
+        serde_json::json!({ "error": error.to_string() }),
         false,
         WorkerProtocolErrorSource::RustCore,
     )
@@ -239,8 +310,106 @@ mod tests {
         assert!(rpc.get("agents.defaults.\0model").is_err());
     }
 
+    #[test]
+    fn config_patch_result_requires_write_capability() {
+        let mut rpc = WorkerConfigRpc::new(config_fixture(), read_policy());
+
+        let error = rpc
+            .apply_patch_result(valid_patch_result())
+            .expect_err("config patch should require write capability");
+
+        assert_eq!(error.code, WorkerProtocolErrorCode::CapabilityDenied);
+        assert_eq!(error.details["capability"], "config.write");
+    }
+
+    #[test]
+    fn config_patch_result_updates_snapshot_and_returns_redacted_config() {
+        let mut rpc = WorkerConfigRpc::new(config_fixture(), write_policy());
+
+        let result = rpc
+            .apply_patch_result(valid_patch_result())
+            .expect("config patch result should apply");
+
+        assert!(result.ok);
+        assert_eq!(result.updated_fields, vec!["agents.defaults.model"]);
+        assert_eq!(result.side_effects.applied, vec!["providerRuntimeChanged"]);
+        assert_eq!(result.config["agents"]["defaults"]["model"], "gpt-5.1");
+        assert_eq!(
+            result.config["providers"]["openai"]["apiKey"],
+            serde_json::Value::Null
+        );
+        assert_eq!(
+            rpc.get("agents.defaults.model")
+                .expect("updated config should be readable")
+                .value,
+            json!("gpt-5.1")
+        );
+    }
+
+    #[test]
+    fn config_patch_result_to_store_saves_and_returns_redacted_config() {
+        let fixture = ConfigStoreFixture::new();
+        let config_path = fixture.path("config.json");
+        let mut store = ConfigStore::from_snapshot(config_path.clone(), config_fixture());
+        let mut rpc = WorkerConfigRpc::new(store.snapshot().clone(), write_policy());
+
+        let result = rpc
+            .apply_patch_result_to_store(&mut store, valid_patch_result())
+            .expect("config patch result should apply to store");
+
+        assert!(result.ok);
+        assert_eq!(result.config["agents"]["defaults"]["model"], "gpt-5.1");
+        assert_eq!(
+            result.config["providers"]["openai"]["apiKey"],
+            serde_json::Value::Null
+        );
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(
+                &std::fs::read_to_string(config_path).expect("patched config should save")
+            )
+            .expect("saved config should be JSON")["agents"]["defaults"]["model"],
+            json!("gpt-5.1")
+        );
+        assert_eq!(
+            rpc.get("agents.defaults.model")
+                .expect("updated config should be readable")
+                .value,
+            json!("gpt-5.1")
+        );
+    }
+
     fn read_policy() -> CapabilityPolicy {
         CapabilityPolicy::new([WorkerCapability::ConfigRead])
+    }
+
+    fn write_policy() -> CapabilityPolicy {
+        CapabilityPolicy::new([WorkerCapability::ConfigRead, WorkerCapability::ConfigWrite])
+    }
+
+    fn valid_patch_result() -> ConfigPatchBridgeResult {
+        ConfigPatchBridgeResult {
+            ok: true,
+            config: json!({
+                "agents": {
+                    "defaults": {
+                        "model": "gpt-5.1",
+                        "provider": "openai"
+                    }
+                },
+                "providers": {
+                    "openai": {
+                        "apiKey": "sk-new-secret"
+                    }
+                }
+            }),
+            updated_fields: vec!["agents.defaults.model".to_string()],
+            side_effects: crate::config_store::ConfigPatchSideEffects {
+                applied: vec!["providerRuntimeChanged".to_string()],
+                restart_required: vec![],
+                warnings: vec![],
+            },
+            error: None,
+        }
     }
 
     fn config_fixture() -> serde_json::Value {
@@ -261,5 +430,32 @@ mod tests {
                 }
             }
         })
+    }
+
+    struct ConfigStoreFixture {
+        root: std::path::PathBuf,
+    }
+
+    impl ConfigStoreFixture {
+        fn new() -> Self {
+            let nonce = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time should be monotonic")
+                .as_nanos();
+            let root =
+                std::env::temp_dir().join(format!("tinybot-worker-config-store-test-{nonce}"));
+            std::fs::create_dir_all(&root).expect("fixture root should create");
+            Self { root }
+        }
+
+        fn path(&self, relative: &str) -> std::path::PathBuf {
+            self.root.join(relative)
+        }
+    }
+
+    impl Drop for ConfigStoreFixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
     }
 }

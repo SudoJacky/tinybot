@@ -20,6 +20,7 @@ export type AgentStopReason =
   | "error"
   | "tool_error"
   | "empty_final_response"
+  | "command"
   | "cancelled"
   | "awaiting_user_input"
   | "awaiting_approval"
@@ -37,9 +38,11 @@ export type AgentRunSpec = {
   temperature?: number;
   maxTokens?: number;
   reasoningEffort?: string;
+  providerRetryMode?: "standard" | "persistent";
   contextWindow?: number;
   toolResultBudget?: number;
   failOnToolError?: boolean;
+  emitEvent?: (event: { type: string; payload: Record<string, unknown> }) => void;
   metadata?: Record<string, unknown>;
 };
 
@@ -51,5 +54,6 @@ export type AgentRunResult = {
   stopReason: AgentStopReason;
   error?: string;
   awaitingInput?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
   contextMetadata?: ContextBuildMetadata & { bridge?: ContextBridgeMetadata };
 };

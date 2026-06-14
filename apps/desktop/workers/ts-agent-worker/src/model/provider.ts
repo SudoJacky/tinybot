@@ -28,6 +28,7 @@ export type ModelStreamCallbacks = {
   onContentDelta?: (delta: string) => void;
   onReasoningDelta?: (delta: string) => void;
   onToolCallDelta?: (delta: ToolCallDelta) => void;
+  streamIdleTimeoutMs?: number;
 };
 
 export type ToolDefinition = {

@@ -48,13 +48,25 @@ export function extractRetryAfterSeconds(error: unknown): number | undefined {
   const headerValue =
     header(error, "retry-after") ??
     header(asObject(error)?.response, "retry-after");
-  const parsedHeader = parsePositiveSeconds(headerValue);
+  const parsedHeader = parseRetryAfterHeaderSeconds(headerValue);
   if (parsedHeader !== undefined) {
     return parsedHeader;
   }
   const body = bodyText(error).toLowerCase();
-  const match = body.match(/(?:retry after|try again in|wait)\s+(\d+(?:\.\d+)?)\s*(?:s|sec|second|seconds)?/);
-  return parsePositiveSeconds(match?.[1]);
+  const bodyPatterns: Array<{ pattern: RegExp; defaultUnit?: string }> = [
+    { pattern: /retry after\s+(\d+(?:\.\d+)?)\s*(ms|milliseconds|s|sec|secs|seconds|m|min|minutes)?/ },
+    { pattern: /try again in\s+(\d+(?:\.\d+)?)\s*(ms|milliseconds|s|sec|secs|seconds|m|min|minutes)/ },
+    { pattern: /wait\s+(\d+(?:\.\d+)?)\s*(ms|milliseconds|s|sec|secs|seconds|m|min|minutes)\s*before retry/ },
+    { pattern: /retry[_-]?after["'\s:=]+(\d+(?:\.\d+)?)/, defaultUnit: "s" },
+  ];
+  for (const entry of bodyPatterns) {
+    const match = body.match(entry.pattern);
+    const parsed = retrySecondsFromMatch(match, entry.defaultUnit);
+    if (parsed !== undefined) {
+      return parsed;
+    }
+  }
+  return undefined;
 }
 
 function isTransientProviderError(error: unknown): boolean {
@@ -114,6 +126,39 @@ function parsePositiveSeconds(value: unknown): number | undefined {
   }
   const parsed = Number(String(value).trim());
   return Number.isFinite(parsed) && parsed > 0 ? Math.ceil(parsed) : undefined;
+}
+
+function parseRetryAfterHeaderSeconds(value: unknown): number | undefined {
+  const numeric = parsePositiveSeconds(value);
+  if (numeric !== undefined) {
+    return numeric;
+  }
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  const timestampMs = Date.parse(String(value).trim());
+  if (!Number.isFinite(timestampMs)) {
+    return undefined;
+  }
+  return Math.max(1, Math.ceil((timestampMs - Date.now()) / 1000));
+}
+
+function retrySecondsFromMatch(match: RegExpMatchArray | null, defaultUnit?: string): number | undefined {
+  if (!match) {
+    return undefined;
+  }
+  const value = Number(match[1]);
+  if (!Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
+  const unit = (match[2] ?? defaultUnit ?? "s").toLowerCase();
+  if (unit === "ms" || unit === "milliseconds") {
+    return Math.ceil(Math.max(0.1, value / 1000));
+  }
+  if (unit === "m" || unit === "min" || unit === "minutes") {
+    return Math.ceil(Math.max(0.1, value * 60));
+  }
+  return Math.ceil(Math.max(0.1, value));
 }
 
 function numericValue(value: unknown): number | undefined {

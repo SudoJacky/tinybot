@@ -1,6 +1,16 @@
 import { invoke } from "@tauri-apps/api/core";
 import { DEFAULT_GATEWAY_CONFIG, resolveGatewayConfig } from "./gatewayConfig";
-import { checkGatewayHealth, createGatewayApiClient, type GatewayHealth } from "./gatewayHttpClient";
+import {
+  DEFAULT_TS_COWORK_RUNTIME_ROLLOUT,
+  checkGatewayHealth,
+  createGatewayApiClient,
+  resolveTsCoworkRuntimeRollout,
+  type GatewayHealth,
+  type TsCoworkRuntimeRollout,
+} from "./gatewayHttpClient";
+import { createDesktopNativeCoworkApi } from "./desktopNativeCowork";
+import { createDesktopNativeSkillsApi } from "./desktopNativeSkills";
+import { createDesktopNativeWebuiApi } from "./desktopNativeWebui";
 import {
   AGENT_UI_FORM_STATUSES,
   buildAgentUiFormCancelRequest,
@@ -52,7 +62,20 @@ type DesktopStatus = {
 };
 
 const gatewayConfig = resolveGatewayConfig(DEFAULT_GATEWAY_CONFIG);
-const gatewayApi = createGatewayApiClient({ config: gatewayConfig });
+const gatewayClientOptions: {
+  config: typeof gatewayConfig;
+  nativeCowork: ReturnType<typeof createDesktopNativeCoworkApi>;
+  nativeSkills: ReturnType<typeof createDesktopNativeSkillsApi>;
+  nativeWebui: ReturnType<typeof createDesktopNativeWebuiApi>;
+  tsCoworkRuntime: TsCoworkRuntimeRollout;
+} = {
+  config: gatewayConfig,
+  nativeCowork: createDesktopNativeCoworkApi({ invoke }),
+  nativeSkills: createDesktopNativeSkillsApi({ invoke }),
+  nativeWebui: createDesktopNativeWebuiApi({ invoke }),
+  tsCoworkRuntime: DEFAULT_TS_COWORK_RUNTIME_ROLLOUT,
+};
+const gatewayApi = createGatewayApiClient(gatewayClientOptions);
 const chatController = createDesktopChatSessionController({
   api: {
     listSessions: () => gatewayApi.sessions.list(),
@@ -558,6 +581,7 @@ async function loadSettingsModules() {
     ]);
     const providers = arrayFromPayload(providersPayload, "providers");
     const providerCatalog = providers.map(toDesktopProviderCatalogItem);
+    syncTsCoworkRuntimeRollout(config);
     const settingsState = buildDesktopSettingsFormState(config, providerCatalog);
     const validationErrors = validateDesktopSettingsForm(settingsState);
     const providerSecret = buildDesktopSecretField(settingsState.providerEditor.apiKey);
@@ -1153,6 +1177,10 @@ function ownerLabel(owner: GatewayRuntimeStatus["owner"]): string {
 
 function hasTauriRuntime(): boolean {
   return "__TAURI_INTERNALS__" in window;
+}
+
+function syncTsCoworkRuntimeRollout(config: unknown): void {
+  gatewayClientOptions.tsCoworkRuntime = resolveTsCoworkRuntimeRollout(config);
 }
 
 function formatTime(value: string): string {

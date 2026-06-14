@@ -31,12 +31,83 @@ export type RuntimeContext = {
   channel?: string;
   chatId?: string;
   userProfile?: UserProfile;
+  activeTaskProgress?: ActiveTaskProgress;
+};
+
+export type ActiveTaskProgress = {
+  title?: string;
+  completed: number;
+  total: number;
+  inProgress: number;
+  current?: string;
+  currentAll?: string[];
+};
+
+export type MemoryRecallNote = {
+  id: string;
+  scope: string;
+  type: string;
+  status: string;
+  content: string;
+  priority?: number;
+  confidence?: number;
+  tags?: string[];
+  metadata?: Record<string, unknown>;
+  evidenceIds?: string[];
+  file?: string;
+  line?: number;
+  viewFile?: string;
+  viewLine?: number;
+};
+
+export type MemoryReferenceMetadata = {
+  note_id: string;
+  scope: string;
+  type: string;
+  status: string;
+  content: string;
+  priority: number;
+  confidence: number;
+  tags: string[];
+  metadata: Record<string, unknown>;
+  evidence_ids?: string[];
+  file?: string;
+  line?: number;
+  view_file?: string;
+  view_line?: number;
+};
+
+export type SkillsContext = {
+  activeSkillsContent?: string;
+  skillsSummary?: string;
+  alwaysSkillNames?: string[];
+  unavailableCount?: number;
+  sourceCounts?: {
+    workspace: number;
+    builtin: number;
+  };
+};
+
+export type KnowledgeReferenceMetadata = {
+  doc_id: string;
+  doc_name: string;
+  chunk_id: string;
+  file_path: string;
+  line_start: number;
+  line_end: number;
+  retrieval_method: string;
+  temporary?: boolean;
 };
 
 export type ContextBuildInput = {
   identity: string;
   bootstrapFiles?: BootstrapFile[];
   history?: AgentMessage[];
+  memoryNotes?: MemoryRecallNote[];
+  memoryRecallContext?: string;
+  knowledgeContext?: string;
+  knowledgeReferences?: KnowledgeReferenceMetadata[];
+  skills?: SkillsContext;
   currentMessage: string;
   currentRole?: Extract<AgentMessageRole, "user" | "system">;
   runtime: RuntimeContext;
@@ -60,8 +131,14 @@ export type AgentRunInput = {
   temperature?: number;
   maxTokens?: number;
   reasoningEffort?: string;
+  providerRetryMode?: "standard" | "persistent";
   failOnToolError?: boolean;
   metadata?: Record<string, unknown>;
+};
+
+export type AgentRunDefaults = {
+  providerRetryMode?: "standard" | "persistent";
+  enabledSkills?: string[];
 };
 
 export type ContextBuildMetadata = {
@@ -72,7 +149,17 @@ export type ContextBuildMetadata = {
   memoryContextIncluded: boolean;
   knowledgeContextIncluded: boolean;
   skillsContextIncluded: boolean;
+  skillsSummaryIncluded?: boolean;
+  alwaysSkillsIncluded?: boolean;
+  alwaysSkillNames?: string[];
+  skillsUnavailableCount?: number;
+  skillsSourceCounts?: {
+    workspace: number;
+    builtin: number;
+  };
   omittedContext: string[];
+  _memory_references?: MemoryReferenceMetadata[];
+  _knowledge_references?: KnowledgeReferenceMetadata[];
 };
 
 export type ContextBuildResult = {
@@ -90,5 +177,6 @@ export type ContextBridgeMetadata = {
 
 export type ContextBridgeLoadResult = {
   input: ContextBuildInput;
+  runDefaults?: AgentRunDefaults;
   metadata: ContextBridgeMetadata;
 };

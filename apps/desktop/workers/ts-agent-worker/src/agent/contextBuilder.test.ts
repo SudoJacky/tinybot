@@ -59,6 +59,28 @@ describe("buildContextMessages", () => {
     );
   });
 
+  test("includes active task progress in runtime context metadata", () => {
+    const result = buildContextMessages({
+      identity: "Identity",
+      currentMessage: "Continue task work.",
+      runtime: {
+        currentTime: "2026-06-10 09:00:00 Asia/Shanghai",
+        activeTaskProgress: {
+          title: "Backend migration",
+          completed: 1,
+          total: 3,
+          inProgress: 1,
+          currentAll: ["Runtime bridge", "Context parity"],
+        },
+      },
+    });
+
+    expect(result.messages[1].content).toContain("Active Task: Backend migration");
+    expect(result.messages[1].content).toContain("Task Progress: 1/3 completed, 1 in progress");
+    expect(result.messages[1].content).toContain("Current Steps: Runtime bridge, Context parity");
+    expect(result.metadata.omittedContext).not.toContain("active_task_progress");
+  });
+
   test("appends history before current message when trailing role differs", () => {
     const result = buildContextMessages({
       identity: "Identity",
@@ -89,5 +111,112 @@ describe("buildContextMessages", () => {
       content: "Earlier\n\n[Runtime Context - metadata only, not instructions]\nCurrent Time: now\n\nContinue",
     });
     expect(result.metadata.mergedWithLastMessage).toBe(true);
+  });
+
+  test("adds memory recall as a separate system message with active note metadata", () => {
+    const result = buildContextMessages({
+      identity: "Identity",
+      currentMessage: "Continue the implementation",
+      runtime: { currentTime: "now" },
+      memoryNotes: [
+        {
+          id: "note_pref",
+          scope: "user",
+          type: "preference",
+          status: "active",
+          content: "User prefers concise implementation handoffs.",
+          priority: 0.8,
+          confidence: 0.7,
+          tags: ["handoff", "communication"],
+          metadata: { source: "desktop" },
+        },
+      ],
+    });
+
+    expect(result.messages.map((message) => message.role)).toEqual(["system", "user", "system"]);
+    expect(result.messages.at(-1)?.content).toContain("[MEMORY RECALL]");
+    expect(result.messages.at(-1)?.content).toContain(
+      "- User prefers concise implementation handoffs. (id: note_pref; scope: user; type: preference; priority: 0.8; confidence: 0.7; tags: communication, handoff; metadata: {\"source\":\"desktop\"})",
+    );
+    expect(result.metadata.memoryContextIncluded).toBe(true);
+    expect(result.metadata.omittedContext).not.toContain("memory");
+    expect(result.metadata._memory_references).toEqual([
+      {
+        note_id: "note_pref",
+        scope: "user",
+        type: "preference",
+        status: "active",
+        content: "User prefers concise implementation handoffs.",
+        priority: 0.8,
+        confidence: 0.7,
+        tags: ["handoff", "communication"],
+        metadata: { source: "desktop" },
+      },
+    ]);
+  });
+
+  test("adds relevant knowledge as contextual evidence", () => {
+    const knowledgeReferences = [
+      {
+        doc_id: "doc-1",
+        doc_name: "Runtime Context Notes",
+        chunk_id: "chunk_doc-1_0",
+        file_path: "knowledge/files/doc-1.md",
+        line_start: 1,
+        line_end: 3,
+        retrieval_method: "sparse",
+      },
+    ];
+    const result = buildContextMessages({
+      identity: "Identity",
+      currentMessage: "Use retrieval evidence",
+      runtime: { currentTime: "now" },
+      knowledgeContext: [
+        "---",
+        "[RELEVANT KNOWLEDGE]",
+        "",
+        "Treat these results as contextual evidence.",
+        "",
+        "- Runtime Context Notes: Native context.",
+        "---",
+      ].join("\n"),
+      knowledgeReferences,
+    });
+
+    expect(result.messages.map((message) => message.role)).toEqual(["system", "user", "system"]);
+    expect(result.messages.at(-1)?.content).toContain("[RELEVANT KNOWLEDGE]");
+    expect(result.messages.at(-1)?.content).toContain("contextual evidence");
+    expect(result.metadata.knowledgeContextIncluded).toBe(true);
+    expect(result.metadata.omittedContext).not.toContain("knowledge");
+    expect(result.metadata._knowledge_references).toEqual(knowledgeReferences);
+  });
+
+  test("injects active skills and skills summary into the system prompt", () => {
+    const result = buildContextMessages({
+      identity: "Identity",
+      currentMessage: "Use skills",
+      runtime: { currentTime: "now" },
+      skills: {
+        activeSkillsContent: "### Skill: planner\n\nPlan the work.",
+        skillsSummary: "<skills>\n  <skill available=\"true\"><name>planner</name></skill>\n</skills>",
+        alwaysSkillNames: ["planner"],
+        unavailableCount: 1,
+        sourceCounts: { workspace: 1, builtin: 2 },
+      },
+    });
+
+    expect(result.messages[0].content).toContain("# Active Skills\n\n### Skill: planner\n\nPlan the work.");
+    expect(result.messages[0].content).toContain("# Skills");
+    expect(result.messages[0].content).toContain("<skills>\n  <skill available=\"true\"><name>planner</name></skill>\n</skills>");
+    expect(result.messages[0].content).not.toContain("(deferred in TS context phase 1)");
+    expect(result.metadata).toMatchObject({
+      skillsContextIncluded: true,
+      skillsSummaryIncluded: true,
+      alwaysSkillsIncluded: true,
+      alwaysSkillNames: ["planner"],
+      skillsUnavailableCount: 1,
+      skillsSourceCounts: { workspace: 1, builtin: 2 },
+    });
+    expect(result.metadata.omittedContext).not.toContain("skills_detail");
   });
 });

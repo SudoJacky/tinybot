@@ -24,14 +24,19 @@ const DEFAULT_REQUEST_TRAITS: RequestTraits = {
 export function buildOpenAIChatRequest(input: BuildOpenAIChatRequestInput): Record<string, unknown> {
   const requestTraits = { ...DEFAULT_REQUEST_TRAITS, ...(input.requestTraits ?? {}) };
   const modelName = input.options.model?.trim() || input.defaultModel;
+  let messages = toOpenAIMessages(input.messages);
+  let tools = input.options.tools?.length ? input.options.tools.map(toOpenAITool) : undefined;
+  if (requestTraits.supportsPromptCaching) {
+    ({ messages, tools } = applyPromptCacheControl(messages, tools));
+  }
   const request: Record<string, unknown> = {
     model: requestTraits.stripModelPrefix ? stripModelPrefix(modelName) : modelName,
-    messages: toOpenAIMessages(input.messages),
+    messages,
     stream: true,
     stream_options: { include_usage: true },
   };
-  if (input.options.tools?.length) {
-    request.tools = input.options.tools.map(toOpenAITool);
+  if (tools?.length) {
+    request.tools = tools;
     request.tool_choice = input.options.toolChoice ?? "auto";
   }
   if (input.options.temperature !== undefined && supportsTemperature(String(request.model), input.options.reasoningEffort, requestTraits.temperaturePolicy)) {
@@ -125,6 +130,49 @@ function toOpenAITool(tool: ToolDefinition): Record<string, unknown> {
       parameters: tool.parameters,
     },
   };
+}
+
+function applyPromptCacheControl(
+  messages: Record<string, unknown>[],
+  tools: Record<string, unknown>[] | undefined,
+): { messages: Record<string, unknown>[]; tools: Record<string, unknown>[] | undefined } {
+  const markedMessages = [...messages];
+  if (markedMessages[0]?.role === "system") {
+    markedMessages[0] = markMessageContent(markedMessages[0]);
+  }
+  if (markedMessages.length >= 3) {
+    markedMessages[markedMessages.length - 2] = markMessageContent(markedMessages[markedMessages.length - 2]);
+  }
+  const markedTools = tools ? [...tools] : undefined;
+  if (markedTools?.length) {
+    markedTools[markedTools.length - 1] = {
+      ...markedTools[markedTools.length - 1],
+      cache_control: { type: "ephemeral" },
+    };
+  }
+  return { messages: markedMessages, tools: markedTools };
+}
+
+function markMessageContent(message: Record<string, unknown>): Record<string, unknown> {
+  const content = message.content;
+  if (typeof content === "string") {
+    return {
+      ...message,
+      content: [{ type: "text", text: content, cache_control: { type: "ephemeral" } }],
+    };
+  }
+  if (Array.isArray(content) && content.length > 0) {
+    const nextContent = [...content];
+    const last = nextContent[nextContent.length - 1];
+    if (last && typeof last === "object") {
+      nextContent[nextContent.length - 1] = {
+        ...(last as Record<string, unknown>),
+        cache_control: { type: "ephemeral" },
+      };
+      return { ...message, content: nextContent };
+    }
+  }
+  return message;
 }
 
 function supportsTemperature(model: string, reasoningEffort: string | undefined, policy: RequestTraits["temperaturePolicy"]): boolean {

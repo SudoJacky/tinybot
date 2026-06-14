@@ -195,6 +195,35 @@ describe("desktop Cowork helpers", () => {
     });
   });
 
+  test("builds branch rows from Python snapshot branches when branch_results is absent", () => {
+    const view = buildDesktopCoworkCockpitView({
+      ...session,
+      current_branch_id: "branch-b",
+      branch_results: [],
+      branches: [
+        {
+          id: "branch-a",
+          title: "Use helpers",
+          status: "completed",
+          current: false,
+          branch_result: { id: "result-a", summary: "Use helpers result" },
+        },
+        {
+          id: "branch-b",
+          title: "Use controllers",
+          status: "active",
+          current: true,
+          branch_result: {},
+        },
+      ],
+    });
+
+    expect(view.branches.map((branch) => [branch.branchId, branch.resultId, branch.selected, branch.title])).toEqual([
+      ["branch-a", "result-a", false, "Use helpers"],
+      ["branch-b", "", true, "Use controllers"],
+    ]);
+  });
+
   test("builds Cowork observability panels for graph, focus, metrics, work, outputs, and evaluations", () => {
     const view = buildDesktopCoworkCockpitView(session);
 
@@ -474,10 +503,97 @@ describe("desktop Cowork helpers", () => {
         stop_on_blocker: false,
       },
     });
+    expect(buildDesktopCoworkActionRequest({ action: "runSession", sessionId: "cowork/1", architecture: "swarm" })).toEqual({
+      method: "POST",
+      path: "/api/cowork/sessions/cowork%2F1/run",
+      body: {
+        max_rounds: 20,
+        max_agents: 3,
+        max_agent_calls: 30,
+        run_until_idle: true,
+        stop_on_blocker: false,
+        architecture: "swarm",
+        workflow_mode: "swarm",
+      },
+    });
+    expect(buildDesktopCoworkActionRequest({ action: "emergencyStopSession", sessionId: "cowork/1" })).toEqual({
+      method: "POST",
+      path: "/api/cowork/sessions/cowork%2F1/emergency-stop",
+      body: { reason: "emergency stop from desktop" },
+    });
+    expect(buildDesktopCoworkActionRequest({ action: "loadBlueprint", sessionId: "cowork/1" })).toEqual({
+      method: "GET",
+      path: "/api/cowork/sessions/cowork%2F1/blueprint",
+    });
+    expect(buildDesktopCoworkActionRequest({ action: "loadTrace", sessionId: "cowork/1" })).toEqual({
+      method: "GET",
+      path: "/api/cowork/sessions/cowork%2F1/trace",
+    });
+    expect(buildDesktopCoworkActionRequest({ action: "loadDag", sessionId: "cowork/1" })).toEqual({
+      method: "GET",
+      path: "/api/cowork/sessions/cowork%2F1/dag",
+    });
+    expect(buildDesktopCoworkActionRequest({ action: "loadArtifacts", sessionId: "cowork/1" })).toEqual({
+      method: "GET",
+      path: "/api/cowork/sessions/cowork%2F1/artifacts",
+    });
+    expect(buildDesktopCoworkActionRequest({ action: "loadOrganization", sessionId: "cowork/1" })).toEqual({
+      method: "GET",
+      path: "/api/cowork/sessions/cowork%2F1/organization",
+    });
+    expect(buildDesktopCoworkActionRequest({ action: "loadQueues", sessionId: "cowork/1" })).toEqual({
+      method: "GET",
+      path: "/api/cowork/sessions/cowork%2F1/queues",
+    });
+    expect(buildDesktopCoworkActionRequest({ action: "loadBranches", sessionId: "cowork/1" })).toEqual({
+      method: "GET",
+      path: "/api/cowork/sessions/cowork%2F1/branches",
+    });
+    expect(buildDesktopCoworkActionRequest({ action: "loadAgentActivity", sessionId: "cowork/1", agentId: "lead agent" })).toEqual({
+      method: "GET",
+      path: "/api/cowork/sessions/cowork%2F1/agents/lead%20agent/activity",
+    });
+    expect(buildDesktopCoworkActionRequest({ action: "loadAgentActivity", sessionId: "cowork/1", agentId: "lead agent", limit: 5 })).toEqual({
+      method: "GET",
+      path: "/api/cowork/sessions/cowork%2F1/agents/lead%20agent/activity?limit=5",
+    });
+    expect(buildDesktopCoworkActionRequest({
+      action: "loadObservation",
+      sessionId: "cowork/1",
+      detailRef: "detail 1",
+      requesterAgentId: "reviewer",
+    })).toEqual({
+      method: "GET",
+      path: "/api/cowork/sessions/cowork%2F1/observations/detail%201?agent_id=reviewer",
+    });
     expect(buildDesktopCoworkActionRequest({ action: "sendMessage", sessionId: "cowork/1", content: "Continue", recipientIds: ["agent-1"] })).toEqual({
       method: "POST",
       path: "/api/cowork/sessions/cowork%2F1/messages",
       body: { content: "Continue", recipient_ids: ["agent-1"] },
+    });
+    expect(buildDesktopCoworkActionRequest({ action: "sendMessage", sessionId: "cowork/1", content: "Share update", recipientIds: [], architecture: "team" })).toEqual({
+      method: "POST",
+      path: "/api/cowork/sessions/cowork%2F1/messages",
+      body: { content: "Share update", recipient_ids: [], architecture: "team", workflow_mode: "team" },
+    });
+    expect(buildDesktopCoworkActionRequest({
+      action: "sendMessage",
+      sessionId: "cowork/1",
+      content: " Continue in thread ",
+      recipientIds: ["agent-1"],
+      threadId: "thread/1",
+      topic: "Review lane",
+      eventType: "review.requested",
+    })).toEqual({
+      method: "POST",
+      path: "/api/cowork/sessions/cowork%2F1/messages",
+      body: {
+        content: "Continue in thread",
+        recipient_ids: ["agent-1"],
+        thread_id: "thread/1",
+        topic: "Review lane",
+        event_type: "review.requested",
+      },
     });
     expect(buildDesktopCoworkActionRequest({ action: "task", sessionId: "cowork/1", taskId: "task/2", taskAction: "assign", assignedAgentId: "agent-2" })).toEqual({
       method: "POST",
@@ -489,15 +605,40 @@ describe("desktop Cowork helpers", () => {
       path: "/api/cowork/sessions/cowork%2F1/work-units/wu%2F1/retry",
       body: { reason: "retry from desktop" },
     });
-    expect(buildDesktopCoworkActionRequest({ action: "selectBranchResult", sessionId: "cowork/1", branchId: "branch/1", resultId: "result-1" })).toEqual({
+    expect(buildDesktopCoworkActionRequest({ action: "updateBudget", sessionId: "cowork/1", body: { max_rounds: 4 } })).toEqual({
+      method: "PATCH",
+      path: "/api/cowork/sessions/cowork%2F1/budget",
+      body: { max_rounds: 4 },
+    });
+    expect(buildDesktopCoworkActionRequest({ action: "deriveBranch", sessionId: "cowork/1", sourceBranchId: "branch/1", body: { target_architecture: "swarm" } })).toEqual({
+      method: "POST",
+      path: "/api/cowork/sessions/cowork%2F1/branches/branch%2F1/derive",
+      body: { target_architecture: "swarm" },
+    });
+    expect(buildDesktopCoworkActionRequest({ action: "selectBranch", sessionId: "cowork/1", branchId: "branch/1", architecture: "team" })).toEqual({
+      method: "POST",
+      path: "/api/cowork/sessions/cowork%2F1/branches/branch%2F1/select",
+      body: { architecture: "team", workflow_mode: "team" },
+    });
+    expect(buildDesktopCoworkActionRequest({ action: "selectBranchResult", sessionId: "cowork/1", branchId: "branch/1", resultId: "result-1", architecture: "team" })).toEqual({
       method: "POST",
       path: "/api/cowork/sessions/cowork%2F1/branches/branch%2F1/result/select-final",
-      body: { result_id: "result-1" },
+      body: { result_id: "result-1", architecture: "team", workflow_mode: "team" },
     });
     expect(buildDesktopCoworkActionRequest({ action: "mergeBranchResults", sessionId: "cowork/1", branchIds: ["a", "b"] })).toEqual({
       method: "POST",
       path: "/api/cowork/sessions/cowork%2F1/branch-results/merge",
       body: { branch_ids: ["a", "b"] },
+    });
+    expect(buildDesktopCoworkActionRequest({ action: "selectFinalResult", sessionId: "cowork/1", body: { branch_id: "branch/1", result_id: "result-1" } })).toEqual({
+      method: "POST",
+      path: "/api/cowork/sessions/cowork%2F1/final-result/select",
+      body: { branch_id: "branch/1", result_id: "result-1" },
+    });
+    expect(buildDesktopCoworkActionRequest({ action: "mergeFinalResult", sessionId: "cowork/1", body: { branch_ids: ["branch/1", "branch/2"] } })).toEqual({
+      method: "POST",
+      path: "/api/cowork/sessions/cowork%2F1/final-result/merge",
+      body: { branch_ids: ["branch/1", "branch/2"] },
     });
     expect(buildDesktopCoworkActionRequest({ action: "validateBlueprint", preview: true, blueprint: { agents: [] } })).toEqual({
       method: "POST",

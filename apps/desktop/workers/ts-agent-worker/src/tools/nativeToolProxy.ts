@@ -1,5 +1,21 @@
 import type { JsonObject } from "../protocol/messages.ts";
+import { AgentRunner } from "../agent/agentRunner.ts";
+import type { AgentMessage } from "../agent/agentRunSpec.ts";
+import type { BackgroundRunRegistry } from "../background/backgroundRegistryBridge.ts";
+import { createSpawnTool } from "../background/spawnTool.ts";
+import { SubagentRuntime, type SubagentRunRequest } from "../background/subagentRuntime.ts";
+import { NativeCronBridge } from "../cron/cronBridge.ts";
+import { createCronTool } from "../cron/cronTool.ts";
+import { formatKnowledgeQueryResults, normalizeKnowledgeQueryResults } from "../knowledge/knowledgeFormatting.ts";
+import type { ModelProvider } from "../model/provider.ts";
+import { NativeTaskStoreBridge } from "../task/taskStoreBridge.ts";
+import type { TaskNotificationBridge, TaskProgressCardBridge } from "../task/taskNotificationBridge.ts";
+import { TaskPlanner } from "../task/taskPlanner.ts";
+import { TaskProviderSubagentExecutor } from "../task/taskSubagentExecutor.ts";
+import { createTaskTool } from "../task/taskTool.ts";
+import type { TaskProgressPublisher } from "../task/taskRuntime.ts";
 import type { Tool } from "./tool.ts";
+import { ToolRegistry } from "./toolRegistry.ts";
 
 export type NativeRpcClient = {
   request(traceId: string, method: string, params: JsonObject): Promise<unknown>;
@@ -26,15 +42,165 @@ export function createNativeFormTools(rpcClient: NativeRpcClient): Tool[] {
 }
 
 export function createNativeMemoryTools(rpcClient: NativeRpcClient): Tool[] {
-  return [createSearchMemoryNotesTool(rpcClient), createSaveMemoryNoteTool(rpcClient)];
+  return [
+    createSearchMemoryNotesTool(rpcClient),
+    createSaveMemoryNoteTool(rpcClient),
+    createTraceMemoryNoteTool(rpcClient),
+    createRejectMemoryNoteTool(rpcClient),
+    createSupersedeMemoryNoteTool(rpcClient),
+  ];
 }
 
 export function createNativeRagTools(rpcClient: NativeRpcClient): Tool[] {
-  return [createQueryRagTool(rpcClient)];
+  return [
+    createAddDocumentTool(rpcClient),
+    createQueryKnowledgeTool(rpcClient),
+    createListDocumentsTool(rpcClient),
+    createGetDocumentTool(rpcClient),
+    createDeleteDocumentTool(rpcClient),
+    createQueryRagTool(rpcClient),
+  ];
 }
 
 export function createNativeMcpTools(rpcClient: NativeRpcClient): Tool[] {
   return [createCallMcpTool(rpcClient)];
+}
+
+export function createNativeCronTools(
+  rpcClient: NativeRpcClient,
+  options: { defaultTimezone?: string | (() => string | Promise<string>) } = {},
+): Tool[] {
+  return [createCronTool({ bridge: new NativeCronBridge(rpcClient), defaultTimezone: options.defaultTimezone ?? "UTC" })];
+}
+
+export function createNativeSpawnTools(
+  rpcClient: NativeRpcClient,
+  options: {
+    provider: ModelProvider;
+    model?: string;
+    maxConcurrent?: number;
+    timeoutMs?: number;
+    idGenerator?: () => string;
+    backgroundRegistry?: BackgroundRunRegistry;
+    maxIterations?: number;
+    toolResultBudget?: number;
+  },
+): Tool[] {
+  const tools = createNativeSubagentToolRegistry(rpcClient);
+  const runtime = new SubagentRuntime({
+    maxConcurrent: options.maxConcurrent,
+    timeoutMs: options.timeoutMs,
+    idGenerator: options.idGenerator,
+    registry: options.backgroundRegistry,
+    source: "subagent",
+    runner: (request) => runSpawnedSubagent(request, {
+      provider: options.provider,
+      model: options.model,
+      tools,
+      maxIterations: options.maxIterations,
+      toolResultBudget: options.toolResultBudget,
+    }),
+  });
+  return [createSpawnTool({ runtime })];
+}
+
+export function createNativeTaskTools(
+  rpcClient: NativeRpcClient,
+  options: {
+    provider?: ModelProvider;
+    model?: string;
+    workspace?: string;
+    backgroundRegistry?: BackgroundRunRegistry;
+    notifier?: TaskNotificationBridge;
+    progressPublisher?: TaskProgressPublisher;
+    progressCard?: TaskProgressCardBridge;
+  } = {},
+): Tool[] {
+  const planner = options.provider
+    ? new TaskPlanner({
+      provider: options.provider,
+      model: options.model,
+      workspace: options.workspace,
+    })
+    : undefined;
+  const executor = options.provider
+    ? new TaskProviderSubagentExecutor({
+      provider: options.provider,
+      model: options.model,
+      runnerTools: createNativeSubagentToolRegistry(rpcClient),
+      registry: options.backgroundRegistry,
+    })
+    : undefined;
+  return [createTaskTool({
+    store: new NativeTaskStoreBridge(rpcClient),
+    planner,
+    executor,
+    notifier: options.notifier,
+    progressPublisher: options.progressPublisher,
+    progressCard: options.progressCard,
+  })];
+}
+
+async function runSpawnedSubagent(
+  request: SubagentRunRequest,
+  options: {
+    provider: ModelProvider;
+    model?: string;
+    tools: ToolRegistry;
+    maxIterations?: number;
+    toolResultBudget?: number;
+  },
+) {
+  const runner = new AgentRunner({
+    provider: options.provider,
+    tools: options.tools,
+    isCancelled: () => request.signal.aborted,
+  });
+  const result = await runner.run({
+    runId: request.id,
+    traceId: typeof request.metadata?.traceId === "string" ? request.metadata.traceId : undefined,
+    sessionId: request.sessionKey,
+    messages: spawnedSubagentMessages(request),
+    model: options.model ?? "default",
+    maxIterations: options.maxIterations ?? 15,
+    stream: false,
+    toolResultBudget: options.toolResultBudget,
+    failOnToolError: true,
+  });
+  if (result.stopReason === "tool_error" || result.stopReason === "error") {
+    const error = result.error || result.finalContent || "Error: subagent execution failed.";
+    return { status: "failed", result: error, error } as const;
+  }
+  return {
+    status: "completed",
+    result: result.finalContent || "Task completed but no final response was generated.",
+  } as const;
+}
+
+function spawnedSubagentMessages(request: Pick<SubagentRunRequest, "task">): AgentMessage[] {
+  return [
+    {
+      role: "system",
+      content: [
+        "You are a focused task execution subagent.",
+        "Complete only the assigned task and return a concise result summary.",
+      ].join("\n"),
+    },
+    { role: "user", content: request.task },
+  ];
+}
+
+function createNativeSubagentToolRegistry(rpcClient: NativeRpcClient): ToolRegistry {
+  const registry = new ToolRegistry();
+  for (const tool of [
+    ...createNativeReadOnlyTools(rpcClient),
+    ...createNativeWriteTools(rpcClient),
+    ...createNativeShellTools(rpcClient),
+    ...createNativeApprovalTools(rpcClient),
+  ]) {
+    registry.register(tool);
+  }
+  return registry;
 }
 
 function createReadFileTool(rpcClient: NativeRpcClient): Tool {
@@ -329,6 +495,22 @@ function createRequestApprovalTool(rpcClient: NativeRpcClient): Tool {
         run_id: context.runId,
         operation,
       };
+      const classification = asObject(args.classification);
+      if (classification) {
+        params.classification = classification;
+      }
+      const fingerprint = asString(args.fingerprint);
+      if (fingerprint) {
+        params.fingerprint = fingerprint;
+      }
+      const sessionFingerprint = asString(args.sessionFingerprint);
+      if (sessionFingerprint) {
+        params.session_fingerprint = sessionFingerprint;
+      }
+      const summary = asString(args.summary);
+      if (summary) {
+        params.summary = summary;
+      }
       if (context.sessionId) {
         params.session_id = context.sessionId;
       }
@@ -385,10 +567,169 @@ function createSearchMemoryNotesTool(rpcClient: NativeRpcClient): Tool {
   };
 }
 
+function createAddDocumentTool(rpcClient: NativeRpcClient): Tool {
+  return {
+    name: "add_document",
+    description: "Add a document to the native Knowledge Base for future retrieval.",
+    capabilities: ["knowledge.write"],
+    requiresApproval: true,
+    parameters: {
+      type: "object",
+      properties: {
+        name: { type: "string", minLength: 1 },
+        content: { type: "string", minLength: 1 },
+        tags: { type: "string", description: "Optional comma-separated tags." },
+        category: { type: "string" },
+        file_type: { type: "string", enum: ["txt", "md"] },
+        original_path: { type: "string" },
+      },
+      required: ["name", "content"],
+    },
+    execute: async (args, context) => {
+      const params: JsonObject = {
+        name: stringArg(args, "name"),
+        content: stringArg(args, "content"),
+      };
+      copyOptionalStringArg(args, params, "category");
+      copyOptionalStringArg(args, params, "file_type");
+      copyOptionalStringArg(args, params, "original_path");
+      const tags = optionalStringListArg(args, "tags");
+      if (tags.length > 0) {
+        params.tags = tags;
+      }
+      const result = asObject(await rpcClient.request(requireTraceId(context.traceId), "knowledge.add_document", params)) ?? {};
+      const document = asObject(result.document) ?? {};
+      const name = asString(document.name) ?? stringArg(args, "name");
+      const id = asString(document.id) ?? "unknown";
+      return { content: `Successfully added document '${name}' to knowledge base (ID: ${id})\nDocument saved locally and indexed for sparse retrieval.` };
+    },
+  };
+}
+
+function createQueryKnowledgeTool(rpcClient: NativeRpcClient): Tool {
+  return {
+    name: "query_knowledge",
+    description: "Query the native Knowledge Base for contextual evidence relevant to the current task.",
+    readOnly: true,
+    concurrencySafe: true,
+    capabilities: ["knowledge.read"],
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", minLength: 1, description: "Natural-language knowledge retrieval query." },
+        category: { type: "string", description: "Optional knowledge document category filter." },
+        tags: { type: "string", description: "Optional comma-separated tags filter." },
+        limit: { type: "integer", minimum: 1, maximum: 20 },
+      },
+      required: ["query"],
+    },
+    execute: async (args, context) => {
+      const params: JsonObject = {
+        query: stringArg(args, "query"),
+      };
+      if (context.sessionId) {
+        params.session_id = context.sessionId;
+      }
+      copyOptionalStringArg(args, params, "category");
+      const tags = optionalStringListArg(args, "tags");
+      if (tags.length > 0) {
+        params.tags = tags;
+      }
+      const limit = optionalIntegerArg(args, "limit");
+      if (limit !== undefined) {
+        params.limit = limit;
+      }
+      const result = asObject(await rpcClient.request(requireTraceId(context.traceId), "knowledge.query", params)) ?? {};
+      const rawResults = Array.isArray(result.results)
+        ? result.results
+        : Array.isArray(result.documents)
+          ? result.documents
+          : [];
+      return { content: formatKnowledgeQueryResults(normalizeKnowledgeQueryResults(rawResults)) };
+    },
+  };
+}
+
+function createListDocumentsTool(rpcClient: NativeRpcClient): Tool {
+  return {
+    name: "list_documents",
+    description: "List documents in the native Knowledge Base.",
+    readOnly: true,
+    concurrencySafe: true,
+    capabilities: ["knowledge.read"],
+    parameters: {
+      type: "object",
+      properties: {
+        category: { type: "string" },
+        limit: { type: "integer", minimum: 1, maximum: 100 },
+      },
+    },
+    execute: async (args, context) => {
+      const params: JsonObject = {};
+      copyOptionalStringArg(args, params, "category");
+      const limit = optionalIntegerArg(args, "limit");
+      if (limit !== undefined) {
+        params.limit = limit;
+      }
+      const result = asObject(await rpcClient.request(requireTraceId(context.traceId), "knowledge.list_documents", params)) ?? {};
+      const documents = Array.isArray(result.documents) ? result.documents : [];
+      return { content: formatKnowledgeDocuments(documents) };
+    },
+  };
+}
+
+function createGetDocumentTool(rpcClient: NativeRpcClient): Tool {
+  return {
+    name: "get_document",
+    description: "Get the full content of a Knowledge Base document by ID.",
+    readOnly: true,
+    concurrencySafe: true,
+    capabilities: ["knowledge.read"],
+    parameters: {
+      type: "object",
+      properties: {
+        doc_id: { type: "string", minLength: 1 },
+      },
+      required: ["doc_id"],
+    },
+    execute: async (args, context) => {
+      const docId = stringArg(args, "doc_id");
+      const result = asObject(await rpcClient.request(requireTraceId(context.traceId), "knowledge.get_document", { doc_id: docId })) ?? {};
+      const content = typeof result.content === "string" ? result.content : "";
+      return { content: `## Document Content (ID: ${docId})\n\n${content}` };
+    },
+  };
+}
+
+function createDeleteDocumentTool(rpcClient: NativeRpcClient): Tool {
+  return {
+    name: "delete_document",
+    description: "Delete a document and its chunks from the native Knowledge Base.",
+    capabilities: ["knowledge.write"],
+    requiresApproval: true,
+    parameters: {
+      type: "object",
+      properties: {
+        doc_id: { type: "string", minLength: 1 },
+      },
+      required: ["doc_id"],
+    },
+    execute: async (args, context) => {
+      const docId = stringArg(args, "doc_id");
+      const result = asObject(await rpcClient.request(requireTraceId(context.traceId), "knowledge.delete_document", { doc_id: docId })) ?? {};
+      return {
+        content: result.deleted === true
+          ? `Successfully deleted document ${docId} and all associated data.`
+          : `Error: Document ${docId} not found`,
+      };
+    },
+  };
+}
+
 function createQueryRagTool(rpcClient: NativeRpcClient): Tool {
   return {
     name: "query_rag",
-    description: "Query the native retrieval index for workspace knowledge relevant to the current task.",
+    description: "Compatibility alias for query_knowledge. Query the native retrieval index for workspace knowledge.",
     readOnly: true,
     concurrencySafe: true,
     capabilities: ["fs.workspace.read"],
@@ -486,6 +827,127 @@ function createSaveMemoryNoteTool(rpcClient: NativeRpcClient): Tool {
       const note = asObject(result.note) ?? {};
       return {
         content: `Memory Note saved: ${asString(note.id) ?? "unknown"} (${asString(note.type) ?? "unknown"}, ${asString(note.status) ?? "unknown"})`,
+      };
+    },
+  };
+}
+
+function createTraceMemoryNoteTool(rpcClient: NativeRpcClient): Tool {
+  return {
+    name: "trace_memory_note",
+    description: "Trace a Memory Note to its canonical JSONL row and rendered memory view location.",
+    readOnly: true,
+    concurrencySafe: true,
+    capabilities: ["memory.read"],
+    parameters: {
+      type: "object",
+      properties: {
+        note_id: { type: "string", minLength: 1 },
+      },
+      required: ["note_id"],
+    },
+    execute: async (args, context) => {
+      const noteId = stringArg(args, "note_id");
+      const result = asObject(await rpcClient.request(requireTraceId(context.traceId), "memory.trace", {
+        note_id: noteId,
+      })) ?? {};
+      return { content: formatMemoryTrace(result) };
+    },
+  };
+}
+
+function createRejectMemoryNoteTool(rpcClient: NativeRpcClient): Tool {
+  return {
+    name: "reject_memory_note",
+    description: "Mark a Memory Note as rejected so it no longer appears in active memory recall or managed views.",
+    capabilities: ["memory.write"],
+    requiresApproval: true,
+    parameters: {
+      type: "object",
+      properties: {
+        note_id: { type: "string", minLength: 1 },
+        reason: { type: "string" },
+      },
+      required: ["note_id"],
+    },
+    execute: async (args, context) => {
+      const params: JsonObject = { note_id: stringArg(args, "note_id") };
+      copyOptionalStringArg(args, params, "reason");
+      const result = asObject(await rpcClient.request(requireTraceId(context.traceId), "memory.reject", params)) ?? {};
+      const note = asObject(result.note) ?? {};
+      return { content: `Memory Note rejected: ${asString(note.id) ?? params.note_id}` };
+    },
+  };
+}
+
+function createSupersedeMemoryNoteTool(rpcClient: NativeRpcClient): Tool {
+  return {
+    name: "supersede_memory_note",
+    description: "Replace an existing Memory Note with a new active note and mark the old note as superseded.",
+    capabilities: ["memory.write"],
+    requiresApproval: true,
+    parameters: {
+      type: "object",
+      properties: {
+        note_id: { type: "string", minLength: 1 },
+        replacement_content: { type: "string", minLength: 1 },
+        note_type: { type: "string", enum: ["preference", "instruction", "project", "decision", "fix", "followup"] },
+        scope: { type: "string", enum: ["user", "assistant", "project", "session"] },
+        priority: { type: "number", minimum: 0, maximum: 1 },
+        confidence: { type: "number", minimum: 0, maximum: 1 },
+        tags: { type: "string", description: "Optional comma-separated tags." },
+        metadata: { type: "string", description: "Optional JSON object metadata." },
+        message_start: { type: "integer", minimum: 0 },
+        message_end: { type: "integer", minimum: 0 },
+      },
+      required: ["note_id", "replacement_content"],
+    },
+    execute: async (args, context) => {
+      const params: JsonObject = {
+        note_id: stringArg(args, "note_id"),
+        replacement_content: stringArg(args, "replacement_content"),
+      };
+      if (context.sessionId) {
+        params.session_id = context.sessionId;
+      }
+      copyOptionalStringArg(args, params, "note_type");
+      copyOptionalStringArg(args, params, "scope");
+      const priority = optionalNumberArg(args, "priority");
+      if (priority !== undefined) {
+        params.priority = priority;
+      }
+      const confidence = optionalNumberArg(args, "confidence");
+      if (confidence !== undefined) {
+        params.confidence = confidence;
+      }
+      const tags = optionalStringArg(args, "tags");
+      if (tags !== undefined) {
+        params.tags = tags
+          .split(",")
+          .map((tag) => tag.trim())
+          .filter((tag) => tag.length > 0);
+      }
+      const metadata = optionalStringArg(args, "metadata");
+      if (metadata !== undefined) {
+        const parsed = JSON.parse(metadata);
+        if (!asObject(parsed)) {
+          throw new Error("metadata must be a JSON object");
+        }
+        params.metadata = parsed;
+      }
+      const messageStart = optionalIntegerArg(args, "message_start");
+      if (messageStart !== undefined) {
+        params.message_start = messageStart;
+      }
+      const messageEnd = optionalIntegerArg(args, "message_end");
+      if (messageEnd !== undefined) {
+        params.message_end = messageEnd;
+      }
+      const result = asObject(await rpcClient.request(requireTraceId(context.traceId), "memory.supersede", params)) ?? {};
+      const oldNote = asObject(result.old_note) ?? {};
+      const replacement = asObject(result.note) ?? {};
+      return {
+        content: `Memory Note superseded: ${asString(oldNote.id) ?? params.note_id} -> ${asString(replacement.id) ?? "unknown"}`,
       };
     },
   };
@@ -699,6 +1161,49 @@ function formatMemoryNote(value: unknown): string | null {
   return `- [${id}] ${scope}/${type}/${status} priority=${formatMemoryNumber(priority)} confidence=${formatMemoryNumber(confidence)}${tags}${metadata}\n  ${asString(note.content) ?? ""}\n  sources: ${formatMemorySources(note.sources)}`;
 }
 
+function optionalStringListArg(args: Record<string, unknown>, key: string): string[] {
+  const value = args[key];
+  if (value === undefined) {
+    return [];
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => {
+      if (typeof item !== "string" || !item.trim()) {
+        throw new Error(`${key} must contain non-empty strings`);
+      }
+      return item.trim();
+    });
+  }
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(`${key} must be a string or string array when provided`);
+  }
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
+function formatMemoryTrace(result: JsonObject): string {
+  const note = asObject(result.note) ?? {};
+  const locations = asObject(result.locations) ?? {};
+  const noteId = asString(note.id) ?? "unknown";
+  const status = asString(note.status) ?? "unknown";
+  const noteType = asString(note.type) ?? "unknown";
+  const scope = asString(note.scope) ?? "unknown";
+  const file = asString(locations.file);
+  const line = typeof locations.line === "number" ? locations.line : undefined;
+  const viewFile = asString(locations.view_file);
+  const viewLine = typeof locations.view_line === "number" ? locations.view_line : undefined;
+  const location = file ? `${file}${line !== undefined ? `:${line}` : ""}` : "unknown";
+  const viewLocation = viewFile ? `${viewFile}${viewLine !== undefined ? `:${viewLine}` : ""}` : "unknown";
+  return [
+    `Memory Note ${noteId} (${scope}/${noteType}/${status})`,
+    asString(note.content) ?? "",
+    `canonical: ${location}`,
+    `view: ${viewLocation}`,
+  ].filter((lineContent) => lineContent.length > 0).join("\n");
+}
+
 function formatMemoryNumber(value: number): string {
   return Number.isInteger(value) ? value.toFixed(0) : String(value);
 }
@@ -778,6 +1283,42 @@ function formatRagDocuments(documents: unknown[]): string {
     return "No RAG results found.";
   }
   return `## RAG Results\n${formatted.join("\n")}`;
+}
+
+function formatKnowledgeDocuments(documents: unknown[]): string {
+  const formatted = documents.map(formatKnowledgeDocument).filter((line): line is string => line !== null);
+  if (formatted.length === 0) {
+    return "Knowledge base is empty. Use add_document to add documents.";
+  }
+  return `## Knowledge Base Documents\n${formatted.join("\n")}`;
+}
+
+function formatKnowledgeDocument(value: unknown): string | null {
+  const document = asObject(value);
+  if (!document) {
+    return null;
+  }
+  const name = asString(document.name) ?? "Unknown";
+  const id = asString(document.id) ?? "unknown";
+  const tags = Array.isArray(document.tags)
+    ? document.tags.filter((tag): tag is string => typeof tag === "string").join(", ") || "none"
+    : "none";
+  const file = asString(document.file_path) ?? "";
+  const fileType = asString(document.file_type) ?? "txt";
+  const category = asString(document.category) ?? "uncategorized";
+  const chunks = typeof document.chunk_count === "number" ? document.chunk_count : 0;
+  const content = asString(document.content) ?? "";
+  const created = asString(document.created_at) ?? "";
+  return [
+    `- **${name}** (ID: ${id})`,
+    `  - File: ${file}`,
+    `  - Type: ${fileType}`,
+    `  - Category: ${category || "uncategorized"}`,
+    `  - Tags: ${tags}`,
+    `  - Chunks: ${chunks}`,
+    `  - Length: ${content.length} chars`,
+    `  - Created: ${created}`,
+  ].join("\n");
 }
 
 function formatRagDocument(value: unknown): string | null {

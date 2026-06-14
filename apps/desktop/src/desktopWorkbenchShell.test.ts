@@ -2945,7 +2945,7 @@ describe("desktop workbench shell", () => {
 
   test("renders a desktop Cowork cockpit with session list, graph, inspector, actions, and task feed", () => {
     const targetDocument = new FakeDocument();
-    const actionEvents: Array<{ action: string; sessionId: string; goal: string; message: string }> = [];
+    const actionEvents: Array<{ action: string; sessionId: string; goal: string; message: string; maxRounds?: number; agentId?: string }> = [];
     const session = {
       id: "cowork-1",
       title: "Desktop migration",
@@ -2984,6 +2984,9 @@ describe("desktop workbench shell", () => {
             sessionId: event.sessionId ?? "",
             goal: event.goal ?? "",
             message: event.message ?? "",
+            ...(event.maxRounds ? { maxRounds: event.maxRounds } : {}),
+            ...(event.agentId ? { agentId: event.agentId } : {}),
+            ...(event.limit ? { limit: event.limit } : {}),
           });
         },
       },
@@ -2992,11 +2995,15 @@ describe("desktop workbench shell", () => {
     const pane = targetDocument.body.querySelector(".desktop-cowork-cockpit");
     const goal = pane?.querySelector('[data-desktop-cowork-input="goal"]');
     const message = pane?.querySelector('[data-desktop-cowork-input="message"]');
+    const budgetMaxRounds = pane?.querySelector('[data-desktop-cowork-input="budgetMaxRounds"]');
     if (goal) {
       goal.value = "Create a desktop run";
     }
     if (message) {
       message.value = "Continue with the next unit";
+    }
+    if (budgetMaxRounds) {
+      budgetMaxRounds.value = "7";
     }
     expect(pane?.getAttribute("aria-label")).toBe("Cowork cockpit");
     expect(pane?.textContent).toContain("Desktop migration");
@@ -3012,7 +3019,8 @@ describe("desktop workbench shell", () => {
     pane?.querySelector('[data-desktop-cowork-entity="agent-1"]')?.click();
     expect(pane?.querySelector(".desktop-cowork-inspector")?.textContent).toContain("Selected: Planner");
     expect(pane?.querySelector(".desktop-cowork-inspector")?.textContent).toContain("Status: running");
-    expect(pane?.querySelectorAll(".desktop-cowork-action").map((row) => row.getAttribute("data-desktop-cowork-action"))).toEqual([
+    pane?.querySelector('[data-desktop-cowork-entity-action="loadAgentActivity"]')?.click();
+    expect(pane?.querySelectorAll(".desktop-cowork-action").map((row) => row.getAttribute("data-desktop-cowork-action")).filter(Boolean)).toEqual([
       "blueprintValidate",
       "blueprintPreview",
       "create",
@@ -3023,12 +3031,21 @@ describe("desktop workbench shell", () => {
       "delete",
       "message",
       "summary",
+      "blueprint",
+      "trace",
+      "dag",
+      "artifacts",
+      "organization",
+      "queues",
+      "branches",
+      "updateBudget",
       "addTask",
     ]);
-    for (const action of ["create", "run", "pause", "resume", "emergencyStop", "delete", "message", "summary"]) {
+    for (const action of ["create", "run", "pause", "resume", "emergencyStop", "delete", "message", "summary", "blueprint", "trace", "dag", "artifacts", "organization", "queues", "branches", "updateBudget"]) {
       pane?.querySelector(`[data-desktop-cowork-action="${action}"]`)?.click();
     }
     expect(actionEvents).toEqual([
+      { action: "loadAgentActivity", sessionId: "cowork-1", goal: "", message: "", agentId: "agent-1", limit: 20 },
       { action: "createSession", sessionId: "", goal: "Create a desktop run", message: "" },
       { action: "runSession", sessionId: "cowork-1", goal: "", message: "" },
       { action: "pauseSession", sessionId: "cowork-1", goal: "", message: "" },
@@ -3037,6 +3054,14 @@ describe("desktop workbench shell", () => {
       { action: "deleteSession", sessionId: "cowork-1", goal: "", message: "" },
       { action: "sendMessage", sessionId: "cowork-1", goal: "", message: "Continue with the next unit" },
       { action: "loadSummary", sessionId: "cowork-1", goal: "", message: "" },
+      { action: "loadBlueprint", sessionId: "cowork-1", goal: "", message: "" },
+      { action: "loadTrace", sessionId: "cowork-1", goal: "", message: "" },
+      { action: "loadDag", sessionId: "cowork-1", goal: "", message: "" },
+      { action: "loadArtifacts", sessionId: "cowork-1", goal: "", message: "" },
+      { action: "loadOrganization", sessionId: "cowork-1", goal: "", message: "" },
+      { action: "loadQueues", sessionId: "cowork-1", goal: "", message: "" },
+      { action: "loadBranches", sessionId: "cowork-1", goal: "", message: "" },
+      { action: "updateBudget", sessionId: "cowork-1", goal: "", message: "", maxRounds: 7 },
     ]);
     expect(pane?.querySelector(".desktop-cowork-task-feed")?.textContent).toContain("1 blocker");
   });
@@ -3241,12 +3266,17 @@ describe("desktop workbench shell", () => {
       status: "blocked",
       agents: [{ id: "agent-1", name: "Planner" }, { id: "agent-2", name: "Reviewer" }],
       tasks: [{ id: "task-1", title: "Map helpers", status: "failed", assigned_agent_id: "agent-1" }],
+      agent_steps: [{
+        agent_id: "agent-1",
+        tool_observations: [{ id: "toolobs-1", detail_ref: "detail-1" }],
+      }],
       branch_results: [{ branch_id: "branch-a", result_id: "result-a", summary: "Use helpers" }, { branch_id: "branch-b", result_id: "result-b", summary: "Use controllers" }],
       swarm_plan: {
         work_units: [{ id: "wu-1", title: "Extract projections", status: "failed", assigned_agent_id: "agent-1" }],
       },
       graph: {
         nodes: [
+          { id: "agent-1", label: "Planner", kind: "agent" },
           { id: "task-1", label: "Map helpers", kind: "task" },
           { id: "wu-1", label: "Extract projections", kind: "workUnit" },
           { id: "branch-a", label: "Use helpers", kind: "branch" },
@@ -3275,6 +3305,10 @@ describe("desktop workbench shell", () => {
             branchId: event.branchId,
             resultId: event.resultId,
             branchIds: event.branchIds,
+            sourceBranchId: event.sourceBranchId,
+            targetArchitecture: event.targetArchitecture,
+            detailRef: event.detailRef,
+            requesterAgentId: event.requesterAgentId,
             title: event.taskTitle,
             assignedAgentId: event.assignedAgentId,
           };
@@ -3302,6 +3336,10 @@ describe("desktop workbench shell", () => {
     pane?.querySelector('[data-desktop-cowork-entity-action="retryTask"]')?.click();
     pane?.querySelector('[data-desktop-cowork-entity-action="reviewTask"]')?.click();
 
+    pane?.querySelector('[data-desktop-cowork-entity="agent-1"]')?.click();
+    pane?.querySelector('[data-desktop-cowork-entity-action="loadAgentActivity"]')?.click();
+    pane?.querySelector('[data-desktop-cowork-entity-action="loadObservation"]')?.click();
+
     pane?.querySelector('[data-desktop-cowork-entity="wu-1"]')?.click();
     pane?.querySelector('[data-desktop-cowork-entity-action="retryWorkUnit"]')?.click();
     pane?.querySelector('[data-desktop-cowork-entity-action="skipWorkUnit"]')?.click();
@@ -3309,20 +3347,28 @@ describe("desktop workbench shell", () => {
 
     pane?.querySelector('[data-desktop-cowork-entity="branch-a"]')?.click();
     pane?.querySelector('[data-desktop-cowork-entity-action="selectBranch"]')?.click();
+    pane?.querySelector('[data-desktop-cowork-entity-action="deriveBranch"]')?.click();
     pane?.querySelector('[data-desktop-cowork-entity-action="selectBranchResult"]')?.click();
     pane?.querySelector('[data-desktop-cowork-entity-action="mergeBranchResults"]')?.click();
+    pane?.querySelector('[data-desktop-cowork-entity-action="selectFinalResult"]')?.click();
+    pane?.querySelector('[data-desktop-cowork-entity-action="mergeFinalResult"]')?.click();
 
     expect(actionEvents).toEqual([
       { action: "addTask", sessionId: "cowork-1", title: "Write migration notes", assignedAgentId: "agent-2" },
       { action: "task", sessionId: "cowork-1", taskId: "task-1", taskAction: "assign", assignedAgentId: "agent-2" },
       { action: "task", sessionId: "cowork-1", taskId: "task-1", taskAction: "retry" },
       { action: "task", sessionId: "cowork-1", taskId: "task-1", taskAction: "review" },
+      { action: "loadAgentActivity", sessionId: "cowork-1" },
+      { action: "loadObservation", sessionId: "cowork-1", detailRef: "detail-1", requesterAgentId: "agent-1" },
       { action: "workUnit", sessionId: "cowork-1", workUnitId: "wu-1", workUnitAction: "retry" },
       { action: "workUnit", sessionId: "cowork-1", workUnitId: "wu-1", workUnitAction: "skip" },
       { action: "workUnit", sessionId: "cowork-1", workUnitId: "wu-1", workUnitAction: "cancel" },
       { action: "selectBranch", sessionId: "cowork-1", branchId: "branch-a" },
+      { action: "deriveBranch", sessionId: "cowork-1", sourceBranchId: "branch-a", targetArchitecture: "swarm" },
       { action: "selectBranchResult", sessionId: "cowork-1", branchId: "branch-a", resultId: "result-a" },
       { action: "mergeBranchResults", sessionId: "cowork-1", branchIds: ["branch-a", "branch-b"] },
+      { action: "selectFinalResult", sessionId: "cowork-1", branchId: "branch-a", resultId: "result-a" },
+      { action: "mergeFinalResult", sessionId: "cowork-1", branchIds: ["branch-a", "branch-b"] },
     ]);
   });
 

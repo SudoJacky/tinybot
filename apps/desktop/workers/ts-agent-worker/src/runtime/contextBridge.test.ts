@@ -35,6 +35,7 @@ describe("NativeContextBridge", () => {
   test("loads runtime, session history, user profile, and bootstrap files from native RPC", async () => {
     const rpcClient = new FakeRpcClient({
       "runtime.now": { current_time: "2026-06-10 09:00:00 Asia/Shanghai" },
+      "config.snapshot_public": { value: { agents: { defaults: { provider_retry_mode: "standard" } } } },
       "session.get_history": {
         session_id: "session-1",
         messages: [
@@ -59,8 +60,10 @@ describe("NativeContextBridge", () => {
 
     expect(rpcClient.calls.map((call) => call.method)).toEqual([
       "runtime.now",
+      "config.snapshot_public",
       "session.get_history",
       "workspace.read_bootstrap_files",
+      "skills.list",
     ]);
     expect(result.input).toMatchObject({
       identity: expect.stringContaining("TinyBot"),
@@ -86,9 +89,33 @@ describe("NativeContextBridge", () => {
     });
   });
 
+  test("loads provider retry mode from native config defaults for run input projection", async () => {
+    const rpcClient = new FakeRpcClient({
+      "runtime.now": { current_time: "fixed now" },
+      "config.snapshot_public": { value: { agents: { defaults: { provider_retry_mode: "persistent" } } } },
+      "session.get_history": { session_id: "session-1", messages: [] },
+      "workspace.read_bootstrap_files": { files: [], missing: [] },
+    });
+    const bridge = new NativeContextBridge(rpcClient);
+
+    const result = await bridge.loadContextInput(runInput({ providerRetryMode: undefined }), "trace-1");
+
+    expect(rpcClient.calls.map((call) => call.method)).toEqual([
+      "runtime.now",
+      "config.snapshot_public",
+      "session.get_history",
+      "workspace.read_bootstrap_files",
+      "skills.list",
+    ]);
+    expect((result as { runDefaults?: { providerRetryMode?: string } }).runDefaults).toEqual({
+      providerRetryMode: "persistent",
+    });
+  });
+
   test("preserves tool-call fields when normalizing session history", async () => {
     const rpcClient = new FakeRpcClient({
       "runtime.now": { current_time: "2026-06-10 09:00:00 Asia/Shanghai" },
+      "config.snapshot_public": { value: { agents: { defaults: { provider_retry_mode: "standard" } } } },
       "session.get_history": {
         session_id: "session-1",
         messages: [
@@ -150,9 +177,50 @@ describe("NativeContextBridge", () => {
     expect(result.metadata.malformedHistoryCount).toBe(0);
   });
 
+  test("projects latest task progress from session history into runtime context", async () => {
+    const rpcClient = new FakeRpcClient({
+      "runtime.now": { current_time: "2026-06-10 09:00:00 Asia/Shanghai" },
+      "config.snapshot_public": { value: { agents: { defaults: { provider_retry_mode: "standard" } } } },
+      "session.get_history": {
+        session_id: "session-1",
+        messages: [
+          {
+            role: "progress",
+            content: "Task Progress: Backend migration",
+            metadata: {
+              _task_event: true,
+              _task_progress: {
+                title: "Backend migration",
+                completed: 1,
+                total: 3,
+                in_progress: 1,
+                current_all: ["Runtime bridge", "Context parity"],
+              },
+            },
+          },
+          { role: "user", content: "Earlier" },
+        ],
+      },
+      "workspace.read_bootstrap_files": { files: [], missing: [] },
+    });
+    const bridge = new NativeContextBridge(rpcClient);
+
+    const result = await bridge.loadContextInput(runInput(), "trace-1");
+
+    expect(result.input.history).toEqual([{ role: "user", content: "Earlier" }]);
+    expect(result.input.runtime.activeTaskProgress).toEqual({
+      title: "Backend migration",
+      completed: 1,
+      total: 3,
+      inProgress: 1,
+      currentAll: ["Runtime bridge", "Context parity"],
+    });
+  });
+
   test("falls back to per-file bootstrap reads when the batch RPC is unavailable", async () => {
     const rpcClient = new FakeRpcClient({
       "runtime.now": { current_time: "fixed now" },
+      "config.snapshot_public": { value: { agents: { defaults: { provider_retry_mode: "standard" } } } },
       "session.get_history": new Error("session metadata not found"),
       "workspace.read_bootstrap_files": new Error("unknown worker method"),
       "workspace.read_file": { path: "AGENTS.md", contents: "Agent rules" },
@@ -163,12 +231,14 @@ describe("NativeContextBridge", () => {
 
     expect(rpcClient.calls.map((call) => call.method)).toEqual([
       "runtime.now",
+      "config.snapshot_public",
       "session.get_history",
       "workspace.read_bootstrap_files",
       "workspace.read_file",
       "workspace.read_file",
       "workspace.read_file",
       "workspace.read_file",
+      "skills.list",
     ]);
     expect(result.input.history).toEqual([]);
     expect(result.input.bootstrapFiles).toEqual([{ path: "AGENTS.md", contents: "Agent rules" }]);
@@ -176,5 +246,249 @@ describe("NativeContextBridge", () => {
       missingSession: true,
       bootstrapFallbackUsed: true,
     });
+  });
+
+  test("loads native-owned memory recall for run input context", async () => {
+    const rpcClient = new FakeRpcClient({
+      "runtime.now": { current_time: "fixed now" },
+      "config.snapshot_public": { value: { agents: { defaults: { provider_retry_mode: "standard" } } } },
+      "session.get_history": { session_id: "session-1", messages: [] },
+      "workspace.read_bootstrap_files": { files: [], missing: [] },
+      "memory.recall": {
+        context: "---\n[MEMORY RECALL]\n\n- User prefers concise implementation handoffs.\n---",
+        references: [
+          {
+            note_id: "note_pref",
+            scope: "user",
+            type: "preference",
+            status: "active",
+            content: "User prefers concise implementation handoffs.",
+            priority: 0.8,
+            confidence: 0.7,
+            tags: ["handoff"],
+            metadata: { source: "desktop" },
+            file: "memory/notes.jsonl",
+            line: 1,
+            view_file: "USER.md",
+            view_line: 12,
+          },
+        ],
+      },
+    });
+    const bridge = new NativeContextBridge(rpcClient);
+
+    const result = await bridge.loadContextInput(runInput({ input: { content: "Continue implementation" } }), "trace-1");
+
+    expect(rpcClient.calls).toContainEqual({
+      traceId: "trace-1",
+      method: "memory.recall",
+      params: {
+        query: "Continue implementation",
+        max_notes: 6,
+        max_chars: 1600,
+      },
+    });
+    expect(result.input.memoryNotes).toEqual([
+      {
+        id: "note_pref",
+        scope: "user",
+        type: "preference",
+        status: "active",
+        content: "User prefers concise implementation handoffs.",
+        priority: 0.8,
+        confidence: 0.7,
+        tags: ["handoff"],
+        metadata: { source: "desktop" },
+        file: "memory/notes.jsonl",
+        line: 1,
+        viewFile: "USER.md",
+        viewLine: 12,
+      },
+    ]);
+    expect(result.input.memoryRecallContext).toContain("[MEMORY RECALL]");
+    expect(result.input.memoryRecallContext).toContain("concise implementation handoffs");
+  });
+
+  test("loads native-owned knowledge context for run input context", async () => {
+    const knowledgeReferences = [
+      {
+        doc_id: "doc-1",
+        doc_name: "Runtime Context Notes",
+        chunk_id: "chunk_doc-1_0",
+        file_path: "knowledge/files/doc-1.md",
+        line_start: 1,
+        line_end: 3,
+        retrieval_method: "sparse",
+      },
+      {
+        doc_id: "session_doc_temp1",
+        doc_name: "Session Notes.md",
+        chunk_id: "session_doc_temp1",
+        file_path: "session://session-1/Session Notes.md",
+        line_start: 1,
+        line_end: 3,
+        retrieval_method: "session_temporary",
+        temporary: true,
+      },
+    ];
+    const rpcClient = new FakeRpcClient({
+      "runtime.now": { current_time: "fixed now" },
+      "config.snapshot_public": { value: { agents: { defaults: { provider_retry_mode: "standard" } } } },
+      "session.get_history": { session_id: "session-1", messages: [] },
+      "workspace.read_bootstrap_files": { files: [], missing: [] },
+      "knowledge.context": {
+        context: [
+          "---",
+          "[RELEVANT KNOWLEDGE]",
+          "",
+          "Treat these results as contextual evidence.",
+          "",
+          "- Runtime Context Notes: Native context.",
+          "---",
+        ].join("\n"),
+        persistent_results: [{ doc_id: "doc-1", doc_name: "Runtime Context Notes" }],
+        session_results: [{ id: "session_doc_temp1", temporary: true }],
+        references: knowledgeReferences,
+      },
+    });
+    const bridge = new NativeContextBridge(rpcClient);
+
+    const result = await bridge.loadContextInput(runInput({ input: { content: "Use retrieval evidence" } }), "trace-1");
+
+    expect(rpcClient.calls).toContainEqual({
+      traceId: "trace-1",
+      method: "knowledge.context",
+      params: {
+        current_message: "Use retrieval evidence",
+        session_key: "session-1",
+        max_chunks: 5,
+        use_persistent_knowledge: true,
+      },
+    });
+    expect(result.input.knowledgeContext).toContain("[RELEVANT KNOWLEDGE]");
+    expect(result.input.knowledgeReferences).toEqual(knowledgeReferences);
+  });
+
+  test("loads session temporary knowledge context without enabling persistent retrieval", async () => {
+    const rpcClient = new FakeRpcClient({
+      "runtime.now": { current_time: "fixed now" },
+      "config.snapshot_public": { value: { agents: { defaults: { provider_retry_mode: "standard" } } } },
+      "session.get_history": { session_id: "session-1", messages: [] },
+      "workspace.read_bootstrap_files": { files: [], missing: [] },
+      "knowledge.context": {
+        context: [
+          "---",
+          "[RELEVANT KNOWLEDGE]",
+          "",
+          "[Current session temporary files]",
+          "- Session Notes.md: Uploaded notes.",
+          "---",
+        ].join("\n"),
+        persistent_results: [],
+        session_results: [{ id: "session_doc_temp1", temporary: true }],
+        references: [
+          {
+            doc_id: "session_doc_temp1",
+            doc_name: "Session Notes.md",
+            chunk_id: "session_doc_temp1",
+            file_path: "session://session-1/Session Notes.md",
+            line_start: 1,
+            line_end: 2,
+            retrieval_method: "session_temporary",
+            temporary: true,
+          },
+        ],
+      },
+    });
+    const bridge = new NativeContextBridge(rpcClient);
+
+    const result = await bridge.loadContextInput(runInput({ input: { content: "Summarize this" } }), "trace-1");
+
+    expect(rpcClient.calls).toContainEqual({
+      traceId: "trace-1",
+      method: "knowledge.context",
+      params: {
+        current_message: "Summarize this",
+        session_key: "session-1",
+        max_chunks: 5,
+        use_persistent_knowledge: false,
+      },
+    });
+    expect(result.input.knowledgeContext).toContain("[Current session temporary files]");
+    expect(result.input.knowledgeReferences).toEqual([
+      {
+        doc_id: "session_doc_temp1",
+        doc_name: "Session Notes.md",
+        chunk_id: "session_doc_temp1",
+        file_path: "session://session-1/Session Notes.md",
+        line_start: 1,
+        line_end: 2,
+        retrieval_method: "session_temporary",
+        temporary: true,
+      },
+    ]);
+  });
+
+  test("loads enabled skills context from native skills list", async () => {
+    const rpcClient = new FakeRpcClient({
+      "runtime.now": { current_time: "fixed now" },
+      "config.snapshot_public": {
+        value: {
+          agents: { defaults: { provider_retry_mode: "standard" } },
+          skills: { enabled: ["planner"] },
+        },
+      },
+      "session.get_history": { session_id: "session-1", messages: [] },
+      "workspace.read_bootstrap_files": { files: [], missing: [] },
+      "skills.list": {
+        skills: [
+          {
+            name: "planner",
+            path: "skills/planner/SKILL.md",
+            source: "workspace",
+            content: [
+              "---",
+              "name: planner",
+              "description: Plan work",
+              "always: true",
+              "---",
+              "Plan the work.",
+            ].join("\n"),
+          },
+          {
+            name: "tmux",
+            path: "tinybot/skills/tmux/SKILL.md",
+            source: "builtin",
+            content: [
+              "---",
+              "name: tmux",
+              "description: Terminal sessions",
+              "metadata: '{\"tinybot\":{\"requires\":{\"bins\":[\"definitely_missing_tinybot_bin\"],\"env\":[\"DEFINITELY_MISSING_TINYBOT_ENV\"]}}}'",
+              "---",
+              "Use tmux.",
+            ].join("\n"),
+          },
+        ],
+      },
+    });
+    const bridge = new NativeContextBridge(rpcClient);
+
+    const result = await bridge.loadContextInput(runInput(), "trace-1");
+
+    expect(rpcClient.calls.map((call) => call.method)).toEqual([
+      "runtime.now",
+      "config.snapshot_public",
+      "session.get_history",
+      "workspace.read_bootstrap_files",
+      "skills.list",
+    ]);
+    expect(result.input.skills).toMatchObject({
+      activeSkillsContent: "### Skill: planner\n\nPlan the work.",
+      alwaysSkillNames: ["planner"],
+      sourceCounts: { workspace: 1, builtin: 1 },
+      unavailableCount: 1,
+    });
+    expect(result.input.skills?.skillsSummary).toContain("<name>planner</name>");
+    expect(result.input.skills?.skillsSummary).not.toContain("<name>tmux</name>");
   });
 });

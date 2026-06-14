@@ -31,8 +31,28 @@ pub enum WorkerCapability {
     MemoryRead,
     #[serde(rename = "memory.write")]
     MemoryWrite,
+    #[serde(rename = "knowledge.read")]
+    KnowledgeRead,
+    #[serde(rename = "knowledge.write")]
+    KnowledgeWrite,
+    #[serde(rename = "task.read")]
+    TaskRead,
+    #[serde(rename = "task.write")]
+    TaskWrite,
+    #[serde(rename = "cron.read")]
+    CronRead,
+    #[serde(rename = "cron.write")]
+    CronWrite,
+    #[serde(rename = "cron.run")]
+    CronRun,
+    #[serde(rename = "background.read")]
+    BackgroundRead,
+    #[serde(rename = "background.write")]
+    BackgroundWrite,
     #[serde(rename = "mcp.call")]
     McpCall,
+    #[serde(rename = "channel.connector")]
+    ChannelConnector,
     #[serde(rename = "shell.execute")]
     ShellExecute,
 }
@@ -78,6 +98,13 @@ mod tests {
         assert!(!policy.allows(&WorkerCapability::FormRequest));
         assert!(!policy.allows(&WorkerCapability::MemoryRead));
         assert!(!policy.allows(&WorkerCapability::MemoryWrite));
+        assert!(!policy.allows(&WorkerCapability::TaskRead));
+        assert!(!policy.allows(&WorkerCapability::TaskWrite));
+        assert!(!policy.allows(&WorkerCapability::CronRead));
+        assert!(!policy.allows(&WorkerCapability::CronWrite));
+        assert!(!policy.allows(&WorkerCapability::CronRun));
+        assert!(!policy.allows(&WorkerCapability::BackgroundRead));
+        assert!(!policy.allows(&WorkerCapability::BackgroundWrite));
         assert!(!policy.allows(&WorkerCapability::McpCall));
         assert!(!policy.allows(&WorkerCapability::ShellExecute));
     }
@@ -190,6 +217,125 @@ mod tests {
             json!({
                 "capability": "memory.write",
                 "scope": "memory://notes"
+            })
+        );
+    }
+
+    #[test]
+    fn background_capability_names_serialize_as_protocol_strings() {
+        let read = CapabilityGrant {
+            capability: WorkerCapability::BackgroundRead,
+            scope: "background://registry".to_string(),
+        };
+        let write = CapabilityGrant {
+            capability: WorkerCapability::BackgroundWrite,
+            scope: "background://registry".to_string(),
+        };
+
+        assert_eq!(
+            serde_json::to_value(read).expect("grant should serialize"),
+            json!({
+                "capability": "background.read",
+                "scope": "background://registry"
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(write).expect("grant should serialize"),
+            json!({
+                "capability": "background.write",
+                "scope": "background://registry"
+            })
+        );
+    }
+
+    #[test]
+    fn knowledge_capability_names_serialize_as_protocol_strings() {
+        let read_grant = CapabilityGrant {
+            capability: WorkerCapability::KnowledgeRead,
+            scope: "knowledge://workspace".to_string(),
+        };
+        let write_grant = CapabilityGrant {
+            capability: WorkerCapability::KnowledgeWrite,
+            scope: "knowledge://workspace".to_string(),
+        };
+
+        assert_eq!(
+            serde_json::to_value(read_grant).expect("grant should serialize"),
+            json!({
+                "capability": "knowledge.read",
+                "scope": "knowledge://workspace"
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(write_grant).expect("grant should serialize"),
+            json!({
+                "capability": "knowledge.write",
+                "scope": "knowledge://workspace"
+            })
+        );
+    }
+
+    #[test]
+    fn task_capability_names_serialize_as_protocol_strings() {
+        let read_grant = CapabilityGrant {
+            capability: WorkerCapability::TaskRead,
+            scope: "task://plans".to_string(),
+        };
+        let write_grant = CapabilityGrant {
+            capability: WorkerCapability::TaskWrite,
+            scope: "task://plans".to_string(),
+        };
+
+        assert_eq!(
+            serde_json::to_value(read_grant).expect("grant should serialize"),
+            json!({
+                "capability": "task.read",
+                "scope": "task://plans"
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(write_grant).expect("grant should serialize"),
+            json!({
+                "capability": "task.write",
+                "scope": "task://plans"
+            })
+        );
+    }
+
+    #[test]
+    fn cron_capability_names_serialize_as_protocol_strings() {
+        let read_grant = CapabilityGrant {
+            capability: WorkerCapability::CronRead,
+            scope: "cron://jobs".to_string(),
+        };
+        let write_grant = CapabilityGrant {
+            capability: WorkerCapability::CronWrite,
+            scope: "cron://jobs".to_string(),
+        };
+        let run_grant = CapabilityGrant {
+            capability: WorkerCapability::CronRun,
+            scope: "cron://jobs".to_string(),
+        };
+
+        assert_eq!(
+            serde_json::to_value(read_grant).expect("grant should serialize"),
+            json!({
+                "capability": "cron.read",
+                "scope": "cron://jobs"
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(write_grant).expect("grant should serialize"),
+            json!({
+                "capability": "cron.write",
+                "scope": "cron://jobs"
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(run_grant).expect("grant should serialize"),
+            json!({
+                "capability": "cron.run",
+                "scope": "cron://jobs"
             })
         );
     }

@@ -26,8 +26,15 @@ function toolAllowedByPolicy(tool: Tool, capabilities: Set<string>, channel: str
   if (!requiredCapabilities.every((capability) => capabilities.has(capability))) {
     return false;
   }
-  if (tool.name === "request_form" && channel !== undefined && channel !== "agent_ui") {
+  if (tool.requiresApproval && !capabilities.has("approval.request")) {
+    return false;
+  }
+  if (requiresInteractiveChannel(tool) && channel !== undefined && channel !== "agent_ui") {
     return false;
   }
   return true;
+}
+
+function requiresInteractiveChannel(tool: Tool): boolean {
+  return tool.name === "request_form" || tool.name === "request_approval" || tool.requiresApproval === true;
 }

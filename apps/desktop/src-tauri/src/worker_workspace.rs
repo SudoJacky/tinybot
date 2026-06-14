@@ -3,7 +3,10 @@ use crate::worker_protocol::{
     WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource,
 };
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    time::UNIX_EPOCH,
+};
 
 const BOOTSTRAP_FILES: &[&str] = &["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md"];
 const DEFAULT_READ_LIMIT: usize = 2000;
@@ -62,6 +65,7 @@ impl WorkerWorkspaceRpc {
         Ok(WorkspaceFileContent {
             path: resolved.relative_path,
             contents,
+            updated_at: workspace_updated_at(&resolved.absolute_path),
         })
     }
 
@@ -76,6 +80,7 @@ impl WorkerWorkspaceRpc {
                 path: file.path,
                 contents: file.contents.clone(),
                 content: file.contents,
+                updated_at: file.updated_at,
                 content_type: "text".to_string(),
                 line_start: None,
                 line_end: None,
@@ -89,6 +94,7 @@ impl WorkerWorkspaceRpc {
                         path: file.path,
                         contents: file.contents,
                         content: format!("(Empty file: {requested_path})"),
+                        updated_at: file.updated_at,
                         content_type: "text".to_string(),
                         line_start: Some(1),
                         line_end: Some(0),
@@ -131,6 +137,7 @@ impl WorkerWorkspaceRpc {
                     path: file.path,
                     contents: file.contents,
                     content,
+                    updated_at: file.updated_at,
                     content_type: "text".to_string(),
                     line_start: Some(offset),
                     line_end: Some(line_end),
@@ -219,15 +226,95 @@ impl WorkerWorkspaceRpc {
         })
     }
 
+    pub fn list_skills(&self) -> Result<WorkspaceSkillsList, WorkerProtocolError> {
+        self.require(WorkerCapability::FsWorkspaceRead)?;
+        let root = canonicalize_workspace_root(&self.root)?;
+        let mut skills = Vec::new();
+        let mut seen_names = Vec::new();
+        collect_skill_entries(&root, "skills", "workspace", &mut skills, &mut seen_names)?;
+        collect_skill_entries(
+            &root,
+            "tinybot/skills",
+            "builtin",
+            &mut skills,
+            &mut seen_names,
+        )?;
+        Ok(WorkspaceSkillsList { skills })
+    }
+
     pub fn write_file(
         &self,
         requested_path: &str,
         contents: &str,
     ) -> Result<WorkspaceWriteResult, WorkerProtocolError> {
+        self.write_file_with_expected(requested_path, contents, None)
+    }
+
+    pub fn create_dir(
+        &self,
+        requested_path: &str,
+    ) -> Result<WorkspaceCreateDirResult, WorkerProtocolError> {
+        self.require(WorkerCapability::FsWorkspaceWrite)?;
+        let relative_path = normalize_workspace_dir_path(requested_path)?;
+        if relative_path == "." || relative_path == ".git" || relative_path.starts_with(".git/") {
+            return Err(WorkerProtocolError::new(
+                WorkerProtocolErrorCode::InvalidProtocol,
+                "refusing to create protected workspace path",
+                serde_json::json!({ "path": relative_path }),
+                false,
+                WorkerProtocolErrorSource::RustCore,
+            ));
+        }
+        let absolute_path = workspace_dir_absolute_path(&self.root, &relative_path);
+        ensure_write_target_inside_workspace(&self.root, &absolute_path)?;
+        std::fs::create_dir_all(&absolute_path).map_err(|error| {
+            filesystem_error(
+                "failed to create workspace directory",
+                serde_json::json!({
+                    "path": relative_path,
+                    "error": error.to_string(),
+                }),
+            )
+        })?;
+        ensure_inside_workspace(&self.root, &absolute_path)?;
+        if !absolute_path.is_dir() {
+            return Err(filesystem_error(
+                "workspace path is not a directory",
+                serde_json::json!({ "path": relative_path }),
+            ));
+        }
+        Ok(WorkspaceCreateDirResult {
+            path: relative_path,
+            kind: "dir".to_string(),
+            created: true,
+        })
+    }
+
+    pub fn write_file_with_expected(
+        &self,
+        requested_path: &str,
+        contents: &str,
+        expected_updated_at: Option<&str>,
+    ) -> Result<WorkspaceWriteResult, WorkerProtocolError> {
         self.require(WorkerCapability::FsWorkspaceWrite)?;
         let relative_path = normalize_workspace_path(requested_path)?;
         let absolute_path = join_workspace_relative(&self.root, &relative_path);
         ensure_write_target_inside_workspace(&self.root, &absolute_path)?;
+        let current_updated_at = workspace_updated_at(&absolute_path);
+        if let Some(expected) = expected_updated_at {
+            if current_updated_at.as_deref() != Some(expected) {
+                return Err(WorkerProtocolError::new(
+                    WorkerProtocolErrorCode::InvalidProtocol,
+                    "version conflict",
+                    serde_json::json!({
+                        "path": relative_path,
+                        "updated_at": current_updated_at,
+                    }),
+                    false,
+                    WorkerProtocolErrorSource::RustCore,
+                ));
+            }
+        }
         if let Some(parent) = absolute_path.parent() {
             std::fs::create_dir_all(parent).map_err(|error| {
                 filesystem_error(
@@ -252,6 +339,7 @@ impl WorkerWorkspaceRpc {
         Ok(WorkspaceWriteResult {
             path: relative_path,
             bytes_written: contents.len() as u64,
+            updated_at: workspace_updated_at(&absolute_path),
         })
     }
 
@@ -301,7 +389,11 @@ impl WorkerWorkspaceRpc {
                 })?;
             } else {
                 std::fs::remove_dir(&absolute_path).map_err(|error| {
-                    let message = if absolute_path.read_dir().map(|mut items| items.next().is_some()).unwrap_or(false) {
+                    let message = if absolute_path
+                        .read_dir()
+                        .map(|mut items| items.next().is_some())
+                        .unwrap_or(false)
+                    {
                         "workspace directory is not empty"
                     } else {
                         "failed to delete workspace directory"
@@ -367,6 +459,7 @@ pub struct WorkspaceResolvedPath {
 pub struct WorkspaceFileContent {
     pub path: String,
     pub contents: String,
+    pub updated_at: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
@@ -387,6 +480,7 @@ pub struct WorkspaceReadFileResult {
     pub path: String,
     pub contents: String,
     pub content: String,
+    pub updated_at: Option<String>,
     pub content_type: String,
     pub line_start: Option<usize>,
     pub line_end: Option<usize>,
@@ -398,6 +492,7 @@ pub struct WorkspaceReadFileResult {
 pub struct WorkspaceFileEntry {
     pub path: String,
     pub size_bytes: u64,
+    pub updated_at: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
@@ -422,9 +517,30 @@ pub struct WorkspaceBootstrapFiles {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct WorkspaceSkillEntry {
+    pub name: String,
+    pub path: String,
+    pub source: String,
+    pub content: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct WorkspaceSkillsList {
+    pub skills: Vec<WorkspaceSkillEntry>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct WorkspaceWriteResult {
     pub path: String,
     pub bytes_written: u64,
+    pub updated_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct WorkspaceCreateDirResult {
+    pub path: String,
+    pub kind: String,
+    pub created: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
@@ -474,10 +590,17 @@ fn collect_workspace_files(
             entries.push(WorkspaceFileEntry {
                 path: workspace_relative_path(root, &path)?,
                 size_bytes: metadata.len(),
+                updated_at: workspace_updated_at(&path),
             });
         }
     }
     Ok(())
+}
+
+fn workspace_updated_at(path: &Path) -> Option<String> {
+    let modified = std::fs::metadata(path).ok()?.modified().ok()?;
+    let duration = modified.duration_since(UNIX_EPOCH).ok()?;
+    Some(duration.as_millis().to_string())
 }
 
 fn collect_workspace_dir_entries(
@@ -546,6 +669,90 @@ fn ignored_workspace_path(base: &Path, path: &Path) -> bool {
             })
         })
         .unwrap_or(false)
+}
+
+fn collect_skill_entries(
+    root: &Path,
+    relative_dir: &str,
+    source: &str,
+    skills: &mut Vec<WorkspaceSkillEntry>,
+    seen_names: &mut Vec<String>,
+) -> Result<(), WorkerProtocolError> {
+    let absolute_dir = workspace_dir_absolute_path(root, relative_dir);
+    if !absolute_dir.exists() || !absolute_dir.is_dir() {
+        return Ok(());
+    }
+    ensure_inside_canonical_workspace(root, &absolute_dir)?;
+
+    let mut entries = std::fs::read_dir(&absolute_dir)
+        .map_err(|error| {
+            filesystem_error(
+                "failed to list skills directory",
+                serde_json::json!({
+                    "path": relative_dir,
+                    "error": error.to_string(),
+                }),
+            )
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| {
+            filesystem_error(
+                "failed to inspect skills directory entry",
+                serde_json::json!({ "error": error.to_string() }),
+            )
+        })?;
+    entries.sort_by_key(|entry| entry.file_name());
+
+    for entry in entries {
+        let path = entry.path();
+        let metadata = std::fs::symlink_metadata(&path).map_err(|error| {
+            filesystem_error(
+                "failed to read skill metadata",
+                serde_json::json!({
+                    "path": path.display().to_string(),
+                    "error": error.to_string(),
+                }),
+            )
+        })?;
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        if seen_names.iter().any(|seen| seen == &name) {
+            continue;
+        }
+        let skill_file = path.join("SKILL.md");
+        if !skill_file.is_file() {
+            continue;
+        }
+        ensure_inside_canonical_workspace(root, &skill_file)?;
+        let canonical_skill_file = skill_file.canonicalize().map_err(|error| {
+            filesystem_error(
+                "failed to resolve skill file",
+                serde_json::json!({
+                    "path": skill_file.display().to_string(),
+                    "error": error.to_string(),
+                }),
+            )
+        })?;
+        let content = std::fs::read_to_string(&canonical_skill_file).map_err(|error| {
+            filesystem_error(
+                "failed to read skill file",
+                serde_json::json!({
+                    "path": skill_file.display().to_string(),
+                    "error": error.to_string(),
+                }),
+            )
+        })?;
+        seen_names.push(name.clone());
+        skills.push(WorkspaceSkillEntry {
+            name,
+            path: workspace_relative_path(root, &canonical_skill_file)?,
+            source: source.to_string(),
+            content,
+        });
+    }
+    Ok(())
 }
 
 fn normalize_workspace_path(requested_path: &str) -> Result<String, WorkerProtocolError> {
@@ -735,6 +942,7 @@ mod tests {
 
         assert_eq!(file.path, "AGENTS.md");
         assert_eq!(file.contents, "hello worker");
+        assert!(file.updated_at.is_some());
     }
 
     #[test]
@@ -745,9 +953,10 @@ mod tests {
         let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_policy());
 
         let files = rpc.list_files().expect("workspace files should list");
-        let paths: Vec<String> = files.into_iter().map(|file| file.path).collect();
+        let paths: Vec<String> = files.iter().map(|file| file.path.clone()).collect();
 
         assert_eq!(paths, vec!["AGENTS.md", "memory/MEMORY.md"]);
+        assert!(files.iter().all(|file| file.updated_at.is_some()));
     }
 
     #[test]
@@ -758,16 +967,20 @@ mod tests {
         let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_policy());
 
         let result = rpc
-            .read_bootstrap_files(&["AGENTS.md".to_string(), "TOOLS.md".to_string(), "USER.md".to_string()])
+            .read_bootstrap_files(&[
+                "AGENTS.md".to_string(),
+                "TOOLS.md".to_string(),
+                "USER.md".to_string(),
+            ])
             .expect("bootstrap files should read");
 
-        assert_eq!(
-            result.files,
-            vec![
-                WorkspaceFileContent { path: "AGENTS.md".to_string(), contents: "agent rules".to_string() },
-                WorkspaceFileContent { path: "USER.md".to_string(), contents: "user rules".to_string() },
-            ]
-        );
+        assert_eq!(result.files.len(), 2);
+        assert_eq!(result.files[0].path, "AGENTS.md");
+        assert_eq!(result.files[0].contents, "agent rules");
+        assert!(result.files[0].updated_at.is_some());
+        assert_eq!(result.files[1].path, "USER.md");
+        assert_eq!(result.files[1].contents, "user rules");
+        assert!(result.files[1].updated_at.is_some());
         assert_eq!(result.missing, vec!["TOOLS.md"]);
     }
 
@@ -819,7 +1032,10 @@ mod tests {
             .expect("workspace path should resolve");
 
         assert_eq!(resolved.relative_path, "memory/MEMORY.md");
-        assert_eq!(resolved.absolute_path, fixture.root.join("memory").join("MEMORY.md"));
+        assert_eq!(
+            resolved.absolute_path,
+            fixture.root.join("memory").join("MEMORY.md")
+        );
     }
 
     #[test]
@@ -840,8 +1056,12 @@ mod tests {
         std::fs::write(&outside, "secret").expect("outside fixture should write");
 
         #[cfg(target_os = "windows")]
-        std::os::windows::fs::symlink_file(&outside, fixture.root.join("linked-secret.txt"))
-            .expect("symlink should create");
+        if let Err(error) =
+            std::os::windows::fs::symlink_file(&outside, fixture.root.join("linked-secret.txt"))
+        {
+            eprintln!("skipping symlink test because symlink creation failed: {error}");
+            return;
+        }
 
         #[cfg(not(target_os = "windows"))]
         std::os::unix::fs::symlink(&outside, fixture.root.join("linked-secret.txt"))
@@ -901,6 +1121,26 @@ mod tests {
     }
 
     #[test]
+    fn create_dir_creates_nested_directory_inside_workspace() {
+        let fixture = WorkspaceFixture::new();
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), write_policy());
+
+        let created = rpc
+            .create_dir("skills/planner/scripts")
+            .expect("directory create should succeed");
+
+        assert_eq!(created.path, "skills/planner/scripts");
+        assert_eq!(created.kind, "dir");
+        assert!(created.created);
+        assert!(fixture
+            .root
+            .join("skills")
+            .join("planner")
+            .join("scripts")
+            .is_dir());
+    }
+
+    #[test]
     fn write_file_rejects_traversal_and_absolute_paths() {
         let fixture = WorkspaceFixture::new();
         let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), write_policy());
@@ -918,8 +1158,12 @@ mod tests {
         std::fs::write(&outside, "secret").expect("outside fixture should write");
 
         #[cfg(target_os = "windows")]
-        std::os::windows::fs::symlink_file(&outside, fixture.root.join("linked-secret.txt"))
-            .expect("symlink should create");
+        if let Err(error) =
+            std::os::windows::fs::symlink_file(&outside, fixture.root.join("linked-secret.txt"))
+        {
+            eprintln!("skipping symlink test because symlink creation failed: {error}");
+            return;
+        }
 
         #[cfg(not(target_os = "windows"))]
         std::os::unix::fs::symlink(&outside, fixture.root.join("linked-secret.txt"))
@@ -956,7 +1200,10 @@ mod tests {
             .expect("paginated file should read");
 
         assert_eq!(file.path, "notes/today.md");
-        assert_eq!(file.content, "2| two\n3| three\n\n(Showing lines 2-3 of 4. Use offset=4 to continue.)");
+        assert_eq!(
+            file.content,
+            "2| two\n3| three\n\n(Showing lines 2-3 of 4. Use offset=4 to continue.)"
+        );
         assert_eq!(file.content_type, "text");
         assert_eq!(file.line_start, Some(2));
         assert_eq!(file.line_end, Some(3));
@@ -975,7 +1222,11 @@ mod tests {
         let listing = rpc
             .list_dir(".", true, Some(10))
             .expect("workspace directory should list");
-        let paths: Vec<String> = listing.entries.into_iter().map(|entry| entry.path).collect();
+        let paths: Vec<String> = listing
+            .entries
+            .into_iter()
+            .map(|entry| entry.path)
+            .collect();
 
         assert_eq!(paths, vec!["README.md", "src/", "src/main.ts"]);
         assert_eq!(listing.path, ".");
@@ -992,10 +1243,17 @@ mod tests {
         let listing = rpc
             .list_dir("src", true, Some(10))
             .expect("subdirectory should list");
-        let paths: Vec<String> = listing.entries.into_iter().map(|entry| entry.path).collect();
+        let paths: Vec<String> = listing
+            .entries
+            .into_iter()
+            .map(|entry| entry.path)
+            .collect();
 
         assert_eq!(listing.path, "src");
-        assert_eq!(paths, vec!["src/components/", "src/components/button.ts", "src/main.ts"]);
+        assert_eq!(
+            paths,
+            vec!["src/components/", "src/components/button.ts", "src/main.ts"]
+        );
     }
 
     #[test]
@@ -1052,7 +1310,9 @@ mod tests {
         }
 
         fn write(&self, relative_path: &str, contents: &str) {
-            let path = self.root.join(relative_path.replace('/', std::path::MAIN_SEPARATOR_STR));
+            let path = self
+                .root
+                .join(relative_path.replace('/', std::path::MAIN_SEPARATOR_STR));
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent).expect("fixture parent should create");
             }

@@ -30,6 +30,11 @@ export type ProviderCatalogEntry = {
   detectByBaseKeyword?: string;
 };
 
+type ProviderCatalogEntryInput =
+  & Omit<Partial<ProviderCatalogEntry>, "requestTraits">
+  & Pick<ProviderCatalogEntry, "id" | "displayName">
+  & { requestTraits?: Partial<RequestTraits> };
+
 const DEFAULT_REQUEST_TRAITS: RequestTraits = {
   tokenParameter: "max_tokens",
   temperaturePolicy: "standard",
@@ -407,7 +412,7 @@ export function isCustomProvider(entry: ProviderCatalogEntry | undefined): boole
   return Boolean(entry?.categories.includes("custom"));
 }
 
-function entry(value: Partial<ProviderCatalogEntry> & Pick<ProviderCatalogEntry, "id" | "displayName">): ProviderCatalogEntry {
+function entry(value: ProviderCatalogEntryInput): ProviderCatalogEntry {
   return {
     aliases: [],
     categories: ["built_in"],

@@ -38,6 +38,28 @@ describe("toolPolicy", () => {
     expect(filterToolsByPolicy([formTool], { capabilities: ["form.request"], channel: "stdio" })).toEqual([]);
   });
 
+  test("filters approval-gated tools when approval capability is missing", () => {
+    const writeTool = {
+      ...tool("write_file", ["fs.workspace.write"]),
+      requiresApproval: true,
+    };
+
+    expect(filterToolsByPolicy([writeTool], { capabilities: ["fs.workspace.write"], channel: "agent_ui" })).toEqual([]);
+    expect(filterToolsByPolicy([writeTool], {
+      capabilities: ["fs.workspace.write", "approval.request"],
+      channel: "agent_ui",
+    })).toEqual([writeTool]);
+  });
+
+  test("keeps approval tools only for channels that can resolve approvals", () => {
+    const approvalTool = tool("request_approval", ["approval.request"]);
+
+    expect(filterToolsByPolicy([approvalTool], { capabilities: ["approval.request"], channel: "agent_ui" })).toEqual([
+      approvalTool,
+    ]);
+    expect(filterToolsByPolicy([approvalTool], { capabilities: ["approval.request"], channel: "stdio" })).toEqual([]);
+  });
+
   test("registers only policy-enabled tools", () => {
     const registry = new ToolRegistry();
 

@@ -50,6 +50,42 @@ class TestConfig:
         assert mock_config.agents.defaults.model == "gpt-4o-mini"
         assert mock_config.providers.openai.api_key == "test-api-key-12345"
 
+    def test_desktop_ts_cowork_runtime_rollout_defaults_and_aliases(self):
+        default_config = Config.model_validate({})
+        assert default_config.desktop.ts_cowork_runtime.enabled is True
+        assert default_config.desktop.ts_cowork_runtime.read_only_snapshot is True
+        assert default_config.desktop.ts_cowork_runtime.mutations is True
+        assert default_config.desktop.ts_cowork_runtime.scheduler is True
+        assert default_config.desktop.ts_cowork_runtime.swarm is True
+        assert default_config.desktop.ts_cowork_runtime.fallback_to_python is False
+
+        config = Config.model_validate(
+            {
+                "desktop": {
+                    "tsCoworkRuntime": {
+                        "enabled": True,
+                        "readOnlySnapshot": True,
+                        "mutations": True,
+                        "scheduler": False,
+                        "swarm": False,
+                        "fallbackToPython": True,
+                    }
+                }
+            }
+        )
+
+        assert config.desktop.ts_cowork_runtime.enabled is True
+        assert config.desktop.ts_cowork_runtime.read_only_snapshot is True
+        dumped = config.model_dump(mode="json", by_alias=True)
+        assert dumped["desktop"]["tsCoworkRuntime"] == {
+            "enabled": True,
+            "readOnlySnapshot": True,
+            "mutations": True,
+            "scheduler": False,
+            "swarm": False,
+            "fallbackToPython": True,
+        }
+
     def test_workspace_path(self, mock_config, temp_workspace):
         assert mock_config.workspace_path == temp_workspace
 

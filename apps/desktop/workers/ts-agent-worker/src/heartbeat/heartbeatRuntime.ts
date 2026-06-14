@@ -1,0 +1,169 @@
+import type { AgentRunResult, AgentRunSpec } from "../agent/agentRunSpec.ts";
+import type { AgentRunner } from "../agent/agentRunner.ts";
+import type { ModelProvider } from "../model/provider.ts";
+import { evaluateNotificationDecision } from "../support/evaluator.ts";
+import { decideHeartbeat } from "./heartbeatDecision.ts";
+import { HeartbeatService } from "./heartbeatService.ts";
+import type { HeartbeatStatus, HeartbeatTickResult } from "./heartbeatTypes.ts";
+import type { HeartbeatTarget } from "./heartbeatTarget.ts";
+
+type HeartbeatTargetSelector = () => HeartbeatTarget | Promise<HeartbeatTarget>;
+type HeartbeatKeepRecentMessages = number | (() => number | Promise<number>);
+type HeartbeatRuntimeConfigResolver = () => Promise<HeartbeatRuntimeConfig> | HeartbeatRuntimeConfig;
+type HeartbeatCurrentTime = () => string | Promise<string>;
+
+export type HeartbeatRuntimeConfig = {
+  enabled?: boolean;
+  intervalMs?: number;
+};
+
+export type HeartbeatRuntimeOptions = {
+  model: string;
+  provider: ModelProvider;
+  runner: Pick<AgentRunner, "run">;
+  readHeartbeatFile: () => Promise<string | null | undefined> | string | null | undefined;
+  selectTarget: HeartbeatTargetSelector;
+  currentTime: HeartbeatCurrentTime;
+  evaluateResponse?: (input: { response: string; taskContext: string }) => Promise<boolean> | boolean;
+  notifyExternal?: (input: {
+    channel: string;
+    chatId: string;
+    content: string;
+    tasks: string;
+  }) => Promise<void> | void;
+  trimHeartbeatSession?: (keepRecentMessages: number) => Promise<void> | void;
+  keepRecentMessages?: HeartbeatKeepRecentMessages;
+  config?: HeartbeatRuntimeConfigResolver;
+  enabled?: boolean;
+  intervalMs?: number;
+  maxIterations?: number;
+  idGenerator?: () => string;
+};
+
+export class HeartbeatRuntime {
+  private readonly model: string;
+  private readonly provider: ModelProvider;
+  private readonly runner: Pick<AgentRunner, "run">;
+  private readonly selectTarget: HeartbeatTargetSelector;
+  private readonly notifyExternal?: HeartbeatRuntimeOptions["notifyExternal"];
+  private readonly trimHeartbeatSession?: HeartbeatRuntimeOptions["trimHeartbeatSession"];
+  private readonly keepRecentMessages: HeartbeatKeepRecentMessages;
+  private readonly config?: HeartbeatRuntimeConfigResolver;
+  private readonly maxIterations: number;
+  private readonly idGenerator: () => string;
+  private readonly service: HeartbeatService;
+
+  constructor(options: HeartbeatRuntimeOptions) {
+    this.model = options.model;
+    this.provider = options.provider;
+    this.runner = options.runner;
+    this.selectTarget = options.selectTarget;
+    this.notifyExternal = options.notifyExternal;
+    this.trimHeartbeatSession = options.trimHeartbeatSession;
+    this.keepRecentMessages = options.keepRecentMessages ?? 8;
+    this.config = options.config;
+    this.maxIterations = Math.max(1, options.maxIterations ?? 4);
+    this.idGenerator = options.idGenerator ?? randomHeartbeatRunId;
+    this.service = new HeartbeatService({
+      readHeartbeatFile: options.readHeartbeatFile,
+      decide: async ({ content }) => decideHeartbeat({
+        provider: options.provider,
+        model: this.model,
+        content,
+        currentTime: await options.currentTime(),
+      }),
+      executeTasks: ({ tasks }) => this.executeTasks(tasks),
+      evaluateResponse: options.evaluateResponse ?? (({ response, taskContext }) => this.evaluateResponse(response, taskContext)),
+      notify: ({ response, tasks }) => this.notify(response, tasks),
+      enabled: options.enabled,
+      intervalMs: options.intervalMs,
+    });
+  }
+
+  async start(): Promise<boolean> {
+    await this.refreshConfig();
+    return this.service.start();
+  }
+
+  stop(): void {
+    this.service.stop();
+  }
+
+  tick(): Promise<HeartbeatTickResult> {
+    return this.service.tick();
+  }
+
+  triggerNow(): Promise<HeartbeatTickResult> {
+    return this.service.triggerNow();
+  }
+
+  getStatus(): HeartbeatStatus {
+    return this.service.getStatus();
+  }
+
+  async refreshConfig(): Promise<HeartbeatStatus> {
+    if (this.config) {
+      this.service.configure(await this.config());
+    }
+    return this.service.getStatus();
+  }
+
+  private async executeTasks(tasks: string): Promise<string> {
+    const target = await this.selectTarget();
+    const runId = this.idGenerator();
+    const result = await this.runner.run({
+      runId,
+      traceId: `trace-${runId}`,
+      sessionId: "heartbeat",
+      messages: [{ role: "user", content: tasks }],
+      model: this.model,
+      maxIterations: this.maxIterations,
+      stream: false,
+      metadata: {
+        source: "heartbeat",
+        channel: target.channel,
+        chatId: target.chatId,
+      },
+    } satisfies AgentRunSpec);
+    await this.trimHeartbeatSession?.(await this.resolveKeepRecentMessages());
+    return finalContent(result);
+  }
+
+  private async notify(response: string, tasks: string): Promise<boolean> {
+    const target = await this.selectTarget();
+    if (!target.external || target.channel === "cli") {
+      return false;
+    }
+    await this.notifyExternal?.({
+      channel: target.channel,
+      chatId: target.chatId,
+      content: response,
+      tasks,
+    });
+    return true;
+  }
+
+  private async evaluateResponse(response: string, taskContext: string): Promise<boolean> {
+    return (await evaluateNotificationDecision({
+      provider: this.provider,
+      model: this.model,
+      taskContext,
+      response,
+    })).shouldNotify;
+  }
+
+  private async resolveKeepRecentMessages(): Promise<number> {
+    const value = typeof this.keepRecentMessages === "function"
+      ? await this.keepRecentMessages()
+      : this.keepRecentMessages;
+    return Math.max(0, value);
+  }
+}
+
+function finalContent(result: AgentRunResult): string {
+  return result.finalContent.trim();
+}
+
+function randomHeartbeatRunId(): string {
+  return `heartbeat-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 10)}`;
+}

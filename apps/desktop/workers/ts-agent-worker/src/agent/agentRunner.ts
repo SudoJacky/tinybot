@@ -2,12 +2,16 @@ import type { AgentMessage, AgentRunResult, AgentRunSpec } from "./agentRunSpec.
 import type { ModelProvider, ModelRequestOptions, TokenUsage, ToolCallRequest, ToolDefinition } from "../model/provider.ts";
 import type { Tool, ToolResult } from "../tools/tool.ts";
 import type { ToolRegistry } from "../tools/toolRegistry.ts";
+import { buildApprovalToolRequest } from "../security/approvalRuntime.ts";
+import { estimateMessage, estimateMessages } from "../support/tokenEstimator.ts";
+import {
+  EMPTY_FINAL_RESPONSE_MESSAGE,
+  FINALIZATION_RETRY_PROMPT,
+  isBlankText,
+  normalizeToolResultContent,
+} from "../support/runtimeHelpers.ts";
 
-const EMPTY_FINAL_RESPONSE_MESSAGE =
-  "I completed the tool steps but couldn't produce a final answer. Please try again or narrow the task.";
 const DEFAULT_MODEL_ERROR_MESSAGE = "Sorry, I encountered an error calling the AI model.";
-const FINALIZATION_RETRY_PROMPT =
-  "You have already finished the tool work. Do not call any more tools. Using only the conversation and tool results above, provide the final answer for the user now.";
 const TOOL_ERROR_RECOVERY_HINT =
   "\n\n[Analyze the error above and try a different approach. Consider using `query_experience` to search for past solutions to similar problems.]";
 const MAX_ITERATIONS_MESSAGE = (maxIterations: number): string =>
@@ -30,6 +34,7 @@ export type AgentRunnerEvent = {
     | "tool_call_delta"
     | "memory_reference"
     | "task_progress"
+    | "provider_retry"
     | "usage";
   payload: Record<string, unknown>;
 };
@@ -111,12 +116,13 @@ export class AgentRunner {
             if (!prepared.ok) {
               result = { content: prepared.content };
             } else {
-              this.emitEvent({
+              this.emit(spec, {
                 type: "tool_start",
                 payload: {
                   runId: spec.runId,
                   toolCallId: toolCall.id,
                   toolName: toolCall.name,
+                  args,
                 },
               });
               try {
@@ -162,7 +168,7 @@ export class AgentRunner {
               result = { ...result, content: `${result.content}${TOOL_ERROR_RECOVERY_HINT}` };
             }
           }
-          this.emitEvent({
+          this.emit(spec, {
             type: "tool_result",
             payload: {
               runId: spec.runId,
@@ -310,7 +316,7 @@ export class AgentRunner {
     context: { runId: string; traceId?: string; sessionId?: string },
   ): Promise<ToolResult> {
     const prepared = this.tools.prepareCall("request_approval", {
-      operation: approvalOperation(tool, args),
+      ...buildApprovalToolRequest(tool, args),
     });
     if (!prepared.ok) {
       return { content: prepared.content };
@@ -323,11 +329,13 @@ export class AgentRunner {
       model: spec.model,
       tools: this.toolDefinitions(spec),
       ...generationRequestOptions(spec),
+      ...providerRetryOptions(spec),
+      onRetryWait: (event) => this.emitProviderRetry(spec, event),
       onContentDelta: (delta) => {
         if (!spec.stream) {
           return;
         }
-        this.emitEvent({
+        this.emit(spec, {
           type: "content_delta",
           payload: { runId: spec.runId, delta },
         });
@@ -336,7 +344,7 @@ export class AgentRunner {
         if (!spec.stream) {
           return;
         }
-        this.emitEvent({
+        this.emit(spec, {
           type: "reasoning_delta",
           payload: { runId: spec.runId, delta },
         });
@@ -345,7 +353,7 @@ export class AgentRunner {
         if (!spec.stream) {
           return;
         }
-        this.emitEvent({
+        this.emit(spec, {
           type: "tool_call_delta",
           payload: { runId: spec.runId, ...delta },
         });
@@ -357,7 +365,24 @@ export class AgentRunner {
     return {
       model: spec.model,
       ...generationRequestOptions(spec),
+      ...providerRetryOptions(spec),
+      onRetryWait: (event) => this.emitProviderRetry(spec, event),
     };
+  }
+
+  private emitProviderRetry(
+    spec: AgentRunSpec,
+    event: { attempt: number; delaySeconds: number; message: string },
+  ): void {
+    this.emitEvent({
+      type: "provider_retry",
+      payload: {
+        runId: spec.runId,
+        attempt: event.attempt,
+        delaySeconds: event.delaySeconds,
+        message: event.message,
+      },
+    });
   }
 
   private toolDefinitions(spec: AgentRunSpec): ToolDefinition[] {
@@ -366,6 +391,11 @@ export class AgentRunner {
 
   private toolAllowed(spec: AgentRunSpec, name: string): boolean {
     return spec.tools === undefined || spec.tools.some((tool) => tool.name === name);
+  }
+
+  private emit(spec: AgentRunSpec, event: AgentRunnerEvent): void {
+    this.emitEvent(event);
+    spec.emitEvent?.(event);
   }
 
   private emitContextUsage(
@@ -426,6 +456,12 @@ function generationRequestOptions(spec: AgentRunSpec): Pick<ModelRequestOptions,
   };
 }
 
+function providerRetryOptions(spec: AgentRunSpec): Pick<ModelRequestOptions, "retryMode"> {
+  return {
+    ...(spec.providerRetryMode !== undefined ? { retryMode: spec.providerRetryMode } : {}),
+  };
+}
+
 function cancelledResult(messages: AgentMessage[], toolsUsed: string[], usage: TokenUsage | undefined): AgentRunResult {
   return {
     finalContent: "",
@@ -459,10 +495,6 @@ function parseToolArguments(toolCall: ToolCallRequest): Record<string, unknown> 
   return parsed as Record<string, unknown>;
 }
 
-function isBlankText(content: string | undefined): boolean {
-  return content === undefined || content.trim().length === 0;
-}
-
 function applyToolResultBudget(spec: AgentRunSpec, messages: AgentMessage[]): void {
   for (const message of messages) {
     if (message.role !== "tool") {
@@ -470,22 +502,6 @@ function applyToolResultBudget(spec: AgentRunSpec, messages: AgentMessage[]): vo
     }
     message.content = normalizeToolResultContent(message.name ?? "tool", message.content, spec.toolResultBudget);
   }
-}
-
-function normalizeToolResultContent(toolName: string, content: string, budget?: number): string {
-  const nonemptyContent = content.trim().length === 0 ? emptyToolResultMessage(toolName) : content;
-  return applyTextBudget(nonemptyContent, budget);
-}
-
-function emptyToolResultMessage(toolName: string): string {
-  return `(${toolName} completed with no output)`;
-}
-
-function applyTextBudget(content: string, budget: number | undefined): string {
-  if (budget === undefined || budget <= 0 || content.length <= budget) {
-    return content;
-  }
-  return `${content.slice(0, budget)}\n... (truncated)`;
 }
 
 function awaitingInputFromMetadata(metadata: Record<string, unknown> | undefined): (Record<string, unknown> & { stopReason: "awaiting_user_input" | "awaiting_approval" | "awaiting_form" }) | undefined {
@@ -497,48 +513,6 @@ function awaitingInputFromMetadata(metadata: Record<string, unknown> | undefined
     ...metadata,
     stopReason,
   };
-}
-
-function approvalOperation(tool: Tool, args: Record<string, unknown>): Record<string, unknown> {
-  const category = approvalCategory(tool);
-  return {
-    toolName: tool.name,
-    arguments: args,
-    category,
-    risk: approvalRisk(category),
-    reason: approvalReason(category),
-  };
-}
-
-function approvalCategory(tool: Tool): string {
-  const capabilities = tool.capabilities ?? [];
-  if (capabilities.includes("fs.workspace.write")) {
-    return "filesystem_write";
-  }
-  if (capabilities.includes("shell.execute")) {
-    return "shell_execute";
-  }
-  if (capabilities.includes("memory.write")) {
-    return "memory_write";
-  }
-  return "tool_execution";
-}
-
-function approvalRisk(category: string): "medium" | "high" {
-  return category === "shell_execute" ? "high" : "medium";
-}
-
-function approvalReason(category: string): string {
-  switch (category) {
-    case "filesystem_write":
-      return "File write, edit, and delete tools can modify workspace state.";
-    case "shell_execute":
-      return "Shell commands can modify files, start processes, or affect the local environment.";
-    case "memory_write":
-      return "Memory writes can persist information beyond the current run.";
-    default:
-      return "This tool requires user approval before execution.";
-  }
 }
 
 function memoryReferencesFromMetadata(metadata: Record<string, unknown> | undefined): unknown[] | undefined {
@@ -660,23 +634,6 @@ function findLegalMessageStart(messages: AgentMessage[]): number {
     }
   }
   return start;
-}
-
-function estimateMessages(messages: AgentMessage[]): number {
-  return messages.reduce((total, message) => total + estimateMessage(message), 0);
-}
-
-function estimateMessage(message: AgentMessage): number {
-  const parts = [
-    message.role,
-    message.content,
-    message.reasoningContent,
-    message.thinkingBlocks ? JSON.stringify(message.thinkingBlocks) : "",
-    message.toolCallId,
-    message.name,
-    message.toolCalls ? JSON.stringify(message.toolCalls) : "",
-  ];
-  return parts.reduce((total, part) => total + (part?.length ?? 0), 4);
 }
 
 function errorName(error: unknown): string {

@@ -1,0 +1,433 @@
+import type { MessageBus, MessageBusStats } from "../bus/messageBus.ts";
+import type { OutboundMessage } from "../bus/messageTypes.ts";
+
+const RESTART_NOTIFY_CHANNEL_ENV = "tinybot_RESTART_NOTIFY_CHANNEL";
+const RESTART_NOTIFY_CHAT_ID_ENV = "tinybot_RESTART_NOTIFY_CHAT_ID";
+const RESTART_STARTED_AT_ENV = "tinybot_RESTART_STARTED_AT";
+
+export type ChannelAdapter = {
+  name: string;
+  displayName: string;
+  supportsStreaming?: boolean;
+  start?: () => Promise<void>;
+  stop?: () => Promise<void>;
+  send: (message: OutboundMessage) => Promise<void>;
+  sendDelta?: (chatId: string, delta: string, metadata: Record<string, unknown>) => Promise<void>;
+  sendUsage?: (chatId: string, usage: Record<string, unknown>) => Promise<void>;
+  login?: (options?: { force?: boolean }) => Promise<boolean>;
+};
+
+export type ChannelStatus = {
+  name: string;
+  displayName: string;
+  supportsStreaming: boolean;
+  running: boolean;
+};
+
+export type ChannelManagerStatus = {
+  running: boolean;
+  channels: ChannelStatus[];
+  diagnostics: ChannelDispatchDiagnostic[];
+  bus: MessageBusStats;
+};
+
+export type ChannelDispatchDiagnostic = {
+  kind: "dropped" | "unknown_channel" | "send_failed" | "start_failed" | "stop_failed";
+  reason?: "progress_disabled" | "tool_hints_disabled";
+  channel: string;
+  chatId?: string;
+  content?: string;
+  attempts?: number;
+  error?: string;
+};
+
+export type ChannelRestartNotice = {
+  channel: string;
+  chatId: string;
+  startedAtUnixSeconds?: number | null;
+};
+
+export type ChannelRestartNoticeSource = () => ChannelRestartNotice | null;
+
+export type ChannelManagerOptions = {
+  bus: MessageBus;
+  channels: ChannelAdapter[];
+  sendProgress?: boolean;
+  sendToolHints?: boolean;
+  sendMaxRetries?: number;
+  retryDelaysMs?: number[];
+  dispatchPollMs?: number;
+  sleep?: (delayMs: number) => Promise<void>;
+  restartNotice?: ChannelRestartNotice | null | ChannelRestartNoticeSource;
+  nowUnixSeconds?: () => number;
+  env?: Record<string, string | undefined>;
+};
+
+export class ChannelManager {
+  private readonly bus: MessageBus;
+  private readonly channels = new Map<string, ChannelAdapter>();
+  private readonly sendProgress: boolean;
+  private readonly sendToolHints: boolean;
+  private readonly sendMaxRetries: number;
+  private readonly retryDelaysMs: number[];
+  private readonly dispatchPollMs: number;
+  private readonly sleep: (delayMs: number) => Promise<void>;
+  private readonly restartNoticeSource: ChannelRestartNoticeSource;
+  private readonly nowUnixSeconds: () => number;
+  private readonly dispatchDiagnostics: ChannelDispatchDiagnostic[] = [];
+  private readonly pendingOutbound: OutboundMessage[] = [];
+  private readonly runningChannels = new Set<string>();
+  private dispatcherTask: Promise<void> | null = null;
+  private dispatcherAbortController: AbortController | null = null;
+  private running = false;
+
+  constructor(options: ChannelManagerOptions) {
+    this.bus = options.bus;
+    this.sendProgress = options.sendProgress ?? true;
+    this.sendToolHints = options.sendToolHints ?? true;
+    this.sendMaxRetries = normalizedSendMaxRetries(options.sendMaxRetries);
+    this.retryDelaysMs = options.retryDelaysMs ?? [1000, 2000, 4000];
+    this.dispatchPollMs = normalizedDispatchPollMs(options.dispatchPollMs);
+    this.sleep = options.sleep ?? ((delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)));
+    this.restartNoticeSource = restartNoticeSource(options);
+    this.nowUnixSeconds = options.nowUnixSeconds ?? (() => Date.now() / 1000);
+    for (const channel of options.channels) {
+      this.channels.set(channel.name, channel);
+    }
+  }
+
+  diagnostics(): ChannelDispatchDiagnostic[] {
+    return this.dispatchDiagnostics.map((diagnostic) => ({ ...diagnostic }));
+  }
+
+  enabledChannels(): string[] {
+    return [...this.channels.keys()];
+  }
+
+  status(): ChannelManagerStatus {
+    return {
+      running: this.running,
+      channels: [...this.channels.values()].map((channel) => ({
+        name: channel.name,
+        displayName: channel.displayName,
+        supportsStreaming: channel.supportsStreaming === true,
+        running: this.runningChannels.has(channel.name),
+      })),
+      diagnostics: this.diagnostics(),
+      bus: this.bus.stats(),
+    };
+  }
+
+  async login(channelName: string, options: { force?: boolean } = {}): Promise<boolean> {
+    const channel = this.channels.get(channelName);
+    if (!channel) {
+      throw new Error(`unknown channel: ${channelName}`);
+    }
+    return await channel.login?.({ force: options.force === true }) ?? true;
+  }
+
+  async startAll(): Promise<void> {
+    this.running = true;
+    this.startOutboundDispatcher();
+    for (const channel of this.channels.values()) {
+      try {
+        await channel.start?.();
+        this.runningChannels.add(channel.name);
+      } catch (error) {
+        this.dispatchDiagnostics.push({
+          kind: "start_failed",
+          channel: channel.name,
+          error: String(error instanceof Error ? error.message : error),
+        });
+      }
+    }
+    await this.sendRestartNoticeIfNeeded();
+  }
+
+  async stopAll(): Promise<void> {
+    this.running = false;
+    this.dispatcherAbortController?.abort();
+    await this.dispatcherTask;
+    this.dispatcherTask = null;
+    this.dispatcherAbortController = null;
+    for (const channel of this.channels.values()) {
+      try {
+        await channel.stop?.();
+      } catch (error) {
+        this.dispatchDiagnostics.push({
+          kind: "stop_failed",
+          channel: channel.name,
+          error: String(error instanceof Error ? error.message : error),
+        });
+      } finally {
+        this.runningChannels.delete(channel.name);
+      }
+    }
+  }
+
+  private startOutboundDispatcher(): void {
+    if (this.dispatcherTask) {
+      return;
+    }
+    this.dispatcherAbortController = new AbortController();
+    this.dispatcherTask = this.runOutboundDispatcher();
+  }
+
+  private async runOutboundDispatcher(): Promise<void> {
+    const signal = this.dispatcherAbortController?.signal;
+    while (this.running) {
+      let dispatched = 0;
+      try {
+        dispatched = await this.dispatchAvailable();
+      } catch (error) {
+        if (isCancellationError(error)) {
+          break;
+        }
+        throw error;
+      }
+      if (!this.running) {
+        break;
+      }
+      if (dispatched === 0) {
+        const message = await this.bus.consumeOutboundWithTimeout(this.dispatchPollMs, signal);
+        if (message) {
+          this.pendingOutbound.push(message);
+        }
+      }
+    }
+  }
+
+  async dispatchAvailable(maxMessages = 100): Promise<number> {
+    let dispatched = 0;
+    while (dispatched < maxMessages) {
+      let message = this.nextOutbound();
+      if (message === null) {
+        break;
+      }
+      const dropReason = this.dropReason(message);
+      if (dropReason) {
+        this.dispatchDiagnostics.push({
+          kind: "dropped",
+          reason: dropReason,
+          channel: message.channel,
+          chatId: message.chatId,
+          content: message.content,
+        });
+        continue;
+      }
+      if (message.metadata._stream_delta && !message.metadata._stream_end) {
+        message = this.coalesceStreamDeltas(message);
+      }
+      const channel = this.channels.get(message.channel);
+      if (!channel) {
+        this.dispatchDiagnostics.push({
+          kind: "unknown_channel",
+          channel: message.channel,
+          chatId: message.chatId,
+          content: message.content,
+        });
+        continue;
+      }
+      const result = await this.sendWithRetry(channel, message);
+      if (result.ok) {
+        dispatched += 1;
+      } else {
+        this.dispatchDiagnostics.push({
+          kind: "send_failed",
+          channel: message.channel,
+          chatId: message.chatId,
+          content: message.content,
+          attempts: result.attempts,
+          error: String(result.error instanceof Error ? result.error.message : result.error),
+        });
+      }
+    }
+    return dispatched;
+  }
+
+  private nextOutbound(): OutboundMessage | null {
+    return this.pendingOutbound.shift() ?? this.bus.tryConsumeOutbound();
+  }
+
+  private coalesceStreamDeltas(first: OutboundMessage): OutboundMessage {
+    const targetChannel = first.channel;
+    const targetChat = first.chatId;
+    let content = first.content;
+    const metadata = { ...first.metadata };
+
+    while (!metadata._stream_end) {
+      const next = this.bus.tryConsumeOutbound();
+      if (next === null) {
+        break;
+      }
+      const sameTarget = next.channel === targetChannel && next.chatId === targetChat;
+      const isDelta = Boolean(next.metadata._stream_delta);
+      if (!sameTarget || !isDelta) {
+        this.pendingOutbound.push(next);
+        break;
+      }
+      content += next.content;
+      if (next.metadata._stream_end) {
+        metadata._stream_end = true;
+      }
+    }
+
+    return { ...first, content, metadata };
+  }
+
+  private async sendOnce(channel: ChannelAdapter, message: OutboundMessage): Promise<void> {
+    if (message.metadata._usage) {
+      await channel.sendUsage?.(message.chatId, metadataRecord(message.metadata.usage_data));
+      return;
+    }
+    if (message.metadata._stream_delta || message.metadata._stream_end || message.metadata._reasoning_delta) {
+      if (channel.sendDelta) {
+        await channel.sendDelta(message.chatId, message.content, message.metadata);
+      }
+      return;
+    }
+    if (!message.metadata._streamed) {
+      await channel.send(message);
+    }
+  }
+
+  private async sendWithRetry(
+    channel: ChannelAdapter,
+    message: OutboundMessage,
+  ): Promise<{ ok: true; attempts: number } | { ok: false; attempts: number; error: unknown }> {
+    let attempts = 0;
+    let lastError: unknown;
+    const maxAttempts = this.sendMaxRetries;
+    while (attempts < maxAttempts) {
+      attempts += 1;
+      try {
+        await this.sendOnce(channel, message);
+        return { ok: true, attempts };
+      } catch (error) {
+        if (isCancellationError(error)) {
+          throw error;
+        }
+        lastError = error;
+        if (attempts < maxAttempts) {
+          const delay = retryDelayMs(this.retryDelaysMs, attempts - 1);
+          if (delay !== undefined) {
+            await this.sleep(delay);
+          }
+        }
+      }
+    }
+    return { ok: false, attempts, error: lastError };
+  }
+
+  private async sendRestartNoticeIfNeeded(): Promise<void> {
+    const notice = this.restartNoticeSource();
+    if (!notice) {
+      return;
+    }
+    const channel = this.channels.get(notice.channel);
+    if (!channel) {
+      return;
+    }
+    const message: OutboundMessage = {
+      channel: notice.channel,
+      chatId: notice.chatId,
+      content: formatRestartCompletedMessage(notice, this.nowUnixSeconds()),
+      media: [],
+      metadata: { _restart_completed: true },
+    };
+    const result = await this.sendWithRetry(channel, message);
+    if (!result.ok) {
+      this.dispatchDiagnostics.push({
+        kind: "send_failed",
+        channel: message.channel,
+        chatId: message.chatId,
+        content: message.content,
+        attempts: result.attempts,
+        error: String(result.error instanceof Error ? result.error.message : result.error),
+      });
+    }
+  }
+
+  private dropReason(message: OutboundMessage): ChannelDispatchDiagnostic["reason"] | null {
+    if (!message.metadata._progress) {
+      return null;
+    }
+    if (message.metadata._tool_hint && !this.sendToolHints) {
+      return "tool_hints_disabled";
+    }
+    if (!message.metadata._tool_hint && !this.sendProgress) {
+      return "progress_disabled";
+    }
+    return null;
+  }
+}
+
+function metadataRecord(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+}
+
+function normalizedSendMaxRetries(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 3;
+  }
+  return Math.max(1, Math.trunc(value));
+}
+
+function normalizedDispatchPollMs(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 1000;
+  }
+  return Math.max(0, Math.trunc(value));
+}
+
+function retryDelayMs(delays: number[], index: number): number | undefined {
+  if (delays.length === 0) {
+    return undefined;
+  }
+  return delays[Math.min(index, delays.length - 1)];
+}
+
+function isCancellationError(error: unknown): boolean {
+  return error instanceof Error && (error.name === "AbortError" || error.name.endsWith("CancelledError"));
+}
+
+function restartNoticeSource(options: ChannelManagerOptions): ChannelRestartNoticeSource {
+  if (typeof options.restartNotice === "function") {
+    return options.restartNotice;
+  }
+  const notice = options.restartNotice;
+  if (notice !== undefined) {
+    return () => notice;
+  }
+  return () => consumeRestartNoticeFromEnv(options.env ?? process.env);
+}
+
+export function consumeRestartNoticeFromEnv(env: Record<string, string | undefined>): ChannelRestartNotice | null {
+  const channel = (env[RESTART_NOTIFY_CHANNEL_ENV] ?? "").trim();
+  const chatId = (env[RESTART_NOTIFY_CHAT_ID_ENV] ?? "").trim();
+  const startedAtRaw = (env[RESTART_STARTED_AT_ENV] ?? "").trim();
+  delete env[RESTART_NOTIFY_CHANNEL_ENV];
+  delete env[RESTART_NOTIFY_CHAT_ID_ENV];
+  delete env[RESTART_STARTED_AT_ENV];
+  if (!channel || !chatId) {
+    return null;
+  }
+  const startedAtUnixSeconds = Number.parseFloat(startedAtRaw);
+  return {
+    channel,
+    chatId,
+    startedAtUnixSeconds: Number.isFinite(startedAtUnixSeconds) ? startedAtUnixSeconds : null,
+  };
+}
+
+export function formatRestartCompletedMessage(notice: ChannelRestartNotice, nowUnixSeconds = Date.now() / 1000): string {
+  const startedAtUnixSeconds = notice.startedAtUnixSeconds;
+  if (typeof startedAtUnixSeconds !== "number" || !Number.isFinite(startedAtUnixSeconds)) {
+    return "Restart completed.";
+  }
+  const elapsedSeconds = Math.max(0, nowUnixSeconds - startedAtUnixSeconds);
+  return `Restart completed in ${elapsedSeconds.toFixed(1)}s.`;
+}

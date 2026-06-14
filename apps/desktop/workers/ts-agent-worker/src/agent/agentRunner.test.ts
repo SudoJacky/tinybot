@@ -868,7 +868,7 @@ describe("AgentRunner", () => {
     expect(events.filter((event) => event.type === "tool_start" || event.type === "tool_result")).toEqual([
       {
         type: "tool_start",
-        payload: { runId: "run-1", toolCallId: "call-1", toolName: "echo" },
+        payload: { runId: "run-1", toolCallId: "call-1", toolName: "echo", args: { text: "from tool" } },
       },
       {
         type: "tool_result",
@@ -1048,10 +1048,16 @@ describe("AgentRunner", () => {
         operation: {
           toolName: "write_file",
           arguments: { path: "notes/today.md", content: "hello" },
+        },
+        classification: {
+          action: "require_approval",
           category: "filesystem_write",
           risk: "medium",
-          reason: "File write, edit, and delete tools can modify workspace state.",
+          reason: "File write/edit/delete tools can modify workspace state.",
         },
+        fingerprint: "write_file:notes/today.md",
+        sessionFingerprint: "write_file:notes/today.md",
+        summary: "write_file path=\"notes/today.md\"",
       },
     ]);
     expect(result.stopReason).toBe("awaiting_approval");
@@ -1070,9 +1076,6 @@ describe("AgentRunner", () => {
         operation: {
           toolName: "write_file",
           arguments: { path: "notes/today.md", content: "hello" },
-          category: "filesystem_write",
-          risk: "medium",
-          reason: "File write, edit, and delete tools can modify workspace state.",
         },
       },
     });
@@ -1090,6 +1093,48 @@ describe("AgentRunner", () => {
     await runner.run(spec({ stream: true }));
 
     expect(events.filter((event) => (
+      event.type === "content_delta"
+      || event.type === "reasoning_delta"
+      || event.type === "tool_call_delta"
+    ))).toEqual([
+      {
+        type: "content_delta",
+        payload: { runId: "run-1", delta: "stream content" },
+      },
+      {
+        type: "reasoning_delta",
+        payload: { runId: "run-1", delta: "stream reasoning" },
+      },
+      {
+        type: "tool_call_delta",
+        payload: {
+          runId: "run-1",
+          index: 0,
+          deltaText: "{\"streamed\":true}",
+          toolCallId: "stream-call",
+          toolName: "stream_tool",
+        },
+      },
+    ]);
+  });
+
+  test("also forwards provider streaming deltas to a per-run event hook", async () => {
+    const provider = new QueueProvider([{ content: "done", toolCalls: [], stopReason: "stop" }]);
+    const runnerEvents: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    const runEvents: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    const runner = new AgentRunner({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: (event) => runnerEvents.push(event),
+    });
+
+    await runner.run(spec({
+      stream: true,
+      emitEvent: (event) => runEvents.push(event),
+    }));
+
+    expect(runnerEvents.some((event) => event.type === "content_delta")).toBe(true);
+    expect(runEvents.filter((event) => (
       event.type === "content_delta"
       || event.type === "reasoning_delta"
       || event.type === "tool_call_delta"
@@ -1287,6 +1332,33 @@ describe("AgentRunner", () => {
         },
       },
     ]);
+  });
+
+  test("passes provider retry mode and emits provider retry wait events", async () => {
+    const provider = new QueueProvider([
+      { content: "done", toolCalls: [], stopReason: "stop" },
+    ]);
+    const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    const runner = new AgentRunner({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: (event) => events.push(event),
+    });
+
+    const result = await runner.run(spec({ providerRetryMode: "persistent" }));
+
+    expect(result.finalContent).toBe("done");
+    expect(provider.options[0]).toMatchObject({ retryMode: "persistent" });
+    provider.options[0]?.onRetryWait?.({ attempt: 2, delaySeconds: 7, message: "rate limit" });
+    expect(events).toContainEqual({
+      type: "provider_retry",
+      payload: {
+        runId: "run-1",
+        attempt: 2,
+        delaySeconds: 7,
+        message: "rate limit",
+      },
+    });
   });
 
   test("returns the empty final response message when the retry is still empty", async () => {

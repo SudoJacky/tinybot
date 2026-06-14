@@ -330,6 +330,15 @@ impl WorkerManager {
         self.start(spec)
     }
 
+    pub fn restart_stdio_rpc(
+        &self,
+        spec: WorkerCommandSpec,
+        router: WorkerRpcRouter,
+    ) -> Result<(), WorkerManagerError> {
+        self.stop()?;
+        self.start_stdio_rpc(spec, router)
+    }
+
     pub fn health_check(&self) -> WorkerHealth {
         let mut inner = lock_inner(&self.inner);
         refresh_child_status(&mut inner).unwrap_or(WorkerHealth::Failed)
@@ -722,6 +731,63 @@ mod tests {
         assert_eq!(response.result.as_ref().unwrap()["ok"], true);
         assert_eq!(response.result.as_ref().unwrap()["echo"], "hello");
         assert_eq!(response.result.as_ref().unwrap()["workspaceFileCount"], 1);
+    }
+
+    #[test]
+    fn manager_restart_stdio_rpc_replaces_connection_and_preserves_full_duplex_requests() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("AGENTS.md", "agents");
+        let manager = WorkerManager::new(20);
+        let initial_router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead]),
+        );
+
+        manager
+            .start_stdio_rpc(test_stdio_agent_echo_worker_spec(), initial_router)
+            .expect("stdio agent worker should start");
+        let before = manager
+            .status()
+            .pid
+            .expect("running stdio worker should expose pid");
+
+        let restarted_router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead]),
+        );
+        manager
+            .restart_stdio_rpc(test_stdio_agent_echo_worker_spec(), restarted_router)
+            .expect("stdio RPC worker should restart");
+        let after = manager
+            .status()
+            .pid
+            .expect("restarted stdio worker should expose pid");
+
+        assert_ne!(before, after);
+        let request = WorkerRequest::new(
+            "agent-req-1",
+            "trace-agent",
+            "agent.echo",
+            json!({ "input": "hello after restart" }),
+        );
+        let response = manager
+            .send_stdio_request(&request, std::time::Duration::from_secs(3))
+            .expect("agent request should complete after restart");
+
+        assert_eq!(response.result.as_ref().unwrap()["ok"], true);
+        assert_eq!(
+            response.result.as_ref().unwrap()["echo"],
+            "hello after restart"
+        );
+        assert_eq!(response.result.as_ref().unwrap()["workspaceFileCount"], 1);
+
+        manager.stop().expect("worker should stop");
     }
 
     #[test]
@@ -1182,6 +1248,104 @@ mod tests {
                         && protocol_event.payload["stopReason"] == "final_response"
             )
         }));
+        manager.stop().expect("TS agent worker should stop");
+    }
+
+    #[test]
+    fn manager_runs_consecutive_real_ts_agent_worker_turns_with_persisted_history() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("AGENTS.md", "agent bootstrap");
+        let session = SessionMetadata {
+            session_id: "desktop-continuation-session-1".to_string(),
+            title: "Continuation".to_string(),
+            workspace_dir: fixture.root.display().to_string(),
+            created_at: "2026-06-10T09:00:00Z".to_string(),
+            updated_at: "2026-06-10T09:30:00Z".to_string(),
+            extra: json!({ "messages": [] }),
+        };
+        let manager = WorkerManager::new(20);
+        let router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({
+                "agents": {
+                    "defaults": {
+                        "provider": "fixture",
+                        "model": "fixture-model"
+                    }
+                },
+                "providers": {
+                    "fixture": {
+                        "responses": [
+                            { "content": "first answer", "stopReason": "stop" },
+                            { "content": "second answer", "stopReason": "stop" }
+                        ]
+                    }
+                }
+            }),
+            vec![session],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::ConfigRead,
+                WorkerCapability::DiagnosticsWrite,
+                WorkerCapability::FsWorkspaceRead,
+                WorkerCapability::SessionMetadataRead,
+                WorkerCapability::SessionWrite,
+            ]),
+        );
+
+        manager
+            .start_stdio_rpc(ts_agent_worker_spec(), router)
+            .expect("TS agent worker should start");
+
+        let first = WorkerRequest::new(
+            "agent-run-input-real-ts-continuation-1",
+            "trace-real-ts-agent-continuation-1",
+            "agent.run_input",
+            json!({
+                "input": {
+                    "runId": "real-ts-run-continuation-1",
+                    "sessionId": "desktop-continuation-session-1",
+                    "input": { "content": "First turn" },
+                    "channel": "desktop",
+                    "chatId": "chat-1",
+                    "model": "fixture-model",
+                    "maxIterations": 2,
+                    "stream": false
+                }
+            }),
+        );
+        let first_response = manager
+            .send_stdio_request(&first, std::time::Duration::from_secs(5))
+            .expect("first real TS agent worker continuation request should complete")
+            .result
+            .expect("first continuation run should return result");
+        assert_eq!(first_response["finalContent"], "first answer");
+        assert_eq!(first_response["contextMetadata"]["historyMessageCount"], 0);
+
+        let second = WorkerRequest::new(
+            "agent-run-input-real-ts-continuation-2",
+            "trace-real-ts-agent-continuation-2",
+            "agent.run_input",
+            json!({
+                "input": {
+                    "runId": "real-ts-run-continuation-2",
+                    "sessionId": "desktop-continuation-session-1",
+                    "input": { "content": "Second turn" },
+                    "channel": "desktop",
+                    "chatId": "chat-1",
+                    "model": "fixture-model",
+                    "maxIterations": 2,
+                    "stream": false
+                }
+            }),
+        );
+        let second_response = manager
+            .send_stdio_request(&second, std::time::Duration::from_secs(5))
+            .expect("second real TS agent worker continuation request should complete")
+            .result
+            .expect("second continuation run should return result");
+        assert_eq!(second_response["finalContent"], "second answer");
+        assert_eq!(second_response["contextMetadata"]["historyMessageCount"], 2);
         manager.stop().expect("TS agent worker should stop");
     }
 
