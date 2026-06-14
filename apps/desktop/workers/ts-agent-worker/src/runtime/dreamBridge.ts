@@ -327,8 +327,8 @@ function dreamNoteFromOperation(value: JsonObject, action: "save" | "supersede" 
     noteType: stringValue(value.type) ?? stringValue(value.note_type) ?? "project",
     scope: stringValue(value.scope),
     priority: numberValue(value.priority),
-    confidence: numberValue(value.confidence),
-    tags: stringListValue(value.tags),
+    confidence: numberValue(value.confidence) ?? 0.65,
+    tags: stringListValue(value.tags, ["dream"]),
     metadata: objectValue(value.metadata),
     targetNoteId,
     evidenceIds: stringListValue(value.evidence_ids),
@@ -394,11 +394,12 @@ function objectValue(value: unknown): JsonObject | undefined {
   return isJsonObject(value) ? value : undefined;
 }
 
-function stringListValue(value: unknown): string[] {
+function stringListValue(value: unknown, fallback: string[] = []): string[] {
   if (!Array.isArray(value)) {
-    return [];
+    return [...fallback];
   }
-  return value
+  const items = value
     .map((item) => stringValue(item))
     .filter((item): item is string => item !== undefined);
+  return items.length > 0 ? items : [...fallback];
 }

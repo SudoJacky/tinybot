@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Command Runtime Phase 3 Dream provider parity: TS-native `/dream` provider extraction now fills Python-compatible default Memory Operation confidence and `dream` tags before applying provider notes through the native bridge.
+
 - Continued Command Runtime Phase 3 Dream provider parity: TS-native `/dream` provider extraction now accepts a single JSON Memory Operation object like Python and ignores unsupported operation actions instead of saving them as default notes.
 
 - Continued Cowork observability durability parity: TS-native AgentRunner now appends Python-compatible trace span event-log records for completed and failed agent spans, preserving replayable `trace.span_recorded` entries alongside snapshot updates.
@@ -1476,6 +1478,7 @@ Heartbeat row 20 update: Phase 4 now runs scheduled notifications through the sh
 - [x] Continue Command Runtime Phase 3: route deferred `/dream` batches through the TS provider, parse JSON Memory Operations, and apply save/reject/supersede operations without advancing cursors on invalid provider JSON.
 - [x] Continue Command Runtime Phase 3: include current Memory Notes and rendered memory views in provider-backed Dream extraction prompts.
 - [x] Continue Command Runtime Phase 3: align provider-backed Dream JSON operation parsing with Python single-object and unsupported-action semantics.
+- [x] Continue Command Runtime Phase 3: align provider-backed Dream JSON operation defaults for confidence and tags with Python.
 - [x] Continue Command Runtime status parity: report Python-compatible `/status` model, token, context, session, and uptime fields from native worker snapshots.
 - [x] Continue Command Runtime `/new` parity: clear native session temporary knowledge through `knowledge.session_clear` after clearing the session.
 - [x] Continue Command Runtime `/new` archive parity: capture clear-before session messages into native conversation evidence before clearing the session.
