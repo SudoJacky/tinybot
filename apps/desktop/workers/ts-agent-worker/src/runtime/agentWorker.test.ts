@@ -2429,6 +2429,19 @@ describe("AgentWorker", () => {
       },
     });
     await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
+      path: "/v1/knowledge/graphrag?level=7",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          stats: {
+            level: 7,
+          },
+        },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
       method: "POST",
       path: "/v1/knowledge/rebuild-index?type=bm25&async_index=true",
     }))).resolves.toMatchObject({
@@ -2672,6 +2685,7 @@ describe("AgentWorker", () => {
       { method: "get", traceId: "trace-webui.handle_request", params: { docId: "doc-1" } },
       { method: "delete", traceId: "trace-webui.handle_request", params: { docId: "doc-1" } },
       { method: "query", traceId: "trace-webui.handle_request", params: { query: "native knowledge", mode: "sparse", top_k: 3 } },
+      { method: "stats", traceId: "trace-webui.handle_request" },
       { method: "stats", traceId: "trace-webui.handle_request" },
       { method: "stats", traceId: "trace-webui.handle_request" },
       { method: "stats", traceId: "trace-webui.handle_request" },

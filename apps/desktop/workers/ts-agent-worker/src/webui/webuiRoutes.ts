@@ -1553,7 +1553,7 @@ function parseKnowledgeGraphRagQuery(
   defaultLevel: number,
 ): { ok: true; value: KnowledgeGraphRagQuery } | { ok: false } {
   const minConfidence = clampedNumberQuery(query.get("min_confidence"), 0, 0, 1, false);
-  const level = clampedNumberQuery(query.get("level"), defaultLevel, 0, 3, true);
+  const level = clampedNumberQuery(query.get("level"), defaultLevel, 0, Number.MAX_SAFE_INTEGER, true);
   if (minConfidence === undefined || level === undefined) {
     return { ok: false };
   }
@@ -1771,7 +1771,7 @@ function booleanQueryDefault(value: string | null, fallback: boolean): boolean {
 function graphRagCommunityLevel(config: Record<string, unknown>): number {
   const knowledge = asObject(config.knowledge);
   const value = knowledge?.graphragCommunityLevel ?? knowledge?.graphrag_community_level;
-  return clampedConfigInteger(value, 0, 0, 3);
+  return clampedConfigInteger(value, 0, 0, Number.MAX_SAFE_INTEGER);
 }
 
 function clampedConfigInteger(value: unknown, fallback: number, min: number, max: number): number {
