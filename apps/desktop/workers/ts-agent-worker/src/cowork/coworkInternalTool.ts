@@ -1438,7 +1438,7 @@ function mergeSharedMemoryValues(
   source: JsonObject,
 ): void {
   ensureSharedMemoryBucket(session, bucket);
-  const items = Array.isArray(values) ? values : values === undefined || values === null || values === "" ? [] : [values];
+  const items = typeof values === "string" ? [values] : Array.isArray(values) ? values : [];
   const existing = new Set(session.shared_memory[bucket].map((entry) => `${textValue(entry.text)}\0${textValue(entry.source_task_id)}`));
   for (const item of items) {
     const text = textValue(item);

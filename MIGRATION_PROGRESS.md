@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Cowork runtime parity: TS-native `cowork_internal complete_task` now mirrors Python shared-memory merging by ignoring non-list non-string structured memory bucket fields while preserving string/list values and structured answers.
+
 - Continued Cowork runtime parity: TS-native `cowork_internal complete_task` now recognizes Python-compatible Chinese delivery-goal markers for artifact gating, so Chinese file/code/document goals do not auto-complete without confirmed artifact paths.
 
 - Continued Cowork mailbox parity: TS-native mailbox completion decisions now include Python-compatible failed-task priority inside nested `goal_review`, so failed task review remains the primary blocker even when completed tasks also report open questions.
