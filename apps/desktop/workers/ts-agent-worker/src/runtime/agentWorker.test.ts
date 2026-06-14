@@ -9800,6 +9800,89 @@ describe("AgentWorker", () => {
     }));
   });
 
+  test("updates session user profile after completed run_input turns", async () => {
+    const profileUpdates: Array<{ sessionId: string; profile: Record<string, unknown>; metadata: Record<string, unknown> }> = [];
+    const provider = new QueueProvider([
+      { content: "Nice to meet you, Ada.", toolCalls: [], stopReason: "stop" },
+      { content: "{\"name\":\"Ada\",\"preferences\":[\"code examples\"]}", toolCalls: [], stopReason: "stop" },
+    ]);
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      sessionBridge: {
+        setCheckpoint: async () => undefined,
+        clearCheckpoint: async () => undefined,
+        appendMessages: async () => undefined,
+        persistTurn: async (sessionId, turn) => ({
+          sessionId,
+          messagesBefore: 0,
+          messagesAfter: turn.messages.length,
+          savedMessageCount: turn.messages.length,
+          checkpointCleared: turn.clearCheckpoint,
+          duplicateMessageCount: 0,
+          truncatedToolResultCount: 0,
+          omittedSideEffects: [],
+        }),
+        getCheckpoint: async () => null,
+      },
+      userProfileBridge: {
+        getUserProfile: async () => ({
+          profile: { preferences: ["short answers"] },
+          metadata: {},
+        }),
+        updateUserProfile: async (sessionId, request) => {
+          profileUpdates.push({ sessionId, profile: request.profile, metadata: request.metadata });
+        },
+      },
+      contextBridge: {
+        loadContextInput: async (input) => ({
+          input: {
+            identity: "Identity",
+            currentMessage: input.input.content,
+            history: [],
+            runtime: { currentTime: "now" },
+          },
+          metadata: {
+            missingSession: false,
+            malformedHistoryCount: 0,
+            missingBootstrapFiles: [],
+            bootstrapFallbackUsed: false,
+          },
+        }),
+      },
+    });
+
+    await worker.handleRequest(
+      runInputRequest({
+        input: {
+          runId: "run-input-profile-1",
+          sessionId: "session-1",
+          input: { content: "my name is Ada" },
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+        },
+      }),
+    );
+
+    expect(provider.messages).toHaveLength(2);
+    expect(provider.messages[1]).toEqual([
+      expect.objectContaining({ role: "system", content: expect.stringContaining("entity extractor") }),
+      expect.objectContaining({ role: "user", content: "USER: my name is Ada\nASSISTANT: Nice to meet you, Ada." }),
+    ]);
+    expect(profileUpdates).toEqual([
+      {
+        sessionId: "session-1",
+        profile: {
+          name: "Ada",
+          preferences: ["short answers", "code examples"],
+        },
+        metadata: { entity_extractor_last_turn_hash: expect.any(String) },
+      },
+    ]);
+  });
+
   test("truncates tool history when persisting session messages with a tool result budget", async () => {
     const appendedSessions: Array<{ sessionId: string; messages: AgentMessage[] }> = [];
     const provider = new QueueProvider([{ content: "done", toolCalls: [], stopReason: "stop" }]);

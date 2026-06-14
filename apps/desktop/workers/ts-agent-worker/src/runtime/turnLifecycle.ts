@@ -3,6 +3,14 @@ import type { AgentRunnerCheckpoint } from "../agent/agentRunner.ts";
 import { RUNTIME_CONTEXT_TAG } from "../agent/contextBuilder.ts";
 import { isJsonObject } from "../protocol/messages.ts";
 import { sessionCheckpointFromRunner } from "./checkpoint.ts";
+import {
+  latestUserAssistantTurn,
+  mergeUserProfile,
+  shouldExtractUserProfile,
+  turnFingerprint,
+  type UserProfile,
+  type UserProfileExtractor,
+} from "./entityProfile.ts";
 import { persistedSessionMessages } from "./persistedMessages.ts";
 
 export type SessionBridge = {
@@ -23,6 +31,21 @@ export type SessionMessagesSnapshot = {
 
 export type MemoryEvidenceBridge = {
   captureEvidence(sessionId: string, request: CaptureEvidenceRequest, traceId: string): Promise<CaptureEvidenceResult>;
+};
+
+export type UserProfileSnapshot = {
+  profile: UserProfile;
+  metadata: Record<string, unknown>;
+};
+
+export type UserProfileBridge = {
+  getUserProfile(sessionId: string, traceId: string): Promise<UserProfileSnapshot | null>;
+  updateUserProfile(sessionId: string, request: UserProfileUpdateRequest, traceId: string): Promise<void>;
+};
+
+export type UserProfileUpdateRequest = {
+  profile: UserProfile;
+  metadata: Record<string, unknown>;
 };
 
 export type PersistTurnRequest = {
@@ -93,10 +116,19 @@ export type RestoreCheckpointResult = {
 export class TurnLifecycle {
   private readonly sessionBridge: SessionBridge | undefined;
   private readonly memoryBridge: MemoryEvidenceBridge | undefined;
+  private readonly profileBridge: UserProfileBridge | undefined;
+  private readonly profileExtractor: UserProfileExtractor | undefined;
 
-  constructor(sessionBridge: SessionBridge | undefined, memoryBridge?: MemoryEvidenceBridge) {
+  constructor(
+    sessionBridge: SessionBridge | undefined,
+    memoryBridge?: MemoryEvidenceBridge,
+    profileBridge?: UserProfileBridge,
+    profileExtractor?: UserProfileExtractor,
+  ) {
     this.sessionBridge = sessionBridge;
     this.memoryBridge = memoryBridge;
+    this.profileBridge = profileBridge;
+    this.profileExtractor = profileExtractor;
   }
 
   async writeCheckpoint(
@@ -165,6 +197,11 @@ export class TurnLifecycle {
         persisted.savedMessages ?? savedMessagesForEvidence(messages, persisted.savedMessageCount),
         persisted.messagesBefore,
       );
+      await this.updateUserProfile(
+        traceId,
+        spec,
+        persisted.savedMessages ?? savedMessagesForEvidence(messages, persisted.savedMessageCount),
+      );
       return lifecycleMetadataFromPersistedTurn(spec, result, persisted, evidenceCapturedCount);
     }
     const appended = await this.sessionBridge.appendMessages(spec.sessionId, messages, traceId);
@@ -178,6 +215,11 @@ export class TurnLifecycle {
       spec.sessionId,
       savedMessagesForEvidence(messages, savedMessageCount),
       messagesBefore,
+    );
+    await this.updateUserProfile(
+      traceId,
+      spec,
+      savedMessagesForEvidence(messages, savedMessageCount),
     );
     return {
       sessionId: spec.sessionId,
@@ -208,7 +250,51 @@ export class TurnLifecycle {
       return 0;
     }
   }
+
+  private async updateUserProfile(
+    traceId: string,
+    spec: AgentRunSpec,
+    messages: AgentMessage[],
+  ): Promise<void> {
+    if (!this.profileBridge || !this.profileExtractor || !spec.sessionId || messages.length === 0) {
+      return;
+    }
+    const turn = latestUserAssistantTurn(messages);
+    if (!turn || !turn.userMessage.trim()) {
+      return;
+    }
+    try {
+      const current = await this.profileBridge.getUserProfile(spec.sessionId, traceId);
+      const profile = current?.profile ?? {};
+      const metadata = current?.metadata ?? {};
+      if (!shouldExtractUserProfile(turn.userMessage, profile)) {
+        return;
+      }
+      const turnHash = turnFingerprint(turn.userMessage);
+      if (metadata[ENTITY_EXTRACTOR_LAST_TURN_HASH] === turnHash) {
+        return;
+      }
+      const extracted = await this.profileExtractor.extract({
+        userMessage: turn.userMessage,
+        assistantMessage: turn.assistantMessage,
+        currentProfile: profile,
+        model: spec.model,
+      });
+      const merged = mergeUserProfile(profile, extracted);
+      await this.profileBridge.updateUserProfile(spec.sessionId, {
+        profile: merged,
+        metadata: {
+          ...metadata,
+          [ENTITY_EXTRACTOR_LAST_TURN_HASH]: turnHash,
+        },
+      }, traceId);
+    } catch {
+      return;
+    }
+  }
 }
+
+const ENTITY_EXTRACTOR_LAST_TURN_HASH = "entity_extractor_last_turn_hash";
 
 function assertSupportedCheckpointVersion(checkpoint: Record<string, unknown>): void {
   const version = checkpoint.version;

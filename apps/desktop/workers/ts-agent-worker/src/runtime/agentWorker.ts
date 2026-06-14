@@ -82,10 +82,11 @@ import {
   resumedSpecFromSubmittedForm,
 } from "./checkpoint.ts";
 import type { ContextBridge } from "./contextBridge.ts";
+import { ProviderBackedUserProfileExtractor, type UserProfileExtractor } from "./entityProfile.ts";
 import { buildRunInputSpec } from "./runInputContext.ts";
-import { TurnLifecycle, type ClearSessionResult, type MemoryEvidenceBridge, type SessionBridge } from "./turnLifecycle.ts";
+import { TurnLifecycle, type ClearSessionResult, type MemoryEvidenceBridge, type SessionBridge, type UserProfileBridge } from "./turnLifecycle.ts";
 
-export type { AppendMessagesResult, PersistTurnRequest, PersistTurnResult, SessionBridge } from "./turnLifecycle.ts";
+export type { AppendMessagesResult, PersistTurnRequest, PersistTurnResult, SessionBridge, UserProfileBridge, UserProfileSnapshot, UserProfileUpdateRequest } from "./turnLifecycle.ts";
 export type { ClearSessionResult } from "./turnLifecycle.ts";
 
 export type AgentWorkerOptions = {
@@ -102,6 +103,8 @@ export type AgentWorkerOptions = {
   approvalBridge?: ApprovalBridge;
   dreamBridge?: DreamCommandBridge;
   sessionBridge?: SessionBridge;
+  userProfileBridge?: UserProfileBridge;
+  userProfileExtractor?: UserProfileExtractor;
   memoryBridge?: MemoryEvidenceBridge;
   contextBridge?: ContextBridge;
   commandRouter?: CommandRouter;
@@ -350,7 +353,12 @@ export class AgentWorker {
         }
         : {}),
     });
-    this.turnLifecycle = new TurnLifecycle(options.sessionBridge, options.memoryBridge);
+    this.turnLifecycle = new TurnLifecycle(
+      options.sessionBridge,
+      options.memoryBridge,
+      options.userProfileBridge,
+      options.userProfileExtractor ?? (options.userProfileBridge ? new ProviderBackedUserProfileExtractor(options.provider) : undefined),
+    );
   }
 
   async handleRequest(request: WorkerRequest): Promise<WorkerResponse> {

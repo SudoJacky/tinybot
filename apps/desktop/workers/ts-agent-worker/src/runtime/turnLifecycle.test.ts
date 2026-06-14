@@ -410,6 +410,72 @@ describe("TurnLifecycle", () => {
     expect(metadata?.savedMessageCount).toBe(2);
   });
 
+  test("updates user profile after a completed turn and records the duplicate fingerprint", async () => {
+    const profileUpdates: Array<{ sessionId: string; profile: Record<string, unknown>; metadata: Record<string, unknown>; traceId: string }> = [];
+    const bridge: SessionBridge = {
+      setCheckpoint: async () => undefined,
+      clearCheckpoint: async () => undefined,
+      appendMessages: async () => undefined,
+      persistTurn: async (_sessionId, turn) => ({
+        sessionId: "session-1",
+        messagesBefore: 0,
+        messagesAfter: turn.messages.length,
+        savedMessageCount: turn.messages.length,
+        checkpointCleared: turn.clearCheckpoint,
+        duplicateMessageCount: 0,
+        truncatedToolResultCount: 0,
+        omittedSideEffects: [],
+      }),
+      getCheckpoint: async () => null,
+    };
+    const profileBridge = {
+      getUserProfile: async () => ({
+        profile: { preferences: ["short answers"] },
+        metadata: {},
+      }),
+      updateUserProfile: async (
+        sessionId: string,
+        request: { profile: Record<string, unknown>; metadata: Record<string, unknown> },
+        traceId: string,
+      ) => {
+        profileUpdates.push({ sessionId, profile: request.profile, metadata: request.metadata, traceId });
+      },
+    };
+    const extractor = {
+      extract: async () => ({
+        name: "Ada",
+        preferences: ["short answers", "code examples"],
+      }),
+    };
+
+    const lifecycle = new TurnLifecycle(bridge, undefined, profileBridge, extractor);
+    const metadata = await lifecycle.finalizeTurn(
+      "trace-profile",
+      spec({ messages: [{ role: "user", content: "my name is Ada" }] }),
+      result({
+        messages: [
+          { role: "user", content: "my name is Ada" },
+          { role: "assistant", content: "Nice to meet you, Ada." },
+        ],
+      }),
+    );
+
+    expect(profileUpdates).toEqual([
+      {
+        sessionId: "session-1",
+        traceId: "trace-profile",
+        profile: {
+          name: "Ada",
+          preferences: ["short answers", "code examples"],
+        },
+        metadata: {
+          entity_extractor_last_turn_hash: expect.any(String),
+        },
+      },
+    ]);
+    expect(metadata?.omittedSideEffects).not.toContain("user_profile");
+  });
+
   test("uses append fallback session size as the evidence start index", async () => {
     const capturedEvidence: Array<{ startIndex: number; messages: AgentMessage[] }> = [];
     const bridge: SessionBridge = {

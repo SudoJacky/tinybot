@@ -219,6 +219,57 @@ describe("NativeSessionBridge", () => {
     ]);
   });
 
+  test("loads and updates user profile through native session profile RPCs", async () => {
+    const requests: Array<{ traceId: string; method: string; params: Record<string, unknown> }> = [];
+    const bridge = new NativeSessionBridge({
+      request: async (traceId, method, params) => {
+        requests.push({ traceId, method, params });
+        if (method === "session.get_metadata") {
+          return {
+            session_id: "websocket:chat-1",
+            extra: {
+              user_profile: { name: "Ada", preferences: ["short answers"] },
+              metadata: { entity_extractor_last_turn_hash: "old-hash" },
+            },
+          };
+        }
+        return {
+          session_id: "websocket:chat-1",
+          extra: {
+            user_profile: { name: "Ada", preferences: ["short answers", "code examples"] },
+            metadata: { entity_extractor_last_turn_hash: "new-hash" },
+          },
+        };
+      },
+    });
+
+    await expect(bridge.getUserProfile("websocket:chat-1", "trace-profile")).resolves.toEqual({
+      profile: { name: "Ada", preferences: ["short answers"] },
+      metadata: { entity_extractor_last_turn_hash: "old-hash" },
+    });
+    await bridge.updateUserProfile("websocket:chat-1", {
+      profile: { name: "Ada", preferences: ["short answers", "code examples"] },
+      metadata: { entity_extractor_last_turn_hash: "new-hash" },
+    }, "trace-profile");
+
+    expect(requests).toEqual([
+      {
+        traceId: "trace-profile",
+        method: "session.get_metadata",
+        params: { session_id: "websocket:chat-1" },
+      },
+      {
+        traceId: "trace-profile",
+        method: "session.patch_user_profile",
+        params: {
+          session_id: "websocket:chat-1",
+          user_profile: { name: "Ada", preferences: ["short answers", "code examples"] },
+          metadata: { entity_extractor_last_turn_hash: "new-hash" },
+        },
+      },
+    ]);
+  });
+
   test("lists WebUI temporary files through native knowledge.session_list", async () => {
     const requests: Array<{ traceId: string; method: string; params: Record<string, unknown> }> = [];
     const bridge = new NativeSessionBridge({

@@ -320,6 +320,15 @@ impl WorkerRpcRouter {
                 )
                 .map_err(serialization_error)
             }
+            "session.patch_user_profile" => {
+                let params: SessionPatchUserProfileParams = parse_params(request)?;
+                serde_json::to_value(self.session.patch_user_profile(
+                    &params.session_id,
+                    params.user_profile,
+                    params.metadata.unwrap_or_else(|| serde_json::json!({})),
+                )?)
+                .map_err(serialization_error)
+            }
             "session.temporary_file.upload" => {
                 let params: SessionTemporaryFileUploadParams = parse_params(request)?;
                 self.session.upload_temporary_file(
@@ -2769,6 +2778,14 @@ struct SessionCheckpointParams {
 struct SessionPatchMetadataParams {
     session_id: String,
     metadata: Value,
+}
+
+#[derive(Deserialize)]
+struct SessionPatchUserProfileParams {
+    session_id: String,
+    #[serde(alias = "userProfile")]
+    user_profile: Value,
+    metadata: Option<Value>,
 }
 
 #[derive(Deserialize)]
@@ -5276,6 +5293,54 @@ mod tests {
             json!({
                 "pinned": true,
                 "topic": "old"
+            })
+        );
+        assert!(response.error.is_none());
+    }
+
+    #[test]
+    fn dispatches_session_patch_user_profile_request() {
+        let fixture = WorkspaceFixture::new();
+        let mut session = session_fixture();
+        session.extra = json!({
+            "user_profile": { "name": "Ada", "preferences": ["short answers"] },
+            "metadata": { "entity_extractor_last_turn_hash": "old-hash", "topic": "native" }
+        });
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![session],
+            20,
+            CapabilityPolicy::new([WorkerCapability::SessionWrite]),
+        );
+        let request = WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "session.patch_user_profile",
+            json!({
+                "session_id": "session-1",
+                "user_profile": {
+                    "name": "Ada",
+                    "preferences": ["short answers", "code examples"]
+                },
+                "metadata": { "entity_extractor_last_turn_hash": "new-hash" }
+            }),
+        );
+
+        let response = router.dispatch(&request);
+
+        assert_eq!(
+            response.result.as_ref().unwrap()["extra"]["user_profile"],
+            json!({
+                "name": "Ada",
+                "preferences": ["short answers", "code examples"]
+            })
+        );
+        assert_eq!(
+            response.result.as_ref().unwrap()["extra"]["metadata"],
+            json!({
+                "entity_extractor_last_turn_hash": "new-hash",
+                "topic": "native"
             })
         );
         assert!(response.error.is_none());

@@ -263,6 +263,7 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
       model: options.env?.TINYBOT_MODEL ?? options.env?.OPENAI_MODEL ?? "default",
     }),
     sessionBridge,
+    userProfileBridge: sessionBridge,
     workspaceBridge,
     webuiSessionProvider: sessionBridge,
     webuiConfigProvider: {

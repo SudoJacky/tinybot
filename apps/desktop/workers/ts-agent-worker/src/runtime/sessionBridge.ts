@@ -15,7 +15,7 @@ import type {
   WebuiTemporaryFileUpload,
   WebuiSessionProvider,
 } from "../webui/webuiRoutes.ts";
-import type { AppendMessagesResult, ClearSessionResult, PersistTurnRequest, PersistTurnResult, SessionBridge } from "./agentWorker.ts";
+import type { AppendMessagesResult, ClearSessionResult, PersistTurnRequest, PersistTurnResult, SessionBridge, UserProfileBridge, UserProfileSnapshot, UserProfileUpdateRequest } from "./agentWorker.ts";
 
 export type TrimSessionResult = {
   sessionId: string;
@@ -23,7 +23,7 @@ export type TrimSessionResult = {
   messagesAfter: number;
 };
 
-export class NativeSessionBridge implements SessionBridge, WebuiSessionProvider {
+export class NativeSessionBridge implements SessionBridge, WebuiSessionProvider, UserProfileBridge {
   private readonly rpcClient: NativeRpcClient;
 
   constructor(rpcClient: NativeRpcClient) {
@@ -63,6 +63,25 @@ export class NativeSessionBridge implements SessionBridge, WebuiSessionProvider 
 
   async getWebuiSessionProfile(sessionId: string, traceId: string): Promise<WebuiSessionProfile | null> {
     return this.getSessionProfile(sessionId, traceId);
+  }
+
+  async getUserProfile(sessionId: string, traceId: string): Promise<UserProfileSnapshot | null> {
+    const result = await this.rpcClient.request(traceId, "session.get_metadata", {
+      session_id: sessionId,
+    });
+    return normalizeUserProfileSnapshot(result);
+  }
+
+  async updateUserProfile(
+    sessionId: string,
+    request: UserProfileUpdateRequest,
+    traceId: string,
+  ): Promise<void> {
+    await this.rpcClient.request(traceId, "session.patch_user_profile", {
+      session_id: sessionId,
+      user_profile: request.profile,
+      metadata: request.metadata,
+    });
   }
 
   async patchSessionMetadata(
@@ -274,6 +293,19 @@ function normalizeWebuiSessionProfile(result: unknown): WebuiSessionProfile | nu
   return {
     sessionId,
     profile: isJsonObject(profile) ? profile : {},
+  };
+}
+
+function normalizeUserProfileSnapshot(result: unknown): UserProfileSnapshot | null {
+  if (!isJsonObject(result)) {
+    return null;
+  }
+  const extra = isJsonObject(result.extra) ? result.extra : {};
+  const profile = extra.user_profile ?? extra.userProfile ?? result.user_profile ?? result.userProfile;
+  const metadata = extra.metadata ?? result.metadata;
+  return {
+    profile: isJsonObject(profile) ? profile : {},
+    metadata: isJsonObject(metadata) ? metadata : {},
   };
 }
 
