@@ -132,6 +132,52 @@ describe("desktop gateway bridge", () => {
     bridge.restore();
   });
 
+  test("prefers native WebUI routes for root WebUI JSON fetches", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
+    const nativeWebui = {
+      routeResponse: vi.fn(async (request: { method: string; path: string; body?: unknown }) => ({
+        status: 200,
+        body: { native: true, request },
+      })),
+    };
+    const target = {
+      location: { origin: pageOrigin },
+      fetch: fetchMock,
+      WebSocket: class TestWebSocket {} as unknown as typeof WebSocket,
+    } as unknown as typeof globalThis;
+    const bridge = installDesktopGatewayBridge({
+      config: DEFAULT_GATEWAY_CONFIG,
+      pageOrigin,
+      fetchTarget: target,
+      webSocketTarget: target,
+      nativeWebui,
+    });
+
+    const response = await target.fetch("/api/status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ping: true }),
+    });
+
+    await expect(response.json()).resolves.toEqual({
+      native: true,
+      request: {
+        method: "POST",
+        path: "/api/status",
+        headers: { "Content-Type": "application/json" },
+        body: { ping: true },
+      },
+    });
+    expect(nativeWebui.routeResponse).toHaveBeenCalledWith({
+      method: "POST",
+      path: "/api/status",
+      headers: { "Content-Type": "application/json" },
+      body: { ping: true },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    bridge.restore();
+  });
+
   test("routes WebUI WebSocket URLs with original query parameters", () => {
     expect(String(rewriteGatewayWebSocketUrl("/ws?token=abc&chat=1", DEFAULT_GATEWAY_CONFIG, pageOrigin))).toBe(
       "ws://127.0.0.1:18790/ws?token=abc&chat=1",

@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued WebUI transport native-first parity: the desktop root-WebUI fetch bridge now sends same-origin gateway GET/JSON requests through the Rust `worker_webui_route` / TS `webui.handle_request` path before falling back to the HTTP gateway, reducing Python control-plane dependence for migrated root WebUI routes.
+
 - Continued API/WebUI bridge parity: the desktop root-WebUI fetch and navigation bridges now treat `/health` and all `/v1/**` API facade paths as gateway-owned routes, so OpenAI-compatible `/v1/models` and `/v1/chat/completions` no longer fall through to local desktop routes.
 
 - Continued API Runtime OpenAI-compatible parity: TS-native `/v1/chat/completions` now retries blank provider completions once at the API facade and returns the shared Python-compatible empty-final fallback if the retry is still blank.
@@ -787,6 +789,8 @@ WebUI row 17 update: desktop native root-WebUI WebSocket attach now performs nat
 
 API/WebUI bridge update: desktop root-WebUI same-origin fetch rewriting and anchor navigation now classify `/health` and `/v1/**` as gateway API facade paths, aligning the desktop bridge with the TS-native OpenAI-compatible route set instead of only forwarding `/v1/knowledge/**`.
 
+WebUI row 17 / API row 19 update: desktop root-WebUI same-origin GET/JSON fetches now prefer the native `worker_webui_route` bridge and reconstruct browser `Response` objects from TS route responses, while unsupported bodies or native-route failures continue through the existing HTTP gateway fallback.
+
 Channel Bus row 18 update: Phase 5 default stdio worker lifecycle now reads canonical native config and assembles host-provided native text connectors into `ChannelManager` adapters at channel startup, preserving the empty-manager fallback when no connectors are available.
 
 Channel Bus row 18 update: Phase 5 now has an explicit TS host-RPC connector bridge for native text adapters, so host-provided connectors can be expressed as stable `channel.connector.start/stop/send_text/send_delta/send_usage` worker-host calls while Python bridge fallback remains opt-in by absence of connectors.
@@ -1409,6 +1413,7 @@ API Runtime row 19 update: TS-native OpenAI-compatible chat completions now retr
 - [x] Continue API Runtime Phase 1: mirror Python truthiness for OpenAI-compatible chat completion `session_id` lock keys on TS-native routes.
 - [x] Continue API Runtime Phase 1: retry blank OpenAI-compatible provider completions once at the TS facade before returning the Python-compatible empty-final fallback.
 - [x] Continue API/WebUI bridge parity: route desktop root-WebUI `/health` and `/v1/**` fetch/navigation paths through the gateway API facade.
+- [x] Continue WebUI/API bridge parity: prefer native `worker_webui_route` for desktop root-WebUI same-origin GET/JSON fetches before HTTP gateway fallback.
 - [x] Continue Knowledge Phase 3: include session temporary uploads in native `knowledge.context` results and preserve temporary reference metadata through the TS context bridge.
 - [x] Continue Knowledge Phase 3: let attachment-style prompts request native `knowledge.context` with persistent retrieval disabled so session temporary uploads remain available without broad Knowledge auto-retrieval.
 - [x] Continue Knowledge Phase 3: expose native `knowledge.session_upload`, `knowledge.session_list`, and `knowledge.session_clear` RPC aliases over the session temporary upload store.

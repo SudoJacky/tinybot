@@ -224,6 +224,7 @@ async function bootDesktopWebUi(): Promise<void> {
     installDesktopGatewayBridge({
       config: gatewayConfig,
       nativeTransport: gatewayClientOptions.nativeTransport,
+      nativeWebui: gatewayClientOptions.nativeWebui,
       resolveNativeWebSocketSessionExists,
       listenToNativeAgentEvent: (eventName, handler) => listen(eventName, (event) => {
         handler(event.payload);

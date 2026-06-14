@@ -84,8 +84,14 @@ export type NativeWebuiRouteRequest = {
   body?: unknown;
 };
 
+export type NativeWebuiRouteResponse = {
+  status: number;
+  body?: unknown;
+};
+
 export type NativeWebuiApi = {
   route: (request: NativeWebuiRouteRequest) => Promise<unknown>;
+  routeResponse?: (request: NativeWebuiRouteRequest) => Promise<NativeWebuiRouteResponse>;
 };
 
 export type WebuiApprovalsListOptions = {
