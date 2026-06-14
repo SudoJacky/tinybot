@@ -244,4 +244,33 @@ describe("createCoworkTool", () => {
       },
     });
   });
+
+  it("rejects workflow modes outside the Python cowork tool schema", () => {
+    const registry = new ToolRegistry();
+    registry.register(createCoworkTool({ service: serviceWithStore() }));
+
+    expect(registry.prepareCall("cowork", {
+      action: "start",
+      goal: "Coordinate invalid workflow mode",
+      workflow_mode: "freeform",
+    })).toMatchObject({
+      ok: false,
+      error: {
+        kind: "invalid_params",
+        message: expect.stringContaining("workflow_mode must be one of"),
+      },
+    });
+    expect(registry.prepareCall("cowork", {
+      action: "start",
+      goal: "Coordinate hybrid workflow",
+      workflow_mode: "hybrid",
+    })).toMatchObject({
+      ok: true,
+      args: {
+        action: "start",
+        goal: "Coordinate hybrid workflow",
+        workflow_mode: "hybrid",
+      },
+    });
+  });
 });

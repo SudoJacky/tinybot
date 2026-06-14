@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Cowork model-facing tool schema parity: TS-native `cowork` now rejects `workflow_mode` values outside Python's declared workflow enum while preserving the legacy `hybrid` alias, keeping invalid model tool calls from reaching the TS service layer.
+
 - Continued Cowork model-facing tool parity: TS-native `cowork` tool parameters now expose Python-compatible `topic` / `event_type` fields and enforce bounded integer scheduler limits for `max_rounds`, `max_agents`, and `max_agent_calls`, preserving Python schema casting/validation before scheduler execution.
 
 - Continued WebUI/API Knowledge GraphRAG parity: TS-native `/v1/knowledge/graphrag` now uses the configured `knowledge.graphragCommunityLevel` default when the request omits `level`, matching Python's store-backed GraphRAG default resolution while preserving explicit query overrides.

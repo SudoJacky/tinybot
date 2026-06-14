@@ -23,6 +23,19 @@ const COWORK_ACTIONS = [
   "preview_blueprint",
 ] as const;
 
+const COWORK_WORKFLOW_MODES = [
+  "adaptive_starter",
+  "hybrid",
+  "supervisor",
+  "orchestrator",
+  "team",
+  "generator_verifier",
+  "message_bus",
+  "shared_state",
+  "peer_handoff",
+  "swarm",
+] as const;
+
 type CoworkAction = typeof COWORK_ACTIONS[number];
 
 export type CoworkToolOptions = {
@@ -44,7 +57,7 @@ export function createCoworkTool(options: CoworkToolOptions): Tool {
       properties: {
         action: { type: "string", enum: COWORK_ACTIONS },
         goal: { type: "string" },
-        workflow_mode: { type: "string" },
+        workflow_mode: { type: "string", enum: COWORK_WORKFLOW_MODES },
         architecture: { type: "string" },
         session_id: { type: "string" },
         recipient_ids: { type: "array", items: { type: "string" } },
