@@ -843,11 +843,14 @@ function parseOpenAiChatRequest(
   configuredModel: string,
 ): { ok: true; content: string; sessionKey: string; model: string } | { ok: false; message: string } {
   const messages = Array.isArray(body.messages) ? body.messages : undefined;
-  if (!messages || messages.length !== 1 || !isJsonObject(messages[0]) || messages[0].role !== "user") {
+  if (!messages || messages.length !== 1) {
     return { ok: false, message: "Only a single user message is supported" };
   }
   if (pythonTruthy(body.stream)) {
     return { ok: false, message: "stream=true is not supported yet. Set stream=false or omit it." };
+  }
+  if (!isJsonObject(messages[0]) || messages[0].role !== "user") {
+    return { ok: false, message: "Only a single user message is supported" };
   }
   const requestedModel = pythonTruthy(body.model) ? pythonString(body.model) : undefined;
   if (requestedModel && requestedModel !== configuredModel) {

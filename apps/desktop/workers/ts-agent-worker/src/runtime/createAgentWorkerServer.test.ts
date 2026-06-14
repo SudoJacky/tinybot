@@ -3369,6 +3369,52 @@ describe("createAgentWorkerServer", () => {
     });
   });
 
+  test("prioritizes OpenAI-compatible stream rejection before message role validation", async () => {
+    const lines: string[] = [];
+    const server = createAgentWorkerServer({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const request = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "openai-chat-stream-invalid-role",
+        trace_id: "trace-openai-chat-stream-invalid-role",
+        method: "webui.handle_request",
+        params: {
+          method: "POST",
+          path: "/v1/chat/completions",
+          body: {
+            stream: true,
+            messages: [{ role: "assistant", content: "hello" }],
+          },
+        },
+      }),
+    );
+
+    await respondToConfigSnapshot(server, lines, {});
+    await request;
+
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      protocol_version: "1",
+      id: "openai-chat-stream-invalid-role",
+      trace_id: "trace-openai-chat-stream-invalid-role",
+      result: {
+        status: 400,
+        body: {
+          error: {
+            message: "stream=true is not supported yet. Set stream=false or omit it.",
+            type: "invalid_request_error",
+            code: 400,
+          },
+        },
+      },
+    });
+  });
+
   test("projects WebUI skills list and detail through native RPC", async () => {
     const lines: string[] = [];
     const server = createAgentWorkerServer({
