@@ -425,6 +425,7 @@ impl WorkerRpcRouter {
             }
             "memory.rebuild_index" => self.memory.rebuild_index(),
             "memory.refresh_views" => self.memory.refresh_views(),
+            "memory.migrate_legacy_notes" => self.memory.migrate_legacy_notes(),
             "memory.dream_run" => {
                 let params: MemoryDreamParams = parse_params(request)?;
                 self.memory.dream_run(params)
@@ -1241,6 +1242,55 @@ impl WorkerMemoryRpc {
                 .iter()
                 .map(|(view_file, _)| *view_file)
                 .collect::<Vec<_>>()
+        }))
+    }
+
+    fn migrate_legacy_notes(&self) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
+        self.require(WorkerCapability::MemoryWrite)?;
+        let mut notes = self.read_notes()?;
+        let timestamp = memory_timestamp();
+        let mut migrated = Vec::new();
+        for (source_file, note_type) in [
+            ("memory/MEMORY.md", "project"),
+            ("USER.md", "preference"),
+            ("SOUL.md", "instruction"),
+        ] {
+            let path = self.workspace_root.join(source_file);
+            let content = fs::read_to_string(path).unwrap_or_default();
+            if content.trim().is_empty() {
+                continue;
+            }
+            let scope = default_memory_scope(note_type);
+            let source = serde_json::json!({
+                "capture_origin": "migration",
+                "source_file": source_file
+            });
+            for item in parse_legacy_memory_markdown(&content) {
+                let note_id = generate_memory_note_id(note_type, scope, &item, &source);
+                let note = serde_json::json!({
+                    "id": note_id,
+                    "scope": scope,
+                    "type": note_type,
+                    "status": "active",
+                    "content": item,
+                    "priority": 0.4,
+                    "confidence": 0.45,
+                    "sources": [source.clone()],
+                    "created_at": timestamp,
+                    "updated_at": timestamp,
+                    "tags": ["legacy-migration"]
+                });
+                notes.retain(|existing| existing.get("id") != note.get("id"));
+                notes.push(note.clone());
+                migrated.push(note);
+            }
+        }
+        if !migrated.is_empty() {
+            self.write_notes(&notes)?;
+        }
+        Ok(serde_json::json!({
+            "migrated_count": migrated.len(),
+            "notes": migrated
         }))
     }
 
@@ -4077,6 +4127,84 @@ fn default_memory_scope(note_type: &str) -> &'static str {
         "instruction" => "assistant",
         _ => "project",
     }
+}
+
+fn parse_legacy_memory_markdown(content: &str) -> Vec<String> {
+    let mut items = Vec::new();
+    let mut paragraph: Vec<String> = Vec::new();
+    let mut in_fence = false;
+
+    for raw_line in content.lines() {
+        let line = raw_line.trim();
+        if line.starts_with("```") {
+            flush_legacy_memory_paragraph(&mut items, &mut paragraph);
+            in_fence = !in_fence;
+            continue;
+        }
+        if in_fence {
+            continue;
+        }
+        if line.is_empty() {
+            flush_legacy_memory_paragraph(&mut items, &mut paragraph);
+            continue;
+        }
+        if line.starts_with('#') {
+            flush_legacy_memory_paragraph(&mut items, &mut paragraph);
+            continue;
+        }
+        if let Some(text) = legacy_bullet_text(line) {
+            flush_legacy_memory_paragraph(&mut items, &mut paragraph);
+            if !text.is_empty() {
+                items.push(text);
+            }
+            continue;
+        }
+        paragraph.push(line.to_string());
+    }
+
+    flush_legacy_memory_paragraph(&mut items, &mut paragraph);
+    items
+}
+
+fn flush_legacy_memory_paragraph(items: &mut Vec<String>, paragraph: &mut Vec<String>) {
+    if paragraph.is_empty() {
+        return;
+    }
+    let text = paragraph.join(" ").trim().to_string();
+    if !text.is_empty() {
+        items.push(text);
+    }
+    paragraph.clear();
+}
+
+fn legacy_bullet_text(line: &str) -> Option<String> {
+    for prefix in ["- ", "* ", "+ "] {
+        if let Some(rest) = line.strip_prefix(prefix) {
+            return Some(rest.trim().to_string());
+        }
+    }
+
+    let mut digit_end = 0usize;
+    for (index, character) in line.char_indices() {
+        if character.is_ascii_digit() {
+            digit_end = index + character.len_utf8();
+            continue;
+        }
+        break;
+    }
+    if digit_end == 0 {
+        return None;
+    }
+    let rest = &line[digit_end..];
+    let marker = rest.chars().next()?;
+    if marker != '.' && marker != ')' {
+        return None;
+    }
+    let after_marker = &rest[marker.len_utf8()..];
+    if !after_marker.chars().next().is_some_and(char::is_whitespace) {
+        return None;
+    }
+    Some(after_marker.trim().to_string())
 }
 
 fn memory_query_terms(query: &str) -> Vec<String> {
@@ -7317,6 +7445,104 @@ mod tests {
         assert!(user_view.contains("### Preference"));
         assert!(user_view.contains("User prefers concise implementation handoffs."));
         assert!(!user_view.contains("Stale managed content"));
+    }
+
+    #[test]
+    fn dispatches_memory_legacy_migration_without_rewriting_markdown_views() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write(
+            "memory/MEMORY.md",
+            "# Memory\n\n- Project uses source-linked swarm wording.\n\nKeep maintainer docs separate.",
+        );
+        fixture.write("USER.md", "- User prefers uv commands.");
+        fixture.write(
+            "SOUL.md",
+            "## Soul\n\nAvoid vendor API names in tinybot surfaces.",
+        );
+        let original_memory = fixture.read("memory/MEMORY.md");
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::MemoryRead, WorkerCapability::MemoryWrite]),
+        );
+
+        let first_response = router.dispatch(&WorkerRequest::new(
+            "req-migrate-1",
+            "trace-1",
+            "memory.migrate_legacy_notes",
+            json!({}),
+        ));
+        let second_response = router.dispatch(&WorkerRequest::new(
+            "req-migrate-2",
+            "trace-1",
+            "memory.migrate_legacy_notes",
+            json!({}),
+        ));
+        let search_response = router.dispatch(&WorkerRequest::new(
+            "req-search",
+            "trace-1",
+            "memory.search",
+            json!({ "query": "legacy-migration", "limit": 10 }),
+        ));
+
+        let first_notes = first_response
+            .result
+            .as_ref()
+            .expect("memory.migrate_legacy_notes should return result")["notes"]
+            .as_array()
+            .expect("migrated notes should be an array")
+            .clone();
+        let second_notes = second_response
+            .result
+            .as_ref()
+            .expect("second memory.migrate_legacy_notes should return result")["notes"]
+            .as_array()
+            .expect("second migrated notes should be an array")
+            .clone();
+        let stored_notes = search_response
+            .result
+            .as_ref()
+            .expect("memory.search should return result")["notes"]
+            .as_array()
+            .expect("stored notes should be an array")
+            .clone();
+
+        assert_eq!(first_notes.len(), 4);
+        assert_eq!(second_notes.len(), 4);
+        assert_eq!(stored_notes.len(), 4);
+        assert_eq!(fixture.read("memory/MEMORY.md"), original_memory);
+        assert!(first_notes
+            .iter()
+            .all(|note| note["priority"] == json!(0.4)));
+        assert!(first_notes
+            .iter()
+            .all(|note| note["confidence"] == json!(0.45)));
+        assert!(first_notes.iter().all(|note| note["status"] == "active"));
+        assert!(first_notes
+            .iter()
+            .all(|note| note["tags"] == json!(["legacy-migration"])));
+        assert_eq!(
+            first_notes
+                .iter()
+                .map(|note| note["sources"][0]["source_file"].as_str().unwrap())
+                .collect::<std::collections::BTreeSet<_>>(),
+            std::collections::BTreeSet::from(["memory/MEMORY.md", "USER.md", "SOUL.md"])
+        );
+        assert_eq!(
+            first_notes
+                .iter()
+                .map(|note| note["id"].clone())
+                .collect::<Vec<_>>(),
+            second_notes
+                .iter()
+                .map(|note| note["id"].clone())
+                .collect::<Vec<_>>()
+        );
+        assert!(first_response.error.is_none());
+        assert!(second_response.error.is_none());
+        assert!(search_response.error.is_none());
     }
 
     #[test]
