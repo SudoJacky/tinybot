@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Cowork tool start traceability parity: TS-native `cowork start` now saves a normalized generated blueprint for goal/planner starts like Python, keeping later blueprint export and diagnostics tied to the actual created agents and tasks.
+
 - Continued Cowork tool start parity: TS-native `cowork start` now mirrors Python by folding planner-generated tasks into a single `lead_start` delegation task for non-swarm workflows, while preserving raw planner tasks for swarm sessions.
 
 - Continued Cowork model-facing tool schema parity: TS-native `cowork` now rejects `workflow_mode` values outside Python's declared workflow enum while preserving the legacy `hybrid` alias, keeping invalid model tool calls from reaching the TS service layer.

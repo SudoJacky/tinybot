@@ -1,7 +1,7 @@
 import { isJsonObject, type JsonObject } from "../protocol/messages.ts";
 import type { Tool, ToolContext, ToolResult } from "../tools/tool.ts";
 import { normalizeArchitectureName } from "./coworkArchitecture.ts";
-import { previewBlueprint, validateBlueprint } from "./coworkBlueprint.ts";
+import { normalizeBlueprint, previewBlueprint, validateBlueprint } from "./coworkBlueprint.ts";
 import type { CoworkScheduler } from "./coworkScheduler.ts";
 import { type CoworkService } from "./coworkService.ts";
 import type { CoworkAgentInput, CoworkTaskInput } from "./coworkService.ts";
@@ -174,13 +174,24 @@ async function startSession(options: CoworkToolOptions, args: Record<string, unk
   const plannedTasks = planned && normalizedWorkflowMode !== "swarm"
     ? leaderInitialTasks(goal, planned.agents, planned.tasks)
     : planned?.tasks;
+  const title = stringArg(args, "title") || planned?.title;
+  const agents = explicitAgents ?? planned?.agents;
+  const tasks = explicitTasks ?? plannedTasks;
+  const generatedBlueprint = normalizeBlueprint({
+    goal,
+    title,
+    workflow_mode: normalizedWorkflowMode,
+    agents,
+    tasks,
+  });
   const session = await service.createSession({
     traceId,
     goal,
-    title: stringArg(args, "title") || planned?.title,
+    title,
     workflowMode: normalizedWorkflowMode,
-    agents: explicitAgents ?? planned?.agents,
-    tasks: explicitTasks ?? plannedTasks,
+    agents,
+    tasks,
+    blueprint: generatedBlueprint,
     runtimeState: originRuntimeState(context),
   });
   const run = booleanArg(args, "auto_run")

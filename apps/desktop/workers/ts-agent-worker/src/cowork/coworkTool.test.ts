@@ -148,6 +148,14 @@ describe("createCoworkTool", () => {
     expect(session?.tasks.lead_start.description).toContain("Goal: Coordinate TS planner migration");
     expect(session?.tasks.lead_start.description).toContain("- Research gap: Compare Python behavior");
     expect(session?.tasks.lead_start.description).toContain("- Patch runtime: Update TS facade");
+    expect(session?.blueprint).toMatchObject({
+      schema_version: "cowork.blueprint.v1",
+      goal: "Coordinate TS planner migration",
+      title: "Planner Session",
+      workflow_mode: "team",
+      lead_agent_id: "lead",
+      tasks: [expect.objectContaining({ id: "lead_start", assigned_agent_id: "lead" })],
+    });
   });
 
   it("preserves planner tasks for swarm cowork starts like Python", async () => {
