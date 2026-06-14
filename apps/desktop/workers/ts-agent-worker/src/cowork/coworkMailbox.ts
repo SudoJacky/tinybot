@@ -1108,6 +1108,10 @@ function reviewMailboxGoalCompletion(
 ): JsonObject {
   const completed = tasks.filter((task) => stringValue(task.status) === "completed");
   const openQuestions = completed.flatMap((task) => arrayValue(jsonSafeObject(task.result_data).open_questions).map(stringValue).filter(Boolean));
+  const failed = tasks.filter((task) => stringValue(task.status) === "failed");
+  if (failed.length > 0) {
+    return { ready: false, reason: `${failed.length} failed task(s) need review.`, missing: ["failed_tasks"] };
+  }
   if (reviewBlockers.length > 0) {
     return { ready: false, reason: "Review-required outputs have not passed review.", missing: ["review_gates"] };
   }

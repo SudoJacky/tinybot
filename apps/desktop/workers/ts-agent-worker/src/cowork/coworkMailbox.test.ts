@@ -908,6 +908,81 @@ describe("CoworkMailbox", () => {
     });
   });
 
+  it("prioritizes failed tasks over open questions in mailbox goal review", async () => {
+    const session = await createTeamSession();
+    session.agents.coordinator.inbox = [];
+    session.tasks = {
+      task_1: {
+        id: "task_1",
+        title: "Failed lane",
+        description: "Attempt the risky lane.",
+        assigned_agent_id: "researcher",
+        status: "failed",
+        dependencies: [],
+        result: "The lane failed.",
+        result_data: {},
+        confidence: null,
+        error: "The lane failed.",
+        priority: 0,
+        expected_output: "",
+        review_required: false,
+        reviewer_agent_ids: [],
+        review_status: "",
+        fanout_group_id: "",
+        merge_task_id: "",
+        source_blueprint_id: "",
+        source_event_id: "",
+        runtime_created: false,
+        created_at: fixedNow,
+        updated_at: fixedNow,
+      },
+      task_2: {
+        id: "task_2",
+        title: "Completed lane",
+        description: "Produce partial output.",
+        assigned_agent_id: "analyst",
+        status: "completed",
+        dependencies: [],
+        result: "Partial output remains unclear.",
+        result_data: {
+          answer: "Partial output is available.",
+          open_questions: ["Should the failed lane be retried?"],
+        },
+        confidence: 0.7,
+        error: null,
+        priority: 0,
+        expected_output: "",
+        review_required: false,
+        reviewer_agent_ids: [],
+        review_status: "",
+        fanout_group_id: "",
+        merge_task_id: "",
+        source_blueprint_id: "",
+        source_event_id: "",
+        runtime_created: false,
+        created_at: fixedNow,
+        updated_at: fixedNow,
+      },
+    };
+
+    deliver(session, {
+      sender_id: "coordinator",
+      recipient_ids: ["researcher"],
+      content: "Failed task should take priority.",
+      wake_recipients: false,
+    });
+
+    expect(session.completion_decision).toMatchObject({
+      next_action: "review_failed_tasks",
+      reason: "1 task(s) failed and need review.",
+      goal_review: {
+        ready: false,
+        reason: "1 failed task(s) need review.",
+        missing: ["failed_tasks"],
+      },
+    });
+  });
+
   it("deduplicates active correlation requests and returns the original message", async () => {
     const session = await createTeamSession();
     const box = mailbox();
