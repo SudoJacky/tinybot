@@ -423,6 +423,7 @@ impl WorkerRpcRouter {
                 let params: MemoryRecallParams = parse_params(request)?;
                 self.memory.recall(params)
             }
+            "memory.rebuild_index" => self.memory.rebuild_index(),
             "memory.dream_run" => {
                 let params: MemoryDreamParams = parse_params(request)?;
                 self.memory.dream_run(params)
@@ -1214,6 +1215,17 @@ impl WorkerMemoryRpc {
             "context": context,
             "notes": notes,
             "references": references
+        }))
+    }
+
+    fn rebuild_index(&self) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
+        self.require(WorkerCapability::MemoryRead)?;
+        Ok(serde_json::json!({
+            "available": false,
+            "rebuilt": false,
+            "indexed": 0,
+            "backend": null,
+            "reason": "vector memory index is not available in the native runtime"
         }))
     }
 
@@ -7209,6 +7221,36 @@ mod tests {
         assert!(!fixture
             .read("SOUL.md")
             .contains("Use vitest for TS worker tests."));
+    }
+
+    #[test]
+    fn dispatches_memory_rebuild_index_as_unavailable_noop() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::MemoryRead]),
+        );
+        let response = router.dispatch(&WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "memory.rebuild_index",
+            json!({}),
+        ));
+
+        assert_eq!(
+            response.result,
+            Some(json!({
+                "available": false,
+                "rebuilt": false,
+                "indexed": 0,
+                "backend": null,
+                "reason": "vector memory index is not available in the native runtime"
+            }))
+        );
+        assert!(response.error.is_none());
     }
 
     #[test]
