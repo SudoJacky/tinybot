@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued WebUI provider catalog parity: TS-native `/api/providers` now projects catalog status from native config, including configured/default built-ins, disabled providers, credential state, base URLs, model counts, and custom provider entries.
+
 - Continued WebUI config snapshot parity: TS-native `GET /api/config` now uses UI placeholder secret masking for browser responses while preserving null-masked public snapshots for internal runtime/provider resolution.
 
 - Continued WebUI config PATCH response parity: TS-native `/api/config` PATCH now returns Python-compatible `updated_fields` and placeholder-masks returned config secrets while preserving the existing TS camelCase bridge fields for internal callers.

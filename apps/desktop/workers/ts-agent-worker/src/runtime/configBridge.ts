@@ -7,7 +7,7 @@ import type { JsonRecord } from "../config/configTypes.ts";
 import { createPublicConfigSnapshot } from "../config/configSnapshot.ts";
 import type { SecretMaskMode } from "../config/configMasking.ts";
 import { probeOpenAICompatibleModels, type JsonFetcher } from "../providers/modelDiscovery.ts";
-import { listCatalogEntries } from "../providers/providerCatalog.ts";
+import { isLocalProvider, listCatalogEntries, type ProviderCatalogEntry } from "../providers/providerCatalog.ts";
 import { listProviderModels, validateModelForProvider } from "../providers/providerModels.ts";
 import { resolveRuntimeProvider, type ProviderSecretResolution, type TinybotPublicConfig } from "../providers/providerRuntime.ts";
 import { modelProviderConfigFromEnv, type ModelProviderConfig } from "./providerFactory.ts";
@@ -197,21 +197,130 @@ async function fetchModelDiscoveryJson(url: string, headers: Record<string, stri
   }
 }
 
-export function providerCatalogForSettings(): Record<string, unknown> {
+export function providerCatalogForSettings(
+  snapshot: TinybotPublicConfig = {},
+  env: Record<string, string | undefined> = {},
+): Record<string, unknown> {
+  const providersConfig = asObject(snapshot.providers) ?? {};
+  const defaults = asObject(asObject(snapshot.agents)?.defaults);
+  const activeProvider = asString(defaults?.provider);
+  const activeModel = asString(defaults?.model);
+  const catalogEntries = listCatalogEntries();
+  const catalogIds = new Set(catalogEntries.map((entry) => entry.id));
+  const providers = catalogEntries.map((entry) =>
+    providerCatalogStatus(entry, asObject(providersConfig[entry.id]), activeProvider, activeModel, env)
+  );
+
+  for (const [providerId, rawConfig] of Object.entries(providersConfig)) {
+    if (providerId === "profiles" || catalogIds.has(providerId)) {
+      continue;
+    }
+    const providerConfig = asObject(rawConfig);
+    if (!providerConfig) {
+      continue;
+    }
+    providers.push(providerCatalogStatus(undefined, providerConfig, activeProvider, activeModel, env, providerId));
+  }
+
+  return { providers };
+}
+
+export async function providerCatalogFromNativeConfig(
+  configBridge: NativeConfigBridge,
+  env: Record<string, string | undefined>,
+): Promise<Record<string, unknown>> {
+  try {
+    return providerCatalogForSettings(await configBridge.snapshotPublic("ui-placeholder"), env);
+  } catch {
+    return providerCatalogForSettings({}, env);
+  }
+}
+
+function providerCatalogStatus(
+  entry: ProviderCatalogEntry | undefined,
+  providerConfig: JsonObject | null,
+  activeProvider: string | undefined,
+  activeModel: string | undefined,
+  env: Record<string, string | undefined>,
+  customProviderId?: string,
+): Record<string, unknown> {
+  const providerId = entry?.id ?? customProviderId ?? "custom";
+  const baseUrl = asString(configField(providerConfig, "api_base", "apiBase"))
+    ?? envValue(env, entry?.apiBaseEnvVars ?? [])
+    ?? entry?.defaultApiBase
+    ?? null;
+  const configuredKey = asString(configField(providerConfig, "api_key", "apiKey"));
+  const envKey = envValue(env, entry?.apiKeyEnvVars ?? []);
+  const hasCredential = Boolean(configuredKey || envKey || isLocalProvider(entry));
+  const enabled = booleanValue(configField(providerConfig, "enabled")) ?? true;
+  const models = stringArray(configField(providerConfig, "models"));
+  const manualModels = stringArray(configField(providerConfig, "manual_models", "manualModels"));
+  const modelCount = new Set([...models, ...manualModels, ...(entry?.curatedModelIds ?? [])]).size;
+  const status = providerStatus({ enabled, hasCredential, modelCount, entry, customProviderId });
+  const credentialState = isLocalProvider(entry) ? "not_required" : hasCredential ? "configured" : "missing";
+  const isDefault = activeProvider === providerId;
+
   return {
-    providers: listCatalogEntries().map((entry) => ({
-      id: entry.id,
-      displayName: entry.displayName,
-      aliases: entry.aliases,
-      categories: entry.categories,
-      defaultApiBase: entry.defaultApiBase ?? null,
-      apiMode: entry.apiMode,
-      supportsModelDiscovery: entry.supportsModelDiscovery,
-      curatedModels: entry.curatedModelIds,
-      modelPrefixes: entry.modelPrefixes,
-      requestTraits: entry.requestTraits,
-    })),
+    id: providerId,
+    displayName: entry?.displayName ?? providerId,
+    aliases: entry?.aliases ?? [],
+    categories: entry?.categories ?? ["custom"],
+    defaultApiBase: entry?.defaultApiBase ?? null,
+    baseUrl,
+    apiMode: entry?.apiMode ?? "openai_chat_completions",
+    supportsModelDiscovery: booleanValue(configField(providerConfig, "supports_model_discovery", "supportsModelDiscovery"))
+      ?? entry?.supportsModelDiscovery
+      ?? true,
+    curatedModels: entry?.curatedModelIds ?? [],
+    modelPrefixes: entry?.modelPrefixes ?? [],
+    requestTraits: entry?.requestTraits ?? null,
+    ...(customProviderId ? { custom: true } : {}),
+    enabled,
+    status,
+    credential: {
+      state: credentialState,
+      source: configuredKey ? "config" : envKey ? "env" : null,
+    },
+    models: {
+      count: modelCount,
+      sources: {
+        curated: entry?.curatedModelIds.length ?? 0,
+        profile: 0,
+        live: 0,
+        manual: manualModels.length + models.length,
+      },
+      warning: null,
+    },
+    default: {
+      isDefault,
+      model: isDefault ? activeModel ?? null : null,
+    },
+    actions: {
+      models: true,
+      settings: true,
+      refresh: Boolean(baseUrl),
+      useAsDefault: status === "ready" || status === "no_models",
+    },
   };
+}
+
+function providerStatus(input: {
+  enabled: boolean;
+  hasCredential: boolean;
+  modelCount: number;
+  entry: ProviderCatalogEntry | undefined;
+  customProviderId?: string;
+}): string {
+  if (!input.enabled) {
+    return "disabled";
+  }
+  if (isLocalProvider(input.entry)) {
+    return "ready";
+  }
+  if (!input.hasCredential) {
+    return "needs_key";
+  }
+  return input.modelCount > 0 && !input.customProviderId ? "ready" : "no_models";
 }
 
 export async function providerRuntimeFromNativeConfig(
@@ -318,6 +427,39 @@ function asObject(value: unknown): JsonObject | null {
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function booleanValue(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function configField(object: Record<string, unknown> | undefined | null, ...names: string[]): unknown {
+  if (!object) {
+    return undefined;
+  }
+  for (const name of names) {
+    if (name in object) {
+      return object[name];
+    }
+  }
+  return undefined;
+}
+
+function envValue(env: Record<string, string | undefined>, names: readonly string[]): string | undefined {
+  for (const name of names) {
+    const value = env[name];
+    if (value) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item): item is string => typeof item === "string" && item.length > 0);
 }
 
 function normalizeFixtureResponses(value: unknown): ModelResponse[] {

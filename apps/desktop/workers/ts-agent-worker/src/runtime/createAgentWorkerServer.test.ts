@@ -3827,7 +3827,7 @@ describe("createAgentWorkerServer", () => {
       writeLog: () => undefined,
     });
 
-    await server.handleLine(
+    const catalog = server.handleLine(
       JSON.stringify({
         protocol_version: "1",
         id: "catalog-1",
@@ -3836,6 +3836,8 @@ describe("createAgentWorkerServer", () => {
         params: {},
       }),
     );
+    await respondToWorkerRequest(server, lines, "config.snapshot_public", { value: {} });
+    await catalog;
 
     expect(parsedLines(lines).at(-1)).toMatchObject({
       protocol_version: "1",
@@ -3851,6 +3853,81 @@ describe("createAgentWorkerServer", () => {
             curatedModels: expect.arrayContaining(["qwen-max"]),
           }),
         ]),
+      },
+    });
+  });
+
+  test("serves WebUI provider catalog statuses from native config", async () => {
+    const lines: string[] = [];
+    const server = createAgentWorkerServer({
+      provider: new QueueProvider([{ content: "unused", toolCalls: [], stopReason: "stop" }]),
+      tools: new ToolRegistry(),
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const get = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "webui-providers",
+        trace_id: "trace-webui-providers",
+        method: "webui.handle_request",
+        params: {
+          method: "GET",
+          path: "/api/providers",
+        },
+      }),
+    );
+
+    await waitFor(() =>
+      parsedLines(lines).some((line) => line.id === "webui-providers" && "result" in line)
+      || parsedLines(lines).some((line) => line.method === "config.snapshot_public")
+    );
+    if (parsedLines(lines).some((line) => line.method === "config.snapshot_public")) {
+      await respondToWorkerRequest(server, lines, "config.snapshot_public", {
+        value: {
+          agents: { defaults: { provider: "dashscope", model: "qwen-max" } },
+          providers: {
+            dashscope: { apiKey: "dashscope-key" },
+            deepseek: { enabled: false, apiKey: "deepseek-key" },
+            my_gateway: {
+              apiKey: "custom-key",
+              apiBase: "https://gateway.example.test/v1",
+            },
+          },
+        },
+      });
+    }
+    await get;
+
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      protocol_version: "1",
+      id: "webui-providers",
+      trace_id: "trace-webui-providers",
+      result: {
+        status: 200,
+        body: {
+          providers: expect.arrayContaining([
+            expect.objectContaining({
+              id: "dashscope",
+              status: "ready",
+              credential: expect.objectContaining({ state: "configured" }),
+              default: { isDefault: true, model: "qwen-max" },
+            }),
+            expect.objectContaining({
+              id: "deepseek",
+              enabled: false,
+              status: "disabled",
+            }),
+            expect.objectContaining({
+              id: "my_gateway",
+              custom: true,
+              status: "no_models",
+              baseUrl: "https://gateway.example.test/v1",
+              credential: expect.objectContaining({ state: "configured" }),
+            }),
+          ]),
+        },
       },
     });
   });
