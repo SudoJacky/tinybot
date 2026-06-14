@@ -12,6 +12,7 @@ import {
   createNativeMemoryTools,
   createNativeRagTools,
   createNativeReadOnlyTools,
+  createNativeSpawnTools,
   createNativeTaskTools,
 } from "./nativeToolProxy";
 
@@ -598,6 +599,63 @@ describe("createNativeTaskTools", () => {
       method: "workspace.read_file",
       params: { path: "AGENTS.md", format: "numbered_lines" },
     });
+  });
+});
+
+describe("createNativeSpawnTools", () => {
+  test("runs spawned subagents through an isolated AgentRunner tool registry", async () => {
+    const rpc = new FakeRpcClient([{ path: "AGENTS.md", content: "1| Use UV for Python." }]);
+    const provider = new QueueProvider([
+      {
+        content: "",
+        toolCalls: [{ id: "call-1", name: "read_file", argumentsJson: "{\"path\":\"AGENTS.md\"}" }],
+        stopReason: "tool_calls",
+      },
+      { content: "inspection complete", toolCalls: [], stopReason: "stop" },
+    ]);
+    const [spawnTool] = createNativeSpawnTools(rpc, {
+      provider,
+      model: "test-model",
+      idGenerator: () => "spawn-1",
+    });
+
+    const result = await spawnTool.execute(
+      { task: "Inspect AGENTS.md", label: "Inspect" },
+      { runId: "run-1", traceId: "trace-1", sessionId: "desktop:chat-1" },
+    );
+    await waitFor(() => rpc.requests.some((request) => request.method === "workspace.read_file"));
+
+    expect(result.content).toBe("Subagent [Inspect] started (id: spawn-1). Running: 1/5");
+    expect(result.metadata).toMatchObject({
+      _background_event: true,
+      _background_run_id: "spawn-1",
+      _background_label: "Inspect",
+      _background_status: "running",
+    });
+    expect(provider.requests[0]?.options?.tools?.map((tool) => tool.name)).toEqual([
+      "read_file",
+      "list_dir",
+      "write_file",
+      "edit_file",
+      "delete_file",
+      "exec",
+      "request_approval",
+    ]);
+    expect(provider.requests[0]?.options?.tools?.map((tool) => tool.name)).not.toContain("task");
+    expect(provider.requests[0]?.options?.tools?.map((tool) => tool.name)).not.toContain("cron");
+    expect(provider.requests[0]?.options?.tools?.map((tool) => tool.name)).not.toContain("spawn");
+    expect(provider.requests[0]?.options?.model).toBe("test-model");
+    expect(provider.requests[0]?.messages.at(-1)).toMatchObject({
+      role: "user",
+      content: "Inspect AGENTS.md",
+    });
+    expect(rpc.requests).toEqual([
+      {
+        traceId: "trace-1",
+        method: "workspace.read_file",
+        params: { path: "AGENTS.md", format: "numbered_lines" },
+      },
+    ]);
   });
 });
 

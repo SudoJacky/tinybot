@@ -1,5 +1,9 @@
 import type { JsonObject } from "../protocol/messages.ts";
+import { AgentRunner } from "../agent/agentRunner.ts";
+import type { AgentMessage } from "../agent/agentRunSpec.ts";
 import type { BackgroundRunRegistry } from "../background/backgroundRegistryBridge.ts";
+import { createSpawnTool } from "../background/spawnTool.ts";
+import { SubagentRuntime, type SubagentRunRequest } from "../background/subagentRuntime.ts";
 import { NativeCronBridge } from "../cron/cronBridge.ts";
 import { createCronTool } from "../cron/cronTool.ts";
 import { formatKnowledgeQueryResults, normalizeKnowledgeQueryResults } from "../knowledge/knowledgeFormatting.ts";
@@ -66,6 +70,37 @@ export function createNativeCronTools(rpcClient: NativeRpcClient): Tool[] {
   return [createCronTool({ bridge: new NativeCronBridge(rpcClient), defaultTimezone: "UTC" })];
 }
 
+export function createNativeSpawnTools(
+  rpcClient: NativeRpcClient,
+  options: {
+    provider: ModelProvider;
+    model?: string;
+    maxConcurrent?: number;
+    timeoutMs?: number;
+    idGenerator?: () => string;
+    backgroundRegistry?: BackgroundRunRegistry;
+    maxIterations?: number;
+    toolResultBudget?: number;
+  },
+): Tool[] {
+  const tools = createNativeSubagentToolRegistry(rpcClient);
+  const runtime = new SubagentRuntime({
+    maxConcurrent: options.maxConcurrent,
+    timeoutMs: options.timeoutMs,
+    idGenerator: options.idGenerator,
+    registry: options.backgroundRegistry,
+    source: "subagent",
+    runner: (request) => runSpawnedSubagent(request, {
+      provider: options.provider,
+      model: options.model,
+      tools,
+      maxIterations: options.maxIterations,
+      toolResultBudget: options.toolResultBudget,
+    }),
+  });
+  return [createSpawnTool({ runtime })];
+}
+
 export function createNativeTaskTools(
   rpcClient: NativeRpcClient,
   options: {
@@ -101,6 +136,55 @@ export function createNativeTaskTools(
     progressPublisher: options.progressPublisher,
     progressCard: options.progressCard,
   })];
+}
+
+async function runSpawnedSubagent(
+  request: SubagentRunRequest,
+  options: {
+    provider: ModelProvider;
+    model?: string;
+    tools: ToolRegistry;
+    maxIterations?: number;
+    toolResultBudget?: number;
+  },
+) {
+  const runner = new AgentRunner({
+    provider: options.provider,
+    tools: options.tools,
+    isCancelled: () => request.signal.aborted,
+  });
+  const result = await runner.run({
+    runId: request.id,
+    traceId: typeof request.metadata?.traceId === "string" ? request.metadata.traceId : undefined,
+    sessionId: request.sessionKey,
+    messages: spawnedSubagentMessages(request),
+    model: options.model ?? "default",
+    maxIterations: options.maxIterations ?? 15,
+    stream: false,
+    toolResultBudget: options.toolResultBudget,
+    failOnToolError: true,
+  });
+  if (result.stopReason === "tool_error" || result.stopReason === "error") {
+    const error = result.error || result.finalContent || "Error: subagent execution failed.";
+    return { status: "failed", result: error, error } as const;
+  }
+  return {
+    status: "completed",
+    result: result.finalContent || "Task completed but no final response was generated.",
+  } as const;
+}
+
+function spawnedSubagentMessages(request: Pick<SubagentRunRequest, "task">): AgentMessage[] {
+  return [
+    {
+      role: "system",
+      content: [
+        "You are a focused task execution subagent.",
+        "Complete only the assigned task and return a concise result summary.",
+      ].join("\n"),
+    },
+    { role: "user", content: request.task },
+  ];
 }
 
 function createNativeSubagentToolRegistry(rpcClient: NativeRpcClient): ToolRegistry {

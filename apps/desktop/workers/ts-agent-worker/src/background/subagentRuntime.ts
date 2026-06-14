@@ -52,6 +52,7 @@ export interface SubagentRuntimeOptions {
   idGenerator?: () => string;
   nowMs?: () => number;
   registry?: BackgroundRunRegistry;
+  source?: BackgroundRunRecord["source"];
   runner: (request: SubagentRunRequest) => Promise<SubagentRunResult>;
 }
 
@@ -71,6 +72,7 @@ export class SubagentRuntime {
   private readonly idGenerator: () => string;
   private readonly nowMs: () => number;
   private readonly registry?: BackgroundRunRegistry;
+  private readonly source: BackgroundRunRecord["source"];
   private readonly runner: SubagentRuntimeOptions["runner"];
   private readonly queue: QueuedSubagent[] = [];
   private readonly active = new Map<string, QueuedSubagent>();
@@ -82,6 +84,7 @@ export class SubagentRuntime {
     this.idGenerator = options.idGenerator ?? randomSubagentId;
     this.nowMs = options.nowMs ?? Date.now;
     this.registry = options.registry;
+    this.source = options.source ?? "task";
     this.runner = options.runner;
   }
 
@@ -239,7 +242,7 @@ export class SubagentRuntime {
     const record: BackgroundRunRecord = {
       id: entry.id,
       kind: "subagent",
-      source: "task",
+      source: this.source,
       status,
       label: entry.label,
       sessionKey: entry.request.sessionKey,

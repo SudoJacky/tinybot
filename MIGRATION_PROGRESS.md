@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Task/Cron background runtime parity: TS-native `spawn` now exposes a model-facing background subagent tool over `SubagentRuntime`, registered in the real worker with approval/capability gating and an isolated AgentRunner tool registry.
+
 - Continued Task/Cron background runtime parity: TS-native `task action=resume` completed-plan guidance now renders the actual `plan_id` in the suggested `task action=summary` command, avoiding unusable literal placeholders.
 
 - Continued Cowork scheduler budget parity: TS-native budget state snapshots now preserve Python-compatible `remaining.parallel_width` in service budget updates and scheduler budget-stop diagnostics.

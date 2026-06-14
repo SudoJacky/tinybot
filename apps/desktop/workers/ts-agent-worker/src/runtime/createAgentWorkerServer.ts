@@ -33,6 +33,7 @@ import {
   createNativeRagTools,
   createNativeReadOnlyTools,
   createNativeShellTools,
+  createNativeSpawnTools,
   createNativeTaskTools,
   createNativeWriteTools,
 } from "../tools/nativeToolProxy.ts";
@@ -95,6 +96,9 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
   }
   const coworkStore = new NativeCoworkStoreBridge(rpcClient);
   const coworkService = new CoworkService({ store: coworkStore });
+  const backgroundRegistry = capabilities.includes("background.write")
+    ? new NativeBackgroundRegistryBridge(rpcClient)
+    : undefined;
   const coworkAgentRuntime = new CoworkAgentRuntime({
     store: coworkStore,
     runner: new AgentRunner({ provider, tools: options.tools }),
@@ -118,11 +122,14 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
       ...createNativeRagTools(rpcClient),
       ...createNativeMcpTools(rpcClient),
       ...createNativeCronTools(rpcClient),
+      ...createNativeSpawnTools(rpcClient, {
+        provider,
+        model: options.env?.TINYBOT_MODEL ?? options.env?.OPENAI_MODEL ?? "default",
+        backgroundRegistry,
+      }),
       ...createNativeTaskTools(rpcClient, {
         provider,
-        backgroundRegistry: capabilities.includes("background.write")
-          ? new NativeBackgroundRegistryBridge(rpcClient)
-          : undefined,
+        backgroundRegistry,
         notifier: capabilities.includes("session.write")
           ? new NativeTaskNotificationBridge(rpcClient)
           : undefined,

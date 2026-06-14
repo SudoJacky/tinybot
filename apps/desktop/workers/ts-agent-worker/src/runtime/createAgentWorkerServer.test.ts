@@ -34,6 +34,19 @@ class QueueProvider implements ModelProvider {
 }
 
 describe("createAgentWorkerServer", () => {
+  test("registers the native spawn tool by default", () => {
+    const registry = new ToolRegistry();
+
+    createAgentWorkerServer({
+      provider: new QueueProvider([{ content: "unused", toolCalls: [], stopReason: "stop" }]),
+      tools: registry,
+      writeLine: () => undefined,
+      writeLog: () => undefined,
+    });
+
+    expect(registry.has("spawn")).toBe(true);
+  });
+
   test("wires stdio requests to the injected model provider", async () => {
     const lines: string[] = [];
     const server = createAgentWorkerServer({
