@@ -1787,6 +1787,7 @@ function knowledgeUploadJobDocumentId(jobId: string): string | undefined {
 }
 
 function completedKnowledgeUploadJob(docId: string, name: string): Record<string, unknown> {
+  const lifecycle = completedKnowledgeJobLifecycle();
   return {
     id: `kjob_${docId || "upload"}`,
     doc_id: docId,
@@ -1797,6 +1798,7 @@ function completedKnowledgeUploadJob(docId: string, name: string): Record<string
     processed: 1,
     total: 1,
     error: "",
+    ...lifecycle,
     stage_details: [],
     failed_stage_count: 0,
     stale_stage_count: 0,
@@ -1813,6 +1815,7 @@ function completedKnowledgeBm25RebuildJob(
   const chunksIndexed = numberValue(result.chunks_indexed) ?? 0;
   const retrievalReady = Boolean(stats.retrieval_ready) || chunksIndexed > 0;
   const graphReady = Boolean(stats.graph_ready);
+  const lifecycle = completedKnowledgeJobLifecycle();
   return {
     id: "kjob_rebuild_bm25",
     name: "rebuild:bm25",
@@ -1822,6 +1825,7 @@ function completedKnowledgeBm25RebuildJob(
     processed: chunksIndexed,
     total: chunksIndexed,
     error: "",
+    ...lifecycle,
     stage_details: Array.isArray(stats.stage_details) ? stats.stage_details : [],
     failed_stage_count: numberValue(stats.failed_stage_count) ?? 0,
     stale_stage_count: numberValue(stats.stale_stage_count) ?? 0,
@@ -1840,6 +1844,7 @@ function completedKnowledgeAllRebuildJob(
   const chunksIndexed = numberValue(bm25.chunks_indexed) ?? 0;
   const retrievalReady = Boolean(stats.retrieval_ready) || chunksIndexed > 0;
   const graphReady = Boolean(stats.graph_ready);
+  const lifecycle = completedKnowledgeJobLifecycle();
   return {
     id: "kjob_rebuild_all",
     name: "rebuild:all",
@@ -1849,6 +1854,7 @@ function completedKnowledgeAllRebuildJob(
     processed: 3,
     total: 3,
     error: "",
+    ...lifecycle,
     stage_details: Array.isArray(stats.stage_details) ? stats.stage_details : [],
     failed_stage_count: numberValue(stats.failed_stage_count) ?? 0,
     stale_stage_count: numberValue(stats.stale_stage_count) ?? 0,
@@ -1862,6 +1868,7 @@ function completedKnowledgeAllRebuildJob(
 function completedKnowledgeSemanticRebuildJob(stats: Record<string, unknown>): Record<string, unknown> {
   const retrievalReady = Boolean(stats.retrieval_ready) || (numberValue(stats.total_chunks) ?? 0) > 0;
   const graphReady = Boolean(stats.graph_ready);
+  const lifecycle = completedKnowledgeJobLifecycle();
   return {
     id: "kjob_rebuild_semantic",
     name: "rebuild:semantic",
@@ -1871,6 +1878,7 @@ function completedKnowledgeSemanticRebuildJob(stats: Record<string, unknown>): R
     processed: 2,
     total: 2,
     error: "",
+    ...lifecycle,
     stage_details: Array.isArray(stats.stage_details) ? stats.stage_details : [],
     failed_stage_count: numberValue(stats.failed_stage_count) ?? 0,
     stale_stage_count: numberValue(stats.stale_stage_count) ?? 0,
@@ -1878,6 +1886,15 @@ function completedKnowledgeSemanticRebuildJob(stats: Record<string, unknown>): R
     graph_ready: graphReady,
     partial_availability: retrievalReady && !graphReady,
     result: knowledgeSemanticUnavailableResult(),
+  };
+}
+
+function completedKnowledgeJobLifecycle(): Record<string, unknown> {
+  const timestamp = new Date().toISOString();
+  return {
+    created_at: timestamp,
+    updated_at: timestamp,
+    completed_at: timestamp,
   };
 }
 
