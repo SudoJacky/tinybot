@@ -48,6 +48,45 @@ describe("WebUI route temporary files", () => {
     expect(uploads).toEqual([{ sessionId: "native:chat-1", traceId: "trace-temp-upload", name: "notes.txt" }]);
   });
 
+  test("passes empty text uploads to the temporary knowledge store for validation", async () => {
+    const uploads: Array<{ sessionId: string; content: string }> = [];
+    const sessionProvider: WebuiSessionProvider = {
+      channelName: "websocket",
+      listSessions: () => [],
+      uploadTemporaryFile: (sessionId, upload) => {
+        uploads.push({ sessionId, content: upload.content });
+        throw new Error("Uploaded file contains no extractable text");
+      },
+    };
+
+    const response = await handleWebuiRouteRequest(
+      {
+        method: "POST",
+        path: "/api/sessions/websocket%3Achat-1/temporary-files",
+        body: { name: "blank.txt", content: "" },
+      },
+      undefined,
+      undefined,
+      sessionProvider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "trace-empty-upload",
+    );
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ error: "Uploaded file contains no extractable text" });
+    expect(uploads).toEqual([{ sessionId: "websocket:chat-1", content: "" }]);
+  });
+
   test("allows temporary file clearing for the configured WebUI channel prefix", async () => {
     const clears: Array<{ sessionId: string; traceId: string }> = [];
     const sessionProvider: WebuiSessionProvider = {

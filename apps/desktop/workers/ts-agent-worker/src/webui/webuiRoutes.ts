@@ -2313,10 +2313,10 @@ function isTemporaryFileSession(sessionId: string, sessionProvider: WebuiSession
 
 function temporaryFileUploadFromBody(body: Record<string, unknown>): WebuiTemporaryFileUpload | undefined {
   const name = stringValue(body.name) ?? stringValue(body.filename) ?? stringValue(body.file_name);
-  const content = stringValue(body.content);
-  if (!name || content === undefined) {
+  if (!name || typeof body.content !== "string") {
     return undefined;
   }
+  const content = body.content;
   const fileType = canonicalTextFileType(stringValue(body.file_type) ?? stringValue(body.fileType) ?? extensionFromName(name));
   const sizeBytes = numberValue(body.size_bytes) ?? numberValue(body.sizeBytes) ?? new TextEncoder().encode(content).length;
   return { name, fileType, content, sizeBytes };
