@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued MCP runtime lazy-connect parity: TS-native agent runs now reuse active native MCP discovery for unchanged config snapshots, matching Python's one-time `_mcp_connected` behavior instead of reconnecting MCP tools every turn.
+
 - Continued MCP runtime lazy-connect parity: TS-native agent runs now skip native MCP discovery when the current config has no MCP servers, matching Python `AgentLoop._connect_mcp()` no-op behavior for empty MCP configuration.
 
 - Continued MCP runtime product-path parity: TS-native agent runs now load the current native config snapshot before dynamic MCP discovery, so configured `enabledTools` and `toolTimeout` overrides filter/register model-facing MCP tools like Python `AgentLoop` config-owned MCP connection setup.
@@ -1647,6 +1649,7 @@ API Runtime row 19 update: TS-native OpenAI-compatible chat completions now retr
 - [x] Continue Command Runtime bridge durability: catch `/status`, `/restart`, and `/approvals` bridge failures as command text results.
 - [x] Continue MCP runtime product-path parity: apply current native config `enabledTools`/`toolTimeout` overrides before exposing dynamically discovered MCP tools to agent runs.
 - [x] Continue MCP runtime lazy-connect parity: skip native MCP discovery when current config has no MCP servers.
+- [x] Continue MCP runtime lazy-connect parity: reuse active native MCP discovery across repeated agent runs with unchanged MCP config.
 
 - [x] 复核 `ts_native_core.md` 对应实现和 `rust-native-core-worker-migration` 完成状态。
 - [x] 为 Batch 1 拆出第一个可实现任务：shared support runtime 的最小公共 helper/API。

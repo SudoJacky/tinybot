@@ -27,6 +27,7 @@ export class NativeMcpBridge {
   private readonly manager: McpRuntimeManager;
   private servers = new Map<string, NativeMcpServerTools>();
   private diagnostics: McpRuntimeDiagnostics | null = null;
+  private activeConfigSignature: string | null = null;
 
   constructor(options: NativeMcpBridgeOptions) {
     this.rpcClient = options.rpcClient;
@@ -38,9 +39,16 @@ export class NativeMcpBridge {
 
   async ensureConnected(traceId: string, configSnapshot?: unknown): Promise<McpRuntimeDiagnostics> {
     const overrides = nativeMcpServerOverrides(configSnapshot);
+    const configSignature = overrides ? nativeMcpConfigSignature(overrides) : null;
     if (overrides && overrides.size === 0) {
-      await this.close();
+      if (this.activeConfigSignature !== configSignature) {
+        await this.close();
+      }
       this.diagnostics = { servers: [] };
+      this.activeConfigSignature = configSignature;
+      return this.diagnostics;
+    }
+    if (this.diagnostics && this.activeConfigSignature === configSignature && configSignature !== null) {
       return this.diagnostics;
     }
     const discovery = parseNativeMcpListToolsResult(
@@ -51,6 +59,7 @@ export class NativeMcpBridge {
       discovery,
       overrides,
     ));
+    this.activeConfigSignature = configSignature;
     return this.diagnostics;
   }
 
@@ -58,6 +67,7 @@ export class NativeMcpBridge {
     await this.manager.close();
     this.servers.clear();
     this.diagnostics = null;
+    this.activeConfigSignature = null;
   }
 
   getDiagnostics(): McpRuntimeDiagnostics | null {
@@ -155,6 +165,18 @@ function nativeMcpServerOverrides(configSnapshot: unknown): Map<string, NativeMc
     overrides.set(name, override);
   }
   return overrides;
+}
+
+function nativeMcpConfigSignature(overrides: Map<string, NativeMcpServerOverride>): string {
+  return JSON.stringify(Array.from(overrides.entries())
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, override]) => [
+      name,
+      {
+        enabledTools: override.enabledTools ? [...override.enabledTools].sort() : undefined,
+        toolTimeout: override.toolTimeout,
+      },
+    ]));
 }
 
 function parseNativeMcpListToolsResult(value: unknown): NativeMcpServerTools[] {
