@@ -1108,9 +1108,6 @@ function reviewMailboxGoalCompletion(
 ): JsonObject {
   const completed = tasks.filter((task) => stringValue(task.status) === "completed");
   const openQuestions = completed.flatMap((task) => arrayValue(jsonSafeObject(task.result_data).open_questions).map(stringValue).filter(Boolean));
-  if (openQuestions.length > 0) {
-    return { ready: false, reason: "Completed work still contains open questions.", missing: ["open_questions"] };
-  }
   if (reviewBlockers.length > 0) {
     return { ready: false, reason: "Review-required outputs have not passed review.", missing: ["review_gates"] };
   }
@@ -1119,6 +1116,9 @@ function reviewMailboxGoalCompletion(
   }
   if (disagreements.length > 0) {
     return { ready: false, reason: "Completed work contains disagreement signals requiring synthesis.", missing: ["disagreements"] };
+  }
+  if (openQuestions.length > 0) {
+    return { ready: false, reason: "Completed work still contains open questions.", missing: ["open_questions"] };
   }
   const goalText = session.goal.toLowerCase();
   const deliveryMarkers = [

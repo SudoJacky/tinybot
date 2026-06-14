@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Cowork mailbox parity: TS-native mailbox completion decisions now order nested `goal_review` blockers like Python, reporting unresolved review gates before completed-task open questions when both are present.
+
 - Continued Cowork runtime parity: TS-native `cowork_internal complete_task` now applies Python-compatible completion-review blockers for artifact-oriented goals, unmerged fanout work, and disagreement signals, and refreshes final drafts from completed task results before deciding whether a session can finish.
 
 - Continued Cowork runtime parity: TS-native `cowork_internal complete_task` now applies Python-compatible goal review for incomplete review-required task outputs, keeping sessions active until completed review gates pass or are waived.

@@ -857,6 +857,57 @@ describe("CoworkMailbox", () => {
     });
   });
 
+  it("prioritizes review gates over open questions in mailbox goal review", async () => {
+    const session = await createTeamSession();
+    session.agents.coordinator.inbox = [];
+    session.tasks = {
+      task_1: {
+        id: "task_1",
+        title: "Reviewed output",
+        description: "Produce output that must pass review.",
+        assigned_agent_id: "researcher",
+        status: "completed",
+        dependencies: [],
+        result: "Output is ready but has follow-up questions.",
+        result_data: {
+          answer: "Output is ready.",
+          open_questions: ["Should the reviewer approve this variant?"],
+        },
+        confidence: 0.72,
+        error: null,
+        priority: 0,
+        expected_output: "",
+        review_required: true,
+        reviewer_agent_ids: ["analyst"],
+        review_status: "",
+        fanout_group_id: "",
+        merge_task_id: "",
+        source_blueprint_id: "",
+        source_event_id: "",
+        runtime_created: false,
+        created_at: fixedNow,
+        updated_at: fixedNow,
+      },
+    };
+
+    deliver(session, {
+      sender_id: "coordinator",
+      recipient_ids: ["researcher"],
+      content: "Review gate should take priority.",
+      wake_recipients: false,
+    });
+
+    expect(session.completion_decision).toMatchObject({
+      next_action: "resolve_review_gates",
+      reason: "1 review gate(s) must pass before completion.",
+      goal_review: {
+        ready: false,
+        reason: "Review-required outputs have not passed review.",
+        missing: ["review_gates"],
+      },
+    });
+  });
+
   it("deduplicates active correlation requests and returns the original message", async () => {
     const session = await createTeamSession();
     const box = mailbox();
