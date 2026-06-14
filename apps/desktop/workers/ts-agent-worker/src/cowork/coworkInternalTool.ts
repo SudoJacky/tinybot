@@ -1121,6 +1121,21 @@ function updateCompletionState(session: CoworkSession, now: () => string): void 
 
 function reviewGoalCompletion(session: CoworkSession): JsonObject {
   const completed = Object.values(session.tasks).filter((task) => task.status === "completed");
+  const reviewBlockers = Object.values(session.tasks).filter((task) => {
+    if (task.review_required !== true || !["completed", "failed"].includes(task.status)) {
+      return false;
+    }
+    const data = isJsonObject(task.result_data) ? task.result_data : {};
+    const reviewStatus = (cleanString(task.review_status) || cleanString(data.review_status)).toLowerCase();
+    return !["passed", "waived", "expired"].includes(reviewStatus);
+  });
+  if (reviewBlockers.length > 0) {
+    return {
+      ready: false,
+      reason: "Review-required outputs have not passed review.",
+      missing: ["review_gates"],
+    };
+  }
   const hasOpenQuestions = completed.some((task) => {
     const data = isJsonObject(task.result_data) ? task.result_data : {};
     const openQuestions = data.open_questions;

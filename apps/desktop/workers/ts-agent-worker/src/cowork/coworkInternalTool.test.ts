@@ -400,4 +400,64 @@ describe("cowork_internal tool", () => {
     });
     expect(saved?.agents.lead.status).toBe("idle");
   });
+
+  it("keeps sessions active when review-required task results have not passed review", async () => {
+    const store = createMemoryCoworkStore();
+    const idGenerator = deterministicIds();
+    const service = new CoworkService({
+      store,
+      now: () => fixedNow,
+      idGenerator,
+    });
+    const session = await service.createSession({
+      traceId: "trace-create",
+      goal: "Review the migration result",
+      title: "Review gates",
+      workflowMode: "team",
+      agents: [{
+        id: "lead",
+        name: "Lead",
+        role: "Lead",
+        goal: "Coordinate",
+        responsibilities: ["Finish"],
+      }],
+      tasks: [{
+        id: "finish",
+        title: "Finish",
+        description: "Complete the reviewed output",
+        assigned_agent_id: "lead",
+        review_required: true,
+        reviewer_agent_ids: ["lead"],
+      }],
+    });
+    const tool = createCoworkInternalTool({
+      store,
+      sessionId: session.id,
+      senderId: "lead",
+      now: () => fixedNow,
+      idGenerator,
+    });
+
+    await tool.execute({
+      action: "complete_task",
+      task_id: "finish",
+      content: JSON.stringify({
+        answer: "The reviewed output is ready.",
+      }),
+    }, { runId: "run-1", traceId: "trace-complete" });
+
+    const saved = await store.readSnapshot(session.id, "trace-read");
+    expect(saved?.status).toBe("active");
+    expect(saved?.current_focus_task).toBe("Review-required outputs have not passed review.");
+    expect(saved?.completion_decision).toMatchObject({
+      next_action: "review_goal_completion",
+      reason: "Review-required outputs have not passed review.",
+      ready_to_finish: false,
+      goal_review: {
+        ready: false,
+        missing: ["review_gates"],
+      },
+    });
+    expect(saved?.agents.lead.status).toBe("idle");
+  });
 });
