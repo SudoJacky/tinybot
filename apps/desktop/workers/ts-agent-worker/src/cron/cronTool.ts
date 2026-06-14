@@ -4,14 +4,20 @@ import type { CronJob, CronSchedule } from "./cronTypes.ts";
 
 export interface CreateCronToolOptions {
   bridge: CronBridge;
-  defaultTimezone?: string;
+  defaultTimezone?: CronDefaultTimezone;
 }
 
+type CronDefaultTimezone = string | (() => string | Promise<string>);
+
 export function createCronTool(options: CreateCronToolOptions): Tool {
-  const runtime = new CronToolRuntime(options.bridge, options.defaultTimezone ?? "UTC");
+  const defaultTimezone = options.defaultTimezone ?? "UTC";
+  const runtime = new CronToolRuntime(options.bridge, defaultTimezone);
+  const defaultTimezoneLabel = typeof defaultTimezone === "string" && defaultTimezone.trim()
+    ? defaultTimezone.trim()
+    : "the configured timezone";
   return {
     name: "cron",
-    description: `Schedule reminders and recurring tasks. Actions: add, list, remove. If tz is omitted, cron expressions and naive ISO times default to ${options.defaultTimezone ?? "UTC"}.`,
+    description: `Schedule reminders and recurring tasks. Actions: add, list, remove. If tz is omitted, cron expressions and naive ISO times default to ${defaultTimezoneLabel}.`,
     parameters: {
       type: "object",
       properties: {
@@ -34,9 +40,9 @@ export function createCronTool(options: CreateCronToolOptions): Tool {
 
 class CronToolRuntime {
   private readonly bridge: CronBridge;
-  private readonly defaultTimezone: string;
+  private readonly defaultTimezone: CronDefaultTimezone;
 
-  constructor(bridge: CronBridge, defaultTimezone: string) {
+  constructor(bridge: CronBridge, defaultTimezone: CronDefaultTimezone) {
     this.bridge = bridge;
     this.defaultTimezone = defaultTimezone;
   }
@@ -72,7 +78,8 @@ class CronToolRuntime {
     if (tz && !cronExpr) {
       return "Error: tz can only be used with cron_expr";
     }
-    const scheduleResult = this.scheduleFromArgs(args);
+    const defaultTimezone = await this.resolveDefaultTimezone();
+    const scheduleResult = this.scheduleFromArgs(args, defaultTimezone);
     if (typeof scheduleResult === "string") {
       return scheduleResult;
     }
@@ -91,7 +98,7 @@ class CronToolRuntime {
     return `Created job '${job.name}' (id: ${job.id})`;
   }
 
-  private scheduleFromArgs(args: Record<string, unknown>): { schedule: CronSchedule; deleteAfterRun: boolean } | string {
+  private scheduleFromArgs(args: Record<string, unknown>, defaultTimezone: string): { schedule: CronSchedule; deleteAfterRun: boolean } | string {
     const everySeconds = numberArg(args, "every_seconds");
     const cronExpr = stringArg(args, "cron_expr");
     const at = stringArg(args, "at");
@@ -108,14 +115,14 @@ class CronToolRuntime {
       return { schedule: { kind: "every", everyMs: everySeconds * 1000 }, deleteAfterRun: false };
     }
     if (cronExpr) {
-      const timezone = tz || this.defaultTimezone;
+      const timezone = tz || defaultTimezone;
       if (!isValidTimezone(timezone)) {
         return `Error: unknown timezone '${timezone}'`;
       }
       return { schedule: { kind: "cron", expr: cronExpr, tz: timezone }, deleteAfterRun: false };
     }
     if (at) {
-      const parsed = parseAtTimestampMs(at, this.defaultTimezone);
+      const parsed = parseAtTimestampMs(at, defaultTimezone);
       if (Number.isNaN(parsed)) {
         return `Error: invalid ISO datetime format '${at}'. Expected format: YYYY-MM-DDTHH:MM:SS`;
       }
@@ -129,20 +136,21 @@ class CronToolRuntime {
     if (jobs.length === 0) {
       return "No scheduled jobs.";
     }
-    return `Scheduled jobs:\n${jobs.map((job) => this.formatJob(job)).join("\n")}`;
+    const defaultTimezone = await this.resolveDefaultTimezone();
+    return `Scheduled jobs:\n${jobs.map((job) => this.formatJob(job, defaultTimezone)).join("\n")}`;
   }
 
-  private formatJob(job: CronJob): string {
-    const lines = [`- ${job.name} (id: ${job.id}, ${this.formatTiming(job.schedule)})`];
+  private formatJob(job: CronJob, defaultTimezone: string): string {
+    const lines = [`- ${job.name} (id: ${job.id}, ${this.formatTiming(job.schedule, defaultTimezone)})`];
     if (job.payload.kind === "system_event") {
       lines.push(`  Purpose: ${systemJobPurpose(job)}`);
       lines.push("  Protected: visible for inspection, but cannot be removed.");
     }
-    lines.push(...this.formatState(job));
+    lines.push(...this.formatState(job, defaultTimezone));
     return lines.join("\n");
   }
 
-  private formatTiming(schedule: CronSchedule): string {
+  private formatTiming(schedule: CronSchedule, defaultTimezone: string): string {
     if (schedule.kind === "cron") {
       return `cron: ${schedule.expr ?? ""}${schedule.tz ? ` (${schedule.tz})` : ""}`;
     }
@@ -159,14 +167,14 @@ class CronToolRuntime {
       return `every ${schedule.everyMs}ms`;
     }
     if (schedule.kind === "at" && schedule.atMs) {
-      return `at ${formatTimestamp(schedule.atMs, displayTimezone(schedule, this.defaultTimezone))}`;
+      return `at ${formatTimestamp(schedule.atMs, displayTimezone(schedule, defaultTimezone))}`;
     }
     return schedule.kind;
   }
 
-  private formatState(job: CronJob): string[] {
+  private formatState(job: CronJob, defaultTimezone: string): string[] {
     const lines: string[] = [];
-    const timezone = displayTimezone(job.schedule, this.defaultTimezone);
+    const timezone = displayTimezone(job.schedule, defaultTimezone);
     if (job.state.lastRunAtMs) {
       let line = `  Last run: ${formatTimestamp(job.state.lastRunAtMs, timezone)} - ${job.state.lastStatus ?? "unknown"}`;
       if (job.state.lastError) {
@@ -186,6 +194,18 @@ class CronToolRuntime {
       return "Error: job_id is required for remove";
     }
     return removeStatusText(jobId, await this.bridge.removeJob(jobId, traceId(context)));
+  }
+
+  private async resolveDefaultTimezone(): Promise<string> {
+    if (typeof this.defaultTimezone === "string") {
+      return this.defaultTimezone.trim() || "UTC";
+    }
+    try {
+      const value = await this.defaultTimezone();
+      return value.trim() || "UTC";
+    } catch {
+      return "UTC";
+    }
   }
 }
 

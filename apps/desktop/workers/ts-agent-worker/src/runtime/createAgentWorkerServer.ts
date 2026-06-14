@@ -121,7 +121,9 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
       ...createNativeMemoryTools(rpcClient),
       ...createNativeRagTools(rpcClient),
       ...createNativeMcpTools(rpcClient),
-      ...createNativeCronTools(rpcClient),
+      ...createNativeCronTools(rpcClient, {
+        defaultTimezone: async () => (await cronConfigFromNativeConfig(configBridge)).agents.defaults.timezone,
+      }),
       ...createNativeSpawnTools(rpcClient, {
         provider,
         model: options.env?.TINYBOT_MODEL ?? options.env?.OPENAI_MODEL ?? "default",
@@ -407,6 +409,14 @@ function configPatchTouchesMcpServers(updatedFields: unknown): boolean {
 }
 
 async function heartbeatConfigFromNativeConfig(configBridge: NativeConfigBridge) {
+  try {
+    return parseTinybotConfig(await configBridge.snapshotPublic());
+  } catch {
+    return parseTinybotConfig({});
+  }
+}
+
+async function cronConfigFromNativeConfig(configBridge: NativeConfigBridge) {
   try {
     return parseTinybotConfig(await configBridge.snapshotPublic());
   } catch {

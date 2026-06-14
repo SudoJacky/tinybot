@@ -2422,6 +2422,9 @@ describe("createAgentWorkerServer", () => {
       }),
     );
 
+    await respondToNextRequest("config.snapshot_public", {
+      value: { agents: { defaults: { timezone: "UTC" } } },
+    });
     await waitFor(() => parsedLines(lines).some((line) => line.method === "cron.job.add"));
     const cronRequest = parsedLines(lines).find((line) => line.method === "cron.job.add");
     expect(cronRequest).toMatchObject({
@@ -2464,6 +2467,134 @@ describe("createAgentWorkerServer", () => {
       role: "tool",
       content: "Created job 'Check status' (id: job-1)",
       toolCallId: "call-cron",
+      name: "cron",
+    }));
+  });
+
+  test("uses native config timezone as the cron tool default timezone", async () => {
+    const lines: string[] = [];
+    const respondedRequestIds = new Set<string>();
+    const respondToRequest = async (request: ParsedLine, result: unknown): Promise<void> => {
+      if (typeof request.id !== "string" || typeof request.trace_id !== "string") {
+        throw new Error("missing worker request id");
+      }
+      respondedRequestIds.add(request.id);
+      await server.handleLine(
+        JSON.stringify({
+          protocol_version: "1",
+          id: request.id,
+          trace_id: request.trace_id,
+          result,
+        }),
+      );
+    };
+    const respondToNextRequest = async (method: string, result: unknown): Promise<ParsedLine> => {
+      await waitFor(() => parsedLines(lines).some((line) =>
+        line.method === method && typeof line.id === "string" && !respondedRequestIds.has(line.id)
+      ));
+      const request = parsedLines(lines).find((line) =>
+        line.method === method && typeof line.id === "string" && !respondedRequestIds.has(line.id)
+      );
+      if (!request) {
+        throw new Error(`missing ${method} request`);
+      }
+      await respondToRequest(request, result);
+      return request;
+    };
+    const provider = new QueueProvider([
+      {
+        content: "",
+        toolCalls: [
+          {
+            id: "call-cron-tz",
+            name: "cron",
+            argumentsJson: JSON.stringify({
+              action: "add",
+              message: "Morning report",
+              cron_expr: "0 9 * * *",
+            }),
+          },
+        ],
+        stopReason: "tool_calls",
+      },
+      { content: "cron timezone checked", toolCalls: [], stopReason: "stop" },
+    ]);
+    const server = createAgentWorkerServer({
+      provider,
+      tools: new ToolRegistry(),
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const run = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "req-cron-tz",
+        trace_id: "trace-cron-tz",
+        method: "agent.run",
+        params: {
+          spec: {
+            runId: "run-cron-tz",
+            sessionId: "chat-cron-tz",
+            messages: [{ role: "user", content: "schedule the morning report" }],
+            model: "test-model",
+            maxIterations: 2,
+            stream: false,
+          },
+        },
+      }),
+    );
+
+    await waitFor(() => parsedLines(lines).some((line) =>
+      line.method === "config.snapshot_public" || line.method === "cron.job.add"
+    ));
+    const configRequest = parsedLines(lines).find((line) => line.method === "config.snapshot_public");
+    if (configRequest) {
+      await respondToRequest(configRequest, {
+        value: { agents: { defaults: { timezone: "Asia/Shanghai" } } },
+      });
+    }
+    await waitFor(() => parsedLines(lines).some((line) => line.method === "cron.job.add"));
+    const cronRequest = parsedLines(lines).find((line) => line.method === "cron.job.add");
+    expect(cronRequest).toMatchObject({
+      protocol_version: "1",
+      trace_id: "trace-cron-tz",
+      method: "cron.job.add",
+      params: {
+        job: {
+          name: "Morning report",
+          schedule: { kind: "cron", expr: "0 9 * * *", tz: "Asia/Shanghai" },
+          payload: { kind: "agent_turn", message: "Morning report", deliver: true, channel: "native", to: "chat-cron-tz" },
+          deleteAfterRun: false,
+        },
+      },
+    });
+    await respondToNextRequest("session.set_checkpoint", { session_id: "chat-cron-tz" });
+    if (!cronRequest) {
+      throw new Error("missing cron.job.add request");
+    }
+    await respondToRequest(cronRequest, {
+      job: {
+        id: "job-tz",
+        name: "Morning report",
+        enabled: true,
+        schedule: { kind: "cron", expr: "0 9 * * *", tz: "Asia/Shanghai" },
+        payload: { kind: "agent_turn", message: "Morning report", deliver: true, channel: "native", to: "chat-cron-tz" },
+        state: { nextRunAtMs: 1775000060000 },
+        createdAtMs: 1775000000000,
+        updatedAtMs: 1775000000000,
+        deleteAfterRun: false,
+      },
+    });
+    await respondToNextRequest("session.set_checkpoint", { session_id: "chat-cron-tz" });
+    await respondToNextRequest("session.set_checkpoint", { session_id: "chat-cron-tz" });
+    await respondToNextRequest("session.persist_turn", { session_id: "chat-cron-tz", message_count: 4 });
+    await run;
+
+    expect(provider.requests[1]).toContainEqual(expect.objectContaining({
+      role: "tool",
+      content: "Created job 'Morning report' (id: job-tz)",
+      toolCallId: "call-cron-tz",
       name: "cron",
     }));
   });

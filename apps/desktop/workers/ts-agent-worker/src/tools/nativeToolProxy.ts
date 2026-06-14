@@ -66,8 +66,11 @@ export function createNativeMcpTools(rpcClient: NativeRpcClient): Tool[] {
   return [createCallMcpTool(rpcClient)];
 }
 
-export function createNativeCronTools(rpcClient: NativeRpcClient): Tool[] {
-  return [createCronTool({ bridge: new NativeCronBridge(rpcClient), defaultTimezone: "UTC" })];
+export function createNativeCronTools(
+  rpcClient: NativeRpcClient,
+  options: { defaultTimezone?: string | (() => string | Promise<string>) } = {},
+): Tool[] {
+  return [createCronTool({ bridge: new NativeCronBridge(rpcClient), defaultTimezone: options.defaultTimezone ?? "UTC" })];
 }
 
 export function createNativeSpawnTools(
