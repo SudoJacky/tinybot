@@ -37,13 +37,19 @@ export class NativeMcpBridge {
   }
 
   async ensureConnected(traceId: string, configSnapshot?: unknown): Promise<McpRuntimeDiagnostics> {
+    const overrides = nativeMcpServerOverrides(configSnapshot);
+    if (overrides && overrides.size === 0) {
+      await this.close();
+      this.diagnostics = { servers: [] };
+      return this.diagnostics;
+    }
     const discovery = parseNativeMcpListToolsResult(
       await this.rpcClient.request(traceId, "mcp.list_tools", {}),
     );
     this.servers = new Map(discovery.map((server) => [server.name, server]));
     this.diagnostics = await this.manager.connectAll(nativeMcpServersConfig(
       discovery,
-      nativeMcpServerOverrides(configSnapshot),
+      overrides,
     ));
     return this.diagnostics;
   }
@@ -107,23 +113,28 @@ class NativeMcpToolSession implements McpToolSession {
 
 function nativeMcpServersConfig(
   servers: NativeMcpServerTools[],
-  overrides: Map<string, NativeMcpServerOverride> = new Map(),
+  overrides?: Map<string, NativeMcpServerOverride>,
 ): McpServersConfig {
-  return Object.fromEntries(servers.map((server) => [server.name, {
-    name: server.name,
-    safeName: sanitizeMcpName(server.name),
-    type: "stdio",
-    command: "native",
-    args: [],
-    env: {},
-    url: "",
-    headers: {},
-    toolTimeout: overrides.get(server.name)?.toolTimeout ?? 30,
-    enabledTools: overrides.get(server.name)?.enabledTools ?? ["*"],
-  }]));
+  return Object.fromEntries(servers
+    .filter((server) => !overrides || overrides.has(server.name))
+    .map((server) => [server.name, {
+      name: server.name,
+      safeName: sanitizeMcpName(server.name),
+      type: "stdio",
+      command: "native",
+      args: [],
+      env: {},
+      url: "",
+      headers: {},
+      toolTimeout: overrides?.get(server.name)?.toolTimeout ?? 30,
+      enabledTools: overrides?.get(server.name)?.enabledTools ?? ["*"],
+    }]));
 }
 
-function nativeMcpServerOverrides(configSnapshot: unknown): Map<string, NativeMcpServerOverride> {
+function nativeMcpServerOverrides(configSnapshot: unknown): Map<string, NativeMcpServerOverride> | undefined {
+  if (configSnapshot === undefined) {
+    return undefined;
+  }
   const tools = asRecord(asRecord(configSnapshot)?.tools);
   const servers = asRecord(tools?.mcpServers ?? tools?.mcp_servers);
   const overrides = new Map<string, NativeMcpServerOverride>();

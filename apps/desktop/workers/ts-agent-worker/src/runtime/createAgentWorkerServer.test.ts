@@ -2961,6 +2961,50 @@ describe("createAgentWorkerServer", () => {
     });
   });
 
+  test("skips native MCP discovery when the current config has no MCP servers", async () => {
+    const lines: string[] = [];
+    const provider = new QueueProvider([
+      { content: "no mcp configured", toolCalls: [], stopReason: "stop" },
+    ]);
+    const server = createAgentWorkerServer({
+      provider,
+      tools: new ToolRegistry(),
+      enableNativeMcpDiscovery: true,
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const run = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "req-no-mcp",
+        trace_id: "trace-no-mcp",
+        method: "agent.run",
+        params: {
+          spec: {
+            runId: "run-no-mcp",
+            messages: [{ role: "user", content: "hello" }],
+            model: "test-model",
+            maxIterations: 1,
+            stream: false,
+          },
+        },
+      }),
+    );
+
+    await respondToConfigSnapshot(server, lines, { tools: { mcpServers: {} } });
+    await run;
+
+    expect(parsedLines(lines).some((line) => line.method === "mcp.list_tools")).toBe(false);
+    expect(provider.options[0].tools?.map((tool) => tool.name)).not.toContain("mcp_docs_search");
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      protocol_version: "1",
+      id: "req-no-mcp",
+      trace_id: "trace-no-mcp",
+      result: { finalContent: "no mcp configured", stopReason: "final_response" },
+    });
+  });
+
   test("continues agent runs when native MCP discovery fails", async () => {
     const lines: string[] = [];
     const logs: string[] = [];
@@ -2993,7 +3037,7 @@ describe("createAgentWorkerServer", () => {
       }),
     );
 
-    await respondToConfigSnapshot(server, lines, {});
+    await respondToConfigSnapshot(server, lines, { tools: { mcpServers: { docs: { enabledTools: ["*"] } } } });
     await waitFor(() => parsedLines(lines).some((line) => line.method === "mcp.list_tools"));
     const listRequest = parsedLines(lines).find((line) => line.method === "mcp.list_tools");
     await server.handleLine(
