@@ -847,6 +847,92 @@ describe("CoworkScheduler", () => {
     })]);
   });
 
+  it("limits generator-verifier scheduler rounds to one agent like Python", async () => {
+    const store = createMemoryCoworkStore();
+    const idGenerator = deterministicIds();
+    const service = new CoworkService({
+      store,
+      now: () => fixedNow,
+      idGenerator,
+    });
+    const session = await service.createSession({
+      traceId: "seed",
+      goal: "Generate and verify a TS migration slice",
+      title: "Generator verifier session",
+      workflowMode: "generator_verifier",
+      agents: [
+        { id: "generator", name: "Generator", role: "Generate the implementation" },
+        { id: "verifier", name: "Verifier", role: "Verify the implementation" },
+      ],
+      tasks: [
+        {
+          id: "generate",
+          title: "Generate slice",
+          description: "Implement the migration slice",
+          assigned_agent_id: "generator",
+        },
+        {
+          id: "verify",
+          title: "Verify slice",
+          description: "Check the migration slice",
+          assigned_agent_id: "verifier",
+        },
+      ],
+    });
+    const provider = new QueueProvider([
+      {
+        content: JSON.stringify({
+          status: "working",
+          action: "continue",
+          private_note: "Generator started the implementation.",
+        }),
+        toolCalls: [],
+        stopReason: "stop",
+      },
+      {
+        content: JSON.stringify({
+          status: "working",
+          action: "continue",
+          private_note: "Verifier should wait for the next scheduler round.",
+        }),
+        toolCalls: [],
+        stopReason: "stop",
+      },
+    ]);
+    const agentRuntime = new CoworkAgentRuntime({
+      store,
+      runner: new AgentRunner({ provider, tools: new ToolRegistry() }),
+      model: "test-model",
+      now: () => fixedNow,
+      idGenerator,
+    });
+    const scheduler = new CoworkScheduler({
+      store,
+      now: () => fixedNow,
+      idGenerator,
+      agentRuntime,
+    });
+
+    await scheduler.runSession({
+      sessionId: session.id,
+      traceId: "trace-run",
+      maxRounds: 1,
+      maxAgents: 2,
+      maxAgentCalls: 4,
+    });
+
+    const saved = await store.readSnapshot(session.id, "assert");
+    expect(provider.messages).toHaveLength(1);
+    expect(saved?.scheduler_decisions).toEqual([expect.objectContaining({
+      selected_agent_ids: ["generator"],
+    })]);
+    expect(saved?.budget_usage).toMatchObject({ rounds: 1, agent_calls: 1 });
+    expect(saved?.run_metrics).toEqual([expect.objectContaining({
+      rounds: 1,
+      agent_calls: 1,
+    })]);
+  });
+
   it("reports when an agent round completes the session like Python", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = deterministicIds();

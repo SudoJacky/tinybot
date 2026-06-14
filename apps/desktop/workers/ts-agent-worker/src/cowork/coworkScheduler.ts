@@ -1,5 +1,6 @@
 import { isJsonObject, type JsonObject } from "../protocol/messages.ts";
 import { selectReadyCoworkAgentCandidates, type CoworkAgentRuntime } from "./coworkAgentRuntime.ts";
+import { defaultPolicyRegistry } from "./coworkPolicy.ts";
 import { normalizeCoworkSession } from "./coworkSerde.ts";
 import type { CoworkAgent, CoworkEvent, CoworkSession, CoworkTask } from "./coworkTypes.ts";
 import type { CoworkIdGenerator, CoworkServiceStore } from "./coworkService.ts";
@@ -33,6 +34,8 @@ const DEFAULT_BUDGET_LIMITS: JsonObject = {
 
 const CONVERGENCE_IDLE_ROUNDS = 2;
 const MAX_AGENT_SELF_ACTIVATIONS = 3;
+const SINGLE_AGENT_ROUND_PROFILES = new Set(["orchestrator", "generator_verifier", "peer_handoff"]);
+const COWORK_POLICY_REGISTRY = defaultPolicyRegistry();
 
 export type CoworkSchedulerOptions = {
   store: CoworkServiceStore;
@@ -235,7 +238,7 @@ export class CoworkScheduler {
       }
 
       ensureSwarmReducerGate(working, this.now, this.idGenerator);
-      const effectiveAgentLimit = Math.min(agentLimit, remainingCalls);
+      const effectiveAgentLimit = schedulerAgentLimit(working, agentLimit, remainingCalls);
       const selection = selectReadyCoworkAgentCandidates(working, effectiveAgentLimit);
       const active = this.filterSelfActivatedAgents(working, selection.agents, consecutiveRuns);
       if (active.length === 0) {
@@ -626,6 +629,15 @@ function runAgentLimit(value: unknown, budget: JsonObject): number {
   const parallelWidth = Math.max(1, numberValue(jsonSafeObject(budget.limits).parallel_width) ?? 3);
   const requested = Math.max(1, numberValue(value) ?? parallelWidth);
   return Math.min(requested, parallelWidth);
+}
+
+function schedulerAgentLimit(session: CoworkSession, requestedLimit: number, remainingCalls: number): number {
+  const workflowMode = cleanString(session.workflow_mode);
+  const runtimeProfile = cleanString(COWORK_POLICY_REGISTRY.resolve(workflowMode).runtimeProfile);
+  const profileLimit = SINGLE_AGENT_ROUND_PROFILES.has(workflowMode) || SINGLE_AGENT_ROUND_PROFILES.has(runtimeProfile)
+    ? 1
+    : requestedLimit;
+  return Math.min(profileLimit, remainingCalls);
 }
 
 function runAgentCallLimit(value: unknown, budget: JsonObject): number {
