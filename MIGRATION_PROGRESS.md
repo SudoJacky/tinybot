@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Command Runtime router parity: TS exact slash commands now require whole-line matches like Python, so `/new extra` and other parameterized exact commands no longer bypass fallback/model handling.
+
 - Continued Task/Cron background runtime parity: TS-native `cron` now mirrors Python truthiness for `deliver`, preserving falsey structured inputs when scheduling silent agent-turn jobs.
 
 - Continued Task/Cron background runtime parity: TS-native `task` boolean arguments now mirror Python truthiness for `auto_execute`, `parallel`, and `subtask_parallel_safe`, preserving compatibility for non-boolean JSON/RPC inputs.

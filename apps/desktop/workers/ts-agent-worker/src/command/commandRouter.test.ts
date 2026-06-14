@@ -49,6 +49,18 @@ describe("CommandRouter", () => {
     });
   });
 
+  test("requires whole-line matches for exact commands like Python", async () => {
+    const router = new CommandRouter();
+    router.exact("/new", handler("exact"));
+    router.intercept(handler("fallback"));
+
+    await expect(router.dispatch("/new extra", { traceId: "trace-1" })).resolves.toMatchObject({
+      handled: true,
+      output: "fallback:/new:extra",
+      metadata: { label: "fallback" },
+    });
+  });
+
   test("uses longest prefix match and preserves argument text", async () => {
     const router = new CommandRouter();
     router.prefix("/approve", handler("approve-short"));

@@ -54,7 +54,7 @@ export class CommandRouter {
       return priority.handler(contextFor(priority.command, parsed, options, true));
     }
 
-    const exact = this.exactHandlers.get(parsed.commandKey);
+    const exact = this.exactHandlers.get(parsed.rawKey);
     if (exact) {
       return exact.handler(contextFor(parsed.command, parsed, options, false));
     }
