@@ -1,5 +1,6 @@
 import { isJsonObject, type JsonObject } from "../protocol/messages.ts";
 import type { Tool, ToolDefinition, ToolResult } from "../tools/tool.ts";
+import { CoworkMailbox, type CoworkEnvelope } from "./coworkMailbox.ts";
 import { normalizeCoworkSession } from "./coworkSerde.ts";
 import type { CoworkAgent, CoworkEvent, CoworkSession, CoworkTask } from "./coworkTypes.ts";
 import type { CoworkIdGenerator, CoworkServiceStore } from "./coworkService.ts";
@@ -37,6 +38,64 @@ export function coworkInternalToolDefinition(): ToolDefinition {
           type: "string",
           description: "Thread topic for create_thread.",
         },
+        event_type: {
+          type: "string",
+          description: "Event type for mailbox/event-routed messages.",
+        },
+        requires_reply: {
+          type: "boolean",
+          description: "Whether this message expects a reply.",
+        },
+        wake_recipients: {
+          type: "boolean",
+          description: "Whether this message should wake recipients for another cowork round.",
+        },
+        priority: {
+          type: "integer",
+          minimum: 0,
+          maximum: 100,
+          description: "Mailbox priority from 0 to 100.",
+        },
+        deadline_round: {
+          type: "integer",
+          minimum: 1,
+          description: "Round deadline for expected replies.",
+        },
+        correlation_id: {
+          type: "string",
+          description: "Stable id that groups a question with replies.",
+        },
+        lineage_id: {
+          type: "string",
+          description: "Stable id that links cascaded events.",
+        },
+        reply_to_envelope_id: {
+          type: "string",
+          description: "Envelope id this message replies to.",
+        },
+        caused_by_envelope_id: {
+          type: "string",
+          description: "Envelope id that caused this event.",
+        },
+        request_type: {
+          type: "string",
+          enum: ["", "clarify", "verify", "produce", "review", "unblock"],
+          description: "Expected reply intent.",
+        },
+        expected_output_schema: {
+          type: "object",
+          description: "Expected JSON-like output shape for the reply.",
+        },
+        blocking_task_id: {
+          type: "string",
+          description: "Task id blocked by this request.",
+        },
+        escalate_after_rounds: {
+          type: "integer",
+          minimum: 1,
+          maximum: 20,
+          description: "Ask the lead to intervene after this many rounds.",
+        },
         title: {
           type: "string",
           description: "Task title for add_task.",
@@ -48,6 +107,10 @@ export function coworkInternalToolDefinition(): ToolDefinition {
         assigned_agent_id: {
           type: "string",
           description: "Agent id to assign a task or retire an agent.",
+        },
+        agent_id: {
+          type: "string",
+          description: "Python-compatible retire_agent target alias.",
         },
         dependencies: {
           type: "array",
@@ -61,6 +124,10 @@ export function coworkInternalToolDefinition(): ToolDefinition {
         content: {
           type: "string",
           description: "Task completion result or note.",
+        },
+        reason: {
+          type: "string",
+          description: "Python-compatible reason fallback for spawn/retire actions.",
         },
         status: {
           type: "string",
@@ -147,20 +214,39 @@ export function createCoworkInternalTool(options: CoworkInternalToolOptions): To
         if (!content) {
           return { content: "Error: content is required" };
         }
-        const message = sendMessage(session, agent.id, {
+        const mailbox = new CoworkMailbox({ now, idGenerator });
+        const message = mailbox.deliver(session, {
+          sender_id: agent.id,
+          recipient_ids: stringList(args.recipient_ids),
           content,
-          recipientIds: stringList(args.recipient_ids),
-          threadId: cleanString(args.thread_id),
+          thread_id: cleanString(args.thread_id) || null,
+          visibility: stringList(args.recipient_ids).length > 0 ? "direct" : "group",
+          kind: booleanValue(args.requires_reply) ? "question" : "message",
           topic: cleanString(args.topic),
-          eventType: cleanString(args.event_type),
-          requestType: normalizeRequestType(args.request_type),
-          requiresReply: booleanValue(args.requires_reply),
+          event_type: cleanString(args.event_type),
+          request_type: normalizeRequestType(args.request_type),
+          requires_reply: booleanValue(args.requires_reply),
+          wake_recipients: nullableBooleanValue(args.wake_recipients),
           priority: clampPriority(args.priority),
-        }, now, idGenerator);
+          deadline_round: boundedIntOrNull(args.deadline_round, 1, Number.MAX_SAFE_INTEGER),
+          correlation_id: cleanString(args.correlation_id) || null,
+          lineage_id: cleanString(args.lineage_id) || null,
+          reply_to_envelope_id: cleanString(args.reply_to_envelope_id) || null,
+          caused_by_envelope_id: cleanString(args.caused_by_envelope_id) || null,
+          expected_output_schema: isJsonObject(args.expected_output_schema) ? args.expected_output_schema : {},
+          blocking_task_id: cleanString(args.blocking_task_id) || null,
+          escalate_after_rounds: boundedIntOrNull(args.escalate_after_rounds, 1, 20),
+          tool_call_id: cleanString(args._tool_call_id) || null,
+          draft_id: cleanString(args._draft_id) || null,
+        } satisfies CoworkEnvelope);
         await options.store.writeSnapshot(normalizeCoworkSession(session), traceId);
+        const record = Object.values(session.mailbox).find((item) => item.message_id === message.id);
         return {
           content: `Sent message ${message.id}`,
-          metadata: internalMetadata(session.id, agent.id, action, { message_id: message.id }),
+          metadata: internalMetadata(session.id, agent.id, action, {
+            message_id: message.id,
+            ...(record ? { envelope_id: record.id } : {}),
+          }),
         };
       }
       if (action === "add_task") {
@@ -1370,9 +1456,27 @@ function booleanValue(value: unknown): boolean {
   return ["1", "true", "yes", "on"].includes(text);
 }
 
+function nullableBooleanValue(value: unknown): boolean | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  return booleanValue(value);
+}
+
 function clampPriority(value: unknown): number {
   const priority = Number.isFinite(value) && typeof value === "number" ? value : Number(cleanString(value) || 0);
   return Math.max(0, Math.min(100, Number.isFinite(priority) ? Math.trunc(priority) : 0));
+}
+
+function boundedIntOrNull(value: unknown, minimum: number, maximum: number): number | null {
+  if (value === null || value === undefined || cleanString(value) === "") {
+    return null;
+  }
+  const numeric = typeof value === "number" ? value : Number(cleanString(value));
+  if (!Number.isFinite(numeric)) {
+    return null;
+  }
+  return Math.max(minimum, Math.min(maximum, Math.trunc(numeric)));
 }
 
 function normalizeRequestType(value: unknown): string {

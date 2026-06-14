@@ -2145,6 +2145,14 @@ describe("CoworkAgentRuntime", () => {
         content: "I found a follow-up item for the migration.",
       }),
     ]));
+    expect(Object.values(saved?.mailbox ?? {})).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sender_id: "lead",
+        recipient_ids: ["user"],
+        content: "I found a follow-up item for the migration.",
+        status: "delivered",
+      }),
+    ]));
     expect(Object.values(saved?.tasks ?? {})).toEqual(expect.arrayContaining([
       expect.objectContaining({
         title: "Document internal cowork tool",
@@ -2153,7 +2161,7 @@ describe("CoworkAgentRuntime", () => {
         status: "pending",
       }),
     ]));
-    expect(saved?.events.map((event) => event.type)).toEqual(expect.arrayContaining(["message.sent", "task.created"]));
+    expect(saved?.events.map((event) => event.type)).toEqual(expect.arrayContaining(["mailbox.queued", "mailbox.delivered", "task.created"]));
   });
 
   it("lets an agent create a discussion thread through cowork_internal", async () => {

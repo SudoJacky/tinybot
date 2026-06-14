@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { createMemoryCoworkStore, CoworkService, type CoworkIdGenerator } from "./coworkService";
-import { createCoworkInternalTool } from "./coworkInternalTool";
+import { coworkInternalToolDefinition, createCoworkInternalTool } from "./coworkInternalTool";
 
 const fixedNow = "2026-06-12T08:00:00.000Z";
 
@@ -15,6 +15,27 @@ function deterministicIds(): CoworkIdGenerator {
 }
 
 describe("cowork_internal tool", () => {
+  it("exposes Python-compatible internal mailbox and agent action schema fields", () => {
+    const definition = coworkInternalToolDefinition();
+    const properties = definition.parameters.properties ?? {};
+
+    expect(properties).toMatchObject({
+      wake_recipients: { type: "boolean" },
+      priority: { type: "integer", minimum: 0, maximum: 100 },
+      deadline_round: { type: "integer", minimum: 1 },
+      correlation_id: { type: "string" },
+      lineage_id: { type: "string" },
+      reply_to_envelope_id: { type: "string" },
+      caused_by_envelope_id: { type: "string" },
+      request_type: { type: "string", enum: ["", "clarify", "verify", "produce", "review", "unblock"] },
+      expected_output_schema: { type: "object" },
+      blocking_task_id: { type: "string" },
+      escalate_after_rounds: { type: "integer", minimum: 1, maximum: 20 },
+      agent_id: { type: "string" },
+      reason: { type: "string" },
+    });
+  });
+
   it("marks non-swarm sessions completed after the final task is completed", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = deterministicIds();
@@ -252,7 +273,7 @@ describe("cowork_internal tool", () => {
     });
   });
 
-  it("preserves Python send_message envelope metadata on internal messages", async () => {
+  it("delivers internal messages through the Python-style mailbox lifecycle", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = deterministicIds();
     const service = new CoworkService({
@@ -304,7 +325,8 @@ describe("cowork_internal tool", () => {
 
     const saved = await store.readSnapshot(session.id, "trace-read");
     const messageId = String(result.metadata?.message_id ?? "");
-    expect(saved?.messages[messageId]).toMatchObject({
+    const record = Object.values(saved?.mailbox ?? {}).find((item) => item.message_id === messageId);
+    expect(record).toMatchObject({
       sender_id: "lead",
       recipient_ids: ["helper"],
       content: "Please verify the runtime parity.",
@@ -315,14 +337,38 @@ describe("cowork_internal tool", () => {
       request_type: "verify",
       requires_reply: true,
       priority: 100,
+      status: "delivered",
+      message_id: messageId,
+      correlation_id: expect.any(String),
+      lineage_id: expect.any(String),
+      wake_recipients: true,
     });
-    expect(saved?.events.at(-1)?.data).toMatchObject({
+    expect(saved?.events.map((event) => event.type)).toEqual(expect.arrayContaining([
+      "mailbox.queued",
+      "mailbox.delivered",
+    ]));
+    expect(saved?.events.at(-1)).toMatchObject({
+      type: "mailbox.delivered",
+      data: {
+        envelope_id: record?.id,
+        message_id: messageId,
+        topic: "verification",
+        event_type: "review_requested",
+        requires_reply: true,
+        priority: 100,
+      },
+    });
+    expect(saved?.trace_spans.at(-1)).toMatchObject({
+      kind: "mailbox",
+      name: "Mailbox delivered",
+      data: {
       message_id: messageId,
       topic: "verification",
       event_type: "review_requested",
       request_type: "verify",
       requires_reply: true,
       priority: 100,
+      },
     });
   });
 

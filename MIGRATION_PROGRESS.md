@@ -2,7 +2,11 @@
 
 ## 2026-06-14 Progress Note
 
-- Continued Cowork internal-tool message parity: TS-native `cowork_internal send_message` now preserves Python-style envelope metadata on stored internal messages, including reply-question kind, topic/event type, request type, and clamped priority.
+- Continued Cowork internal mailbox parity: TS-native `cowork_internal send_message` now delivers through the migrated `CoworkMailbox`, creating Python-style mailbox records, queued/delivered events, trace spans, correlation/lineage ids, wake decisions, and reply metadata instead of bypassing the mailbox with a raw message write.
+
+- Continued Cowork internal tool schema parity: TS-native `cowork_internal` now exposes Python-compatible mailbox envelope fields and agent action aliases such as `wake_recipients`, `priority`, `deadline_round`, correlation/reply ids, `expected_output_schema`, `blocking_task_id`, `escalate_after_rounds`, `agent_id`, and `reason`.
+
+- Continued Cowork internal-tool message parity: TS-native `cowork_internal send_message` preserves Python-style envelope metadata through mailbox delivery, including reply-question kind, topic/event type, request type, and clamped priority.
 
 - Continued Cowork internal-tool parity: TS-native `cowork_internal retire_agent` now honors Python's `agent_id` target alias before falling back to the sender, and `spawn_agent` uses `content` as the delegated goal when `goal` is omitted.
 
