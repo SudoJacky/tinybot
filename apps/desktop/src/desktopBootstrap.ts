@@ -325,6 +325,8 @@ async function bootDesktopWebUi(): Promise<void> {
       syncNativeRuntimeMetadata();
       startupTrace.complete("nativeChromeBindings");
       hydrateNativeStartupPanes(startupTrace);
+      void ensureNativeCoworkRuntimeRolloutSynced(startupTrace);
+      scheduleNativeApprovalTasksRefresh(startupTrace);
       startupTrace.mark("native.ready", {
         gatewayHttp: gatewayConfig.httpBaseUrl,
         mode: workbenchMode.mode,
@@ -434,12 +436,13 @@ function hydrateNativeStartupPanes(startupTrace?: DesktopNativeStartupTrace): vo
   startupTrace?.mark("workspaceFilesHydration.skipped", {
     reason: "deferred-until-opened",
   });
-  startupTrace?.mark("taskRefresh.skipped", {
+  startupTrace?.mark("coworkTasksRefresh.skipped", {
     reason: "deferred-until-opened",
   });
 }
 
 const nativeRouteHydratedModules = new Set<string>();
+let nativeCoworkRuntimeRolloutSyncPromise: Promise<void> | null = null;
 
 function installNativeRouteHydration(startupTrace?: DesktopNativeStartupTrace): void {
   window.addEventListener("tinybot:desktop-route", (event) => {
@@ -522,12 +525,17 @@ function hydrateNativeToolsSkillsPaneOnce(startupTrace?: DesktopNativeStartupTra
 
 function hydrateNativeCoworkPaneOnce(startupTrace?: DesktopNativeStartupTrace): void {
   traceNativeRouteBackgroundOnce("coworkPaneHydration", async () => {
+    await ensureNativeCoworkRuntimeRolloutSynced(startupTrace);
     const pane = await loadNativeCoworkPane();
     setNativeCoworkPane(pane);
     logDesktopNativeDebug("cowork.load.lazy.complete", {
       sessionCount: pane.sessionRows.length,
     });
   }, startupTrace);
+}
+
+function scheduleNativeApprovalTasksRefresh(startupTrace?: DesktopNativeStartupTrace): void {
+  traceNativeRouteBackgroundOnce("approvalTasksRefresh", () => refreshNativeApprovalTasks(), startupTrace);
 }
 
 function hydrateNativeWorkspaceFilesOnce(startupTrace?: DesktopNativeStartupTrace): void {
@@ -555,6 +563,24 @@ function traceNativeRouteBackgroundOnce(
       error: stringifyError(error),
     });
   });
+}
+
+function ensureNativeCoworkRuntimeRolloutSynced(startupTrace?: DesktopNativeStartupTrace): Promise<void> {
+  if (nativeCoworkRuntimeRolloutSyncPromise) {
+    return nativeCoworkRuntimeRolloutSyncPromise;
+  }
+  startupTrace?.start("coworkRolloutSync");
+  nativeCoworkRuntimeRolloutSyncPromise = gatewayApi.config.get().then((config) => {
+    syncTsCoworkRuntimeRollout(config);
+    startupTrace?.complete("coworkRolloutSync");
+  }).catch((error) => {
+    nativeCoworkRuntimeRolloutSyncPromise = null;
+    startupTrace?.fail("coworkRolloutSync", error);
+    logDesktopNativeDebug("cowork.rollout.sync.failed", {
+      error: stringifyError(error),
+    });
+  });
+  return nativeCoworkRuntimeRolloutSyncPromise;
 }
 
 async function resolveNativeWebSocketSessionExists(sessionId: string): Promise<boolean | undefined> {

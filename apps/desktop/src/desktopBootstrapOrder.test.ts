@@ -31,7 +31,7 @@ describe("desktop root WebUI bootstrap order", () => {
     expect(chatOptionPosition).toBeGreaterThan(nativeShellPosition);
   });
 
-  test("native startup defers secondary pane and task hydration", () => {
+  test("native startup defers secondary pane and cowork task hydration", () => {
     const nativeShellPosition = callPosition("installDesktopWorkbenchShell({");
     const hydrationStart = callPosition("function hydrateNativeStartupPanes(");
     const hydrationEnd = bootstrapSource.indexOf("const nativeRouteHydratedModules", hydrationStart);
@@ -44,8 +44,36 @@ describe("desktop root WebUI bootstrap order", () => {
     expect(hydrationSource).not.toContain("loadNativeToolsSkillsPane()");
     expect(hydrationSource).not.toContain("loadNativeCoworkPane()");
     expect(hydrationSource).not.toContain("refreshNativeCoworkTasks()");
-    expect(hydrationSource).not.toContain("refreshNativeApprovalTasks()");
     expect(hydrationSource).not.toContain("installNativeWorkspaceFileActions()");
+  });
+
+  test("native startup refreshes approvals after the shell is available", () => {
+    const nativeShellPosition = callPosition("installDesktopWorkbenchShell({");
+    const approvalRefreshPosition = callPosition("scheduleNativeApprovalTasksRefresh(startupTrace);");
+
+    expect(approvalRefreshPosition).toBeGreaterThan(nativeShellPosition);
+  });
+
+  test("native startup syncs cowork rollout without hydrating settings", () => {
+    const nativeShellPosition = callPosition("installDesktopWorkbenchShell({");
+    const rolloutSyncPosition = callPosition("ensureNativeCoworkRuntimeRolloutSynced(startupTrace);");
+    const settingsHydrationPosition = callPosition("hydrateNativeSettingsPaneOnce(startupTrace);");
+
+    expect(rolloutSyncPosition).toBeGreaterThan(nativeShellPosition);
+    expect(rolloutSyncPosition).toBeLessThan(settingsHydrationPosition);
+  });
+
+  test("native cowork hydration waits for rollout config before loading cowork data", () => {
+    const coworkHydrationStart = callPosition("function hydrateNativeCoworkPaneOnce(");
+    const coworkHydrationEnd = bootstrapSource.indexOf("function hydrateNativeWorkspaceFilesOnce", coworkHydrationStart);
+    expect(coworkHydrationEnd).toBeGreaterThan(coworkHydrationStart);
+    const coworkHydrationSource = bootstrapSource.slice(coworkHydrationStart, coworkHydrationEnd);
+
+    const rolloutSyncPosition = coworkHydrationSource.indexOf("await ensureNativeCoworkRuntimeRolloutSynced(startupTrace);");
+    const loadCoworkPosition = coworkHydrationSource.indexOf("const pane = await loadNativeCoworkPane();");
+
+    expect(rolloutSyncPosition).toBeGreaterThanOrEqual(0);
+    expect(loadCoworkPosition).toBeGreaterThan(rolloutSyncPosition);
   });
 
   test("installs native chat runtime actions after the native shell exists", () => {
