@@ -283,6 +283,59 @@ describe("TaskRuntime", () => {
     });
   });
 
+  test("publishes progress for manually completed subtask updates", async () => {
+    const plan = basePlan();
+    plan.context = { sessionKey: "desktop:chat-1" };
+    const { bridge } = memoryBridge([plan]);
+    const events: Array<Record<string, unknown>> = [];
+    const persisted: Array<{ sessionKey: string; event: string; planId: string; subtaskId: string; traceId: string }> = [];
+    const runtime = new TaskRuntime({
+      store: bridge,
+      now: () => "2026-06-12T00:00:00.000Z",
+      progressPublisher: {
+        publishTaskProgress: async (event, traceId) => {
+          events.push({ ...event, traceId });
+        },
+      },
+      progressCard: {
+        persistTaskProgress: async (sessionKey, event, traceId) => {
+          persisted.push({
+            sessionKey,
+            event: event.event,
+            planId: event.planId,
+            subtaskId: event.subtaskId,
+            traceId,
+          });
+        },
+      },
+    });
+
+    await runtime.updateSubtaskResult("plan-1", "b", {
+      status: "completed",
+      result: "runtime complete",
+    }, "trace-manual-complete");
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        event: "completed",
+        planId: "plan-1",
+        subtaskId: "b",
+        subtaskTitle: "Runtime",
+        traceId: "trace-manual-complete",
+        progress: expect.objectContaining({ plan_id: "plan-1", completed: 2, pending: 0 }),
+      }),
+    ]);
+    expect(persisted).toEqual([
+      {
+        sessionKey: "desktop:chat-1",
+        event: "completed",
+        planId: "plan-1",
+        subtaskId: "b",
+        traceId: "trace-manual-complete",
+      },
+    ]);
+  });
+
   test("creates and persists a planner-generated task plan", async () => {
     const { bridge, saves } = memoryBridge([]);
     const runtime = new TaskRuntime({

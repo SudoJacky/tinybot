@@ -443,7 +443,8 @@ export class TaskRuntime {
       plan.status = "completed";
     }
     plan.context = { ...plan.context, dagErrors: validateTaskDag(plan) };
-    await this.store.savePlan(plan, traceId);
+    const saved = await this.store.savePlan(plan, traceId);
+    await this.publishCompletedSubtask(saved, subtask, request, traceId);
     return subtask;
   }
 }

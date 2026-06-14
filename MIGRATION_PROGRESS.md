@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Task/Cron background runtime parity: TS-native manual subtask result updates now publish Python-compatible progress events and persist owning-session task progress cards after completed, failed, or skipped updates.
+
 - Continued Task/Cron background runtime parity: TS-native manual failed subtask updates now pause the owning plan with Python-compatible exhausted-retry context when retry counts have already reached the configured limit.
 
 - Continued Task/Cron background runtime parity: TS-native manual subtask result updates now complete the owning plan when all subtasks are completed or skipped, matching Python TaskManager's update-result completion transition.
