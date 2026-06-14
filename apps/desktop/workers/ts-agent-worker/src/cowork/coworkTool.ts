@@ -1,10 +1,11 @@
 import { isJsonObject, type JsonObject } from "../protocol/messages.ts";
 import type { Tool, ToolContext, ToolResult } from "../tools/tool.ts";
+import { normalizeArchitectureName } from "./coworkArchitecture.ts";
 import { previewBlueprint, validateBlueprint } from "./coworkBlueprint.ts";
 import type { CoworkScheduler } from "./coworkScheduler.ts";
 import { type CoworkService } from "./coworkService.ts";
 import type { CoworkAgentInput, CoworkTaskInput } from "./coworkService.ts";
-import type { CoworkTeamPlanner } from "./coworkTeamPlanner.ts";
+import { leaderInitialTasks, type CoworkTeamPlanner } from "./coworkTeamPlanner.ts";
 import type { CoworkSession, CoworkTask } from "./coworkTypes.ts";
 
 const COWORK_ACTIONS = [
@@ -165,16 +166,21 @@ async function startSession(options: CoworkToolOptions, args: Record<string, unk
   }
   const explicitAgents = objectArrayArg<CoworkAgentInput>(args, "agents");
   const explicitTasks = objectArrayArg<CoworkTaskInput>(args, "tasks");
+  const workflowMode = stringArg(args, "architecture") || stringArg(args, "workflow_mode");
+  const normalizedWorkflowMode = normalizeArchitectureName(workflowMode);
   const planned = !explicitAgents && !explicitTasks && options.planner
-    ? await options.planner.plan(goal, stringArg(args, "architecture") || stringArg(args, "workflow_mode"))
+    ? await options.planner.plan(goal, normalizedWorkflowMode)
     : undefined;
+  const plannedTasks = planned && normalizedWorkflowMode !== "swarm"
+    ? leaderInitialTasks(goal, planned.agents, planned.tasks)
+    : planned?.tasks;
   const session = await service.createSession({
     traceId,
     goal,
     title: stringArg(args, "title") || planned?.title,
-    workflowMode: stringArg(args, "architecture") || stringArg(args, "workflow_mode"),
+    workflowMode: normalizedWorkflowMode,
     agents: explicitAgents ?? planned?.agents,
-    tasks: explicitTasks ?? planned?.tasks,
+    tasks: explicitTasks ?? plannedTasks,
     runtimeState: originRuntimeState(context),
   });
   const run = booleanArg(args, "auto_run")

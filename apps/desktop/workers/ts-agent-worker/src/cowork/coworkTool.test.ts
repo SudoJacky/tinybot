@@ -111,6 +111,76 @@ describe("createCoworkTool", () => {
     expect(provider.options[0].toolChoice).toMatchObject({ type: "function", function: { name: "submit_cowork_team" } });
   });
 
+  it("wraps non-swarm planner tasks into the Python leader-start task", async () => {
+    const service = serviceWithStore();
+    const provider = new QueueProvider([{
+      content: "",
+      stopReason: "tool_calls",
+      toolCalls: [{
+        id: "team-1",
+        name: "submit_cowork_team",
+        argumentsJson: JSON.stringify({
+          title: "Planner Session",
+          agents: [{ id: "lead", name: "Lead", role: "Coordinator", goal: "Plan", responsibilities: ["Coordinate"] }],
+          tasks: [
+            { id: "research", title: "Research gap", description: "Compare Python behavior", assigned_agent_id: "lead" },
+            { id: "patch", title: "Patch runtime", description: "Update TS facade", assigned_agent_id: "lead" },
+          ],
+        }),
+      }],
+    }]);
+    const planner = new CoworkTeamPlanner({ provider, model: "test-model", workspace: "D:/code/tinybot/tinybot" });
+    const tool = createCoworkTool({ service, planner });
+
+    await tool.execute({
+      action: "start",
+      goal: "Coordinate TS planner migration",
+      workflow_mode: "team",
+    }, { runId: "run_1", traceId: "trace-tool" });
+
+    const session = await service.getSession("cw_1", "assert");
+    expect(Object.keys(session?.tasks ?? {})).toEqual(["lead_start"]);
+    expect(session?.tasks.lead_start).toMatchObject({
+      title: "Decide team plan and delegation",
+      assigned_agent_id: "lead",
+      dependencies: [],
+    });
+    expect(session?.tasks.lead_start.description).toContain("Goal: Coordinate TS planner migration");
+    expect(session?.tasks.lead_start.description).toContain("- Research gap: Compare Python behavior");
+    expect(session?.tasks.lead_start.description).toContain("- Patch runtime: Update TS facade");
+  });
+
+  it("preserves planner tasks for swarm cowork starts like Python", async () => {
+    const service = serviceWithStore();
+    const provider = new QueueProvider([{
+      content: "",
+      stopReason: "tool_calls",
+      toolCalls: [{
+        id: "team-1",
+        name: "submit_cowork_team",
+        argumentsJson: JSON.stringify({
+          title: "Swarm Session",
+          agents: [{ id: "lead", name: "Lead", role: "Coordinator", goal: "Plan", responsibilities: ["Coordinate"] }],
+          tasks: [
+            { id: "research", title: "Research gap", description: "Compare Python behavior", assigned_agent_id: "lead" },
+            { id: "patch", title: "Patch runtime", description: "Update TS facade", assigned_agent_id: "lead" },
+          ],
+        }),
+      }],
+    }]);
+    const planner = new CoworkTeamPlanner({ provider, model: "test-model", workspace: "D:/code/tinybot/tinybot" });
+    const tool = createCoworkTool({ service, planner });
+
+    await tool.execute({
+      action: "start",
+      goal: "Coordinate TS planner migration",
+      workflow_mode: "swarm",
+    }, { runId: "run_1", traceId: "trace-tool" });
+
+    const session = await service.getSession("cw_1", "assert");
+    expect(Object.keys(session?.tasks ?? {})).toEqual(["research", "patch"]);
+  });
+
   it("mutates an existing session through message, task, assignment, and control facade actions", async () => {
     const store = createMemoryCoworkStore();
     const service = serviceWithStore(store);

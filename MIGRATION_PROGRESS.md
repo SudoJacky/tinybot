@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Cowork tool start parity: TS-native `cowork start` now mirrors Python by folding planner-generated tasks into a single `lead_start` delegation task for non-swarm workflows, while preserving raw planner tasks for swarm sessions.
+
 - Continued Cowork model-facing tool schema parity: TS-native `cowork` now rejects `workflow_mode` values outside Python's declared workflow enum while preserving the legacy `hybrid` alias, keeping invalid model tool calls from reaching the TS service layer.
 
 - Continued Cowork model-facing tool parity: TS-native `cowork` tool parameters now expose Python-compatible `topic` / `event_type` fields and enforce bounded integer scheduler limits for `max_rounds`, `max_agents`, and `max_agent_calls`, preserving Python schema casting/validation before scheduler execution.
