@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued API Runtime Knowledge query parity: TS-native `/v1/knowledge/query` now returns a Python-compatible empty result list for whitespace-only query text instead of delegating to the native sparse provider and surfacing a searchable-term error.
+
 - Continued API Runtime Knowledge validation parity: TS-native direct add-document now rejects whitespace-only content with Python-compatible 400 invalid-request envelopes before provider/native storage dispatch.
 
 - Continued API Runtime Knowledge async-add parity: TS-native `POST /v1/knowledge/documents` now honors `async_index` from query params or a true JSON body flag and returns Python-compatible `202` completed job envelopes for deferred indexing.
@@ -749,10 +751,13 @@ API Runtime row 19 update: direct TS-native `POST /v1/knowledge/documents` now h
 
 API Runtime row 19 update: direct TS-native add-document validation now rejects whitespace-only content with Python-compatible invalid-request envelopes before native provider dispatch.
 
+API Runtime row 19 update: TS-native Knowledge query now short-circuits whitespace-only query text to a Python-compatible empty list before native sparse provider dispatch.
+
 ## Work Log
 
 | Date | Update |
 | --- | --- |
+| 2026-06-14 | Continued API Runtime Knowledge query parity: native query route now returns an empty list for whitespace-only query text instead of surfacing native searchable-term errors. |
 | 2026-06-14 | Continued API Runtime Knowledge validation parity: native add-document route now rejects whitespace-only content with Python-compatible 400 invalid-request envelopes. |
 | 2026-06-14 | Continued API Runtime Knowledge async-add parity: native add-document route now honors `async_index` and returns Python-compatible 202 completed job envelopes. |
 | 2026-06-14 | Continued API Runtime Knowledge provider-error parity: native Knowledge API provider exceptions now return route-specific 500 server-error envelopes instead of worker protocol errors. |
@@ -1315,6 +1320,7 @@ API Runtime row 19 update: direct TS-native add-document validation now rejects 
 - [x] Continue API Runtime Knowledge provider-error parity: wrap Knowledge provider exceptions as route-specific Python-compatible 500 server-error envelopes.
 - [x] Continue API Runtime Knowledge async-add parity: return Python-compatible completed job envelopes for add-document requests with `async_index`.
 - [x] Continue API Runtime Knowledge validation parity: reject whitespace-only direct add-document content before native provider dispatch.
+- [x] Continue API Runtime Knowledge query parity: return empty result lists for whitespace-only query text before native provider dispatch.
 - [x] Continue API Runtime Phase 1: harden the TS worker upload route and Rust `knowledge.add_document` core so `.json` and `.csv` text-like Knowledge uploads are accepted end-to-end on the native path.
 - [x] Continue API Runtime Phase 1: parameterize the desktop native-first Knowledge GraphRAG facade for Python-compatible query options.
 - [x] Continue API Runtime Phase 1: mirror Python truthiness for OpenAI-compatible chat completion `model` validation on TS-native routes.

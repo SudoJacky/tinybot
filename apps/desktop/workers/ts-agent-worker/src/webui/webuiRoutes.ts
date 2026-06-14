@@ -1420,10 +1420,22 @@ async function knowledgeQueryResponse(
   if (!query) {
     return { status: 400, body: knowledgeApiError(400, "Query text is required") };
   }
+  const mode = stringValue(body.mode) ?? "hybrid";
+  if (!query.trim()) {
+    return {
+      status: 200,
+      body: {
+        object: "list",
+        query,
+        mode,
+        data: [],
+        total: 0,
+      },
+    };
+  }
   try {
     const result = await provider.query(body, traceId);
     const data = arrayFromResult(result, "results");
-    const mode = stringValue(body.mode) ?? "hybrid";
     return {
       status: 200,
       body: {

@@ -2693,7 +2693,10 @@ describe("AgentWorker", () => {
         },
         getDocument: () => undefined,
         deleteDocument: () => ({ deleted: false }),
-        query: () => ({ results: [] }),
+        query: () => {
+          calls.push("query");
+          return { results: [] };
+        },
         stats: () => ({ total_documents: 0, total_chunks: 0 }),
       },
     });
@@ -2726,6 +2729,23 @@ describe("AgentWorker", () => {
             type: "invalid_request_error",
             code: 400,
           },
+        },
+      },
+    });
+    expect(calls).toEqual([]);
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/v1/knowledge/query",
+      body: { query: "   ", mode: "sparse" },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 200,
+        body: {
+          object: "list",
+          query: "   ",
+          mode: "sparse",
+          data: [],
+          total: 0,
         },
       },
     });
