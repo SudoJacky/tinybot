@@ -1328,6 +1328,7 @@ describe("CoworkService", () => {
       },
       remaining: {
         max_rounds_per_run: 2,
+        parallel_width: 5,
         max_tokens: 1200,
       },
       stop_reason: "",

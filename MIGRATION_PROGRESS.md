@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Cowork scheduler budget parity: TS-native budget state snapshots now preserve Python-compatible `remaining.parallel_width` in service budget updates and scheduler budget-stop diagnostics.
+
 - Continued API Runtime OpenAI-compatible parity: TS-native chat completion session locks now use Python-style stringification for truthy non-string `session_id` values, so distinct object/list ids do not collapse into JavaScript `[object Object]` keys.
 
 - Continued API Runtime OpenAI-compatible parity: TS-native chat completion session selection now ignores camel-case `sessionId` like Python and only uses truthy `session_id` for non-default API session locks.

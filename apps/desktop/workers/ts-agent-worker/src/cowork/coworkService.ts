@@ -2343,6 +2343,7 @@ function budgetRemaining(limits: JsonObject, usage: JsonObject): JsonObject {
     const limit = numberOrNull(limits[limitKey]);
     remaining[limitKey] = limit === null ? null : Math.max(0, limit - (numberOrNull(usage[usageKey]) ?? 0));
   }
+  remaining.parallel_width = limits.parallel_width;
   return remaining;
 }
 

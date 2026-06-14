@@ -297,7 +297,7 @@ describe("CoworkScheduler", () => {
           stop_reason: "agent_call_budget_exhausted",
           round_id: "run_1:round:1",
           budget: expect.objectContaining({
-            remaining: expect.objectContaining({ max_agent_calls_total: 0 }),
+            remaining: expect.objectContaining({ max_agent_calls_total: 0, parallel_width: 3 }),
           }),
         }),
       }),
