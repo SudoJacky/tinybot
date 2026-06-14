@@ -111,6 +111,31 @@ describe("CommandRouter", () => {
     });
   });
 
+  test("preserves inbound command metadata while allowing command metadata to override", async () => {
+    const router = new CommandRouter();
+    router.exact("/help", async () => ({
+      handled: true,
+      output: "help",
+      metadata: { render_as: "text", command: "/help" },
+    }));
+
+    await expect(router.dispatch("/help", {
+      traceId: "trace-1",
+      metadata: {
+        message_id: "msg-1",
+        render_as: "markdown",
+      },
+    })).resolves.toMatchObject({
+      handled: true,
+      output: "help",
+      metadata: {
+        message_id: "msg-1",
+        render_as: "text",
+        command: "/help",
+      },
+    });
+  });
+
   test("returns unhandled for ordinary messages and missing slash commands", async () => {
     const router = new CommandRouter();
 

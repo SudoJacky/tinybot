@@ -2875,17 +2875,19 @@ export class AgentWorker {
       sessionId: spec.sessionId,
       content: message.content,
       messages: spec.messages,
+      metadata: message.metadata,
     });
   }
 
   private async tryDispatchCommand(
     traceId: string,
-    command: { runId: string; sessionId?: string; content: string; messages: AgentMessage[] },
+    command: { runId: string; sessionId?: string; content: string; messages: AgentMessage[]; metadata?: Record<string, unknown> },
   ): Promise<AgentRunResult | undefined> {
     const result = await this.commandRouter.dispatch(command.content, {
       traceId,
       runId: command.runId,
       sessionId: command.sessionId,
+      metadata: command.metadata,
     });
     if (!result.handled) {
       return undefined;

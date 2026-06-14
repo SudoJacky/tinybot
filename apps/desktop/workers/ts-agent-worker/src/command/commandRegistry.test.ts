@@ -72,6 +72,25 @@ describe("createDefaultCommandRouter", () => {
     ]);
   });
 
+  test("keeps command text rendering authoritative over bridge metadata", async () => {
+    const router = createDefaultCommandRouter({
+      getDreamLog: async () => ({
+        content: "## Dream Update\n\n- Commit: `abc123`",
+        metadata: { render_as: "markdown", changed: true },
+      }),
+    });
+
+    await expect(router.dispatch("/dream-log", { traceId: "trace-1" })).resolves.toMatchObject({
+      handled: true,
+      output: "## Dream Update\n\n- Commit: `abc123`",
+      metadata: {
+        command: "/dream-log",
+        render_as: "text",
+        changed: true,
+      },
+    });
+  });
+
   test("reports unavailable dream commands when the bridge is absent", async () => {
     const router = createDefaultCommandRouter();
 
@@ -82,6 +101,23 @@ describe("createDefaultCommandRouter", () => {
         command: "/dream-log",
         render_as: "text",
         available: false,
+      },
+    });
+  });
+
+  test("reports dream run failures like Python instead of leaking the bridge error", async () => {
+    const router = createDefaultCommandRouter({
+      runDream: async () => {
+        throw new Error("provider unavailable");
+      },
+    });
+
+    await expect(router.dispatch("/dream", { traceId: "trace-1", sessionId: "session-1" })).resolves.toMatchObject({
+      handled: true,
+      output: "Dream failed: provider unavailable",
+      metadata: {
+        command: "/dream",
+        render_as: "text",
       },
     });
   });

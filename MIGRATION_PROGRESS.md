@@ -2,6 +2,10 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Command Runtime parity: TS-native slash command results now preserve inbound message metadata like Python while keeping command-owned `command` and `render_as: text` fields authoritative over bridge metadata.
+
+- Continued Command Runtime Phase 3 Dream command parity: TS-native `/dream` now catches Dream bridge failures and returns Python-compatible `Dream failed: ...` command output instead of leaking the provider/runtime exception.
+
 - Continued Command Runtime Phase 3 Dream provider parity: TS-native `/dream` provider extraction now coerces Memory Operation note type and scope like Python before applying provider notes through the native bridge.
 
 - Continued Command Runtime Phase 3 Dream provider parity: TS-native `/dream` provider extraction now fills Python-compatible default Memory Operation confidence and `dream` tags before applying provider notes through the native bridge.
@@ -1485,6 +1489,8 @@ Heartbeat row 20 update: Phase 4 now runs scheduled notifications through the sh
 - [x] Continue Command Runtime status parity: report Python-compatible `/status` model, token, context, session, and uptime fields from native worker snapshots.
 - [x] Continue Command Runtime `/new` parity: clear native session temporary knowledge through `knowledge.session_clear` after clearing the session.
 - [x] Continue Command Runtime `/new` archive parity: capture clear-before session messages into native conversation evidence before clearing the session.
+- [x] Continue Command Runtime metadata parity: preserve inbound command message metadata while forcing command-owned `command` and `render_as: text` fields.
+- [x] Continue Command Runtime Phase 3 Dream command parity: catch `/dream` bridge failures as Python-compatible `Dream failed: ...` output.
 
 - [x] 复核 `ts_native_core.md` 对应实现和 `rust-native-core-worker-migration` 完成状态。
 - [x] 为 Batch 1 拆出第一个可实现任务：shared support runtime 的最小公共 helper/API。

@@ -7553,6 +7553,50 @@ describe("AgentWorker", () => {
     }));
   });
 
+  test("preserves inbound message metadata on backend slash command results like Python", async () => {
+    const provider = new QueueProvider([{ content: "unused", toolCalls: [], stopReason: "stop" }]);
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+    });
+
+    const response = await worker.handleRequest(
+      request({
+        spec: {
+          runId: "run-command-metadata",
+          messages: [
+            {
+              role: "user",
+              content: "/help",
+              metadata: {
+                message_id: "msg-1",
+                correlation_id: "corr-1",
+                render_as: "markdown",
+              },
+            },
+          ],
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+        },
+      }),
+    );
+
+    expect(provider.messages).toEqual([]);
+    expect(response).toMatchObject({
+      result: {
+        stopReason: "command",
+        metadata: {
+          message_id: "msg-1",
+          correlation_id: "corr-1",
+          command: "/help",
+          render_as: "text",
+        },
+      },
+    });
+  });
+
   test("handles backend slash stop as a priority command for the current session", async () => {
     const events: WorkerEvent[] = [];
     const completion = deferred<ModelResponse>();

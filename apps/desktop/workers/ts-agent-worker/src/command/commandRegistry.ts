@@ -316,11 +316,15 @@ async function dreamResult(context: CommandContext, capabilities: CommandCapabil
   if (!capabilities.runDream) {
     return unavailableDreamResult("/dream");
   }
-  const result = await capabilities.runDream({
-    traceId: context.traceId,
-    sessionId: context.sessionId,
-  });
-  return textCommandResult("/dream", result.content, result.metadata);
+  try {
+    const result = await capabilities.runDream({
+      traceId: context.traceId,
+      sessionId: context.sessionId,
+    });
+    return textCommandResult("/dream", result.content, result.metadata);
+  } catch (error) {
+    return textCommandResult("/dream", `Dream failed: ${errorMessage(error)}`);
+  }
 }
 
 async function dreamLogResult(context: CommandContext, capabilities: CommandCapabilities): Promise<CommandResult> {
@@ -381,9 +385,13 @@ function textCommandResult(command: string, output: string, metadata: Record<str
     handled: true,
     output,
     metadata: {
+      ...metadata,
       command,
       render_as: "text",
-      ...metadata,
     },
   };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

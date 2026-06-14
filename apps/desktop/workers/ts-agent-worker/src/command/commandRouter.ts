@@ -4,6 +4,7 @@ export type DispatchCommandOptions = {
   traceId: string;
   sessionId?: string;
   runId?: string;
+  metadata?: Record<string, unknown>;
 };
 
 type CommandEntry = {
@@ -51,23 +52,23 @@ export class CommandRouter {
 
     const priority = this.priorityHandlers.get(parsed.rawKey);
     if (priority) {
-      return priority.handler(contextFor(priority.command, parsed, options, true));
+      return withInboundMetadata(await priority.handler(contextFor(priority.command, parsed, options, true)), options.metadata);
     }
 
     const exact = this.exactHandlers.get(parsed.rawKey);
     if (exact) {
-      return exact.handler(contextFor(parsed.command, parsed, options, false));
+      return withInboundMetadata(await exact.handler(contextFor(parsed.command, parsed, options, false)), options.metadata);
     }
 
     const prefix = this.prefixHandlers.find((entry) => prefixMatches(parsed.rawKey, entry.key));
     if (prefix) {
-      return prefix.handler(contextFor(prefix.command, parsed, options, false));
+      return withInboundMetadata(await prefix.handler(contextFor(prefix.command, parsed, options, false)), options.metadata);
     }
 
     for (const interceptor of this.interceptors) {
       const result = await interceptor(contextFor(parsed.command, parsed, options, false));
       if (result.handled) {
-        return result;
+        return withInboundMetadata(result, options.metadata);
       }
     }
     return { handled: false };
@@ -129,4 +130,17 @@ function normalizeCommand(command: string): { command: string; key: string } {
 
 function prefixMatches(rawKey: string, prefixKey: string): boolean {
   return rawKey.startsWith(`${prefixKey} `);
+}
+
+function withInboundMetadata(result: CommandResult, metadata: Record<string, unknown> | undefined): CommandResult {
+  if (!result.handled || !metadata) {
+    return result;
+  }
+  return {
+    ...result,
+    metadata: {
+      ...metadata,
+      ...result.metadata,
+    },
+  };
 }
