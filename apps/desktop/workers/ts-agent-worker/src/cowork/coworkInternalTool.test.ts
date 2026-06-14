@@ -128,8 +128,17 @@ describe("cowork_internal tool", () => {
       name: "Task skipped",
       status: "skipped",
     });
-    expect(saved?.status).toBe("completed");
-    expect(saved?.agents.lead.status).toBe("done");
+    expect(saved?.status).toBe("active");
+    expect(saved?.agents.lead.status).toBe("idle");
+    expect(saved?.completion_decision).toMatchObject({
+      next_action: "review_goal_completion",
+      reason: "Known task results appear sufficient.",
+      ready_to_finish: false,
+      goal_review: {
+        ready: false,
+        missing: [],
+      },
+    });
   });
 
   it("leaves confidence unset when structured task results omit confidence", async () => {
@@ -331,5 +340,64 @@ describe("cowork_internal tool", () => {
 
     const saved = await store.readSnapshot(session.id, "trace-read");
     expect(saved?.workspace_dir).toBe("/tmp/cowork-output");
+  });
+
+  it("keeps sessions active when completed task results still contain open questions", async () => {
+    const store = createMemoryCoworkStore();
+    const idGenerator = deterministicIds();
+    const service = new CoworkService({
+      store,
+      now: () => fixedNow,
+      idGenerator,
+    });
+    const session = await service.createSession({
+      traceId: "trace-create",
+      goal: "Resolve the architecture decision",
+      title: "Open questions",
+      workflowMode: "team",
+      agents: [{
+        id: "lead",
+        name: "Lead",
+        role: "Lead",
+        goal: "Coordinate",
+        responsibilities: ["Finish"],
+      }],
+      tasks: [{
+        id: "finish",
+        title: "Finish",
+        description: "Complete the decision",
+        assigned_agent_id: "lead",
+      }],
+    });
+    const tool = createCoworkInternalTool({
+      store,
+      sessionId: session.id,
+      senderId: "lead",
+      now: () => fixedNow,
+      idGenerator,
+    });
+
+    await tool.execute({
+      action: "complete_task",
+      task_id: "finish",
+      content: JSON.stringify({
+        answer: "The decision is mostly complete.",
+        open_questions: ["Confirm rollout owner."],
+      }),
+    }, { runId: "run-1", traceId: "trace-complete" });
+
+    const saved = await store.readSnapshot(session.id, "trace-read");
+    expect(saved?.status).toBe("active");
+    expect(saved?.current_focus_task).toBe("Completed work still contains open questions.");
+    expect(saved?.completion_decision).toMatchObject({
+      next_action: "review_goal_completion",
+      reason: "Completed work still contains open questions.",
+      ready_to_finish: false,
+      goal_review: {
+        ready: false,
+        missing: ["open_questions"],
+      },
+    });
+    expect(saved?.agents.lead.status).toBe("idle");
   });
 });

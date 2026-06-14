@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Cowork runtime parity: TS-native `cowork_internal complete_task` now applies Python-compatible goal review for completed task results with open questions and skipped-only sessions, keeping the session active with a `review_goal_completion` decision instead of auto-completing.
+
 - Continued Cowork runtime parity: TS-native `cowork_internal complete_task` now falls back from blank structured `output_dir` to string `workspace_dir` when merging task artifacts, matching Python's `output_dir or workspace_dir` behavior.
 
 - Continued Cowork runtime parity: TS-native `cowork_internal complete_task` now ignores non-list non-string top-level artifact fields when merging structured task results, matching Python artifact extraction.

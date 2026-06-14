@@ -1089,6 +1089,20 @@ function updateCompletionState(session: CoworkSession, now: () => string): void 
     return;
   }
   refreshSharedMemory(session);
+  const goalReview = reviewGoalCompletion(session);
+  if (goalReview.ready !== true) {
+    const reason = textValue(goalReview.reason) || session.current_focus_task || session.goal;
+    session.current_focus_task = reason;
+    session.completion_decision = {
+      next_action: "review_goal_completion",
+      reason,
+      blocked: [],
+      ready_to_finish: false,
+      goal_review: goalReview,
+      updated_at: now(),
+    };
+    return;
+  }
   session.status = "completed";
   for (const agent of Object.values(session.agents)) {
     if (agent.status !== "failed" && agent.status !== "blocked") {
@@ -1100,7 +1114,29 @@ function updateCompletionState(session: CoworkSession, now: () => string): void 
     reason: "All tasks are complete and there are no unresolved reply requests.",
     blocked: [],
     ready_to_finish: true,
+    goal_review: goalReview,
     updated_at: now(),
+  };
+}
+
+function reviewGoalCompletion(session: CoworkSession): JsonObject {
+  const completed = Object.values(session.tasks).filter((task) => task.status === "completed");
+  const hasOpenQuestions = completed.some((task) => {
+    const data = isJsonObject(task.result_data) ? task.result_data : {};
+    const openQuestions = data.open_questions;
+    return Array.isArray(openQuestions) && openQuestions.some((item) => cleanString(item));
+  });
+  if (hasOpenQuestions) {
+    return {
+      ready: false,
+      reason: "Completed work still contains open questions.",
+      missing: ["open_questions"],
+    };
+  }
+  return {
+    ready: completed.length > 0,
+    reason: "Known task results appear sufficient.",
+    missing: [],
   };
 }
 
