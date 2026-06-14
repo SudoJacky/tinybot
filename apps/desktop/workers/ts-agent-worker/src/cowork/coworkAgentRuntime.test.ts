@@ -727,6 +727,65 @@ describe("CoworkAgentRuntime", () => {
     ]));
   });
 
+  it("persists failed agent and task state when the runner raises like Python", async () => {
+    const provider = new QueueProvider([]);
+    const seeded = await seedRuntime(provider);
+
+    const result = await seeded.runtime.runAgent({
+      traceId: "trace-agent",
+      sessionId: "cw_1",
+      agentId: "lead",
+      runId: "run_1",
+      roundId: "run_1:round:1",
+      parentSpanId: "span_parent",
+    });
+
+    expect(result.result).toContain("Lead failed: no queued model response");
+    const saved = await seeded.store.readSnapshot("cw_1", "assert");
+    expect(saved?.agents.lead).toMatchObject({
+      status: "failed",
+      current_task_id: null,
+      current_task_title: null,
+    });
+    expect(saved?.tasks.draft).toMatchObject({
+      status: "failed",
+      error: "no queued model response",
+      result: "no queued model response",
+    });
+    expect(saved?.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "task.failed",
+        actor_id: "lead",
+        data: expect.objectContaining({ task_id: "draft", error: "no queued model response" }),
+      }),
+      expect.objectContaining({
+        type: "agent.failed",
+        actor_id: "lead",
+        message: "Lead failed: no queued model response",
+      }),
+    ]));
+    expect(saved?.trace_spans).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "agent",
+        name: "Run Lead",
+        status: "failed",
+        error: "no queued model response",
+      }),
+      expect.objectContaining({
+        kind: "agent",
+        name: "Agent failed",
+        status: "failed",
+        error: "no queued model response",
+      }),
+    ]));
+    expect(saved?.agent_steps).toEqual([expect.objectContaining({
+      agent_id: "lead",
+      status: "failed",
+      error: "no queued model response",
+      linked_task_ids: ["draft"],
+    })]);
+  });
+
   it("starts and completes the associated swarm work unit during an agent round", async () => {
     const provider = new QueueProvider([{
       content: JSON.stringify({

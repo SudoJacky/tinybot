@@ -229,6 +229,22 @@ export class CoworkAgentRuntime {
     let result: AgentRunResult;
     try {
       result = await this.runner.run(this.agentRunSpec(session, agent, task, unread, request, internalToolRegistration?.definition, runEventHandler, streamEnabled));
+    } catch (error) {
+      const message = errorMessage(error);
+      const fresh = await this.store.readSnapshot(session.id, traceId) ?? session;
+      fresh.events = [...fresh.events, ...streamEvents];
+      this.applyToolObservations(fresh, stepId, toolObservationState.pending);
+      const freshAgent = fresh.agents[agent.id] ?? agent;
+      const taskId = cleanString(freshAgent.current_task_id) || task?.id || "";
+      const freshTask = taskId ? fresh.tasks[taskId] : undefined;
+      this.applyFailure(fresh, freshAgent, freshTask, message, stepId, agentSpanId);
+      const saved = await this.store.writeSnapshot(normalizeCoworkSession(fresh), traceId);
+      return {
+        session: saved,
+        agentId: agent.id,
+        taskId: task?.id,
+        result: `${agent.name} failed: ${message}`,
+      };
     } finally {
       this.restoreInternalTool(internalToolRegistration);
     }
@@ -808,6 +824,85 @@ export class CoworkAgentRuntime {
     if (progress.public_note) {
       appendAgentMessage(session, agent.id, progress.public_note, this.idGenerator, this.now);
     }
+    session.updated_at = this.now();
+  }
+
+  private applyFailure(
+    session: CoworkSession,
+    agent: CoworkAgent,
+    task: CoworkTask | undefined,
+    error: string,
+    stepId: string,
+    agentSpanId: string,
+  ): void {
+    const taskId = task?.id ?? cleanString(agent.current_task_id);
+    agent.status = "failed";
+    agent.last_active_at = this.now();
+    if (task) {
+      task.status = "failed";
+      task.error = error;
+      task.result = error;
+      task.updated_at = this.now();
+      agent.current_task_id = null;
+      agent.current_task_title = null;
+      session.events = [
+        ...session.events,
+        this.event("task.failed", `Task '${task.title}' failed`, {
+          actorId: agent.id,
+          data: { task_id: task.id, error },
+        }),
+      ];
+    }
+    session.events = [
+      ...session.events,
+      this.event("agent.failed", `${agent.name} failed: ${error}`, { actorId: agent.id }),
+    ];
+    session.trace_spans = session.trace_spans.map((span) => {
+      if (stringValue(span.id) !== agentSpanId) {
+        return span;
+      }
+      return {
+        ...span,
+        status: "failed",
+        ended_at: this.now(),
+        output_ref: error,
+        summary: `${agent.name} failed`,
+        error,
+      };
+    });
+    session.trace_spans = [
+      ...session.trace_spans,
+      {
+        id: this.idGenerator("span"),
+        session_id: session.id,
+        kind: "agent",
+        name: "Agent failed",
+        actor_id: agent.id,
+        status: "failed",
+        started_at: this.now(),
+        ended_at: this.now(),
+        input_ref: "",
+        output_ref: "",
+        summary: `${agent.name} failed`,
+        data: { agent_id: agent.id, task_id: taskId },
+        error,
+      },
+    ];
+    session.agent_steps = session.agent_steps.map((step) => {
+      if (stringValue(step.id) !== stepId) {
+        return step;
+      }
+      return {
+        ...step,
+        status: "failed",
+        ended_at: this.now(),
+        duration_ms: durationMs(stringValue(step.started_at), this.now()),
+        output_summary: error,
+        error,
+        linked_task_ids: taskId ? [taskId] : step.linked_task_ids,
+        summary: error,
+      };
+    });
     session.updated_at = this.now();
   }
 
@@ -3151,6 +3246,10 @@ function stringValue(value: unknown): string {
 
 function cleanString(value: unknown): string {
   return typeof value === "string" ? value.trim() : value === null || value === undefined ? "" : String(value).trim();
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : cleanString(error) || "Unknown error";
 }
 
 function numberValue(value: unknown): number | null {
