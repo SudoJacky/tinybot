@@ -476,6 +476,69 @@ describe("CoworkScheduler", () => {
     })]);
   });
 
+  it("starts selected agents in the same scheduler round concurrently like Python", async () => {
+    const store = createMemoryCoworkStore();
+    const idGenerator = deterministicIds();
+    const service = new CoworkService({
+      store,
+      now: () => fixedNow,
+      idGenerator,
+    });
+    const session = await service.createSession({
+      traceId: "seed",
+      goal: "Coordinate parallel team work",
+      title: "Parallel team session",
+      workflowMode: "team",
+      agents: [
+        { id: "lead", name: "Lead", role: "Coordinator" },
+        { id: "worker", name: "Worker", role: "Worker" },
+      ],
+      tasks: [
+        { id: "draft", title: "Draft", description: "Draft scheduler slice", assigned_agent_id: "lead" },
+        { id: "implement", title: "Implement", description: "Implement scheduler slice", assigned_agent_id: "worker" },
+      ],
+      budgets: { parallel_width: 2 },
+    });
+    const starts: string[] = [];
+    const resolvers: Array<() => void> = [];
+    const agentRuntime = {
+      runAgent(request: { agentId: string }) {
+        starts.push(request.agentId);
+        return new Promise((resolve) => {
+          resolvers.push(() => resolve({ agentId: request.agentId, result: "ok", session }));
+        });
+      },
+    } as unknown as CoworkAgentRuntime;
+    const scheduler = new CoworkScheduler({
+      store,
+      now: () => fixedNow,
+      idGenerator,
+      agentRuntime,
+    });
+
+    const runPromise = scheduler.runSession({
+      sessionId: session.id,
+      traceId: "trace-run",
+      maxRounds: 1,
+      maxAgents: 2,
+    });
+    for (let attempts = 0; attempts < 10 && starts.length === 0; attempts += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    const startsBeforeAnyAgentFinished = [...starts];
+
+    for (let attempts = 0; attempts < 4 && resolvers.length < 2; attempts += 1) {
+      resolvers.shift()?.();
+      await Promise.resolve();
+    }
+    while (resolvers.length) {
+      resolvers.shift()?.();
+    }
+    await runPromise;
+
+    expect(startsBeforeAnyAgentFinished).toEqual(["lead", "worker"]);
+  });
+
   it("runs the lead once for synthesis after teammate replies are ready", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = deterministicIds();

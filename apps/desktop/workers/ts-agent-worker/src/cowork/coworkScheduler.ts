@@ -182,6 +182,7 @@ export class CoworkScheduler {
       };
     }
 
+    const agentRuntime = this.agentRuntime;
     let working = session;
     const lines: string[] = [];
     let completedRounds = 0;
@@ -301,16 +302,14 @@ export class CoworkScheduler {
         }),
       ];
       await this.store.writeSnapshot(normalizeCoworkSession(working), traceId);
-      for (const agent of active) {
-        await this.agentRuntime.runAgent({
-          traceId,
-          sessionId: working.id,
-          agentId: agent.id,
-          runId,
-          roundId,
-          parentSpanId: roundSpanId,
-        });
-      }
+      await Promise.all(active.map((agent) => agentRuntime.runAgent({
+        traceId,
+        sessionId: working.id,
+        agentId: agent.id,
+        runId,
+        roundId,
+        parentSpanId: roundSpanId,
+      })));
       working = await this.store.readSnapshot(working.id, traceId) ?? working;
       working.trace_spans = working.trace_spans.map((span) => {
         if (stringValue(span.id) !== roundSpanId) {
