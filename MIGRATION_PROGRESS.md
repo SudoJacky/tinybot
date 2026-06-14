@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Cowork runtime parity: TS-native `cowork_internal complete_task` now treats missing or blank structured `confidence` values as unset like Python, instead of coercing them to zero.
+
 - Continued Cowork runtime parity: TS-native `cowork_internal complete_task` now leaves plain-text task completion confidence unset like Python instead of coercing missing structured confidence to zero.
 
 - Continued Cowork runtime parity: TS-native `cowork_internal complete_task` now keeps plain-text task completion `result_data` empty like Python, while preserving structured JSON result extraction for confidence/artifact handling.

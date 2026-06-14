@@ -1245,7 +1245,14 @@ function parseStructuredResult(result: string): JsonObject {
 }
 
 function coerceConfidence(value: unknown): number | null {
-  const confidence = typeof value === "number" ? value : Number(cleanString(value));
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const text = typeof value === "number" ? "" : cleanString(value);
+  if (typeof value !== "number" && !text) {
+    return null;
+  }
+  const confidence = typeof value === "number" ? value : Number(text);
   if (!Number.isFinite(confidence)) {
     return null;
   }

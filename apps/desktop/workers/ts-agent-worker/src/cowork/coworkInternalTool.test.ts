@@ -131,4 +131,55 @@ describe("cowork_internal tool", () => {
     expect(saved?.status).toBe("completed");
     expect(saved?.agents.lead.status).toBe("done");
   });
+
+  it("leaves confidence unset when structured task results omit confidence", async () => {
+    const store = createMemoryCoworkStore();
+    const idGenerator = deterministicIds();
+    const service = new CoworkService({
+      store,
+      now: () => fixedNow,
+      idGenerator,
+    });
+    const session = await service.createSession({
+      traceId: "trace-create",
+      goal: "Capture structured output",
+      title: "Structured result",
+      workflowMode: "team",
+      agents: [{
+        id: "lead",
+        name: "Lead",
+        role: "Lead",
+        goal: "Coordinate",
+        responsibilities: ["Finish"],
+      }],
+      tasks: [{
+        id: "finish",
+        title: "Finish",
+        description: "Complete the work",
+        assigned_agent_id: "lead",
+      }],
+    });
+    const tool = createCoworkInternalTool({
+      store,
+      sessionId: session.id,
+      senderId: "lead",
+      now: () => fixedNow,
+      idGenerator,
+    });
+
+    await tool.execute({
+      action: "complete_task",
+      task_id: "finish",
+      content: JSON.stringify({ answer: "All work is complete." }),
+    }, { runId: "run-1", traceId: "trace-complete" });
+
+    const saved = await store.readSnapshot(session.id, "trace-read");
+    expect(saved?.tasks.finish.result_data).toEqual({ answer: "All work is complete." });
+    expect(saved?.tasks.finish.confidence).toBeNull();
+    expect(saved?.trace_spans.at(-1)?.data).toMatchObject({
+      task_id: "finish",
+      confidence: null,
+      result_data: { answer: "All work is complete." },
+    });
+  });
 });
