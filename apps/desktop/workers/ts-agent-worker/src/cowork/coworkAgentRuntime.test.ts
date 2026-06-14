@@ -176,6 +176,41 @@ describe("CoworkAgentRuntime", () => {
     });
   });
 
+  it("selects agents with pending reply mailbox records even when inbox is empty like Python", async () => {
+    const provider = new QueueProvider([]);
+    const seeded = await seedRuntime(provider);
+    const session = await seeded.store.readSnapshot("cw_1", "test");
+    if (!session) {
+      throw new Error("missing seeded session");
+    }
+    session.agents.lead.inbox = [];
+    session.agents.lead.current_task_id = null;
+    session.agents.lead.status = "idle";
+    session.tasks = {};
+    session.mailbox.reply_1 = {
+      id: "reply_1",
+      sender_id: "worker",
+      recipient_ids: ["lead"],
+      content: "Need a lead decision before continuing.",
+      kind: "request",
+      status: "delivered",
+      requires_reply: true,
+      request_type: "decision",
+      thread_id: "thread_1",
+      correlation_id: "corr_1",
+      reply_to_message_id: "",
+      blocking_task_id: "draft",
+      priority: 80,
+      created_at: fixedNow,
+      updated_at: fixedNow,
+    };
+
+    const selection = selectReadyCoworkAgentCandidates(session, 1);
+
+    expect(selection.agents.map((agent) => agent.id)).toEqual(["lead"]);
+    expect(selection.candidateScores).toEqual({ lead: 100 });
+  });
+
   it("does not select done agents even when they still have inbox work", async () => {
     const provider = new QueueProvider([]);
     const seeded = await seedRuntime(provider);

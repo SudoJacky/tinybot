@@ -1116,7 +1116,7 @@ function selectTeamReadyAgents(session: CoworkSession, limit: number): CoworkRea
     if (!isSelectableAgentStatus(agent)) {
       continue;
     }
-    const hasDirectWork = Boolean(selectDirectTaskForAgent(session, agent.id)) || agent.inbox.length > 0;
+    const hasDirectWork = Boolean(selectDirectTaskForAgent(session, agent.id)) || agent.inbox.length > 0 || hasPendingMailboxWork(session, agent.id);
     const canClaimShared = ["hybrid", "team", "shared_state", "message_bus"].includes(profile);
     let hasSharedTask = canClaimShared && !hasDirectWork && unassignedReadySlots > 0;
     if (profile === "orchestrator" && !hasDirectWork && agent.id !== leadId) {
@@ -1143,6 +1143,7 @@ function selectTeamReadyAgents(session: CoworkSession, limit: number): CoworkRea
 function teamReadinessScore(session: CoworkSession, agent: CoworkAgent, profile: string, hasSharedTask: boolean): number {
   let score = 0;
   score += Math.min(agent.inbox.length, 5) * 8;
+  score += agentMailboxPressure(session, agent.id);
   if (selectDirectTaskForAgent(session, agent.id)) {
     score += 45;
   }
@@ -1178,6 +1179,34 @@ function teamReadinessScore(session: CoworkSession, agent: CoworkAgent, profile:
     score -= reviewer && !hasPendingReview ? 8 : 0;
   }
   return score;
+}
+
+function hasPendingMailboxWork(session: CoworkSession, agentId: string): boolean {
+  return Object.values(session.mailbox).some((record) => Array.isArray(record.recipient_ids)
+    && record.recipient_ids.map(cleanString).includes(agentId)
+    && record.requires_reply === true
+    && ["delivered", "read"].includes(cleanString(record.status)));
+}
+
+function agentMailboxPressure(session: CoworkSession, agentId: string): number {
+  const agent = session.agents[agentId];
+  if (!agent) {
+    return 0;
+  }
+  let pressure = 0;
+  for (const record of Object.values(session.mailbox)) {
+    if (!Array.isArray(record.recipient_ids) || !record.recipient_ids.map(cleanString).includes(agentId) || ["replied", "expired"].includes(cleanString(record.status))) {
+      continue;
+    }
+    const priority = numberValue(record.priority) ?? 0;
+    if (cleanString(record.message_id) && agent.inbox.includes(cleanString(record.message_id))) {
+      pressure = Math.max(pressure, priority);
+    }
+    if (record.requires_reply === true && ["delivered", "read"].includes(cleanString(record.status))) {
+      pressure = Math.max(pressure, priority + 20);
+    }
+  }
+  return pressure;
 }
 
 function isReviewerLikeAgent(agent: CoworkAgent): boolean {
