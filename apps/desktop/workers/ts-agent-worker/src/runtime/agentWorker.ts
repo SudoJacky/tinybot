@@ -3436,7 +3436,7 @@ export class AgentWorker {
     const formMetadata = findAwaitingFormMetadata(checkpoint, form.formId);
     if (formContinuationMode(formMetadata) === "structured_message") {
       assertStructuredFormCorrelationMatches(formMetadata, form.correlation);
-      const event = webuiAgentUiFormEvent(form);
+      const event = webuiAgentUiFormEvent(form, formMetadata);
       await this.sessionBridge.appendMessages(form.sessionId, [structuredFormMessage(form, formMetadata)], traceId);
       return {
         ...(form.action === "cancelled" ? { cancelled: true } : { submitted: true }),
@@ -3457,7 +3457,7 @@ export class AgentWorker {
       values: form.values,
       correlation: form.correlation,
     }, checkpoint);
-    const event = webuiAgentUiFormEvent(form);
+    const event = webuiAgentUiFormEvent(form, formMetadata);
     return {
       ...(form.action === "cancelled" ? { cancelled: true } : { submitted: true }),
       form_id: form.formId,
@@ -4126,15 +4126,33 @@ function parseSubmitFormParams(params: Record<string, unknown> | undefined): For
   };
 }
 
-function webuiAgentUiFormEvent(form: WebuiAgentUiFormRequest): Record<string, unknown> {
+function webuiAgentUiFormEvent(
+  form: WebuiAgentUiFormRequest,
+  metadata: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const correlation = agentUiFormEventCorrelation(form, metadata);
   return {
     event_type: form.action === "cancelled" ? "ui.form.cancelled" : "ui.form.submitted",
+    chat_id: stringCorrelationValue(correlation.chat_id) ?? "",
+    message_id: stringCorrelationValue(correlation.message_id) ?? "",
+    run_id: stringCorrelationValue(correlation.run_id) ?? "",
     payload: {
       form_id: form.formId,
-      status: form.action,
-      correlation: form.correlation,
+      correlation,
       ...(form.action === "submitted" ? { values: form.values } : {}),
     },
+  };
+}
+
+function agentUiFormEventCorrelation(
+  form: WebuiAgentUiFormRequest,
+  metadata: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const expected = isJsonObject(metadata?.correlation) ? metadata.correlation : {};
+  return {
+    ...form.correlation,
+    ...expected,
+    form_id: form.formId,
   };
 }
 

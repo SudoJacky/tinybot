@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued WebUI transport Agent UI form event parity: TS-native form submit/cancel responses now derive Python-shaped `agent_ui_event` identity and full correlation payloads from checkpoint metadata instead of echoing only the request correlation.
+
 - Continued session turn lifecycle checkpoint parity: TS `restoreCheckpoint()` now rejects unsupported checkpoint versions before materializing messages, preserving legacy unversioned and version 1 checkpoint compatibility while blocking unknown payloads.
 
 - Continued WebUI transport Agent UI form structured-continuation parity: TS-native form submissions with explicit `structured_message` continuation now append Python-compatible session user messages with `_agent_ui_form_response` metadata instead of resuming the agent run.
