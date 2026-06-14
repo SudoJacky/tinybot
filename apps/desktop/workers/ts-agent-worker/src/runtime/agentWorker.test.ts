@@ -2042,7 +2042,12 @@ describe("AgentWorker", () => {
         },
         addDocument: async (body, traceId) => {
           calls.push({ method: "add", traceId, params: body });
-          return { document: { id: "doc-2", name: body.name } };
+          return {
+            document: {
+              id: body.name === "Async Added" ? "doc-async" : "doc-2",
+              name: body.name,
+            },
+          };
         },
         getDocument: async (docId, traceId) => {
           calls.push({ method: "get", traceId, params: { docId } });
@@ -2124,6 +2129,34 @@ describe("AgentWorker", () => {
       body: { name: "Added", content: "Body", file_type: "md" },
     }))).resolves.toMatchObject({
       result: { status: 200, body: { id: "doc-2", name: "Added", message: "Document 'Added' added successfully" } },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/v1/knowledge/documents",
+      body: { name: "Async Added", content: "Body", file_type: "md", async_index: true },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 202,
+        body: {
+          id: "doc-async",
+          name: "Async Added",
+          message: "Document 'Async Added' saved; knowledge indexing is running",
+          job_id: "kjob_doc-async",
+          job: {
+            id: "kjob_doc-async",
+            doc_id: "doc-async",
+            name: "Async Added",
+            status: "completed",
+            stage: "completed",
+            message: "Knowledge indexing completed in native TS worker",
+            processed: 1,
+            total: 1,
+            retrieval_ready: true,
+            graph_ready: false,
+            partial_availability: true,
+          },
+        },
+      },
     });
     await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
       method: "POST",
@@ -2561,6 +2594,11 @@ describe("AgentWorker", () => {
     expect(calls).toEqual([
       { method: "list", traceId: "trace-webui.handle_request", params: { category: "docs", limit: 10 } },
       { method: "add", traceId: "trace-webui.handle_request", params: { name: "Added", content: "Body", file_type: "md" } },
+      {
+        method: "add",
+        traceId: "trace-webui.handle_request",
+        params: { name: "Async Added", content: "Body", file_type: "md", async_index: true },
+      },
       {
         method: "add",
         traceId: "trace-webui.handle_request",

@@ -464,7 +464,7 @@ export async function handleWebuiRouteRequest(
     return knowledgeListDocumentsResponse(url.searchParams, knowledgeProvider, traceId);
   }
   if (method === "POST" && path === "/v1/knowledge/documents") {
-    return knowledgeAddDocumentResponse(request.body, knowledgeProvider, traceId);
+    return knowledgeAddDocumentResponse(request.body, url.searchParams, knowledgeProvider, traceId);
   }
   if (method === "POST" && path === "/v1/knowledge/documents/upload") {
     return knowledgeUploadDocumentResponse(request.body, url.searchParams, knowledgeProvider, traceId);
@@ -1124,6 +1124,7 @@ async function knowledgeListDocumentsResponse(
 
 async function knowledgeAddDocumentResponse(
   body: unknown,
+  query: URLSearchParams,
   provider: WebuiKnowledgeProvider | undefined,
   traceId: string,
 ): Promise<WebuiRouteResponse> {
@@ -1146,13 +1147,22 @@ async function knowledgeAddDocumentResponse(
     const document = documentFromResult(result);
     const id = stringValue(document?.id) ?? "";
     const resultName = stringValue(document?.name) ?? name;
+    const asyncIndex = booleanQuery(query.get("async_index")) || body.async_index === true;
+    const responseBody: Record<string, unknown> = {
+      id,
+      name: resultName,
+      message: asyncIndex
+        ? `Document '${resultName}' saved; knowledge indexing is running`
+        : `Document '${resultName}' added successfully`,
+    };
+    if (asyncIndex) {
+      const job = completedKnowledgeUploadJob(id, resultName);
+      responseBody.job = job;
+      responseBody.job_id = job.id;
+    }
     return {
-      status: 200,
-      body: {
-        id,
-        name: resultName,
-        message: `Document '${resultName}' added successfully`,
-      },
+      status: asyncIndex ? 202 : 200,
+      body: responseBody,
     };
   } catch (error) {
     return knowledgeServerError("Error adding document", error);
