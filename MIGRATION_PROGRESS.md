@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued API Runtime OpenAI-compatible parity: TS-native chat completion session locks now use Python-style stringification for truthy non-string `session_id` values, so distinct object/list ids do not collapse into JavaScript `[object Object]` keys.
+
 - Continued API Runtime OpenAI-compatible parity: TS-native chat completion session selection now ignores camel-case `sessionId` like Python and only uses truthy `session_id` for non-default API session locks.
 
 - Continued API Runtime OpenAI-compatible parity: TS-native chat completion request validation now mirrors Python's stream-rejection ordering after the single-message shape check and before user-role validation.

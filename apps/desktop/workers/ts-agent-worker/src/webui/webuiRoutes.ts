@@ -857,7 +857,7 @@ function parseOpenAiChatRequest(
     return { ok: false, message: `Only configured model '${configuredModel}' is available` };
   }
   const content = openAiMessageContent(messages[0].content);
-  const sessionId = pythonTruthy(body.session_id) ? pythonString(body.session_id) : undefined;
+  const sessionId = pythonTruthy(body.session_id) ? pythonFormatString(body.session_id) : undefined;
   return {
     ok: true,
     content,
@@ -880,6 +880,35 @@ function openAiMessageContent(content: unknown): string {
 }
 
 function pythonString(value: unknown): string {
+  return String(value);
+}
+
+function pythonFormatString(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  return pythonRepr(value);
+}
+
+function pythonRepr(value: unknown): string {
+  if (value === null || value === undefined) {
+    return "None";
+  }
+  if (typeof value === "string") {
+    return `'${value.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
+  }
+  if (typeof value === "boolean") {
+    return value ? "True" : "False";
+  }
+  if (typeof value === "number") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(pythonRepr).join(", ")}]`;
+  }
+  if (isJsonObject(value)) {
+    return `{${Object.entries(value).map(([key, item]) => `${pythonRepr(key)}: ${pythonRepr(item)}`).join(", ")}}`;
+  }
   return String(value);
 }
 
