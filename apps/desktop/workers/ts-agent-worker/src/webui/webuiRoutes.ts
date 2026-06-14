@@ -1220,15 +1220,9 @@ async function knowledgeUploadDocumentResponse(
     content,
     file_type: fileType,
     source: "file_upload",
+    category: stringValue(body.category) ?? "",
+    tags: knowledgeTags(body.tags),
   };
-  const category = stringValue(body.category);
-  if (category !== undefined) {
-    uploadBody.category = category;
-  }
-  const tags = knowledgeTags(body.tags);
-  if (tags.length > 0) {
-    uploadBody.tags = tags;
-  }
   try {
     const result = await provider.addDocument(uploadBody, traceId);
     const document = documentFromResult(result);

@@ -2843,6 +2843,8 @@ describe("AgentWorker", () => {
           content: "# Markdown Upload\n",
           file_type: "md",
           source: "file_upload",
+          category: "",
+          tags: [],
         },
       },
       {
@@ -2853,6 +2855,8 @@ describe("AgentWorker", () => {
           content: "{\"topic\":\"desktop native\"}\n",
           file_type: "json",
           source: "file_upload",
+          category: "",
+          tags: [],
         },
       },
       {
@@ -2863,6 +2867,8 @@ describe("AgentWorker", () => {
           content: "name,value\ndesktop,native\n",
           file_type: "csv",
           source: "file_upload",
+          category: "",
+          tags: [],
         },
       },
       { method: "get", traceId: "trace-webui.handle_request", params: { docId: "doc-2" } },

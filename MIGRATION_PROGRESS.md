@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued API Runtime Knowledge upload-request parity: TS-native text-like document uploads now fill Python-compatible provider defaults for omitted `category` and `tags` before native provider dispatch.
+
 - Continued API Runtime Knowledge add-request parity: TS-native direct add-document now fills Python-compatible provider defaults for omitted `tags`, `category`, and `file_type` before native provider dispatch.
 
 - Continued API Runtime Knowledge ValueError parity: TS-native direct add-document and text-like upload routes now map provider `ValueError` failures to Python-compatible 400 invalid-request envelopes instead of route-level 500 server errors.
@@ -839,6 +841,7 @@ API Runtime row 19 update: TS-native OpenAI-compatible chat completions now retr
 
 | Date | Update |
 | --- | --- |
+| 2026-06-14 | Continued API Runtime Knowledge upload-request parity: native text-like document uploads now fill Python-compatible provider defaults for omitted `category` and `tags`. |
 | 2026-06-14 | Continued API Runtime Knowledge add-request parity: native direct add-document now fills Python-compatible provider defaults for omitted `tags`, `category`, and `file_type`. |
 | 2026-06-14 | Continued API Runtime Knowledge ValueError parity: native add-document and text-like upload provider `ValueError` failures now return Python-compatible 400 invalid-request envelopes. |
 | 2026-06-14 | Continued Channel Bus runtime parity: native channel status now exposes MessageBus queue stats and backlog warnings for TS-managed channels. |
@@ -1418,6 +1421,7 @@ API Runtime row 19 update: TS-native OpenAI-compatible chat completions now retr
 - [x] Continue API Runtime Knowledge validation parity: reject whitespace-only direct add-document content before native provider dispatch.
 - [x] Continue API Runtime Knowledge query parity: return empty result lists for whitespace-only query text before native provider dispatch.
 - [x] Continue API Runtime Knowledge query parity: mirror Python `body.get(...)` defaults for `top_k` and `mode` before native provider dispatch.
+- [x] Continue API Runtime Knowledge upload-request parity: fill Python-compatible text-like upload defaults for omitted `category` and `tags` before native provider dispatch.
 - [x] Continue API Runtime Knowledge add-request parity: fill Python-compatible direct add-document defaults for omitted `tags`, `category`, and `file_type` before native provider dispatch.
 - [x] Continue API Runtime Knowledge ValueError parity: map direct add-document and text-like upload provider `ValueError` failures to Python-compatible invalid-request envelopes.
 - [x] Continue API Runtime Knowledge job-envelope parity: include lifecycle timestamps on completed native upload/rebuild job payloads.
