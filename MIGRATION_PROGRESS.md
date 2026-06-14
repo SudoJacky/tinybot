@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued API/WebUI bridge parity: the desktop root-WebUI fetch and navigation bridges now treat `/health` and all `/v1/**` API facade paths as gateway-owned routes, so OpenAI-compatible `/v1/models` and `/v1/chat/completions` no longer fall through to local desktop routes.
+
 - Continued API Runtime OpenAI-compatible parity: TS-native `/v1/chat/completions` now retries blank provider completions once at the API facade and returns the shared Python-compatible empty-final fallback if the retry is still blank.
 
 - Continued WebUI transport attach parity: the desktop native root-WebUI WebSocket shim now checks session existence before TS-native `attach` dispatch and passes `sessionExists` into the worker mapper, restoring Python-compatible `session not found` attach errors on the native path.
@@ -783,6 +785,8 @@ WebUI row 17 update: TS-native WebSocket `interrupt` handling now cancels active
 
 WebUI row 17 update: desktop native root-WebUI WebSocket attach now performs native-first session existence checks and forwards `sessionExists` into the TS transport mapper, so missing-session attaches return Python-compatible `session not found` frames instead of attaching blindly.
 
+API/WebUI bridge update: desktop root-WebUI same-origin fetch rewriting and anchor navigation now classify `/health` and `/v1/**` as gateway API facade paths, aligning the desktop bridge with the TS-native OpenAI-compatible route set instead of only forwarding `/v1/knowledge/**`.
+
 Channel Bus row 18 update: Phase 5 default stdio worker lifecycle now reads canonical native config and assembles host-provided native text connectors into `ChannelManager` adapters at channel startup, preserving the empty-manager fallback when no connectors are available.
 
 Channel Bus row 18 update: Phase 5 now has an explicit TS host-RPC connector bridge for native text adapters, so host-provided connectors can be expressed as stable `channel.connector.start/stop/send_text/send_delta/send_usage` worker-host calls while Python bridge fallback remains opt-in by absence of connectors.
@@ -1404,6 +1408,7 @@ API Runtime row 19 update: TS-native OpenAI-compatible chat completions now retr
 - [x] Continue API Runtime Phase 1: mirror Python truthiness for OpenAI-compatible chat completion `stream` rejection on TS-native routes.
 - [x] Continue API Runtime Phase 1: mirror Python truthiness for OpenAI-compatible chat completion `session_id` lock keys on TS-native routes.
 - [x] Continue API Runtime Phase 1: retry blank OpenAI-compatible provider completions once at the TS facade before returning the Python-compatible empty-final fallback.
+- [x] Continue API/WebUI bridge parity: route desktop root-WebUI `/health` and `/v1/**` fetch/navigation paths through the gateway API facade.
 - [x] Continue Knowledge Phase 3: include session temporary uploads in native `knowledge.context` results and preserve temporary reference metadata through the TS context bridge.
 - [x] Continue Knowledge Phase 3: let attachment-style prompts request native `knowledge.context` with persistent retrieval disabled so session temporary uploads remain available without broad Knowledge auto-retrieval.
 - [x] Continue Knowledge Phase 3: expose native `knowledge.session_upload`, `knowledge.session_list`, and `knowledge.session_clear` RPC aliases over the session temporary upload store.

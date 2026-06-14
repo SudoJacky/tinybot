@@ -38,7 +38,8 @@ interface InstallDesktopNavigationOptions extends DesktopNavigationOptions {
   targetDocument?: Document;
 }
 
-const GATEWAY_PATH_PREFIXES = ["/webui/", "/api/", "/v1/knowledge/"];
+const GATEWAY_PATH_PREFIXES = ["/webui/", "/api/", "/v1/"];
+const GATEWAY_PATHS = new Set(["/health"]);
 
 export function installDesktopNavigation({
   targetDocument = document,
@@ -137,7 +138,8 @@ function shouldIgnoreClick(event: ClickLike): boolean {
 }
 
 function isGatewayPath(pathname: string): boolean {
-  return GATEWAY_PATH_PREFIXES.some((prefix) => pathname === prefix.slice(0, -1) || pathname.startsWith(prefix));
+  return GATEWAY_PATHS.has(pathname)
+    || GATEWAY_PATH_PREFIXES.some((prefix) => pathname === prefix.slice(0, -1) || pathname.startsWith(prefix));
 }
 
 async function routeInternalNavigation(target: DesktopNavigationTarget, options: DesktopNavigationOptions): Promise<void> {

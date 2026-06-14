@@ -21,6 +21,14 @@ describe("desktop navigation", () => {
       kind: "gateway-action",
       href: "http://127.0.0.1:18790/api/sessions",
     });
+    expect(resolveDesktopNavigationTarget("/health", { desktopOrigin, gatewayOrigin })).toMatchObject({
+      kind: "gateway-action",
+      href: "http://127.0.0.1:18790/health",
+    });
+    expect(resolveDesktopNavigationTarget("/v1/models", { desktopOrigin, gatewayOrigin })).toMatchObject({
+      kind: "gateway-action",
+      href: "http://127.0.0.1:18790/v1/models",
+    });
     expect(resolveDesktopNavigationTarget("https://github.com/SudoJacky/tinybot", { desktopOrigin, gatewayOrigin })).toMatchObject({
       kind: "external-url",
       href: "https://github.com/SudoJacky/tinybot",

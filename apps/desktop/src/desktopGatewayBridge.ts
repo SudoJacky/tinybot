@@ -8,8 +8,8 @@ import type { NativeTransportApi } from "./desktopNativeTransport";
 type FetchLike = typeof fetch;
 type WebSocketCtor = typeof WebSocket;
 
-const GATEWAY_PATH_PREFIXES = ["/webui/", "/api/", "/v1/knowledge/"];
-const GATEWAY_PATHS = new Set(["/webui/bootstrap", "/webui/refresh-token"]);
+const GATEWAY_PATH_PREFIXES = ["/webui/", "/api/", "/v1/"];
+const GATEWAY_PATHS = new Set(["/health", "/webui/bootstrap", "/webui/refresh-token"]);
 
 export type DesktopGatewayBridgeOptions = {
   config?: GatewayConfig;

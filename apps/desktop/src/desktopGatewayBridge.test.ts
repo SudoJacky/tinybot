@@ -14,8 +14,17 @@ describe("desktop gateway bridge", () => {
     expect(String(rewriteGatewayRequest("/webui/bootstrap", DEFAULT_GATEWAY_CONFIG, pageOrigin))).toBe(
       "http://127.0.0.1:18790/webui/bootstrap",
     );
+    expect(String(rewriteGatewayRequest("/health", DEFAULT_GATEWAY_CONFIG, pageOrigin))).toBe(
+      "http://127.0.0.1:18790/health",
+    );
     expect(String(rewriteGatewayRequest("/api/sessions", DEFAULT_GATEWAY_CONFIG, pageOrigin))).toBe(
       "http://127.0.0.1:18790/api/sessions",
+    );
+    expect(String(rewriteGatewayRequest("/v1/models", DEFAULT_GATEWAY_CONFIG, pageOrigin))).toBe(
+      "http://127.0.0.1:18790/v1/models",
+    );
+    expect(String(rewriteGatewayRequest("/v1/chat/completions", DEFAULT_GATEWAY_CONFIG, pageOrigin))).toBe(
+      "http://127.0.0.1:18790/v1/chat/completions",
     );
     expect(String(rewriteGatewayRequest("/api/cowork/sessions?include_completed=1", DEFAULT_GATEWAY_CONFIG, pageOrigin))).toBe(
       "http://127.0.0.1:18790/api/cowork/sessions?include_completed=1",
