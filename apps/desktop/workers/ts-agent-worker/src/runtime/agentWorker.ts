@@ -48,6 +48,7 @@ import type { ToolRegistry } from "../tools/toolRegistry.ts";
 import {
   handleClientWebSocketFrame,
   parseClientWebSocketFrameRequest,
+  type ClientWebSocketFrameResult,
 } from "../transport/clientFrames.ts";
 import {
   gatewayFrameFromTransportEvent,
@@ -3149,15 +3150,36 @@ export class AgentWorker {
 
   private handleTransportWebSocketMessageRequest(request: WorkerRequest): WorkerResponse {
     try {
+      const result = this.applyTransportWebSocketSideEffects(
+        handleClientWebSocketFrame(parseClientWebSocketFrameRequest(request.params)),
+      );
       return {
         protocol_version: WORKER_PROTOCOL_VERSION,
         id: request.id,
         trace_id: request.trace_id,
-        result: handleClientWebSocketFrame(parseClientWebSocketFrameRequest(request.params)),
+        result,
       };
     } catch (error) {
       return this.failure(request, errorMessage(error), {}, "invalid_protocol");
     }
+  }
+
+  private applyTransportWebSocketSideEffects(result: ClientWebSocketFrameResult): ClientWebSocketFrameResult {
+    if (result.kind !== "interrupt") {
+      return result;
+    }
+    const cancellation = this.cancelActiveRunsForSession(result.sessionId);
+    return {
+      ...result,
+      frames: [
+        ...result.frames,
+        {
+          event: "interrupted",
+          ...(result.chatId ? { chat_id: result.chatId } : {}),
+          cancelled: cancellation.cancelledCount > 0,
+        },
+      ],
+    };
   }
 
   private async handleChannelDispatchInboundRequest(request: WorkerRequest): Promise<WorkerResponse> {

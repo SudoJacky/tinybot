@@ -346,6 +346,60 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("cancels active WebSocket session runs through transport interrupt frames", async () => {
+    const events: WorkerEvent[] = [];
+    const completion = deferred<ModelResponse>();
+    const provider: ModelProvider = {
+      complete: async () => completion.promise,
+    };
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: (event) => events.push(event),
+    });
+
+    const runResponsePromise = worker.handleRequest(
+      request({
+        spec: {
+          runId: "websocket-run-1",
+          sessionId: "websocket:chat-1",
+          messages: [{ role: "user", content: "hello" }],
+          model: "test-model",
+          maxIterations: 2,
+          stream: true,
+        },
+      }),
+    );
+
+    await expect(worker.handleRequest(webuiRequest("transport.websocket_message", {
+      clientId: "client-1",
+      frame: {
+        type: "interrupt",
+        chat_id: "chat-1",
+      },
+    }))).resolves.toMatchObject({
+      result: {
+        kind: "interrupt",
+        chatId: "chat-1",
+        sessionId: "websocket:chat-1",
+        frames: [{ event: "interrupted", chat_id: "chat-1", cancelled: true }],
+      },
+    });
+
+    completion.resolve({ content: "late answer", toolCalls: [], stopReason: "stop" });
+    const runResponse = await runResponsePromise;
+
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "agent.cancelled",
+      payload: expect.objectContaining({ runId: "websocket-run-1" }),
+    }));
+    expect(runResponse.result).toMatchObject({
+      finalContent: "",
+      stopReason: "cancelled",
+      error: "cancelled",
+    });
+  });
+
   test("dispatches channel inbound envelopes through the agent run_input path", async () => {
     const events: WorkerEvent[] = [];
     const provider = new QueueProvider([
