@@ -122,6 +122,40 @@ describe("createDefaultCommandRouter", () => {
     });
   });
 
+  test("reports dream log bridge failures as command text instead of leaking the error", async () => {
+    const router = createDefaultCommandRouter({
+      getDreamLog: async () => {
+        throw new Error("git history unavailable");
+      },
+    });
+
+    await expect(router.dispatch("/dream-log abc123", { traceId: "trace-1", sessionId: "session-1" })).resolves.toMatchObject({
+      handled: true,
+      output: "Dream log failed: git history unavailable",
+      metadata: {
+        command: "/dream-log",
+        render_as: "text",
+      },
+    });
+  });
+
+  test("reports dream restore bridge failures as command text instead of leaking the error", async () => {
+    const router = createDefaultCommandRouter({
+      restoreDream: async () => {
+        throw new Error("restore lock unavailable");
+      },
+    });
+
+    await expect(router.dispatch("/dream-restore abc123", { traceId: "trace-1", sessionId: "session-1" })).resolves.toMatchObject({
+      handled: true,
+      output: "Dream restore failed: restore lock unavailable",
+      metadata: {
+        command: "/dream-restore",
+        render_as: "text",
+      },
+    });
+  });
+
   test("formats rich status snapshots with Python-compatible status content", async () => {
     const router = createDefaultCommandRouter({
       getStatusSnapshot: () => ({

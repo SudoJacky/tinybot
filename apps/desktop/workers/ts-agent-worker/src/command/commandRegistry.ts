@@ -331,24 +331,32 @@ async function dreamLogResult(context: CommandContext, capabilities: CommandCapa
   if (!capabilities.getDreamLog) {
     return unavailableDreamResult("/dream-log");
   }
-  const result = await capabilities.getDreamLog({
-    traceId: context.traceId,
-    sessionId: context.sessionId,
-    ...firstArgMetadata(context),
-  });
-  return textCommandResult("/dream-log", result.content, result.metadata);
+  try {
+    const result = await capabilities.getDreamLog({
+      traceId: context.traceId,
+      sessionId: context.sessionId,
+      ...firstArgMetadata(context),
+    });
+    return textCommandResult("/dream-log", result.content, result.metadata);
+  } catch (error) {
+    return textCommandResult("/dream-log", `Dream log failed: ${errorMessage(error)}`);
+  }
 }
 
 async function dreamRestoreResult(context: CommandContext, capabilities: CommandCapabilities): Promise<CommandResult> {
   if (!capabilities.restoreDream) {
     return unavailableDreamResult("/dream-restore");
   }
-  const result = await capabilities.restoreDream({
-    traceId: context.traceId,
-    sessionId: context.sessionId,
-    ...firstArgMetadata(context),
-  });
-  return textCommandResult("/dream-restore", result.content, result.metadata);
+  try {
+    const result = await capabilities.restoreDream({
+      traceId: context.traceId,
+      sessionId: context.sessionId,
+      ...firstArgMetadata(context),
+    });
+    return textCommandResult("/dream-restore", result.content, result.metadata);
+  } catch (error) {
+    return textCommandResult("/dream-restore", `Dream restore failed: ${errorMessage(error)}`);
+  }
 }
 
 function unavailableDreamResult(command: "/dream" | "/dream-log" | "/dream-restore"): CommandResult {
