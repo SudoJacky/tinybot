@@ -249,6 +249,40 @@ describe("TaskRuntime", () => {
     expect(saves.at(-1)?.subtasks[1].result).toBe(expected);
   });
 
+  test("pauses plans after manually failed subtasks exhaust retries", async () => {
+    const plan = basePlan();
+    plan.currentSubtaskIds = ["b"];
+    plan.subtasks[1].status = "in_progress";
+    plan.subtasks[1].retryCount = 2;
+    plan.subtasks[1].maxRetries = 2;
+    const { bridge, saves } = memoryBridge([plan]);
+    const runtime = new TaskRuntime({
+      store: bridge,
+      now: () => "2026-06-12T00:00:00.000Z",
+    });
+
+    const updated = await runtime.updateSubtaskResult("plan-1", "b", {
+      status: "failed",
+      error: "manual failure",
+    }, "trace-manual-failed");
+
+    expect(updated).toMatchObject({
+      id: "b",
+      status: "failed",
+      error: "manual failure",
+      completedAt: "2026-06-12T00:00:00.000Z",
+    });
+    expect(saves.at(-1)).toMatchObject({
+      status: "paused",
+      currentSubtaskIds: [],
+      context: { error: "Subtask 'Runtime' failed after 2 retries" },
+      subtasks: [
+        expect.objectContaining({ id: "a", status: "completed" }),
+        expect.objectContaining({ id: "b", status: "failed", retryCount: 2 }),
+      ],
+    });
+  });
+
   test("creates and persists a planner-generated task plan", async () => {
     const { bridge, saves } = memoryBridge([]);
     const runtime = new TaskRuntime({

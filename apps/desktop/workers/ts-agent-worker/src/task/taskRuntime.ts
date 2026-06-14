@@ -431,6 +431,13 @@ export class TaskRuntime {
     if (request.status === "completed" || request.status === "failed" || request.status === "skipped") {
       subtask.completedAt = this.now();
       plan.currentSubtaskIds = plan.currentSubtaskIds.filter((id) => id !== subtask.id);
+      if (request.status === "failed" && (subtask.retryCount ?? 0) >= (subtask.maxRetries ?? 2)) {
+        plan.status = "paused";
+        plan.context = {
+          ...plan.context,
+          error: `Subtask '${subtask.title}' failed after ${subtask.maxRetries ?? 2} retries`,
+        };
+      }
     }
     if (isPlanCompleted(plan)) {
       plan.status = "completed";

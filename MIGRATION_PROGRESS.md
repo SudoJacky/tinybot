@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Task/Cron background runtime parity: TS-native manual failed subtask updates now pause the owning plan with Python-compatible exhausted-retry context when retry counts have already reached the configured limit.
+
 - Continued Task/Cron background runtime parity: TS-native manual subtask result updates now complete the owning plan when all subtasks are completed or skipped, matching Python TaskManager's update-result completion transition.
 
 - Continued Task/Cron background runtime parity: TS-native subtask spawn prompts now build Python-compatible completed-task context, separating dependency results from bounded "other completed steps" for chained subagent execution.
