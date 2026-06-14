@@ -543,7 +543,9 @@ describe("desktop window frame", () => {
     expect(styleText).toContain("width: 12px !important;");
     expect(styleText).toContain("height: 12px !important;");
     expect(styleText).toContain("border-radius: 999px;");
-    expect(styleText).toContain("right: 18px;");
+    expect(styleText).toContain("margin-left: 78px;");
+    expect(styleText).toContain("left: 18px;");
+    expect(styleText).toContain("left: 12px;");
     expect(styleText).toContain("grid-template-columns: repeat(3, 12px);");
     expect(styleText).toContain("radial-gradient(circle at 6px 6px, #ff5f57 0 5px, transparent 6px)");
     expect(styleText).toContain(".desktop-window-button-close");

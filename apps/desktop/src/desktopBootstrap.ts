@@ -27,7 +27,14 @@ import {
   type DesktopKnowledgePaneModel,
 } from "./desktopKnowledgeTraceability";
 import { installWebUiRenderGlobals } from "./desktopMarkdownGlobals";
-import { logDesktopNativeChatDebug, logDesktopNativeDebug, summarizeDebugText } from "./desktopNativeChatDebug";
+import {
+  createDesktopNativeStartupTrace,
+  logDesktopNativeChatDebug,
+  logDesktopNativeDebug,
+  summarizeDebugText,
+  traceDesktopNativeDebugAsync,
+  type DesktopNativeStartupTrace,
+} from "./desktopNativeChatDebug";
 import { applyNativeConfigPatch } from "./desktopNativeConfigPatch";
 import { saveDesktopSettingsConfig } from "./desktopSettingsSave";
 import { buildDesktopTsAgentFormSubmissionInput } from "./desktopTsAgentFormActions";
@@ -197,22 +204,42 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 async function bootDesktopWebUi(): Promise<void> {
+  const startupTrace = createDesktopNativeStartupTrace();
+  startupTrace.mark("boot.invoked", {
+    gatewayHttp: gatewayConfig.httpBaseUrl,
+    hasTauriRuntime: hasTauriRuntime(),
+  });
   logDesktopNativeDebug("bootstrap.start", {
     gatewayHttp: gatewayConfig.httpBaseUrl,
-    hasTauriRuntime,
+    hasTauriRuntime: hasTauriRuntime(),
   });
   setStartupState(document, "Starting local gateway...", null, false);
   try {
+    startupTrace.start("gatewayReady", {
+      gatewayHttp: gatewayConfig.httpBaseUrl,
+    });
     const status = await ensureGatewayReady(gatewayConfig, { invoke, hasTauriRuntime });
+    startupTrace.complete("gatewayReady", {
+      owner: status?.owner ?? "",
+      runtimeState: status?.state ?? "",
+    });
     nativeRuntimeStatus = status;
     updateNativeGatewayTask(buildDesktopGatewayTaskOperation("startup", status));
+    startupTrace.start("channelRuntime");
     await startDesktopNativeChannelRuntime({
       nativeTransport: gatewayClientOptions.nativeTransport,
       logDebug: logDesktopNativeDebug,
     });
+    startupTrace.complete("channelRuntime");
+    startupTrace.start("startupMode");
     const workbenchMode = resolveDesktopWorkbenchStartupMode();
     document.documentElement.dataset.desktopWorkbenchMode = workbenchMode.mode;
     document.documentElement.dataset.desktopWorkbenchRequestedMode = workbenchMode.requestedMode;
+    startupTrace.complete("startupMode", {
+      fallbackReason: workbenchMode.fallbackReason ?? "",
+      mode: workbenchMode.mode,
+      requestedMode: workbenchMode.requestedMode,
+    });
     if (workbenchMode.fallbackReason) {
       logDesktopNativeDebug("bootstrap.fallback", {
         fallbackReason: workbenchMode.fallbackReason,
@@ -221,6 +248,7 @@ async function bootDesktopWebUi(): Promise<void> {
       });
       console.info("Tinybot desktop loading root WebUI fallback", workbenchMode);
     }
+    startupTrace.start("gatewayBridge");
     installDesktopGatewayBridge({
       config: gatewayConfig,
       nativeTransport: gatewayClientOptions.nativeTransport,
@@ -231,13 +259,21 @@ async function bootDesktopWebUi(): Promise<void> {
       }),
     });
     installWebUiRenderGlobals();
+    startupTrace.complete("gatewayBridge");
     if (workbenchMode.mode === "native-workbench") {
+      startupTrace.start("nativeChatRuntime");
       const nativeChatRuntime = await loadNativeChatRuntime();
-      const settingsPane = await loadNativeSettingsPane();
-      syncNativeRuntimeMetadata();
-      const knowledgePane = await loadNativeKnowledgePane();
-      const toolsSkillsPane = await loadNativeToolsSkillsPane();
-      const coworkPane = await loadNativeCoworkPane();
+      startupTrace.complete("nativeChatRuntime", {
+        activeSessionKey: nativeChatRuntime.chat.activeSessionKey ?? "",
+        sessionCount: nativeChatRuntime.chat.sessions.length,
+      });
+      startupTrace.start("initialPaneModels");
+      const settingsPane = buildInitialNativeSettingsPane();
+      const knowledgePane = buildInitialNativeKnowledgePane();
+      const toolsSkillsPane = buildInitialNativeToolsSkillsPane();
+      const coworkPane = buildInitialNativeCoworkPane();
+      startupTrace.complete("initialPaneModels");
+      startupTrace.start("nativeShellInstall");
       installDesktopWorkbenchShell({
         runtimeStatus: status,
         chat: nativeChatRuntime.chat,
@@ -277,15 +313,25 @@ async function bootDesktopWebUi(): Promise<void> {
           },
         },
       });
+      startupTrace.complete("nativeShellInstall");
+      startupTrace.start("nativeChromeBindings");
       installNativeChatRuntimeActions();
       installNativeFileUploadActions();
-      installNativeWorkspaceFileActions();
       installNativeCommandPalette();
-      installTauriNavigation();
-      installTauriMenuCommandRouting();
+      installTauriNavigation({ routeDocsInWorkbench: true });
+      installTauriMenuCommandRouting({ routeDocsInWorkbench: true });
+      installNativeRouteHydration(startupTrace);
       installTauriWindowFrame(status);
-      void refreshNativeCoworkTasks();
-      void refreshNativeApprovalTasks();
+      syncNativeRuntimeMetadata();
+      startupTrace.complete("nativeChromeBindings");
+      hydrateNativeStartupPanes(startupTrace);
+      void ensureNativeCoworkRuntimeRolloutSynced(startupTrace);
+      scheduleNativeApprovalTasksRefresh(startupTrace);
+      startupTrace.mark("native.ready", {
+        gatewayHttp: gatewayConfig.httpBaseUrl,
+        mode: workbenchMode.mode,
+        runtimeState: status?.state ?? "",
+      });
       logDesktopNativeDebug("bootstrap.native.initialized", {
         gatewayHttp: gatewayConfig.httpBaseUrl,
         mode: workbenchMode.mode,
@@ -294,8 +340,13 @@ async function bootDesktopWebUi(): Promise<void> {
       console.info("Tinybot desktop native workbench initialized", status);
       return;
     }
+    startupTrace.start("webUiShell");
     installWebUiShell(webUiHtml);
+    startupTrace.complete("webUiShell");
+    startupTrace.start("webUiEntryImport");
     await import(/* @vite-ignore */ WEBUI_ENTRY);
+    startupTrace.complete("webUiEntryImport");
+    startupTrace.start("rootWorkbenchAdapter");
     installDesktopRootWebUiWorkbenchAdapter();
     installDesktopCommandPalette({
       gatewayOrigin: gatewayConfig.httpBaseUrl,
@@ -305,6 +356,12 @@ async function bootDesktopWebUi(): Promise<void> {
     installRootWebUiDesktopAdapters();
     installTauriNavigation();
     installTauriWindowFrame(status);
+    startupTrace.complete("rootWorkbenchAdapter");
+    startupTrace.mark("webui.ready", {
+      gatewayHttp: gatewayConfig.httpBaseUrl,
+      mode: workbenchMode.mode,
+      runtimeState: status?.state ?? "",
+    });
     logDesktopNativeDebug("bootstrap.webui.initialized", {
       gatewayHttp: gatewayConfig.httpBaseUrl,
       mode: workbenchMode.mode,
@@ -312,6 +369,9 @@ async function bootDesktopWebUi(): Promise<void> {
     });
     console.info("Tinybot desktop WebUI initialized", status);
   } catch (error) {
+    startupTrace.fail("boot", error, {
+      gatewayHttp: gatewayConfig.httpBaseUrl,
+    });
     logDesktopNativeDebug("bootstrap.failed", {
       error: stringifyError(error),
       gatewayHttp: gatewayConfig.httpBaseUrl,
@@ -323,6 +383,204 @@ async function bootDesktopWebUi(): Promise<void> {
       true,
     );
   }
+}
+
+function buildInitialNativeSettingsPane(): DesktopSettingsPaneModel {
+  const state = buildDesktopSettingsFormState({});
+  nativeSettingsConfig = {};
+  nativeSettingsState = state;
+  nativeSettingsLastSavedState = state;
+  nativeSettingsProviderCatalog = [];
+  return buildDesktopSettingsPaneModel(state, {
+    lastSavedState: state,
+    providerCatalog: [],
+    saveStatus: "idle",
+  });
+}
+
+function buildInitialNativeKnowledgePane(): DesktopKnowledgePaneModel {
+  nativeKnowledgePane = buildDesktopKnowledgePaneModel();
+  return nativeKnowledgePane;
+}
+
+function buildInitialNativeToolsSkillsPane(): DesktopToolsSkillsPaneModel {
+  nativeToolsPayload = {};
+  nativeSkillsPayload = {};
+  nativeToolsSkillsConfig = {};
+  nativeToolsSkillsPane = buildDesktopToolsSkillsPaneModel();
+  return nativeToolsSkillsPane;
+}
+
+function buildInitialNativeCoworkPane(): DesktopCoworkPaneModel {
+  nativeCoworkPane = {
+    sessionRows: [],
+    cockpitView: null,
+  };
+  return nativeCoworkPane;
+}
+
+function hydrateNativeStartupPanes(startupTrace?: DesktopNativeStartupTrace): void {
+  startupTrace?.mark("hydration.scheduled");
+  startupTrace?.mark("settingsPaneHydration.skipped", {
+    reason: "deferred-until-opened",
+  });
+  startupTrace?.mark("knowledgePaneHydration.skipped", {
+    reason: "deferred-until-opened",
+  });
+  startupTrace?.mark("toolsSkillsPaneHydration.skipped", {
+    reason: "deferred-until-opened",
+  });
+  startupTrace?.mark("coworkPaneHydration.skipped", {
+    reason: "deferred-until-opened",
+  });
+  startupTrace?.mark("workspaceFilesHydration.skipped", {
+    reason: "deferred-until-opened",
+  });
+  startupTrace?.mark("coworkTasksRefresh.skipped", {
+    reason: "deferred-until-opened",
+  });
+}
+
+const nativeRouteHydratedModules = new Set<string>();
+let nativeCoworkRuntimeRolloutSyncPromise: Promise<void> | null = null;
+
+function installNativeRouteHydration(startupTrace?: DesktopNativeStartupTrace): void {
+  window.addEventListener("tinybot:desktop-route", (event) => {
+    const href = routeHydrationHref(event);
+    if (!href) {
+      return;
+    }
+    hydrateNativeRouteTarget(href, startupTrace);
+  });
+}
+
+function routeHydrationHref(event: Event): string {
+  const detail = event instanceof CustomEvent ? event.detail : null;
+  return typeof detail?.href === "string" ? detail.href : "";
+}
+
+function hydrateNativeRouteTarget(href: string, startupTrace?: DesktopNativeStartupTrace): void {
+  const pathname = new URL(href, window.location.href).pathname;
+  if (pathname.startsWith("/settings")) {
+    hydrateNativeSettingsPaneOnce(startupTrace);
+    return;
+  }
+  if (pathname.startsWith("/knowledge")) {
+    hydrateNativeKnowledgePaneOnce(startupTrace);
+    return;
+  }
+  if (pathname.startsWith("/tools") || pathname.startsWith("/skills")) {
+    hydrateNativeToolsSkillsPaneOnce(startupTrace);
+    return;
+  }
+  if (pathname.startsWith("/cowork")) {
+    hydrateNativeCoworkPaneOnce(startupTrace);
+    traceNativeRouteBackgroundOnce("coworkTasksRefresh", () => refreshNativeCoworkTasks(), startupTrace);
+    return;
+  }
+  if (pathname.startsWith("/files")) {
+    hydrateNativeWorkspaceFilesOnce(startupTrace);
+  }
+}
+
+function hydrateNativeSettingsPaneOnce(startupTrace?: DesktopNativeStartupTrace): void {
+  traceNativeRouteBackgroundOnce("settingsPaneHydration", async () => {
+    const pane = await loadNativeSettingsPane();
+    updateDesktopSettingsPane(document, pane, {
+      onSettingsAction: (event) => {
+        void handleNativeSettingsAction(event);
+      },
+    });
+    syncNativeRuntimeMetadata();
+    logDesktopNativeDebug("settings.load.lazy.complete", {
+      groupCount: pane.groups.length,
+    });
+  }, startupTrace);
+}
+
+function hydrateNativeKnowledgePaneOnce(startupTrace?: DesktopNativeStartupTrace): void {
+  traceNativeRouteBackgroundOnce("knowledgePaneHydration", async () => {
+    const pane = await loadNativeKnowledgePane();
+    updateDesktopKnowledgePane(document, pane, {
+      onKnowledgeAction: (event) => {
+        void handleNativeKnowledgeAction(event);
+      },
+    });
+    logDesktopNativeDebug("knowledge.load.lazy.complete", {
+      documentCount: pane.documentRows.length,
+    });
+  }, startupTrace);
+}
+
+function hydrateNativeToolsSkillsPaneOnce(startupTrace?: DesktopNativeStartupTrace): void {
+  traceNativeRouteBackgroundOnce("toolsSkillsPaneHydration", async () => {
+    const pane = await loadNativeToolsSkillsPane();
+    setNativeToolsSkillsPane(pane);
+    logDesktopNativeDebug("toolsSkills.load.lazy.complete", {
+      skillCount: pane.skillRows.length,
+      toolCount: pane.toolRows.length,
+    });
+  }, startupTrace);
+}
+
+function hydrateNativeCoworkPaneOnce(startupTrace?: DesktopNativeStartupTrace): void {
+  traceNativeRouteBackgroundOnce("coworkPaneHydration", async () => {
+    await ensureNativeCoworkRuntimeRolloutSynced(startupTrace);
+    const pane = await loadNativeCoworkPane();
+    setNativeCoworkPane(pane);
+    logDesktopNativeDebug("cowork.load.lazy.complete", {
+      sessionCount: pane.sessionRows.length,
+    });
+  }, startupTrace);
+}
+
+function scheduleNativeApprovalTasksRefresh(startupTrace?: DesktopNativeStartupTrace): void {
+  traceNativeRouteBackgroundOnce("approvalTasksRefresh", () => refreshNativeApprovalTasks(), startupTrace);
+}
+
+function hydrateNativeWorkspaceFilesOnce(startupTrace?: DesktopNativeStartupTrace): void {
+  traceNativeRouteBackgroundOnce("workspaceFilesHydration", async () => {
+    await installNativeWorkspaceFileActions();
+  }, startupTrace);
+}
+
+function traceNativeRouteBackgroundOnce(
+  phase: string,
+  run: () => Promise<void>,
+  startupTrace?: DesktopNativeStartupTrace,
+): void {
+  if (nativeRouteHydratedModules.has(phase)) {
+    return;
+  }
+  nativeRouteHydratedModules.add(phase);
+  startupTrace?.start(phase);
+  void run().then(() => {
+    startupTrace?.complete(phase);
+  }).catch((error) => {
+    nativeRouteHydratedModules.delete(phase);
+    startupTrace?.fail(phase, error);
+    logDesktopNativeDebug(`${phase}.lazy.failed`, {
+      error: stringifyError(error),
+    });
+  });
+}
+
+function ensureNativeCoworkRuntimeRolloutSynced(startupTrace?: DesktopNativeStartupTrace): Promise<void> {
+  if (nativeCoworkRuntimeRolloutSyncPromise) {
+    return nativeCoworkRuntimeRolloutSyncPromise;
+  }
+  startupTrace?.start("coworkRolloutSync");
+  nativeCoworkRuntimeRolloutSyncPromise = gatewayApi.config.get().then((config) => {
+    syncTsCoworkRuntimeRollout(config);
+    startupTrace?.complete("coworkRolloutSync");
+  }).catch((error) => {
+    nativeCoworkRuntimeRolloutSyncPromise = null;
+    startupTrace?.fail("coworkRolloutSync", error);
+    logDesktopNativeDebug("cowork.rollout.sync.failed", {
+      error: stringifyError(error),
+    });
+  });
+  return nativeCoworkRuntimeRolloutSyncPromise;
 }
 
 async function resolveNativeWebSocketSessionExists(sessionId: string): Promise<boolean | undefined> {
@@ -1445,22 +1703,47 @@ async function loadNativeToolsSkillsPane(
     selectedSkillName: selectedSkillName ?? "",
   });
   const [tools, skills, config] = await Promise.all([
-    gatewayApi.tools.list(),
-    gatewayApi.skills.list(),
-    gatewayApi.config.get(),
+    traceDesktopNativeDebugAsync("toolsSkills.load.tools.list", () => gatewayApi.tools.list(), {
+      selectedSkillName: selectedSkillName ?? "",
+    }),
+    traceDesktopNativeDebugAsync("toolsSkills.load.skills.list", () => gatewayApi.skills.list(), {
+      selectedSkillName: selectedSkillName ?? "",
+    }),
+    traceDesktopNativeDebugAsync("toolsSkills.load.config.get", () => gatewayApi.config.get(), {
+      selectedSkillName: selectedSkillName ?? "",
+    }),
   ]);
   nativeToolsPayload = tools;
   nativeSkillsPayload = skills;
   nativeToolsSkillsConfig = config;
-  const firstSkill = selectedSkillName || buildDesktopSkillRows(skills, config)[0]?.name;
-  const detail = selectedSkillDetail ?? (firstSkill ? await gatewayApi.skills.detail(firstSkill).catch(() => null) : null);
-  nativeToolsSkillsPane = buildDesktopToolsSkillsPaneModel({
-    toolsPayload: tools,
-    skillsPayload: skills,
-    config,
-    selectedSkillName: firstSkill,
-    selectedSkillDetail: detail,
-  });
+  const skillRows = await traceDesktopNativeDebugAsync(
+    "toolsSkills.load.skillRows.build",
+    async () => buildDesktopSkillRows(skills, config),
+    {
+      selectedSkillName: selectedSkillName ?? "",
+    },
+  );
+  const firstSkill = selectedSkillName || skillRows[0]?.name;
+  const detail = selectedSkillDetail ?? (firstSkill
+    ? await traceDesktopNativeDebugAsync(
+      "toolsSkills.load.skills.detail",
+      () => gatewayApi.skills.detail(firstSkill),
+      { selectedSkillName: firstSkill },
+    ).catch(() => null)
+    : null);
+  nativeToolsSkillsPane = await traceDesktopNativeDebugAsync(
+    "toolsSkills.load.model.build",
+    async () => buildDesktopToolsSkillsPaneModel({
+      toolsPayload: tools,
+      skillsPayload: skills,
+      config,
+      selectedSkillName: firstSkill,
+      selectedSkillDetail: detail,
+    }),
+    {
+      selectedSkillName: firstSkill ?? "",
+    },
+  );
   logDesktopNativeDebug("toolsSkills.load.complete", {
     selectedSkillName: nativeToolsSkillsPane.selectedSkill?.name ?? "",
     skillCount: nativeToolsSkillsPane.skillRows.length,
@@ -1804,8 +2087,8 @@ async function loadNativeCommandPaletteData(): Promise<DesktopCommandPaletteInpu
   };
 }
 
-function installNativeWorkspaceFileActions(): void {
-  installDesktopWorkspaceFileActions({
+function installNativeWorkspaceFileActions(): Promise<void> {
+  return installDesktopWorkspaceFileActions({
     listWorkspaceFiles: () => gatewayApi.workspace.files(),
     loadWorkspaceFile: (path) => gatewayApi.workspace.file(path),
     saveWorkspaceFile: (path, body) => gatewayApi.workspace.putFile(path, body),
@@ -2052,7 +2335,9 @@ function hasTauriRuntime(): boolean {
   return "__TAURI_INTERNALS__" in window;
 }
 
-function installTauriMenuCommandRouting(): void {
+function installTauriMenuCommandRouting(
+  options: { routeDocsInWorkbench?: boolean } = {},
+): void {
   if (!hasTauriRuntime()) {
     return;
   }
@@ -2063,16 +2348,20 @@ function installTauriMenuCommandRouting(): void {
         handler(event.payload.id);
       }),
     openExternal: (href) => openUrl(href),
+    routeDocsInWorkbench: options.routeDocsInWorkbench,
   });
 }
 
-function installTauriNavigation(): void {
+function installTauriNavigation(
+  options: { routeDocsInWorkbench?: boolean } = {},
+): void {
   if (!hasTauriRuntime()) {
     return;
   }
   installDesktopNavigation({
     gatewayOrigin: gatewayConfig.httpBaseUrl,
     openExternal: (href) => openUrl(href),
+    routeDocsInWorkbench: options.routeDocsInWorkbench,
   });
 }
 

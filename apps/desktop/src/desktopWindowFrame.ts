@@ -346,6 +346,7 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
       display: flex;
       align-items: center;
       gap: 2px;
+      margin-left: 78px;
       min-width: 0;
       overflow: visible;
     }
@@ -454,7 +455,7 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
     body.desktop-custom-frame .desktop-window-controls {
       position: absolute;
       top: 50%;
-      right: 18px;
+      left: 18px;
       display: grid;
       grid-template-columns: repeat(3, 12px);
       align-items: center;
@@ -594,7 +595,7 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
       }
 
       body.desktop-custom-frame .desktop-window-controls {
-        right: 12px;
+        left: 12px;
       }
     }
 

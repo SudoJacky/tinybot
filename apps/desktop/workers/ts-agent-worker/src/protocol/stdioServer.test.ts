@@ -139,6 +139,47 @@ describe("StdioServer", () => {
     expect(logs).toEqual([]);
   });
 
+  test("logs WebUI worker route queue and handler timings", async () => {
+    const lines: string[] = [];
+    const logs: string[] = [];
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+    });
+    const times = [2000, 2042.3];
+    const server = new StdioServer({
+      worker,
+      now: () => times.shift() ?? 2042.3,
+      writeLine: (line) => lines.push(line),
+      writeLog: (line) => logs.push(line),
+    });
+
+    await server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "webui-route-1000",
+        trace_id: "trace-webui-route-1000",
+        method: "webui.handle_request",
+        params: {
+          method: "GET",
+          path: "/api/tools",
+        },
+      }),
+    );
+
+    expect(logs).toEqual([
+      "worker.request.start method=webui.handle_request id=webui-route-1000 route=GET /api/tools queuedMs=1000",
+      "worker.request.complete method=webui.handle_request id=webui-route-1000 route=GET /api/tools durationMs=42.3 status=ok",
+    ]);
+    expect(JSON.parse(lines[0])).toMatchObject({
+      id: "webui-route-1000",
+      result: {
+        status: 200,
+      },
+    });
+  });
+
   test("handles agent.cancel while an agent.run request is still pending", async () => {
     const lines: string[] = [];
     const provider = new DeferredProvider();

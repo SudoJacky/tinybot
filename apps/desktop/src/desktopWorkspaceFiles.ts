@@ -241,7 +241,7 @@ export function installDesktopWorkspaceFileActions({
   revealWorkspaceFile,
   exportWorkspaceFile,
   onFileTaskUpdated,
-}: DesktopWorkspaceFileActions): void {
+}: DesktopWorkspaceFileActions): Promise<void> {
   let state = createDesktopWorkspaceFileState();
   const editor = targetDocument.querySelector<HTMLTextAreaElement>("#desktop-workspace-editor");
   const search = targetDocument.querySelector<HTMLInputElement>("#desktop-workspace-search");
@@ -287,7 +287,7 @@ export function installDesktopWorkspaceFileActions({
     void exportActiveWorkspaceFile();
   });
 
-  void loadWorkspaceFiles();
+  return loadWorkspaceFiles();
 
   async function loadWorkspaceFiles(): Promise<void> {
     try {

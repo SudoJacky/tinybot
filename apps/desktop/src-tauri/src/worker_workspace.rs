@@ -12,10 +12,12 @@ const BOOTSTRAP_FILES: &[&str] = &["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md"
 const DEFAULT_READ_LIMIT: usize = 2000;
 const IGNORED_DIRS: &[&str] = &[
     ".git",
+    ".codegraph",
     "node_modules",
     "__pycache__",
     ".venv",
     "venv",
+    "target",
     "dist",
     "build",
     ".tox",
@@ -581,7 +583,7 @@ fn collect_workspace_files(
                 }),
             )
         })?;
-        if metadata.file_type().is_symlink() {
+        if metadata.file_type().is_symlink() || ignored_workspace_path(root, &path) {
             continue;
         }
         if metadata.is_dir() {
@@ -1020,6 +1022,22 @@ mod tests {
         let paths: Vec<String> = files.into_iter().map(|file| file.path).collect();
 
         assert_eq!(paths, vec!["real/NOTE.md"]);
+    }
+
+    #[test]
+    fn list_files_ignores_workspace_noise_directories() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("README.md", "readme");
+        fixture.write("src/main.ts", "main");
+        fixture.write("node_modules/pkg/index.js", "noise");
+        fixture.write(".git/objects/pack.idx", "noise");
+        fixture.write("target/debug/app.exe", "noise");
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_policy());
+
+        let files = rpc.list_files().expect("workspace files should list");
+        let paths: Vec<String> = files.into_iter().map(|file| file.path).collect();
+
+        assert_eq!(paths, vec!["README.md", "src/main.ts"]);
     }
 
     #[test]

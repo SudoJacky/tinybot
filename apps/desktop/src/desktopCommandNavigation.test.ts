@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import {
   DESKTOP_CHROME_COMMANDS,
   DESKTOP_HELP_COMMANDS,
@@ -300,6 +300,42 @@ describe("desktop command navigation", () => {
     } as unknown as Event);
     expect(targetDocument.dispatched).toContain("tinybot:open-shortcut-help");
     expect(targetDocument.dispatched).toContain("tinybot:open-page-help");
+  });
+
+  test("keeps docs menu navigation inside the native workbench when requested", () => {
+    const targetDocument = new FakeCommandDocument();
+    const assign = vi.fn();
+    const pushState = vi.fn();
+    const dispatched: string[] = [];
+    const targetWindow = {
+      location: { assign, origin: "http://localhost:1420" },
+      history: { pushState },
+      dispatchEvent: (event: Event) => {
+        dispatched.push(event.type);
+        return true;
+      },
+    };
+    installDesktopMenuCommandRouting({
+      gatewayOrigin: "http://127.0.0.1:18790",
+      listenToMenuCommand: () => undefined,
+      routeDocsInWorkbench: true,
+      targetDocument: targetDocument as unknown as Document,
+      targetWindow: targetWindow as unknown as Window,
+    } as never);
+
+    let prevented = false;
+    targetDocument.dispatchEvent({
+      type: "keydown",
+      key: "F1",
+      preventDefault: () => {
+        prevented = true;
+      },
+    } as unknown as Event);
+
+    expect(prevented).toBe(true);
+    expect(assign).not.toHaveBeenCalled();
+    expect(pushState).toHaveBeenCalledWith({ tinybotDesktopRoute: "http://localhost:1420/docs" }, "", "http://localhost:1420/docs");
+    expect(dispatched).toContain("tinybot:desktop-route");
   });
 
   test("dispatches stop-generation action when a response is active", () => {
