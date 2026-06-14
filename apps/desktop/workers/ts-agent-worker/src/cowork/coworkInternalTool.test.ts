@@ -141,6 +141,117 @@ describe("cowork_internal tool", () => {
     });
   });
 
+  it("honors Python agent_id alias when retiring another agent", async () => {
+    const store = createMemoryCoworkStore();
+    const idGenerator = deterministicIds();
+    const service = new CoworkService({
+      store,
+      now: () => fixedNow,
+      idGenerator,
+    });
+    const session = await service.createSession({
+      traceId: "trace-create",
+      goal: "Retire helper",
+      title: "Retire helper",
+      workflowMode: "team",
+      agents: [
+        {
+          id: "lead",
+          name: "Lead",
+          role: "Lead",
+          goal: "Coordinate",
+          responsibilities: ["Coordinate"],
+        },
+        {
+          id: "helper",
+          name: "Helper",
+          role: "Helper",
+          goal: "Help",
+          responsibilities: ["Help"],
+        },
+      ],
+      tasks: [],
+    });
+    const tool = createCoworkInternalTool({
+      store,
+      sessionId: session.id,
+      senderId: "lead",
+      now: () => fixedNow,
+      idGenerator,
+    });
+
+    const result = await tool.execute({
+      action: "retire_agent",
+      agent_id: "helper",
+      content: "Helper is no longer needed.",
+    }, { runId: "run-1", traceId: "trace-retire" });
+
+    const saved = await store.readSnapshot(session.id, "trace-read");
+    expect(result.content).toBe("Agent 'Helper' retired.");
+    expect(saved?.agents.helper).toMatchObject({
+      status: "retired",
+      lifecycle_status: "retired",
+    });
+    expect(saved?.agents.lead.status).not.toBe("retired");
+    expect(saved?.events.at(-1)).toMatchObject({
+      type: "agent.retired",
+      actor_id: "helper",
+      data: {
+        agent_id: "helper",
+        reason: "Helper is no longer needed.",
+      },
+    });
+  });
+
+  it("uses content as the spawned agent goal when goal is omitted like Python", async () => {
+    const store = createMemoryCoworkStore();
+    const idGenerator = deterministicIds();
+    const service = new CoworkService({
+      store,
+      now: () => fixedNow,
+      idGenerator,
+    });
+    const session = await service.createSession({
+      traceId: "trace-create",
+      goal: "Coordinate the whole migration",
+      title: "Spawn helper",
+      workflowMode: "team",
+      agents: [{
+        id: "lead",
+        name: "Lead",
+        role: "Lead",
+        goal: "Coordinate",
+        responsibilities: ["Coordinate"],
+      }],
+      tasks: [],
+    });
+    const tool = createCoworkInternalTool({
+      store,
+      sessionId: session.id,
+      senderId: "lead",
+      now: () => fixedNow,
+      idGenerator,
+    });
+
+    const result = await tool.execute({
+      action: "spawn_agent",
+      role: "Researcher",
+      content: "Investigate TS cowork internal parity.",
+    }, { runId: "run-1", traceId: "trace-spawn" });
+
+    const saved = await store.readSnapshot(session.id, "trace-read");
+    expect(result.content).toBe("Spawned agent researcher: Researcher");
+    expect(saved?.agents.researcher).toMatchObject({
+      goal: "Investigate TS cowork internal parity.",
+      spawn_reason: "Investigate TS cowork internal parity.",
+    });
+    const delegatedTaskId = saved?.agents.researcher.delegated_task_id ?? "";
+    const delegatedBriefId = saved?.delegated_tasks[delegatedTaskId]?.brief_id ?? "";
+    expect(saved?.delegated_briefs[delegatedBriefId]).toMatchObject({
+      task_goal: "Investigate TS cowork internal parity.",
+    });
+  });
+
   it("leaves confidence unset when structured task results omit confidence", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = deterministicIds();

@@ -216,7 +216,8 @@ export function createCoworkInternalTool(options: CoworkInternalToolOptions): To
         };
       }
       if (action === "retire_agent") {
-        const retired = retireAgent(session, cleanString(args.assigned_agent_id) || agent.id, cleanString(args.content), now, idGenerator);
+        const targetAgentId = cleanString(args.assigned_agent_id) || cleanString(args.agent_id) || agent.id;
+        const retired = retireAgent(session, targetAgentId, cleanString(args.content), now, idGenerator);
         if (typeof retired === "string") {
           await options.store.writeSnapshot(normalizeCoworkSession(session), traceId);
           return {
@@ -245,11 +246,11 @@ export function createCoworkInternalTool(options: CoworkInternalToolOptions): To
         }
         const spawned = spawnAgent(session, agent, {
           role,
-          goal: cleanString(args.goal),
+          goal: cleanString(args.goal) || cleanString(args.content),
           responsibilities: stringList(args.responsibilities),
           tools: stringList(args.tools),
           subscriptions: stringList(args.subscriptions),
-          reason: cleanString(args.content),
+          reason: cleanString(args.content) || cleanString(args.reason),
           name: "",
           sourceEventId: "",
           teamId: cleanString(args.team_id),
@@ -278,7 +279,7 @@ export function createCoworkInternalTool(options: CoworkInternalToolOptions): To
           teamId: cleanString(args.team_id) || cleanString(args.title) || "subteam",
           agents: agentSpecs,
           tasks: objectList(args.tasks),
-          reason: cleanString(args.content),
+          reason: cleanString(args.content) || cleanString(args.reason),
         }, now, idGenerator);
         await options.store.writeSnapshot(normalizeCoworkSession(session), traceId);
         return {

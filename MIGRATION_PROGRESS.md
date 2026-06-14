@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Cowork internal-tool parity: TS-native `cowork_internal retire_agent` now honors Python's `agent_id` target alias before falling back to the sender, and `spawn_agent` uses `content` as the delegated goal when `goal` is omitted.
+
 - Continued Cowork tool start traceability parity: TS-native `cowork start` now saves a normalized generated blueprint for goal/planner starts like Python, keeping later blueprint export and diagnostics tied to the actual created agents and tasks.
 
 - Continued Cowork tool start parity: TS-native `cowork start` now mirrors Python by folding planner-generated tasks into a single `lead_start` delegation task for non-swarm workflows, while preserving raw planner tasks for swarm sessions.
