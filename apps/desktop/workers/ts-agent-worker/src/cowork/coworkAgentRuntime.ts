@@ -811,14 +811,20 @@ export class CoworkAgentRuntime {
       if (stringValue(step.id) !== stepId) {
         return step;
       }
-      return {
+      const endedAt = this.now();
+      const outputSummary = progress.public_note || progress.private_note || result.finalContent;
+      const updatedStep = {
         ...step,
         status: progress.status === "failed" ? "failed" : "completed",
-        ended_at: this.now(),
-        output_summary: progress.public_note || progress.private_note || result.finalContent,
+        ended_at: endedAt,
+        duration_ms: durationMs(stringValue(step.started_at), endedAt),
+        output_summary: outputSummary,
         linked_task_ids: [...linkedTaskIds],
-        summary: progress.public_note || progress.private_note || result.finalContent,
         detail_ref: stepId,
+      };
+      return {
+        ...updatedStep,
+        summary: agentStepSummary(updatedStep, endedAt),
       };
     });
     if (progress.public_note) {
@@ -892,15 +898,19 @@ export class CoworkAgentRuntime {
       if (stringValue(step.id) !== stepId) {
         return step;
       }
-      return {
+      const endedAt = this.now();
+      const updatedStep = {
         ...step,
         status: "failed",
-        ended_at: this.now(),
-        duration_ms: durationMs(stringValue(step.started_at), this.now()),
+        ended_at: endedAt,
+        duration_ms: durationMs(stringValue(step.started_at), endedAt),
         output_summary: error,
         error,
         linked_task_ids: taskId ? [taskId] : step.linked_task_ids,
-        summary: error,
+      };
+      return {
+        ...updatedStep,
+        summary: agentStepSummary(updatedStep, endedAt),
       };
     });
     session.updated_at = this.now();
@@ -963,6 +973,50 @@ function sanitizeObservationParameters(parameters: JsonObject): JsonObject {
     }
   }
   return sanitized;
+}
+
+function agentStepSummary(step: JsonObject, createdAt: string): JsonObject {
+  const stepId = cleanString(step.id);
+  const actionKind = cleanString(step.action_kind);
+  const detailRef = cleanString(step.detail_ref);
+  return {
+    id: `summary:${stepId}`,
+    step_id: stepId,
+    purpose: cleanString(step.scheduler_reason) || titleFromIdentifier(actionKind),
+    action_kind: actionKind,
+    input_summary: compactText(step.input_summary, 220),
+    outcome_summary: compactText(cleanString(step.output_summary) || cleanString(step.error) || cleanString(step.status), 240),
+    next_effect: compactText(agentStepNextEffect(step), 180),
+    has_full_detail: Boolean(detailRef),
+    detail_ref: detailRef,
+    redacted: step.redacted === true,
+    created_at: createdAt,
+  };
+}
+
+function agentStepNextEffect(step: JsonObject): string {
+  const taskIds = stringList(step.linked_task_ids);
+  if (taskIds.length > 0) {
+    return `Updated task(s): ${taskIds.slice(0, 4).join(", ")}`;
+  }
+  const messageIds = stringList(step.linked_message_ids);
+  if (messageIds.length > 0) {
+    return `Linked message(s): ${messageIds.slice(0, 4).join(", ")}`;
+  }
+  const artifactRefs = stringList(step.linked_artifact_refs);
+  if (artifactRefs.length > 0) {
+    return `Linked artifact(s): ${artifactRefs.slice(0, 4).join(", ")}`;
+  }
+  return "";
+}
+
+function titleFromIdentifier(value: string): string {
+  return value
+    .replace(/_/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1).toLowerCase()}`)
+    .join(" ");
 }
 
 function looksLikeBrowserTool(toolName: string, parameters: JsonObject): boolean {

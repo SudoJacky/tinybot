@@ -721,6 +721,20 @@ describe("CoworkAgentRuntime", () => {
       agent_id: "lead",
       status: "completed",
       linked_task_ids: ["draft"],
+      detail_ref: "step_1",
+      summary: expect.objectContaining({
+        id: "summary:step_1",
+        step_id: "step_1",
+        purpose: "Scheduler selected lead for Draft",
+        action_kind: "agent_run",
+        input_summary: "Draft the TS agent runtime",
+        outcome_summary: "Draft completed for the user.",
+        next_effect: "Updated task(s): draft",
+        has_full_detail: true,
+        detail_ref: "step_1",
+        redacted: false,
+        created_at: fixedNow,
+      }),
     })]);
     expect(saved?.trace_spans).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "agent", name: "Run Lead", status: "completed" }),
@@ -783,6 +797,19 @@ describe("CoworkAgentRuntime", () => {
       status: "failed",
       error: "no queued model response",
       linked_task_ids: ["draft"],
+      summary: expect.objectContaining({
+        id: "summary:step_1",
+        step_id: "step_1",
+        purpose: "Scheduler selected lead for Draft",
+        action_kind: "agent_run",
+        input_summary: "Draft the TS agent runtime",
+        outcome_summary: "no queued model response",
+        next_effect: "Updated task(s): draft",
+        has_full_detail: false,
+        detail_ref: "",
+        redacted: false,
+        created_at: fixedNow,
+      }),
     })]);
   });
 
