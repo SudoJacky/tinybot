@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Cowork runtime parity: TS-native `cowork_internal complete_task` now ignores non-string structured `output_dir` / `workspace_dir` values when merging task artifacts, preserving Python's workspace directory update boundary.
+
 - Continued Cowork runtime parity: TS-native `cowork_internal complete_task` now treats missing or blank structured `confidence` values as unset like Python, instead of coercing them to zero.
 
 - Continued Cowork runtime parity: TS-native `cowork_internal complete_task` now leaves plain-text task completion confidence unset like Python instead of coercing missing structured confidence to zero.

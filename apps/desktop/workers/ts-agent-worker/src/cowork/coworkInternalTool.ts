@@ -1273,7 +1273,8 @@ function mergeTaskArtifacts(session: CoworkSession, resultData: JsonObject): voi
       }
     }
   }
-  const outputDir = textValue(resultData.output_dir) || textValue(resultData.workspace_dir);
+  const rawOutputDir = typeof resultData.output_dir === "string" ? resultData.output_dir : resultData.workspace_dir;
+  const outputDir = typeof rawOutputDir === "string" ? rawOutputDir.trim() : "";
   if (outputDir) {
     session.workspace_dir = outputDir;
   }

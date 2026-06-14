@@ -182,4 +182,54 @@ describe("cowork_internal tool", () => {
       result_data: { answer: "All work is complete." },
     });
   });
+
+  it("ignores non-string workspace directories in structured task results", async () => {
+    const store = createMemoryCoworkStore();
+    const idGenerator = deterministicIds();
+    const service = new CoworkService({
+      store,
+      now: () => fixedNow,
+      idGenerator,
+    });
+    const session = await service.createSession({
+      traceId: "trace-create",
+      goal: "Keep workspace stable",
+      title: "Workspace result",
+      workflowMode: "team",
+      agents: [{
+        id: "lead",
+        name: "Lead",
+        role: "Lead",
+        goal: "Coordinate",
+        responsibilities: ["Finish"],
+      }],
+      tasks: [{
+        id: "finish",
+        title: "Finish",
+        description: "Complete the work",
+        assigned_agent_id: "lead",
+      }],
+    });
+    const originalWorkspaceDir = session.workspace_dir;
+    const tool = createCoworkInternalTool({
+      store,
+      sessionId: session.id,
+      senderId: "lead",
+      now: () => fixedNow,
+      idGenerator,
+    });
+
+    await tool.execute({
+      action: "complete_task",
+      task_id: "finish",
+      content: JSON.stringify({
+        answer: "All work is complete.",
+        output_dir: 123,
+        workspace_dir: { path: "bad" },
+      }),
+    }, { runId: "run-1", traceId: "trace-complete" });
+
+    const saved = await store.readSnapshot(session.id, "trace-read");
+    expect(saved?.workspace_dir).toBe(originalWorkspaceDir);
+  });
 });
