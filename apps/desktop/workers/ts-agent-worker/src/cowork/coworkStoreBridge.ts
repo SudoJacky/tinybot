@@ -48,7 +48,7 @@ export class NativeCoworkStoreBridge {
     return isJsonObject(rawSession) ? normalizeCoworkSession(rawSession) : session;
   }
 
-  async appendEvent(sessionId: string, event: CoworkEvent, traceId: string): Promise<string> {
+  async appendEvent(sessionId: string, event: JsonObject, traceId: string): Promise<string> {
     const result = await this.rpcClient.request(traceId, "cowork_store.append_event", {
       session_id: sessionId,
       event,

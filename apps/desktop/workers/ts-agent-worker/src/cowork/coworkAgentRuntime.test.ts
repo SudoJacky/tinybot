@@ -55,8 +55,16 @@ async function seedRuntime(provider: ModelProvider): Promise<{
   store: CoworkServiceStore;
   runtime: CoworkAgentRuntime;
   tools: ToolRegistry;
+  appendedEvents: Array<{ sessionId: string; event: Record<string, unknown>; traceId: string }>;
 }> {
-  const store = createMemoryCoworkStore();
+  const store = createMemoryCoworkStore() as CoworkServiceStore & {
+    appendEvent?: (sessionId: string, event: Record<string, unknown>, traceId: string) => Promise<string>;
+  };
+  const appendedEvents: Array<{ sessionId: string; event: Record<string, unknown>; traceId: string }> = [];
+  store.appendEvent = async (sessionId, event, traceId) => {
+    appendedEvents.push({ sessionId, event: { ...event }, traceId });
+    return typeof event.id === "string" ? event.id : "";
+  };
   const idGenerator = deterministicIds();
   const service = new CoworkService({
     store,
@@ -87,6 +95,7 @@ async function seedRuntime(provider: ModelProvider): Promise<{
       now: () => fixedNow,
       idGenerator,
     }),
+    appendedEvents,
   };
 }
 
@@ -736,6 +745,27 @@ describe("CoworkAgentRuntime", () => {
         created_at: fixedNow,
       }),
     })]);
+    expect(seeded.appendedEvents).toEqual([
+      expect.objectContaining({
+        sessionId: "cw_1",
+        traceId: "trace-agent",
+        event: expect.objectContaining({
+          schema: "cowork.event_log.v1",
+          id: "step_1",
+          type: "agent_step.finished",
+          category: "observation",
+          actor_id: "lead",
+          created_at: fixedNow,
+          payload: expect.objectContaining({
+            agent_step: expect.objectContaining({
+              id: "step_1",
+              status: "completed",
+              summary: expect.objectContaining({ outcome_summary: "Draft completed for the user." }),
+            }),
+          }),
+        }),
+      }),
+    ]);
     expect(saved?.trace_spans).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "agent", name: "Run Lead", status: "completed" }),
     ]));
@@ -811,6 +841,28 @@ describe("CoworkAgentRuntime", () => {
         created_at: fixedNow,
       }),
     })]);
+    expect(seeded.appendedEvents).toEqual([
+      expect.objectContaining({
+        sessionId: "cw_1",
+        traceId: "trace-agent",
+        event: expect.objectContaining({
+          schema: "cowork.event_log.v1",
+          id: "step_1",
+          type: "agent_step.finished",
+          category: "observation",
+          actor_id: "lead",
+          created_at: fixedNow,
+          payload: expect.objectContaining({
+            agent_step: expect.objectContaining({
+              id: "step_1",
+              status: "failed",
+              error: "no queued model response",
+              summary: expect.objectContaining({ outcome_summary: "no queued model response" }),
+            }),
+          }),
+        }),
+      }),
+    ]);
   });
 
   it("starts and completes the associated swarm work unit during an agent round", async () => {

@@ -49,6 +49,7 @@ export interface CoworkServiceStore {
   listSnapshots(traceId: string): Promise<CoworkSession[]>;
   readSnapshot(sessionId: string, traceId: string): Promise<CoworkSession | null>;
   writeSnapshot(session: CoworkSession, traceId: string): Promise<CoworkSession>;
+  appendEvent?(sessionId: string, event: JsonObject, traceId: string): Promise<string>;
   deleteSession(sessionId: string, traceId: string): Promise<boolean>;
   readEvents?(sessionId: string, traceId: string): Promise<CoworkEvent[]>;
   readTraceSpans?(sessionId: string, traceId: string): Promise<JsonObject[]>;

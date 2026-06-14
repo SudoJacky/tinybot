@@ -239,6 +239,7 @@ export class CoworkAgentRuntime {
       const freshTask = taskId ? fresh.tasks[taskId] : undefined;
       this.applyFailure(fresh, freshAgent, freshTask, message, stepId, agentSpanId);
       const saved = await this.store.writeSnapshot(normalizeCoworkSession(fresh), traceId);
+      await this.appendAgentStepFinishedEvent(saved, stepId, traceId);
       return {
         session: saved,
         agentId: agent.id,
@@ -260,6 +261,7 @@ export class CoworkAgentRuntime {
     const freshTask = task ? fresh.tasks[task.id] : undefined;
     this.applyProgress(fresh, freshAgent, freshTask, progress, result, stepId, agentSpanId);
     const saved = await this.store.writeSnapshot(normalizeCoworkSession(fresh), traceId);
+    await this.appendAgentStepFinishedEvent(saved, stepId, traceId);
     return {
       session: saved,
       agentId: agent.id,
@@ -916,6 +918,17 @@ export class CoworkAgentRuntime {
     session.updated_at = this.now();
   }
 
+  private async appendAgentStepFinishedEvent(session: CoworkSession, stepId: string, traceId: string): Promise<void> {
+    if (!this.store.appendEvent) {
+      return;
+    }
+    const step = session.agent_steps.find((item) => stringValue(item.id) === stepId);
+    if (!step) {
+      return;
+    }
+    await this.store.appendEvent(session.id, agentStepFinishedEvent(session.id, step, this.now), traceId);
+  }
+
   private event(type: string, message: string, options: { actorId?: string; data?: JsonObject } = {}): CoworkEvent {
     return {
       id: this.idGenerator("evt"),
@@ -991,6 +1004,20 @@ function agentStepSummary(step: JsonObject, createdAt: string): JsonObject {
     detail_ref: detailRef,
     redacted: step.redacted === true,
     created_at: createdAt,
+  };
+}
+
+function agentStepFinishedEvent(sessionId: string, step: JsonObject, now: () => string): JsonObject {
+  const stepId = cleanString(step.id);
+  return {
+    schema: "cowork.event_log.v1",
+    id: stepId,
+    session_id: sessionId,
+    category: "observation",
+    type: "agent_step.finished",
+    actor_id: cleanString(step.agent_id) || null,
+    payload: { agent_step: jsonSafeObject(step) },
+    created_at: cleanString(step.ended_at) || now(),
   };
 }
 
