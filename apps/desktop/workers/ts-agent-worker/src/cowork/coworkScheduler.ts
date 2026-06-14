@@ -350,6 +350,7 @@ export class CoworkScheduler {
         refreshCompletionDecision(working, this.now(), initialCompletionDecision);
       }
       if (working.status === "completed") {
+        lines.push("Session completed.");
         this.applyStopReason(working, "completed", "Cowork scheduler stopped because the session completed", {
           runId,
           roundId,
@@ -538,6 +539,10 @@ export class CoworkScheduler {
         status,
         rounds,
         agent_calls: agentCalls,
+        messages: Object.keys(session.messages).length,
+        tasks_created: Object.keys(session.tasks).length,
+        tasks_completed: Object.values(session.tasks).filter((task) => task.status === "completed").length,
+        artifacts_created: session.artifacts.length,
         stop_reason: stopReason,
       };
     });

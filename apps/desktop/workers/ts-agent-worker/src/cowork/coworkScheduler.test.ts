@@ -847,6 +847,73 @@ describe("CoworkScheduler", () => {
     })]);
   });
 
+  it("reports when an agent round completes the session like Python", async () => {
+    const store = createMemoryCoworkStore();
+    const idGenerator = deterministicIds();
+    const service = new CoworkService({
+      store,
+      now: () => fixedNow,
+      idGenerator,
+    });
+    const session = await service.createSession({
+      traceId: "seed",
+      goal: "Complete the migration summary",
+      title: "Completion session",
+      workflowMode: "team",
+      agents: [{ id: "lead", name: "Lead", role: "Coordinator" }],
+      tasks: [{ id: "draft", title: "Draft", description: "Draft final summary", assigned_agent_id: "lead" }],
+    });
+    const agentRuntime = {
+      async runAgent(request: { sessionId: string; traceId?: string }) {
+        const current = await store.readSnapshot(request.sessionId, request.traceId ?? "");
+        if (!current) {
+          throw new Error("session not found");
+        }
+        await store.writeSnapshot({
+          ...current,
+          status: "completed",
+          tasks: {
+            ...current.tasks,
+            draft: {
+              ...current.tasks.draft,
+              status: "completed",
+              result: "Final migration summary is complete.",
+            },
+          },
+        }, request.traceId ?? "");
+      },
+    } as unknown as CoworkAgentRuntime;
+    const scheduler = new CoworkScheduler({
+      store,
+      now: () => fixedNow,
+      idGenerator,
+      agentRuntime,
+    });
+
+    const result = await scheduler.runSession({
+      sessionId: session.id,
+      traceId: "trace-run",
+      maxRounds: 1,
+      maxAgents: 1,
+    });
+
+    expect(result.result).toContain("Round 1: running lead");
+    expect(result.result).toContain("Session completed.");
+    const saved = await store.readSnapshot(session.id, "assert");
+    expect(saved?.status).toBe("completed");
+    expect(saved?.stop_reason).toBe("completed");
+    expect(saved?.run_metrics).toEqual([expect.objectContaining({
+      status: "completed",
+      rounds: 1,
+      agent_calls: 1,
+      messages: Object.keys(saved?.messages ?? {}).length,
+      tasks_created: 1,
+      tasks_completed: 1,
+      artifacts_created: 0,
+      stop_reason: "completed",
+    })]);
+  });
+
   it("continues across scheduler rounds when completed dependencies unlock new ready tasks", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = deterministicIds();

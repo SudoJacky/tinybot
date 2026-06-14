@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Cowork scheduler completion-output parity: TS-native `CoworkScheduler` now mirrors Python by including `Session completed.` when an agent round completes the session, and final run metrics refresh Python-compatible message/task/artifact counts.
+
 - Continued Cowork scheduler assessment parity: TS-native `CoworkScheduler` now refreshes Python-style completion decisions after agent rounds and lead synthesis, stopping at `ready_to_finish` when completed task output is sufficient, and records elapsed `wall_time_seconds` in budget usage at run finish.
 
 - Continued Cowork scheduler self-activation parity: TS-native `CoworkScheduler` now mirrors Python's repeated self-activation guard by skipping agents after three consecutive self-selected runs and recording `scheduler.self_activation_limited`.
@@ -1400,6 +1402,7 @@ Heartbeat row 20 update: Phase 4 now runs scheduled notifications through the sh
 - [x] Continue Cowork scheduler parity: stop with `ready_to_finish` after a ready completion decision when no active agents remain.
 - [x] Continue Cowork scheduler self-activation parity: skip agents after three consecutive self-selected runs and record `scheduler.self_activation_limited`.
 - [x] Continue Cowork scheduler assessment parity: refresh completion decisions after rounds/synthesis and record run wall-clock budget usage.
+- [x] Continue Cowork scheduler completion-output parity: include Python-style completed-session result text and refresh run metric counts.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only native persist-turn results.
 - [x] Continue session turn lifecycle evidence durability: skip memory evidence capture for duplicate-only append fallback results.
 - [x] Continue session turn lifecycle evidence durability: capture memory evidence from native `saved_messages` for partial-duplicate persisted turns.
