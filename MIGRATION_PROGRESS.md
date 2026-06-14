@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued Cowork runtime parity: TS-native `cowork_internal complete_task` now applies Python-compatible completion-review blockers for artifact-oriented goals, unmerged fanout work, and disagreement signals, and refreshes final drafts from completed task results before deciding whether a session can finish.
+
 - Continued Cowork runtime parity: TS-native `cowork_internal complete_task` now applies Python-compatible goal review for incomplete review-required task outputs, keeping sessions active until completed review gates pass or are waived.
 
 - Continued Cowork runtime parity: TS-native `cowork_internal complete_task` now applies Python-compatible goal review for completed task results with open questions and skipped-only sessions, keeping the session active with a `review_goal_completion` decision instead of auto-completing.

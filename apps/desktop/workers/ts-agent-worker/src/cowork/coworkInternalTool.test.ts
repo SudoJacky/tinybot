@@ -460,4 +460,190 @@ describe("cowork_internal tool", () => {
     });
     expect(saved?.agents.lead.status).toBe("idle");
   });
+
+  it("keeps delivery-oriented sessions active until artifact paths are confirmed", async () => {
+    const store = createMemoryCoworkStore();
+    const idGenerator = deterministicIds();
+    const service = new CoworkService({
+      store,
+      now: () => fixedNow,
+      idGenerator,
+    });
+    const session = await service.createSession({
+      traceId: "trace-create",
+      goal: "Write file with the migration summary",
+      title: "Artifact gate",
+      workflowMode: "team",
+      agents: [{
+        id: "lead",
+        name: "Lead",
+        role: "Lead",
+        goal: "Coordinate",
+        responsibilities: ["Finish"],
+      }],
+      tasks: [{
+        id: "finish",
+        title: "Finish",
+        description: "Write the file",
+        assigned_agent_id: "lead",
+      }],
+    });
+    const tool = createCoworkInternalTool({
+      store,
+      sessionId: session.id,
+      senderId: "lead",
+      now: () => fixedNow,
+      idGenerator,
+    });
+
+    await tool.execute({
+      action: "complete_task",
+      task_id: "finish",
+      content: JSON.stringify({
+        answer: "The migration summary is described here.",
+      }),
+    }, { runId: "run-1", traceId: "trace-complete" });
+
+    const saved = await store.readSnapshot(session.id, "trace-read");
+    expect(saved?.status).toBe("active");
+    expect(saved?.current_focus_task).toBe("The goal appears to require concrete deliverables, but no artifact paths are confirmed yet.");
+    expect(saved?.completion_decision).toMatchObject({
+      next_action: "review_goal_completion",
+      reason: "The goal appears to require concrete deliverables, but no artifact paths are confirmed yet.",
+      ready_to_finish: false,
+      goal_review: {
+        ready: false,
+        missing: ["artifacts"],
+      },
+    });
+    expect(saved?.agents.lead.status).toBe("idle");
+  });
+
+  it("keeps fanout sessions active until fanout work has an explicit merge", async () => {
+    const store = createMemoryCoworkStore();
+    const idGenerator = deterministicIds();
+    const service = new CoworkService({
+      store,
+      now: () => fixedNow,
+      idGenerator,
+    });
+    const session = await service.createSession({
+      traceId: "trace-create",
+      goal: "Compare implementation options",
+      title: "Fanout gate",
+      workflowMode: "team",
+      agents: [{
+        id: "lead",
+        name: "Lead",
+        role: "Lead",
+        goal: "Coordinate",
+        responsibilities: ["Finish"],
+      }],
+      tasks: [
+        {
+          id: "option-a",
+          title: "Option A",
+          description: "Evaluate option A",
+          assigned_agent_id: "lead",
+          fanout_group_id: "compare",
+        },
+        {
+          id: "option-b",
+          title: "Option B",
+          description: "Evaluate option B",
+          assigned_agent_id: "lead",
+          fanout_group_id: "compare",
+        },
+      ],
+    });
+    const tool = createCoworkInternalTool({
+      store,
+      sessionId: session.id,
+      senderId: "lead",
+      now: () => fixedNow,
+      idGenerator,
+    });
+
+    await tool.execute({
+      action: "complete_task",
+      task_id: "option-a",
+      content: JSON.stringify({ answer: "Option A works." }),
+    }, { runId: "run-1", traceId: "trace-a" });
+    await tool.execute({
+      action: "complete_task",
+      task_id: "option-b",
+      content: JSON.stringify({ answer: "Option B works." }),
+    }, { runId: "run-2", traceId: "trace-b" });
+
+    const saved = await store.readSnapshot(session.id, "trace-read");
+    expect(saved?.status).toBe("active");
+    expect(saved?.current_focus_task).toBe("Fanout work needs an explicit merge or synthesis task.");
+    expect(saved?.completion_decision).toMatchObject({
+      next_action: "review_goal_completion",
+      reason: "Fanout work needs an explicit merge or synthesis task.",
+      ready_to_finish: false,
+      goal_review: {
+        ready: false,
+        missing: ["fanout_merge"],
+      },
+    });
+  });
+
+  it("keeps sessions active when completed task results contain disagreement signals", async () => {
+    const store = createMemoryCoworkStore();
+    const idGenerator = deterministicIds();
+    const service = new CoworkService({
+      store,
+      now: () => fixedNow,
+      idGenerator,
+    });
+    const session = await service.createSession({
+      traceId: "trace-create",
+      goal: "Choose the safest runtime option",
+      title: "Disagreement gate",
+      workflowMode: "team",
+      agents: [{
+        id: "lead",
+        name: "Lead",
+        role: "Lead",
+        goal: "Coordinate",
+        responsibilities: ["Finish"],
+      }],
+      tasks: [{
+        id: "finish",
+        title: "Finish",
+        description: "Resolve the runtime option",
+        assigned_agent_id: "lead",
+      }],
+    });
+    const tool = createCoworkInternalTool({
+      store,
+      sessionId: session.id,
+      senderId: "lead",
+      now: () => fixedNow,
+      idGenerator,
+    });
+
+    await tool.execute({
+      action: "complete_task",
+      task_id: "finish",
+      content: JSON.stringify({
+        answer: "Option A is likely safest.",
+        disagreements: ["Reviewer says option B has lower migration risk."],
+      }),
+    }, { runId: "run-1", traceId: "trace-complete" });
+
+    const saved = await store.readSnapshot(session.id, "trace-read");
+    expect(saved?.status).toBe("active");
+    expect(saved?.current_focus_task).toBe("Completed work contains disagreement signals requiring synthesis.");
+    expect(saved?.completion_decision).toMatchObject({
+      next_action: "review_goal_completion",
+      reason: "Completed work contains disagreement signals requiring synthesis.",
+      ready_to_finish: false,
+      goal_review: {
+        ready: false,
+        missing: ["disagreements"],
+      },
+    });
+  });
 });

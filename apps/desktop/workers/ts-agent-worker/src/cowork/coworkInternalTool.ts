@@ -1121,6 +1121,14 @@ function updateCompletionState(session: CoworkSession, now: () => string): void 
 
 function reviewGoalCompletion(session: CoworkSession): JsonObject {
   const completed = Object.values(session.tasks).filter((task) => task.status === "completed");
+  const failed = Object.values(session.tasks).filter((task) => task.status === "failed");
+  if (failed.length > 0) {
+    return {
+      ready: false,
+      reason: `${failed.length} failed task(s) need review.`,
+      missing: ["failed_tasks"],
+    };
+  }
   const reviewBlockers = Object.values(session.tasks).filter((task) => {
     if (task.review_required !== true || !["completed", "failed"].includes(task.status)) {
       return false;
@@ -1136,6 +1144,20 @@ function reviewGoalCompletion(session: CoworkSession): JsonObject {
       missing: ["review_gates"],
     };
   }
+  if (fanoutMergeBlockers(session).length > 0) {
+    return {
+      ready: false,
+      reason: "Fanout work needs an explicit merge or synthesis task.",
+      missing: ["fanout_merge"],
+    };
+  }
+  if (detectDisagreements(session).length > 0) {
+    return {
+      ready: false,
+      reason: "Completed work contains disagreement signals requiring synthesis.",
+      missing: ["disagreements"],
+    };
+  }
   const hasOpenQuestions = completed.some((task) => {
     const data = isJsonObject(task.result_data) ? task.result_data : {};
     const openQuestions = data.open_questions;
@@ -1146,6 +1168,47 @@ function reviewGoalCompletion(session: CoworkSession): JsonObject {
       ready: false,
       reason: "Completed work still contains open questions.",
       missing: ["open_questions"],
+    };
+  }
+  const goalText = session.goal.toLowerCase();
+  const likelyDeliveryGoal = [
+    "code",
+    "implement",
+    "build",
+    "edit",
+    "write file",
+    "create file",
+    "fix",
+    "test",
+    "docs",
+    "document",
+    "app",
+    "page",
+  ].some((marker) => goalText.includes(marker));
+  if (likelyDeliveryGoal && session.artifacts.length === 0) {
+    return {
+      ready: false,
+      reason: "The goal appears to require concrete deliverables, but no artifact paths are confirmed yet.",
+      missing: ["artifacts"],
+    };
+  }
+  const hasStructuredAnswer = completed.some((task) => {
+    const data = isJsonObject(task.result_data) ? task.result_data : {};
+    return Boolean(data.answer || data.findings);
+  });
+  const hasVisibleResult = Object.values(session.messages).some((message) => {
+    if (!isJsonObject(message)) {
+      return false;
+    }
+    return cleanString(message.sender_id) !== "user"
+      && stringList(message.recipient_ids).includes("user")
+      && Boolean(cleanString(message.content));
+  });
+  if (completed.length > 0 && !hasStructuredAnswer && !hasVisibleResult && !cleanString(session.final_draft)) {
+    return {
+      ready: false,
+      reason: "Tasks are marked complete, but there is no structured answer or user-facing result yet.",
+      missing: ["final_answer"],
     };
   }
   return {
@@ -1359,6 +1422,7 @@ function refreshSharedMemory(session: CoworkSession): void {
     mergeSharedMemoryValues(session, "artifacts", [artifact], { source_task_id: "", author: "", confidence: null });
   }
   session.shared_summary = buildSharedSummary(session);
+  session.final_draft = buildFinalDraft(session);
 }
 
 function mergeSharedMemoryValues(
@@ -1407,6 +1471,87 @@ function buildSharedSummary(session: CoworkSession): string {
     sections.push(`Open questions:\n${openQuestions.slice(-6).map((item) => `- ${item}`).join("\n")}`);
   }
   return sections.join("\n\n").slice(-4000);
+}
+
+function buildFinalDraft(session: CoworkSession): string {
+  return Object.values(session.tasks)
+    .filter((task) => task.status === "completed" && cleanString(task.result))
+    .map((task) => `## ${task.title}\n${task.result}`)
+    .join("\n\n");
+}
+
+function fanoutMergeBlockers(session: CoworkSession): JsonObject[] {
+  const groups = new Map<string, CoworkTask[]>();
+  for (const task of Object.values(session.tasks)) {
+    const groupId = cleanString(task.fanout_group_id);
+    if (groupId) {
+      groups.set(groupId, [...(groups.get(groupId) ?? []), task]);
+    }
+  }
+  const blockers: JsonObject[] = [];
+  for (const [groupId, tasks] of groups.entries()) {
+    const mergeIds = unique(tasks.map((task) => cleanString(task.merge_task_id)).filter(Boolean)).sort();
+    const completedFanout = tasks.filter((task) => task.status === "completed" || task.status === "skipped");
+    if (completedFanout.length < tasks.length) {
+      continue;
+    }
+    const mergeDone = mergeIds.some((mergeId) => {
+      const mergeTask = session.tasks[mergeId];
+      return mergeTask?.status === "completed" || mergeTask?.status === "skipped";
+    });
+    if (mergeIds.length === 0 || !mergeDone) {
+      blockers.push({
+        fanout_group_id: groupId,
+        task_ids: tasks.map((task) => task.id),
+        merge_task_ids: mergeIds,
+      });
+    }
+  }
+  return blockers;
+}
+
+function detectDisagreements(session: CoworkSession): JsonObject[] {
+  const signals: JsonObject[] = [];
+  const claimsByText = new Map<string, Set<string>>();
+  for (const task of Object.values(session.tasks)) {
+    const data = isJsonObject(task.result_data) ? task.result_data : {};
+    for (const key of ["conflicts", "disagreements"]) {
+      const values = data[key];
+      if (!Array.isArray(values)) {
+        continue;
+      }
+      for (const value of values) {
+        const text = textValue(value);
+        if (text) {
+          signals.push({ task_id: task.id, kind: key, text });
+        }
+      }
+    }
+    const claims = data.claims;
+    if (Array.isArray(claims)) {
+      for (const claim of claims) {
+        const text = textValue(claim).toLowerCase();
+        if (!text) {
+          continue;
+        }
+        const authors = claimsByText.get(text) ?? new Set<string>();
+        authors.add(task.assigned_agent_id ?? "");
+        claimsByText.set(text, authors);
+      }
+    }
+    if (typeof task.confidence === "number" && task.confidence < 0.35 && task.status === "completed") {
+      signals.push({ task_id: task.id, kind: "low_confidence", confidence: task.confidence });
+    }
+  }
+  for (const [text, authors] of claimsByText.entries()) {
+    if (
+      authors.size > 1
+      && ["not ", "no ", "cannot", "risk", "conflict"].some((marker) => text.includes(marker))
+    ) {
+      signals.push({ kind: "claim_conflict", text, authors: [...authors].sort() });
+    }
+  }
+  return signals.slice(0, 20);
 }
 
 function sharedMemoryTexts(session: CoworkSession, bucket: string): string[] {
