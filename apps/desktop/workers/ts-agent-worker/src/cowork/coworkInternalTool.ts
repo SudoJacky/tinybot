@@ -1012,7 +1012,7 @@ function completeTask(
   idGenerator: CoworkIdGenerator,
 ): void {
   const resultData = parseStructuredResult(content);
-  const confidence = coerceConfidence(resultData.confidence);
+  const confidence = Object.keys(resultData).length > 0 ? coerceConfidence(resultData.confidence) : null;
   task.status = status;
   task.result = content;
   task.result_data = resultData;

@@ -69,6 +69,7 @@ describe("cowork_internal tool", () => {
     expect(saved?.agents.lead.status).toBe("done");
     expect(saved?.tasks.finish.status).toBe("completed");
     expect(saved?.tasks.finish.result_data).toEqual({});
+    expect(saved?.tasks.finish.confidence).toBeNull();
   });
 
   it("preserves skipped status when completing internal tasks", async () => {
