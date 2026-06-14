@@ -1061,7 +1061,42 @@ function completeTask(
     mergeTaskArtifacts(session, resultData);
     refreshSharedMemory(session);
   }
+  updateCompletionState(session, now);
   session.updated_at = now();
+}
+
+function updateCompletionState(session: CoworkSession, now: () => string): void {
+  if (session.workflow_mode === "swarm") {
+    return;
+  }
+  const tasks = Object.values(session.tasks);
+  if (tasks.length === 0) {
+    return;
+  }
+  const hasUnresolvedReplies = Object.values(session.mailbox).some((record) => {
+    if (!isJsonObject(record)) {
+      return false;
+    }
+    const status = cleanString(record.status);
+    return record.requires_reply === true && (status === "delivered" || status === "read");
+  });
+  if (hasUnresolvedReplies || !tasks.every((candidate) => candidate.status === "completed" || candidate.status === "skipped")) {
+    return;
+  }
+  refreshSharedMemory(session);
+  session.status = "completed";
+  for (const agent of Object.values(session.agents)) {
+    if (agent.status !== "failed" && agent.status !== "blocked") {
+      agent.status = "done";
+    }
+  }
+  session.completion_decision = {
+    next_action: "complete",
+    reason: "All tasks are complete and there are no unresolved reply requests.",
+    blocked: [],
+    ready_to_finish: true,
+    updated_at: now(),
+  };
 }
 
 function event(
