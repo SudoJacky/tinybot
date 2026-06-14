@@ -1,6 +1,78 @@
 import { describe, expect, test } from "vitest";
 
-import { handleWebuiRouteRequest, type WebuiSessionProvider } from "./webuiRoutes.ts";
+import { EMPTY_FINAL_RESPONSE_MESSAGE } from "../support/runtimeHelpers.ts";
+import {
+  handleWebuiRouteRequest,
+  type WebuiConfigProvider,
+  type WebuiOpenAiCompatProvider,
+  type WebuiSessionProvider,
+} from "./webuiRoutes.ts";
+
+describe("WebUI OpenAI-compatible routes", () => {
+  test("retries empty chat completions once before returning the Python fallback", async () => {
+    const completions: Array<{ content: string; sessionKey: string; traceId: string; timeoutSeconds: number }> = [];
+    const configProvider: WebuiConfigProvider = {
+      getConfig: () => ({
+        agents: { defaults: { model: "test-model" } },
+        api: { timeout: 3 },
+      }),
+      patchConfig: () => ({}),
+    };
+    const openAiCompatProvider: WebuiOpenAiCompatProvider = {
+      completeChat: (request, traceId) => {
+        completions.push({
+          content: request.content,
+          sessionKey: request.sessionKey,
+          traceId,
+          timeoutSeconds: request.timeoutSeconds,
+        });
+        return completions.length === 1 ? "   " : "\n";
+      },
+    };
+
+    const response = await handleWebuiRouteRequest(
+      {
+        method: "POST",
+        path: "/v1/chat/completions",
+        body: {
+          model: "test-model",
+          session_id: "custom",
+          messages: [{ role: "user", content: "hello" }],
+        },
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      configProvider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      openAiCompatProvider,
+      undefined,
+      undefined,
+      "trace-openai",
+    );
+
+    expect(response.status).toBe(200);
+    expect(completions).toEqual([
+      { content: "hello", sessionKey: "api:custom", traceId: "trace-openai", timeoutSeconds: 3 },
+      { content: "hello", sessionKey: "api:custom", traceId: "trace-openai", timeoutSeconds: 3 },
+    ]);
+    expect(response.body).toMatchObject({
+      model: "test-model",
+      choices: [
+        {
+          message: { role: "assistant", content: EMPTY_FINAL_RESPONSE_MESSAGE },
+          finish_reason: "stop",
+        },
+      ],
+    });
+  });
+});
 
 describe("WebUI route temporary files", () => {
   test("restores task progress cards when session history only has the internal notification", async () => {

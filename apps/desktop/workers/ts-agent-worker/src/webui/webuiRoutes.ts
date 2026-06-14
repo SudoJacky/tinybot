@@ -2,6 +2,7 @@ import { isJsonObject, type JsonObject } from "../protocol/messages.ts";
 import type { ToolRegistry } from "../tools/toolRegistry.ts";
 import type { HeartbeatStatus } from "../heartbeat/heartbeatTypes.ts";
 import type { McpRuntimeDiagnostics } from "../mcp/mcpRuntimeManager.ts";
+import { EMPTY_FINAL_RESPONSE_MESSAGE } from "../support/runtimeHelpers.ts";
 
 export type WebuiRouteSpec = {
   key: string;
@@ -830,13 +831,20 @@ async function openAiChatCompletionsResponse(
     return openAiError(503, "OpenAI-compatible runtime unavailable", "server_error");
   }
   try {
-    const content = await openAiCompatProvider.completeChat({
+    const completionRequest: WebuiOpenAiChatRequest = {
       content: parsed.content,
       sessionKey: parsed.sessionKey,
       chatId: "default",
       model: parsed.model,
       timeoutSeconds: openAiRequestTimeoutSeconds(config),
-    }, traceId);
+    };
+    let content = await openAiCompatProvider.completeChat(completionRequest, traceId);
+    if (content.trim().length === 0) {
+      content = await openAiCompatProvider.completeChat(completionRequest, traceId);
+      if (content.trim().length === 0) {
+        content = EMPTY_FINAL_RESPONSE_MESSAGE;
+      }
+    }
     return { status: 200, body: openAiChatCompletionBody(content, parsed.model) };
   } catch (error) {
     if (error instanceof WebuiOpenAiRequestTimeoutError) {
