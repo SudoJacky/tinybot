@@ -51,6 +51,24 @@ describe("createCronTool", () => {
     });
   });
 
+  test("mirrors Python truthiness for deliver arguments", async () => {
+    const bridge = memoryBridge();
+    const tool = createCronTool({ bridge, defaultTimezone: "UTC" });
+
+    await expect(tool.execute({
+      action: "add",
+      message: "Silent check",
+      every_seconds: 60,
+      deliver: [],
+    }, context)).resolves.toEqual({ content: "Created job 'Silent check' (id: job-1)" });
+
+    expect(bridge.addRequests[0]?.payload).toMatchObject({
+      kind: "agent_turn",
+      message: "Silent check",
+      deliver: false,
+    });
+  });
+
   test("validates add inputs and formats remove outcomes", async () => {
     const tool = createCronTool({ bridge: memoryBridge(), defaultTimezone: "UTC" });
 
