@@ -3105,6 +3105,65 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("maps Knowledge API document ValueError failures to Python-compatible invalid requests", async () => {
+    const valueError = (message: string) => {
+      const error = new Error(message);
+      error.name = "ValueError";
+      return error;
+    };
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      knowledgeProvider: {
+        listDocuments: () => ({ documents: [] }),
+        addDocument: (body) => {
+          if (body.source === "file_upload") {
+            throw valueError("Uploaded document is invalid");
+          }
+          throw valueError("Document already exists");
+        },
+        getDocument: () => undefined,
+        deleteDocument: () => ({ deleted: false }),
+        query: () => ({ results: [] }),
+        stats: () => ({ total_documents: 0, total_chunks: 0 }),
+      },
+    });
+
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/v1/knowledge/documents",
+      body: { name: "Existing", content: "Body", file_type: "md" },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: {
+          error: {
+            message: "Document already exists",
+            type: "invalid_request_error",
+            code: 400,
+          },
+        },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/v1/knowledge/documents/upload",
+      body: { name: "Upload.md", content: "# Upload\n", file_type: "md" },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: {
+          error: {
+            message: "Uploaded document is invalid",
+            type: "invalid_request_error",
+            code: 400,
+          },
+        },
+      },
+    });
+  });
+
   test("serves WebUI session list control route through TS worker RPC", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),

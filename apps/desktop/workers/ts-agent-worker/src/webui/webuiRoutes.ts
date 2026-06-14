@@ -1177,7 +1177,7 @@ async function knowledgeAddDocumentResponse(
       body: responseBody,
     };
   } catch (error) {
-    return knowledgeServerError("Error adding document", error);
+    return knowledgeValueError(error) ?? knowledgeServerError("Error adding document", error);
   }
 }
 
@@ -1245,7 +1245,7 @@ async function knowledgeUploadDocumentResponse(
       body: responseBody,
     };
   } catch (error) {
-    return knowledgeServerError("Error uploading file", error);
+    return knowledgeValueError(error) ?? knowledgeServerError("Error uploading file", error);
   }
 }
 
@@ -1937,8 +1937,31 @@ function knowledgeServerError(message: string, error: unknown): WebuiRouteRespon
   };
 }
 
+function knowledgeValueError(error: unknown): WebuiRouteResponse | undefined {
+  if (!isNamedError(error, "ValueError")) {
+    return undefined;
+  }
+  return {
+    status: 400,
+    body: knowledgeApiError(400, errorMessage(error)),
+  };
+}
+
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (isJsonObject(error) && typeof error.message === "string") {
+    return error.message;
+  }
+  return String(error);
+}
+
+function isNamedError(error: unknown, name: string): boolean {
+  if (error instanceof Error) {
+    return error.name === name;
+  }
+  return isJsonObject(error) && error.name === name;
 }
 
 async function webuiApprovalsResponse(
