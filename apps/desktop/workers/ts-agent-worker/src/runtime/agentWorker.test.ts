@@ -2310,6 +2310,21 @@ describe("AgentWorker", () => {
     });
     await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
       method: "GET",
+      path: "/v1/knowledge/graph?limit=not-a-number",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: {
+          error: {
+            message: "Invalid graph query params",
+            type: "invalid_request_error",
+            code: 400,
+          },
+        },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
       path: "/v1/knowledge/graphrag?doc_id=doc-1&min_confidence=0.2&level=1&include_reports=false&include_covariates=true",
     }))).resolves.toMatchObject({
       result: {
@@ -2336,6 +2351,21 @@ describe("AgentWorker", () => {
             level: 1,
             include_reports: false,
             include_covariates: true,
+          },
+        },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
+      path: "/v1/knowledge/graphrag?level=not-a-number",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: {
+          error: {
+            message: "Invalid GraphRAG query params",
+            type: "invalid_request_error",
+            code: 400,
           },
         },
       },
@@ -2509,6 +2539,21 @@ describe("AgentWorker", () => {
           result: {
             skipped: true,
             available: false,
+          },
+        },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/v1/knowledge/rebuild-index?type=vector",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 400,
+        body: {
+          error: {
+            message: "Invalid rebuild type 'vector'. Valid options: bm25, semantic, all",
+            type: "invalid_request_error",
+            code: 400,
           },
         },
       },

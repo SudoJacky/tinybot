@@ -1285,8 +1285,8 @@ async function knowledgeRebuildIndexResponse(
   const rebuildType = query.get("type") ?? "bm25";
   if (rebuildType !== "bm25" && rebuildType !== "all" && rebuildType !== "semantic") {
     return {
-      status: 404,
-      body: { error: `Knowledge rebuild type '${rebuildType}' not available natively` },
+      status: 400,
+      body: knowledgeApiError(400, `Invalid rebuild type '${rebuildType}'. Valid options: bm25, semantic, all`),
     };
   }
 
@@ -1342,7 +1342,7 @@ async function knowledgeGraphResponse(
   }
   const params = parseKnowledgeGraphQuery(query);
   if (!params.ok) {
-    return { status: 400, body: { error: "Invalid graph query params" } };
+    return { status: 400, body: knowledgeApiError(400, "Invalid graph query params") };
   }
   const stats = knowledgeStatsBody(await provider.stats(traceId));
   return { status: 200, body: knowledgeGraphBody(stats, params.value) };
@@ -1546,7 +1546,7 @@ async function knowledgeGraphRagResponse(
   const config = configProvider ? await configProvider.getConfig(traceId) : {};
   const params = parseKnowledgeGraphRagQuery(query, graphRagCommunityLevel(config));
   if (!params.ok) {
-    return { status: 400, body: { error: "Invalid GraphRAG query params" } };
+    return { status: 400, body: knowledgeApiError(400, "Invalid GraphRAG query params") };
   }
   const stats = knowledgeStatsBody(await provider.stats(traceId));
   return { status: 200, body: knowledgeGraphRagBody(stats, params.value) };
@@ -1801,6 +1801,16 @@ function completedKnowledgeSemanticRebuildJob(stats: Record<string, unknown>): R
     graph_ready: graphReady,
     partial_availability: retrievalReady && !graphReady,
     result: knowledgeSemanticUnavailableResult(),
+  };
+}
+
+function knowledgeApiError(status: number, message: string, type = "invalid_request_error"): Record<string, unknown> {
+  return {
+    error: {
+      message,
+      type,
+      code: status,
+    },
   };
 }
 
