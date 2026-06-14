@@ -82,6 +82,18 @@ describe("CommandRouter", () => {
     });
   });
 
+  test("runs interceptors in registration order like Python", async () => {
+    const router = new CommandRouter();
+    router.intercept(handler("first"));
+    router.intercept(handler("second"));
+
+    await expect(router.dispatch("/unknown thing", { traceId: "trace-1" })).resolves.toMatchObject({
+      handled: true,
+      output: "first:/unknown:thing",
+      metadata: { label: "first" },
+    });
+  });
+
   test("returns unhandled for ordinary messages and missing slash commands", async () => {
     const router = new CommandRouter();
 

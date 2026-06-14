@@ -16,7 +16,7 @@ export class CommandRouter {
   private readonly priorityHandlers = new Map<string, CommandEntry>();
   private readonly exactHandlers = new Map<string, CommandEntry>();
   private readonly prefixHandlers: CommandEntry[] = [];
-  private interceptor?: CommandHandler;
+  private readonly interceptors: CommandHandler[] = [];
 
   priority(command: string, handler: CommandHandler): void {
     const normalized = normalizeCommand(command);
@@ -35,7 +35,7 @@ export class CommandRouter {
   }
 
   intercept(handler: CommandHandler): void {
-    this.interceptor = handler;
+    this.interceptors.push(handler);
   }
 
   isPriority(input: string): boolean {
@@ -64,8 +64,11 @@ export class CommandRouter {
       return prefix.handler(contextFor(prefix.command, parsed, options, false));
     }
 
-    if (this.interceptor) {
-      return this.interceptor(contextFor(parsed.command, parsed, options, false));
+    for (const interceptor of this.interceptors) {
+      const result = await interceptor(contextFor(parsed.command, parsed, options, false));
+      if (result.handled) {
+        return result;
+      }
     }
     return { handled: false };
   }
