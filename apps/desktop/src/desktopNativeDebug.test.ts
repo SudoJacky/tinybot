@@ -2,7 +2,11 @@
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { createDesktopNativeWorkbenchRuntime } from "./desktopNativeWorkbenchRuntime";
-import { logDesktopNativeDebug } from "./desktopNativeChatDebug";
+import {
+  createDesktopNativeStartupTrace,
+  logDesktopNativeDebug,
+  traceDesktopNativeDebugAsync,
+} from "./desktopNativeChatDebug";
 import { DEFAULT_GATEWAY_CONFIG } from "./gatewayConfig";
 import { createGatewayApiClient } from "./gatewayHttpClient";
 
@@ -35,6 +39,62 @@ describe("desktop native debug logger", () => {
       },
     });
     expect(info).toHaveBeenCalledWith("[Tinybot native]", "session.delete.start", window.__tinybotNativeDebug?.[0]?.details);
+  });
+
+  test("records startup trace phase timings", () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    window.localStorage.setItem("tinybot.desktop.nativeDebug", "on");
+    const times = [0, 5, 10, 40, 50, 80];
+    const trace = createDesktopNativeStartupTrace({
+      now: () => times.shift() ?? 220.3,
+    });
+
+    trace.mark("dom.ready", { mode: "native" });
+    trace.start("gatewayReady");
+    trace.complete("gatewayReady", { state: "running" });
+    trace.start("chatRuntime");
+    trace.fail("chatRuntime", new Error("slow chat"));
+
+    expect(window.__tinybotNativeDebug?.map((entry) => entry.stage)).toEqual([
+      "startup.dom.ready",
+      "startup.gatewayReady.start",
+      "startup.gatewayReady.complete",
+      "startup.chatRuntime.start",
+      "startup.chatRuntime.failed",
+    ]);
+    expect(window.__tinybotNativeDebug?.[2].details).toMatchObject({
+      durationMs: 30,
+      sinceStartMs: 40,
+      state: "running",
+    });
+    expect(window.__tinybotNativeDebug?.[4].details).toMatchObject({
+      durationMs: 30,
+      sinceStartMs: 80,
+      error: "slow chat",
+    });
+  });
+
+  test("records async debug phase durations", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    window.localStorage.setItem("tinybot.desktop.nativeDebug", "on");
+    const times = [10, 52.24];
+
+    const result = await traceDesktopNativeDebugAsync(
+      "toolsSkills.load.tools.list",
+      async () => ({ count: 24 }),
+      { source: "startup" },
+      { now: () => times.shift() ?? 52.24 },
+    );
+
+    expect(result).toEqual({ count: 24 });
+    expect(window.__tinybotNativeDebug?.map((entry) => entry.stage)).toEqual([
+      "toolsSkills.load.tools.list.start",
+      "toolsSkills.load.tools.list.complete",
+    ]);
+    expect(window.__tinybotNativeDebug?.[1].details).toMatchObject({
+      durationMs: 42.2,
+      source: "startup",
+    });
   });
 
   test("logs meaningful runtime and session stages for native chat operations", async () => {

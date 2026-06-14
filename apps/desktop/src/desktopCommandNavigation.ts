@@ -51,6 +51,7 @@ export interface InstallDesktopMenuCommandRoutingOptions {
   gatewayOrigin: string;
   listenToMenuCommand: (handler: (id: string) => void) => void | Promise<unknown>;
   openExternal?: (href: string) => Promise<void> | void;
+  routeDocsInWorkbench?: boolean;
   targetDocument?: Document;
   targetWindow?: Window;
 }
@@ -172,6 +173,7 @@ export function routeDesktopMenuCommand(id: string, context: DesktopMenuCommandC
 export function installDesktopMenuCommandRouting({
   gatewayOrigin,
   listenToMenuCommand,
+  routeDocsInWorkbench = false,
   targetDocument = document,
   targetWindow = window,
 }: InstallDesktopMenuCommandRoutingOptions): void {
@@ -182,18 +184,18 @@ export function installDesktopMenuCommandRouting({
     }
     event.preventDefault();
     const result = routeDesktopMenuCommand(id, readCommandContext(targetDocument));
-    applyDesktopMenuCommandResult(result, { gatewayOrigin, targetDocument, targetWindow });
+    applyDesktopMenuCommandResult(result, { gatewayOrigin, routeDocsInWorkbench, targetDocument, targetWindow });
   });
   targetDocument.addEventListener("desktop-menu-command", (event) => {
     const id = (event as CustomEvent<{ id?: unknown }>).detail?.id;
     if (typeof id === "string") {
       const result = routeDesktopMenuCommand(id, readCommandContext(targetDocument));
-      applyDesktopMenuCommandResult(result, { gatewayOrigin, targetDocument, targetWindow });
+      applyDesktopMenuCommandResult(result, { gatewayOrigin, routeDocsInWorkbench, targetDocument, targetWindow });
     }
   });
   void listenToMenuCommand((id) => {
     const result = routeDesktopMenuCommand(id, readCommandContext(targetDocument));
-    applyDesktopMenuCommandResult(result, { gatewayOrigin, targetDocument, targetWindow });
+    applyDesktopMenuCommandResult(result, { gatewayOrigin, routeDocsInWorkbench, targetDocument, targetWindow });
   });
 }
 
@@ -256,7 +258,7 @@ function readCommandContext(targetDocument: Document): DesktopMenuCommandContext
 
 function applyDesktopMenuCommandResult(
   result: DesktopMenuCommandResult,
-  options: Pick<InstallDesktopMenuCommandRoutingOptions, "gatewayOrigin" | "targetDocument" | "targetWindow"> & {
+  options: Pick<InstallDesktopMenuCommandRoutingOptions, "gatewayOrigin" | "routeDocsInWorkbench" | "targetDocument" | "targetWindow"> & {
     openExternal?: (href: string) => Promise<void> | void;
     targetDocument: Document;
     targetWindow: Window;
@@ -277,7 +279,7 @@ function applyDesktopMenuCommandResult(
 
 function routeMenuNavigation(
   href: string,
-  { gatewayOrigin, openExternal, targetDocument, targetWindow }: Pick<InstallDesktopMenuCommandRoutingOptions, "gatewayOrigin" | "openExternal"> & {
+  { gatewayOrigin, openExternal, routeDocsInWorkbench, targetDocument, targetWindow }: Pick<InstallDesktopMenuCommandRoutingOptions, "gatewayOrigin" | "openExternal" | "routeDocsInWorkbench"> & {
     targetDocument: Document;
     targetWindow: Window;
   },
@@ -291,12 +293,15 @@ function routeMenuNavigation(
   updateRouteStatus(targetDocument, target);
 
   if (target.kind === "internal-docs") {
+    if (routeDocsInWorkbench) {
+      routeWorkbenchTarget(target, targetWindow);
+      return;
+    }
     targetWindow.location.assign(target.href);
     return;
   }
   if (target.kind === "workbench-route") {
-    targetWindow.history.pushState({ tinybotDesktopRoute: target.href }, "", target.href);
-    targetWindow.dispatchEvent(new CustomEvent("tinybot:desktop-route", { detail: target }));
+    routeWorkbenchTarget(target, targetWindow);
     return;
   }
   if (target.kind === "gateway-action") {
@@ -310,6 +315,11 @@ function routeMenuNavigation(
     }
     targetWindow.open(target.href, "_blank", "noopener");
   }
+}
+
+function routeWorkbenchTarget(target: DesktopNavigationTarget, targetWindow: Window): void {
+  targetWindow.history.pushState({ tinybotDesktopRoute: target.href }, "", target.href);
+  targetWindow.dispatchEvent(new CustomEvent("tinybot:desktop-route", { detail: target }));
 }
 
 function applyCommandAction(result: Extract<DesktopMenuCommandResult, { kind: "action" }>, targetDocument: Document): void {

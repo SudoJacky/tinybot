@@ -31,6 +31,23 @@ describe("desktop root WebUI bootstrap order", () => {
     expect(chatOptionPosition).toBeGreaterThan(nativeShellPosition);
   });
 
+  test("native startup defers secondary pane and task hydration", () => {
+    const nativeShellPosition = callPosition("installDesktopWorkbenchShell({");
+    const hydrationStart = callPosition("function hydrateNativeStartupPanes(");
+    const hydrationEnd = bootstrapSource.indexOf("const nativeRouteHydratedModules", hydrationStart);
+    expect(hydrationEnd).toBeGreaterThan(hydrationStart);
+    const hydrationSource = bootstrapSource.slice(hydrationStart, hydrationEnd);
+
+    expect(nativeShellPosition).toBeGreaterThanOrEqual(0);
+    expect(hydrationSource).not.toContain("loadNativeSettingsPane()");
+    expect(hydrationSource).not.toContain("loadNativeKnowledgePane()");
+    expect(hydrationSource).not.toContain("loadNativeToolsSkillsPane()");
+    expect(hydrationSource).not.toContain("loadNativeCoworkPane()");
+    expect(hydrationSource).not.toContain("refreshNativeCoworkTasks()");
+    expect(hydrationSource).not.toContain("refreshNativeApprovalTasks()");
+    expect(hydrationSource).not.toContain("installNativeWorkspaceFileActions()");
+  });
+
   test("installs native chat runtime actions after the native shell exists", () => {
     const nativeShellPosition = callPosition("installDesktopWorkbenchShell({");
     const actionInstallPosition = callPosition("installNativeChatRuntimeActions();");

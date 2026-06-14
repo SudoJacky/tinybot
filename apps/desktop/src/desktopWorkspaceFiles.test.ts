@@ -346,6 +346,41 @@ describe("desktop workspace file adapter", () => {
     ]);
   });
 
+  test("resolves installation only after the initial workspace file list loads", async () => {
+    const targetDocument = new FakeDocument();
+    createWorkspaceShell(targetDocument);
+    let resolveList: (payload: unknown) => void = () => undefined;
+    const listStarted: string[] = [];
+    const installation = installDesktopWorkspaceFileActions({
+      targetDocument: targetDocument as unknown as Document,
+      listWorkspaceFiles: async () => {
+        listStarted.push("started");
+        return new Promise((resolve) => {
+          resolveList = resolve;
+        });
+      },
+      loadWorkspaceFile: async (path) => ({ path, content: "", exists: true }),
+      saveWorkspaceFile: async () => ({ saved: true }),
+    });
+    let resolved = false;
+    void installation.then(() => {
+      resolved = true;
+    });
+
+    await Promise.resolve();
+
+    expect(listStarted).toEqual(["started"]);
+    expect(resolved).toBe(false);
+
+    resolveList({
+      items: [{ path: "AGENTS.md", exists: true, updated_at: "2026-05-31T10:00:00+00:00" }],
+    });
+    await installation;
+
+    expect(resolved).toBe(true);
+    expect(targetDocument.getElementById("desktop-workspace-recent-files")?.textContent).toContain("AGENTS.md");
+  });
+
   test("filters workspace files, marks the active row, shows size, and reloads after a save conflict", async () => {
     const targetDocument = new FakeDocument();
     createWorkspaceShell(targetDocument);

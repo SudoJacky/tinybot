@@ -86,6 +86,47 @@ describe("desktop navigation", () => {
     });
   });
 
+  test("can keep docs navigation inside the native workbench route stack", async () => {
+    const preventDefault = vi.fn();
+    const assign = vi.fn();
+    const pushState = vi.fn();
+    const dispatchEvent = vi.fn();
+
+    const handled = await handleDesktopNavigationClick(
+      {
+        button: 0,
+        preventDefault,
+        target: {
+          closest: () => ({
+            getAttribute: (name: string) => (name === "href" ? "/docs" : null),
+            hasAttribute: () => false,
+          }),
+        },
+      },
+      {
+        desktopOrigin,
+        gatewayOrigin,
+        openExternal: vi.fn(),
+        routeDocsInWorkbench: true,
+        targetWindow: {
+          location: { assign, origin: desktopOrigin },
+          history: { pushState },
+          document: {
+            documentElement: { dataset: {} },
+            querySelector: () => null,
+          },
+          dispatchEvent,
+        } as unknown as Window,
+      } as never,
+    );
+
+    expect(handled).toBe(true);
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    expect(assign).not.toHaveBeenCalled();
+    expect(pushState).toHaveBeenCalledWith({ tinybotDesktopRoute: "http://tauri.localhost/docs" }, "", "http://tauri.localhost/docs");
+    expect(dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "tinybot:desktop-route" }));
+  });
+
   test("routes workbench links without leaving the current webview", async () => {
     const preventDefault = vi.fn();
     const navigateInternal = vi.fn();

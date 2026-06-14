@@ -7,6 +7,7 @@ export type StdioServerOptions = {
   worker: AgentWorker;
   diagnosticsBridge?: DiagnosticsBridge;
   rpcClient?: RpcClient;
+  now?: () => number;
   writeLine: (line: string) => void;
   writeLog: (line: string) => void;
 };
@@ -15,6 +16,7 @@ export class StdioServer {
   private readonly worker: AgentWorker;
   private readonly diagnosticsBridge?: DiagnosticsBridge;
   private readonly rpcClient?: RpcClient;
+  private readonly now: () => number;
   private readonly writeLine: (line: string) => void;
   private readonly writeLog: (line: string) => void;
 
@@ -22,6 +24,7 @@ export class StdioServer {
     this.worker = options.worker;
     this.diagnosticsBridge = options.diagnosticsBridge ?? (options.rpcClient ? new NativeDiagnosticsBridge(options.rpcClient) : undefined);
     this.rpcClient = options.rpcClient;
+    this.now = options.now ?? Date.now;
     this.writeLine = options.writeLine;
     this.writeLog = options.writeLog;
   }
@@ -42,7 +45,9 @@ export class StdioServer {
     if (!request) {
       return;
     }
+    const trace = this.traceRequestStart(request);
     const response = await this.worker.handleRequest(request);
+    this.traceRequestComplete(request, response, trace);
     this.writeLine(JSON.stringify(response));
   }
 
@@ -91,6 +96,43 @@ export class StdioServer {
       this.writeLog(`failed to append native diagnostic: ${message}`);
     });
   }
+
+  private traceRequestStart(request: WorkerRequest): { startedAt: number; traced: boolean } {
+    const startedAt = this.now();
+    if (!shouldTraceRequest(request)) {
+      return { startedAt, traced: false };
+    }
+    const route = routeSummary(request);
+    const queuedMs = queuedDurationMs(request, startedAt);
+    this.logDiagnostic([
+      "worker.request.start",
+      `method=${request.method}`,
+      `id=${request.id}`,
+      route ? `route=${route}` : "",
+      queuedMs === null ? "" : `queuedMs=${roundedDuration(queuedMs)}`,
+    ].filter(Boolean).join(" "));
+    return { startedAt, traced: true };
+  }
+
+  private traceRequestComplete(
+    request: WorkerRequest,
+    response: WorkerResponse,
+    trace: { startedAt: number; traced: boolean },
+  ): void {
+    if (!trace.traced) {
+      return;
+    }
+    const route = routeSummary(request);
+    const status = response.error ? "error" : "ok";
+    this.logDiagnostic([
+      "worker.request.complete",
+      `method=${request.method}`,
+      `id=${request.id}`,
+      route ? `route=${route}` : "",
+      `durationMs=${roundedDuration(this.now() - trace.startedAt)}`,
+      `status=${status}`,
+    ].filter(Boolean).join(" "));
+  }
 }
 
 function isWorkerResponse(message: Record<string, unknown>): message is WorkerResponse {
@@ -101,4 +143,27 @@ function isWorkerResponse(message: Record<string, unknown>): message is WorkerRe
     ("result" in message || "error" in message) &&
     !("method" in message)
   );
+}
+
+function shouldTraceRequest(request: WorkerRequest): boolean {
+  return request.method === "webui.handle_request";
+}
+
+function routeSummary(request: WorkerRequest): string {
+  const method = typeof request.params?.method === "string" ? request.params.method : "";
+  const path = typeof request.params?.path === "string" ? request.params.path : "";
+  return method || path ? `${method || "?"} ${path || "?"}` : "";
+}
+
+function queuedDurationMs(request: WorkerRequest, startedAt: number): number | null {
+  const match = /^webui-route-(\d+)$/.exec(request.id);
+  if (!match) {
+    return null;
+  }
+  const enqueuedAt = Number(match[1]);
+  return Number.isFinite(enqueuedAt) ? Math.max(0, startedAt - enqueuedAt) : null;
+}
+
+function roundedDuration(value: number): number {
+  return Math.round(value * 10) / 10;
 }

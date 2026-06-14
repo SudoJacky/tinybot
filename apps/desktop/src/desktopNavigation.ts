@@ -16,6 +16,7 @@ export interface DesktopNavigationOptions {
   openExternal: (href: string) => Promise<void>;
   navigateInternal?: (target: DesktopNavigationTarget) => void | Promise<void>;
   routeGatewayAction?: (target: DesktopNavigationTarget) => void | Promise<void>;
+  routeDocsInWorkbench?: boolean;
   targetWindow?: Window;
 }
 
@@ -150,10 +151,18 @@ async function routeInternalNavigation(target: DesktopNavigationTarget, options:
 
   const targetWindow = options.targetWindow ?? window;
   if (target.kind === "internal-docs") {
+    if (options.routeDocsInWorkbench) {
+      routeWorkbenchTarget(target, targetWindow);
+      return;
+    }
     targetWindow.location.assign(target.href);
     return;
   }
 
+  routeWorkbenchTarget(target, targetWindow);
+}
+
+function routeWorkbenchTarget(target: DesktopNavigationTarget, targetWindow: Window): void {
   targetWindow.history.pushState({ tinybotDesktopRoute: target.href }, "", target.href);
   targetWindow.document.documentElement.dataset.desktopNavigationKind = target.kind;
   targetWindow.document.documentElement.dataset.desktopNavigationHref = target.href;
