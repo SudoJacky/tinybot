@@ -189,6 +189,14 @@ describe("createAgentWorkerServer", () => {
         running: false,
         channels: [],
         diagnostics: [],
+        bus: {
+          inboundSize: 0,
+          outboundSize: 0,
+          warningThreshold: 100,
+          warnings: [],
+          lastWarningAt: null,
+          closed: false,
+        },
       },
     });
     expect(parsedLines(lines).find((line) => line.id === "channel-start")).toMatchObject({

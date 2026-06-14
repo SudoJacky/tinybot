@@ -1,4 +1,4 @@
-import type { MessageBus } from "../bus/messageBus.ts";
+import type { MessageBus, MessageBusStats } from "../bus/messageBus.ts";
 import type { OutboundMessage } from "../bus/messageTypes.ts";
 
 const RESTART_NOTIFY_CHANNEL_ENV = "tinybot_RESTART_NOTIFY_CHANNEL";
@@ -28,6 +28,7 @@ export type ChannelManagerStatus = {
   running: boolean;
   channels: ChannelStatus[];
   diagnostics: ChannelDispatchDiagnostic[];
+  bus: MessageBusStats;
 };
 
 export type ChannelDispatchDiagnostic = {
@@ -113,6 +114,7 @@ export class ChannelManager {
         running: this.runningChannels.has(channel.name),
       })),
       diagnostics: this.diagnostics(),
+      bus: this.bus.stats(),
     };
   }
 

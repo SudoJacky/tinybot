@@ -341,7 +341,7 @@ class DefaultNativeChannelLifecycleManager implements ChannelLifecycleManager {
   }
 
   status() {
-    return this.manager?.status() ?? emptyChannelManagerStatus();
+    return this.manager?.status() ?? emptyChannelManagerStatus(this.bus);
   }
 
   private async managerForCurrentConfig(): Promise<ChannelManager> {
@@ -388,11 +388,12 @@ class DefaultNativeChannelLifecycleManager implements ChannelLifecycleManager {
   }
 }
 
-function emptyChannelManagerStatus() {
+function emptyChannelManagerStatus(bus: MessageBus) {
   return {
     running: false,
     channels: [],
     diagnostics: [],
+    bus: bus.stats(),
   };
 }
 

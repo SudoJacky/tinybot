@@ -60,6 +60,40 @@ describe("ChannelManager", () => {
     });
   });
 
+  test("includes message bus queue stats in channel status", async () => {
+    const bus = new MessageBus({
+      warningThreshold: 0,
+      now: () => "2026-06-14T08:00:00.000Z",
+    });
+    const websocket = adapter();
+    const manager = new ChannelManager({ bus, channels: [websocket] });
+
+    await bus.publishInbound({
+      channel: "websocket",
+      senderId: "client-1",
+      chatId: "chat-1",
+      content: "queued",
+      timestamp: "2026-06-14T08:00:00.000Z",
+      media: [],
+      metadata: {},
+    });
+    await bus.publishOutbound(outbound({ content: "pending reply" }));
+
+    expect(manager.status()).toMatchObject({
+      bus: {
+        inboundSize: 1,
+        outboundSize: 1,
+        warningThreshold: 0,
+        lastWarningAt: "2026-06-14T08:00:00.000Z",
+        closed: false,
+        warnings: [
+          { queue: "inbound", size: 1, threshold: 0 },
+          { queue: "outbound", size: 1, threshold: 0 },
+        ],
+      },
+    });
+  });
+
   test("continues starting channels when one channel fails to start", async () => {
     const bus = new MessageBus();
     const broken = adapter({
