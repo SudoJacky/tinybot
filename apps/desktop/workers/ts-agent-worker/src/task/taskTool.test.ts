@@ -208,7 +208,7 @@ describe("createTaskTool", () => {
     });
 
     await expect(tool.execute({ action: "resume", plan_id: "plan-1" }, context)).resolves.toEqual({
-      content: "Plan already completed. Use `task action=summary plan_id={plan_id}` to get the final results.",
+      content: "Plan already completed. Use `task action=summary plan_id=plan-1` to get the final results.",
     });
     await expect(tool.execute({ action: "resume", plan_id: "running" }, context)).resolves.toEqual({
       content: [
@@ -276,7 +276,7 @@ describe("createTaskTool", () => {
       content: "Error: Plan is blocked. All pending tasks have unmet dependencies.\nUse `task action=status plan_id=blocked` to inspect.",
     });
     await expect(tool.execute({ action: "resume", plan_id: "all-done" }, context)).resolves.toEqual({
-      content: "All subtasks are completed. Use `task action=summary plan_id={plan_id}` to get the final results.",
+      content: "All subtasks are completed. Use `task action=summary plan_id=all-done` to get the final results.",
     });
     await expect(tool.execute({ action: "resume", plan_id: "no-ready" }, context)).resolves.toEqual({
       content: "No ready subtasks found. Check plan status.",

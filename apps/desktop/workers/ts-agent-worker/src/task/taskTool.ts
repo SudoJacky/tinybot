@@ -184,7 +184,7 @@ async function resumeResult(runtime: TaskRuntime, args: Record<string, unknown>,
   }
   const existingProgress = taskProgressPayload(plan);
   if (plan.status === "completed") {
-    return { content: "Plan already completed. Use `task action=summary plan_id={plan_id}` to get the final results." };
+    return { content: `Plan already completed. Use \`task action=summary plan_id=${planId}\` to get the final results.` };
   }
   if (plan.status === "executing") {
     return { content: `Plan is already executing.\n\n${formatProgress(existingProgress)}` };
@@ -202,7 +202,7 @@ async function resumeResult(runtime: TaskRuntime, args: Record<string, unknown>,
   }
   if (readySubtasks(plan).length === 0) {
     if (isPlanCompleted(plan)) {
-      return { content: "All subtasks are completed. Use `task action=summary plan_id={plan_id}` to get the final results." };
+      return { content: `All subtasks are completed. Use \`task action=summary plan_id=${planId}\` to get the final results.` };
     }
     return { content: "No ready subtasks found. Check plan status." };
   }
