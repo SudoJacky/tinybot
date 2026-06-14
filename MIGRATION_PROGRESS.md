@@ -2,6 +2,8 @@
 
 ## 2026-06-14 Progress Note
 
+- Continued MCP runtime lazy-connect parity: TS-native agent runs now include MCP connection fields such as `command`, `args`, `type`, `url`, `env`, and `headers` in the native discovery cache signature, so config changes trigger rediscovery instead of reusing stale tools.
+
 - Continued MCP runtime lazy-connect parity: TS-native agent runs now reuse active native MCP discovery for unchanged config snapshots, matching Python's one-time `_mcp_connected` behavior instead of reconnecting MCP tools every turn.
 
 - Continued MCP runtime lazy-connect parity: TS-native agent runs now skip native MCP discovery when the current config has no MCP servers, matching Python `AgentLoop._connect_mcp()` no-op behavior for empty MCP configuration.

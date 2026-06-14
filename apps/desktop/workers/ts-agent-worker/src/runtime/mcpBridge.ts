@@ -20,6 +20,7 @@ type NativeMcpServerTools = {
 type NativeMcpServerOverride = {
   enabledTools?: string[];
   toolTimeout?: number;
+  connectionConfig: Record<string, unknown>;
 };
 
 export class NativeMcpBridge {
@@ -153,7 +154,9 @@ function nativeMcpServerOverrides(configSnapshot: unknown): Map<string, NativeMc
     if (!server) {
       continue;
     }
-    const override: NativeMcpServerOverride = {};
+    const override: NativeMcpServerOverride = {
+      connectionConfig: nativeMcpServerConnectionSignature(server),
+    };
     const enabledTools = server.enabledTools ?? server.enabled_tools;
     if (Array.isArray(enabledTools)) {
       override.enabledTools = enabledTools.filter((tool): tool is string => typeof tool === "string");
@@ -175,8 +178,36 @@ function nativeMcpConfigSignature(overrides: Map<string, NativeMcpServerOverride
       {
         enabledTools: override.enabledTools ? [...override.enabledTools].sort() : undefined,
         toolTimeout: override.toolTimeout,
+        connectionConfig: stableJsonValue(override.connectionConfig),
       },
     ]));
+}
+
+function nativeMcpServerConnectionSignature(server: Record<string, unknown>): Record<string, unknown> {
+  return {
+    type: server.type,
+    command: server.command,
+    args: server.args,
+    env: server.env,
+    url: server.url,
+    headers: server.headers,
+  };
+}
+
+function stableJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(stableJsonValue);
+  }
+  const record = asRecord(value);
+  if (record) {
+    return Object.fromEntries(Object.entries(record)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => [key, stableJsonValue(item)]));
+  }
+  if (value === null || ["boolean", "number", "string"].includes(typeof value)) {
+    return value;
+  }
+  return undefined;
 }
 
 function parseNativeMcpListToolsResult(value: unknown): NativeMcpServerTools[] {

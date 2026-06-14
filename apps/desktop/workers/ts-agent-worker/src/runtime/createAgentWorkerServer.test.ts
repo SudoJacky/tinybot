@@ -3080,6 +3080,147 @@ describe("createAgentWorkerServer", () => {
     });
   });
 
+  test("refreshes native MCP discovery when MCP connection config changes", async () => {
+    const lines: string[] = [];
+    const provider = new QueueProvider([
+      { content: "first mcp config", toolCalls: [], stopReason: "stop" },
+      { content: "second mcp config", toolCalls: [], stopReason: "stop" },
+    ]);
+    const firstConfigSnapshot = {
+      tools: {
+        mcpServers: {
+          docs: {
+            command: "node-a",
+            args: ["server-a.js"],
+            enabledTools: ["search"],
+            toolTimeout: 9,
+          },
+        },
+      },
+    };
+    const secondConfigSnapshot = {
+      tools: {
+        mcpServers: {
+          docs: {
+            command: "node-b",
+            args: ["server-b.js"],
+            enabledTools: ["search"],
+            toolTimeout: 9,
+          },
+        },
+      },
+    };
+    const server = createAgentWorkerServer({
+      provider,
+      tools: new ToolRegistry(),
+      enableNativeMcpDiscovery: true,
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const firstRun = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "req-mcp-refresh-1",
+        trace_id: "trace-mcp-refresh-1",
+        method: "agent.run",
+        params: {
+          spec: {
+            runId: "run-mcp-refresh-1",
+            messages: [{ role: "user", content: "first" }],
+            model: "test-model",
+            maxIterations: 1,
+            stream: false,
+          },
+        },
+      }),
+    );
+
+    await respondToConfigSnapshot(server, lines, firstConfigSnapshot);
+    await waitFor(() => parsedLines(lines).some((line) => line.method === "mcp.list_tools"));
+    const firstListRequest = parsedLines(lines).find((line) => line.method === "mcp.list_tools");
+    await server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: firstListRequest?.id,
+        trace_id: firstListRequest?.trace_id,
+        result: {
+          servers: [{
+            name: "docs",
+            tools: [{ name: "search", description: "Search docs", inputSchema: { type: "object" } }],
+          }],
+        },
+      }),
+    );
+    await firstRun;
+
+    const priorRequestIds = new Set(parsedLines(lines).map((line) => line.id));
+    const secondRun = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "req-mcp-refresh-2",
+        trace_id: "trace-mcp-refresh-2",
+        method: "agent.run",
+        params: {
+          spec: {
+            runId: "run-mcp-refresh-2",
+            messages: [{ role: "user", content: "second" }],
+            model: "test-model",
+            maxIterations: 1,
+            stream: false,
+          },
+        },
+      }),
+    );
+
+    await waitFor(() => parsedLines(lines).some((line) =>
+      line.method === "config.snapshot_public" && !priorRequestIds.has(line.id)
+    ));
+    const secondConfigRequest = parsedLines(lines).find((line) =>
+      line.method === "config.snapshot_public" && !priorRequestIds.has(line.id)
+    );
+    await server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: secondConfigRequest?.id,
+        trace_id: secondConfigRequest?.trace_id,
+        result: { value: secondConfigSnapshot },
+      }),
+    );
+
+    await waitFor(() => parsedLines(lines).some((line) => line.id === "req-mcp-refresh-2" && "result" in line)
+      || parsedLines(lines).some((line) => line.method === "mcp.list_tools" && !priorRequestIds.has(line.id)));
+    const secondListRequest = parsedLines(lines).find((line) =>
+      line.method === "mcp.list_tools" && !priorRequestIds.has(line.id)
+    );
+    if (secondListRequest) {
+      await server.handleLine(
+        JSON.stringify({
+          protocol_version: "1",
+          id: secondListRequest.id,
+          trace_id: secondListRequest.trace_id,
+          result: {
+            servers: [{
+              name: "docs",
+              tools: [{ name: "search", description: "Search docs", inputSchema: { type: "object" } }],
+            }],
+          },
+        }),
+      );
+    }
+    await secondRun;
+
+    expect(parsedLines(lines).filter((line) => line.method === "mcp.list_tools")).toHaveLength(2);
+    expect(provider.options[0].tools?.map((tool) => tool.name)).toContain("mcp_docs_search");
+    expect(provider.options[1].tools?.map((tool) => tool.name)).toContain("mcp_docs_search");
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      protocol_version: "1",
+      id: "req-mcp-refresh-2",
+      trace_id: "trace-mcp-refresh-2",
+      result: { finalContent: "second mcp config", stopReason: "final_response" },
+    });
+  });
+
   test("skips native MCP discovery when the current config has no MCP servers", async () => {
     const lines: string[] = [];
     const provider = new QueueProvider([
