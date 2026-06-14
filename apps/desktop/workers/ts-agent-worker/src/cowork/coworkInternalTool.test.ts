@@ -232,4 +232,55 @@ describe("cowork_internal tool", () => {
     const saved = await store.readSnapshot(session.id, "trace-read");
     expect(saved?.workspace_dir).toBe(originalWorkspaceDir);
   });
+
+  it("ignores non-list non-string artifact fields in structured task results", async () => {
+    const store = createMemoryCoworkStore();
+    const idGenerator = deterministicIds();
+    const service = new CoworkService({
+      store,
+      now: () => fixedNow,
+      idGenerator,
+    });
+    const session = await service.createSession({
+      traceId: "trace-create",
+      goal: "Keep artifacts clean",
+      title: "Artifact result",
+      workflowMode: "team",
+      agents: [{
+        id: "lead",
+        name: "Lead",
+        role: "Lead",
+        goal: "Coordinate",
+        responsibilities: ["Finish"],
+      }],
+      tasks: [{
+        id: "finish",
+        title: "Finish",
+        description: "Complete the work",
+        assigned_agent_id: "lead",
+      }],
+    });
+    const tool = createCoworkInternalTool({
+      store,
+      sessionId: session.id,
+      senderId: "lead",
+      now: () => fixedNow,
+      idGenerator,
+    });
+
+    await tool.execute({
+      action: "complete_task",
+      task_id: "finish",
+      content: JSON.stringify({
+        answer: "All work is complete.",
+        artifacts: 123,
+        files: { path: "bad" },
+        paths: "/tmp/report.md",
+      }),
+    }, { runId: "run-1", traceId: "trace-complete" });
+
+    const saved = await store.readSnapshot(session.id, "trace-read");
+    expect(saved?.artifacts).toEqual(["/tmp/report.md"]);
+    expect(saved?.shared_memory.artifacts.map((entry) => entry.text)).toEqual(["/tmp/report.md"]);
+  });
 });

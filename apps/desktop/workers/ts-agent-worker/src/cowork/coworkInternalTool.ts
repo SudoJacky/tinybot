@@ -1266,11 +1266,8 @@ function mergeTaskArtifacts(session: CoworkSession, resultData: JsonObject): voi
     const raw = resultData[key];
     if (Array.isArray(raw)) {
       artifacts.push(...raw.map(textValue).filter(Boolean));
-    } else {
-      const text = textValue(raw);
-      if (text) {
-        artifacts.push(text);
-      }
+    } else if (typeof raw === "string" && raw.trim()) {
+      artifacts.push(raw.trim());
     }
   }
   const rawOutputDir = typeof resultData.output_dir === "string" ? resultData.output_dir : resultData.workspace_dir;
