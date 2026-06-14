@@ -2704,6 +2704,111 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("wraps Knowledge API provider failures as Python-compatible server errors", async () => {
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      knowledgeProvider: {
+        listDocuments: () => {
+          throw new Error("list failed");
+        },
+        addDocument: () => {
+          throw new Error("add failed");
+        },
+        getDocument: () => {
+          throw new Error("get failed");
+        },
+        deleteDocument: () => {
+          throw new Error("delete failed");
+        },
+        query: () => {
+          throw new Error("query failed");
+        },
+        stats: () => {
+          throw new Error("stats failed");
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
+      path: "/v1/knowledge/documents",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 500,
+        body: {
+          error: {
+            message: "Error listing documents: list failed",
+            type: "server_error",
+            code: 500,
+          },
+        },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/v1/knowledge/query",
+      body: { query: "native" },
+    }))).resolves.toMatchObject({
+      result: {
+        status: 500,
+        body: {
+          error: {
+            message: "Error querying knowledge: query failed",
+            type: "server_error",
+            code: 500,
+          },
+        },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
+      path: "/v1/knowledge/stats",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 500,
+        body: {
+          error: {
+            message: "Error getting stats: stats failed",
+            type: "server_error",
+            code: 500,
+          },
+        },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "GET",
+      path: "/v1/knowledge/graph",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 500,
+        body: {
+          error: {
+            message: "Error getting knowledge graph: stats failed",
+            type: "server_error",
+            code: 500,
+          },
+        },
+      },
+    });
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/v1/knowledge/rebuild-index",
+    }))).resolves.toMatchObject({
+      result: {
+        status: 500,
+        body: {
+          error: {
+            message: "Error rebuilding index: stats failed",
+            type: "server_error",
+            code: 500,
+          },
+        },
+      },
+    });
+  });
+
   test("serves WebUI session list control route through TS worker RPC", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),

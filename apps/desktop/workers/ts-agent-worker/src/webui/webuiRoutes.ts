@@ -480,7 +480,11 @@ export async function handleWebuiRouteRequest(
     if (!knowledgeProvider) {
       return { status: 503, body: knowledgeApiError(503, "Knowledge store not initialized") };
     }
-    return { status: 200, body: knowledgeStatsBody(await knowledgeProvider.stats(traceId)) };
+    try {
+      return { status: 200, body: knowledgeStatsBody(await knowledgeProvider.stats(traceId)) };
+    } catch (error) {
+      return knowledgeServerError("Error getting stats", error);
+    }
   }
   const knowledgeJobId = knowledgeJobPath(method, path);
   if (knowledgeJobId !== undefined) {
@@ -1102,16 +1106,20 @@ async function knowledgeListDocumentsResponse(
   if (limit !== undefined) {
     request.limit = limit;
   }
-  const result = await provider.listDocuments(request, traceId);
-  const documents = arrayFromResult(result, "documents");
-  return {
-    status: 200,
-    body: {
-      object: "list",
-      data: documents.map(knowledgeDocumentSummary),
-      total: documents.length,
-    },
-  };
+  try {
+    const result = await provider.listDocuments(request, traceId);
+    const documents = arrayFromResult(result, "documents");
+    return {
+      status: 200,
+      body: {
+        object: "list",
+        data: documents.map(knowledgeDocumentSummary),
+        total: documents.length,
+      },
+    };
+  } catch (error) {
+    return knowledgeServerError("Error listing documents", error);
+  }
 }
 
 async function knowledgeAddDocumentResponse(
@@ -1133,18 +1141,22 @@ async function knowledgeAddDocumentResponse(
   if (!content) {
     return { status: 400, body: knowledgeApiError(400, "Document content is required") };
   }
-  const result = await provider.addDocument(body, traceId);
-  const document = documentFromResult(result);
-  const id = stringValue(document?.id) ?? "";
-  const resultName = stringValue(document?.name) ?? name;
-  return {
-    status: 200,
-    body: {
-      id,
-      name: resultName,
-      message: `Document '${resultName}' added successfully`,
-    },
-  };
+  try {
+    const result = await provider.addDocument(body, traceId);
+    const document = documentFromResult(result);
+    const id = stringValue(document?.id) ?? "";
+    const resultName = stringValue(document?.name) ?? name;
+    return {
+      status: 200,
+      body: {
+        id,
+        name: resultName,
+        message: `Document '${resultName}' added successfully`,
+      },
+    };
+  } catch (error) {
+    return knowledgeServerError("Error adding document", error);
+  }
 }
 
 async function knowledgeUploadDocumentResponse(
@@ -1185,30 +1197,34 @@ async function knowledgeUploadDocumentResponse(
   if (tags.length > 0) {
     uploadBody.tags = tags;
   }
-  const result = await provider.addDocument(uploadBody, traceId);
-  const document = documentFromResult(result);
-  const id = stringValue(document?.id) ?? "";
-  const resultName = stringValue(document?.name) ?? name;
-  const sizeBytes = numberValue(body.size_bytes) ?? numberValue(body.sizeBytes) ?? new TextEncoder().encode(content).length;
-  const asyncIndex = booleanQuery(query.get("async_index"));
-  const responseBody: Record<string, unknown> = {
-    id,
-    name: resultName,
-    file_type: fileType,
-    size_bytes: sizeBytes,
-    message: asyncIndex
-      ? `File '${resultName}' uploaded; knowledge indexing is running`
-      : `File '${resultName}' uploaded and indexed successfully`,
-  };
-  if (asyncIndex) {
-    const job = completedKnowledgeUploadJob(id, resultName);
-    responseBody.job = job;
-    responseBody.job_id = job.id;
+  try {
+    const result = await provider.addDocument(uploadBody, traceId);
+    const document = documentFromResult(result);
+    const id = stringValue(document?.id) ?? "";
+    const resultName = stringValue(document?.name) ?? name;
+    const sizeBytes = numberValue(body.size_bytes) ?? numberValue(body.sizeBytes) ?? new TextEncoder().encode(content).length;
+    const asyncIndex = booleanQuery(query.get("async_index"));
+    const responseBody: Record<string, unknown> = {
+      id,
+      name: resultName,
+      file_type: fileType,
+      size_bytes: sizeBytes,
+      message: asyncIndex
+        ? `File '${resultName}' uploaded; knowledge indexing is running`
+        : `File '${resultName}' uploaded and indexed successfully`,
+    };
+    if (asyncIndex) {
+      const job = completedKnowledgeUploadJob(id, resultName);
+      responseBody.job = job;
+      responseBody.job_id = job.id;
+    }
+    return {
+      status: asyncIndex ? 202 : 200,
+      body: responseBody,
+    };
+  } catch (error) {
+    return knowledgeServerError("Error uploading file", error);
   }
-  return {
-    status: asyncIndex ? 202 : 200,
-    body: responseBody,
-  };
 }
 
 async function knowledgeDocumentResponse(
@@ -1220,25 +1236,29 @@ async function knowledgeDocumentResponse(
   if (!provider) {
     return { status: 503, body: knowledgeApiError(503, "Knowledge store not initialized") };
   }
-  if (method === "DELETE") {
-    const result = asObject(await provider.deleteDocument(docId, traceId));
-    if (result?.deleted !== true) {
+  try {
+    if (method === "DELETE") {
+      const result = asObject(await provider.deleteDocument(docId, traceId));
+      if (result?.deleted !== true) {
+        return { status: 404, body: knowledgeApiError(404, `Document ${docId} not found`) };
+      }
+      return { status: 200, body: { id: docId, message: `Document ${docId} deleted successfully` } };
+    }
+    const result = await provider.getDocument(docId, traceId);
+    const document = documentFromResult(result);
+    if (!document) {
       return { status: 404, body: knowledgeApiError(404, `Document ${docId} not found`) };
     }
-    return { status: 200, body: { id: docId, message: `Document ${docId} deleted successfully` } };
+    return {
+      status: 200,
+      body: {
+        ...knowledgeDocumentSummary(document),
+        content: stringValue(asObject(result)?.content) ?? stringValue(document.content) ?? "",
+      },
+    };
+  } catch (error) {
+    return knowledgeServerError(method === "DELETE" ? "Error deleting document" : "Error getting document", error);
   }
-  const result = await provider.getDocument(docId, traceId);
-  const document = documentFromResult(result);
-  if (!document) {
-    return { status: 404, body: knowledgeApiError(404, `Document ${docId} not found`) };
-  }
-  return {
-    status: 200,
-    body: {
-      ...knowledgeDocumentSummary(document),
-      content: stringValue(asObject(result)?.content) ?? stringValue(document.content) ?? "",
-    },
-  };
 }
 
 async function knowledgeJobResponse(
@@ -1250,28 +1270,44 @@ async function knowledgeJobResponse(
     return { status: 503, body: knowledgeApiError(503, "Knowledge store not initialized") };
   }
   if (jobId === "kjob_rebuild_bm25") {
-    const stats = knowledgeStatsBody(await provider.stats(traceId));
-    return { status: 200, body: completedKnowledgeBm25RebuildJob(stats, knowledgeBm25RebuildResult(stats)) };
+    try {
+      const stats = knowledgeStatsBody(await provider.stats(traceId));
+      return { status: 200, body: completedKnowledgeBm25RebuildJob(stats, knowledgeBm25RebuildResult(stats)) };
+    } catch (error) {
+      return knowledgeServerError("Error getting knowledge job", error);
+    }
   }
   if (jobId === "kjob_rebuild_all") {
-    const stats = knowledgeStatsBody(await provider.stats(traceId));
-    return { status: 200, body: completedKnowledgeAllRebuildJob(stats, knowledgeAllRebuildResult(stats)) };
+    try {
+      const stats = knowledgeStatsBody(await provider.stats(traceId));
+      return { status: 200, body: completedKnowledgeAllRebuildJob(stats, knowledgeAllRebuildResult(stats)) };
+    } catch (error) {
+      return knowledgeServerError("Error getting knowledge job", error);
+    }
   }
   if (jobId === "kjob_rebuild_semantic") {
-    const stats = knowledgeStatsBody(await provider.stats(traceId));
-    return { status: 200, body: completedKnowledgeSemanticRebuildJob(stats) };
+    try {
+      const stats = knowledgeStatsBody(await provider.stats(traceId));
+      return { status: 200, body: completedKnowledgeSemanticRebuildJob(stats) };
+    } catch (error) {
+      return knowledgeServerError("Error getting knowledge job", error);
+    }
   }
   const docId = knowledgeUploadJobDocumentId(jobId);
   if (!docId) {
     return { status: 404, body: knowledgeApiError(404, `Knowledge job ${jobId} not found`) };
   }
-  const result = await provider.getDocument(docId, traceId);
-  const document = documentFromResult(result);
-  if (!document) {
-    return { status: 404, body: knowledgeApiError(404, `Knowledge job ${jobId} not found`) };
+  try {
+    const result = await provider.getDocument(docId, traceId);
+    const document = documentFromResult(result);
+    if (!document) {
+      return { status: 404, body: knowledgeApiError(404, `Knowledge job ${jobId} not found`) };
+    }
+    const name = stringValue(document.name) ?? docId;
+    return { status: 200, body: completedKnowledgeUploadJob(docId, name) };
+  } catch (error) {
+    return knowledgeServerError("Error getting knowledge job", error);
   }
-  const name = stringValue(document.name) ?? docId;
-  return { status: 200, body: completedKnowledgeUploadJob(docId, name) };
 }
 
 async function knowledgeRebuildIndexResponse(
@@ -1290,46 +1326,50 @@ async function knowledgeRebuildIndexResponse(
     };
   }
 
-  const stats = knowledgeStatsBody(await provider.stats(traceId));
-  const result = rebuildType === "all"
-    ? knowledgeAllRebuildResult(stats)
-    : rebuildType === "semantic"
-      ? knowledgeSemanticUnavailableResult()
-      : knowledgeBm25RebuildResult(stats);
-  if (!booleanQuery(query.get("async_index"))) {
-    return {
-      status: 200,
-      body: rebuildType === "all"
-        ? {
-            message: "All available native knowledge indexes rebuilt successfully",
-            ...result,
-          }
-        : rebuildType === "semantic"
+  try {
+    const stats = knowledgeStatsBody(await provider.stats(traceId));
+    const result = rebuildType === "all"
+      ? knowledgeAllRebuildResult(stats)
+      : rebuildType === "semantic"
+        ? knowledgeSemanticUnavailableResult()
+        : knowledgeBm25RebuildResult(stats);
+    if (!booleanQuery(query.get("async_index"))) {
+      return {
+        status: 200,
+        body: rebuildType === "all"
           ? {
-              message: "Semantic index is not available in native TS worker",
+              message: "All available native knowledge indexes rebuilt successfully",
               ...result,
             }
-        : {
-            message: "BM25 index rebuilt successfully",
-            ...result,
-          },
-    };
-  }
+          : rebuildType === "semantic"
+            ? {
+                message: "Semantic index is not available in native TS worker",
+                ...result,
+              }
+          : {
+              message: "BM25 index rebuilt successfully",
+              ...result,
+            },
+      };
+    }
 
-  const job = rebuildType === "all"
-    ? completedKnowledgeAllRebuildJob(stats, result)
-    : rebuildType === "semantic"
-      ? completedKnowledgeSemanticRebuildJob(stats)
-    : completedKnowledgeBm25RebuildJob(stats, result);
-  return {
-    status: 202,
-    body: {
-      message: "Knowledge index rebuild started",
-      job,
-      job_id: job.id,
-      type: rebuildType,
-    },
-  };
+    const job = rebuildType === "all"
+      ? completedKnowledgeAllRebuildJob(stats, result)
+      : rebuildType === "semantic"
+        ? completedKnowledgeSemanticRebuildJob(stats)
+      : completedKnowledgeBm25RebuildJob(stats, result);
+    return {
+      status: 202,
+      body: {
+        message: "Knowledge index rebuild started",
+        job,
+        job_id: job.id,
+        type: rebuildType,
+      },
+    };
+  } catch (error) {
+    return knowledgeServerError("Error rebuilding index", error);
+  }
 }
 
 async function knowledgeGraphResponse(
@@ -1344,8 +1384,12 @@ async function knowledgeGraphResponse(
   if (!params.ok) {
     return { status: 400, body: knowledgeApiError(400, "Invalid graph query params") };
   }
-  const stats = knowledgeStatsBody(await provider.stats(traceId));
-  return { status: 200, body: knowledgeGraphBody(stats, params.value) };
+  try {
+    const stats = knowledgeStatsBody(await provider.stats(traceId));
+    return { status: 200, body: knowledgeGraphBody(stats, params.value) };
+  } catch (error) {
+    return knowledgeServerError("Error getting knowledge graph", error);
+  }
 }
 
 async function knowledgeQueryResponse(
@@ -1363,19 +1407,23 @@ async function knowledgeQueryResponse(
   if (!query) {
     return { status: 400, body: knowledgeApiError(400, "Query text is required") };
   }
-  const result = await provider.query(body, traceId);
-  const data = arrayFromResult(result, "results");
-  const mode = stringValue(body.mode) ?? "hybrid";
-  return {
-    status: 200,
-    body: {
-      object: "list",
-      query,
-      mode,
-      data: data.map(knowledgeQueryItem),
-      total: data.length,
-    },
-  };
+  try {
+    const result = await provider.query(body, traceId);
+    const data = arrayFromResult(result, "results");
+    const mode = stringValue(body.mode) ?? "hybrid";
+    return {
+      status: 200,
+      body: {
+        object: "list",
+        query,
+        mode,
+        data: data.map(knowledgeQueryItem),
+        total: data.length,
+      },
+    };
+  } catch (error) {
+    return knowledgeServerError("Error querying knowledge", error);
+  }
 }
 
 function knowledgeStatsBody(result: unknown): Record<string, unknown> {
@@ -1548,8 +1596,12 @@ async function knowledgeGraphRagResponse(
   if (!params.ok) {
     return { status: 400, body: knowledgeApiError(400, "Invalid GraphRAG query params") };
   }
-  const stats = knowledgeStatsBody(await provider.stats(traceId));
-  return { status: 200, body: knowledgeGraphRagBody(stats, params.value) };
+  try {
+    const stats = knowledgeStatsBody(await provider.stats(traceId));
+    return { status: 200, body: knowledgeGraphRagBody(stats, params.value) };
+  } catch (error) {
+    return knowledgeServerError("Error getting GraphRAG index", error);
+  }
 }
 
 function knowledgeGraphRagBody(
@@ -1812,6 +1864,17 @@ function knowledgeApiError(status: number, message: string, type = "invalid_requ
       code: status,
     },
   };
+}
+
+function knowledgeServerError(message: string, error: unknown): WebuiRouteResponse {
+  return {
+    status: 500,
+    body: knowledgeApiError(500, `${message}: ${errorMessage(error)}`, "server_error"),
+  };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 async function webuiApprovalsResponse(
