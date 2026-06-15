@@ -86,7 +86,10 @@ describe("WebUI knowledge graph extraction routes", () => {
         agents: { defaults: { model: "knowledge-model" } },
         knowledge: {
           enabled: true,
+          graph_extraction_model: "graph-model",
+          graph_extraction_max_tokens: 640,
           semanticLlmMaxTokens: 800,
+          semanticLlmModel: "semantic-model",
           semanticLlmTimeout: 12,
         },
       }),
@@ -166,7 +169,7 @@ describe("WebUI knowledge graph extraction routes", () => {
         extraction_scope: { max_chunks: 5, chunk_count: 1, original_chunk_count: 1 },
         runnable_document_count: 1,
         skipped_count: 0,
-        token_estimate: { total_tokens: expect.any(Number), max_tokens: 800, within_budget: true },
+        token_estimate: { total_tokens: expect.any(Number), max_tokens: 640, within_budget: true },
       },
     });
     expect(completions).toHaveLength(0);
@@ -210,7 +213,7 @@ describe("WebUI knowledge graph extraction routes", () => {
     expect(completions).toHaveLength(1);
     expect(completions[0]).toMatchObject({
       sessionKey: "knowledge:graph-extraction",
-      model: "knowledge-model",
+      model: "graph-model",
       timeoutSeconds: 12,
     });
     expect(completions[0].content).toContain("Return strict JSON");
@@ -218,10 +221,10 @@ describe("WebUI knowledge graph extraction routes", () => {
     expect(saves[0]).toMatchObject({
       doc_id: "doc-1",
       doc_name: "Knowledge.md",
-      model: "knowledge-model",
+      model: "graph-model",
       entities: [{ name: "TinyBot", type: "project", confidence: 0.91 }],
       relations: [{ source: "TinyBot", target: "knowledge graph", predicate: "stores", confidence: 0.82 }],
-      token_estimate: { max_tokens: 800 },
+      token_estimate: { max_tokens: 640 },
     });
   });
 

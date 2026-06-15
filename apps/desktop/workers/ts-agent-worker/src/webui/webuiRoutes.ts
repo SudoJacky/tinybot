@@ -1588,7 +1588,7 @@ async function knowledgeGraphExtractResponse(
   });
   try {
     const model = knowledgeExtractionModel(config);
-    const maxTokens = knowledgeSemanticMaxTokens(config);
+    const maxTokens = knowledgeGraphExtractionMaxTokens(config);
     const maxChunks = knowledgeGraphExtractionMaxChunks(config);
     const plans = [];
     for (const docId of docIds) {
@@ -1953,17 +1953,21 @@ function parseKnowledgeGraphRagQuery(
 
 function knowledgeExtractionModel(config: Record<string, unknown>): string {
   const knowledge = asObject(config.knowledge);
-  return stringValue(knowledge?.semanticLlmModel)
+  return stringValue(knowledge?.graphExtractionModel)
+    ?? stringValue(knowledge?.graph_extraction_model)
+    ?? stringValue(knowledge?.semanticLlmModel)
     ?? stringValue(knowledge?.semantic_llm_model)
     ?? openAiConfiguredModel(config);
 }
 
-function knowledgeSemanticMaxTokens(config: Record<string, unknown>): number {
+function knowledgeGraphExtractionMaxTokens(config: Record<string, unknown>): number {
   const knowledge = asObject(config.knowledge);
   return Math.max(
     1,
     Math.trunc(
-      numberValue(knowledge?.semanticLlmMaxTokens)
+      numberValue(knowledge?.graphExtractionMaxTokens)
+        ?? numberValue(knowledge?.graph_extraction_max_tokens)
+        ?? numberValue(knowledge?.semanticLlmMaxTokens)
         ?? numberValue(knowledge?.semantic_llm_max_tokens)
         ?? 1200,
     ),
