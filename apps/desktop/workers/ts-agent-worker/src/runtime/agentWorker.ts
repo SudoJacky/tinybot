@@ -3104,6 +3104,12 @@ export class AgentWorker {
           this.knowledgeProvider,
           this.webuiCoworkProvider(),
           request.trace_id,
+          (diagnostic) => this.emitEvent({
+            protocol_version: WORKER_PROTOCOL_VERSION,
+            trace_id: request.trace_id,
+            event: "diagnostics.log",
+            payload: diagnostic,
+          }),
         ),
       };
     } catch (error) {
