@@ -362,6 +362,14 @@ export function installDesktopFileUploadActions({
   bindClickOnce(targetDocument.querySelector<HTMLButtonElement>("#desktop-knowledge-upload"), "knowledge-upload", () => {
     void runKnowledgeUpload({ targetDocument, pickFile, uploadKnowledgeDocument, onKnowledgeUploaded, onKnowledgeTaskUpdated });
   });
+  targetDocument.querySelectorAll<HTMLElement>("[data-desktop-drop-target]").forEach((target) => {
+    if (target.getAttribute("data-desktop-drop-target") !== "knowledge-document") {
+      return;
+    }
+    bindClickOnce(target, "knowledge-drop-zone-upload", () => {
+      void runKnowledgeUpload({ targetDocument, pickFile, uploadKnowledgeDocument, onKnowledgeUploaded, onKnowledgeTaskUpdated });
+    });
+  });
 
   bindClickOnce(targetDocument.querySelector<HTMLButtonElement>("#desktop-session-file-upload"), "session-file-upload", () => {
     const sessionKey = (

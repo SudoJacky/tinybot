@@ -60,11 +60,48 @@ describe("desktop knowledge and traceability helpers", () => {
         title: "Architecture",
         path: "docs/architecture.md",
         category: "docs",
+        typeLabel: "docs",
+        sizeLabel: "-",
+        addedLabel: "2026-05-31 08:00",
         tags: ["system", "desktop"],
         chunkCount: 12,
         status: "indexed",
         updatedAt: "2026-05-31T08:00:00Z",
         meta: "docs / indexed / 12 chunks / 2026-05-31T08:00:00Z",
+      },
+    ]);
+  });
+
+  test("normalizes root WebUI list envelopes for native knowledge documents", () => {
+    expect(
+      buildDesktopKnowledgeDocumentRows({
+        object: "list",
+        data: [
+          {
+            id: "doc-upload",
+            name: "Uploaded notes",
+            path: "knowledge/notes.md",
+            chunk_count: 3,
+            updated_at: "2026-06-15T08:30:00Z",
+            status: "indexed",
+          },
+        ],
+        total: 1,
+      }),
+    ).toEqual([
+      {
+        id: "doc-upload",
+        title: "Uploaded notes",
+        path: "knowledge/notes.md",
+        category: "",
+        typeLabel: "MD",
+        sizeLabel: "-",
+        addedLabel: "2026-06-15 08:30",
+        tags: [],
+        chunkCount: 3,
+        status: "indexed",
+        updatedAt: "2026-06-15T08:30:00Z",
+        meta: "indexed / 3 chunks / 2026-06-15T08:30:00Z",
       },
     ]);
   });
