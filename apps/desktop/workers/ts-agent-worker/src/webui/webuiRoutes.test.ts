@@ -221,6 +221,91 @@ describe("WebUI knowledge graph extraction routes", () => {
       token_estimate: { max_tokens: 800 },
     });
   });
+
+  test("allows dry-run estimates but rejects extraction when graph extraction is disabled", async () => {
+    const configProvider: WebuiConfigProvider = {
+      getConfig: () => ({
+        agents: { defaults: { model: "knowledge-model" } },
+        knowledge: {
+          enabled: true,
+          graph_extraction_enabled: false,
+          semantic_llm_max_tokens: 800,
+        },
+      }),
+      patchConfig: () => ({}),
+    };
+    const knowledgeProvider: WebuiKnowledgeProvider = {
+      listDocuments: () => ({ documents: [] }),
+      addDocument: () => ({ document: {} }),
+      getDocument: () => ({
+        document: { id: "doc-1", name: "Knowledge.md", chunk_count: 1 },
+        content: "# Knowledge\nTinyBot stores knowledge.\n",
+      }),
+      deleteDocument: () => ({ deleted: false }),
+      query: () => ({ results: [] }),
+      stats: () => ({ total_documents: 1, total_chunks: 1, retrieval_ready: true }),
+      saveEntityGraphExtraction: () => {
+        throw new Error("save should not run when graph extraction is disabled");
+      },
+    };
+
+    const estimate = await handleWebuiRouteRequest(
+      {
+        method: "POST",
+        path: "/v1/knowledge/graph/extract",
+        body: { doc_id: "doc-1", dry_run: true },
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      configProvider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      knowledgeProvider,
+      undefined,
+      "trace-extract-disabled",
+    );
+
+    expect(estimate.status).toBe(200);
+
+    const extraction = await handleWebuiRouteRequest(
+      {
+        method: "POST",
+        path: "/v1/knowledge/graph/extract",
+        body: { doc_id: "doc-1" },
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      configProvider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      knowledgeProvider,
+      undefined,
+      "trace-extract-disabled",
+    );
+
+    expect(extraction).toMatchObject({
+      status: 403,
+      body: {
+        error: {
+          message: "Knowledge graph extraction is disabled",
+        },
+      },
+    });
+  });
 });
 
 describe("WebUI route temporary files", () => {

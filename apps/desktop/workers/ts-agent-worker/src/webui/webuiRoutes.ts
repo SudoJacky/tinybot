@@ -1582,6 +1582,9 @@ async function knowledgeGraphExtractResponse(
         },
       };
     }
+    if (!knowledgeGraphExtractionEnabled(config)) {
+      return { status: 403, body: knowledgeApiError(403, "Knowledge graph extraction is disabled", "forbidden") };
+    }
     if (!openAiCompatProvider) {
       return { status: 503, body: knowledgeApiError(503, "OpenAI-compatible runtime unavailable", "server_error") };
     }
@@ -1927,6 +1930,11 @@ function knowledgeSemanticTimeoutSeconds(config: Record<string, unknown>): numbe
     ?? numberValue(knowledge?.semantic_llm_timeout)
     ?? openAiRequestTimeoutSeconds(config);
   return Math.max(1, timeout);
+}
+
+function knowledgeGraphExtractionEnabled(config: Record<string, unknown>): boolean {
+  const knowledge = asObject(config.knowledge);
+  return knowledge?.graphExtractionEnabled !== false && knowledge?.graph_extraction_enabled !== false;
 }
 
 function knowledgeGraphExtractionTokenEstimate(content: string, maxTokens: number): Record<string, unknown> {

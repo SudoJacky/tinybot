@@ -66,6 +66,9 @@ export interface DesktopSettingsFormState {
     semanticExtractionMode: string | null;
     semanticLlmMaxTokens: number | null;
     semanticLlmTimeout: number | null;
+    graphExtractionEnabled: boolean;
+    graphAutoExtract: boolean;
+    graphExtractionConcurrency: number | null;
     graphRagCommunityAlgorithm: string | null;
     graphRagCommunityLevel: number | null;
     graphRagReportLlmEnabled: boolean;
@@ -288,6 +291,9 @@ export function buildDesktopSettingsFormState(
       semanticExtractionMode: stringOrDefault(pick(knowledge, "semanticExtractionMode", "semantic_extraction_mode"), "rule"),
       semanticLlmMaxTokens: numberOrDefault(pick(knowledge, "semanticLlmMaxTokens", "semantic_llm_max_tokens"), 1200),
       semanticLlmTimeout: numberOrDefault(pick(knowledge, "semanticLlmTimeout", "semantic_llm_timeout"), 30),
+      graphExtractionEnabled: pick(knowledge, "graphExtractionEnabled", "graph_extraction_enabled") !== false,
+      graphAutoExtract: boolValue(pick(knowledge, "graphAutoExtract", "graph_auto_extract")),
+      graphExtractionConcurrency: numberOrDefault(pick(knowledge, "graphExtractionConcurrency", "graph_extraction_concurrency"), 1),
       graphRagCommunityAlgorithm: stringOrDefault(
         pick(knowledge, "graphragCommunityAlgorithm", "graphrag_community_algorithm"),
         "greedy",
@@ -518,6 +524,9 @@ export function createDesktopSettingsPatch(
       semantic_extraction_mode: state.knowledge.semanticExtractionMode,
       semantic_llm_max_tokens: state.knowledge.semanticLlmMaxTokens,
       semantic_llm_timeout: state.knowledge.semanticLlmTimeout,
+      graph_extraction_enabled: state.knowledge.graphExtractionEnabled,
+      graph_auto_extract: state.knowledge.graphAutoExtract,
+      graph_extraction_concurrency: state.knowledge.graphExtractionConcurrency,
       graphrag_community_algorithm: state.knowledge.graphRagCommunityAlgorithm,
       graphrag_community_level: state.knowledge.graphRagCommunityLevel,
       graphrag_report_llm_enabled: state.knowledge.graphRagReportLlmEnabled,
@@ -763,6 +772,15 @@ export function applyDesktopSettingsFieldEdit(
       break;
     case "rerankTopN":
       nextState.knowledge.rerankTopN = numberOrNullInput(text);
+      break;
+    case "graphExtractionEnabled":
+      nextState.knowledge.graphExtractionEnabled = Boolean(value);
+      break;
+    case "graphAutoExtract":
+      nextState.knowledge.graphAutoExtract = Boolean(value);
+      break;
+    case "graphExtractionConcurrency":
+      nextState.knowledge.graphExtractionConcurrency = numberOrNullInput(text);
       break;
     case "webEnable":
       nextState.tools.webEnable = Boolean(value);
@@ -1304,6 +1322,15 @@ function buildDesktopSettingsPaneGroups(
           configurationMode: "numeric",
           advanced: true,
           min: 0,
+          step: 1,
+        }),
+        field("graphExtractionEnabled", "Graph extraction", state.knowledge.graphExtractionEnabled, { control: "checkbox" }),
+        field("graphAutoExtract", "Auto extract graph", state.knowledge.graphAutoExtract, { control: "checkbox", advanced: true }),
+        field("graphExtractionConcurrency", "Graph extraction concurrency", state.knowledge.graphExtractionConcurrency, {
+          control: "number",
+          configurationMode: "numeric",
+          advanced: true,
+          min: 1,
           step: 1,
         }),
       ],
