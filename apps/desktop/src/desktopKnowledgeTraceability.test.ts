@@ -29,6 +29,24 @@ describe("desktop knowledge and traceability helpers", () => {
 
     expect(view.score).toBe(57);
     expect(view.titleKey).toBe("knowledge.healthStale");
+    expect(view.rows[0]).toMatchObject({
+      id: "retrieval",
+      status: "not_started",
+      processed: 0,
+      total: 0,
+      failed: 0,
+      stale: 0,
+      detail: "dense 24 / sparse 24",
+    });
+    expect(view.rows[2]).toMatchObject({
+      id: "relations",
+      status: "stale",
+      processed: 1,
+      total: 2,
+      failed: 0,
+      stale: 1,
+      detail: "1 / 2 processed; 1 stale",
+    });
     expect(view.rows.map((row) => [row.id, row.tone])).toEqual([
       ["retrieval", "ready"],
       ["claims", "ready"],
@@ -66,10 +84,92 @@ describe("desktop knowledge and traceability helpers", () => {
         tags: ["system", "desktop"],
         chunkCount: 12,
         status: "indexed",
+        phaseLabel: "Indexed",
+        progressPercent: 100,
+        progressDetail: "12 chunks indexed",
         updatedAt: "2026-05-31T08:00:00Z",
-        meta: "docs / indexed / 12 chunks / 2026-05-31T08:00:00Z",
+        meta: "docs / Indexed / 12 chunks / 2026-05-31T08:00:00Z",
       },
     ]);
+  });
+
+  test("infers chunked progress when backend status is unknown but chunks exist", () => {
+    expect(
+      buildDesktopKnowledgeDocumentRows({
+        documents: [
+          {
+            id: "doc-stuck",
+            title: "Migration progress",
+            path: "knowledge/files/doc.md",
+            category: "md",
+            chunk_count: 13,
+            status: "unknown",
+          },
+        ],
+      })[0],
+    ).toMatchObject({
+      id: "doc-stuck",
+      status: "chunked",
+      phaseLabel: "Chunks indexed",
+      progressPercent: 50,
+      progressDetail: "13 chunks available; waiting for semantic or graph stages",
+      meta: "md / Chunks indexed / 13 chunks",
+    });
+  });
+
+  test("preserves failed document progress instead of falling back to queued", () => {
+    expect(
+      buildDesktopKnowledgeDocumentRows({
+        documents: [
+          {
+            id: "doc-failed",
+            title: "Broken notes",
+            path: "knowledge/files/broken.md",
+            category: "md",
+            chunk_count: 4,
+            status: "failed",
+          },
+        ],
+      })[0],
+    ).toMatchObject({
+      id: "doc-failed",
+      status: "failed",
+      phaseLabel: "Failed",
+      progressPercent: 0,
+      progressDetail: "4 chunks parsed; indexing failed",
+      meta: "md / Failed / 4 chunks",
+    });
+  });
+
+  test("preserves native not configured semantic stages instead of showing them as pending work", () => {
+    const view = buildDesktopKnowledgeReadinessView({
+      total_documents: 1,
+      total_chunks: 13,
+      indexed_sparse: 26,
+      stage_readiness: {
+        dense_indexing: { status: "not_configured", ready: false, processed: 0, total: 0, skipped: 13 },
+        sparse_indexing: { status: "ready", ready: true, processed: 26, total: 26 },
+        claim_extraction: { status: "not_configured", ready: false, processed: 0, total: 0, skipped: 13 },
+        relation_extraction: { status: "not_configured", ready: false, processed: 0, total: 0, skipped: 13 },
+        graph_projection: { status: "not_configured", ready: false, processed: 0, total: 0, skipped: 13 },
+        community_report_projection: { status: "not_configured", ready: false, processed: 0, total: 0, skipped: 13 },
+      },
+    });
+
+    expect(view.rows.find((row) => row.id === "retrieval")).toMatchObject({
+      status: "ready",
+      tone: "ready",
+      detail: "26 / 26 processed",
+    });
+    expect(view.rows.find((row) => row.id === "claims")).toMatchObject({
+      status: "not_configured",
+      tone: "muted",
+      detail: "not_configured",
+    });
+    expect(view.rows.find((row) => row.id === "graph")).toMatchObject({
+      status: "not_configured",
+      tone: "muted",
+    });
   });
 
   test("normalizes root WebUI list envelopes for native knowledge documents", () => {
@@ -100,8 +200,11 @@ describe("desktop knowledge and traceability helpers", () => {
         tags: [],
         chunkCount: 3,
         status: "indexed",
+        phaseLabel: "Indexed",
+        progressPercent: 100,
+        progressDetail: "3 chunks indexed",
         updatedAt: "2026-06-15T08:30:00Z",
-        meta: "indexed / 3 chunks / 2026-06-15T08:30:00Z",
+        meta: "Indexed / 3 chunks / 2026-06-15T08:30:00Z",
       },
     ]);
   });
@@ -478,7 +581,7 @@ describe("desktop knowledge and traceability helpers", () => {
     expect(pane.selectedDocument).toMatchObject({
       id: "doc-1",
       title: "Desktop UX",
-      detail: "docs/desktop.md / indexed / 10 chunks",
+      detail: "docs/desktop.md / Indexed / 10 chunks",
     });
     expect(pane.query).toMatchObject({
       draft: { query: "desktop graph", mode: "local", topK: 4 },

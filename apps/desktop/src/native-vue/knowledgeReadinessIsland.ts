@@ -57,14 +57,17 @@ function createKnowledgeReadinessApp(options: KnowledgeReadinessIslandOptions): 
 }
 
 function pipelineSteps(readiness: DesktopKnowledgeReadinessView) {
-  const readyRows = new Set(readiness.rows.filter((row) => row.tone === "ready").map((row) => row.id));
-  const retrievalReady = readyRows.has("retrieval");
+  const rows = new Map(readiness.rows.map((row) => [row.id, row]));
+  const retrieval = rows.get("retrieval");
+  const graph = rows.get("graph");
+  const retrievalReady = retrieval?.tone === "ready";
+  const graphReady = graph?.tone === "ready";
   return [
     { label: "Upload", detail: readiness.score > 0 ? "Sources loaded" : "No files", state: readiness.score > 0 ? "done" : "wait" },
     { label: "Parse", detail: retrievalReady ? "Ready" : "Wait", state: retrievalReady ? "done" : "active" },
-    { label: "Chunk", detail: retrievalReady ? "Chunks indexed" : "Wait", state: retrievalReady ? "done" : "wait" },
+    { label: "Chunk", detail: retrievalReady ? "Chunks indexed" : retrieval?.detail || "Wait", state: retrievalReady ? "done" : "wait" },
     { label: "Embed", detail: retrievalReady ? "Ready" : "In progress", state: retrievalReady ? "done" : "active" },
-    { label: "Graph Build", detail: readyRows.has("graph") ? "Ready" : "Wait", state: readyRows.has("graph") ? "done" : "wait" },
+    { label: "Graph Build", detail: graphReady ? graph?.detail || "Ready" : graph?.detail || "Wait", state: graphReady ? "done" : "wait" },
     { label: "Complete", detail: readiness.score >= 100 ? "Complete" : "-", state: readiness.score >= 100 ? "done" : "wait" },
   ];
 }
@@ -81,10 +84,11 @@ function renderHints(configHints: string[]) {
 
 function renderRows(rows: DesktopKnowledgeReadinessRow[]) {
   return h(NSpace, { vertical: true, size: 4 }, {
-    default: () => rows.map((row) => h("p", [
-      `${row.id}: ${row.tone}`,
+    default: () => rows.map((row) => h("p", { class: "desktop-knowledge-stage-detail" }, [
+      `${row.id}: ${row.status}`,
       " ",
       h(NTag, { size: "small", round: true, type: rowToneType(row.tone) }, { default: () => row.tone }),
+      row.detail ? h("span", ` ${row.detail}`) : null,
     ])),
   });
 }

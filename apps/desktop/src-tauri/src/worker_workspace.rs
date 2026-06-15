@@ -594,7 +594,10 @@ fn collect_workspace_files(
                 }),
             )
         })?;
-        if metadata.file_type().is_symlink() || ignored_workspace_path(root, &path) {
+        if metadata.file_type().is_symlink()
+            || ignored_workspace_path(root, &path)
+            || hidden_workspace_path(root, &path)
+        {
             continue;
         }
         if metadata.is_dir() {
@@ -679,6 +682,18 @@ fn ignored_workspace_path(base: &Path, path: &Path) -> bool {
             relative.components().any(|component| {
                 let name = component.as_os_str().to_string_lossy();
                 IGNORED_DIRS.iter().any(|ignored| *ignored == name)
+            })
+        })
+        .unwrap_or(false)
+}
+
+fn hidden_workspace_path(base: &Path, path: &Path) -> bool {
+    path.strip_prefix(base)
+        .ok()
+        .map(|relative| {
+            relative.components().any(|component| {
+                let name = component.as_os_str().to_string_lossy();
+                name.starts_with('.') && name.len() > 1
             })
         })
         .unwrap_or(false)
@@ -1043,6 +1058,22 @@ mod tests {
         fixture.write("node_modules/pkg/index.js", "noise");
         fixture.write(".git/objects/pack.idx", "noise");
         fixture.write("target/debug/app.exe", "noise");
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_policy());
+
+        let files = rpc.list_files().expect("workspace files should list");
+        let paths: Vec<String> = files.into_iter().map(|file| file.path).collect();
+
+        assert_eq!(paths, vec!["README.md", "src/main.ts"]);
+    }
+
+    #[test]
+    fn list_files_ignores_hidden_workspace_paths() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("README.md", "readme");
+        fixture.write("src/main.ts", "main");
+        fixture.write(".env", "secret");
+        fixture.write(".browser-data/Avatar/avatar.json", "noise");
+        fixture.write("src/.cache/generated.txt", "noise");
         let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_policy());
 
         let files = rpc.list_files().expect("workspace files should list");

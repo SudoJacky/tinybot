@@ -332,13 +332,13 @@ impl WorkerKnowledgeRpc {
         });
         let stage_readiness = serde_json::json!({
             "sparse_indexing": sparse_stage,
-            "dense_indexing": { "ready": false, "status": "not_configured", "processed": 0, "total": parent_chunk_count, "failed": 0, "stale": 0 },
-            "claim_extraction": { "ready": false, "status": "not_started", "processed": 0, "total": parent_chunk_count, "failed": 0, "stale": 0 },
-            "claim_validation": { "ready": false, "status": "not_started", "processed": 0, "total": parent_chunk_count, "failed": 0, "stale": 0 },
-            "relation_extraction": { "ready": false, "status": "not_started", "processed": 0, "total": parent_chunk_count, "failed": 0, "stale": 0 },
-            "relation_validation": { "ready": false, "status": "not_started", "processed": 0, "total": parent_chunk_count, "failed": 0, "stale": 0 },
-            "graph_projection": { "ready": false, "status": "not_started", "processed": 0, "total": parent_chunk_count, "failed": 0, "stale": 0 },
-            "community_report_projection": { "ready": false, "status": "not_started", "processed": 0, "total": parent_chunk_count, "failed": 0, "stale": 0 }
+            "dense_indexing": { "ready": false, "status": "not_configured", "processed": 0, "total": 0, "failed": 0, "stale": 0, "skipped": parent_chunk_count },
+            "claim_extraction": { "ready": false, "status": "not_configured", "processed": 0, "total": 0, "failed": 0, "stale": 0, "skipped": parent_chunk_count },
+            "claim_validation": { "ready": false, "status": "not_configured", "processed": 0, "total": 0, "failed": 0, "stale": 0, "skipped": parent_chunk_count },
+            "relation_extraction": { "ready": false, "status": "not_configured", "processed": 0, "total": 0, "failed": 0, "stale": 0, "skipped": parent_chunk_count },
+            "relation_validation": { "ready": false, "status": "not_configured", "processed": 0, "total": 0, "failed": 0, "stale": 0, "skipped": parent_chunk_count },
+            "graph_projection": { "ready": false, "status": "not_configured", "processed": 0, "total": 0, "failed": 0, "stale": 0, "skipped": parent_chunk_count },
+            "community_report_projection": { "ready": false, "status": "not_configured", "processed": 0, "total": 0, "failed": 0, "stale": 0, "skipped": parent_chunk_count }
         });
         let stage_coverage = serde_json::json!({
             "sparse_indexing": if retrieval_ready { 1.0 } else { 0.0 },

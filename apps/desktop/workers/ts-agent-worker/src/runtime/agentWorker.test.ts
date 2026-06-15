@@ -2682,6 +2682,7 @@ describe("AgentWorker", () => {
             document: {
               id: body.name === "Async Added" ? "doc-async" : "doc-2",
               name: body.name,
+              chunk_count: 2,
             },
           };
         },
@@ -2802,10 +2803,10 @@ describe("AgentWorker", () => {
             doc_id: "doc-async",
             name: "Async Added",
             status: "completed",
-            stage: "completed",
-            message: "Knowledge indexing completed in native TS worker",
-            processed: 1,
-            total: 1,
+            stage: "retrieval_indexed",
+            message: "Native retrieval index is available; semantic graph indexing is not available in native TS worker",
+            processed: 2,
+            total: 2,
             created_at: expect.any(String),
             updated_at: expect.any(String),
             completed_at: expect.any(String),
@@ -2842,10 +2843,10 @@ describe("AgentWorker", () => {
             doc_id: "doc-2",
             name: "Upload.md",
             status: "completed",
-            stage: "completed",
-            message: "Knowledge indexing completed in native TS worker",
-            processed: 1,
-            total: 1,
+            stage: "retrieval_indexed",
+            message: "Native retrieval index is available; semantic graph indexing is not available in native TS worker",
+            processed: 2,
+            total: 2,
             created_at: expect.any(String),
             updated_at: expect.any(String),
             completed_at: expect.any(String),
@@ -2929,7 +2930,10 @@ describe("AgentWorker", () => {
           doc_id: "doc-2",
           name: "Upload.md",
           status: "completed",
-          stage: "completed",
+          stage: "retrieval_indexed",
+          message: "Native retrieval index is available; semantic graph indexing is not available in native TS worker",
+          processed: 2,
+          total: 2,
           created_at: expect.any(String),
           updated_at: expect.any(String),
           completed_at: expect.any(String),
@@ -8618,7 +8622,7 @@ describe("AgentWorker", () => {
     expect(events).not.toContainEqual(expect.objectContaining({ event: "cron.delivery" }));
   });
 
-  test("runs dream system cron jobs through the dream bridge", async () => {
+  test("runs dream system cron jobs through the dream bridge when legacy message is empty", async () => {
     const provider = new QueueProvider([]);
     const dreamBridge = {
       runDream: vi.fn(async () => ({ content: "Dream applied 1 provider memory note operation.", metadata: { changed: true } })),
@@ -8639,7 +8643,7 @@ describe("AgentWorker", () => {
           id: "dream",
           name: "dream",
           enabled: true,
-          payload: { kind: "system_event", message: "dream" },
+          payload: { kind: "system_event", message: "" },
         },
       ],
     }));

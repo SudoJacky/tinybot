@@ -7,6 +7,12 @@ export interface DesktopKnowledgeReadinessRow {
   statusKey: string;
   tone: "ready" | "warn" | "error" | "muted";
   replacements: Record<string, number>;
+  status: string;
+  processed: number;
+  total: number;
+  failed: number;
+  stale: number;
+  detail: string;
 }
 
 export interface DesktopKnowledgeReadinessView {
@@ -31,6 +37,9 @@ export interface DesktopKnowledgeDocumentRow {
   tags: string[];
   chunkCount: number;
   status: string;
+  phaseLabel: string;
+  progressPercent: number;
+  progressDetail: string;
   updatedAt: string;
   meta: string;
 }
@@ -318,12 +327,16 @@ function summarizeStages(stats: UnknownRecord, stages: string[]) {
     status = "budget_limited";
   } else if (statuses.includes("partial") || statuses.includes("running")) {
     status = "partial";
+  } else if (entries.length && statuses.every((item) => item === "not_configured")) {
+    status = "not_configured";
   } else if (entries.length && statuses.every((item) => item === "complete" || item === "skipped")) {
     status = statuses.every((item) => item === "skipped") ? "skipped" : "complete";
+  } else if (entries.length && statuses.every((item) => ["complete", "ready", "skipped", "not_configured"].includes(item))) {
+    status = "ready";
   }
   return {
     status,
-    ready: entries.length ? entries.every((entry) => booleanValue(entry.ready) || ["complete", "skipped"].includes(asText(entry.status))) : false,
+    ready: entries.length ? status === "ready" || entries.every((entry) => booleanValue(entry.ready) || ["complete", "ready", "skipped"].includes(asText(entry.status))) : false,
     failed,
     stale,
     processed,
@@ -338,7 +351,7 @@ function stageTone(status: string, ready = false): DesktopKnowledgeReadinessRow[
   if (status === "stale" || status === "budget_limited" || status === "partial") {
     return "warn";
   }
-  if (ready || status === "complete" || status === "skipped") {
+  if (ready || status === "complete" || status === "ready" || status === "skipped") {
     return "ready";
   }
   return "muted";
@@ -349,8 +362,28 @@ function stageStatusKey(status: string, ready = false): string {
   if (status === "stale") return "knowledge.stageStatusStale";
   if (status === "budget_limited") return "knowledge.stageStatusBudgetLimited";
   if (status === "partial") return "knowledge.stageStatusPartial";
-  if (ready || status === "complete" || status === "skipped") return "knowledge.stageStatusReady";
+  if (ready || status === "complete" || status === "ready" || status === "skipped") return "knowledge.stageStatusReady";
   return "knowledge.stageStatusPending";
+}
+
+function stageProgressDetail(
+  stage: { status: string; processed: number; total: number; failed: number; stale: number },
+  fallback = "",
+): string {
+  if (stage.status === "not_configured") {
+    return stage.status;
+  }
+  const parts: string[] = [];
+  if (stage.total > 0) {
+    parts.push(`${stage.processed} / ${stage.total} processed`);
+  }
+  if (stage.failed > 0) {
+    parts.push(`${stage.failed} failed`);
+  }
+  if (stage.stale > 0) {
+    parts.push(`${stage.stale} stale`);
+  }
+  return parts.join("; ") || fallback || stage.status;
 }
 
 export function buildDesktopKnowledgeReadinessView(statsInput: unknown = {}): DesktopKnowledgeReadinessView {
@@ -379,7 +412,7 @@ export function buildDesktopKnowledgeReadinessView(statsInput: unknown = {}): De
   const staleStageCount = stats.stale_stage_count !== undefined && stats.stale_stage_count !== null
     ? numberValue(stats.stale_stage_count)
     : [retrievalStages, claimStages, relationStages, expansionStages, graphStages].filter((stage) => stage.status === "stale").length;
-  const graphStatus = graphReady || ["failed", "stale", "budget_limited", "partial"].includes(graphStages.status)
+  const graphStatus = graphReady || ["failed", "stale", "budget_limited", "partial", "not_configured"].includes(graphStages.status)
     ? graphStages.status
     : "pending";
   const partialAvailability = booleanValue(stats.partial_availability)
@@ -422,6 +455,12 @@ export function buildDesktopKnowledgeReadinessView(statsInput: unknown = {}): De
         replacements: { dense: indexedDense, sparse: indexedSparse },
         statusKey: stageStatusKey(retrievalStages.status, retrievalReady),
         tone: stageTone(retrievalStages.status, retrievalReady),
+        status: retrievalStages.status,
+        processed: retrievalStages.processed,
+        total: retrievalStages.total,
+        failed: retrievalStages.failed,
+        stale: retrievalStages.stale,
+        detail: stageProgressDetail(retrievalStages, `dense ${indexedDense} / sparse ${indexedSparse}`),
       },
       {
         id: "claims",
@@ -430,6 +469,12 @@ export function buildDesktopKnowledgeReadinessView(statsInput: unknown = {}): De
         replacements: { claims },
         statusKey: stageStatusKey(claimStages.status, claimsReady),
         tone: stageTone(claimStages.status, claimsReady),
+        status: claimStages.status,
+        processed: claimStages.processed,
+        total: claimStages.total,
+        failed: claimStages.failed,
+        stale: claimStages.stale,
+        detail: stageProgressDetail(claimStages, `${claims} claims`),
       },
       {
         id: "relations",
@@ -438,6 +483,12 @@ export function buildDesktopKnowledgeReadinessView(statsInput: unknown = {}): De
         replacements: { relations },
         statusKey: stageStatusKey(relationStages.status, relationsReady),
         tone: stageTone(relationStages.status, relationsReady),
+        status: relationStages.status,
+        processed: relationStages.processed,
+        total: relationStages.total,
+        failed: relationStages.failed,
+        stale: relationStages.stale,
+        detail: stageProgressDetail(relationStages, `${relations} relations`),
       },
       {
         id: "expansion",
@@ -452,6 +503,12 @@ export function buildDesktopKnowledgeReadinessView(statsInput: unknown = {}): De
         replacements: { processed: expansionStages.processed, total: expansionStages.total },
         statusKey: stageStatusKey(expansionStages.status, expansionStages.ready),
         tone: stageTone(expansionStages.status, expansionStages.ready),
+        status: expansionStages.status,
+        processed: expansionStages.processed,
+        total: expansionStages.total,
+        failed: expansionStages.failed,
+        stale: expansionStages.stale,
+        detail: stageProgressDetail(expansionStages),
       },
       {
         id: "graph",
@@ -460,6 +517,12 @@ export function buildDesktopKnowledgeReadinessView(statsInput: unknown = {}): De
         replacements: { communities, reports },
         statusKey: stageStatusKey(graphStatus, graphReady),
         tone: stageTone(graphStatus, graphReady),
+        status: graphStatus,
+        processed: graphStages.processed,
+        total: graphStages.total,
+        failed: graphStages.failed,
+        stale: graphStages.stale,
+        detail: stageProgressDetail(graphStages, `${communities} communities / ${reports} reports`),
       },
     ],
   };
@@ -484,7 +547,7 @@ export function buildDesktopKnowledgePaneModel(input: DesktopKnowledgePaneInput 
     selectedDocument: selectedDocumentRow
       ? {
           ...selectedDocumentRow,
-          detail: [selectedDocumentRow.path, selectedDocumentRow.status, selectedDocumentRow.chunkCount ? `${selectedDocumentRow.chunkCount} chunks` : ""]
+          detail: [selectedDocumentRow.path, selectedDocumentRow.phaseLabel, selectedDocumentRow.chunkCount ? `${selectedDocumentRow.chunkCount} chunks` : ""]
             .filter(Boolean)
             .join(" / "),
         }
@@ -531,19 +594,91 @@ export function buildDesktopKnowledgeDocumentRows(payload: unknown): DesktopKnow
     const category = firstNonEmpty(document.category, document.type);
     const typeLabel = firstNonEmpty(category, document.mime_type, document.file_type, fileExtension(path), "DOC");
     const sizeLabel = formatFileSize(document.size_bytes ?? document.sizeBytes ?? document.file_size ?? document.size);
-    const status = firstNonEmpty(document.status, document.index_status);
+    const rawStatus = firstNonEmpty(document.status, document.index_status);
     const updatedAt = firstNonEmpty(document.updated_at, document.updatedAt, document.created_at, document.createdAt, document.modified_at);
     const addedLabel = formatKnowledgeTimestamp(updatedAt);
     const chunkCount = numberValue(document.chunk_count ?? document.chunks);
+    const progress = knowledgeDocumentProgress(rawStatus, chunkCount);
     const tags = asArray(document.tags).map(asText).filter(Boolean);
     const meta = [
       category,
-      status,
+      progress.phaseLabel,
       chunkCount ? `${chunkCount} chunks` : "",
       updatedAt,
     ].filter(Boolean).join(" / ");
-    return { id, title, path, category, typeLabel, sizeLabel, addedLabel, tags, chunkCount, status, updatedAt, meta };
+    return {
+      id,
+      title,
+      path,
+      category,
+      typeLabel,
+      sizeLabel,
+      addedLabel,
+      tags,
+      chunkCount,
+      status: progress.status,
+      phaseLabel: progress.phaseLabel,
+      progressPercent: progress.progressPercent,
+      progressDetail: progress.progressDetail,
+      updatedAt,
+      meta,
+    };
   });
+}
+
+function knowledgeDocumentProgress(rawStatus: string, chunkCount: number): {
+  status: string;
+  phaseLabel: string;
+  progressPercent: number;
+  progressDetail: string;
+} {
+  const status = rawStatus.toLowerCase();
+  if (["indexed", "complete", "completed", "ready"].includes(status)) {
+    return {
+      status: "indexed",
+      phaseLabel: "Indexed",
+      progressPercent: 100,
+      progressDetail: chunkCount ? `${chunkCount} chunks indexed` : "Index complete",
+    };
+  }
+  if (["indexing", "running", "processing"].includes(status)) {
+    return {
+      status: "indexing",
+      phaseLabel: chunkCount ? "Indexing chunks" : "Parsing",
+      progressPercent: chunkCount ? 65 : 35,
+      progressDetail: chunkCount ? `${chunkCount} chunks parsed; indexing continues` : "Parsing source document",
+    };
+  }
+  if (["failed", "error", "partial_failed"].includes(status)) {
+    return {
+      status: "failed",
+      phaseLabel: "Failed",
+      progressPercent: 0,
+      progressDetail: chunkCount ? `${chunkCount} chunks parsed; indexing failed` : "Indexing failed",
+    };
+  }
+  if (["cancelled", "canceled"].includes(status)) {
+    return {
+      status: "cancelled",
+      phaseLabel: "Cancelled",
+      progressPercent: 0,
+      progressDetail: "Indexing cancelled",
+    };
+  }
+  if ((!status || status === "unknown") && chunkCount > 0) {
+    return {
+      status: "chunked",
+      phaseLabel: "Chunks indexed",
+      progressPercent: 50,
+      progressDetail: `${chunkCount} chunks available; waiting for semantic or graph stages`,
+    };
+  }
+  return {
+    status: status || "queued",
+    phaseLabel: "Queued",
+    progressPercent: 0,
+    progressDetail: "Waiting for parser",
+  };
 }
 
 export function buildDesktopKnowledgeTaskOperations(payloads: unknown[]): DesktopTaskSourceOperation[] {

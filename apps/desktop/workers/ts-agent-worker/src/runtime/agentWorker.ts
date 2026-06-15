@@ -5200,8 +5200,9 @@ function parseCronRunDueJob(value: unknown): CronRunDueJob {
   if (!id || !name || !payload) {
     throw new Error("cron.run_due job.id, job.name, and job.payload are required");
   }
+  const kind = payload.kind === "system_event" ? "system_event" : "agent_turn";
   const message = stringParam(payload, "message", "message");
-  if (!message) {
+  if (message === undefined || (kind === "agent_turn" && message.trim().length === 0)) {
     throw new Error("cron.run_due job.payload.message must be a string");
   }
   return {
@@ -5209,8 +5210,8 @@ function parseCronRunDueJob(value: unknown): CronRunDueJob {
     name,
     enabled: value.enabled !== false,
     payload: {
-      kind: payload.kind === "system_event" ? "system_event" : "agent_turn",
-      message,
+      kind,
+      message: kind === "system_event" && message.trim().length === 0 ? name : message,
       deliver: payload.deliver === true,
       channel: stringParam(payload, "channel", "channel") ?? null,
       to: stringParam(payload, "to", "to") ?? null,
