@@ -286,6 +286,7 @@ export type WebuiKnowledgeProvider = {
   getJob?(jobId: string, traceId: string): Promise<unknown> | unknown;
   rebuildIndex?(type: "bm25" | "semantic" | "all", traceId: string): Promise<unknown> | unknown;
   graph?(request: Record<string, unknown>, traceId: string): Promise<unknown> | unknown;
+  saveEntityGraphExtraction?(body: Record<string, unknown>, traceId: string): Promise<unknown> | unknown;
   getDocument(docId: string, traceId: string): Promise<unknown> | unknown;
   deleteDocument(docId: string, traceId: string): Promise<unknown> | unknown;
   query(body: Record<string, unknown>, traceId: string): Promise<unknown> | unknown;
@@ -349,6 +350,7 @@ const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
   { key: "knowledge_stats", method: "GET", path: "/v1/knowledge/stats", public: true },
   { key: "knowledge_job", method: "GET", path: "/v1/knowledge/jobs/{job_id}", public: true },
   { key: "knowledge_rebuild_index", method: "POST", path: "/v1/knowledge/rebuild-index", public: true },
+  { key: "knowledge_extract_graph", method: "POST", path: "/v1/knowledge/graph/extract", public: true },
   { key: "knowledge_graph", method: "GET", path: "/v1/knowledge/graph", public: true },
   { key: "knowledge_graphrag", method: "GET", path: "/v1/knowledge/graphrag", public: true },
   { key: "bootstrap", method: "GET", path: "/webui/bootstrap", public: true },
@@ -512,6 +514,10 @@ export async function handleWebuiRouteRequest(
   }
   if (method === "POST" && path === "/v1/knowledge/rebuild-index") {
     return knowledgeRebuildIndexResponse(url.searchParams, knowledgeProvider, traceId, diagnosticsLogger);
+  }
+  if (method === "POST" && path === "/v1/knowledge/graph/extract") {
+    const config = configProvider ? await configProvider.getConfig(traceId) : {};
+    return knowledgeGraphExtractResponse(request.body, config, knowledgeProvider, openAiCompatProvider, traceId, diagnosticsLogger);
   }
   if (method === "GET" && path === "/v1/knowledge/graph") {
     return knowledgeGraphResponse(url.searchParams, knowledgeProvider, traceId);
@@ -1532,6 +1538,102 @@ async function knowledgeRebuildIndexResponse(
   }
 }
 
+async function knowledgeGraphExtractResponse(
+  body: unknown,
+  config: Record<string, unknown>,
+  provider: WebuiKnowledgeProvider | undefined,
+  openAiCompatProvider: WebuiOpenAiCompatProvider | undefined,
+  traceId: string,
+  diagnosticsLogger?: WebuiDiagnosticsLogger,
+): Promise<WebuiRouteResponse> {
+  if (!provider) {
+    return { status: 503, body: knowledgeApiError(503, "Knowledge store not initialized") };
+  }
+  if (!isJsonObject(body)) {
+    return { status: 400, body: knowledgeApiError(400, "Invalid JSON body") };
+  }
+  const docId = stringValue(body.doc_id) ?? stringValue(body.docId);
+  if (!docId) {
+    return { status: 400, body: knowledgeApiError(400, "doc_id is required") };
+  }
+  logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.graph_extract.start", {
+    doc_id: docId,
+    dry_run: body.dry_run === true,
+  });
+  try {
+    const result = await provider.getDocument(docId, traceId);
+    const document = documentFromResult(result);
+    if (!document) {
+      return { status: 404, body: knowledgeApiError(404, `Document ${docId} not found`) };
+    }
+    const content = stringValue(asObject(result)?.content) ?? stringValue(document.content) ?? "";
+    const docName = stringValue(document.name) ?? docId;
+    const model = knowledgeExtractionModel(config);
+    const maxTokens = knowledgeSemanticMaxTokens(config);
+    const tokenEstimate = knowledgeGraphExtractionTokenEstimate(content, maxTokens);
+    if (body.dry_run === true || body.estimate_only === true) {
+      return {
+        status: 200,
+        body: {
+          object: "knowledge_graph_extraction_estimate",
+          doc_id: docId,
+          doc_name: docName,
+          token_estimate: tokenEstimate,
+        },
+      };
+    }
+    if (!openAiCompatProvider) {
+      return { status: 503, body: knowledgeApiError(503, "OpenAI-compatible runtime unavailable", "server_error") };
+    }
+    if (!provider.saveEntityGraphExtraction) {
+      return { status: 503, body: knowledgeApiError(503, "Knowledge entity graph store not initialized", "server_error") };
+    }
+    if (!tokenEstimate.within_budget) {
+      return { status: 400, body: knowledgeApiError(400, "Graph extraction token estimate exceeds configured budget") };
+    }
+    const extractionText = await openAiCompatProvider.completeChat({
+      content: knowledgeGraphExtractionPrompt(docName, content, maxTokens),
+      sessionKey: "knowledge:graph-extraction",
+      chatId: "knowledge-graph-extraction",
+      model,
+      timeoutSeconds: knowledgeSemanticTimeoutSeconds(config),
+    }, traceId);
+    const extraction = parseKnowledgeGraphExtractionJson(extractionText);
+    const savePayload = {
+      doc_id: docId,
+      doc_name: docName,
+      model,
+      token_estimate: tokenEstimate,
+      entities: extraction.entities,
+      relations: extraction.relations,
+      diagnostics: {
+        raw_chars: extractionText.length,
+        content_chars: content.length,
+      },
+    };
+    const job = asObject(await provider.saveEntityGraphExtraction(savePayload, traceId)) ?? {};
+    logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.graph_extract.complete", {
+      doc_id: docId,
+      entities: extraction.entities.length,
+      relations: extraction.relations.length,
+    });
+    return {
+      status: 202,
+      body: {
+        message: "Knowledge graph extraction completed",
+        job,
+        job_id: job.id,
+      },
+    };
+  } catch (error) {
+    logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.graph_extract.failed", {
+      doc_id: docId,
+      error: errorMessage(error),
+    });
+    return knowledgeValueError(error) ?? knowledgeServerError("Error extracting knowledge graph", error);
+  }
+}
+
 async function knowledgeGraphResponse(
   query: URLSearchParams,
   provider: WebuiKnowledgeProvider | undefined,
@@ -1738,6 +1840,7 @@ function knowledgeAllRebuildResult(stats: Record<string, unknown>): Record<strin
 
 type KnowledgeGraphQuery = {
   docId: string;
+  graphType: string;
   limit: number;
   edgeLimit: number;
   minConfidence: number;
@@ -1769,6 +1872,7 @@ function parseKnowledgeGraphQuery(query: URLSearchParams): { ok: true; value: Kn
     ok: true,
     value: {
       docId: query.get("doc_id") ?? "",
+      graphType: query.get("graph_type") ?? "document",
       limit,
       edgeLimit,
       minConfidence,
@@ -1798,9 +1902,122 @@ function parseKnowledgeGraphRagQuery(
   };
 }
 
+function knowledgeExtractionModel(config: Record<string, unknown>): string {
+  const knowledge = asObject(config.knowledge);
+  return stringValue(knowledge?.semanticLlmModel)
+    ?? stringValue(knowledge?.semantic_llm_model)
+    ?? openAiConfiguredModel(config);
+}
+
+function knowledgeSemanticMaxTokens(config: Record<string, unknown>): number {
+  const knowledge = asObject(config.knowledge);
+  return Math.max(
+    1,
+    Math.trunc(
+      numberValue(knowledge?.semanticLlmMaxTokens)
+        ?? numberValue(knowledge?.semantic_llm_max_tokens)
+        ?? 1200,
+    ),
+  );
+}
+
+function knowledgeSemanticTimeoutSeconds(config: Record<string, unknown>): number {
+  const knowledge = asObject(config.knowledge);
+  const timeout = numberValue(knowledge?.semanticLlmTimeout)
+    ?? numberValue(knowledge?.semantic_llm_timeout)
+    ?? openAiRequestTimeoutSeconds(config);
+  return Math.max(1, timeout);
+}
+
+function knowledgeGraphExtractionTokenEstimate(content: string, maxTokens: number): Record<string, unknown> {
+  const promptTokens = Math.ceil(content.length / 4) + 240;
+  const completionTokens = Math.min(maxTokens, Math.max(256, Math.ceil(content.length / 8)));
+  const totalTokens = promptTokens + completionTokens;
+  return {
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens,
+    total_tokens: totalTokens,
+    max_tokens: maxTokens,
+    within_budget: totalTokens <= maxTokens,
+  };
+}
+
+function knowledgeGraphExtractionPrompt(docName: string, content: string, maxTokens: number): string {
+  return [
+    "You extract a knowledge entity graph from one document.",
+    "Return strict JSON only, with no markdown fences.",
+    "Schema: {\"entities\":[{\"name\":\"\",\"type\":\"\",\"confidence\":0.0,\"evidence\":[{\"text\":\"\",\"line_start\":1,\"line_end\":1}]}],\"relations\":[{\"source\":\"\",\"target\":\"\",\"predicate\":\"\",\"confidence\":0.0,\"evidence\":[{\"text\":\"\",\"line_start\":1,\"line_end\":1}]}]}",
+    "Only include entities and relations directly supported by source evidence.",
+    `Token budget for the answer: ${maxTokens}.`,
+    `Document: ${docName}`,
+    "Content:",
+    content,
+  ].join("\n");
+}
+
+function parseKnowledgeGraphExtractionJson(raw: string): { entities: Record<string, unknown>[]; relations: Record<string, unknown>[] } {
+  const parsed = JSON.parse(stripJsonCodeFence(raw));
+  const root = asObject(parsed) ?? {};
+  return {
+    entities: arrayFromUnknown(root.entities).map(normalizeExtractedEntity).filter((entity) => stringValue(entity.name)),
+    relations: arrayFromUnknown(root.relations).map(normalizeExtractedRelation).filter((relation) =>
+      stringValue(relation.source) && stringValue(relation.target) && stringValue(relation.predicate)
+    ),
+  };
+}
+
+function normalizeExtractedEntity(value: unknown): Record<string, unknown> {
+  const entity = asObject(value) ?? {};
+  return {
+    name: stringValue(entity.name) ?? "",
+    type: stringValue(entity.type) ?? stringValue(entity.entity_type) ?? "",
+    confidence: normalizedConfidence(entity.confidence),
+    evidence: arrayFromUnknown(entity.evidence).map(normalizeExtractionEvidence),
+  };
+}
+
+function normalizeExtractedRelation(value: unknown): Record<string, unknown> {
+  const relation = asObject(value) ?? {};
+  return {
+    source: stringValue(relation.source) ?? "",
+    target: stringValue(relation.target) ?? "",
+    predicate: stringValue(relation.predicate) ?? stringValue(relation.type) ?? "related_to",
+    confidence: normalizedConfidence(relation.confidence),
+    evidence: arrayFromUnknown(relation.evidence).map(normalizeExtractionEvidence),
+  };
+}
+
+function normalizeExtractionEvidence(value: unknown): Record<string, unknown> {
+  const evidence = asObject(value) ?? {};
+  return {
+    text: stringValue(evidence.text) ?? stringValue(evidence.quote) ?? "",
+    line_start: numberValue(evidence.line_start) ?? numberValue(evidence.lineStart) ?? 1,
+    line_end: numberValue(evidence.line_end) ?? numberValue(evidence.lineEnd) ?? numberValue(evidence.line_start) ?? 1,
+  };
+}
+
+function normalizedConfidence(value: unknown): number {
+  const confidence = numberValue(value);
+  if (confidence === undefined) {
+    return 0;
+  }
+  return Math.max(0, Math.min(1, confidence));
+}
+
+function stripJsonCodeFence(raw: string): string {
+  const trimmed = raw.trim();
+  const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(trimmed);
+  return fenced ? fenced[1].trim() : trimmed;
+}
+
+function arrayFromUnknown(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
 function knowledgeGraphProviderRequest(query: KnowledgeGraphQuery): Record<string, unknown> {
   return {
     doc_id: query.docId,
+    graph_type: query.graphType,
     limit: query.limit,
     edge_limit: query.edgeLimit,
     min_confidence: query.minConfidence,

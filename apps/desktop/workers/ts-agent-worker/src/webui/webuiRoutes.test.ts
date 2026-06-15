@@ -77,6 +77,152 @@ describe("WebUI OpenAI-compatible routes", () => {
   });
 });
 
+describe("WebUI knowledge graph extraction routes", () => {
+  test("estimates and persists manual LLM graph extraction", async () => {
+    const completions: Array<{ content: string; sessionKey: string; model: string; timeoutSeconds: number }> = [];
+    const saves: Array<Record<string, unknown>> = [];
+    const configProvider: WebuiConfigProvider = {
+      getConfig: () => ({
+        agents: { defaults: { model: "knowledge-model" } },
+        knowledge: {
+          enabled: true,
+          semanticLlmMaxTokens: 800,
+          semanticLlmTimeout: 12,
+        },
+      }),
+      patchConfig: () => ({}),
+    };
+    const openAiCompatProvider: WebuiOpenAiCompatProvider = {
+      completeChat: (request) => {
+        completions.push({
+          content: request.content,
+          sessionKey: request.sessionKey,
+          model: request.model,
+          timeoutSeconds: request.timeoutSeconds,
+        });
+        return JSON.stringify({
+          entities: [
+            { name: "TinyBot", type: "project", confidence: 0.91, evidence: [{ text: "TinyBot stores knowledge.", line_start: 1, line_end: 1 }] },
+          ],
+          relations: [
+            { source: "TinyBot", target: "knowledge graph", predicate: "stores", confidence: 0.82, evidence: [{ text: "TinyBot stores knowledge.", line_start: 1, line_end: 1 }] },
+          ],
+        });
+      },
+    };
+    const knowledgeProvider: WebuiKnowledgeProvider = {
+      listDocuments: () => ({ documents: [] }),
+      addDocument: () => ({ document: {} }),
+      getDocument: () => ({
+        document: { id: "doc-1", name: "Knowledge.md", chunk_count: 1 },
+        content: "# Knowledge\nTinyBot stores knowledge.\n",
+      }),
+      deleteDocument: () => ({ deleted: false }),
+      query: () => ({ results: [] }),
+      stats: () => ({ total_documents: 1, total_chunks: 1, retrieval_ready: true }),
+      saveEntityGraphExtraction: (payload) => {
+        saves.push(payload);
+        return {
+          id: "kjob_extract_graph_doc-1",
+          doc_id: "doc-1",
+          name: "extract_graph:Knowledge.md",
+          status: "completed",
+          stage: "entity_graph_extracted",
+          processed: 1,
+          total: 1,
+          result: { entities: 1, relations: 1, evidence: 2 },
+        };
+      },
+    };
+
+    const estimate = await handleWebuiRouteRequest(
+      {
+        method: "POST",
+        path: "/v1/knowledge/graph/extract",
+        body: { doc_id: "doc-1", dry_run: true },
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      configProvider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      openAiCompatProvider,
+      knowledgeProvider,
+      undefined,
+      "trace-extract",
+    );
+
+    expect(estimate).toMatchObject({
+      status: 200,
+      body: {
+        object: "knowledge_graph_extraction_estimate",
+        doc_id: "doc-1",
+        token_estimate: { total_tokens: expect.any(Number), max_tokens: 800, within_budget: true },
+      },
+    });
+    expect(completions).toHaveLength(0);
+    expect(saves).toHaveLength(0);
+
+    const extraction = await handleWebuiRouteRequest(
+      {
+        method: "POST",
+        path: "/v1/knowledge/graph/extract",
+        body: { doc_id: "doc-1" },
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      configProvider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      openAiCompatProvider,
+      knowledgeProvider,
+      undefined,
+      "trace-extract",
+    );
+
+    expect(extraction).toMatchObject({
+      status: 202,
+      body: {
+        message: "Knowledge graph extraction completed",
+        job_id: "kjob_extract_graph_doc-1",
+        job: {
+          id: "kjob_extract_graph_doc-1",
+          stage: "entity_graph_extracted",
+          result: { entities: 1, relations: 1, evidence: 2 },
+        },
+      },
+    });
+    expect(completions).toHaveLength(1);
+    expect(completions[0]).toMatchObject({
+      sessionKey: "knowledge:graph-extraction",
+      model: "knowledge-model",
+      timeoutSeconds: 12,
+    });
+    expect(completions[0].content).toContain("Return strict JSON");
+    expect(saves).toHaveLength(1);
+    expect(saves[0]).toMatchObject({
+      doc_id: "doc-1",
+      doc_name: "Knowledge.md",
+      model: "knowledge-model",
+      entities: [{ name: "TinyBot", type: "project", confidence: 0.91 }],
+      relations: [{ source: "TinyBot", target: "knowledge graph", predicate: "stores", confidence: 0.82 }],
+      token_estimate: { max_tokens: 800 },
+    });
+  });
+});
+
 describe("WebUI route temporary files", () => {
   test("restores task progress cards when session history only has the internal notification", async () => {
     const progressRequests: Array<{ planId: string; traceId: string }> = [];

@@ -3575,12 +3575,12 @@ describe("AgentWorker", () => {
       {
         method: "graph",
         traceId: "trace-webui.handle_request",
-        params: { doc_id: "doc-1", limit: 20, edge_limit: 40, min_confidence: 0.2, include_orphans: true },
+        params: { doc_id: "doc-1", graph_type: "document", limit: 20, edge_limit: 40, min_confidence: 0.2, include_orphans: true },
       },
       {
         method: "graph",
         traceId: "trace-webui.handle_request",
-        params: { doc_id: "", limit: 80, edge_limit: 160, min_confidence: 1, include_orphans: false },
+        params: { doc_id: "", graph_type: "document", limit: 80, edge_limit: 160, min_confidence: 1, include_orphans: false },
       },
       { method: "stats", traceId: "trace-webui.handle_request" },
       { method: "stats", traceId: "trace-webui.handle_request" },

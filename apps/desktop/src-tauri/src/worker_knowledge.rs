@@ -226,6 +226,9 @@ impl WorkerKnowledgeRpc {
         params: KnowledgeGraphParams,
     ) -> Result<KnowledgeGraphResult, WorkerProtocolError> {
         self.require(WorkerCapability::KnowledgeRead)?;
+        if params.graph_type.as_deref() == Some("entity") {
+            return self.entity_graph(params);
+        }
         let store = KnowledgeStorePaths::new(&self.root);
         let mut nodes = read_jsonl::<KnowledgeGraphNode>(&store.document_graph_nodes_file)?;
         let mut edges = read_jsonl::<KnowledgeGraphEdge>(&store.document_graph_edges_file)?;
@@ -299,6 +302,201 @@ impl WorkerKnowledgeRpc {
             conflicts: Vec::new(),
             stats,
             readiness,
+            stage_readiness: serde_json::json!({}),
+            stage_coverage: serde_json::json!({}),
+        })
+    }
+
+    pub fn save_entity_graph_extraction(
+        &self,
+        params: KnowledgeEntityGraphExtractionParams,
+    ) -> Result<KnowledgeJob, WorkerProtocolError> {
+        self.require(WorkerCapability::KnowledgeWrite)?;
+        let Some(document) = find_document(&self.root, &params.doc_id)? else {
+            return Err(unknown_knowledge_document(&params.doc_id));
+        };
+        let store = KnowledgeStorePaths::new(&self.root);
+        let source_hash = document_content_hash(&document);
+        let mut nodes = read_jsonl::<KnowledgeGraphNode>(&store.entity_graph_nodes_file)?;
+        let mut edges = read_jsonl::<KnowledgeGraphEdge>(&store.entity_graph_edges_file)?;
+        let mut evidence_records = read_jsonl::<Value>(&store.entity_graph_evidence_file)?;
+        nodes.retain(|node| node.doc_id != document.id);
+        edges.retain(|edge| edge.doc_id != document.id);
+        evidence_records
+            .retain(|item| value_string(item, "doc_id").as_deref() != Some(document.id.as_str()));
+
+        let mut entity_ids = HashMap::new();
+        for entity in params
+            .entities
+            .iter()
+            .filter(|entity| !entity.name.trim().is_empty())
+        {
+            let id = entity_graph_entity_id(&document.id, &entity.name);
+            entity_ids.insert(normalize_graph_reference_key(&entity.name), id.clone());
+            let evidence_ids = entity
+                .evidence
+                .iter()
+                .enumerate()
+                .map(|(index, evidence)| {
+                    persist_entity_graph_evidence(
+                        &mut evidence_records,
+                        &document,
+                        &id,
+                        "entity",
+                        index,
+                        evidence,
+                    )
+                })
+                .collect::<Vec<_>>();
+            nodes.push(KnowledgeGraphNode {
+                id,
+                label: entity.name.trim().to_string(),
+                node_type: "entity".to_string(),
+                doc_id: document.id.clone(),
+                attributes: serde_json::json!({
+                    "entity_type": entity.entity_type,
+                    "confidence": entity.confidence,
+                    "source_hash": source_hash,
+                    "stale": false,
+                    "evidence_ids": evidence_ids
+                }),
+            });
+        }
+        for relation in params.relations.iter().filter(|relation| {
+            !relation.source.trim().is_empty()
+                && !relation.target.trim().is_empty()
+                && !relation.predicate.trim().is_empty()
+        }) {
+            let source = entity_ids
+                .get(&normalize_graph_reference_key(&relation.source))
+                .cloned()
+                .unwrap_or_else(|| {
+                    let id = entity_graph_entity_id(&document.id, &relation.source);
+                    nodes.push(entity_graph_stub_node(
+                        &document,
+                        &relation.source,
+                        &id,
+                        &source_hash,
+                    ));
+                    id
+                });
+            let target = entity_ids
+                .get(&normalize_graph_reference_key(&relation.target))
+                .cloned()
+                .unwrap_or_else(|| {
+                    let id = entity_graph_entity_id(&document.id, &relation.target);
+                    nodes.push(entity_graph_stub_node(
+                        &document,
+                        &relation.target,
+                        &id,
+                        &source_hash,
+                    ));
+                    id
+                });
+            let edge_id = document_graph_edge_id(&source, &relation.predicate, &target);
+            let evidence = relation
+                .evidence
+                .iter()
+                .enumerate()
+                .map(|(index, item)| {
+                    persist_entity_graph_evidence(
+                        &mut evidence_records,
+                        &document,
+                        &edge_id,
+                        "relation",
+                        index,
+                        item,
+                    )
+                })
+                .collect::<Vec<_>>();
+            let edge_evidence = evidence
+                .iter()
+                .filter_map(|id| {
+                    evidence_records
+                        .iter()
+                        .find(|item| value_string(item, "id").as_deref() == Some(id.as_str()))
+                        .cloned()
+                })
+                .collect::<Vec<_>>();
+            edges.push(KnowledgeGraphEdge {
+                id: edge_id,
+                source,
+                target,
+                edge_type: relation.predicate.trim().to_string(),
+                label: relation.predicate.trim().to_string(),
+                doc_id: document.id.clone(),
+                evidence: edge_evidence,
+                attributes: serde_json::json!({
+                    "doc_id": document.id,
+                    "doc_name": document.name,
+                    "confidence": relation.confidence,
+                    "source_hash": source_hash,
+                    "stale": false,
+                    "evidence_ids": evidence
+                }),
+            });
+        }
+        write_jsonl(&store.entity_graph_nodes_file, &nodes)?;
+        write_jsonl(&store.entity_graph_edges_file, &edges)?;
+        write_jsonl(&store.entity_graph_evidence_file, &evidence_records)?;
+        let job = completed_entity_graph_job(&document, &params, &source_hash);
+        upsert_knowledge_job(&self.root, &job)?;
+        Ok(job)
+    }
+
+    fn entity_graph(
+        &self,
+        params: KnowledgeGraphParams,
+    ) -> Result<KnowledgeGraphResult, WorkerProtocolError> {
+        let store = KnowledgeStorePaths::new(&self.root);
+        let mut nodes = read_jsonl::<KnowledgeGraphNode>(&store.entity_graph_nodes_file)?;
+        let mut edges = read_jsonl::<KnowledgeGraphEdge>(&store.entity_graph_edges_file)?;
+        if let Some(doc_id) = params.doc_id.as_deref().filter(|value| !value.is_empty()) {
+            nodes.retain(|node| node.doc_id == doc_id);
+            edges.retain(|edge| edge.doc_id == doc_id);
+        }
+        let edge_limit = params.edge_limit.unwrap_or(160).clamp(1, 1000);
+        edges.truncate(edge_limit);
+        let connected_node_ids = edges
+            .iter()
+            .flat_map(|edge| [edge.source.clone(), edge.target.clone()])
+            .collect::<HashSet<_>>();
+        if !params.include_orphans.unwrap_or(false) {
+            nodes.retain(|node| connected_node_ids.contains(&node.id));
+        }
+        let limit = params.limit.unwrap_or(80).clamp(1, 500);
+        nodes.truncate(limit);
+        let entity_ready = !nodes.is_empty() || !edges.is_empty();
+        Ok(KnowledgeGraphResult {
+            object: "knowledge_graph".to_string(),
+            graph_type: "entity".to_string(),
+            stats: serde_json::json!({
+                "node_count": nodes.len(),
+                "edge_count": edges.len(),
+                "total_entities": nodes.len(),
+                "total_relations": edges.len(),
+                "total_mentions": edges.iter().map(|edge| edge.evidence.len()).sum::<usize>(),
+                "doc_id": params.doc_id.unwrap_or_default(),
+                "limit": limit,
+                "edge_limit": edge_limit,
+                "min_confidence": params.min_confidence.unwrap_or(0.0),
+                "include_orphans": params.include_orphans.unwrap_or(false)
+            }),
+            readiness: serde_json::json!({
+                "retrieval_ready": entity_ready,
+                "claims_ready": false,
+                "relations_ready": entity_ready,
+                "graph_ready": entity_ready,
+                "partial_availability": entity_ready,
+                "document_graph_ready": false,
+                "entity_graph_ready": entity_ready
+            }),
+            nodes,
+            edges,
+            communities: Vec::new(),
+            reports: Vec::new(),
+            claims: Vec::new(),
+            conflicts: Vec::new(),
             stage_readiness: serde_json::json!({}),
             stage_coverage: serde_json::json!({}),
         })
@@ -443,6 +641,9 @@ impl WorkerKnowledgeRpc {
         let store = KnowledgeStorePaths::new(&self.root);
         let documents = read_jsonl::<KnowledgeDocument>(&store.documents_file)?;
         let chunks = read_jsonl::<KnowledgeChunk>(&store.chunks_file)?;
+        let entity_nodes = read_jsonl::<KnowledgeGraphNode>(&store.entity_graph_nodes_file)?;
+        let entity_edges = read_jsonl::<KnowledgeGraphEdge>(&store.entity_graph_edges_file)?;
+        let entity_evidence = read_jsonl::<Value>(&store.entity_graph_evidence_file)?;
         let parent_chunk_count = chunks
             .iter()
             .filter(|chunk| chunk.chunk_type == "parent")
@@ -465,6 +666,9 @@ impl WorkerKnowledgeRpc {
             .map(|document| document.content.chars().count())
             .sum();
         let retrieval_ready = parent_chunk_count > 0;
+        let claims_ready = false;
+        let relations_ready = !entity_edges.is_empty();
+        let graph_ready = !entity_nodes.is_empty() || !entity_edges.is_empty();
         let sparse_stage = serde_json::json!({
             "ready": retrieval_ready,
             "status": if retrieval_ready { "ready" } else { "empty" },
@@ -478,9 +682,9 @@ impl WorkerKnowledgeRpc {
             "dense_indexing": { "ready": false, "status": "not_configured", "processed": 0, "total": 0, "failed": 0, "stale": 0, "skipped": parent_chunk_count },
             "claim_extraction": { "ready": false, "status": "not_configured", "processed": 0, "total": 0, "failed": 0, "stale": 0, "skipped": parent_chunk_count },
             "claim_validation": { "ready": false, "status": "not_configured", "processed": 0, "total": 0, "failed": 0, "stale": 0, "skipped": parent_chunk_count },
-            "relation_extraction": { "ready": false, "status": "not_configured", "processed": 0, "total": 0, "failed": 0, "stale": 0, "skipped": parent_chunk_count },
-            "relation_validation": { "ready": false, "status": "not_configured", "processed": 0, "total": 0, "failed": 0, "stale": 0, "skipped": parent_chunk_count },
-            "graph_projection": { "ready": false, "status": "not_configured", "processed": 0, "total": 0, "failed": 0, "stale": 0, "skipped": parent_chunk_count },
+            "relation_extraction": { "ready": relations_ready, "status": if relations_ready { "ready" } else { "not_configured" }, "processed": entity_edges.len(), "total": entity_edges.len(), "failed": 0, "stale": 0, "skipped": if relations_ready { 0 } else { parent_chunk_count } },
+            "relation_validation": { "ready": relations_ready, "status": if relations_ready { "ready" } else { "not_configured" }, "processed": entity_edges.len(), "total": entity_edges.len(), "failed": 0, "stale": 0, "skipped": if relations_ready { 0 } else { parent_chunk_count } },
+            "graph_projection": { "ready": graph_ready, "status": if graph_ready { "ready" } else { "not_configured" }, "processed": entity_nodes.len() + entity_edges.len(), "total": entity_nodes.len() + entity_edges.len(), "failed": 0, "stale": 0, "skipped": if graph_ready { 0 } else { parent_chunk_count } },
             "community_report_projection": { "ready": false, "status": "not_configured", "processed": 0, "total": 0, "failed": 0, "stale": 0, "skipped": parent_chunk_count }
         });
         let stage_coverage = serde_json::json!({
@@ -488,14 +692,11 @@ impl WorkerKnowledgeRpc {
             "dense_indexing": 0.0,
             "claim_extraction": 0.0,
             "claim_validation": 0.0,
-            "relation_extraction": 0.0,
-            "relation_validation": 0.0,
-            "graph_projection": 0.0,
+            "relation_extraction": if relations_ready { 1.0 } else { 0.0 },
+            "relation_validation": if relations_ready { 1.0 } else { 0.0 },
+            "graph_projection": if graph_ready { 1.0 } else { 0.0 },
             "community_report_projection": 0.0
         });
-        let claims_ready = false;
-        let relations_ready = false;
-        let graph_ready = false;
         Ok(KnowledgeStats {
             document_count: documents.len(),
             total_documents: documents.len(),
@@ -503,10 +704,10 @@ impl WorkerKnowledgeRpc {
             total_chunks: parent_chunk_count,
             parent_chunk_count,
             child_chunk_count,
-            entity_count: 0,
+            entity_count: entity_nodes.len(),
             claim_count: 0,
-            relation_count: 0,
-            source_count: 0,
+            relation_count: entity_edges.len(),
+            source_count: entity_evidence.len(),
             conflict_count: 0,
             stage_status_count: 0,
             candidate_diagnostic_count: 0,
@@ -553,6 +754,9 @@ struct KnowledgeStorePaths {
     jobs_file: PathBuf,
     document_graph_nodes_file: PathBuf,
     document_graph_edges_file: PathBuf,
+    entity_graph_nodes_file: PathBuf,
+    entity_graph_edges_file: PathBuf,
+    entity_graph_evidence_file: PathBuf,
 }
 
 impl KnowledgeStorePaths {
@@ -565,6 +769,9 @@ impl KnowledgeStorePaths {
             jobs_file: knowledge_dir.join("jobs.jsonl"),
             document_graph_nodes_file: knowledge_dir.join("document_graph_nodes.jsonl"),
             document_graph_edges_file: knowledge_dir.join("document_graph_edges.jsonl"),
+            entity_graph_nodes_file: knowledge_dir.join("entity_graph_nodes.jsonl"),
+            entity_graph_edges_file: knowledge_dir.join("entity_graph_edges.jsonl"),
+            entity_graph_evidence_file: knowledge_dir.join("entity_graph_evidence.jsonl"),
         }
     }
 
@@ -779,6 +986,8 @@ pub struct KnowledgeGraphParams {
     #[serde(default)]
     pub doc_id: Option<String>,
     #[serde(default)]
+    pub graph_type: Option<String>,
+    #[serde(default)]
     pub limit: Option<usize>,
     #[serde(default)]
     pub edge_limit: Option<usize>,
@@ -786,6 +995,45 @@ pub struct KnowledgeGraphParams {
     pub min_confidence: Option<f64>,
     #[serde(default)]
     pub include_orphans: Option<bool>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct KnowledgeEntityGraphExtractionParams {
+    pub doc_id: String,
+    #[serde(default)]
+    pub doc_name: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub token_estimate: Value,
+    #[serde(default)]
+    pub entities: Vec<KnowledgeExtractedEntity>,
+    #[serde(default)]
+    pub relations: Vec<KnowledgeExtractedRelation>,
+    #[serde(default)]
+    pub diagnostics: Value,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct KnowledgeExtractedEntity {
+    pub name: String,
+    #[serde(default, rename = "type")]
+    pub entity_type: String,
+    #[serde(default)]
+    pub confidence: Option<f64>,
+    #[serde(default)]
+    pub evidence: Vec<Value>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct KnowledgeExtractedRelation {
+    pub source: String,
+    pub target: String,
+    pub predicate: String,
+    #[serde(default)]
+    pub confidence: Option<f64>,
+    #[serde(default)]
+    pub evidence: Vec<Value>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -1357,6 +1605,117 @@ fn upsert_knowledge_job(root: &Path, job: &KnowledgeJob) -> Result<(), WorkerPro
     jobs.retain(|existing| existing.id != job.id);
     jobs.push(job.clone());
     write_jsonl(&jobs_file, &jobs)
+}
+
+fn completed_entity_graph_job(
+    document: &KnowledgeDocument,
+    params: &KnowledgeEntityGraphExtractionParams,
+    source_hash: &str,
+) -> KnowledgeJob {
+    let timestamp = now_timestamp();
+    let evidence_count = params
+        .entities
+        .iter()
+        .map(|entity| entity.evidence.len())
+        .sum::<usize>()
+        + params
+            .relations
+            .iter()
+            .map(|relation| relation.evidence.len())
+            .sum::<usize>();
+    KnowledgeJob {
+        id: format!("kjob_extract_graph_{}", document.id),
+        doc_id: document.id.clone(),
+        name: format!("extract_graph:{}", document.name),
+        status: "completed".to_string(),
+        stage: "entity_graph_extracted".to_string(),
+        message: "Knowledge entity graph extraction completed".to_string(),
+        processed: 1,
+        total: 1,
+        error: String::new(),
+        created_at: timestamp.clone(),
+        updated_at: timestamp.clone(),
+        completed_at: timestamp,
+        stage_details: Vec::new(),
+        failed_stage_count: 0,
+        stale_stage_count: 0,
+        retrieval_ready: true,
+        graph_ready: true,
+        partial_availability: true,
+        result: serde_json::json!({
+            "entities": params.entities.len(),
+            "relations": params.relations.len(),
+            "evidence": evidence_count,
+            "model": params.model,
+            "source_hash": source_hash,
+            "token_estimate": params.token_estimate,
+            "diagnostics": params.diagnostics
+        }),
+    }
+}
+
+fn entity_graph_stub_node(
+    document: &KnowledgeDocument,
+    name: &str,
+    id: &str,
+    source_hash: &str,
+) -> KnowledgeGraphNode {
+    KnowledgeGraphNode {
+        id: id.to_string(),
+        label: name.trim().to_string(),
+        node_type: "entity".to_string(),
+        doc_id: document.id.clone(),
+        attributes: serde_json::json!({
+            "entity_type": "",
+            "source_hash": source_hash,
+            "stale": false,
+            "evidence_ids": []
+        }),
+    }
+}
+
+fn persist_entity_graph_evidence(
+    evidence_records: &mut Vec<Value>,
+    document: &KnowledgeDocument,
+    owner_id: &str,
+    owner_type: &str,
+    index: usize,
+    evidence: &Value,
+) -> String {
+    let text = value_string(evidence, "text")
+        .or_else(|| value_string(evidence, "quote"))
+        .unwrap_or_default();
+    let line_start = value_usize(evidence, "line_start").unwrap_or(1);
+    let line_end = value_usize(evidence, "line_end").unwrap_or(line_start);
+    let id = document_graph_value_id(
+        "evidence",
+        &format!("{}:{owner_id}:{owner_type}:{index}:{text}", document.id),
+    );
+    evidence_records.push(serde_json::json!({
+        "id": id,
+        "doc_id": document.id,
+        "doc_name": document.name,
+        "owner_id": owner_id,
+        "owner_type": owner_type,
+        "text": text,
+        "line_start": line_start,
+        "line_end": line_end
+    }));
+    id
+}
+
+fn entity_graph_entity_id(doc_id: &str, name: &str) -> String {
+    document_graph_value_id(
+        "entity",
+        &format!("{doc_id}:{}", normalize_graph_reference_key(name)),
+    )
+}
+
+fn document_content_hash(document: &KnowledgeDocument) -> String {
+    format!(
+        "{:016x}",
+        stable_graph_hash(&format!("{}\n{}", document.id, document.content))
+    )
 }
 
 fn refresh_document_graph(root: &Path) -> Result<(), WorkerProtocolError> {

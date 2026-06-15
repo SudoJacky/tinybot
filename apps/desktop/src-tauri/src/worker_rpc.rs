@@ -10,8 +10,9 @@ use crate::worker_cron::{
 use crate::worker_diagnostics::WorkerDiagnosticsRpc;
 use crate::worker_knowledge::{
     KnowledgeAddDocumentParams, KnowledgeContextParams, KnowledgeDocumentIdParams,
-    KnowledgeGraphParams, KnowledgeJobIdParams, KnowledgeListDocumentsParams, KnowledgeQueryParams,
-    KnowledgeRebuildIndexParams, KnowledgeStartIndexJobParams, WorkerKnowledgeRpc,
+    KnowledgeEntityGraphExtractionParams, KnowledgeGraphParams, KnowledgeJobIdParams,
+    KnowledgeListDocumentsParams, KnowledgeQueryParams, KnowledgeRebuildIndexParams,
+    KnowledgeStartIndexJobParams, WorkerKnowledgeRpc,
 };
 use crate::worker_protocol::{validate_protocol_version, WorkerRequest, WorkerResponse};
 use crate::worker_secret::{ProviderResolveSecretParams, WorkerSecretRpc};
@@ -522,6 +523,11 @@ impl WorkerRpcRouter {
             "knowledge.graph" => {
                 let params: KnowledgeGraphParams = parse_params(request)?;
                 serde_json::to_value(self.knowledge.document_graph(params)?)
+                    .map_err(serialization_error)
+            }
+            "knowledge.save_entity_graph_extraction" => {
+                let params: KnowledgeEntityGraphExtractionParams = parse_params(request)?;
+                serde_json::to_value(self.knowledge.save_entity_graph_extraction(params)?)
                     .map_err(serialization_error)
             }
             "knowledge.stats" => {
@@ -8259,6 +8265,112 @@ mod tests {
         assert!(fixture
             .read("knowledge/document_graph_edges.jsonl")
             .contains("references_url"));
+    }
+
+    #[test]
+    fn dispatches_entity_graph_extraction_persistence() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "knowledge.add_document",
+            json!({
+                "name": "Entity Source.md",
+                "content": "# Entity Source\n\nTinyBot stores knowledge graph evidence.\n",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-2",
+            "trace-1",
+            "knowledge.save_entity_graph_extraction",
+            json!({
+                "doc_id": doc_id,
+                "doc_name": "Entity Source.md",
+                "model": "knowledge-model",
+                "token_estimate": { "total_tokens": 120, "max_tokens": 800 },
+                "entities": [
+                    { "name": "TinyBot", "type": "project", "confidence": 0.91, "evidence": [{ "text": "TinyBot stores knowledge graph evidence.", "line_start": 3, "line_end": 3 }] },
+                    { "name": "knowledge graph", "type": "concept", "confidence": 0.86 }
+                ],
+                "relations": [
+                    { "source": "TinyBot", "target": "knowledge graph", "predicate": "stores", "confidence": 0.82, "evidence": [{ "text": "TinyBot stores knowledge graph evidence.", "line_start": 3, "line_end": 3 }] }
+                ],
+                "diagnostics": { "chunks_used": 1 }
+            }),
+        ));
+        assert_eq!(save_response.error, None);
+        let job = save_response
+            .result
+            .as_ref()
+            .expect("knowledge.save_entity_graph_extraction should return result");
+        assert_eq!(job["id"], format!("kjob_extract_graph_{doc_id}"));
+        assert_eq!(job["stage"], "entity_graph_extracted");
+        assert_eq!(job["result"]["entities"], 2);
+        assert_eq!(job["result"]["relations"], 1);
+        assert!(fixture
+            .read("knowledge/entity_graph_nodes.jsonl")
+            .contains("TinyBot"));
+        assert!(fixture
+            .read("knowledge/entity_graph_edges.jsonl")
+            .contains("stores"));
+        assert!(fixture
+            .read("knowledge/entity_graph_evidence.jsonl")
+            .contains("knowledge graph evidence"));
+
+        let graph_response = router.dispatch(&WorkerRequest::new(
+            "req-3",
+            "trace-1",
+            "knowledge.graph",
+            json!({ "doc_id": doc_id, "graph_type": "entity", "include_orphans": true }),
+        ));
+        assert_eq!(graph_response.error, None);
+        let graph = graph_response
+            .result
+            .as_ref()
+            .expect("knowledge.graph should return entity graph");
+        assert_eq!(graph["graph_type"], "entity");
+        assert_eq!(graph["stats"]["node_count"], 2);
+        assert_eq!(graph["stats"]["edge_count"], 1);
+        assert_eq!(graph["readiness"]["entity_graph_ready"], true);
+        assert_eq!(
+            graph["edges"][0]["evidence"][0]["text"],
+            "TinyBot stores knowledge graph evidence."
+        );
+
+        let stats_response = router.dispatch(&WorkerRequest::new(
+            "req-4",
+            "trace-1",
+            "knowledge.stats",
+            json!({}),
+        ));
+        assert_eq!(stats_response.error, None);
+        let stats = stats_response
+            .result
+            .as_ref()
+            .expect("knowledge.stats should return result");
+        assert_eq!(stats["entity_count"], 2);
+        assert_eq!(stats["relation_count"], 1);
+        assert_eq!(stats["source_count"], 2);
+        assert_eq!(stats["graph_ready"], true);
     }
 
     #[test]
