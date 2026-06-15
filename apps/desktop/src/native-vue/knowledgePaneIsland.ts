@@ -252,12 +252,13 @@ function renderKnowledgePipelineRegion(
 }
 
 function renderKnowledgeQueueRow(document: DesktopKnowledgeDocumentRow, index: number) {
-  const progress = document.status === "indexed" ? 100 : document.status === "indexing" ? 45 : 0;
-  const stage = document.status === "indexed" ? "Indexed" : document.status === "indexing" ? "Parsing" : "Queued";
+  const progress = document.progressPercent;
+  const stage = document.phaseLabel;
   return h("article", { class: "desktop-knowledge-queue-row" }, [
     h("div", { class: "desktop-knowledge-queue-file" }, [
       h("strong", document.title),
       h("span", `${document.typeLabel || "DOC"} / ${document.sizeLabel || "-"} / ${stage}`),
+      h("small", document.progressDetail),
     ]),
     h("div", { class: "desktop-knowledge-queue-progress", "aria-label": `${stage} ${progress}%` }, [
       h("span", { style: { width: `${progress}%` } }),

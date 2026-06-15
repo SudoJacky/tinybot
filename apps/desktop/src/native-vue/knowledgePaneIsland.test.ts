@@ -34,7 +34,7 @@ const pane = buildDesktopKnowledgePaneModel({
   documentsPayload: {
     documents: [
       { id: "doc-1", title: "Desktop UX", path: "docs/desktop.md", tags: ["desktop"], category: "MD", size_bytes: 86000, chunk_count: 10, status: "indexed", updated_at: "2h ago" },
-      { id: "doc-2", title: "Gateway", path: "docs/gateway.md", category: "PDF", size_bytes: 1260000, chunk_count: 8, status: "indexing", updated_at: "5h ago" },
+      { id: "doc-2", title: "Migration progress", path: "knowledge/files/doc.md", category: "MD", chunk_count: 13, status: "unknown", updated_at: "5h ago" },
     ],
   },
   selectedDocumentId: "doc-1",
@@ -139,6 +139,10 @@ describe("knowledge pane Vue island", () => {
     );
     expect(host.querySelector('[data-desktop-knowledge-region="queue"]')?.textContent).toContain("Ingestion Queue");
     expect(host.querySelector('[data-desktop-knowledge-region="queue"]')?.textContent).toContain("Desktop UX");
+    expect(host.querySelector('[data-desktop-knowledge-region="queue"]')?.textContent).toContain("Migration progress");
+    expect(host.querySelector('[data-desktop-knowledge-region="queue"]')?.textContent).toContain("Chunks indexed");
+    expect(host.querySelector('[data-desktop-knowledge-region="queue"]')?.textContent).toContain("13 chunks available; waiting for semantic or graph stages");
+    expect(host.querySelector('[data-desktop-knowledge-region="queue"]')?.textContent).not.toContain("Queued");
     expect(host.querySelector('[data-desktop-knowledge-queue-action="pause"]')?.getAttribute("type")).toBe("button");
     expect(host.querySelector('[data-desktop-knowledge-queue-action="cancel"]')?.getAttribute("type")).toBe("button");
     expect(host.querySelector('[data-desktop-knowledge-region="documents"]')?.textContent).toContain("Documents (2)");

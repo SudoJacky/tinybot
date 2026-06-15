@@ -1206,7 +1206,7 @@ async function knowledgeAddDocumentResponse(
         : `Document '${resultName}' added successfully`,
     };
     if (asyncIndex) {
-      const job = completedKnowledgeUploadJob(id, resultName);
+      const job = completedKnowledgeUploadJob(id, resultName, numberValue(document?.chunk_count ?? document?.chunks) ?? 1);
       responseBody.job = job;
       responseBody.job_id = job.id;
     }
@@ -1296,7 +1296,7 @@ async function knowledgeUploadDocumentResponse(
         : `File '${resultName}' uploaded and indexed successfully`,
     };
     if (asyncIndex) {
-      const job = completedKnowledgeUploadJob(id, resultName);
+      const job = completedKnowledgeUploadJob(id, resultName, numberValue(document?.chunk_count ?? document?.chunks) ?? 1);
       responseBody.job = job;
       responseBody.job_id = job.id;
     }
@@ -1391,7 +1391,7 @@ async function knowledgeJobResponse(
       return { status: 404, body: knowledgeApiError(404, `Knowledge job ${jobId} not found`) };
     }
     const name = stringValue(document.name) ?? docId;
-    return { status: 200, body: completedKnowledgeUploadJob(docId, name) };
+    return { status: 200, body: completedKnowledgeUploadJob(docId, name, numberValue(document.chunk_count ?? document.chunks) ?? 1) };
   } catch (error) {
     return knowledgeServerError("Error getting knowledge job", error);
   }
@@ -1955,17 +1955,18 @@ function knowledgeUploadJobDocumentId(jobId: string): string | undefined {
   return jobId.startsWith("kjob_doc") ? jobId.slice("kjob_".length) : undefined;
 }
 
-function completedKnowledgeUploadJob(docId: string, name: string): Record<string, unknown> {
+function completedKnowledgeUploadJob(docId: string, name: string, chunkCount = 1): Record<string, unknown> {
   const lifecycle = completedKnowledgeJobLifecycle();
+  const chunksIndexed = Math.max(1, Math.trunc(chunkCount));
   return {
     id: `kjob_${docId || "upload"}`,
     doc_id: docId,
     name,
     status: "completed",
-    stage: "completed",
-    message: "Knowledge indexing completed in native TS worker",
-    processed: 1,
-    total: 1,
+    stage: "retrieval_indexed",
+    message: "Native retrieval index is available; semantic graph indexing is not available in native TS worker",
+    processed: chunksIndexed,
+    total: chunksIndexed,
     error: "",
     ...lifecycle,
     stage_details: [],

@@ -91,7 +91,20 @@ describe("desktop command palette", () => {
       knowledgeDocuments: {
         loaded: true,
         rows: [
-          { id: "doc-1", title: "Desktop UX Notes", path: "knowledge/desktop.md", category: "design", tags: ["ux"], chunkCount: 12, status: "indexed", updatedAt: "2026-05-29", meta: "indexed / 12 chunks" },
+          {
+            id: "doc-1",
+            title: "Desktop UX Notes",
+            path: "knowledge/desktop.md",
+            category: "design",
+            tags: ["ux"],
+            chunkCount: 12,
+            status: "indexed",
+            phaseLabel: "Indexed",
+            progressPercent: 100,
+            progressDetail: "12 chunks indexed",
+            updatedAt: "2026-05-29",
+            meta: "indexed / 12 chunks",
+          },
         ],
       },
       tools: {
