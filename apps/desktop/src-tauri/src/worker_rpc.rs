@@ -160,6 +160,11 @@ impl WorkerRpcRouter {
         self
     }
 
+    pub fn with_builtin_skills_root(mut self, builtin_skills_root: PathBuf) -> Self {
+        self.workspace = self.workspace.with_builtin_skills_root(builtin_skills_root);
+        self
+    }
+
     pub fn dispatch(&mut self, request: &WorkerRequest) -> WorkerResponse {
         if let Err(error) = validate_protocol_version(&request.protocol_version) {
             return WorkerResponse::failure(request, error);
