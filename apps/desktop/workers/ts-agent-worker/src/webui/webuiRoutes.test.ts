@@ -443,6 +443,89 @@ describe("WebUI knowledge graph extraction routes", () => {
       extraction_scope: { max_chunks: 2, chunk_count: 2, original_chunk_count: 4 },
     });
   });
+
+  test("honors graph extraction concurrency for batch LLM calls", async () => {
+    let activeCompletions = 0;
+    let maxActiveCompletions = 0;
+    const documents = [
+      { id: "doc-1", name: "One.md", chunk_count: 1 },
+      { id: "doc-2", name: "Two.md", chunk_count: 1 },
+      { id: "doc-3", name: "Three.md", chunk_count: 1 },
+    ];
+    const configProvider: WebuiConfigProvider = {
+      getConfig: () => ({
+        agents: { defaults: { model: "knowledge-model" } },
+        knowledge: {
+          enabled: true,
+          graph_extraction_enabled: true,
+          graph_extraction_concurrency: 2,
+          semantic_llm_max_tokens: 1200,
+        },
+      }),
+      patchConfig: () => ({}),
+    };
+    const openAiCompatProvider: WebuiOpenAiCompatProvider = {
+      completeChat: async () => {
+        activeCompletions += 1;
+        maxActiveCompletions = Math.max(maxActiveCompletions, activeCompletions);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        activeCompletions -= 1;
+        return JSON.stringify({ entities: [{ name: "Entity", confidence: 0.9 }], relations: [] });
+      },
+    };
+    const knowledgeProvider: WebuiKnowledgeProvider = {
+      listDocuments: () => ({ documents }),
+      addDocument: () => ({ document: {} }),
+      getDocument: (docId) => ({
+        document: documents.find((document) => document.id === docId) ?? { id: docId, name: docId },
+        content: `# ${docId}\nKnowledge graph content.`,
+      }),
+      deleteDocument: () => ({ deleted: false }),
+      query: () => ({ results: [] }),
+      stats: () => ({ total_documents: documents.length, total_chunks: 3, retrieval_ready: true }),
+      saveEntityGraphExtraction: (payload) => ({
+        id: `kjob_extract_graph_${payload.doc_id}`,
+        doc_id: payload.doc_id,
+        name: `extract_graph:${payload.doc_name}`,
+        status: "completed",
+        stage: "entity_graph_extracted",
+        processed: 1,
+        total: 1,
+      }),
+    };
+
+    const extraction = await handleWebuiRouteRequest(
+      {
+        method: "POST",
+        path: "/v1/knowledge/graph/extract",
+        body: { doc_ids: ["doc-1", "doc-2", "doc-3"] },
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      configProvider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      openAiCompatProvider,
+      knowledgeProvider,
+      undefined,
+      "trace-concurrent-extract",
+    );
+
+    expect(extraction).toMatchObject({
+      status: 202,
+      body: {
+        document_count: 3,
+        job_ids: ["kjob_extract_graph_doc-1", "kjob_extract_graph_doc-2", "kjob_extract_graph_doc-3"],
+      },
+    });
+    expect(maxActiveCompletions).toBe(2);
+  });
 });
 
 describe("WebUI route temporary files", () => {

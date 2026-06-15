@@ -1628,31 +1628,11 @@ async function knowledgeGraphExtractResponse(
     if (plans.some((plan) => plan.tokenEstimate.within_budget === false)) {
       return { status: 400, body: knowledgeApiError(400, "Graph extraction token estimate exceeds configured budget") };
     }
-    const jobs = [];
-    for (const plan of plans) {
-      const extractionText = await openAiCompatProvider.completeChat({
-        content: knowledgeGraphExtractionPrompt(plan.docName, plan.content, maxTokens),
-        sessionKey: "knowledge:graph-extraction",
-        chatId: "knowledge-graph-extraction",
-        model,
-        timeoutSeconds: knowledgeSemanticTimeoutSeconds(config),
-      }, traceId);
-      const extraction = parseKnowledgeGraphExtractionJson(extractionText);
-      const savePayload = {
-        doc_id: plan.docId,
-        doc_name: plan.docName,
-        model,
-        token_estimate: plan.tokenEstimate,
-        extraction_scope: plan.extractionScope,
-        entities: extraction.entities,
-        relations: extraction.relations,
-        diagnostics: {
-          raw_chars: extractionText.length,
-          content_chars: plan.content.length,
-        },
-      };
-      jobs.push(asObject(await provider.saveEntityGraphExtraction(savePayload, traceId)) ?? {});
-    }
+    const jobs = await runKnowledgeGraphExtractionPlans(
+      plans,
+      knowledgeGraphExtractionConcurrency(config),
+      async (plan) => runKnowledgeGraphExtractionPlan(plan, provider, openAiCompatProvider, model, maxTokens, config, traceId),
+    );
     logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.graph_extract.complete", {
       document_count: plans.length,
       job_count: jobs.length,
@@ -2112,6 +2092,69 @@ function knowledgeGraphExtractionMaxChunks(config: Record<string, unknown>): num
         ?? 5,
     ),
   );
+}
+
+function knowledgeGraphExtractionConcurrency(config: Record<string, unknown>): number {
+  const knowledge = asObject(config.knowledge);
+  return Math.max(
+    1,
+    Math.trunc(
+      numberValue(knowledge?.graphExtractionConcurrency)
+        ?? numberValue(knowledge?.graph_extraction_concurrency)
+        ?? 1,
+    ),
+  );
+}
+
+async function runKnowledgeGraphExtractionPlans<T>(
+  plans: KnowledgeGraphExtractionPlan[],
+  concurrency: number,
+  run: (plan: KnowledgeGraphExtractionPlan) => Promise<T>,
+): Promise<T[]> {
+  const results = new Array<T>(plans.length);
+  let cursor = 0;
+  const workerCount = Math.min(Math.max(1, concurrency), plans.length);
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (cursor < plans.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await run(plans[index]!);
+    }
+  }));
+  return results;
+}
+
+async function runKnowledgeGraphExtractionPlan(
+  plan: KnowledgeGraphExtractionPlan,
+  provider: WebuiKnowledgeProvider,
+  openAiCompatProvider: WebuiOpenAiCompatProvider,
+  model: string,
+  maxTokens: number,
+  config: Record<string, unknown>,
+  traceId: string,
+): Promise<Record<string, unknown>> {
+  const extractionText = await openAiCompatProvider.completeChat({
+    content: knowledgeGraphExtractionPrompt(plan.docName, plan.content, maxTokens),
+    sessionKey: "knowledge:graph-extraction",
+    chatId: "knowledge-graph-extraction",
+    model,
+    timeoutSeconds: knowledgeSemanticTimeoutSeconds(config),
+  }, traceId);
+  const extraction = parseKnowledgeGraphExtractionJson(extractionText);
+  const savePayload = {
+    doc_id: plan.docId,
+    doc_name: plan.docName,
+    model,
+    token_estimate: plan.tokenEstimate,
+    extraction_scope: plan.extractionScope,
+    entities: extraction.entities,
+    relations: extraction.relations,
+    diagnostics: {
+      raw_chars: extractionText.length,
+      content_chars: plan.content.length,
+    },
+  };
+  return asObject(await provider.saveEntityGraphExtraction?.(savePayload, traceId)) ?? {};
 }
 
 function knowledgeGraphExtractionTokenEstimate(content: string, maxTokens: number): Record<string, unknown> {
