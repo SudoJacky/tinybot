@@ -29,12 +29,22 @@ const IGNORED_DIRS: &[&str] = &[
 #[derive(Clone, Debug)]
 pub struct WorkerWorkspaceRpc {
     root: PathBuf,
+    builtin_skills_root: PathBuf,
     policy: CapabilityPolicy,
 }
 
 impl WorkerWorkspaceRpc {
     pub fn new(root: PathBuf, policy: CapabilityPolicy) -> Self {
-        Self { root, policy }
+        Self {
+            builtin_skills_root: root.clone(),
+            root,
+            policy,
+        }
+    }
+
+    pub fn with_builtin_skills_root(mut self, builtin_skills_root: PathBuf) -> Self {
+        self.builtin_skills_root = builtin_skills_root;
+        self
     }
 
     pub fn resolve_path(
@@ -231,11 +241,12 @@ impl WorkerWorkspaceRpc {
     pub fn list_skills(&self) -> Result<WorkspaceSkillsList, WorkerProtocolError> {
         self.require(WorkerCapability::FsWorkspaceRead)?;
         let root = canonicalize_workspace_root(&self.root)?;
+        let builtin_skills_root = canonicalize_workspace_root(&self.builtin_skills_root)?;
         let mut skills = Vec::new();
         let mut seen_names = Vec::new();
         collect_skill_entries(&root, "skills", "workspace", &mut skills, &mut seen_names)?;
         collect_skill_entries(
-            &root,
+            &builtin_skills_root,
             "tinybot/skills",
             "builtin",
             &mut skills,
@@ -1041,6 +1052,48 @@ mod tests {
     }
 
     #[test]
+    fn list_skills_uses_separate_builtin_root_with_workspace_precedence() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write(
+            "skills/planner/SKILL.md",
+            "---\nname: planner\ndescription: Workspace planner\n---\nWorkspace body",
+        );
+        fixture.write_outside(
+            "tinybot/skills/planner/SKILL.md",
+            "---\nname: planner\ndescription: Builtin planner\n---\nBuiltin body",
+        );
+        fixture.write_outside(
+            "tinybot/skills/tmux/SKILL.md",
+            "---\nname: tmux\ndescription: Terminal sessions\n---\nTmux body",
+        );
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_policy())
+            .with_builtin_skills_root(fixture.outside.clone());
+
+        let result = rpc.list_skills().expect("skills should list");
+        let skills: Vec<(String, String, String)> = result
+            .skills
+            .into_iter()
+            .map(|skill| (skill.name, skill.source, skill.path))
+            .collect();
+
+        assert_eq!(
+            skills,
+            vec![
+                (
+                    "planner".to_string(),
+                    "workspace".to_string(),
+                    "skills/planner/SKILL.md".to_string()
+                ),
+                (
+                    "tmux".to_string(),
+                    "builtin".to_string(),
+                    "tinybot/skills/tmux/SKILL.md".to_string()
+                )
+            ]
+        );
+    }
+
+    #[test]
     fn resolve_path_normalizes_slashes_without_touching_filesystem() {
         let fixture = WorkspaceFixture::new();
         let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_policy());
@@ -1335,6 +1388,16 @@ mod tests {
                 std::fs::create_dir_all(parent).expect("fixture parent should create");
             }
             std::fs::write(path, contents).expect("fixture file should write");
+        }
+
+        fn write_outside(&self, relative_path: &str, contents: &str) {
+            let path = self
+                .outside
+                .join(relative_path.replace('/', std::path::MAIN_SEPARATOR_STR));
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).expect("outside fixture parent should create");
+            }
+            std::fs::write(path, contents).expect("outside fixture file should write");
         }
     }
 
