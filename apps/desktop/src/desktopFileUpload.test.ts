@@ -112,6 +112,42 @@ describe("desktop file upload adapters", () => {
     expect(uploadedNames).toEqual(["notes.md", "notes.md"]);
   });
 
+  test("opens the knowledge picker when the visible drop zone is clicked", async () => {
+    const targetDocument = createUploadTestDocument();
+    const dropZone = targetDocument.createElement("div");
+    dropZone.setAttribute("data-desktop-drop-target", "knowledge-document");
+    const status = targetDocument.createElement("p");
+    status.setAttribute("id", "desktop-file-upload-status");
+    targetDocument.body.append(dropZone, status);
+    const pickedKinds: string[] = [];
+    const uploadedNames: string[] = [];
+    const refreshed: string[] = [];
+
+    installDesktopFileUploadActions({
+      targetDocument: targetDocument as unknown as Document,
+      pickFile: async (kind) => {
+        pickedKinds.push(kind);
+        return pickedFile;
+      },
+      uploadKnowledgeDocument: async (form) => {
+        uploadedNames.push((form.get("file") as File).name);
+      },
+      uploadSessionTemporaryFile: async () => undefined,
+      uploadWorkspaceFile: async () => undefined,
+      onKnowledgeUploaded: async () => {
+        refreshed.push("knowledge");
+      },
+    });
+
+    dropZone.click();
+    await flushPromises();
+
+    expect(pickedKinds).toEqual(["knowledge-document"]);
+    expect(uploadedNames).toEqual(["notes.md"]);
+    expect(refreshed).toEqual(["knowledge"]);
+    expect(targetDocument.querySelector("#desktop-file-upload-status")?.textContent).toContain("Uploaded notes.md");
+  });
+
   test("classifies accepted and rejected dropped files for knowledge imports", () => {
     const accepted = new File(["# notes"], "notes.md", { type: "text/markdown" });
     const rejected = new File(["binary"], "installer.exe", { type: "application/x-msdownload" });
@@ -430,6 +466,10 @@ class UploadTestElement {
     if (name === "class") {
       this.className = value;
     }
+  }
+
+  getAttribute(name: string): string | null {
+    return this.attributes.get(name) ?? null;
   }
 
   append(...children: UploadTestElement[]): void {

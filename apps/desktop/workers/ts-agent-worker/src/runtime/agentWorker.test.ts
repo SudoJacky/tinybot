@@ -187,6 +187,11 @@ function channelRequest(method: string, params: Record<string, unknown> = {}): W
   };
 }
 
+function knowledgeDiagnosticStage(event: WorkerEvent): string {
+  const payload = JSON.parse(String(event.payload?.line).replace(/^\[knowledge\]\s*/, ""));
+  return String(payload.stage);
+}
+
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((innerResolve) => {
@@ -2591,6 +2596,57 @@ describe("AgentWorker", () => {
       { method: "write:trace-webui.handle_request", path: "docs/notes.md", contents: "# Updated\n", expectedUpdatedAt: null },
       { method: "write:trace-webui.handle_request", path: "docs/notes.md", contents: "# Stale\n", expectedUpdatedAt: "stale" },
     ]);
+  });
+
+  test("emits diagnostics events for Knowledge API route logs", async () => {
+    const events: WorkerEvent[] = [];
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: (event) => events.push(event),
+      knowledgeProvider: {
+        listDocuments: () => ({ documents: [] }),
+        addDocument: (body) => ({
+          document: {
+            id: "doc-log",
+            name: body.name,
+            file_path: "knowledge/files/doc-log.md",
+            file_type: body.file_type,
+            chunk_count: 1,
+          },
+        }),
+        getDocument: () => null,
+        deleteDocument: () => ({ deleted: false }),
+        query: () => ({ results: [] }),
+        stats: () => ({ total_documents: 1, total_chunks: 1, retrieval_ready: true }),
+      },
+    });
+
+    await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
+      method: "POST",
+      path: "/v1/knowledge/documents/upload?async_index=true",
+      body: {
+        name: "RAG.md",
+        content: "# Private upload body\nDo not log this.",
+        file_type: "md",
+        size_bytes: 38,
+      },
+    }))).resolves.toMatchObject({
+      result: { status: 202, body: { id: "doc-log", name: "RAG.md" } },
+    });
+
+    const diagnostics = events.filter((event) => event.event === "diagnostics.log");
+    expect(diagnostics).toHaveLength(2);
+    expect(diagnostics[0]).toMatchObject({
+      trace_id: "trace-webui.handle_request",
+      payload: { stream: "stderr" },
+    });
+    expect(diagnostics.map((event) => knowledgeDiagnosticStage(event))).toEqual([
+      "knowledge.upload_document.start",
+      "knowledge.upload_document.complete",
+    ]);
+    expect(diagnostics.map((event) => String(event.payload?.line)).join("\n")).not.toContain("Private upload body");
+    expect(diagnostics.map((event) => String(event.payload?.line)).join("\n")).not.toContain("Do not log this");
   });
 
   test("serves Knowledge API document, query, and stats routes through TS worker RPC", async () => {

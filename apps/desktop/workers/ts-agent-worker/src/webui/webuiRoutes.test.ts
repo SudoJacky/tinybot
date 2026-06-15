@@ -5,6 +5,8 @@ import {
   handleWebuiRouteRequest,
   type WebuiAgentUiFormProvider,
   type WebuiConfigProvider,
+  type WebuiDiagnosticsLogger,
+  type WebuiKnowledgeProvider,
   type WebuiOpenAiCompatProvider,
   type WebuiSessionProvider,
 } from "./webuiRoutes.ts";
@@ -374,6 +376,75 @@ describe("WebUI route temporary files", () => {
     expect(clears).toEqual([{ sessionId: "native:chat-1", traceId: "trace-temp-clear" }]);
   });
 });
+
+describe("WebUI knowledge diagnostics", () => {
+  test("emits sanitized backend diagnostics for knowledge uploads", async () => {
+    const diagnostics: Array<{ stream: string; line: string }> = [];
+    const diagnosticsLogger: WebuiDiagnosticsLogger = (diagnostic) => diagnostics.push(diagnostic);
+    const knowledgeProvider: WebuiKnowledgeProvider = {
+      listDocuments: () => ({ documents: [] }),
+      addDocument: (body) => ({
+        document: {
+          id: "doc-1",
+          name: body.name,
+          file_path: "knowledge/files/doc-1.md",
+          file_type: body.file_type,
+          chunk_count: 2,
+        },
+      }),
+      getDocument: () => null,
+      deleteDocument: () => ({ deleted: false }),
+      query: () => ({ results: [] }),
+      stats: () => ({ total_documents: 1, total_chunks: 2, retrieval_ready: true }),
+    };
+
+    const response = await handleWebuiRouteRequest(
+      {
+        method: "POST",
+        path: "/v1/knowledge/documents/upload?async_index=true",
+        body: {
+          name: "RAG.md",
+          content: "# Secret body\nDo not put this content in diagnostics.",
+          file_type: "md",
+          size_bytes: 52,
+        },
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      knowledgeProvider,
+      undefined,
+      "trace-knowledge-upload",
+      diagnosticsLogger,
+    );
+
+    expect(response.status).toBe(202);
+    expect(diagnostics.map((entry) => entry.stream)).toEqual(["stderr", "stderr"]);
+    expect(diagnostics.map((entry) => diagnosticStage(entry.line))).toEqual([
+      "knowledge.upload_document.start",
+      "knowledge.upload_document.complete",
+    ]);
+    expect(diagnostics[0].line).toContain('"name":"RAG.md"');
+    expect(diagnostics[0].line).toContain('"file_type":"md"');
+    expect(diagnostics[1].line).toContain('"id":"doc-1"');
+    expect(diagnostics.map((entry) => entry.line).join("\n")).not.toContain("Secret body");
+    expect(diagnostics.map((entry) => entry.line).join("\n")).not.toContain("Do not put this content");
+  });
+});
+
+function diagnosticStage(line: string): string {
+  const payload = JSON.parse(line.replace(/^\[knowledge\]\s*/, ""));
+  return String(payload.stage);
+}
 
 describe("WebUI Agent UI form routes", () => {
   test("ignores invalid values on cancel like Python form cancellation", async () => {

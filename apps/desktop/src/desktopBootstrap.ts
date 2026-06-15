@@ -1698,7 +1698,7 @@ function setNativeKnowledgePane(pane: DesktopKnowledgePaneModel): void {
     onKnowledgeAction: (event) => {
       void handleNativeKnowledgeAction(event);
     },
-  });
+  }, currentNativeKnowledgeTaskCenterItems());
   refreshNativeFileUploadActions();
 }
 
@@ -2130,6 +2130,13 @@ function installNativeFileUploadActions(): void {
     }),
     uploadKnowledgeDocument: (form) => gatewayApi.knowledge.uploadDocument(form),
     onKnowledgeTaskUpdated: updateNativeKnowledgeTask,
+    onKnowledgeUploaded: async () => {
+      const pane = await loadNativeKnowledgePane({
+        queryResultPayload: nativeKnowledgeQueryResult,
+        selectedDocumentId: nativeKnowledgePane?.selectedDocument?.id,
+      });
+      setNativeKnowledgePane(pane);
+    },
     uploadSessionTemporaryFile: (sessionKey, form) => gatewayApi.sessions.uploadTemporaryFile(sessionKey, form),
     listSessionTemporaryFiles: (sessionKey) => gatewayApi.sessions.temporaryFiles(sessionKey),
     getSessionKey: () => nativeWorkbenchRuntime?.chat.activeSessionKey ?? "",
@@ -2355,6 +2362,10 @@ function currentNativeTaskCenterItems() {
       ...(nativeWorkbenchRuntime?.approvalOperations ?? []),
     ],
   });
+}
+
+function currentNativeKnowledgeTaskCenterItems() {
+  return currentNativeTaskCenterItems().filter((item) => item.destination.module === "knowledge");
 }
 
 function publishNativeTaskCenterItems(): void {

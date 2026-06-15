@@ -288,6 +288,11 @@ export type WebuiKnowledgeProvider = {
   stats(traceId: string): Promise<unknown> | unknown;
 };
 
+export type WebuiDiagnosticsLogger = (diagnostic: {
+  stream: "stdout" | "stderr";
+  line: string;
+}) => void;
+
 export type WebuiOpenAiChatRequest = {
   content: string;
   sessionKey: string;
@@ -451,6 +456,7 @@ export async function handleWebuiRouteRequest(
   knowledgeProvider?: WebuiKnowledgeProvider,
   coworkProvider?: WebuiCoworkProvider,
   traceId = "webui-route",
+  diagnosticsLogger?: WebuiDiagnosticsLogger,
 ): Promise<WebuiRouteResponse> {
   const method = request.method.toUpperCase();
   const url = new URL(request.path, "http://worker.local");
@@ -467,28 +473,32 @@ export async function handleWebuiRouteRequest(
     return openAiChatCompletionsResponse(request.body, config, openAiCompatProvider, traceId);
   }
   if (method === "GET" && path === "/v1/knowledge/documents") {
-    return knowledgeListDocumentsResponse(url.searchParams, knowledgeProvider, traceId);
+    return knowledgeListDocumentsResponse(url.searchParams, knowledgeProvider, traceId, diagnosticsLogger);
   }
   if (method === "POST" && path === "/v1/knowledge/documents") {
-    return knowledgeAddDocumentResponse(request.body, url.searchParams, knowledgeProvider, traceId);
+    return knowledgeAddDocumentResponse(request.body, url.searchParams, knowledgeProvider, traceId, diagnosticsLogger);
   }
   if (method === "POST" && path === "/v1/knowledge/documents/upload") {
-    return knowledgeUploadDocumentResponse(request.body, url.searchParams, knowledgeProvider, traceId);
+    return knowledgeUploadDocumentResponse(request.body, url.searchParams, knowledgeProvider, traceId, diagnosticsLogger);
   }
   const knowledgeDocument = knowledgeDocumentPath(method, path);
   if (knowledgeDocument) {
     return knowledgeDocumentResponse(knowledgeDocument.docId, method, knowledgeProvider, traceId);
   }
   if (method === "POST" && path === "/v1/knowledge/query") {
-    return knowledgeQueryResponse(request.body, knowledgeProvider, traceId);
+    return knowledgeQueryResponse(request.body, knowledgeProvider, traceId, diagnosticsLogger);
   }
   if (method === "GET" && path === "/v1/knowledge/stats") {
     if (!knowledgeProvider) {
       return { status: 503, body: knowledgeApiError(503, "Knowledge store not initialized") };
     }
+    logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.stats.start");
     try {
-      return { status: 200, body: knowledgeStatsBody(await knowledgeProvider.stats(traceId)) };
+      const body = knowledgeStatsBody(await knowledgeProvider.stats(traceId));
+      logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.stats.complete", knowledgeStatsDiagnostic(body));
+      return { status: 200, body };
     } catch (error) {
+      logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.stats.failed", { error: errorMessage(error) });
       return knowledgeServerError("Error getting stats", error);
     }
   }
@@ -497,7 +507,7 @@ export async function handleWebuiRouteRequest(
     return knowledgeJobResponse(knowledgeJobId, knowledgeProvider, traceId);
   }
   if (method === "POST" && path === "/v1/knowledge/rebuild-index") {
-    return knowledgeRebuildIndexResponse(url.searchParams, knowledgeProvider, traceId);
+    return knowledgeRebuildIndexResponse(url.searchParams, knowledgeProvider, traceId, diagnosticsLogger);
   }
   if (method === "GET" && path === "/v1/knowledge/graph") {
     return knowledgeGraphResponse(url.searchParams, knowledgeProvider, traceId);
@@ -1107,6 +1117,7 @@ async function knowledgeListDocumentsResponse(
   query: URLSearchParams,
   provider: WebuiKnowledgeProvider | undefined,
   traceId: string,
+  diagnosticsLogger?: WebuiDiagnosticsLogger,
 ): Promise<WebuiRouteResponse> {
   if (!provider) {
     return { status: 503, body: knowledgeApiError(503, "Knowledge store not initialized") };
@@ -1121,9 +1132,15 @@ async function knowledgeListDocumentsResponse(
   if (limit !== undefined) {
     request.limit = limit;
   }
+  logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.list_documents.start", request);
   try {
     const result = await provider.listDocuments(request, traceId);
     const documents = arrayFromResult(result, "documents");
+    logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.list_documents.complete", {
+      total: documents.length,
+      category: request.category ?? "",
+      limit: request.limit ?? 20,
+    });
     return {
       status: 200,
       body: {
@@ -1133,6 +1150,7 @@ async function knowledgeListDocumentsResponse(
       },
     };
   } catch (error) {
+    logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.list_documents.failed", { error: errorMessage(error) });
     return knowledgeServerError("Error listing documents", error);
   }
 }
@@ -1142,6 +1160,7 @@ async function knowledgeAddDocumentResponse(
   query: URLSearchParams,
   provider: WebuiKnowledgeProvider | undefined,
   traceId: string,
+  diagnosticsLogger?: WebuiDiagnosticsLogger,
 ): Promise<WebuiRouteResponse> {
   if (!provider) {
     return { status: 503, body: knowledgeApiError(503, "Knowledge store not initialized") };
@@ -1161,12 +1180,24 @@ async function knowledgeAddDocumentResponse(
     return { status: 400, body: knowledgeApiError(400, "Document content cannot be empty") };
   }
   const providerBody = knowledgeAddDocumentProviderBody(body);
+  const asyncIndex = booleanQuery(query.get("async_index")) || body.async_index === true;
+  logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.add_document.start", {
+    name,
+    file_type: stringValue(providerBody.file_type) ?? "txt",
+    async_index: asyncIndex,
+    content_chars: content.length,
+  });
   try {
     const result = await provider.addDocument(providerBody, traceId);
     const document = documentFromResult(result);
     const id = stringValue(document?.id) ?? "";
     const resultName = stringValue(document?.name) ?? name;
-    const asyncIndex = booleanQuery(query.get("async_index")) || body.async_index === true;
+    logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.add_document.complete", {
+      id,
+      name: resultName,
+      chunk_count: numberValue(document?.chunk_count ?? document?.chunks) ?? 0,
+      async_index: asyncIndex,
+    });
     const responseBody: Record<string, unknown> = {
       id,
       name: resultName,
@@ -1184,6 +1215,10 @@ async function knowledgeAddDocumentResponse(
       body: responseBody,
     };
   } catch (error) {
+    logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.add_document.failed", {
+      name,
+      error: errorMessage(error),
+    });
     return knowledgeValueError(error) ?? knowledgeServerError("Error adding document", error);
   }
 }
@@ -1202,6 +1237,7 @@ async function knowledgeUploadDocumentResponse(
   query: URLSearchParams,
   provider: WebuiKnowledgeProvider | undefined,
   traceId: string,
+  diagnosticsLogger?: WebuiDiagnosticsLogger,
 ): Promise<WebuiRouteResponse> {
   if (!provider) {
     return { status: 503, body: knowledgeApiError(503, "Knowledge store not initialized") };
@@ -1229,13 +1265,27 @@ async function knowledgeUploadDocumentResponse(
     category: stringValue(body.category) ?? "",
     tags: knowledgeTags(body.tags),
   };
+  const sizeBytes = numberValue(body.size_bytes) ?? numberValue(body.sizeBytes) ?? new TextEncoder().encode(content).length;
+  const asyncIndex = booleanQuery(query.get("async_index"));
+  logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.upload_document.start", {
+    name,
+    file_type: fileType,
+    size_bytes: sizeBytes,
+    async_index: asyncIndex,
+  });
   try {
     const result = await provider.addDocument(uploadBody, traceId);
     const document = documentFromResult(result);
     const id = stringValue(document?.id) ?? "";
     const resultName = stringValue(document?.name) ?? name;
-    const sizeBytes = numberValue(body.size_bytes) ?? numberValue(body.sizeBytes) ?? new TextEncoder().encode(content).length;
-    const asyncIndex = booleanQuery(query.get("async_index"));
+    logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.upload_document.complete", {
+      id,
+      name: resultName,
+      file_type: fileType,
+      size_bytes: sizeBytes,
+      chunk_count: numberValue(document?.chunk_count ?? document?.chunks) ?? 0,
+      async_index: asyncIndex,
+    });
     const responseBody: Record<string, unknown> = {
       id,
       name: resultName,
@@ -1255,6 +1305,11 @@ async function knowledgeUploadDocumentResponse(
       body: responseBody,
     };
   } catch (error) {
+    logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.upload_document.failed", {
+      name,
+      file_type: fileType,
+      error: errorMessage(error),
+    });
     return knowledgeValueError(error) ?? knowledgeServerError("Error uploading file", error);
   }
 }
@@ -1346,6 +1401,7 @@ async function knowledgeRebuildIndexResponse(
   query: URLSearchParams,
   provider: WebuiKnowledgeProvider | undefined,
   traceId: string,
+  diagnosticsLogger?: WebuiDiagnosticsLogger,
 ): Promise<WebuiRouteResponse> {
   if (!provider) {
     return { status: 503, body: knowledgeApiError(503, "Knowledge store not initialized") };
@@ -1358,6 +1414,11 @@ async function knowledgeRebuildIndexResponse(
     };
   }
 
+  const asyncIndex = booleanQuery(query.get("async_index"));
+  logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.rebuild_index.start", {
+    type: rebuildType,
+    async_index: asyncIndex,
+  });
   try {
     const stats = knowledgeStatsBody(await provider.stats(traceId));
     const result = rebuildType === "all"
@@ -1365,7 +1426,12 @@ async function knowledgeRebuildIndexResponse(
       : rebuildType === "semantic"
         ? knowledgeSemanticUnavailableResult()
         : knowledgeBm25RebuildResult(stats);
-    if (!booleanQuery(query.get("async_index"))) {
+    logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.rebuild_index.complete", {
+      type: rebuildType,
+      async_index: asyncIndex,
+      ...knowledgeStatsDiagnostic(stats),
+    });
+    if (!asyncIndex) {
       return {
         status: 200,
         body: rebuildType === "all"
@@ -1400,6 +1466,11 @@ async function knowledgeRebuildIndexResponse(
       },
     };
   } catch (error) {
+    logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.rebuild_index.failed", {
+      type: rebuildType,
+      async_index: asyncIndex,
+      error: errorMessage(error),
+    });
     return knowledgeServerError("Error rebuilding index", error);
   }
 }
@@ -1428,6 +1499,7 @@ async function knowledgeQueryResponse(
   body: unknown,
   provider: WebuiKnowledgeProvider | undefined,
   traceId: string,
+  diagnosticsLogger?: WebuiDiagnosticsLogger,
 ): Promise<WebuiRouteResponse> {
   if (!provider) {
     return { status: 503, body: knowledgeApiError(503, "Knowledge store not initialized") };
@@ -1452,9 +1524,20 @@ async function knowledgeQueryResponse(
       },
     };
   }
+  const request = knowledgeQueryProviderRequest(body, query, mode);
+  logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.query.start", {
+    mode: stringValue(request.mode) ?? "hybrid",
+    top_k: numberValue(request.top_k) ?? 5,
+    query_chars: query.length,
+  });
   try {
-    const result = await provider.query(knowledgeQueryProviderRequest(body, query, mode), traceId);
+    const result = await provider.query(request, traceId);
     const data = arrayFromResult(result, "results");
+    logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.query.complete", {
+      mode: stringValue(request.mode) ?? "hybrid",
+      top_k: numberValue(request.top_k) ?? 5,
+      total: data.length,
+    });
     return {
       status: 200,
       body: {
@@ -1466,6 +1549,10 @@ async function knowledgeQueryResponse(
       },
     };
   } catch (error) {
+    logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.query.failed", {
+      mode: stringValue(request.mode) ?? "hybrid",
+      error: errorMessage(error),
+    });
     return knowledgeServerError("Error querying knowledge", error);
   }
 }
@@ -1509,6 +1596,56 @@ function knowledgeStatsBody(result: unknown): Record<string, unknown> {
     graph_ready: Boolean(stats.graph_ready),
     partial_availability: Boolean(stats.partial_availability),
   };
+}
+
+function knowledgeStatsDiagnostic(stats: Record<string, unknown>): Record<string, unknown> {
+  return {
+    total_documents: numberValue(stats.total_documents) ?? 0,
+    total_chunks: numberValue(stats.total_chunks) ?? 0,
+    indexed_sparse: numberValue(stats.indexed_sparse) ?? 0,
+    indexed_dense: numberValue(stats.indexed_dense) ?? 0,
+    retrieval_ready: stats.retrieval_ready === true,
+    graph_ready: stats.graph_ready === true,
+    partial_availability: stats.partial_availability === true,
+    failed_stage_count: numberValue(stats.failed_stage_count) ?? 0,
+    stale_stage_count: numberValue(stats.stale_stage_count) ?? 0,
+  };
+}
+
+function logKnowledgeDiagnostic(
+  diagnosticsLogger: WebuiDiagnosticsLogger | undefined,
+  traceId: string,
+  stage: string,
+  details: Record<string, unknown> = {},
+): void {
+  if (!diagnosticsLogger) {
+    return;
+  }
+  diagnosticsLogger({
+    stream: "stderr",
+    line: `[knowledge] ${JSON.stringify(compactDiagnosticDetails({ stage, trace_id: traceId, ...details }))}`,
+  });
+}
+
+function compactDiagnosticDetails(details: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(details)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => [key, compactDiagnosticValue(value)]),
+  );
+}
+
+function compactDiagnosticValue(value: unknown): unknown {
+  if (typeof value === "string") {
+    return value.length > 160 ? `${value.slice(0, 160)}...` : value;
+  }
+  if (Array.isArray(value)) {
+    return value.slice(0, 8).map(compactDiagnosticValue);
+  }
+  if (isJsonObject(value)) {
+    return compactDiagnosticDetails(value);
+  }
+  return value;
 }
 
 function knowledgeBm25RebuildResult(stats: Record<string, unknown>): Record<string, unknown> {

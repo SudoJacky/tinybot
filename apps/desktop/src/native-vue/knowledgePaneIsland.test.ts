@@ -130,6 +130,9 @@ describe("knowledge pane Vue island", () => {
     expect(host.querySelector('[data-desktop-knowledge-region="upload"] .desktop-knowledge-drop-zone')?.getAttribute("data-desktop-drop-target")).toBe(
       "knowledge-document",
     );
+    expect(host.querySelector('[data-desktop-knowledge-region="upload"] #desktop-file-upload-status')?.textContent).toContain(
+      "No file operation running.",
+    );
     expect(host.querySelector('[data-desktop-knowledge-region="upload"] [data-desktop-knowledge-action="uploadDocument"]')?.textContent).toContain("Upload Documents");
     expect(host.querySelector('[data-desktop-knowledge-region="upload"] #desktop-knowledge-upload')?.getAttribute("data-desktop-file-upload")).toBe(
       "knowledge-document",

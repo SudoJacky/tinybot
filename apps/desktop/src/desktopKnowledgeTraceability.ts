@@ -517,7 +517,13 @@ function knowledgeLastIndexedLabel(statsPayload: unknown, documentRows: DesktopK
 
 export function buildDesktopKnowledgeDocumentRows(payload: unknown): DesktopKnowledgeDocumentRow[] {
   const root = asRecord(payload);
-  const documents = Array.isArray(payload) ? payload : asArray(root.items).length ? asArray(root.items) : asArray(root.documents);
+  const documents = Array.isArray(payload)
+    ? payload
+    : asArray(root.items).length
+      ? asArray(root.items)
+      : asArray(root.documents).length
+        ? asArray(root.documents)
+        : asArray(root.data);
   return documents.map(asRecord).map((document, index) => {
     const id = firstNonEmpty(document.id, document.doc_id, document.path, index);
     const title = firstNonEmpty(document.title, document.name, document.path, id);

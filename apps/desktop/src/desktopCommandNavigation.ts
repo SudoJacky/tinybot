@@ -14,6 +14,7 @@ export type DesktopMenuCommandId =
   | "open-docs"
   | "open-shortcut-help"
   | "open-page-help"
+  | "open-backend-logs"
   | "toggle-theme"
   | "toggle-sidebar"
   | "open-command-palette"
@@ -26,7 +27,8 @@ export type DesktopCommandAction =
   | "set-sidebar-visible"
   | "open-command-palette"
   | "open-shortcut-help"
-  | "open-page-help";
+  | "open-page-help"
+  | "open-backend-logs";
 
 export interface DesktopMenuCommand {
   id: DesktopMenuCommandId;
@@ -69,6 +71,7 @@ export const DESKTOP_MENU_COMMANDS: DesktopMenuCommand[] = [
   { id: "open-docs", label: "Documentation", chromeGroup: "secondary", shortcut: "F1" },
   { id: "open-shortcut-help", label: "Shortcut Help", chromeGroup: "secondary", shortcut: "Ctrl+/" },
   { id: "open-page-help", label: "Page Help", chromeGroup: "secondary", shortcut: "Ctrl+Shift+/" },
+  { id: "open-backend-logs", label: "Backend Logs", chromeGroup: "secondary", shortcut: "" },
   { id: "toggle-theme", label: "Toggle Theme", chromeGroup: "secondary", shortcut: "Ctrl+Shift+T" },
   { id: "toggle-sidebar", label: "Toggle Sidebar", chromeGroup: "secondary", shortcut: "Ctrl+B" },
   { id: "open-command-palette", label: "Command Palette", chromeLabel: "Command", chromeGroup: "primary", shortcut: "Ctrl+Shift+P" },
@@ -112,6 +115,7 @@ const DESKTOP_HELP_COMMAND_IDS: DesktopMenuCommandId[] = [
   "open-docs",
   "open-shortcut-help",
   "open-page-help",
+  "open-backend-logs",
   "open-tinybot-repo",
 ];
 
@@ -157,6 +161,8 @@ export function routeDesktopMenuCommand(id: string, context: DesktopMenuCommandC
       return { kind: "action", action: "open-shortcut-help" };
     case "open-page-help":
       return { kind: "action", action: "open-page-help" };
+    case "open-backend-logs":
+      return { kind: "action", action: "open-backend-logs" };
     case "toggle-theme":
       return { kind: "action", action: "set-theme", value: context.theme === "dark" ? "light" : "dark" };
     case "toggle-sidebar":
@@ -356,6 +362,11 @@ function applyCommandAction(result: Extract<DesktopMenuCommandResult, { kind: "a
     setCommandFeedback(targetDocument, "Page help opened");
     return;
   }
+  if (result.action === "open-backend-logs") {
+    targetDocument.dispatchEvent(new CustomEvent("tinybot:open-backend-logs"));
+    setCommandFeedback(targetDocument, "Backend logs opened");
+    return;
+  }
   setCommandFeedback(targetDocument, commandActionFeedback(result.action));
 }
 
@@ -374,6 +385,9 @@ function commandActionFeedback(action: DesktopCommandAction): string {
   }
   if (action === "open-page-help") {
     return "Page help requested";
+  }
+  if (action === "open-backend-logs") {
+    return "Backend logs requested";
   }
   return "Command routed";
 }

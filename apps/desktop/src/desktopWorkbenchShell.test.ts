@@ -7,7 +7,14 @@ import { buildDesktopTaskCenterItems } from "./desktopTaskCenter";
 import { buildDesktopToolsSkillsPaneModel } from "./desktopToolsSkills";
 import { buildDesktopWorkLensProjection } from "./desktopWorkLens";
 import { createDefaultWorkbenchLayout } from "./desktopWorkbenchLayout";
-import { installDesktopWorkbenchShell, updateDesktopNativeChat, updateDesktopSettingsPane, updateDesktopTaskCenterItems, updateDesktopToolsSkillsPane } from "./desktopWorkbenchShell";
+import {
+  installDesktopWorkbenchShell,
+  updateDesktopKnowledgePane,
+  updateDesktopNativeChat,
+  updateDesktopSettingsPane,
+  updateDesktopTaskCenterItems,
+  updateDesktopToolsSkillsPane,
+} from "./desktopWorkbenchShell";
 import type { NativeChatMessage, NativeChatSession } from "./nativeChat";
 
 class FakeElement {
@@ -918,6 +925,24 @@ describe("desktop workbench shell", () => {
         bottom: { visible: true, size: 260 },
       },
       gatewayHttp: "http://127.0.0.1:18790",
+      runtimeStatus: {
+        state: "running",
+        owner: "shell",
+        http_ok: true,
+        gateway_http: "http://127.0.0.1:18790",
+        gateway_ws: "ws://127.0.0.1:18790/ws",
+        command: "tinybot gateway",
+        repo_root: "D:/code/tinybot/tinybot",
+        logs: ["gateway ready", "knowledge upload accepted"],
+        last_error: null,
+        worker_runtime: {
+          state: "running",
+          transport_mode: "stdio",
+          diagnostics: [
+            { stream: "stderr", line: "[knowledge] {\"stage\":\"knowledge.upload_document.start\",\"name\":\"RAG.md\"}" },
+          ],
+        },
+      },
     });
 
     const help = targetDocument.body.querySelector(".desktop-help-pane");
@@ -945,6 +970,15 @@ describe("desktop workbench shell", () => {
 
     targetDocument.dispatchEvent({ type: "tinybot:open-page-help" });
     expect(targetDocument.body.querySelector('[data-workbench-region="inspector"]')?.textContent).toContain("Page help");
+
+    targetDocument.dispatchEvent({ type: "tinybot:open-backend-logs" });
+    const backendLogsDialog = targetDocument.body.querySelector("#desktop-backend-logs-dialog");
+    expect(backendLogsDialog?.getAttribute("role")).toBe("dialog");
+    expect(backendLogsDialog?.getAttribute("aria-modal")).toBe("true");
+    expect(backendLogsDialog?.textContent).toContain("Backend Logs");
+    expect(backendLogsDialog?.textContent).toContain("gateway ready");
+    expect(backendLogsDialog?.textContent).toContain("[knowledge]");
+    expect(backendLogsDialog?.textContent).toContain("RAG.md");
 
     help?.querySelector('[data-desktop-help-action="help-tour"]')?.click();
     const inspector = targetDocument.body.querySelector('[data-workbench-region="inspector"]');
@@ -2973,6 +3007,42 @@ describe("desktop workbench shell", () => {
     pane?.querySelector('[data-desktop-knowledge-action="rebuildIndex"]')?.click();
     pane?.querySelector('[data-desktop-knowledge-document-action="deleteDocument"]')?.click();
     expect(actionEvents).toEqual(["refreshAll", "settings", "uploadDocument", "refreshGraph", "rebuildIndex", "deleteDocument"]);
+  });
+
+  test("refreshes knowledge pane with active upload task feedback", () => {
+    const targetDocument = new FakeDocument();
+    const knowledgePane = buildDesktopKnowledgePaneModel({
+      statsPayload: { total_documents: 0, total_chunks: 0 },
+      config: { knowledge: { enabled: true, retrieval_mode: "hybrid", max_chunks: 5 } },
+      documentsPayload: { documents: [] },
+    });
+    const taskItems = buildDesktopTaskCenterItems({
+      knowledgeJobs: [{
+        id: "knowledge:upload:notes.md",
+        title: "Upload notes.md",
+        status: "uploading",
+        detail: "Uploading knowledge document",
+        progress: { completed: 0, total: 1 },
+        canonical: { module: "knowledge", entityId: "notes.md", href: "/knowledge" },
+      }],
+    });
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      knowledgePane,
+    });
+    updateDesktopKnowledgePane(
+      targetDocument as unknown as Document,
+      knowledgePane,
+      {},
+      taskItems.filter((item) => item.destination.module === "knowledge"),
+    );
+
+    const pane = targetDocument.body.querySelector(".desktop-knowledge-pane");
+    expect(pane?.querySelector('[data-desktop-knowledge-region="pipeline"]')?.textContent).toContain("Knowledge jobs");
+    expect(pane?.querySelector('[data-desktop-knowledge-region="pipeline"]')?.textContent).toContain("Upload notes.md");
   });
 
   test("renders a desktop Cowork cockpit with session list, graph, inspector, actions, and task feed", () => {

@@ -6,6 +6,7 @@ import type {
   DesktopKnowledgePaneModel,
 } from "../desktopKnowledgeTraceability";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
+import { mountFileUploadStatusIsland } from "./fileUploadStatusIsland";
 import { mountKnowledgeDocumentDetailIsland } from "./knowledgeDocumentDetailIsland";
 import { mountKnowledgeDocumentsIsland } from "./knowledgeDocumentsIsland";
 import { mountKnowledgeGraphIsland } from "./knowledgeGraphIsland";
@@ -57,6 +58,7 @@ function createKnowledgePaneApp(options: KnowledgePaneIslandOptions): App {
       const mountedChildren: Array<{ unmount: () => void }> = [];
       const work = ref<HTMLElement | null>(null);
       const readiness = ref<HTMLElement | null>(null);
+      const uploadStatus = ref<HTMLElement | null>(null);
       const documents = ref<HTMLElement | null>(null);
       const documentDetail = ref<HTMLElement | null>(null);
       const graph = ref<HTMLElement | null>(null);
@@ -72,6 +74,9 @@ function createKnowledgePaneApp(options: KnowledgePaneIslandOptions): App {
         mountChild(mountedChildren, readiness.value, (host) => mountKnowledgeReadinessIsland(host, {
           readiness: options.pane.readiness,
           configHints: options.pane.configHints,
+        }));
+        mountChild(mountedChildren, uploadStatus.value, (host) => mountFileUploadStatusIsland(host, {
+          message: "No file operation running.",
         }));
         mountChild(mountedChildren, documents.value, (host) => mountKnowledgeDocumentsIsland(host, {
           documents: options.pane.documentRows,
@@ -109,7 +114,7 @@ function createKnowledgePaneApp(options: KnowledgePaneIslandOptions): App {
               "data-desktop-knowledge-region": "overview",
               "aria-label": "Knowledge base overview",
             }, renderKnowledgeOverview(options.pane)),
-            renderKnowledgeUploadRegion(options),
+            renderKnowledgeUploadRegion(options, uploadStatus),
             renderKnowledgeQueueRegion(options),
             renderKnowledgeDocumentsRegion(options, documents, documentDetail),
             renderKnowledgeGraphRegion(options, graph),
@@ -137,7 +142,7 @@ function renderKnowledgeHeader(options: KnowledgePaneIslandOptions) {
   ]);
 }
 
-function renderKnowledgeUploadRegion(options: KnowledgePaneIslandOptions) {
+function renderKnowledgeUploadRegion(options: KnowledgePaneIslandOptions, uploadStatus: Ref<HTMLElement | null>) {
   return h("section", {
     class: "desktop-knowledge-region desktop-knowledge-upload-region",
     "data-desktop-knowledge-region": "upload",
@@ -158,6 +163,7 @@ function renderKnowledgeUploadRegion(options: KnowledgePaneIslandOptions) {
       h("span", "PDF, DOCX, MD, TXT, CSV, JSON"),
       h("small", "Max 200MB per file"),
     ]),
+    h("p", { ref: uploadStatus }),
     renderKnowledgeUploadControl(),
   ]);
 }

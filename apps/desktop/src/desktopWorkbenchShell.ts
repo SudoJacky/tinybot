@@ -414,6 +414,10 @@ interface DesktopWorkbenchLiveState {
 }
 
 const desktopWorkbenchLiveStates = new WeakMap<Document, DesktopWorkbenchLiveState>();
+const desktopRuntimeStatusSnapshots = new WeakMap<Document, {
+  gatewayHttp: string;
+  runtimeStatus: GatewayRuntimeStatus | null;
+}>();
 const desktopNativeChatModels = new WeakMap<Document, DesktopNativeChatModel>();
 const desktopChatTimelineContexts = new WeakMap<Document, {
   agentUiActions: DesktopAgentUiFormActionOptions;
@@ -459,6 +463,7 @@ export function installDesktopWorkbenchShell({
     coworkPane,
   });
   targetDocument.body.classList.add("desktop-native-workbench");
+  desktopRuntimeStatusSnapshots.set(targetDocument, { gatewayHttp, runtimeStatus });
   desktopWorkbenchLiveStates.set(targetDocument, {
     runChainItems,
     taskCenterItems,
@@ -495,6 +500,7 @@ export function updateDesktopGatewayRuntimeStatus(
   gatewayHttp: string,
   gatewayActions: DesktopGatewayRuntimeActionOptions = {},
 ): void {
+  desktopRuntimeStatusSnapshots.set(targetDocument, { gatewayHttp, runtimeStatus });
   const runtime = targetDocument.querySelector<HTMLElement>(".desktop-gateway-runtime");
   if (!runtime) {
     return;
@@ -520,12 +526,13 @@ export function updateDesktopKnowledgePane(
   targetDocument: Document = document,
   knowledgePane: DesktopKnowledgePaneModel,
   knowledgeActions: DesktopKnowledgeActionOptions = {},
+  workItems: DesktopTaskCenterItem[] = [],
 ): void {
   const pane = targetDocument.querySelector<HTMLElement>(".desktop-knowledge-pane");
   if (!pane) {
     return;
   }
-  const next = createKnowledgePane(targetDocument, knowledgePane, knowledgeActions);
+  const next = createKnowledgePane(targetDocument, knowledgePane, knowledgeActions, workItems);
   pane.replaceChildren(...Array.from(next.children));
 }
 
@@ -7673,6 +7680,10 @@ function installDesktopHelpEventRouting(targetDocument: Document): void {
   targetDocument.addEventListener("tinybot:open-page-help", () => {
     renderDesktopPageHelp(targetDocument, "Page help");
   });
+  targetDocument.addEventListener("tinybot:open-backend-logs", () => {
+    const snapshot = desktopRuntimeStatusSnapshots.get(targetDocument);
+    renderDesktopBackendLogs(targetDocument, snapshot?.runtimeStatus ?? null, snapshot?.gatewayHttp ?? "");
+  });
   targetDocument.addEventListener("tinybot:open-help-tour", () => {
     renderDesktopPageHelp(targetDocument, "Desktop help tour");
   });
@@ -7747,6 +7758,97 @@ function renderDesktopShortcutHelp(targetDocument: Document): void {
   targetDocument.body.append(dialog);
   search.focus();
   setRouteStatus(targetDocument, "Opened shortcut help");
+}
+
+function renderDesktopBackendLogs(
+  targetDocument: Document,
+  runtimeStatus: GatewayRuntimeStatus | null,
+  gatewayHttp: string,
+): void {
+  const existing = targetDocument.getElementById("desktop-backend-logs-dialog") as HTMLElement | null;
+  const logText = formatDesktopBackendLogs(runtimeStatus, gatewayHttp);
+  if (existing) {
+    existing.hidden = false;
+    existing.replaceChildren(createDesktopBackendLogsPanel(targetDocument, existing, logText));
+    existing.querySelector<HTMLElement>(".desktop-backend-logs-close")?.focus();
+    setRouteStatus(targetDocument, "Opened backend logs");
+    return;
+  }
+
+  const dialog = targetDocument.createElement("section");
+  dialog.id = "desktop-backend-logs-dialog";
+  dialog.setAttribute("id", "desktop-backend-logs-dialog");
+  dialog.className = "desktop-shortcut-help-dialog desktop-backend-logs-dialog";
+  dialog.setAttribute("role", "dialog");
+  dialog.setAttribute("aria-modal", "true");
+  dialog.setAttribute("aria-label", "Backend logs");
+  dialog.append(createDesktopBackendLogsPanel(targetDocument, dialog, logText));
+  dialog.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      dialog.hidden = true;
+    }
+  });
+  targetDocument.body.append(dialog);
+  dialog.querySelector<HTMLElement>(".desktop-backend-logs-close")?.focus();
+  setRouteStatus(targetDocument, "Opened backend logs");
+}
+
+function createDesktopBackendLogsPanel(targetDocument: Document, dialog: HTMLElement, logText: string): HTMLElement {
+  const panel = targetDocument.createElement("div");
+  panel.className = "desktop-shortcut-help-panel desktop-backend-logs-panel";
+
+  const header = targetDocument.createElement("header");
+  header.className = "desktop-shortcut-help-header desktop-backend-logs-header";
+  header.append(createText(targetDocument, "h2", "Backend Logs"));
+
+  const actions = targetDocument.createElement("div");
+  actions.className = "desktop-backend-logs-actions";
+
+  const copy = targetDocument.createElement("button");
+  copy.type = "button";
+  copy.className = "desktop-backend-logs-copy";
+  copy.textContent = "Copy";
+  copy.addEventListener("click", () => {
+    void copyDesktopText(logText, targetDocument)
+      .then(() => setRouteStatus(targetDocument, "Copied backend logs"))
+      .catch(() => setRouteStatus(targetDocument, "Backend log copy failed"));
+  });
+
+  const close = targetDocument.createElement("button");
+  close.type = "button";
+  close.className = "desktop-shortcut-help-close desktop-backend-logs-close";
+  close.setAttribute("aria-label", "Close backend logs");
+  close.textContent = "x";
+  close.addEventListener("click", () => {
+    dialog.hidden = true;
+  });
+  actions.append(copy, close);
+  header.append(actions);
+
+  const body = targetDocument.createElement("pre");
+  body.className = "desktop-backend-logs-content";
+  body.textContent = logText;
+
+  panel.append(header, body);
+  return panel;
+}
+
+function formatDesktopBackendLogs(runtimeStatus: GatewayRuntimeStatus | null, gatewayHttp: string): string {
+  const runtimeLogs = runtimeStatus?.logs ?? [];
+  const workerDiagnostics = runtimeStatus?.worker_runtime?.diagnostics ?? [];
+  return [
+    `Gateway: ${runtimeStatus?.gateway_http || gatewayHttp || "unknown"}`,
+    "Source: bounded in-memory runtime buffers",
+    "",
+    `Gateway runtime logs (${runtimeLogs.length})`,
+    runtimeLogs.length ? runtimeLogs.join("\n") : "No recent gateway logs.",
+    "",
+    `Worker diagnostics (${workerDiagnostics.length})`,
+    workerDiagnostics.length
+      ? workerDiagnostics.map((line) => `${line.stream}: ${line.line}`).join("\n")
+      : "No recent worker diagnostics.",
+  ].join("\n");
 }
 
 function renderShortcutHelpRows(targetDocument: Document, list: HTMLElement, query: string): void {
@@ -8711,6 +8813,49 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-shortcut-help-close:focus-visible {
       background: #f2ede7;
       outline: 0;
+    }
+
+    body.desktop-native-workbench .desktop-backend-logs-panel {
+      grid-template-rows: auto minmax(0, 1fr);
+      width: min(960px, calc(100vw - 32px));
+    }
+
+    body.desktop-native-workbench .desktop-backend-logs-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    body.desktop-native-workbench .desktop-backend-logs-copy {
+      min-height: 30px;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: 8px;
+      padding: 0 10px;
+      background: var(--bg, #fffdfa);
+      color: var(--text, #141413);
+      font: 700 12px/1.2 var(--font-sans, system-ui, sans-serif);
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-backend-logs-copy:hover,
+    body.desktop-native-workbench .desktop-backend-logs-copy:focus-visible {
+      border-color: var(--primary, #cc785c);
+      outline: 0;
+    }
+
+    body.desktop-native-workbench .desktop-backend-logs-content {
+      min-height: 280px;
+      max-height: min(620px, calc(100vh - 180px));
+      margin: 0;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: 10px;
+      padding: 14px;
+      background: #181614;
+      color: #f8f2ea;
+      font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
     }
 
     body.desktop-native-workbench .desktop-shortcut-help-search {
