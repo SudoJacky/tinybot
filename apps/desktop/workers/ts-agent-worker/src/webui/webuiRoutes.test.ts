@@ -452,6 +452,190 @@ describe("WebUI knowledge graph extraction routes", () => {
     });
   });
 
+  test("rejects graph extraction batches that exceed the configured job token budget", async () => {
+    let completions = 0;
+    const documents = [
+      { id: "doc-1", name: "One.md", chunk_count: 1 },
+      { id: "doc-2", name: "Two.md", chunk_count: 1 },
+    ];
+    const configProvider: WebuiConfigProvider = {
+      getConfig: () => ({
+        agents: { defaults: { model: "knowledge-model" } },
+        knowledge: {
+          enabled: true,
+          graph_extraction_enabled: true,
+          graph_extraction_max_tokens: 1200,
+          graph_extraction_max_job_tokens: 900,
+        },
+      }),
+      patchConfig: () => ({}),
+    };
+    const openAiCompatProvider: WebuiOpenAiCompatProvider = {
+      completeChat: () => {
+        completions += 1;
+        return JSON.stringify({ entities: [{ name: "Entity", confidence: 0.9 }], relations: [] });
+      },
+    };
+    const knowledgeProvider: WebuiKnowledgeProvider = {
+      listDocuments: () => ({ documents }),
+      addDocument: () => ({ document: {} }),
+      getDocument: (docId) => ({
+        document: documents.find((document) => document.id === docId) ?? { id: docId, name: docId },
+        content: `# ${docId}\nKnowledge graph extraction budget content.`,
+      }),
+      deleteDocument: () => ({ deleted: false }),
+      query: () => ({ results: [] }),
+      stats: () => ({ total_documents: documents.length, total_chunks: 2, retrieval_ready: true }),
+      saveEntityGraphExtraction: () => {
+        throw new Error("save should not run when job token budget is exceeded");
+      },
+    };
+
+    const estimate = await handleWebuiRouteRequest(
+      {
+        method: "POST",
+        path: "/v1/knowledge/graph/extract",
+        body: { doc_ids: ["doc-1", "doc-2"], dry_run: true },
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      configProvider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      openAiCompatProvider,
+      knowledgeProvider,
+      undefined,
+      "trace-budget-estimate",
+    );
+
+    expect(estimate).toMatchObject({
+      status: 200,
+      body: {
+        token_estimate: {
+          max_job_tokens: 900,
+          within_budget: false,
+        },
+      },
+    });
+    expect(completions).toBe(0);
+
+    const extraction = await handleWebuiRouteRequest(
+      {
+        method: "POST",
+        path: "/v1/knowledge/graph/extract",
+        body: { doc_ids: ["doc-1", "doc-2"] },
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      configProvider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      openAiCompatProvider,
+      knowledgeProvider,
+      undefined,
+      "trace-budget-extract",
+    );
+
+    expect(extraction).toMatchObject({
+      status: 400,
+      body: {
+        error: {
+          message: "Graph extraction token estimate exceeds configured job budget",
+        },
+      },
+    });
+    expect(completions).toBe(0);
+  });
+
+  test("treats zero graph extraction job token budget as unlimited", async () => {
+    let completions = 0;
+    const documents = [
+      { id: "doc-1", name: "One.md", chunk_count: 1 },
+      { id: "doc-2", name: "Two.md", chunk_count: 1 },
+    ];
+    const configProvider: WebuiConfigProvider = {
+      getConfig: () => ({
+        agents: { defaults: { model: "knowledge-model" } },
+        knowledge: {
+          enabled: true,
+          graph_extraction_enabled: true,
+          graph_extraction_max_tokens: 1200,
+          graph_extraction_max_job_tokens: 0,
+        },
+      }),
+      patchConfig: () => ({}),
+    };
+    const openAiCompatProvider: WebuiOpenAiCompatProvider = {
+      completeChat: () => {
+        completions += 1;
+        return JSON.stringify({ entities: [{ name: "Entity", confidence: 0.9 }], relations: [] });
+      },
+    };
+    const knowledgeProvider: WebuiKnowledgeProvider = {
+      listDocuments: () => ({ documents }),
+      addDocument: () => ({ document: {} }),
+      getDocument: (docId) => ({
+        document: documents.find((document) => document.id === docId) ?? { id: docId, name: docId },
+        content: `# ${docId}\nKnowledge graph extraction budget content.`,
+      }),
+      deleteDocument: () => ({ deleted: false }),
+      query: () => ({ results: [] }),
+      stats: () => ({ total_documents: documents.length, total_chunks: 2, retrieval_ready: true }),
+      saveEntityGraphExtraction: (payload) => ({
+        id: `kjob_extract_graph_${payload.doc_id}`,
+        doc_id: payload.doc_id,
+        name: `extract_graph:${payload.doc_name}`,
+        status: "completed",
+        stage: "entity_graph_extracted",
+        processed: 1,
+        total: 1,
+      }),
+    };
+
+    const extraction = await handleWebuiRouteRequest(
+      {
+        method: "POST",
+        path: "/v1/knowledge/graph/extract",
+        body: { doc_ids: ["doc-1", "doc-2"] },
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      configProvider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      openAiCompatProvider,
+      knowledgeProvider,
+      undefined,
+      "trace-zero-budget-extract",
+    );
+
+    expect(extraction).toMatchObject({
+      status: 202,
+      body: {
+        runnable_document_count: 2,
+      },
+    });
+    expect(completions).toBe(2);
+  });
+
   test("honors graph extraction concurrency for batch LLM calls", async () => {
     let activeCompletions = 0;
     let maxActiveCompletions = 0;

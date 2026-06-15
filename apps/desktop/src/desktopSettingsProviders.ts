@@ -70,6 +70,7 @@ export interface DesktopSettingsFormState {
     graphAutoExtract: boolean;
     graphExtractionModel: string | null;
     graphExtractionMaxTokens: number | null;
+    graphExtractionMaxJobTokens: number | null;
     graphExtractionConcurrency: number | null;
     graphRagCommunityAlgorithm: string | null;
     graphRagCommunityLevel: number | null;
@@ -297,6 +298,7 @@ export function buildDesktopSettingsFormState(
       graphAutoExtract: boolValue(pick(knowledge, "graphAutoExtract", "graph_auto_extract")),
       graphExtractionModel: stringOrNull(pick(knowledge, "graphExtractionModel", "graph_extraction_model")),
       graphExtractionMaxTokens: numberOrDefault(pick(knowledge, "graphExtractionMaxTokens", "graph_extraction_max_tokens"), 1200),
+      graphExtractionMaxJobTokens: numberOrDefault(pick(knowledge, "graphExtractionMaxJobTokens", "graph_extraction_max_job_tokens"), 0),
       graphExtractionConcurrency: numberOrDefault(pick(knowledge, "graphExtractionConcurrency", "graph_extraction_concurrency"), 1),
       graphRagCommunityAlgorithm: stringOrDefault(
         pick(knowledge, "graphragCommunityAlgorithm", "graphrag_community_algorithm"),
@@ -532,6 +534,7 @@ export function createDesktopSettingsPatch(
       graph_auto_extract: state.knowledge.graphAutoExtract,
       graph_extraction_model: state.knowledge.graphExtractionModel,
       graph_extraction_max_tokens: state.knowledge.graphExtractionMaxTokens,
+      graph_extraction_max_job_tokens: state.knowledge.graphExtractionMaxJobTokens,
       graph_extraction_concurrency: state.knowledge.graphExtractionConcurrency,
       graphrag_community_algorithm: state.knowledge.graphRagCommunityAlgorithm,
       graphrag_community_level: state.knowledge.graphRagCommunityLevel,
@@ -790,6 +793,9 @@ export function applyDesktopSettingsFieldEdit(
       break;
     case "graphExtractionMaxTokens":
       nextState.knowledge.graphExtractionMaxTokens = numberOrNullInput(text);
+      break;
+    case "graphExtractionMaxJobTokens":
+      nextState.knowledge.graphExtractionMaxJobTokens = numberOrNullInput(text);
       break;
     case "graphExtractionConcurrency":
       nextState.knowledge.graphExtractionConcurrency = numberOrNullInput(text);
@@ -1347,6 +1353,13 @@ function buildDesktopSettingsPaneGroups(
           configurationMode: "numeric",
           advanced: true,
           min: 1,
+          step: 1,
+        }),
+        field("graphExtractionMaxJobTokens", "Graph extraction max job tokens", state.knowledge.graphExtractionMaxJobTokens, {
+          control: "number",
+          configurationMode: "numeric",
+          advanced: true,
+          min: 0,
           step: 1,
         }),
         field("graphExtractionConcurrency", "Graph extraction concurrency", state.knowledge.graphExtractionConcurrency, {

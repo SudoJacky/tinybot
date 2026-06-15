@@ -1589,6 +1589,7 @@ async function knowledgeGraphExtractResponse(
   try {
     const model = knowledgeExtractionModel(config);
     const maxTokens = knowledgeGraphExtractionMaxTokens(config);
+    const maxJobTokens = knowledgeGraphExtractionMaxJobTokens(config);
     const maxChunks = knowledgeGraphExtractionMaxChunks(config);
     const plans = [];
     for (const docId of docIds) {
@@ -1610,7 +1611,7 @@ async function knowledgeGraphExtractResponse(
       }
       return {
         status: 200,
-        body: knowledgeGraphBatchEstimateBody(plans, maxTokens, stringValue(body.scope) ?? "selected", skippedDocs),
+        body: knowledgeGraphBatchEstimateBody(plans, maxTokens, maxJobTokens, stringValue(body.scope) ?? "selected", skippedDocs),
       };
     }
     if (!knowledgeGraphExtractionEnabled(config)) {
@@ -1640,6 +1641,9 @@ async function knowledgeGraphExtractResponse(
     }
     if (runnablePlans.some((plan) => plan.tokenEstimate.within_budget === false)) {
       return { status: 400, body: knowledgeApiError(400, "Graph extraction token estimate exceeds configured budget") };
+    }
+    if (!knowledgeGraphPlansWithinJobBudget(runnablePlans, maxJobTokens)) {
+      return { status: 400, body: knowledgeApiError(400, "Graph extraction token estimate exceeds configured job budget") };
     }
     const jobs = await runKnowledgeGraphExtractionPlans(
       runnablePlans,
@@ -2119,17 +2123,13 @@ function knowledgeGraphExtractionContent(content: string, maxChunks: number): { 
 function knowledgeGraphBatchEstimateBody(
   plans: KnowledgeGraphExtractionPlan[],
   maxTokens: number,
+  maxJobTokens: number | null,
   scope: string,
   skippedDocs: KnowledgeGraphSkippedDoc[] = [],
 ): Record<string, unknown> {
   const skippedByDocId = new Map(skippedDocs.map((item) => [item.doc_id, item]));
   const runnablePlans = plans.filter((plan) => !skippedByDocId.has(plan.docId));
-  const totals = runnablePlans.reduce((acc, plan) => {
-    acc.prompt += numberValue(plan.tokenEstimate.prompt_tokens) ?? 0;
-    acc.completion += numberValue(plan.tokenEstimate.completion_tokens) ?? 0;
-    acc.total += numberValue(plan.tokenEstimate.total_tokens) ?? 0;
-    return acc;
-  }, { prompt: 0, completion: 0, total: 0 });
+  const totals = knowledgeGraphPlansTokenTotals(runnablePlans);
   return {
     object: "knowledge_graph_extraction_estimate",
     scope,
@@ -2153,10 +2153,25 @@ function knowledgeGraphBatchEstimateBody(
       completion_tokens: totals.completion,
       total_tokens: totals.total,
       max_tokens: maxTokens,
-      within_budget: runnablePlans.every((plan) => plan.tokenEstimate.within_budget !== false),
+      ...(maxJobTokens !== null ? { max_job_tokens: maxJobTokens } : {}),
+      within_budget: runnablePlans.every((plan) => plan.tokenEstimate.within_budget !== false)
+        && knowledgeGraphPlansWithinJobBudget(runnablePlans, maxJobTokens),
     },
     ...(skippedDocs.length ? { skipped_docs: skippedDocs } : {}),
   };
+}
+
+function knowledgeGraphPlansTokenTotals(plans: KnowledgeGraphExtractionPlan[]): { prompt: number; completion: number; total: number } {
+  return plans.reduce((acc, plan) => {
+    acc.prompt += numberValue(plan.tokenEstimate.prompt_tokens) ?? 0;
+    acc.completion += numberValue(plan.tokenEstimate.completion_tokens) ?? 0;
+    acc.total += numberValue(plan.tokenEstimate.total_tokens) ?? 0;
+    return acc;
+  }, { prompt: 0, completion: 0, total: 0 });
+}
+
+function knowledgeGraphPlansWithinJobBudget(plans: KnowledgeGraphExtractionPlan[], maxJobTokens: number | null): boolean {
+  return maxJobTokens === null || knowledgeGraphPlansTokenTotals(plans).total <= maxJobTokens;
 }
 
 function knowledgeGraphSingleEstimateBody(
@@ -2202,6 +2217,16 @@ function knowledgeGraphExtractionMaxChunks(config: Record<string, unknown>): num
         ?? 5,
     ),
   );
+}
+
+function knowledgeGraphExtractionMaxJobTokens(config: Record<string, unknown>): number | null {
+  const knowledge = asObject(config.knowledge);
+  const value = numberValue(knowledge?.graphExtractionMaxJobTokens)
+    ?? numberValue(knowledge?.graph_extraction_max_job_tokens);
+  if (value === undefined || value <= 0) {
+    return null;
+  }
+  return Math.max(1, Math.trunc(value));
 }
 
 function knowledgeGraphExtractionConcurrency(config: Record<string, unknown>): number {
