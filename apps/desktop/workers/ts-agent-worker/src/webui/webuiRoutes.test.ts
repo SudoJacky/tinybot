@@ -163,6 +163,9 @@ describe("WebUI knowledge graph extraction routes", () => {
       body: {
         object: "knowledge_graph_extraction_estimate",
         doc_id: "doc-1",
+        extraction_scope: { max_chunks: 5, chunk_count: 1, original_chunk_count: 1 },
+        runnable_document_count: 1,
+        skipped_count: 0,
         token_estimate: { total_tokens: expect.any(Number), max_tokens: 800, within_budget: true },
       },
     });
@@ -390,6 +393,8 @@ describe("WebUI knowledge graph extraction routes", () => {
         object: "knowledge_graph_extraction_estimate",
         scope: "all",
         document_count: 2,
+        runnable_document_count: 2,
+        skipped_count: 0,
         estimates: [
           { doc_id: "doc-1", doc_name: "One.md", token_estimate: { max_tokens: 1200 } },
           { doc_id: "doc-2", doc_name: "Two.md", token_estimate: { max_tokens: 1200 } },
@@ -577,6 +582,44 @@ describe("WebUI knowledge graph extraction routes", () => {
       },
     };
 
+    const estimate = await handleWebuiRouteRequest(
+      {
+        method: "POST",
+        path: "/v1/knowledge/graph/extract",
+        body: { doc_id: "doc-1", dry_run: true },
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      configProvider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      openAiCompatProvider,
+      knowledgeProvider,
+      undefined,
+      "trace-skip-estimate",
+    );
+
+    expect(estimate).toMatchObject({
+      status: 200,
+      body: {
+        object: "knowledge_graph_extraction_estimate",
+        doc_id: "doc-1",
+        skipped: true,
+        skipped_reason: "entity_graph_exists",
+        runnable_document_count: 0,
+        skipped_count: 1,
+        token_estimate: { total_tokens: 0, within_budget: true },
+      },
+    });
+    expect(completions).toBe(0);
+    expect(saves).toHaveLength(0);
+
     const skipped = await handleWebuiRouteRequest(
       {
         method: "POST",
@@ -605,6 +648,9 @@ describe("WebUI knowledge graph extraction routes", () => {
       body: {
         message: "Knowledge graph extraction skipped",
         skipped: true,
+        document_count: 1,
+        runnable_document_count: 0,
+        skipped_count: 1,
         skipped_docs: [{ doc_id: "doc-1", reason: "entity_graph_exists" }],
       },
     });

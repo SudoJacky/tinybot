@@ -1599,21 +1599,18 @@ async function knowledgeGraphExtractResponse(
       plans.push(plan);
     }
     if (body.dry_run === true || body.estimate_only === true) {
+      const skippedDocs = body.force === true ? [] : await knowledgeGraphExistingExtractionSkips(plans, provider, traceId);
       if (plans.length === 1) {
         const plan = plans[0]!;
+        const skipped = skippedDocs.find((item) => item.doc_id === plan.docId);
         return {
           status: 200,
-          body: {
-            object: "knowledge_graph_extraction_estimate",
-            doc_id: plan.docId,
-            doc_name: plan.docName,
-            token_estimate: plan.tokenEstimate,
-          },
+          body: knowledgeGraphSingleEstimateBody(plan, skipped),
         };
       }
       return {
         status: 200,
-        body: knowledgeGraphBatchEstimateBody(plans, maxTokens, stringValue(body.scope) ?? "selected"),
+        body: knowledgeGraphBatchEstimateBody(plans, maxTokens, stringValue(body.scope) ?? "selected", skippedDocs),
       };
     }
     if (!knowledgeGraphExtractionEnabled(config)) {
@@ -1628,6 +1625,9 @@ async function knowledgeGraphExtractResponse(
         body: {
           message: "Knowledge graph extraction skipped",
           skipped: true,
+          document_count: plans.length,
+          runnable_document_count: 0,
+          skipped_count: skippedDocs.length,
           skipped_docs: skippedDocs,
         },
       };
@@ -1666,7 +1666,9 @@ async function knowledgeGraphExtractResponse(
       status: 202,
       body: {
         message: "Knowledge graph extraction completed",
-        document_count: jobs.length,
+        document_count: plans.length,
+        runnable_document_count: jobs.length,
+        skipped_count: skippedDocs.length,
         jobs,
         job_ids: jobs.map((job) => job.id).filter(Boolean),
         ...(skippedDocs.length ? { skipped_docs: skippedDocs } : {}),
@@ -1990,7 +1992,7 @@ async function knowledgeGraphExistingExtractionSkips(
   plans: KnowledgeGraphExtractionPlan[],
   provider: WebuiKnowledgeProvider,
   traceId: string,
-): Promise<Array<{ doc_id: string; doc_name: string; reason: string }>> {
+): Promise<KnowledgeGraphSkippedDoc[]> {
   if (!provider.graph) {
     return [];
   }
@@ -2016,6 +2018,12 @@ type KnowledgeGraphExtractionPlan = {
   content: string;
   tokenEstimate: Record<string, unknown>;
   extractionScope: Record<string, unknown>;
+};
+
+type KnowledgeGraphSkippedDoc = {
+  doc_id: string;
+  doc_name: string;
+  reason: string;
 };
 
 async function knowledgeGraphExtractionDocIds(
@@ -2092,8 +2100,11 @@ function knowledgeGraphBatchEstimateBody(
   plans: KnowledgeGraphExtractionPlan[],
   maxTokens: number,
   scope: string,
+  skippedDocs: KnowledgeGraphSkippedDoc[] = [],
 ): Record<string, unknown> {
-  const totals = plans.reduce((acc, plan) => {
+  const skippedByDocId = new Map(skippedDocs.map((item) => [item.doc_id, item]));
+  const runnablePlans = plans.filter((plan) => !skippedByDocId.has(plan.docId));
+  const totals = runnablePlans.reduce((acc, plan) => {
     acc.prompt += numberValue(plan.tokenEstimate.prompt_tokens) ?? 0;
     acc.completion += numberValue(plan.tokenEstimate.completion_tokens) ?? 0;
     acc.total += numberValue(plan.tokenEstimate.total_tokens) ?? 0;
@@ -2103,19 +2114,59 @@ function knowledgeGraphBatchEstimateBody(
     object: "knowledge_graph_extraction_estimate",
     scope,
     document_count: plans.length,
+    runnable_document_count: runnablePlans.length,
+    skipped_count: skippedDocs.length,
     estimates: plans.map((plan) => ({
       doc_id: plan.docId,
       doc_name: plan.docName,
       token_estimate: plan.tokenEstimate,
       extraction_scope: plan.extractionScope,
+      ...(skippedByDocId.has(plan.docId)
+        ? {
+          skipped: true,
+          skipped_reason: skippedByDocId.get(plan.docId)?.reason,
+        }
+        : {}),
     })),
     token_estimate: {
       prompt_tokens: totals.prompt,
       completion_tokens: totals.completion,
       total_tokens: totals.total,
       max_tokens: maxTokens,
-      within_budget: plans.every((plan) => plan.tokenEstimate.within_budget !== false),
+      within_budget: runnablePlans.every((plan) => plan.tokenEstimate.within_budget !== false),
     },
+    ...(skippedDocs.length ? { skipped_docs: skippedDocs } : {}),
+  };
+}
+
+function knowledgeGraphSingleEstimateBody(
+  plan: KnowledgeGraphExtractionPlan,
+  skipped?: KnowledgeGraphSkippedDoc,
+): Record<string, unknown> {
+  const tokenEstimate = skipped
+    ? {
+      prompt_tokens: 0,
+      completion_tokens: 0,
+      total_tokens: 0,
+      max_tokens: numberValue(plan.tokenEstimate.max_tokens) ?? 0,
+      within_budget: true,
+    }
+    : plan.tokenEstimate;
+  return {
+    object: "knowledge_graph_extraction_estimate",
+    doc_id: plan.docId,
+    doc_name: plan.docName,
+    token_estimate: tokenEstimate,
+    extraction_scope: plan.extractionScope,
+    runnable_document_count: skipped ? 0 : 1,
+    skipped_count: skipped ? 1 : 0,
+    ...(skipped
+      ? {
+        skipped: true,
+        skipped_reason: skipped.reason,
+        skipped_docs: [skipped],
+      }
+      : {}),
   };
 }
 
