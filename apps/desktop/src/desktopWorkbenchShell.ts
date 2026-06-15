@@ -152,6 +152,7 @@ import { mountWorkbenchPanelIsland } from "./native-vue/workbenchPanelIsland";
 import { mountWorkspaceBrowserIsland } from "./native-vue/workspaceBrowserIsland";
 
 const desktopPinnedChatSessions = new WeakMap<Document, Set<string>>();
+const DESKTOP_COWORK_STANDALONE_AVAILABLE = false;
 
 type ConversationToolActivityRenderOptions = ToolActivityIslandOptions;
 
@@ -4220,6 +4221,12 @@ function createCoworkCockpitPane(
   pane: DesktopCoworkPaneModel,
   coworkActions: DesktopCoworkActionOptions = {},
 ): HTMLElement {
+  if (!DESKTOP_COWORK_STANDALONE_AVAILABLE) {
+    const section = createCoworkUnavailablePane(targetDocument);
+    mountCoworkPaneVueIsland(section, targetDocument, pane, coworkActions);
+    return section;
+  }
+
   const section = targetDocument.createElement("section");
   section.className = "desktop-workbench-section desktop-cowork-cockpit";
   section.setAttribute("data-desktop-module-surface", "cowork");
@@ -4277,6 +4284,23 @@ function createCoworkCockpitPane(
   section.append(createCoworkTaskFeed(targetDocument, view));
 
   mountCoworkPaneVueIsland(section, targetDocument, pane, coworkActions);
+  return section;
+}
+
+function createCoworkUnavailablePane(targetDocument: Document): HTMLElement {
+  const section = targetDocument.createElement("section");
+  section.className = "desktop-workbench-section desktop-cowork-cockpit";
+  section.setAttribute("data-desktop-module-surface", "cowork");
+  section.setAttribute("aria-label", "Cowork unavailable");
+  const placeholder = targetDocument.createElement("section");
+  placeholder.className = "desktop-cowork-unavailable";
+  placeholder.append(
+    createText(targetDocument, "p", "Cowork", "desktop-cowork-unavailable-kicker"),
+    createText(targetDocument, "h2", "Cowork is under construction"),
+    createText(targetDocument, "p", "This page is temporarily unavailable."),
+    createText(targetDocument, "p", "暂不开放"),
+  );
+  section.append(placeholder);
   return section;
 }
 
@@ -13133,6 +13157,35 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       grid-template-columns: minmax(160px, 220px) minmax(220px, 1fr) minmax(180px, 260px);
       align-items: start;
       min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-cowork-unavailable {
+      grid-column: 1 / -1;
+      display: grid;
+      gap: 8px;
+      max-width: 520px;
+      min-height: 220px;
+      align-content: center;
+      justify-self: center;
+      text-align: center;
+      color: var(--text, #1f1d1b);
+    }
+
+    body.desktop-native-workbench .desktop-cowork-unavailable h2 {
+      font-size: 20px;
+      text-transform: none;
+    }
+
+    body.desktop-native-workbench .desktop-cowork-unavailable p {
+      margin: 0;
+      color: var(--muted, #7d746c);
+    }
+
+    body.desktop-native-workbench .desktop-cowork-unavailable-kicker {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: var(--primary, #cc785c);
     }
 
     body.desktop-native-workbench .desktop-cowork-cockpit > h2 {

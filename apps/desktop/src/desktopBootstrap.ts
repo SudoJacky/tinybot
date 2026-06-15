@@ -444,6 +444,7 @@ function hydrateNativeStartupPanes(startupTrace?: DesktopNativeStartupTrace): vo
 
 const nativeRouteHydratedModules = new Set<string>();
 let nativeCoworkRuntimeRolloutSyncPromise: Promise<void> | null = null;
+const DESKTOP_COWORK_STANDALONE_AVAILABLE = false;
 
 function installNativeRouteHydration(startupTrace?: DesktopNativeStartupTrace): void {
   window.addEventListener("tinybot:desktop-route", (event) => {
@@ -475,6 +476,15 @@ function hydrateNativeRouteTarget(href: string, startupTrace?: DesktopNativeStar
     return;
   }
   if (pathname.startsWith("/cowork")) {
+    if (!DESKTOP_COWORK_STANDALONE_AVAILABLE) {
+      startupTrace?.mark("coworkPaneHydration.skipped", {
+        reason: "under-construction",
+      });
+      startupTrace?.mark("coworkTasksRefresh.skipped", {
+        reason: "under-construction",
+      });
+      return;
+    }
     hydrateNativeCoworkPaneOnce(startupTrace);
     traceNativeRouteBackgroundOnce("coworkTasksRefresh", () => refreshNativeCoworkTasks(), startupTrace);
     return;

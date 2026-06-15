@@ -1,9 +1,8 @@
 // @vitest-environment happy-dom
 
 import { describe, expect, test } from "vitest";
-import { nextTick } from "vue";
 import { buildDesktopCoworkCockpitView, buildDesktopCoworkSessionRows } from "../desktopCowork";
-import type { DesktopCoworkActionEvent, DesktopCoworkPaneModel } from "../desktopWorkbenchShell";
+import type { DesktopCoworkPaneModel } from "../desktopWorkbenchShell";
 import { mountCoworkPaneIsland } from "./coworkPaneIsland";
 
 const session = {
@@ -94,66 +93,24 @@ const pane: DesktopCoworkPaneModel = {
 };
 
 describe("cowork pane Vue island", () => {
-  test("renders the Cowork cockpit and forwards actions", async () => {
+  test("renders an unavailable placeholder while Cowork is under construction", () => {
     const host = document.createElement("section");
-    const selectedSessions: string[] = [];
-    const graphSelections: string[] = [];
-    const actions: string[] = [];
 
     const mounted = mountCoworkPaneIsland(host, {
       pane,
-      onCoworkAction: (event: DesktopCoworkActionEvent) => {
-        if (event.action === "task") {
-          actions.push(`${event.action}:${event.taskAction}:${event.taskId}:${event.assignedAgentId ?? ""}`);
-          return;
-        }
-        actions.push(`${event.action}:${event.sessionId ?? ""}:${event.goal ?? ""}`);
-      },
-      onGraphSelect: (selection) => graphSelections.push(`${selection.type}:${selection.id}:${selection.label}`),
-      onSessionSelect: (row) => selectedSessions.push(row.id),
     });
 
     expect(host.className).toBe("desktop-workbench-section desktop-cowork-cockpit");
     expect(host.getAttribute("data-desktop-vue-island")).toBe("cowork-pane");
     expect(host.getAttribute("data-desktop-module-surface")).toBe("cowork");
-    expect(host.getAttribute("aria-label")).toBe("Cowork cockpit");
-    expect(host.querySelector(".n-space.desktop-cowork-stack")).not.toBeNull();
-    expect(host.textContent).toContain("Cowork");
-
-    expect(host.querySelector(".desktop-cowork-sessions")?.getAttribute("data-desktop-vue-island")).toBe("cowork-sessions");
-    expect(host.querySelector('[data-desktop-cowork-session="cowork-1"]')?.textContent).toContain("Desktop migration");
-    expect(host.querySelector(".desktop-cowork-header")?.getAttribute("data-desktop-vue-island")).toBe("cowork-header");
-    expect(host.querySelector(".desktop-cowork-header")?.textContent).toContain("Desktop migration");
-    expect(host.querySelector(".desktop-cowork-actions")?.getAttribute("data-desktop-vue-island")).toBe("cowork-actions");
-    expect(host.querySelector(".desktop-cowork-actions")?.textContent).toContain("Blueprint ready");
-    expect(host.querySelector(".desktop-cowork-graph")?.getAttribute("data-desktop-vue-island")).toBe("cowork-graph");
-    expect(host.querySelector('[data-desktop-cowork-entity="task-1"]')?.textContent).toContain("Map helpers");
-    expect(host.querySelector(".desktop-cowork-observability")?.getAttribute("data-desktop-vue-island")).toBe("cowork-observability");
-    expect(host.querySelector(".desktop-cowork-observability")?.textContent).toContain("Observability");
-    expect(host.querySelector(".desktop-cowork-inspector")?.getAttribute("data-desktop-vue-island")).toBe("cowork-inspector");
-    expect(host.querySelector(".desktop-cowork-inspector")?.textContent).toContain("Selected: Review blocker");
-    expect(host.querySelector(".desktop-cowork-task-feed")?.getAttribute("data-desktop-vue-island")).toBe("cowork-task-feed");
-    expect(host.querySelector(".desktop-cowork-task-feed")?.textContent).toContain("agents");
-
-    host.querySelector<HTMLButtonElement>('[data-desktop-cowork-session="cowork-1"]')?.click();
-    const goal = host.querySelector<HTMLTextAreaElement>('[data-desktop-cowork-input="goal"]');
-    goal!.value = "Create native shell";
-    host.querySelector<HTMLButtonElement>('[data-desktop-cowork-action="create"]')?.click();
-    host.querySelector<HTMLButtonElement>('[data-desktop-cowork-action="run"]')?.click();
-    host.querySelector<HTMLButtonElement>('[data-desktop-cowork-entity="task-1"]')?.click();
-    await nextTick();
-    const assignee = host.querySelector<HTMLInputElement>('.desktop-cowork-inspector [data-desktop-cowork-input="assignedAgentId"]');
-    assignee!.value = "agent-2";
-    assignee?.dispatchEvent(new Event("input", { bubbles: true }));
-    host.querySelector<HTMLButtonElement>('[data-desktop-cowork-entity-action="assignTask"]')?.click();
-
-    expect(selectedSessions).toEqual(["cowork-1"]);
-    expect(graphSelections).toEqual(["task:task-1:Map helpers"]);
-    expect(actions).toEqual([
-      "createSession::Create native shell",
-      "runSession:cowork-1:",
-      "task:assign:task-1:agent-2",
-    ]);
+    expect(host.getAttribute("aria-label")).toBe("Cowork unavailable");
+    expect(host.querySelector(".desktop-cowork-unavailable")).not.toBeNull();
+    expect(host.textContent).toContain("Cowork is under construction");
+    expect(host.textContent).toContain("This page is temporarily unavailable.");
+    expect(host.textContent).toContain("暂不开放");
+    expect(host.querySelector(".desktop-cowork-sessions")).toBeNull();
+    expect(host.querySelector(".desktop-cowork-actions")).toBeNull();
+    expect(host.querySelector(".desktop-cowork-graph")).toBeNull();
 
     mounted.unmount();
     expect(host.textContent).toBe("");
