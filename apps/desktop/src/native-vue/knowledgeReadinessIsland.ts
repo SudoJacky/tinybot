@@ -58,11 +58,12 @@ function createKnowledgeReadinessApp(options: KnowledgeReadinessIslandOptions): 
 
 function pipelineSteps(readiness: DesktopKnowledgeReadinessView) {
   const readyRows = new Set(readiness.rows.filter((row) => row.tone === "ready").map((row) => row.id));
+  const retrievalReady = readyRows.has("retrieval");
   return [
     { label: "Upload", detail: readiness.score > 0 ? "Sources loaded" : "No files", state: readiness.score > 0 ? "done" : "wait" },
-    { label: "Parse", detail: readyRows.has("retrieval") ? "Ready" : "Wait", state: readyRows.has("retrieval") ? "done" : "active" },
-    { label: "Chunk", detail: readyRows.has("retrieval") ? "Chunks indexed" : "Wait", state: readyRows.has("retrieval") ? "done" : "wait" },
-    { label: "Embed", detail: readiness.partialAvailability ? "In progress" : "Ready", state: readiness.partialAvailability ? "active" : "done" },
+    { label: "Parse", detail: retrievalReady ? "Ready" : "Wait", state: retrievalReady ? "done" : "active" },
+    { label: "Chunk", detail: retrievalReady ? "Chunks indexed" : "Wait", state: retrievalReady ? "done" : "wait" },
+    { label: "Embed", detail: retrievalReady ? "Ready" : "In progress", state: retrievalReady ? "done" : "active" },
     { label: "Graph Build", detail: readyRows.has("graph") ? "Ready" : "Wait", state: readyRows.has("graph") ? "done" : "wait" },
     { label: "Complete", detail: readiness.score >= 100 ? "Complete" : "-", state: readiness.score >= 100 ? "done" : "wait" },
   ];

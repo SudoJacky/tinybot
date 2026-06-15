@@ -53,7 +53,9 @@ describe("knowledge readiness Vue island", () => {
     expect(host.textContent).toContain("Retrieval hybrid");
     expect(host.textContent).toContain("retrieval: ready");
     expect(host.textContent).toContain("graph: warn");
-    expect(host.textContent).toContain("3 / 6 steps");
+    expect(host.textContent).toContain("EmbedReady");
+    expect(host.textContent).not.toContain("EmbedIn progress");
+    expect(host.textContent).toContain("4 / 6 steps");
 
     mounted.unmount();
     expect(host.textContent).toBe("");
