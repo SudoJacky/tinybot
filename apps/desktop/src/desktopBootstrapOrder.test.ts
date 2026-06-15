@@ -12,6 +12,13 @@ function callPosition(call: string): number {
   return position;
 }
 
+function sourceBlock(start: string, end: string): string {
+  const startPosition = callPosition(start);
+  const endPosition = bootstrapSource.indexOf(end, startPosition);
+  expect(endPosition).toBeGreaterThan(startPosition);
+  return bootstrapSource.slice(startPosition, endPosition);
+}
+
 describe("desktop root WebUI bootstrap order", () => {
   test("lets the WebUI entry bind its original DOM before installing the desktop root adapter", () => {
     const shellPosition = callPosition("installWebUiShell(webUiHtml);");
@@ -88,5 +95,16 @@ describe("desktop root WebUI bootstrap order", () => {
     const uploadClickPosition = callPosition('document.getElementById("desktop-session-file-upload")?.click();');
 
     expect(uploadClickPosition).toBeGreaterThan(attachActionPosition);
+  });
+
+  test("refreshes the native knowledge pane after document upload completes", () => {
+    const uploadActionsSource = sourceBlock(
+      "function installNativeFileUploadActions(): void {",
+      "function refreshNativeFileUploadActions(): void {",
+    );
+
+    expect(uploadActionsSource).toContain("onKnowledgeUploaded");
+    expect(uploadActionsSource).toContain("loadNativeKnowledgePane");
+    expect(uploadActionsSource).toContain("setNativeKnowledgePane");
   });
 });

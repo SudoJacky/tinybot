@@ -520,12 +520,13 @@ export function updateDesktopKnowledgePane(
   targetDocument: Document = document,
   knowledgePane: DesktopKnowledgePaneModel,
   knowledgeActions: DesktopKnowledgeActionOptions = {},
+  workItems: DesktopTaskCenterItem[] = [],
 ): void {
   const pane = targetDocument.querySelector<HTMLElement>(".desktop-knowledge-pane");
   if (!pane) {
     return;
   }
-  const next = createKnowledgePane(targetDocument, knowledgePane, knowledgeActions);
+  const next = createKnowledgePane(targetDocument, knowledgePane, knowledgeActions, workItems);
   pane.replaceChildren(...Array.from(next.children));
 }
 
