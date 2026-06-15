@@ -746,6 +746,99 @@ describe("WebUI route temporary files", () => {
 });
 
 describe("WebUI knowledge diagnostics", () => {
+  test("auto-extracts a graph after upload when graph auto extract is enabled", async () => {
+    const saves: Array<Record<string, unknown>> = [];
+    const configProvider: WebuiConfigProvider = {
+      getConfig: () => ({
+        agents: { defaults: { model: "knowledge-model" } },
+        knowledge: {
+          enabled: true,
+          graph_extraction_enabled: true,
+          graph_auto_extract: true,
+          semantic_llm_max_tokens: 1200,
+        },
+      }),
+      patchConfig: () => ({}),
+    };
+    const openAiCompatProvider: WebuiOpenAiCompatProvider = {
+      completeChat: () => JSON.stringify({ entities: [{ name: "RAG", confidence: 0.9 }], relations: [] }),
+    };
+    const knowledgeProvider: WebuiKnowledgeProvider = {
+      listDocuments: () => ({ documents: [] }),
+      addDocument: (body) => ({
+        document: {
+          id: "doc-1",
+          name: body.name,
+          file_path: "knowledge/files/doc-1.md",
+          file_type: body.file_type,
+          chunk_count: 1,
+          content: body.content,
+        },
+        content: body.content,
+      }),
+      getDocument: () => ({
+        document: { id: "doc-1", name: "RAG.md", chunk_count: 1 },
+        content: "# RAG\nTinyBot can extract graph data.",
+      }),
+      deleteDocument: () => ({ deleted: false }),
+      query: () => ({ results: [] }),
+      stats: () => ({ total_documents: 1, total_chunks: 1, retrieval_ready: true }),
+      saveEntityGraphExtraction: (payload) => {
+        saves.push(payload);
+        return {
+          id: "kjob_extract_graph_doc-1",
+          doc_id: "doc-1",
+          name: "extract_graph:RAG.md",
+          status: "completed",
+          stage: "entity_graph_extracted",
+          processed: 1,
+          total: 1,
+        };
+      },
+    };
+
+    const response = await handleWebuiRouteRequest(
+      {
+        method: "POST",
+        path: "/v1/knowledge/documents/upload?async_index=true",
+        body: {
+          name: "RAG.md",
+          content: "# RAG\nTinyBot can extract graph data.",
+          file_type: "md",
+        },
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      configProvider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      openAiCompatProvider,
+      knowledgeProvider,
+      undefined,
+      "trace-auto-extract",
+    );
+
+    expect(response).toMatchObject({
+      status: 202,
+      body: {
+        id: "doc-1",
+        graph_extraction_job: {
+          id: "kjob_extract_graph_doc-1",
+          doc_id: "doc-1",
+          stage: "entity_graph_extracted",
+        },
+      },
+    });
+    expect(saves).toHaveLength(1);
+    expect(saves[0]).toMatchObject({ doc_id: "doc-1", doc_name: "RAG.md" });
+  });
+
   test("emits sanitized backend diagnostics for knowledge uploads", async () => {
     const diagnostics: Array<{ stream: string; line: string }> = [];
     const diagnosticsLogger: WebuiDiagnosticsLogger = (diagnostic) => diagnostics.push(diagnostic);

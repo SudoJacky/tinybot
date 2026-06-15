@@ -485,7 +485,8 @@ export async function handleWebuiRouteRequest(
     return knowledgeAddDocumentResponse(request.body, url.searchParams, knowledgeProvider, traceId, diagnosticsLogger);
   }
   if (method === "POST" && path === "/v1/knowledge/documents/upload") {
-    return knowledgeUploadDocumentResponse(request.body, url.searchParams, knowledgeProvider, traceId, diagnosticsLogger);
+    const config = configProvider ? await configProvider.getConfig(traceId) : {};
+    return knowledgeUploadDocumentResponse(request.body, url.searchParams, config, knowledgeProvider, openAiCompatProvider, traceId, diagnosticsLogger);
   }
   const knowledgeDocument = knowledgeDocumentPath(method, path);
   if (knowledgeDocument) {
@@ -1246,7 +1247,9 @@ function knowledgeAddDocumentProviderBody(body: Record<string, unknown>): Record
 async function knowledgeUploadDocumentResponse(
   body: unknown,
   query: URLSearchParams,
+  config: Record<string, unknown>,
   provider: WebuiKnowledgeProvider | undefined,
+  openAiCompatProvider: WebuiOpenAiCompatProvider | undefined,
   traceId: string,
   diagnosticsLogger?: WebuiDiagnosticsLogger,
 ): Promise<WebuiRouteResponse> {
@@ -1311,6 +1314,24 @@ async function knowledgeUploadDocumentResponse(
         ?? completedKnowledgeUploadJob(id, resultName, numberValue(document?.chunk_count ?? document?.chunks) ?? 1);
       responseBody.job = job;
       responseBody.job_id = job.id;
+    }
+    if (id && knowledgeGraphAutoExtractEnabled(config)) {
+      const extractionResponse = await knowledgeGraphExtractResponse(
+        { doc_id: id },
+        config,
+        provider,
+        openAiCompatProvider,
+        traceId,
+        diagnosticsLogger,
+      );
+      const extractionBody = asObject(extractionResponse.body);
+      const extractionJob = asObject(extractionBody?.job);
+      if (extractionResponse.status === 202 && extractionJob) {
+        responseBody.graph_extraction_job = extractionJob;
+        responseBody.graph_extraction_job_id = extractionJob.id;
+      } else {
+        responseBody.graph_extraction_error = extractionBody?.error ?? extractionResponse.body;
+      }
     }
     return {
       status: asyncIndex ? 202 : 200,
@@ -1963,6 +1984,11 @@ function knowledgeSemanticTimeoutSeconds(config: Record<string, unknown>): numbe
 function knowledgeGraphExtractionEnabled(config: Record<string, unknown>): boolean {
   const knowledge = asObject(config.knowledge);
   return knowledge?.graphExtractionEnabled !== false && knowledge?.graph_extraction_enabled !== false;
+}
+
+function knowledgeGraphAutoExtractEnabled(config: Record<string, unknown>): boolean {
+  const knowledge = asObject(config.knowledge);
+  return (knowledge?.graphAutoExtract === true || knowledge?.graph_auto_extract === true) && knowledgeGraphExtractionEnabled(config);
 }
 
 type KnowledgeGraphExtractionPlan = {
