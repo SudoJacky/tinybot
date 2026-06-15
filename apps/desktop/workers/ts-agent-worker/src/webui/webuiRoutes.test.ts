@@ -306,6 +306,143 @@ describe("WebUI knowledge graph extraction routes", () => {
       },
     });
   });
+
+  test("estimates all documents and extracts selected documents with configured chunk limits", async () => {
+    const completions: Array<{ content: string; model: string }> = [];
+    const saves: Array<Record<string, unknown>> = [];
+    const documents = [
+      { id: "doc-1", name: "One.md", chunk_count: 3 },
+      { id: "doc-2", name: "Two.md", chunk_count: 2 },
+    ];
+    const contents: Record<string, string> = {
+      "doc-1": ["# One", "first chunk", "second chunk", "third chunk"].join("\n\n"),
+      "doc-2": ["# Two", "alpha chunk", "beta chunk"].join("\n\n"),
+    };
+    const configProvider: WebuiConfigProvider = {
+      getConfig: () => ({
+        agents: { defaults: { model: "knowledge-model" } },
+        knowledge: {
+          enabled: true,
+          graph_extraction_enabled: true,
+          graph_extraction_max_chunks: 2,
+          semantic_llm_max_tokens: 1200,
+        },
+      }),
+      patchConfig: () => ({}),
+    };
+    const openAiCompatProvider: WebuiOpenAiCompatProvider = {
+      completeChat: (request) => {
+        completions.push({ content: request.content, model: request.model });
+        return JSON.stringify({ entities: [{ name: "Entity", confidence: 0.9 }], relations: [] });
+      },
+    };
+    const knowledgeProvider: WebuiKnowledgeProvider = {
+      listDocuments: () => ({ documents }),
+      addDocument: () => ({ document: {} }),
+      getDocument: (docId) => ({
+        document: documents.find((document) => document.id === docId) ?? { id: docId, name: docId },
+        content: contents[docId] ?? "",
+      }),
+      deleteDocument: () => ({ deleted: false }),
+      query: () => ({ results: [] }),
+      stats: () => ({ total_documents: documents.length, total_chunks: 5, retrieval_ready: true }),
+      saveEntityGraphExtraction: (payload) => {
+        saves.push(payload);
+        return {
+          id: `kjob_extract_graph_${payload.doc_id}`,
+          doc_id: payload.doc_id,
+          name: `extract_graph:${payload.doc_name}`,
+          status: "completed",
+          stage: "entity_graph_extracted",
+          processed: 1,
+          total: 1,
+          result: { entities: 1, relations: 0, evidence: 0 },
+        };
+      },
+    };
+
+    const estimate = await handleWebuiRouteRequest(
+      {
+        method: "POST",
+        path: "/v1/knowledge/graph/extract",
+        body: { scope: "all", dry_run: true },
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      configProvider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      openAiCompatProvider,
+      knowledgeProvider,
+      undefined,
+      "trace-batch-extract",
+    );
+
+    expect(estimate).toMatchObject({
+      status: 200,
+      body: {
+        object: "knowledge_graph_extraction_estimate",
+        scope: "all",
+        document_count: 2,
+        estimates: [
+          { doc_id: "doc-1", doc_name: "One.md", token_estimate: { max_tokens: 1200 } },
+          { doc_id: "doc-2", doc_name: "Two.md", token_estimate: { max_tokens: 1200 } },
+        ],
+        token_estimate: { max_tokens: 1200, total_tokens: expect.any(Number) },
+      },
+    });
+    expect(completions).toHaveLength(0);
+
+    const extraction = await handleWebuiRouteRequest(
+      {
+        method: "POST",
+        path: "/v1/knowledge/graph/extract",
+        body: { doc_ids: ["doc-1", "doc-2"] },
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      configProvider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      openAiCompatProvider,
+      knowledgeProvider,
+      undefined,
+      "trace-batch-extract",
+    );
+
+    expect(extraction).toMatchObject({
+      status: 202,
+      body: {
+        message: "Knowledge graph extraction completed",
+        document_count: 2,
+        jobs: [
+          { id: "kjob_extract_graph_doc-1", doc_id: "doc-1" },
+          { id: "kjob_extract_graph_doc-2", doc_id: "doc-2" },
+        ],
+      },
+    });
+    expect(completions).toHaveLength(2);
+    expect(completions[0].content).toContain("# One");
+    expect(completions[0].content).toContain("first chunk");
+    expect(completions[0].content).not.toContain("third chunk");
+    expect(saves).toHaveLength(2);
+    expect(saves[0]).toMatchObject({
+      doc_id: "doc-1",
+      extraction_scope: { max_chunks: 2, chunk_count: 2, original_chunk_count: 4 },
+    });
+  });
 });
 
 describe("WebUI route temporary files", () => {

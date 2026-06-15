@@ -1552,34 +1552,47 @@ async function knowledgeGraphExtractResponse(
   if (!isJsonObject(body)) {
     return { status: 400, body: knowledgeApiError(400, "Invalid JSON body") };
   }
-  const docId = stringValue(body.doc_id) ?? stringValue(body.docId);
-  if (!docId) {
+  const docIdsResult = await knowledgeGraphExtractionDocIds(body, provider, traceId);
+  if (!docIdsResult.ok) {
+    return docIdsResult.response;
+  }
+  const docIds = docIdsResult.docIds;
+  if (!docIds.length) {
     return { status: 400, body: knowledgeApiError(400, "doc_id is required") };
   }
   logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.graph_extract.start", {
-    doc_id: docId,
+    doc_id: docIds[0] ?? "",
+    document_count: docIds.length,
     dry_run: body.dry_run === true,
   });
   try {
-    const result = await provider.getDocument(docId, traceId);
-    const document = documentFromResult(result);
-    if (!document) {
-      return { status: 404, body: knowledgeApiError(404, `Document ${docId} not found`) };
-    }
-    const content = stringValue(asObject(result)?.content) ?? stringValue(document.content) ?? "";
-    const docName = stringValue(document.name) ?? docId;
     const model = knowledgeExtractionModel(config);
     const maxTokens = knowledgeSemanticMaxTokens(config);
-    const tokenEstimate = knowledgeGraphExtractionTokenEstimate(content, maxTokens);
+    const maxChunks = knowledgeGraphExtractionMaxChunks(config);
+    const plans = [];
+    for (const docId of docIds) {
+      const plan = await knowledgeGraphExtractionPlan(provider, docId, maxTokens, maxChunks, traceId);
+      if (!plan) {
+        return { status: 404, body: knowledgeApiError(404, `Document ${docId} not found`) };
+      }
+      plans.push(plan);
+    }
     if (body.dry_run === true || body.estimate_only === true) {
+      if (plans.length === 1) {
+        const plan = plans[0]!;
+        return {
+          status: 200,
+          body: {
+            object: "knowledge_graph_extraction_estimate",
+            doc_id: plan.docId,
+            doc_name: plan.docName,
+            token_estimate: plan.tokenEstimate,
+          },
+        };
+      }
       return {
         status: 200,
-        body: {
-          object: "knowledge_graph_extraction_estimate",
-          doc_id: docId,
-          doc_name: docName,
-          token_estimate: tokenEstimate,
-        },
+        body: knowledgeGraphBatchEstimateBody(plans, maxTokens, stringValue(body.scope) ?? "selected"),
       };
     }
     if (!knowledgeGraphExtractionEnabled(config)) {
@@ -1591,46 +1604,61 @@ async function knowledgeGraphExtractResponse(
     if (!provider.saveEntityGraphExtraction) {
       return { status: 503, body: knowledgeApiError(503, "Knowledge entity graph store not initialized", "server_error") };
     }
-    if (!tokenEstimate.within_budget) {
+    if (plans.some((plan) => plan.tokenEstimate.within_budget === false)) {
       return { status: 400, body: knowledgeApiError(400, "Graph extraction token estimate exceeds configured budget") };
     }
-    const extractionText = await openAiCompatProvider.completeChat({
-      content: knowledgeGraphExtractionPrompt(docName, content, maxTokens),
-      sessionKey: "knowledge:graph-extraction",
-      chatId: "knowledge-graph-extraction",
-      model,
-      timeoutSeconds: knowledgeSemanticTimeoutSeconds(config),
-    }, traceId);
-    const extraction = parseKnowledgeGraphExtractionJson(extractionText);
-    const savePayload = {
-      doc_id: docId,
-      doc_name: docName,
-      model,
-      token_estimate: tokenEstimate,
-      entities: extraction.entities,
-      relations: extraction.relations,
-      diagnostics: {
-        raw_chars: extractionText.length,
-        content_chars: content.length,
-      },
-    };
-    const job = asObject(await provider.saveEntityGraphExtraction(savePayload, traceId)) ?? {};
+    const jobs = [];
+    for (const plan of plans) {
+      const extractionText = await openAiCompatProvider.completeChat({
+        content: knowledgeGraphExtractionPrompt(plan.docName, plan.content, maxTokens),
+        sessionKey: "knowledge:graph-extraction",
+        chatId: "knowledge-graph-extraction",
+        model,
+        timeoutSeconds: knowledgeSemanticTimeoutSeconds(config),
+      }, traceId);
+      const extraction = parseKnowledgeGraphExtractionJson(extractionText);
+      const savePayload = {
+        doc_id: plan.docId,
+        doc_name: plan.docName,
+        model,
+        token_estimate: plan.tokenEstimate,
+        extraction_scope: plan.extractionScope,
+        entities: extraction.entities,
+        relations: extraction.relations,
+        diagnostics: {
+          raw_chars: extractionText.length,
+          content_chars: plan.content.length,
+        },
+      };
+      jobs.push(asObject(await provider.saveEntityGraphExtraction(savePayload, traceId)) ?? {});
+    }
     logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.graph_extract.complete", {
-      doc_id: docId,
-      entities: extraction.entities.length,
-      relations: extraction.relations.length,
+      document_count: plans.length,
+      job_count: jobs.length,
     });
+    if (jobs.length === 1) {
+      const job = jobs[0] ?? {};
+      return {
+        status: 202,
+        body: {
+          message: "Knowledge graph extraction completed",
+          job,
+          job_id: job.id,
+        },
+      };
+    }
     return {
       status: 202,
       body: {
         message: "Knowledge graph extraction completed",
-        job,
-        job_id: job.id,
+        document_count: jobs.length,
+        jobs,
+        job_ids: jobs.map((job) => job.id).filter(Boolean),
       },
     };
   } catch (error) {
     logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.graph_extract.failed", {
-      doc_id: docId,
+      doc_id: docIds[0] ?? "",
       error: errorMessage(error),
     });
     return knowledgeValueError(error) ?? knowledgeServerError("Error extracting knowledge graph", error);
@@ -1935,6 +1963,129 @@ function knowledgeSemanticTimeoutSeconds(config: Record<string, unknown>): numbe
 function knowledgeGraphExtractionEnabled(config: Record<string, unknown>): boolean {
   const knowledge = asObject(config.knowledge);
   return knowledge?.graphExtractionEnabled !== false && knowledge?.graph_extraction_enabled !== false;
+}
+
+type KnowledgeGraphExtractionPlan = {
+  docId: string;
+  docName: string;
+  content: string;
+  tokenEstimate: Record<string, unknown>;
+  extractionScope: Record<string, unknown>;
+};
+
+async function knowledgeGraphExtractionDocIds(
+  body: Record<string, unknown>,
+  provider: WebuiKnowledgeProvider,
+  traceId: string,
+): Promise<{ ok: true; docIds: string[] } | { ok: false; response: WebuiRouteResponse }> {
+  const explicitIds = [
+    stringValue(body.doc_id) ?? stringValue(body.docId),
+    ...knowledgeGraphExtractionIdList(body.doc_ids ?? body.docIds),
+  ].filter((value): value is string => Boolean(value));
+  if (explicitIds.length) {
+    return { ok: true, docIds: Array.from(new Set(explicitIds)) };
+  }
+  if (stringValue(body.scope) === "all") {
+    const result = await provider.listDocuments({ limit: 100 }, traceId);
+    return { ok: true, docIds: arrayFromResult(result, "documents").map((document) => stringValue(document.id)).filter((id): id is string => Boolean(id)) };
+  }
+  return { ok: true, docIds: [] };
+}
+
+function knowledgeGraphExtractionIdList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item).trim()).filter(Boolean);
+  }
+  if (typeof value === "string") {
+    return value.split(",").map((item) => item.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+async function knowledgeGraphExtractionPlan(
+  provider: WebuiKnowledgeProvider,
+  docId: string,
+  maxTokens: number,
+  maxChunks: number,
+  traceId: string,
+): Promise<KnowledgeGraphExtractionPlan | null> {
+  const result = await provider.getDocument(docId, traceId);
+  const document = documentFromResult(result);
+  if (!document) {
+    return null;
+  }
+  const rawContent = stringValue(asObject(result)?.content) ?? stringValue(document.content) ?? "";
+  const scoped = knowledgeGraphExtractionContent(rawContent, maxChunks);
+  const docName = stringValue(document.name) ?? docId;
+  return {
+    docId,
+    docName,
+    content: scoped.content,
+    tokenEstimate: knowledgeGraphExtractionTokenEstimate(scoped.content, maxTokens),
+    extractionScope: {
+      max_chunks: maxChunks,
+      chunk_count: scoped.chunkCount,
+      original_chunk_count: scoped.originalChunkCount,
+    },
+  };
+}
+
+function knowledgeGraphExtractionContent(content: string, maxChunks: number): { content: string; chunkCount: number; originalChunkCount: number } {
+  const chunks = content.split(/\n\s*\n/u).map((chunk) => chunk.trim()).filter(Boolean);
+  if (!chunks.length) {
+    return { content, chunkCount: 0, originalChunkCount: 0 };
+  }
+  const selected = chunks.slice(0, Math.max(1, maxChunks));
+  return {
+    content: selected.join("\n\n"),
+    chunkCount: selected.length,
+    originalChunkCount: chunks.length,
+  };
+}
+
+function knowledgeGraphBatchEstimateBody(
+  plans: KnowledgeGraphExtractionPlan[],
+  maxTokens: number,
+  scope: string,
+): Record<string, unknown> {
+  const totals = plans.reduce((acc, plan) => {
+    acc.prompt += numberValue(plan.tokenEstimate.prompt_tokens) ?? 0;
+    acc.completion += numberValue(plan.tokenEstimate.completion_tokens) ?? 0;
+    acc.total += numberValue(plan.tokenEstimate.total_tokens) ?? 0;
+    return acc;
+  }, { prompt: 0, completion: 0, total: 0 });
+  return {
+    object: "knowledge_graph_extraction_estimate",
+    scope,
+    document_count: plans.length,
+    estimates: plans.map((plan) => ({
+      doc_id: plan.docId,
+      doc_name: plan.docName,
+      token_estimate: plan.tokenEstimate,
+      extraction_scope: plan.extractionScope,
+    })),
+    token_estimate: {
+      prompt_tokens: totals.prompt,
+      completion_tokens: totals.completion,
+      total_tokens: totals.total,
+      max_tokens: maxTokens,
+      within_budget: plans.every((plan) => plan.tokenEstimate.within_budget !== false),
+    },
+  };
+}
+
+function knowledgeGraphExtractionMaxChunks(config: Record<string, unknown>): number {
+  const knowledge = asObject(config.knowledge);
+  return Math.max(
+    1,
+    Math.trunc(
+      numberValue(knowledge?.graphExtractionMaxChunks)
+        ?? numberValue(knowledge?.graph_extraction_max_chunks)
+        ?? numberValue(knowledge?.maxChunks)
+        ?? numberValue(knowledge?.max_chunks)
+        ?? 5,
+    ),
+  );
 }
 
 function knowledgeGraphExtractionTokenEstimate(content: string, maxTokens: number): Record<string, unknown> {
