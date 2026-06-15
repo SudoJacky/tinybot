@@ -2,7 +2,7 @@ import { createApp, defineComponent, h, type App } from "vue";
 import { NButton, NCard, NConfigProvider, NSpace } from "naive-ui";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 
-export type HelpSurfaceAction = "shortcut-help" | "page-help" | "help-tour";
+export type HelpSurfaceAction = "shortcut-help" | "page-help" | "backend-logs" | "help-tour";
 
 export interface HelpSurfaceIslandOptions {
   onAction?: (action: HelpSurfaceAction) => void;
@@ -55,6 +55,7 @@ function createHelpSurfaceApp(options: HelpSurfaceIslandOptions): App {
                 }, "Open docs"),
                 renderHelpButton("shortcut-help", "Shortcut help", options),
                 renderHelpButton("page-help", "Page help", options),
+                renderHelpButton("backend-logs", "Backend logs", options),
                 renderHelpButton("help-tour", "Help tour", options),
               ],
             }),

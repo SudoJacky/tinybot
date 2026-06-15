@@ -83,10 +83,11 @@ describe("main utilities region Vue island", () => {
     expect(host.querySelector(".desktop-settings-capability-map")?.getAttribute("data-desktop-settings-center")).toBe("capability-boundaries");
 
     host.querySelector<HTMLButtonElement>('[data-desktop-help-action="page-help"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-help-action="backend-logs"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-agent-ui-form-action="cancel"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-desktop-settings-action="discoverModels"]')?.click();
 
-    expect(helpActions).toEqual(["page-help"]);
+    expect(helpActions).toEqual(["page-help", "backend-logs"]);
     expect(formActions).toEqual(["cancel:form-1"]);
     expect(settingsActions).toEqual(["discoverModels"]);
 

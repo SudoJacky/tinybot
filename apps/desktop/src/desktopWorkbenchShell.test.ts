@@ -925,6 +925,24 @@ describe("desktop workbench shell", () => {
         bottom: { visible: true, size: 260 },
       },
       gatewayHttp: "http://127.0.0.1:18790",
+      runtimeStatus: {
+        state: "running",
+        owner: "shell",
+        http_ok: true,
+        gateway_http: "http://127.0.0.1:18790",
+        gateway_ws: "ws://127.0.0.1:18790/ws",
+        command: "tinybot gateway",
+        repo_root: "D:/code/tinybot/tinybot",
+        logs: ["gateway ready", "knowledge upload accepted"],
+        last_error: null,
+        worker_runtime: {
+          state: "running",
+          transport_mode: "stdio",
+          diagnostics: [
+            { stream: "stderr", line: "[knowledge] {\"stage\":\"knowledge.upload_document.start\",\"name\":\"RAG.md\"}" },
+          ],
+        },
+      },
     });
 
     const help = targetDocument.body.querySelector(".desktop-help-pane");
@@ -934,6 +952,7 @@ describe("desktop workbench shell", () => {
       "Open docs",
       "Shortcut help",
       "Page help",
+      "Backend logs",
       "Help tour",
     ]);
 
@@ -952,6 +971,15 @@ describe("desktop workbench shell", () => {
 
     targetDocument.dispatchEvent({ type: "tinybot:open-page-help" });
     expect(targetDocument.body.querySelector('[data-workbench-region="inspector"]')?.textContent).toContain("Page help");
+
+    help?.querySelector('[data-desktop-help-action="backend-logs"]')?.click();
+    const backendLogsDialog = targetDocument.body.querySelector("#desktop-backend-logs-dialog");
+    expect(backendLogsDialog?.getAttribute("role")).toBe("dialog");
+    expect(backendLogsDialog?.getAttribute("aria-modal")).toBe("true");
+    expect(backendLogsDialog?.textContent).toContain("Backend Logs");
+    expect(backendLogsDialog?.textContent).toContain("gateway ready");
+    expect(backendLogsDialog?.textContent).toContain("[knowledge]");
+    expect(backendLogsDialog?.textContent).toContain("RAG.md");
 
     help?.querySelector('[data-desktop-help-action="help-tour"]')?.click();
     const inspector = targetDocument.body.querySelector('[data-workbench-region="inspector"]');
