@@ -10,7 +10,8 @@ use crate::worker_cron::{
 use crate::worker_diagnostics::WorkerDiagnosticsRpc;
 use crate::worker_knowledge::{
     KnowledgeAddDocumentParams, KnowledgeContextParams, KnowledgeDocumentIdParams,
-    KnowledgeListDocumentsParams, KnowledgeQueryParams, WorkerKnowledgeRpc,
+    KnowledgeJobIdParams, KnowledgeListDocumentsParams, KnowledgeQueryParams,
+    KnowledgeRebuildIndexParams, KnowledgeStartIndexJobParams, WorkerKnowledgeRpc,
 };
 use crate::worker_protocol::{validate_protocol_version, WorkerRequest, WorkerResponse};
 use crate::worker_secret::{ProviderResolveSecretParams, WorkerSecretRpc};
@@ -502,6 +503,20 @@ impl WorkerRpcRouter {
             "knowledge.delete_document" => {
                 let params: KnowledgeDocumentIdParams = parse_params(request)?;
                 serde_json::to_value(self.knowledge.delete_document(params)?)
+                    .map_err(serialization_error)
+            }
+            "knowledge.start_index_job" => {
+                let params: KnowledgeStartIndexJobParams = parse_params(request)?;
+                serde_json::to_value(self.knowledge.start_index_job(params)?)
+                    .map_err(serialization_error)
+            }
+            "knowledge.get_job" => {
+                let params: KnowledgeJobIdParams = parse_params(request)?;
+                serde_json::to_value(self.knowledge.get_job(params)?).map_err(serialization_error)
+            }
+            "knowledge.rebuild_index" => {
+                let params: KnowledgeRebuildIndexParams = parse_params(request)?;
+                serde_json::to_value(self.knowledge.rebuild_index(params)?)
                     .map_err(serialization_error)
             }
             "knowledge.stats" => {
@@ -8068,6 +8083,91 @@ mod tests {
         assert_eq!(stats["stage_readiness"]["graph_projection"]["total"], 0);
         assert_eq!(stats["stage_coverage"]["sparse_indexing"], 1.0);
         assert_eq!(stats["stage_details"], json!([]));
+    }
+
+    #[test]
+    fn dispatches_persistent_knowledge_jobs_for_retrieval_index_and_rebuilds() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "knowledge.add_document",
+            json!({
+                "name": "Job Document",
+                "content": "# Job Document\n\nNative retrieval jobs should be persisted.\n",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+
+        let start_response = router.dispatch(&WorkerRequest::new(
+            "req-2",
+            "trace-1",
+            "knowledge.start_index_job",
+            json!({ "doc_id": doc_id }),
+        ));
+        assert_eq!(start_response.error, None);
+        let started = start_response
+            .result
+            .as_ref()
+            .expect("knowledge.start_index_job should return result");
+        assert_eq!(started["id"], format!("kjob_{doc_id}"));
+        assert_eq!(started["doc_id"], doc_id);
+        assert_eq!(started["status"], "completed");
+        assert_eq!(started["stage"], "retrieval_indexed");
+        assert_eq!(started["processed"], 1);
+        assert_eq!(started["total"], 1);
+        assert_eq!(started["retrieval_ready"], true);
+        assert_eq!(started["graph_ready"], false);
+        assert!(fixture
+            .read("knowledge/jobs.jsonl")
+            .contains(&format!("kjob_{doc_id}")));
+
+        let get_response = router.dispatch(&WorkerRequest::new(
+            "req-3",
+            "trace-1",
+            "knowledge.get_job",
+            json!({ "job_id": format!("kjob_{doc_id}") }),
+        ));
+        assert_eq!(get_response.error, None);
+        assert_eq!(
+            get_response.result.as_ref().unwrap()["id"],
+            format!("kjob_{doc_id}")
+        );
+
+        let rebuild_response = router.dispatch(&WorkerRequest::new(
+            "req-4",
+            "trace-1",
+            "knowledge.rebuild_index",
+            json!({ "type": "all" }),
+        ));
+        assert_eq!(rebuild_response.error, None);
+        let rebuild = rebuild_response
+            .result
+            .as_ref()
+            .expect("knowledge.rebuild_index should return result");
+        assert_eq!(rebuild["id"], "kjob_rebuild_all");
+        assert_eq!(rebuild["name"], "rebuild:all");
+        assert_eq!(rebuild["status"], "completed");
+        assert_eq!(rebuild["stage"], "completed");
+        assert_eq!(rebuild["result"]["semantic"]["available"], false);
+        assert_eq!(rebuild["result"]["bm25"]["chunks_indexed"], 1);
     }
 
     #[test]

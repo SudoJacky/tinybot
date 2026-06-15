@@ -5,7 +5,7 @@ use crate::worker_protocol::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
+    collections::{hash_map::DefaultHasher, HashMap, HashSet},
     fs::{self, File},
     hash::{Hash, Hasher},
     io::{BufRead, BufReader, Write},
@@ -159,6 +159,64 @@ impl WorkerKnowledgeRpc {
             deleted: true,
             doc_id: params.doc_id,
         })
+    }
+
+    pub fn start_index_job(
+        &self,
+        params: KnowledgeStartIndexJobParams,
+    ) -> Result<KnowledgeJob, WorkerProtocolError> {
+        self.require(WorkerCapability::KnowledgeWrite)?;
+        let Some(document) = find_document(&self.root, &params.doc_id)? else {
+            return Err(unknown_knowledge_document(&params.doc_id));
+        };
+        let job = completed_retrieval_job(&document);
+        upsert_knowledge_job(&self.root, &job)?;
+        Ok(job)
+    }
+
+    pub fn get_job(
+        &self,
+        params: KnowledgeJobIdParams,
+    ) -> Result<KnowledgeJob, WorkerProtocolError> {
+        self.require(WorkerCapability::KnowledgeRead)?;
+        let jobs = read_jsonl::<KnowledgeJob>(&KnowledgeStorePaths::new(&self.root).jobs_file)?;
+        jobs.into_iter()
+            .find(|job| job.id == params.job_id)
+            .ok_or_else(|| {
+                WorkerProtocolError::new(
+                    WorkerProtocolErrorCode::InvalidProtocol,
+                    "knowledge job not found",
+                    serde_json::json!({ "job_id": params.job_id }),
+                    false,
+                    WorkerProtocolErrorSource::RustCore,
+                )
+            })
+    }
+
+    pub fn rebuild_index(
+        &self,
+        params: KnowledgeRebuildIndexParams,
+    ) -> Result<KnowledgeJob, WorkerProtocolError> {
+        self.require(WorkerCapability::KnowledgeWrite)?;
+        let rebuild_type = params.rebuild_type.unwrap_or_else(|| "bm25".to_string());
+        if !matches!(rebuild_type.as_str(), "bm25" | "semantic" | "all") {
+            return Err(invalid_knowledge_request(
+                "type must be bm25, semantic, or all",
+            ));
+        }
+        let stats = self.stats()?;
+        let result = match rebuild_type.as_str() {
+            "bm25" => knowledge_bm25_rebuild_result(&self.root)?,
+            "semantic" => knowledge_semantic_unavailable_result(),
+            "all" => serde_json::json!({
+                "bm25": knowledge_bm25_rebuild_result(&self.root)?,
+                "semantic": knowledge_semantic_unavailable_result()
+            }),
+            _ => unreachable!(),
+        };
+        let job = completed_rebuild_job(&rebuild_type, &stats, result);
+        upsert_knowledge_job(&self.root, &job)?;
+        Ok(job)
     }
 
     pub fn query(
@@ -407,6 +465,7 @@ struct KnowledgeStorePaths {
     files_dir: PathBuf,
     documents_file: PathBuf,
     chunks_file: PathBuf,
+    jobs_file: PathBuf,
 }
 
 impl KnowledgeStorePaths {
@@ -416,6 +475,7 @@ impl KnowledgeStorePaths {
             files_dir: knowledge_dir.join("files"),
             documents_file: knowledge_dir.join("documents.jsonl"),
             chunks_file: knowledge_dir.join("chunks.jsonl"),
+            jobs_file: knowledge_dir.join("jobs.jsonl"),
         }
     }
 
@@ -610,6 +670,22 @@ pub struct KnowledgeDocumentIdParams {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+pub struct KnowledgeStartIndexJobParams {
+    pub doc_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct KnowledgeJobIdParams {
+    pub job_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct KnowledgeRebuildIndexParams {
+    #[serde(default, rename = "type")]
+    pub rebuild_type: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
 pub struct KnowledgeQueryParams {
     pub query: String,
     #[serde(default)]
@@ -698,6 +774,33 @@ pub struct KnowledgeStats {
     pub relations_ready: bool,
     pub graph_ready: bool,
     pub partial_availability: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct KnowledgeJob {
+    pub id: String,
+    #[serde(default)]
+    pub doc_id: String,
+    pub name: String,
+    pub status: String,
+    pub stage: String,
+    pub message: String,
+    pub processed: usize,
+    pub total: usize,
+    #[serde(default)]
+    pub error: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub completed_at: String,
+    #[serde(default)]
+    pub stage_details: Vec<Value>,
+    pub failed_stage_count: usize,
+    pub stale_stage_count: usize,
+    pub retrieval_ready: bool,
+    pub graph_ready: bool,
+    pub partial_availability: bool,
+    #[serde(default)]
+    pub result: Value,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -981,6 +1084,132 @@ fn find_document(
             .into_iter()
             .find(|document| document.id == doc_id),
     )
+}
+
+fn completed_retrieval_job(document: &KnowledgeDocument) -> KnowledgeJob {
+    let timestamp = now_timestamp();
+    let chunk_count = document.chunk_count.max(1);
+    KnowledgeJob {
+        id: format!("kjob_{}", document.id),
+        doc_id: document.id.clone(),
+        name: document.name.clone(),
+        status: "completed".to_string(),
+        stage: "retrieval_indexed".to_string(),
+        message: "Native retrieval index is available; semantic graph indexing is not available in native TS worker".to_string(),
+        processed: chunk_count,
+        total: chunk_count,
+        error: String::new(),
+        created_at: timestamp.clone(),
+        updated_at: timestamp.clone(),
+        completed_at: timestamp,
+        stage_details: Vec::new(),
+        failed_stage_count: 0,
+        stale_stage_count: 0,
+        retrieval_ready: true,
+        graph_ready: false,
+        partial_availability: true,
+        result: serde_json::json!({}),
+    }
+}
+
+fn completed_rebuild_job(
+    rebuild_type: &str,
+    stats: &KnowledgeStats,
+    result: Value,
+) -> KnowledgeJob {
+    let timestamp = now_timestamp();
+    let bm25_chunks = match rebuild_type {
+        "all" => result
+            .get("bm25")
+            .and_then(|bm25| bm25.get("chunks_indexed"))
+            .and_then(Value::as_u64)
+            .map(|value| value as usize)
+            .unwrap_or(stats.total_chunks),
+        "bm25" => result
+            .get("chunks_indexed")
+            .and_then(Value::as_u64)
+            .map(|value| value as usize)
+            .unwrap_or(stats.total_chunks),
+        _ => stats.total_chunks,
+    };
+    let (processed, total, message) = match rebuild_type {
+        "all" => (
+            3,
+            3,
+            "Native available knowledge indexes are rebuilt; semantic index is not available natively",
+        ),
+        "semantic" => (2, 2, "Semantic index is not available in native TS worker"),
+        _ => (
+            bm25_chunks,
+            bm25_chunks,
+            "BM25 index is available in native TS worker",
+        ),
+    };
+    let retrieval_ready = stats.retrieval_ready || bm25_chunks > 0;
+    let graph_ready = stats.graph_ready;
+    KnowledgeJob {
+        id: format!("kjob_rebuild_{rebuild_type}"),
+        doc_id: String::new(),
+        name: format!("rebuild:{rebuild_type}"),
+        status: "completed".to_string(),
+        stage: "completed".to_string(),
+        message: message.to_string(),
+        processed,
+        total,
+        error: String::new(),
+        created_at: timestamp.clone(),
+        updated_at: timestamp.clone(),
+        completed_at: timestamp,
+        stage_details: stats.stage_details.clone(),
+        failed_stage_count: stats.failed_stage_count,
+        stale_stage_count: stats.stale_stage_count,
+        retrieval_ready,
+        graph_ready,
+        partial_availability: retrieval_ready && !graph_ready,
+        result,
+    }
+}
+
+fn knowledge_bm25_rebuild_result(root: &Path) -> Result<Value, WorkerProtocolError> {
+    let store = KnowledgeStorePaths::new(root);
+    let documents = read_jsonl::<KnowledgeDocument>(&store.documents_file)?;
+    let chunks = read_jsonl::<KnowledgeChunk>(&store.chunks_file)?;
+    let chunks_indexed = chunks
+        .iter()
+        .filter(|chunk| !chunk.retrieval_text.trim().is_empty())
+        .count();
+    let mut terms = HashSet::new();
+    for chunk in &chunks {
+        for term in knowledge_query_terms(&chunk.retrieval_text) {
+            terms.insert(term);
+        }
+    }
+    Ok(serde_json::json!({
+        "chunks_indexed": chunks_indexed,
+        "terms_created": terms.len(),
+        "total_docs": documents.len()
+    }))
+}
+
+fn knowledge_semantic_unavailable_result() -> Value {
+    serde_json::json!({
+        "skipped": true,
+        "available": false,
+        "entities": 0,
+        "claims": 0,
+        "relations": 0,
+        "mentions": 0,
+        "communities": 0,
+        "community_reports": 0
+    })
+}
+
+fn upsert_knowledge_job(root: &Path, job: &KnowledgeJob) -> Result<(), WorkerProtocolError> {
+    let jobs_file = KnowledgeStorePaths::new(root).jobs_file;
+    let mut jobs = read_jsonl::<KnowledgeJob>(&jobs_file)?;
+    jobs.retain(|existing| existing.id != job.id);
+    jobs.push(job.clone());
+    write_jsonl(&jobs_file, &jobs)
 }
 
 fn append_jsonl<T: Serialize>(path: &Path, value: &T) -> Result<(), WorkerProtocolError> {

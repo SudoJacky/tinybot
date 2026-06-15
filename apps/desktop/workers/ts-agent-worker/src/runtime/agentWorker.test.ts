@@ -2706,6 +2706,58 @@ describe("AgentWorker", () => {
           calls.push({ method: "delete", traceId, params: { docId } });
           return { deleted: true, doc_id: docId };
         },
+        startIndexJob: async (docId, traceId) => {
+          calls.push({ method: "startIndexJob", traceId, params: { docId } });
+          return {
+            id: `kjob_${docId}`,
+            doc_id: docId,
+            name: docId === "doc-async" ? "Async Added" : "Upload.md",
+            status: "completed",
+            stage: "retrieval_indexed",
+            message: "Native retrieval index is available; semantic graph indexing is not available in native TS worker",
+            processed: 2,
+            total: 2,
+            created_at: "2026-06-13T00:00:00Z",
+            updated_at: "2026-06-13T00:00:01Z",
+            completed_at: "2026-06-13T00:00:01Z",
+            retrieval_ready: true,
+            graph_ready: false,
+            partial_availability: true,
+          };
+        },
+        getJob: async (jobId, traceId) => {
+          calls.push({ method: "getJob", traceId, params: { jobId } });
+          const rebuildType = jobId.startsWith("kjob_rebuild_") ? jobId.slice("kjob_rebuild_".length) : "";
+          return {
+            id: jobId,
+            doc_id: jobId === "kjob_doc-2" ? "doc-2" : "",
+            name: jobId === "kjob_doc-2" ? "Upload.md" : `rebuild:${rebuildType || "bm25"}`,
+            status: "completed",
+            stage: jobId === "kjob_doc-2" ? "retrieval_indexed" : "completed",
+            message: jobId === "kjob_doc-2"
+              ? "Native retrieval index is available; semantic graph indexing is not available in native TS worker"
+              : rebuildType === "semantic"
+                ? "Semantic index is not available in native TS worker"
+                : rebuildType === "all"
+                  ? "Native available knowledge indexes are rebuilt; semantic index is not available natively"
+                  : "BM25 index is available in native TS worker",
+            processed: rebuildType === "all" ? 3 : 2,
+            total: rebuildType === "all" ? 3 : 2,
+            created_at: "2026-06-13T00:00:00Z",
+            updated_at: "2026-06-13T00:00:01Z",
+            completed_at: "2026-06-13T00:00:01Z",
+            retrieval_ready: true,
+            graph_ready: false,
+            partial_availability: true,
+            ...(rebuildType === "all"
+              ? { result: { bm25: { chunks_indexed: 2, terms_created: 7, total_docs: 1 }, semantic: { skipped: true, available: false } } }
+              : rebuildType === "semantic"
+                ? { result: { skipped: true, available: false } }
+                : rebuildType === "bm25"
+                  ? { result: { chunks_indexed: 2, terms_created: 7, total_docs: 1 } }
+                  : {}),
+          };
+        },
         query: async (body, traceId) => {
           calls.push({ method: "query", traceId, params: body });
           return {
@@ -2722,6 +2774,33 @@ describe("AgentWorker", () => {
         stats: async (traceId) => {
           calls.push({ method: "stats", traceId });
           return { total_documents: 1, total_chunks: 2, retrieval_ready: true };
+        },
+        rebuildIndex: async (type, traceId) => {
+          calls.push({ method: "rebuildIndex", traceId, params: { type } });
+          return {
+            id: `kjob_rebuild_${type}`,
+            name: `rebuild:${type}`,
+            status: "completed",
+            stage: "completed",
+            message: type === "semantic"
+              ? "Semantic index is not available in native TS worker"
+              : type === "all"
+                ? "Native available knowledge indexes are rebuilt; semantic index is not available natively"
+                : "BM25 index is available in native TS worker",
+            processed: type === "all" ? 3 : 2,
+            total: type === "all" ? 3 : 2,
+            created_at: "2026-06-13T00:00:00Z",
+            updated_at: "2026-06-13T00:00:01Z",
+            completed_at: "2026-06-13T00:00:01Z",
+            retrieval_ready: true,
+            graph_ready: false,
+            partial_availability: true,
+            result: type === "all"
+              ? { bm25: { chunks_indexed: 2, terms_created: 7, total_docs: 1 }, semantic: { skipped: true, available: false } }
+              : type === "semantic"
+                ? { skipped: true, available: false }
+                : { chunks_indexed: 2, terms_created: 7, total_docs: 1 },
+          };
         },
       },
     });
@@ -3212,7 +3291,7 @@ describe("AgentWorker", () => {
             partial_availability: true,
             result: {
               chunks_indexed: 2,
-              terms_created: 0,
+              terms_created: 7,
               total_docs: 1,
             },
           },
@@ -3235,7 +3314,7 @@ describe("AgentWorker", () => {
           completed_at: expect.any(String),
           result: {
             chunks_indexed: 2,
-            terms_created: 0,
+            terms_created: 7,
             total_docs: 1,
           },
         },
@@ -3268,7 +3347,7 @@ describe("AgentWorker", () => {
             result: {
               bm25: {
                 chunks_indexed: 2,
-                terms_created: 0,
+                terms_created: 7,
                 total_docs: 1,
               },
               semantic: {
@@ -3297,7 +3376,7 @@ describe("AgentWorker", () => {
           result: {
             bm25: {
               chunks_indexed: 2,
-              terms_created: 0,
+              terms_created: 7,
               total_docs: 1,
             },
             semantic: {
@@ -3390,6 +3469,7 @@ describe("AgentWorker", () => {
         traceId: "trace-webui.handle_request",
         params: { name: "Async Added", content: "Body", file_type: "md", async_index: true, tags: [], category: "" },
       },
+      { method: "startIndexJob", traceId: "trace-webui.handle_request", params: { docId: "doc-async" } },
       {
         method: "add",
         traceId: "trace-webui.handle_request",
@@ -3402,6 +3482,7 @@ describe("AgentWorker", () => {
           source: "file_upload",
         },
       },
+      { method: "startIndexJob", traceId: "trace-webui.handle_request", params: { docId: "doc-2" } },
       {
         method: "add",
         traceId: "trace-webui.handle_request",
@@ -3414,6 +3495,7 @@ describe("AgentWorker", () => {
           tags: [],
         },
       },
+      { method: "startIndexJob", traceId: "trace-webui.handle_request", params: { docId: "doc-2" } },
       {
         method: "add",
         traceId: "trace-webui.handle_request",
@@ -3426,6 +3508,7 @@ describe("AgentWorker", () => {
           tags: [],
         },
       },
+      { method: "startIndexJob", traceId: "trace-webui.handle_request", params: { docId: "doc-2" } },
       {
         method: "add",
         traceId: "trace-webui.handle_request",
@@ -3438,7 +3521,8 @@ describe("AgentWorker", () => {
           tags: [],
         },
       },
-      { method: "get", traceId: "trace-webui.handle_request", params: { docId: "doc-2" } },
+      { method: "startIndexJob", traceId: "trace-webui.handle_request", params: { docId: "doc-2" } },
+      { method: "getJob", traceId: "trace-webui.handle_request", params: { jobId: "kjob_doc-2" } },
       { method: "get", traceId: "trace-webui.handle_request", params: { docId: "doc-1" } },
       { method: "delete", traceId: "trace-webui.handle_request", params: { docId: "doc-1" } },
       { method: "query", traceId: "trace-webui.handle_request", params: { query: "native knowledge", mode: "sparse", top_k: 3 } },
@@ -3451,12 +3535,12 @@ describe("AgentWorker", () => {
       { method: "stats", traceId: "trace-webui.handle_request" },
       { method: "stats", traceId: "trace-webui.handle_request" },
       { method: "stats", traceId: "trace-webui.handle_request" },
-      { method: "stats", traceId: "trace-webui.handle_request" },
-      { method: "stats", traceId: "trace-webui.handle_request" },
-      { method: "stats", traceId: "trace-webui.handle_request" },
-      { method: "stats", traceId: "trace-webui.handle_request" },
-      { method: "stats", traceId: "trace-webui.handle_request" },
-      { method: "stats", traceId: "trace-webui.handle_request" },
+      { method: "rebuildIndex", traceId: "trace-webui.handle_request", params: { type: "bm25" } },
+      { method: "getJob", traceId: "trace-webui.handle_request", params: { jobId: "kjob_rebuild_bm25" } },
+      { method: "rebuildIndex", traceId: "trace-webui.handle_request", params: { type: "all" } },
+      { method: "getJob", traceId: "trace-webui.handle_request", params: { jobId: "kjob_rebuild_all" } },
+      { method: "rebuildIndex", traceId: "trace-webui.handle_request", params: { type: "semantic" } },
+      { method: "getJob", traceId: "trace-webui.handle_request", params: { jobId: "kjob_rebuild_semantic" } },
     ]);
   });
 

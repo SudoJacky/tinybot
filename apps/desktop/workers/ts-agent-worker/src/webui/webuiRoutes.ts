@@ -282,6 +282,9 @@ export type WebuiKnowledgeProvider = {
     traceId: string,
   ): Promise<unknown> | unknown;
   addDocument(body: Record<string, unknown>, traceId: string): Promise<unknown> | unknown;
+  startIndexJob?(docId: string, traceId: string): Promise<unknown> | unknown;
+  getJob?(jobId: string, traceId: string): Promise<unknown> | unknown;
+  rebuildIndex?(type: "bm25" | "semantic" | "all", traceId: string): Promise<unknown> | unknown;
   getDocument(docId: string, traceId: string): Promise<unknown> | unknown;
   deleteDocument(docId: string, traceId: string): Promise<unknown> | unknown;
   query(body: Record<string, unknown>, traceId: string): Promise<unknown> | unknown;
@@ -1206,7 +1209,8 @@ async function knowledgeAddDocumentResponse(
         : `Document '${resultName}' added successfully`,
     };
     if (asyncIndex) {
-      const job = completedKnowledgeUploadJob(id, resultName, numberValue(document?.chunk_count ?? document?.chunks) ?? 1);
+      const job = await knowledgeStartIndexJob(provider, id, traceId)
+        ?? completedKnowledgeUploadJob(id, resultName, numberValue(document?.chunk_count ?? document?.chunks) ?? 1);
       responseBody.job = job;
       responseBody.job_id = job.id;
     }
@@ -1296,7 +1300,8 @@ async function knowledgeUploadDocumentResponse(
         : `File '${resultName}' uploaded and indexed successfully`,
     };
     if (asyncIndex) {
-      const job = completedKnowledgeUploadJob(id, resultName, numberValue(document?.chunk_count ?? document?.chunks) ?? 1);
+      const job = await knowledgeStartIndexJob(provider, id, traceId)
+        ?? completedKnowledgeUploadJob(id, resultName, numberValue(document?.chunk_count ?? document?.chunks) ?? 1);
       responseBody.job = job;
       responseBody.job_id = job.id;
     }
@@ -1356,6 +1361,20 @@ async function knowledgeJobResponse(
   if (!provider) {
     return { status: 503, body: knowledgeApiError(503, "Knowledge store not initialized") };
   }
+  if (provider.getJob) {
+    try {
+      const job = asObject(await provider.getJob(jobId, traceId));
+      if (!job) {
+        return { status: 404, body: knowledgeApiError(404, `Knowledge job ${jobId} not found`) };
+      }
+      return { status: 200, body: job };
+    } catch (error) {
+      if (errorMessage(error).toLowerCase().includes("not found")) {
+        return { status: 404, body: knowledgeApiError(404, `Knowledge job ${jobId} not found`) };
+      }
+      return knowledgeServerError("Error getting knowledge job", error);
+    }
+  }
   if (jobId === "kjob_rebuild_bm25") {
     try {
       const stats = knowledgeStatsBody(await provider.stats(traceId));
@@ -1406,13 +1425,14 @@ async function knowledgeRebuildIndexResponse(
   if (!provider) {
     return { status: 503, body: knowledgeApiError(503, "Knowledge store not initialized") };
   }
-  const rebuildType = query.get("type") ?? "bm25";
-  if (rebuildType !== "bm25" && rebuildType !== "all" && rebuildType !== "semantic") {
+  const rebuildTypeRaw = query.get("type") ?? "bm25";
+  if (rebuildTypeRaw !== "bm25" && rebuildTypeRaw !== "all" && rebuildTypeRaw !== "semantic") {
     return {
       status: 400,
-      body: knowledgeApiError(400, `Invalid rebuild type '${rebuildType}'. Valid options: bm25, semantic, all`),
+      body: knowledgeApiError(400, `Invalid rebuild type '${rebuildTypeRaw}'. Valid options: bm25, semantic, all`),
     };
   }
+  const rebuildType: "bm25" | "semantic" | "all" = rebuildTypeRaw;
 
   const asyncIndex = booleanQuery(query.get("async_index"));
   logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.rebuild_index.start", {
@@ -1420,6 +1440,42 @@ async function knowledgeRebuildIndexResponse(
     async_index: asyncIndex,
   });
   try {
+    if (provider.rebuildIndex) {
+      const job = asObject(await provider.rebuildIndex(rebuildType, traceId)) ?? {};
+      logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.rebuild_index.complete", {
+        type: rebuildType,
+        async_index: asyncIndex,
+      });
+      const result = asObject(job.result) ?? {};
+      if (!asyncIndex) {
+        return {
+          status: 200,
+          body: rebuildType === "all"
+            ? {
+                message: "All available native knowledge indexes rebuilt successfully",
+                ...result,
+              }
+            : rebuildType === "semantic"
+              ? {
+                  message: "Semantic index is not available in native TS worker",
+                  ...result,
+                }
+            : {
+                message: "BM25 index rebuilt successfully",
+                ...result,
+              },
+        };
+      }
+      return {
+        status: 202,
+        body: {
+          message: "Knowledge index rebuild started",
+          job,
+          job_id: job.id,
+          type: rebuildType,
+        },
+      };
+    }
     const stats = knowledgeStatsBody(await provider.stats(traceId));
     const result = rebuildType === "all"
       ? knowledgeAllRebuildResult(stats)
@@ -1949,6 +2005,17 @@ function clampedConfigInteger(value: unknown, fallback: number, min: number, max
     return fallback;
   }
   return Math.max(min, Math.min(max, Math.trunc(parsed)));
+}
+
+async function knowledgeStartIndexJob(
+  provider: WebuiKnowledgeProvider,
+  docId: string,
+  traceId: string,
+): Promise<Record<string, unknown> | undefined> {
+  if (!docId || !provider.startIndexJob) {
+    return undefined;
+  }
+  return asObject(await provider.startIndexJob(docId, traceId));
 }
 
 function knowledgeUploadJobDocumentId(jobId: string): string | undefined {
