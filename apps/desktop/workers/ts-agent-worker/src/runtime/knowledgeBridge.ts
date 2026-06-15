@@ -28,6 +28,10 @@ export class NativeKnowledgeBridge implements WebuiKnowledgeProvider {
     return this.rpcClient.request(traceId, "knowledge.rebuild_index", { type });
   }
 
+  graph(request: Record<string, unknown>, traceId: string): Promise<unknown> {
+    return this.rpcClient.request(traceId, "knowledge.graph", request);
+  }
+
   getDocument(docId: string, traceId: string): Promise<unknown> {
     return this.rpcClient.request(traceId, "knowledge.get_document", { doc_id: docId });
   }

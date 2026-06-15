@@ -10,7 +10,7 @@ use crate::worker_cron::{
 use crate::worker_diagnostics::WorkerDiagnosticsRpc;
 use crate::worker_knowledge::{
     KnowledgeAddDocumentParams, KnowledgeContextParams, KnowledgeDocumentIdParams,
-    KnowledgeJobIdParams, KnowledgeListDocumentsParams, KnowledgeQueryParams,
+    KnowledgeGraphParams, KnowledgeJobIdParams, KnowledgeListDocumentsParams, KnowledgeQueryParams,
     KnowledgeRebuildIndexParams, KnowledgeStartIndexJobParams, WorkerKnowledgeRpc,
 };
 use crate::worker_protocol::{validate_protocol_version, WorkerRequest, WorkerResponse};
@@ -517,6 +517,11 @@ impl WorkerRpcRouter {
             "knowledge.rebuild_index" => {
                 let params: KnowledgeRebuildIndexParams = parse_params(request)?;
                 serde_json::to_value(self.knowledge.rebuild_index(params)?)
+                    .map_err(serialization_error)
+            }
+            "knowledge.graph" => {
+                let params: KnowledgeGraphParams = parse_params(request)?;
+                serde_json::to_value(self.knowledge.document_graph(params)?)
                     .map_err(serialization_error)
             }
             "knowledge.stats" => {
@@ -8168,6 +8173,92 @@ mod tests {
         assert_eq!(rebuild["stage"], "completed");
         assert_eq!(rebuild["result"]["semantic"]["available"], false);
         assert_eq!(rebuild["result"]["bm25"]["chunks_indexed"], 1);
+    }
+
+    #[test]
+    fn dispatches_explicit_knowledge_document_graph() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let target_response = router.dispatch(&WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "knowledge.add_document",
+            json!({
+                "name": "Target.md",
+                "content": "# Target\n\nReferenced explicitly.\n",
+                "file_type": "md"
+            }),
+        ));
+        assert_eq!(target_response.error, None);
+
+        let source_response = router.dispatch(&WorkerRequest::new(
+            "req-2",
+            "trace-1",
+            "knowledge.add_document",
+            json!({
+                "name": "Source.md",
+                "content": "# Source\n\nSee [Target](Target.md), [Site](https://example.com/a), and notes/local.md.\n",
+                "file_type": "md",
+                "category": "docs",
+                "tags": ["ops"]
+            }),
+        ));
+        assert_eq!(source_response.error, None);
+        let source_id = source_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("source document id should be present")
+            .to_string();
+
+        let graph_response = router.dispatch(&WorkerRequest::new(
+            "req-3",
+            "trace-1",
+            "knowledge.graph",
+            json!({ "doc_id": source_id, "include_orphans": true }),
+        ));
+        assert_eq!(graph_response.error, None);
+        let graph = graph_response
+            .result
+            .as_ref()
+            .expect("knowledge.graph should return result");
+        assert_eq!(graph["object"], "knowledge_graph");
+        assert_eq!(graph["graph_type"], "document");
+        let edge_types = graph["edges"]
+            .as_array()
+            .expect("graph edges should be an array")
+            .iter()
+            .filter_map(|edge| edge["type"].as_str())
+            .collect::<Vec<_>>();
+        assert!(edge_types.contains(&"links_to"));
+        assert!(edge_types.contains(&"references_url"));
+        assert!(edge_types.contains(&"references_file"));
+        assert!(edge_types.contains(&"tagged"));
+        assert!(edge_types.contains(&"categorized_as"));
+        let node_types = graph["nodes"]
+            .as_array()
+            .expect("graph nodes should be an array")
+            .iter()
+            .filter_map(|node| node["type"].as_str())
+            .collect::<Vec<_>>();
+        assert!(node_types.contains(&"document"));
+        assert!(node_types.contains(&"tag"));
+        assert!(node_types.contains(&"category"));
+        assert!(node_types.contains(&"url"));
+        assert!(node_types.contains(&"file"));
+        assert!(fixture
+            .read("knowledge/document_graph_edges.jsonl")
+            .contains("references_url"));
     }
 
     #[test]

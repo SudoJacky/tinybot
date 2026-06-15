@@ -2775,6 +2775,41 @@ describe("AgentWorker", () => {
           calls.push({ method: "stats", traceId });
           return { total_documents: 1, total_chunks: 2, retrieval_ready: true };
         },
+        graph: async (params, traceId) => {
+          calls.push({ method: "graph", traceId, params });
+          return {
+            object: "knowledge_graph",
+            graph_type: "document",
+            nodes: [
+              { id: "doc:doc-1", label: "Desktop Knowledge", type: "document" },
+              { id: "tag:desktop", label: "desktop", type: "tag" },
+            ],
+            edges: [
+              { id: "edge:doc-1:tag", source: "doc:doc-1", target: "tag:desktop", type: "tagged", label: "tagged" },
+            ],
+            stats: {
+              node_count: 2,
+              edge_count: 1,
+              total_entities: 0,
+              total_relations: 0,
+              total_mentions: 0,
+              doc_id: params.doc_id,
+              limit: params.limit,
+              edge_limit: params.edge_limit,
+              min_confidence: params.min_confidence,
+              include_orphans: params.include_orphans,
+            },
+            readiness: {
+              retrieval_ready: true,
+              claims_ready: false,
+              relations_ready: false,
+              graph_ready: false,
+              partial_availability: true,
+              document_graph_ready: true,
+              entity_graph_ready: false,
+            },
+          };
+        },
         rebuildIndex: async (type, traceId) => {
           calls.push({ method: "rebuildIndex", traceId, params: { type } });
           return {
@@ -3094,11 +3129,17 @@ describe("AgentWorker", () => {
         status: 200,
         body: {
           object: "knowledge_graph",
-          nodes: [],
-          edges: [],
+          graph_type: "document",
+          nodes: [
+            { id: "doc:doc-1", label: "Desktop Knowledge", type: "document" },
+            { id: "tag:desktop", label: "desktop", type: "tag" },
+          ],
+          edges: [
+            { id: "edge:doc-1:tag", source: "doc:doc-1", target: "tag:desktop", type: "tagged", label: "tagged" },
+          ],
           stats: {
-            node_count: 0,
-            edge_count: 0,
+            node_count: 2,
+            edge_count: 1,
             total_entities: 0,
             total_relations: 0,
             total_mentions: 0,
@@ -3114,6 +3155,8 @@ describe("AgentWorker", () => {
             relations_ready: false,
             graph_ready: false,
             partial_availability: true,
+            document_graph_ready: true,
+            entity_graph_ready: false,
           },
         },
       },
@@ -3529,8 +3572,16 @@ describe("AgentWorker", () => {
       { method: "query", traceId: "trace-webui.handle_request", params: { query: "default query", mode: "hybrid", top_k: 5 } },
       { method: "query", traceId: "trace-webui.handle_request", params: { query: "explicit query", mode: 404, top_k: null } },
       { method: "stats", traceId: "trace-webui.handle_request" },
-      { method: "stats", traceId: "trace-webui.handle_request" },
-      { method: "stats", traceId: "trace-webui.handle_request" },
+      {
+        method: "graph",
+        traceId: "trace-webui.handle_request",
+        params: { doc_id: "doc-1", limit: 20, edge_limit: 40, min_confidence: 0.2, include_orphans: true },
+      },
+      {
+        method: "graph",
+        traceId: "trace-webui.handle_request",
+        params: { doc_id: "", limit: 80, edge_limit: 160, min_confidence: 1, include_orphans: false },
+      },
       { method: "stats", traceId: "trace-webui.handle_request" },
       { method: "stats", traceId: "trace-webui.handle_request" },
       { method: "stats", traceId: "trace-webui.handle_request" },

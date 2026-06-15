@@ -285,6 +285,7 @@ export type WebuiKnowledgeProvider = {
   startIndexJob?(docId: string, traceId: string): Promise<unknown> | unknown;
   getJob?(jobId: string, traceId: string): Promise<unknown> | unknown;
   rebuildIndex?(type: "bm25" | "semantic" | "all", traceId: string): Promise<unknown> | unknown;
+  graph?(request: Record<string, unknown>, traceId: string): Promise<unknown> | unknown;
   getDocument(docId: string, traceId: string): Promise<unknown> | unknown;
   deleteDocument(docId: string, traceId: string): Promise<unknown> | unknown;
   query(body: Record<string, unknown>, traceId: string): Promise<unknown> | unknown;
@@ -1544,6 +1545,9 @@ async function knowledgeGraphResponse(
     return { status: 400, body: knowledgeApiError(400, "Invalid graph query params") };
   }
   try {
+    if (provider.graph) {
+      return { status: 200, body: asObject(await provider.graph(knowledgeGraphProviderRequest(params.value), traceId)) ?? {} };
+    }
     const stats = knowledgeStatsBody(await provider.stats(traceId));
     return { status: 200, body: knowledgeGraphBody(stats, params.value) };
   } catch (error) {
@@ -1791,6 +1795,16 @@ function parseKnowledgeGraphRagQuery(
       includeReports: booleanQueryDefault(query.get("include_reports"), true),
       includeCovariates: booleanQueryDefault(query.get("include_covariates"), true),
     },
+  };
+}
+
+function knowledgeGraphProviderRequest(query: KnowledgeGraphQuery): Record<string, unknown> {
+  return {
+    doc_id: query.docId,
+    limit: query.limit,
+    edge_limit: query.edgeLimit,
+    min_confidence: query.minConfidence,
+    include_orphans: query.includeOrphans,
   };
 }
 

@@ -94,6 +94,7 @@ impl WorkerKnowledgeRpc {
         for chunk in &chunks {
             append_jsonl(&store.chunks_file, chunk)?;
         }
+        refresh_document_graph(&self.root)?;
         Ok(KnowledgeDocumentResult { document })
     }
 
@@ -155,6 +156,7 @@ impl WorkerKnowledgeRpc {
         chunks.retain(|chunk| chunk.doc_id != params.doc_id);
         write_jsonl(&store.chunks_file, &chunks)?;
         let _ = fs::remove_file(self.root.join(&document.file_path));
+        refresh_document_graph(&self.root)?;
         Ok(KnowledgeDeleteDocumentResult {
             deleted: true,
             doc_id: params.doc_id,
@@ -217,6 +219,89 @@ impl WorkerKnowledgeRpc {
         let job = completed_rebuild_job(&rebuild_type, &stats, result);
         upsert_knowledge_job(&self.root, &job)?;
         Ok(job)
+    }
+
+    pub fn document_graph(
+        &self,
+        params: KnowledgeGraphParams,
+    ) -> Result<KnowledgeGraphResult, WorkerProtocolError> {
+        self.require(WorkerCapability::KnowledgeRead)?;
+        let store = KnowledgeStorePaths::new(&self.root);
+        let mut nodes = read_jsonl::<KnowledgeGraphNode>(&store.document_graph_nodes_file)?;
+        let mut edges = read_jsonl::<KnowledgeGraphEdge>(&store.document_graph_edges_file)?;
+        if let Some(doc_id) = params.doc_id.as_deref().filter(|value| !value.is_empty()) {
+            let document_node_id = document_graph_node_id(doc_id);
+            edges.retain(|edge| edge.doc_id == doc_id || edge.source == document_node_id);
+            let connected_node_ids = edges
+                .iter()
+                .flat_map(|edge| [edge.source.clone(), edge.target.clone()])
+                .collect::<HashSet<_>>();
+            nodes.retain(|node| connected_node_ids.contains(&node.id) || node.doc_id == doc_id);
+        }
+        if !params.include_orphans.unwrap_or(false) {
+            let connected_node_ids = edges
+                .iter()
+                .flat_map(|edge| [edge.source.clone(), edge.target.clone()])
+                .collect::<HashSet<_>>();
+            nodes.retain(|node| connected_node_ids.contains(&node.id));
+        }
+        nodes.sort_by(|left, right| {
+            left.node_type
+                .cmp(&right.node_type)
+                .then_with(|| left.label.cmp(&right.label))
+        });
+        edges.sort_by(|left, right| {
+            left.edge_type
+                .cmp(&right.edge_type)
+                .then_with(|| left.source.cmp(&right.source))
+                .then_with(|| left.target.cmp(&right.target))
+        });
+        let edge_limit = params.edge_limit.unwrap_or(160).clamp(1, 1000);
+        edges.truncate(edge_limit);
+        let connected_node_ids = edges
+            .iter()
+            .flat_map(|edge| [edge.source.clone(), edge.target.clone()])
+            .collect::<HashSet<_>>();
+        if !params.include_orphans.unwrap_or(false) {
+            nodes.retain(|node| connected_node_ids.contains(&node.id));
+        }
+        let limit = params.limit.unwrap_or(80).clamp(1, 500);
+        nodes.truncate(limit);
+        let readiness = serde_json::json!({
+            "retrieval_ready": !nodes.is_empty(),
+            "claims_ready": false,
+            "relations_ready": false,
+            "graph_ready": false,
+            "partial_availability": !nodes.is_empty(),
+            "document_graph_ready": !nodes.is_empty(),
+            "entity_graph_ready": false
+        });
+        let stats = serde_json::json!({
+            "node_count": nodes.len(),
+            "edge_count": edges.len(),
+            "total_entities": 0,
+            "total_relations": 0,
+            "total_mentions": 0,
+            "doc_id": params.doc_id.unwrap_or_default(),
+            "limit": limit,
+            "edge_limit": edge_limit,
+            "min_confidence": params.min_confidence.unwrap_or(0.0),
+            "include_orphans": params.include_orphans.unwrap_or(false)
+        });
+        Ok(KnowledgeGraphResult {
+            object: "knowledge_graph".to_string(),
+            graph_type: "document".to_string(),
+            nodes,
+            edges,
+            communities: Vec::new(),
+            reports: Vec::new(),
+            claims: Vec::new(),
+            conflicts: Vec::new(),
+            stats,
+            readiness,
+            stage_readiness: serde_json::json!({}),
+            stage_coverage: serde_json::json!({}),
+        })
     }
 
     pub fn query(
@@ -466,6 +551,8 @@ struct KnowledgeStorePaths {
     documents_file: PathBuf,
     chunks_file: PathBuf,
     jobs_file: PathBuf,
+    document_graph_nodes_file: PathBuf,
+    document_graph_edges_file: PathBuf,
 }
 
 impl KnowledgeStorePaths {
@@ -476,6 +563,8 @@ impl KnowledgeStorePaths {
             documents_file: knowledge_dir.join("documents.jsonl"),
             chunks_file: knowledge_dir.join("chunks.jsonl"),
             jobs_file: knowledge_dir.join("jobs.jsonl"),
+            document_graph_nodes_file: knowledge_dir.join("document_graph_nodes.jsonl"),
+            document_graph_edges_file: knowledge_dir.join("document_graph_edges.jsonl"),
         }
     }
 
@@ -686,6 +775,20 @@ pub struct KnowledgeRebuildIndexParams {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+pub struct KnowledgeGraphParams {
+    #[serde(default)]
+    pub doc_id: Option<String>,
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub edge_limit: Option<usize>,
+    #[serde(default)]
+    pub min_confidence: Option<f64>,
+    #[serde(default)]
+    pub include_orphans: Option<bool>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
 pub struct KnowledgeQueryParams {
     pub query: String,
     #[serde(default)]
@@ -801,6 +904,50 @@ pub struct KnowledgeJob {
     pub partial_availability: bool,
     #[serde(default)]
     pub result: Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct KnowledgeGraphNode {
+    pub id: String,
+    pub label: String,
+    #[serde(rename = "type")]
+    pub node_type: String,
+    #[serde(default)]
+    pub doc_id: String,
+    #[serde(default)]
+    pub attributes: Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct KnowledgeGraphEdge {
+    pub id: String,
+    pub source: String,
+    pub target: String,
+    #[serde(rename = "type")]
+    pub edge_type: String,
+    pub label: String,
+    #[serde(default)]
+    pub doc_id: String,
+    #[serde(default)]
+    pub evidence: Vec<Value>,
+    #[serde(default)]
+    pub attributes: Value,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct KnowledgeGraphResult {
+    pub object: String,
+    pub graph_type: String,
+    pub nodes: Vec<KnowledgeGraphNode>,
+    pub edges: Vec<KnowledgeGraphEdge>,
+    pub communities: Vec<Value>,
+    pub reports: Vec<Value>,
+    pub claims: Vec<Value>,
+    pub conflicts: Vec<Value>,
+    pub stats: Value,
+    pub readiness: Value,
+    pub stage_readiness: Value,
+    pub stage_coverage: Value,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1210,6 +1357,365 @@ fn upsert_knowledge_job(root: &Path, job: &KnowledgeJob) -> Result<(), WorkerPro
     jobs.retain(|existing| existing.id != job.id);
     jobs.push(job.clone());
     write_jsonl(&jobs_file, &jobs)
+}
+
+fn refresh_document_graph(root: &Path) -> Result<(), WorkerProtocolError> {
+    let store = KnowledgeStorePaths::new(root);
+    let documents = read_jsonl::<KnowledgeDocument>(&store.documents_file)?;
+    let (nodes, edges) = build_document_graph_records(&documents);
+    write_jsonl(&store.document_graph_nodes_file, &nodes)?;
+    write_jsonl(&store.document_graph_edges_file, &edges)
+}
+
+fn build_document_graph_records(
+    documents: &[KnowledgeDocument],
+) -> (Vec<KnowledgeGraphNode>, Vec<KnowledgeGraphEdge>) {
+    let mut nodes: HashMap<String, KnowledgeGraphNode> = HashMap::new();
+    let mut edges: HashMap<String, KnowledgeGraphEdge> = HashMap::new();
+    let document_lookup = document_graph_lookup(documents);
+    for document in documents {
+        let doc_node_id = document_graph_node_id(&document.id);
+        nodes.insert(doc_node_id.clone(), document_graph_document_node(document));
+        if !document.category.trim().is_empty() {
+            let category_node = document_graph_value_node("category", &document.category);
+            let category_id = category_node.id.clone();
+            nodes.entry(category_id.clone()).or_insert(category_node);
+            upsert_document_graph_edge(
+                &mut edges,
+                &doc_node_id,
+                &category_id,
+                "categorized_as",
+                document,
+                None,
+            );
+        }
+        for tag in document
+            .tags
+            .iter()
+            .map(String::as_str)
+            .filter(|tag| !tag.trim().is_empty())
+        {
+            let tag_node = document_graph_value_node("tag", tag);
+            let tag_id = tag_node.id.clone();
+            nodes.entry(tag_id.clone()).or_insert(tag_node);
+            upsert_document_graph_edge(&mut edges, &doc_node_id, &tag_id, "tagged", document, None);
+        }
+        for reference in explicit_document_references(document) {
+            let (target_node, edge_type) = match reference.kind {
+                ExplicitReferenceKind::Url => (
+                    document_graph_value_node("url", &reference.target),
+                    "references_url",
+                ),
+                ExplicitReferenceKind::File => {
+                    if let Some(target_doc_id) =
+                        resolve_document_graph_link(&reference.target, &document_lookup)
+                    {
+                        (
+                            document_graph_document_stub_node(&target_doc_id, documents),
+                            "links_to",
+                        )
+                    } else {
+                        (
+                            document_graph_value_node("file", &reference.target),
+                            "references_file",
+                        )
+                    }
+                }
+            };
+            let target_id = target_node.id.clone();
+            nodes.entry(target_id.clone()).or_insert(target_node);
+            upsert_document_graph_edge(
+                &mut edges,
+                &doc_node_id,
+                &target_id,
+                edge_type,
+                document,
+                Some(reference.evidence),
+            );
+        }
+    }
+    let mut nodes = nodes.into_values().collect::<Vec<_>>();
+    nodes.sort_by(|left, right| {
+        left.node_type
+            .cmp(&right.node_type)
+            .then_with(|| left.label.cmp(&right.label))
+    });
+    let mut edges = edges.into_values().collect::<Vec<_>>();
+    edges.sort_by(|left, right| {
+        left.edge_type
+            .cmp(&right.edge_type)
+            .then_with(|| left.source.cmp(&right.source))
+            .then_with(|| left.target.cmp(&right.target))
+    });
+    (nodes, edges)
+}
+
+fn document_graph_lookup(documents: &[KnowledgeDocument]) -> HashMap<String, String> {
+    let mut lookup = HashMap::new();
+    for document in documents {
+        for key in [
+            document.name.as_str(),
+            document.file_path.as_str(),
+            document.original_path.as_deref().unwrap_or_default(),
+            path_basename(&document.name),
+            path_basename(&document.file_path),
+            path_basename(document.original_path.as_deref().unwrap_or_default()),
+        ] {
+            let normalized = normalize_graph_reference_key(key);
+            if !normalized.is_empty() {
+                lookup.insert(normalized, document.id.clone());
+            }
+        }
+    }
+    lookup
+}
+
+fn document_graph_document_node(document: &KnowledgeDocument) -> KnowledgeGraphNode {
+    KnowledgeGraphNode {
+        id: document_graph_node_id(&document.id),
+        label: document.name.clone(),
+        node_type: "document".to_string(),
+        doc_id: document.id.clone(),
+        attributes: serde_json::json!({
+            "doc_id": document.id,
+            "file_path": document.file_path,
+            "file_type": document.file_type,
+            "category": document.category,
+            "tags": document.tags,
+        }),
+    }
+}
+
+fn document_graph_document_stub_node(
+    doc_id: &str,
+    documents: &[KnowledgeDocument],
+) -> KnowledgeGraphNode {
+    documents
+        .iter()
+        .find(|document| document.id == doc_id)
+        .map(document_graph_document_node)
+        .unwrap_or_else(|| KnowledgeGraphNode {
+            id: document_graph_node_id(doc_id),
+            label: doc_id.to_string(),
+            node_type: "document".to_string(),
+            doc_id: doc_id.to_string(),
+            attributes: serde_json::json!({ "doc_id": doc_id }),
+        })
+}
+
+fn document_graph_value_node(kind: &str, value: &str) -> KnowledgeGraphNode {
+    KnowledgeGraphNode {
+        id: document_graph_value_id(kind, value),
+        label: value.trim().to_string(),
+        node_type: kind.to_string(),
+        doc_id: String::new(),
+        attributes: serde_json::json!({ "value": value.trim() }),
+    }
+}
+
+fn upsert_document_graph_edge(
+    edges: &mut HashMap<String, KnowledgeGraphEdge>,
+    source: &str,
+    target: &str,
+    edge_type: &str,
+    document: &KnowledgeDocument,
+    evidence: Option<Value>,
+) {
+    if source == target {
+        return;
+    }
+    let id = document_graph_edge_id(source, edge_type, target);
+    edges
+        .entry(id.clone())
+        .or_insert_with(|| KnowledgeGraphEdge {
+            id,
+            source: source.to_string(),
+            target: target.to_string(),
+            edge_type: edge_type.to_string(),
+            label: edge_type.to_string(),
+            doc_id: document.id.clone(),
+            evidence: evidence.into_iter().collect(),
+            attributes: serde_json::json!({
+                "doc_id": document.id,
+                "doc_name": document.name
+            }),
+        });
+}
+
+#[derive(Clone, Debug)]
+struct ExplicitReference {
+    target: String,
+    kind: ExplicitReferenceKind,
+    evidence: Value,
+}
+
+#[derive(Clone, Debug)]
+enum ExplicitReferenceKind {
+    Url,
+    File,
+}
+
+fn explicit_document_references(document: &KnowledgeDocument) -> Vec<ExplicitReference> {
+    let mut references = Vec::new();
+    for (line_index, line) in document.content.lines().enumerate() {
+        references.extend(markdown_link_references(document, line, line_index + 1));
+        for token in line.split_whitespace() {
+            let target = trim_reference_token(token);
+            if target.is_empty() {
+                continue;
+            }
+            if is_explicit_url(&target) {
+                references.push(explicit_reference(
+                    document,
+                    &target,
+                    ExplicitReferenceKind::Url,
+                    line,
+                    line_index + 1,
+                ));
+            } else if is_explicit_file_reference(&target) {
+                references.push(explicit_reference(
+                    document,
+                    &target,
+                    ExplicitReferenceKind::File,
+                    line,
+                    line_index + 1,
+                ));
+            }
+        }
+    }
+    references
+}
+
+fn markdown_link_references(
+    document: &KnowledgeDocument,
+    line: &str,
+    line_number: usize,
+) -> Vec<ExplicitReference> {
+    let mut references = Vec::new();
+    let mut cursor = 0usize;
+    while let Some(open_label) = line[cursor..].find('[') {
+        let label_start = cursor + open_label + 1;
+        let Some(close_label_offset) = line[label_start..].find(']') else {
+            break;
+        };
+        let close_label = label_start + close_label_offset;
+        if !line[close_label..].starts_with("](") {
+            cursor = close_label + 1;
+            continue;
+        }
+        let target_start = close_label + 2;
+        let Some(close_target_offset) = line[target_start..].find(')') else {
+            break;
+        };
+        let target_end = target_start + close_target_offset;
+        let target = trim_reference_token(&line[target_start..target_end]);
+        if !target.is_empty() {
+            let kind = if is_explicit_url(&target) {
+                ExplicitReferenceKind::Url
+            } else {
+                ExplicitReferenceKind::File
+            };
+            references.push(explicit_reference(
+                document,
+                &target,
+                kind,
+                line,
+                line_number,
+            ));
+        }
+        cursor = target_end + 1;
+    }
+    references
+}
+
+fn explicit_reference(
+    document: &KnowledgeDocument,
+    target: &str,
+    kind: ExplicitReferenceKind,
+    line: &str,
+    line_number: usize,
+) -> ExplicitReference {
+    ExplicitReference {
+        target: target.to_string(),
+        kind,
+        evidence: serde_json::json!({
+            "id": document_graph_value_id("evidence", &format!("{}:{line_number}:{target}", document.id)),
+            "doc_id": document.id,
+            "doc_name": document.name,
+            "text": line.trim(),
+            "line_start": line_number,
+            "line_end": line_number,
+            "target": target
+        }),
+    }
+}
+
+fn resolve_document_graph_link(target: &str, lookup: &HashMap<String, String>) -> Option<String> {
+    let normalized = normalize_graph_reference_key(target);
+    lookup.get(&normalized).cloned().or_else(|| {
+        lookup
+            .get(&normalize_graph_reference_key(path_basename(target)))
+            .cloned()
+    })
+}
+
+fn document_graph_node_id(doc_id: &str) -> String {
+    format!("doc:{doc_id}")
+}
+
+fn document_graph_value_id(kind: &str, value: &str) -> String {
+    format!(
+        "{kind}:{:016x}",
+        stable_graph_hash(&normalize_graph_reference_key(value))
+    )
+}
+
+fn document_graph_edge_id(source: &str, edge_type: &str, target: &str) -> String {
+    format!(
+        "edge:{:016x}",
+        stable_graph_hash(&format!("{source}\n{edge_type}\n{target}"))
+    )
+}
+
+fn stable_graph_hash(value: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    value.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn normalize_graph_reference_key(value: &str) -> String {
+    value
+        .trim()
+        .trim_start_matches("./")
+        .replace('\\', "/")
+        .to_ascii_lowercase()
+}
+
+fn path_basename(value: &str) -> &str {
+    value.rsplit(['/', '\\']).next().unwrap_or(value)
+}
+
+fn trim_reference_token(value: &str) -> String {
+    value
+        .trim()
+        .trim_matches(|character: char| {
+            matches!(
+                character,
+                ',' | '.' | ';' | ':' | '!' | '?' | '"' | '\'' | '<' | '>' | '(' | ')' | '[' | ']'
+            )
+        })
+        .to_string()
+}
+
+fn is_explicit_url(value: &str) -> bool {
+    value.starts_with("http://") || value.starts_with("https://")
+}
+
+fn is_explicit_file_reference(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    [".md", ".txt", ".json", ".csv"]
+        .iter()
+        .any(|extension| lower.ends_with(extension))
 }
 
 fn append_jsonl<T: Serialize>(path: &Path, value: &T) -> Result<(), WorkerProtocolError> {
