@@ -2515,6 +2515,8 @@ describe("desktop workbench shell", () => {
           semanticLlmTimeout: 30,
           graphExtractionEnabled: true,
           graphAutoExtract: false,
+          graphExtractionModel: null,
+          graphExtractionMaxTokens: 1200,
           graphExtractionConcurrency: 1,
           graphRagCommunityAlgorithm: "greedy",
           graphRagCommunityLevel: 0,

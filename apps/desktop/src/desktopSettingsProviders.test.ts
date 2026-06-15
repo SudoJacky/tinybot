@@ -51,6 +51,8 @@ describe("desktop settings and provider helpers", () => {
         knowledge: {
           graph_extraction_enabled: false,
           graph_auto_extract: true,
+          graph_extraction_model: "graph-model",
+          graph_extraction_max_tokens: 640,
           graph_extraction_concurrency: 2,
         },
       },
@@ -63,6 +65,8 @@ describe("desktop settings and provider helpers", () => {
     expect(state.embedding.modelName).toBe("text-embedding-v3");
     expect(state.knowledge.graphExtractionEnabled).toBe(false);
     expect(state.knowledge.graphAutoExtract).toBe(true);
+    expect(state.knowledge.graphExtractionModel).toBe("graph-model");
+    expect(state.knowledge.graphExtractionMaxTokens).toBe(640);
     expect(state.knowledge.graphExtractionConcurrency).toBe(2);
     expect(state.providerEditor).toMatchObject({
       selectedProvider: "openai",
@@ -101,6 +105,8 @@ describe("desktop settings and provider helpers", () => {
     state.tools.mcpServersText = "{\"search\":{\"command\":\"search-mcp\"}}";
     state.knowledge.graphExtractionEnabled = true;
     state.knowledge.graphAutoExtract = true;
+    state.knowledge.graphExtractionModel = "graph-model";
+    state.knowledge.graphExtractionMaxTokens = 640;
     state.knowledge.graphExtractionConcurrency = 3;
 
     const patch = createDesktopSettingsPatch(
@@ -140,6 +146,8 @@ describe("desktop settings and provider helpers", () => {
       knowledge: {
         graph_extraction_enabled: true,
         graph_auto_extract: true,
+        graph_extraction_model: "graph-model",
+        graph_extraction_max_tokens: 640,
         graph_extraction_concurrency: 3,
       },
     });
@@ -421,6 +429,8 @@ describe("desktop settings and provider helpers", () => {
     expect(fields["knowledge.retrievalMode"]).toMatchObject({ control: "select", requirement: "optional", configurationMode: "fixed" });
     expect(fields["knowledge.graphExtractionEnabled"]).toMatchObject({ control: "checkbox", requirement: "optional", configurationMode: "toggle" });
     expect(fields["knowledge.graphAutoExtract"]).toMatchObject({ control: "checkbox", requirement: "optional", configurationMode: "toggle", advanced: true });
+    expect(fields["knowledge.graphExtractionModel"]).toMatchObject({ control: "text", requirement: "optional", configurationMode: "freeform", advanced: true });
+    expect(fields["knowledge.graphExtractionMaxTokens"]).toMatchObject({ control: "number", requirement: "optional", configurationMode: "numeric", advanced: true });
     expect(fields["knowledge.graphExtractionConcurrency"]).toMatchObject({ control: "number", requirement: "optional", configurationMode: "numeric", advanced: true });
     expect(fields["memory-experience.memory"]).toMatchObject({ control: "readonly", requirement: "readonly", configurationMode: "readonly" });
   });
