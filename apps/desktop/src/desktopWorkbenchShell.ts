@@ -414,6 +414,10 @@ interface DesktopWorkbenchLiveState {
 }
 
 const desktopWorkbenchLiveStates = new WeakMap<Document, DesktopWorkbenchLiveState>();
+const desktopRuntimeStatusSnapshots = new WeakMap<Document, {
+  gatewayHttp: string;
+  runtimeStatus: GatewayRuntimeStatus | null;
+}>();
 const desktopNativeChatModels = new WeakMap<Document, DesktopNativeChatModel>();
 const desktopChatTimelineContexts = new WeakMap<Document, {
   agentUiActions: DesktopAgentUiFormActionOptions;
@@ -459,6 +463,7 @@ export function installDesktopWorkbenchShell({
     coworkPane,
   });
   targetDocument.body.classList.add("desktop-native-workbench");
+  desktopRuntimeStatusSnapshots.set(targetDocument, { gatewayHttp, runtimeStatus });
   desktopWorkbenchLiveStates.set(targetDocument, {
     runChainItems,
     taskCenterItems,
@@ -495,6 +500,7 @@ export function updateDesktopGatewayRuntimeStatus(
   gatewayHttp: string,
   gatewayActions: DesktopGatewayRuntimeActionOptions = {},
 ): void {
+  desktopRuntimeStatusSnapshots.set(targetDocument, { gatewayHttp, runtimeStatus });
   const runtime = targetDocument.querySelector<HTMLElement>(".desktop-gateway-runtime");
   if (!runtime) {
     return;
@@ -822,7 +828,7 @@ function createWorkbenchShell(
   shell.append(
     createActivityRail(targetDocument),
     createPanel(targetDocument, "sidebar", layout.sidebar, createSidebar(targetDocument, chat, chatActions)),
-    createMainRegion(targetDocument, gatewayHttp, runtimeStatus, layout, chat, chatActions, agentUiForms, agentUiActions, taskCenterItems, settingsPane, settingsActions, knowledgePane, knowledgeActions, toolsSkillsPane, toolsSkillsActions, coworkPane, coworkActions, workLens, workLensActions),
+    createMainRegion(targetDocument, gatewayHttp, layout, chat, chatActions, agentUiForms, agentUiActions, taskCenterItems, settingsPane, settingsActions, knowledgePane, knowledgeActions, toolsSkillsPane, toolsSkillsActions, coworkPane, coworkActions, workLens, workLensActions),
     createPanel(targetDocument, "inspector", layout.inspector, createInspector(targetDocument, runChainItems, taskCenterItems, selectedRunChainItemKey, workLens, workLensActions)),
     createPanel(targetDocument, "bottom", layout.bottom, createBottomRegion(targetDocument, runtimeStatus, gatewayHttp, taskCenterItems, taskActions, gatewayActions)),
   );
@@ -1319,7 +1325,6 @@ function mountSidebarRowVueIsland(
 function createMainRegion(
   targetDocument: Document,
   gatewayHttp: string,
-  runtimeStatus: GatewayRuntimeStatus | null,
   layout: WorkbenchLayoutState,
   chat: DesktopNativeChatModel | null,
   chatActions: DesktopNativeChatActionOptions,
@@ -1361,7 +1366,7 @@ function createMainRegion(
   utilities.append(
     createCommandPalette(targetDocument),
     ...(knowledgePane ? [] : [createFileActions(targetDocument, chat)]),
-    createDesktopHelpSurface(targetDocument, runtimeStatus, gatewayHttp),
+    createDesktopHelpSurface(targetDocument),
     createAgentUiFormsSurface(targetDocument, agentUiForms, agentUiActions),
     createWorkspaceFilesSurface(targetDocument),
     ...(settingsPane ? [createSettingsProvidersPane(targetDocument, settingsPane, settingsActions)] : []),
@@ -1372,8 +1377,6 @@ function createMainRegion(
   mountMainUtilitiesRegionVueIsland(
     utilities,
     targetDocument,
-    runtimeStatus,
-    gatewayHttp,
     chat,
     agentUiForms,
     agentUiActions,
@@ -1522,8 +1525,6 @@ function mountChatWorkbenchVueIsland(
 function mountMainUtilitiesRegionVueIsland(
   utilities: HTMLElement,
   targetDocument: Document,
-  runtimeStatus: GatewayRuntimeStatus | null,
-  gatewayHttp: string,
   chat: DesktopNativeChatModel | null,
   agentUiForms: AgentUiForm[],
   agentUiActions: DesktopAgentUiFormActionOptions,
@@ -1577,8 +1578,6 @@ function mountMainUtilitiesRegionVueIsland(
         renderDesktopShortcutHelp(targetDocument);
       } else if (action === "page-help") {
         renderDesktopPageHelp(targetDocument, "Page help");
-      } else if (action === "backend-logs") {
-        renderDesktopBackendLogs(targetDocument, runtimeStatus, gatewayHttp);
       } else if (action === "help-tour") {
         renderDesktopPageHelp(targetDocument, "Desktop help tour");
       }
@@ -7615,11 +7614,7 @@ function syncSessionFileUploadKey(targetDocument: Document, activeSessionKey: st
   targetDocument.dispatchEvent(new CustomEvent("tinybot:desktop-session-key-changed", { detail: { sessionKey: activeSessionKey } }));
 }
 
-function createDesktopHelpSurface(
-  targetDocument: Document,
-  runtimeStatus: GatewayRuntimeStatus | null,
-  gatewayHttp: string,
-): HTMLElement {
+function createDesktopHelpSurface(targetDocument: Document): HTMLElement {
   const section = targetDocument.createElement("section");
   section.className = "desktop-help-pane";
   section.setAttribute("data-desktop-module-surface", "docs");
@@ -7647,15 +7642,6 @@ function createDesktopHelpSurface(
     renderDesktopPageHelp(targetDocument, "Page help");
   });
 
-  const backendLogs = targetDocument.createElement("button");
-  backendLogs.setAttribute("type", "button");
-  backendLogs.className = "desktop-help-action";
-  backendLogs.setAttribute("data-desktop-help-action", "backend-logs");
-  backendLogs.textContent = "Backend logs";
-  backendLogs.addEventListener("click", () => {
-    renderDesktopBackendLogs(targetDocument, runtimeStatus, gatewayHttp);
-  });
-
   const tour = targetDocument.createElement("button");
   tour.setAttribute("type", "button");
   tour.className = "desktop-help-action";
@@ -7665,17 +7651,12 @@ function createDesktopHelpSurface(
     renderDesktopPageHelp(targetDocument, "Desktop help tour");
   });
 
-  section.append(docs, shortcuts, pageHelp, backendLogs, tour);
-  mountHelpSurfaceVueIsland(section, targetDocument, runtimeStatus, gatewayHttp);
+  section.append(docs, shortcuts, pageHelp, tour);
+  mountHelpSurfaceVueIsland(section, targetDocument);
   return section;
 }
 
-function mountHelpSurfaceVueIsland(
-  section: HTMLElement,
-  targetDocument: Document,
-  runtimeStatus: GatewayRuntimeStatus | null,
-  gatewayHttp: string,
-): void {
+function mountHelpSurfaceVueIsland(section: HTMLElement, targetDocument: Document): void {
   if (!canMountVueIsland(section)) {
     return;
   }
@@ -7685,8 +7666,6 @@ function mountHelpSurfaceVueIsland(
         renderDesktopShortcutHelp(targetDocument);
       } else if (action === "page-help") {
         renderDesktopPageHelp(targetDocument, "Page help");
-      } else if (action === "backend-logs") {
-        renderDesktopBackendLogs(targetDocument, runtimeStatus, gatewayHttp);
       } else if (action === "help-tour") {
         renderDesktopPageHelp(targetDocument, "Desktop help tour");
       }
@@ -7702,7 +7681,8 @@ function installDesktopHelpEventRouting(targetDocument: Document): void {
     renderDesktopPageHelp(targetDocument, "Page help");
   });
   targetDocument.addEventListener("tinybot:open-backend-logs", () => {
-    renderDesktopBackendLogs(targetDocument, null, "");
+    const snapshot = desktopRuntimeStatusSnapshots.get(targetDocument);
+    renderDesktopBackendLogs(targetDocument, snapshot?.runtimeStatus ?? null, snapshot?.gatewayHttp ?? "");
   });
   targetDocument.addEventListener("tinybot:open-help-tour", () => {
     renderDesktopPageHelp(targetDocument, "Desktop help tour");

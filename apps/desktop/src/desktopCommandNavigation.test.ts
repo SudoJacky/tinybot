@@ -93,6 +93,7 @@ describe("desktop command navigation", () => {
       "open-docs",
       "open-shortcut-help",
       "open-page-help",
+      "open-backend-logs",
       "toggle-theme",
       "toggle-sidebar",
       "open-command-palette",
@@ -111,6 +112,7 @@ describe("desktop command navigation", () => {
       "Documentation",
       "Shortcut Help",
       "Page Help",
+      "Backend Logs",
       "Toggle Theme",
       "Toggle Sidebar",
       "Command Palette",
@@ -129,6 +131,7 @@ describe("desktop command navigation", () => {
       "F1",
       "Ctrl+/",
       "Ctrl+Shift+/",
+      "",
       "Ctrl+Shift+T",
       "Ctrl+B",
       "Ctrl+Shift+P",
@@ -164,12 +167,14 @@ describe("desktop command navigation", () => {
       "open-docs",
       "open-shortcut-help",
       "open-page-help",
+      "open-backend-logs",
       "open-tinybot-repo",
     ]);
     expect(DESKTOP_HELP_COMMANDS.map((command) => command.label)).toEqual([
       "Documentation",
       "Shortcut Help",
       "Page Help",
+      "Backend Logs",
       "Tinybot repo",
     ]);
     expect(DESKTOP_MENU_COMMANDS.filter((command) => command.chromeGroup === "secondary").map((command) => command.id)).toEqual([
@@ -182,6 +187,7 @@ describe("desktop command navigation", () => {
       "open-docs",
       "open-shortcut-help",
       "open-page-help",
+      "open-backend-logs",
       "toggle-theme",
       "toggle-sidebar",
       "refresh-gateway-status",
@@ -210,6 +216,7 @@ describe("desktop command navigation", () => {
     expect(routeDesktopMenuCommand("open-docs", context)).toMatchObject({ kind: "navigate", href: "/docs" });
     expect(routeDesktopMenuCommand("open-shortcut-help", context)).toMatchObject({ kind: "action", action: "open-shortcut-help" });
     expect(routeDesktopMenuCommand("open-page-help", context)).toMatchObject({ kind: "action", action: "open-page-help" });
+    expect(routeDesktopMenuCommand("open-backend-logs", context)).toMatchObject({ kind: "action", action: "open-backend-logs" });
     expect(routeDesktopMenuCommand("toggle-theme", context)).toMatchObject({ kind: "action", action: "set-theme", value: "dark" });
     expect(routeDesktopMenuCommand("toggle-sidebar", context)).toMatchObject({ kind: "action", action: "set-sidebar-visible", value: false });
     expect(routeDesktopMenuCommand("open-command-palette", context)).toMatchObject({ kind: "action", action: "open-command-palette" });
@@ -298,8 +305,10 @@ describe("desktop command navigation", () => {
       shiftKey: true,
       preventDefault: () => undefined,
     } as unknown as Event);
+    targetDocument.dispatchEvent(new CustomEvent("desktop-menu-command", { detail: { id: "open-backend-logs" } }));
     expect(targetDocument.dispatched).toContain("tinybot:open-shortcut-help");
     expect(targetDocument.dispatched).toContain("tinybot:open-page-help");
+    expect(targetDocument.dispatched).toContain("tinybot:open-backend-logs");
   });
 
   test("keeps docs menu navigation inside the native workbench when requested", () => {

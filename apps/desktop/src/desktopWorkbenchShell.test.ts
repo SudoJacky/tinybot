@@ -952,7 +952,6 @@ describe("desktop workbench shell", () => {
       "Open docs",
       "Shortcut help",
       "Page help",
-      "Backend logs",
       "Help tour",
     ]);
 
@@ -972,7 +971,7 @@ describe("desktop workbench shell", () => {
     targetDocument.dispatchEvent({ type: "tinybot:open-page-help" });
     expect(targetDocument.body.querySelector('[data-workbench-region="inspector"]')?.textContent).toContain("Page help");
 
-    help?.querySelector('[data-desktop-help-action="backend-logs"]')?.click();
+    targetDocument.dispatchEvent({ type: "tinybot:open-backend-logs" });
     const backendLogsDialog = targetDocument.body.querySelector("#desktop-backend-logs-dialog");
     expect(backendLogsDialog?.getAttribute("role")).toBe("dialog");
     expect(backendLogsDialog?.getAttribute("aria-modal")).toBe("true");

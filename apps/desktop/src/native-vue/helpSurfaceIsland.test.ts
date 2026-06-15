@@ -21,16 +21,14 @@ describe("help surface Vue island", () => {
       "Open docs",
       "Shortcut help",
       "Page help",
-      "Backend logs",
       "Help tour",
     ]);
 
     host.querySelector<HTMLButtonElement>('[data-desktop-help-action="shortcut-help"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-desktop-help-action="page-help"]')?.click();
-    host.querySelector<HTMLButtonElement>('[data-desktop-help-action="backend-logs"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-desktop-help-action="help-tour"]')?.click();
 
-    expect(actions).toEqual(["shortcut-help", "page-help", "backend-logs", "help-tour"]);
+    expect(actions).toEqual(["shortcut-help", "page-help", "help-tour"]);
 
     mounted.unmount();
     expect(host.textContent).toBe("");

@@ -334,12 +334,14 @@ describe("desktop window frame", () => {
     const docs = helpMenu?.querySelector('[data-desktop-menu-command="open-docs"]');
     const shortcutHelp = helpMenu?.querySelector('[data-desktop-menu-command="open-shortcut-help"]');
     const pageHelp = helpMenu?.querySelector('[data-desktop-menu-command="open-page-help"]');
+    const backendLogs = helpMenu?.querySelector('[data-desktop-menu-command="open-backend-logs"]');
     const repo = helpMenu?.querySelector('[data-desktop-menu-command="open-tinybot-repo"]');
     expect(docs?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Documentation");
     expect(shortcutHelp?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Shortcut Help");
     expect(shortcutHelp?.querySelector(".desktop-help-menu-shortcut")?.textContent).toBe("Ctrl+/");
     expect(pageHelp?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Page Help");
     expect(pageHelp?.querySelector(".desktop-help-menu-shortcut")?.textContent).toBe("Ctrl+Shift+/");
+    expect(backendLogs?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Backend Logs");
     expect(repo?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Tinybot repo");
   });
 
