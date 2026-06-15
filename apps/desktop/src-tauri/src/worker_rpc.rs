@@ -8355,9 +8355,38 @@ mod tests {
             graph["edges"][0]["evidence"][0]["text"],
             "TinyBot stores knowledge graph evidence."
         );
+        assert_eq!(graph["stats"]["stale_count"], 0);
+        assert_eq!(graph["readiness"]["entity_graph_stale"], false);
+
+        fixture.write(
+            "knowledge/documents.jsonl",
+            &fixture
+                .read("knowledge/documents.jsonl")
+                .replace(
+                    "TinyBot stores knowledge graph evidence.",
+                    "TinyBot stores updated knowledge graph evidence.",
+                ),
+        );
+        let stale_graph_response = router.dispatch(&WorkerRequest::new(
+            "req-4",
+            "trace-1",
+            "knowledge.graph",
+            json!({ "doc_id": doc_id, "graph_type": "entity", "include_orphans": true }),
+        ));
+        assert_eq!(stale_graph_response.error, None);
+        let stale_graph = stale_graph_response
+            .result
+            .as_ref()
+            .expect("knowledge.graph should return stale entity graph");
+        assert_eq!(stale_graph["stats"]["stale_node_count"], 2);
+        assert_eq!(stale_graph["stats"]["stale_edge_count"], 1);
+        assert_eq!(stale_graph["readiness"]["entity_graph_stale"], true);
+        assert_eq!(stale_graph["nodes"][0]["attributes"]["stale"], true);
+        assert_eq!(stale_graph["edges"][0]["attributes"]["stale"], true);
+        assert!(stale_graph["nodes"][0]["attributes"]["current_source_hash"].is_string());
 
         let stats_response = router.dispatch(&WorkerRequest::new(
-            "req-4",
+            "req-5",
             "trace-1",
             "knowledge.stats",
             json!({}),

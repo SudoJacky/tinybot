@@ -451,6 +451,7 @@ impl WorkerKnowledgeRpc {
         let store = KnowledgeStorePaths::new(&self.root);
         let mut nodes = read_jsonl::<KnowledgeGraphNode>(&store.entity_graph_nodes_file)?;
         let mut edges = read_jsonl::<KnowledgeGraphEdge>(&store.entity_graph_edges_file)?;
+        let requested_doc_id = params.doc_id.clone().unwrap_or_default();
         if let Some(doc_id) = params.doc_id.as_deref().filter(|value| !value.is_empty()) {
             nodes.retain(|node| node.doc_id == doc_id);
             edges.retain(|edge| edge.doc_id == doc_id);
@@ -466,6 +467,7 @@ impl WorkerKnowledgeRpc {
         }
         let limit = params.limit.unwrap_or(80).clamp(1, 500);
         nodes.truncate(limit);
+        let stale = mark_entity_graph_staleness(&self.root, &mut nodes, &mut edges)?;
         let entity_ready = !nodes.is_empty() || !edges.is_empty();
         Ok(KnowledgeGraphResult {
             object: "knowledge_graph".to_string(),
@@ -476,7 +478,10 @@ impl WorkerKnowledgeRpc {
                 "total_entities": nodes.len(),
                 "total_relations": edges.len(),
                 "total_mentions": edges.iter().map(|edge| edge.evidence.len()).sum::<usize>(),
-                "doc_id": params.doc_id.unwrap_or_default(),
+                "stale_count": stale.node_count + stale.edge_count,
+                "stale_node_count": stale.node_count,
+                "stale_edge_count": stale.edge_count,
+                "doc_id": requested_doc_id,
                 "limit": limit,
                 "edge_limit": edge_limit,
                 "min_confidence": params.min_confidence.unwrap_or(0.0),
@@ -489,7 +494,8 @@ impl WorkerKnowledgeRpc {
                 "graph_ready": entity_ready,
                 "partial_availability": entity_ready,
                 "document_graph_ready": false,
-                "entity_graph_ready": entity_ready
+                "entity_graph_ready": entity_ready,
+                "entity_graph_stale": stale.node_count + stale.edge_count > 0
             }),
             nodes,
             edges,
@@ -1672,6 +1678,55 @@ fn entity_graph_stub_node(
             "evidence_ids": []
         }),
     }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct EntityGraphStaleness {
+    node_count: usize,
+    edge_count: usize,
+}
+
+fn mark_entity_graph_staleness(
+    root: &Path,
+    nodes: &mut [KnowledgeGraphNode],
+    edges: &mut [KnowledgeGraphEdge],
+) -> Result<EntityGraphStaleness, WorkerProtocolError> {
+    let documents = read_jsonl::<KnowledgeDocument>(&KnowledgeStorePaths::new(root).documents_file)?;
+    let current_hashes = documents
+        .iter()
+        .map(|document| (document.id.clone(), document_content_hash(document)))
+        .collect::<HashMap<_, _>>();
+    let mut stale = EntityGraphStaleness::default();
+    for node in nodes {
+        if mark_graph_attributes_staleness(&mut node.attributes, current_hashes.get(&node.doc_id)) {
+            stale.node_count += 1;
+        }
+    }
+    for edge in edges {
+        if mark_graph_attributes_staleness(&mut edge.attributes, current_hashes.get(&edge.doc_id)) {
+            stale.edge_count += 1;
+        }
+    }
+    Ok(stale)
+}
+
+fn mark_graph_attributes_staleness(attributes: &mut Value, current_hash: Option<&String>) -> bool {
+    let stale = attributes
+        .get("source_hash")
+        .and_then(Value::as_str)
+        .map(|source_hash| current_hash.map_or(true, |hash| source_hash != hash))
+        .unwrap_or(false);
+    if let Value::Object(map) = attributes {
+        map.insert("stale".to_string(), Value::Bool(stale));
+        if stale {
+            if let Some(hash) = current_hash {
+                map.insert("current_source_hash".to_string(), Value::String(hash.clone()));
+            }
+        } else {
+            map.remove("current_source_hash");
+        }
+    }
+    stale
 }
 
 fn persist_entity_graph_evidence(
