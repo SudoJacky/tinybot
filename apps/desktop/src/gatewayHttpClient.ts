@@ -115,7 +115,9 @@ export type KnowledgeGraphOptions = {
 };
 
 export type KnowledgeGraphExtractionOptions = {
-  docId: string;
+  docId?: string;
+  docIds?: string[];
+  scope?: "all" | "selected";
   dryRun?: boolean;
 };
 
@@ -587,7 +589,9 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
       },
       extractGraph: (extractOptions: KnowledgeGraphExtractionOptions) => {
         const body = {
-          doc_id: extractOptions.docId,
+          ...(extractOptions.docId ? { doc_id: extractOptions.docId } : {}),
+          ...(extractOptions.docIds?.length ? { doc_ids: extractOptions.docIds } : {}),
+          ...(extractOptions.scope ? { scope: extractOptions.scope } : {}),
           ...(typeof extractOptions.dryRun === "boolean" ? { dry_run: extractOptions.dryRun } : {}),
         };
         return nativeOrGateway(

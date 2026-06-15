@@ -1275,6 +1275,32 @@ describe("gateway HTTP client", () => {
         },
       },
     });
+    await expect(client.knowledge.extractGraph({
+      docIds: ["doc-1", "doc-2"],
+    })).resolves.toEqual({
+      native: true,
+      request: {
+        method: "POST",
+        path: "/v1/knowledge/graph/extract",
+        body: {
+          doc_ids: ["doc-1", "doc-2"],
+        },
+      },
+    });
+    await expect(client.knowledge.extractGraph({
+      scope: "all",
+      dryRun: true,
+    })).resolves.toEqual({
+      native: true,
+      request: {
+        method: "POST",
+        path: "/v1/knowledge/graph/extract",
+        body: {
+          scope: "all",
+          dry_run: true,
+        },
+      },
+    });
     await expect(client.knowledge.graphrag()).resolves.toEqual({
       native: true,
       request: {
