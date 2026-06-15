@@ -1946,7 +1946,7 @@ describe("desktop workbench shell", () => {
     expect(targetDocument.body.querySelector("[data-desktop-route-status]")?.textContent).toContain("Inspecting Index Desktop UX Notes in Work Lens");
   });
 
-  test("routes Cowork session selection into the right-side Work Lens", () => {
+  test("renders Cowork as unavailable without routing session selection", () => {
     const targetDocument = new FakeDocument();
     const session = {
       id: "cowork-1",
@@ -1973,17 +1973,16 @@ describe("desktop workbench shell", () => {
       },
     });
 
-    targetDocument.body.querySelector('[data-desktop-cowork-session="cowork-1"]')?.click();
-
+    const pane = targetDocument.body.querySelector(".desktop-cowork-cockpit");
+    expect(pane?.getAttribute("aria-label")).toBe("Cowork unavailable");
+    expect(pane?.textContent).toContain("Cowork is under construction");
+    expect(pane?.textContent).toContain("This page is temporarily unavailable.");
+    expect(pane?.textContent).toContain("暂不开放");
+    expect(targetDocument.body.querySelector('[data-desktop-cowork-session="cowork-1"]')).toBeNull();
     const inspector = targetDocument.body.querySelector('[data-workbench-region="inspector"]');
     const lens = inspector?.querySelector(".desktop-work-lens");
-    expect(lens?.getAttribute("data-desktop-work-lens-kind")).toBe("coworkRun");
-    expect(lens?.textContent).toContain("Review desktop release");
-    expect(lens?.textContent).toContain("Reason: 1 blocker");
-    expect(lens?.textContent).toContain("Progress: 1/2");
-    expect(lens?.textContent).toContain("What did it use?");
-    expect(lens?.textContent).toContain("What changed?");
-    expect(targetDocument.body.querySelector("[data-desktop-route-status]")?.textContent).toContain("Inspecting Review desktop release in Work Lens");
+    expect(lens?.getAttribute("data-desktop-work-lens-kind")).not.toBe("coworkRun");
+    expect(targetDocument.body.querySelector("[data-desktop-route-status]")?.textContent).not.toContain("Review desktop release");
   });
 
   test("routes Chat module run selection into the right-side Work Lens", () => {
@@ -3026,80 +3025,20 @@ describe("desktop workbench shell", () => {
     });
 
     const pane = targetDocument.body.querySelector(".desktop-cowork-cockpit");
-    const goal = pane?.querySelector('[data-desktop-cowork-input="goal"]');
-    const message = pane?.querySelector('[data-desktop-cowork-input="message"]');
-    const budgetMaxRounds = pane?.querySelector('[data-desktop-cowork-input="budgetMaxRounds"]');
-    if (goal) {
-      goal.value = "Create a desktop run";
-    }
-    if (message) {
-      message.value = "Continue with the next unit";
-    }
-    if (budgetMaxRounds) {
-      budgetMaxRounds.value = "7";
-    }
-    expect(pane?.getAttribute("aria-label")).toBe("Cowork cockpit");
-    expect(pane?.textContent).toContain("Desktop migration");
-    expect(pane?.textContent).toContain("Move Cowork into a desktop cockpit");
-    expect(pane?.textContent).toContain("blocked / Adaptive Starter / 1 agent / 0/1 tasks");
-    expect(pane?.querySelectorAll(".desktop-cowork-session-row").map((row) => row.getAttribute("data-desktop-cowork-session"))).toEqual(["cowork-1"]);
-    expect(pane?.querySelector(".desktop-cowork-session-row")?.getAttribute("data-desktop-entity-module")).toBe("cowork");
-    expect(pane?.querySelector(".desktop-cowork-session-row")?.getAttribute("data-desktop-entity-id")).toBe("cowork-1");
-    expect(pane?.querySelector(".desktop-cowork-graph")?.textContent).toContain("2 nodes / 1 edge");
-    expect(pane?.querySelector(".desktop-cowork-graph")?.textContent).toContain("Planner");
-    expect(pane?.querySelector(".desktop-cowork-inspector")?.textContent).toContain("Map cockpit layout");
-    expect(pane?.querySelector(".desktop-cowork-inspector")?.textContent).toContain("Owner: agent-1");
-    pane?.querySelector('[data-desktop-cowork-entity="agent-1"]')?.click();
-    expect(pane?.querySelector(".desktop-cowork-inspector")?.textContent).toContain("Selected: Planner");
-    expect(pane?.querySelector(".desktop-cowork-inspector")?.textContent).toContain("Status: running");
-    pane?.querySelector('[data-desktop-cowork-entity-action="loadAgentActivity"]')?.click();
-    expect(pane?.querySelectorAll(".desktop-cowork-action").map((row) => row.getAttribute("data-desktop-cowork-action")).filter(Boolean)).toEqual([
-      "blueprintValidate",
-      "blueprintPreview",
-      "create",
-      "run",
-      "pause",
-      "resume",
-      "emergencyStop",
-      "delete",
-      "message",
-      "summary",
-      "blueprint",
-      "trace",
-      "dag",
-      "artifacts",
-      "organization",
-      "queues",
-      "branches",
-      "updateBudget",
-      "addTask",
-    ]);
-    for (const action of ["create", "run", "pause", "resume", "emergencyStop", "delete", "message", "summary", "blueprint", "trace", "dag", "artifacts", "organization", "queues", "branches", "updateBudget"]) {
-      pane?.querySelector(`[data-desktop-cowork-action="${action}"]`)?.click();
-    }
-    expect(actionEvents).toEqual([
-      { action: "loadAgentActivity", sessionId: "cowork-1", goal: "", message: "", agentId: "agent-1", limit: 20 },
-      { action: "createSession", sessionId: "", goal: "Create a desktop run", message: "" },
-      { action: "runSession", sessionId: "cowork-1", goal: "", message: "" },
-      { action: "pauseSession", sessionId: "cowork-1", goal: "", message: "" },
-      { action: "resumeSession", sessionId: "cowork-1", goal: "", message: "" },
-      { action: "emergencyStopSession", sessionId: "cowork-1", goal: "", message: "" },
-      { action: "deleteSession", sessionId: "cowork-1", goal: "", message: "" },
-      { action: "sendMessage", sessionId: "cowork-1", goal: "", message: "Continue with the next unit" },
-      { action: "loadSummary", sessionId: "cowork-1", goal: "", message: "" },
-      { action: "loadBlueprint", sessionId: "cowork-1", goal: "", message: "" },
-      { action: "loadTrace", sessionId: "cowork-1", goal: "", message: "" },
-      { action: "loadDag", sessionId: "cowork-1", goal: "", message: "" },
-      { action: "loadArtifacts", sessionId: "cowork-1", goal: "", message: "" },
-      { action: "loadOrganization", sessionId: "cowork-1", goal: "", message: "" },
-      { action: "loadQueues", sessionId: "cowork-1", goal: "", message: "" },
-      { action: "loadBranches", sessionId: "cowork-1", goal: "", message: "" },
-      { action: "updateBudget", sessionId: "cowork-1", goal: "", message: "", maxRounds: 7 },
-    ]);
-    expect(pane?.querySelector(".desktop-cowork-task-feed")?.textContent).toContain("1 blocker");
+    expect(pane?.getAttribute("aria-label")).toBe("Cowork unavailable");
+    expect(pane?.textContent).toContain("Cowork is under construction");
+    expect(pane?.textContent).toContain("This page is temporarily unavailable.");
+    expect(pane?.textContent).toContain("暂不开放");
+    expect(pane?.textContent).not.toContain("Desktop migration");
+    expect(pane?.querySelector(".desktop-cowork-session-row")).toBeNull();
+    expect(pane?.querySelector(".desktop-cowork-action")).toBeNull();
+    expect(pane?.querySelector(".desktop-cowork-graph")).toBeNull();
+    expect(pane?.querySelector(".desktop-cowork-inspector")).toBeNull();
+    expect(pane?.querySelector(".desktop-cowork-task-feed")).toBeNull();
+    expect(actionEvents).toEqual([]);
   });
 
-  test("routes Cowork blueprint validate and preview actions from the cockpit", () => {
+  test("does not expose Cowork blueprint actions while the page is unavailable", () => {
     const targetDocument = new FakeDocument();
     const actionEvents: Array<{ action: string; blueprintText: string; preview: boolean }> = [];
     const session = {
@@ -3131,19 +3070,12 @@ describe("desktop workbench shell", () => {
     });
 
     const pane = targetDocument.body.querySelector(".desktop-cowork-cockpit");
-    const blueprint = pane?.querySelector('[data-desktop-cowork-input="blueprint"]');
-    if (blueprint) {
-      blueprint.value = "{\"agents\":[]}";
-    }
-
-    expect(pane?.textContent).toContain("Blueprint: Valid / 1 warning(s)");
-    pane?.querySelector('[data-desktop-cowork-action="blueprintValidate"]')?.click();
-    pane?.querySelector('[data-desktop-cowork-action="blueprintPreview"]')?.click();
-
-    expect(actionEvents).toEqual([
-      { action: "validateBlueprint", blueprintText: "{\"agents\":[]}", preview: false },
-      { action: "validateBlueprint", blueprintText: "{\"agents\":[]}", preview: true },
-    ]);
+    expect(pane?.textContent).toContain("Cowork is under construction");
+    expect(pane?.textContent).not.toContain("Blueprint: Valid / 1 warning(s)");
+    expect(pane?.querySelector('[data-desktop-cowork-input="blueprint"]')).toBeNull();
+    expect(pane?.querySelector('[data-desktop-cowork-action="blueprintValidate"]')).toBeNull();
+    expect(pane?.querySelector('[data-desktop-cowork-action="blueprintPreview"]')).toBeNull();
+    expect(actionEvents).toEqual([]);
   });
 
   test("renders Cowork observability tabs and preserves selected inspector while switching panels", () => {
@@ -3184,34 +3116,10 @@ describe("desktop workbench shell", () => {
     });
 
     const pane = targetDocument.body.querySelector(".desktop-cowork-cockpit");
-    expect(pane?.querySelectorAll(".desktop-cowork-observability-tab").map((row) => row.getAttribute("data-desktop-cowork-panel"))).toEqual([
-      "graph",
-      "focus",
-      "metrics",
-      "architecture",
-      "swarm",
-      "workUnits",
-      "taskDag",
-      "agents",
-      "tasks",
-      "mailbox",
-      "threads",
-      "trace",
-      "artifacts",
-      "outputs",
-      "finalDraft",
-      "blockers",
-      "evaluations",
-      "status",
-    ]);
-    expect(pane?.querySelector(".desktop-cowork-observability-panel")?.textContent).toContain("Graph");
-
-    pane?.querySelector('[data-desktop-cowork-panel="metrics"]')?.click();
-    expect(pane?.querySelector(".desktop-cowork-observability-panel")?.textContent).toContain("Round efficiency: 82%");
-    expect(pane?.querySelector(".desktop-cowork-inspector")?.textContent).toContain("Selected: Planner");
-
-    pane?.querySelector('[data-desktop-cowork-panel="finalDraft"]')?.click();
-    expect(pane?.querySelector(".desktop-cowork-observability-panel")?.textContent).toContain("Ship the desktop Cowork cockpit.");
+    expect(pane?.textContent).toContain("Cowork is under construction");
+    expect(pane?.querySelectorAll(".desktop-cowork-observability-tab")).toHaveLength(0);
+    expect(pane?.querySelector(".desktop-cowork-observability-panel")).toBeNull();
+    expect(pane?.querySelector(".desktop-cowork-inspector")).toBeNull();
   });
 
   test("constrains large Cowork sessions with bounded rendering and observability filtering", () => {
@@ -3266,28 +3174,10 @@ describe("desktop workbench shell", () => {
     });
 
     const pane = targetDocument.body.querySelector(".desktop-cowork-cockpit");
-    expect(pane?.querySelectorAll(".desktop-cowork-graph-node")).toHaveLength(24);
-    expect(pane?.querySelector(".desktop-cowork-graph")?.textContent).toContain("Showing 24 of 60 nodes");
-    expect(pane?.querySelector(".desktop-cowork-graph")?.textContent).toContain("Showing 12 of 40 edges");
-
-    pane?.querySelector('[data-desktop-cowork-panel="tasks"]')?.click();
-    expect(pane?.querySelectorAll(".desktop-cowork-observability-row")).toHaveLength(24);
-    expect(pane?.querySelector(".desktop-cowork-observability-panel")?.textContent).toContain("Showing 24 of 70 rows");
-    expect(pane?.querySelector(".desktop-cowork-observability-panel")?.textContent).not.toContain("Task 25");
-
-    pane?.querySelector('[data-desktop-cowork-panel="trace"]')?.click();
-    expect(pane?.querySelectorAll(".desktop-cowork-observability-row")).toHaveLength(24);
-    expect(pane?.querySelector(".desktop-cowork-observability-panel")?.textContent).toContain("Showing 24 of 80 rows");
-    expect(pane?.querySelector(".desktop-cowork-observability-panel")?.textContent).not.toContain("Trace span 25");
-
-    const filter = pane?.querySelector('[data-desktop-cowork-filter="observability"]');
-    if (filter) {
-      filter.value = "Trace span 70";
-      filter.dispatchEvent({ type: "input", target: filter });
-    }
-
-    expect(pane?.querySelector(".desktop-cowork-observability-panel")?.textContent).toContain("Showing 1 of 1 matching rows (80 total)");
-    expect(pane?.querySelector(".desktop-cowork-observability-panel")?.textContent).toContain("Trace span 70");
+    expect(pane?.textContent).toContain("Cowork is under construction");
+    expect(pane?.querySelectorAll(".desktop-cowork-graph-node")).toHaveLength(0);
+    expect(pane?.querySelectorAll(".desktop-cowork-observability-row")).toHaveLength(0);
+    expect(pane?.querySelector('[data-desktop-cowork-filter="observability"]')).toBeNull();
   });
 
   test("routes Cowork task, work-unit, and branch operations from desktop controls", () => {
@@ -3356,53 +3246,13 @@ describe("desktop workbench shell", () => {
     });
 
     const pane = targetDocument.body.querySelector(".desktop-cowork-cockpit");
-    const taskTitle = pane?.querySelector('[data-desktop-cowork-input="taskTitle"]');
-    const taskAgents = pane?.querySelectorAll('[data-desktop-cowork-input="assignedAgentId"]') ?? [];
-    if (taskTitle) {
-      taskTitle.value = "Write migration notes";
-    }
-    for (const taskAgent of taskAgents) {
-      taskAgent.value = "agent-2";
-    }
-    pane?.querySelector('[data-desktop-cowork-action="addTask"]')?.click();
-    pane?.querySelector('[data-desktop-cowork-entity-action="assignTask"]')?.click();
-    pane?.querySelector('[data-desktop-cowork-entity-action="retryTask"]')?.click();
-    pane?.querySelector('[data-desktop-cowork-entity-action="reviewTask"]')?.click();
-
-    pane?.querySelector('[data-desktop-cowork-entity="agent-1"]')?.click();
-    pane?.querySelector('[data-desktop-cowork-entity-action="loadAgentActivity"]')?.click();
-    pane?.querySelector('[data-desktop-cowork-entity-action="loadObservation"]')?.click();
-
-    pane?.querySelector('[data-desktop-cowork-entity="wu-1"]')?.click();
-    pane?.querySelector('[data-desktop-cowork-entity-action="retryWorkUnit"]')?.click();
-    pane?.querySelector('[data-desktop-cowork-entity-action="skipWorkUnit"]')?.click();
-    pane?.querySelector('[data-desktop-cowork-entity-action="cancelWorkUnit"]')?.click();
-
-    pane?.querySelector('[data-desktop-cowork-entity="branch-a"]')?.click();
-    pane?.querySelector('[data-desktop-cowork-entity-action="selectBranch"]')?.click();
-    pane?.querySelector('[data-desktop-cowork-entity-action="deriveBranch"]')?.click();
-    pane?.querySelector('[data-desktop-cowork-entity-action="selectBranchResult"]')?.click();
-    pane?.querySelector('[data-desktop-cowork-entity-action="mergeBranchResults"]')?.click();
-    pane?.querySelector('[data-desktop-cowork-entity-action="selectFinalResult"]')?.click();
-    pane?.querySelector('[data-desktop-cowork-entity-action="mergeFinalResult"]')?.click();
-
-    expect(actionEvents).toEqual([
-      { action: "addTask", sessionId: "cowork-1", title: "Write migration notes", assignedAgentId: "agent-2" },
-      { action: "task", sessionId: "cowork-1", taskId: "task-1", taskAction: "assign", assignedAgentId: "agent-2" },
-      { action: "task", sessionId: "cowork-1", taskId: "task-1", taskAction: "retry" },
-      { action: "task", sessionId: "cowork-1", taskId: "task-1", taskAction: "review" },
-      { action: "loadAgentActivity", sessionId: "cowork-1" },
-      { action: "loadObservation", sessionId: "cowork-1", detailRef: "detail-1", requesterAgentId: "agent-1" },
-      { action: "workUnit", sessionId: "cowork-1", workUnitId: "wu-1", workUnitAction: "retry" },
-      { action: "workUnit", sessionId: "cowork-1", workUnitId: "wu-1", workUnitAction: "skip" },
-      { action: "workUnit", sessionId: "cowork-1", workUnitId: "wu-1", workUnitAction: "cancel" },
-      { action: "selectBranch", sessionId: "cowork-1", branchId: "branch-a" },
-      { action: "deriveBranch", sessionId: "cowork-1", sourceBranchId: "branch-a", targetArchitecture: "swarm" },
-      { action: "selectBranchResult", sessionId: "cowork-1", branchId: "branch-a", resultId: "result-a" },
-      { action: "mergeBranchResults", sessionId: "cowork-1", branchIds: ["branch-a", "branch-b"] },
-      { action: "selectFinalResult", sessionId: "cowork-1", branchId: "branch-a", resultId: "result-a" },
-      { action: "mergeFinalResult", sessionId: "cowork-1", branchIds: ["branch-a", "branch-b"] },
-    ]);
+    expect(pane?.textContent).toContain("Cowork is under construction");
+    expect(pane?.querySelector('[data-desktop-cowork-action="addTask"]')).toBeNull();
+    expect(pane?.querySelector('[data-desktop-cowork-entity-action="assignTask"]')).toBeNull();
+    expect(pane?.querySelector('[data-desktop-cowork-entity="agent-1"]')).toBeNull();
+    expect(pane?.querySelector('[data-desktop-cowork-entity="wu-1"]')).toBeNull();
+    expect(pane?.querySelector('[data-desktop-cowork-entity="branch-a"]')).toBeNull();
+    expect(actionEvents).toEqual([]);
   });
 
   test("handles ownership-aware gateway runtime actions", () => {
