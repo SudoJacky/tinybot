@@ -689,6 +689,98 @@ describe("WebUI knowledge graph extraction routes", () => {
     expect(completions).toBe(1);
     expect(saves).toHaveLength(1);
   });
+
+  test("re-extracts existing entity graphs when the native graph is stale", async () => {
+    let completions = 0;
+    const saves: Array<Record<string, unknown>> = [];
+    const configProvider: WebuiConfigProvider = {
+      getConfig: () => ({
+        agents: { defaults: { model: "knowledge-model" } },
+        knowledge: {
+          enabled: true,
+          graph_extraction_enabled: true,
+          semantic_llm_max_tokens: 1200,
+        },
+      }),
+      patchConfig: () => ({}),
+    };
+    const openAiCompatProvider: WebuiOpenAiCompatProvider = {
+      completeChat: () => {
+        completions += 1;
+        return JSON.stringify({ entities: [{ name: "Fresh Entity", confidence: 0.9 }], relations: [] });
+      },
+    };
+    const knowledgeProvider: WebuiKnowledgeProvider = {
+      listDocuments: () => ({ documents: [] }),
+      addDocument: () => ({ document: {} }),
+      getDocument: () => ({
+        document: { id: "doc-1", name: "Knowledge.md", chunk_count: 1 },
+        content: "# Knowledge\nUpdated source content.",
+      }),
+      graph: () => ({
+        object: "knowledge_graph",
+        graph_type: "entity",
+        nodes: [
+          {
+            id: "entity:doc-1:knowledge",
+            label: "Knowledge",
+            type: "entity",
+            attributes: { stale: true },
+          },
+        ],
+        edges: [],
+        readiness: { entity_graph_stale: true },
+        stats: { stale_count: 1 },
+      }),
+      deleteDocument: () => ({ deleted: false }),
+      query: () => ({ results: [] }),
+      stats: () => ({ total_documents: 1, total_chunks: 1, retrieval_ready: true }),
+      saveEntityGraphExtraction: (payload) => {
+        saves.push(payload);
+        return {
+          id: "kjob_extract_graph_doc-1",
+          doc_id: "doc-1",
+          name: "extract_graph:Knowledge.md",
+          status: "completed",
+          stage: "entity_graph_extracted",
+          processed: 1,
+          total: 1,
+        };
+      },
+    };
+
+    const extraction = await handleWebuiRouteRequest(
+      {
+        method: "POST",
+        path: "/v1/knowledge/graph/extract",
+        body: { doc_id: "doc-1" },
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      configProvider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      openAiCompatProvider,
+      knowledgeProvider,
+      undefined,
+      "trace-stale-extract",
+    );
+
+    expect(extraction).toMatchObject({
+      status: 202,
+      body: {
+        job_id: "kjob_extract_graph_doc-1",
+      },
+    });
+    expect(completions).toBe(1);
+    expect(saves).toHaveLength(1);
+  });
 });
 
 describe("WebUI route temporary files", () => {

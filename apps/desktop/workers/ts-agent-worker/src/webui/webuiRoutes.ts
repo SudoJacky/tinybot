@@ -2006,10 +2006,26 @@ async function knowledgeGraphExistingExtractionSkips(
       include_orphans: true,
     }, traceId);
     if (arrayFromResult(graph, "nodes").length || arrayFromResult(graph, "edges").length) {
-      skipped.push({ doc_id: plan.docId, doc_name: plan.docName, reason: "entity_graph_exists" });
+      if (!knowledgeGraphExtractionStale(graph)) {
+        skipped.push({ doc_id: plan.docId, doc_name: plan.docName, reason: "entity_graph_exists" });
+      }
     }
   }
   return skipped;
+}
+
+function knowledgeGraphExtractionStale(graph: unknown): boolean {
+  const graphObject = asObject(graph) ?? {};
+  const readiness = asObject(graphObject.readiness) ?? {};
+  const stats = asObject(graphObject.stats) ?? {};
+  if (readiness.entity_graph_stale === true) {
+    return true;
+  }
+  if ((numberValue(stats.stale_count) ?? 0) > 0) {
+    return true;
+  }
+  return [...arrayFromResult(graph, "nodes"), ...arrayFromResult(graph, "edges")]
+    .some((item) => asObject(asObject(item)?.attributes)?.stale === true);
 }
 
 type KnowledgeGraphExtractionPlan = {
