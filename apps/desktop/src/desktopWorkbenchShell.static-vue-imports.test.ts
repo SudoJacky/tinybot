@@ -165,7 +165,7 @@ describe("desktop workbench shell static Vue imports", () => {
   test("statically imports the knowledge sub-islands", () => {
     const source = readFileSync(resolve(__dirname, "desktopWorkbenchShell.ts"), "utf8");
 
-    expect(source).toContain('import { mountKnowledgeActionsIsland } from "./native-vue/knowledgeActionsIsland";');
+    expect(source).not.toContain('import { mountKnowledgeActionsIsland } from "./native-vue/knowledgeActionsIsland";');
     expect(source).not.toContain('void import("./native-vue/knowledgeActionsIsland")');
     expect(source).toContain('import { mountKnowledgeDocumentDetailIsland } from "./native-vue/knowledgeDocumentDetailIsland";');
     expect(source).not.toContain('void import("./native-vue/knowledgeDocumentDetailIsland")');
@@ -173,7 +173,7 @@ describe("desktop workbench shell static Vue imports", () => {
     expect(source).not.toContain('void import("./native-vue/knowledgeDocumentsIsland")');
     expect(source).toContain('import { mountKnowledgeGraphIsland } from "./native-vue/knowledgeGraphIsland";');
     expect(source).not.toContain('void import("./native-vue/knowledgeGraphIsland")');
-    expect(source).toContain('import { mountKnowledgeQueryIsland } from "./native-vue/knowledgeQueryIsland";');
+    expect(source).not.toContain('import { mountKnowledgeQueryIsland } from "./native-vue/knowledgeQueryIsland";');
     expect(source).not.toContain('void import("./native-vue/knowledgeQueryIsland")');
     expect(source).toContain('import { mountKnowledgeReadinessIsland } from "./native-vue/knowledgeReadinessIsland";');
     expect(source).not.toContain('void import("./native-vue/knowledgeReadinessIsland")');

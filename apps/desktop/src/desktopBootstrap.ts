@@ -120,6 +120,7 @@ import {
 import {
   desktopUploadPickerOptions,
   installDesktopFileUploadActions,
+  type DesktopFileUploadActions,
   type DesktopPickedUploadFile,
   type DesktopUploadKind,
 } from "./desktopFileUpload";
@@ -501,11 +502,7 @@ function hydrateNativeSettingsPaneOnce(startupTrace?: DesktopNativeStartupTrace)
 function hydrateNativeKnowledgePaneOnce(startupTrace?: DesktopNativeStartupTrace): void {
   traceNativeRouteBackgroundOnce("knowledgePaneHydration", async () => {
     const pane = await loadNativeKnowledgePane();
-    updateDesktopKnowledgePane(document, pane, {
-      onKnowledgeAction: (event) => {
-        void handleNativeKnowledgeAction(event);
-      },
-    });
+    setNativeKnowledgePane(pane);
     logDesktopNativeDebug("knowledge.load.lazy.complete", {
       documentCount: pane.documentRows.length,
     });
@@ -1692,6 +1689,7 @@ function setNativeKnowledgePane(pane: DesktopKnowledgePaneModel): void {
       void handleNativeKnowledgeAction(event);
     },
   });
+  refreshNativeFileUploadActions();
 }
 
 function mergeNativeKnowledgeGraphPayload(graphPayload: unknown, graphragPayload: unknown): unknown {
@@ -2112,8 +2110,10 @@ function installNativeWorkspaceFileActions(): Promise<void> {
   });
 }
 
+let nativeFileUploadActions: DesktopFileUploadActions | null = null;
+
 function installNativeFileUploadActions(): void {
-  installDesktopFileUploadActions({
+  nativeFileUploadActions = {
     pickFile: (kind: DesktopUploadKind) =>
       invoke<DesktopPickedUploadFile | null>("pick_upload_file", {
         options: desktopUploadPickerOptions(kind),
@@ -2124,7 +2124,15 @@ function installNativeFileUploadActions(): void {
     listSessionTemporaryFiles: (sessionKey) => gatewayApi.sessions.temporaryFiles(sessionKey),
     getSessionKey: () => nativeWorkbenchRuntime?.chat.activeSessionKey ?? "",
     uploadWorkspaceFile: (path, body) => gatewayApi.workspace.putFile(path, body),
-  });
+  };
+  refreshNativeFileUploadActions();
+}
+
+function refreshNativeFileUploadActions(): void {
+  if (!nativeFileUploadActions) {
+    return;
+  }
+  installDesktopFileUploadActions(nativeFileUploadActions);
 }
 
 function installRootWebUiDesktopAdapters(): void {

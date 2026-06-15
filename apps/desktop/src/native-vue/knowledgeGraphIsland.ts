@@ -84,10 +84,16 @@ function renderGraphCanvas(graph: DesktopKnowledgePaneGraph) {
       h("p", "Upload documents, then build the graph to inspect entities and relationships."),
     ]);
   }
+  const visibleNodes = graph.view.nodes.slice(0, 12);
+  const nodePoints = new Map(visibleNodes.map((node, index) => [node.id, graphPoint(index, visibleNodes.length)]));
+  const visibleEdges = graph.view.edges
+    .slice(0, 10)
+    .map((edge) => ({ edge, source: nodePoints.get(edge.sourceId), target: nodePoints.get(edge.targetId) }))
+    .filter((entry): entry is { edge: DesktopKnowledgeGraphEdge; source: GraphPoint; target: GraphPoint } => Boolean(entry.source && entry.target));
   return h("div", { class: "desktop-knowledge-graph-canvas" }, [
     h("svg", { viewBox: "0 0 640 360", role: "img", "aria-label": graph.summary }, [
-      ...graph.view.edges.slice(0, 10).map((edge, index) => renderGraphEdge(edge, index)),
-      ...graph.view.nodes.slice(0, 12).map((node, index) => renderGraphNode(node, index, graph.view.nodes.length)),
+      ...visibleEdges.map(({ edge, source, target }) => renderGraphEdge(edge, source, target)),
+      ...visibleNodes.map((node, index) => renderGraphNode(node, index, visibleNodes.length)),
     ]),
   ]);
 }
@@ -101,9 +107,7 @@ function renderGraphNode(node: DesktopKnowledgeGraphNode, index: number, total: 
   ]);
 }
 
-function renderGraphEdge(edge: DesktopKnowledgeGraphEdge, index: number) {
-  const start = graphPoint(0, 1);
-  const end = graphPoint(index + 1, 8);
+function renderGraphEdge(edge: DesktopKnowledgeGraphEdge, start: GraphPoint, end: GraphPoint) {
   return h("line", {
     class: "desktop-knowledge-graph-edge",
     "data-desktop-knowledge-graph-edge": edge.id,
@@ -114,7 +118,12 @@ function renderGraphEdge(edge: DesktopKnowledgeGraphEdge, index: number) {
   });
 }
 
-function graphPoint(index: number, total: number) {
+interface GraphPoint {
+  x: number;
+  y: number;
+}
+
+function graphPoint(index: number, total: number): GraphPoint {
   if (index === 0) {
     return { x: 320, y: 180 };
   }
