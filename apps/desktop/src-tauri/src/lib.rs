@@ -1205,12 +1205,18 @@ fn persist_gateway_exit_policy(path: &Path, keep_running: bool) -> Result<(), St
 }
 
 fn default_tinybot_config_path() -> PathBuf {
+    tinybot_home_dir().join(".tinybot").join("config.json")
+}
+
+fn tinybot_home_dir() -> PathBuf {
     std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from)
         .unwrap_or_else(std::env::temp_dir)
-        .join(".tinybot")
-        .join("config.json")
+}
+
+fn default_tinybot_workspace_root() -> PathBuf {
+    tinybot_home_dir().join(".tinybot").join("workspace")
 }
 
 fn apply_config_patch_result_to_path(
@@ -2975,7 +2981,41 @@ fn experimental_worker_workspace_root() -> PathBuf {
 }
 
 fn ts_agent_worker_workspace_root() -> PathBuf {
-    repo_root()
+    let root =
+        resolve_ts_agent_worker_workspace_root_from_config_path(&default_tinybot_config_path());
+    let _ = std::fs::create_dir_all(&root);
+    root
+}
+
+fn resolve_ts_agent_worker_workspace_root_from_config_path(config_path: &Path) -> PathBuf {
+    configured_tinybot_workspace(config_path)
+        .map(|workspace| expand_tinybot_workspace_path(&workspace))
+        .unwrap_or_else(default_tinybot_workspace_root)
+}
+
+fn configured_tinybot_workspace(config_path: &Path) -> Option<String> {
+    let contents = std::fs::read_to_string(config_path).ok()?;
+    let config = serde_json::from_str::<serde_json::Value>(&contents).ok()?;
+    config
+        .pointer("/agents/defaults/workspace")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|workspace| !workspace.is_empty())
+        .map(str::to_string)
+}
+
+fn expand_tinybot_workspace_path(workspace: &str) -> PathBuf {
+    let workspace = workspace.trim();
+    if workspace == "~" {
+        return tinybot_home_dir();
+    }
+    if let Some(relative) = workspace
+        .strip_prefix("~/")
+        .or_else(|| workspace.strip_prefix("~\\"))
+    {
+        return tinybot_home_dir().join(relative);
+    }
+    PathBuf::from(workspace)
 }
 
 fn experimental_worker_config_snapshot() -> serde_json::Value {
@@ -3318,8 +3358,40 @@ mod tests {
     }
 
     #[test]
-    fn ts_agent_worker_uses_repo_workspace_root() {
-        assert_eq!(ts_agent_worker_workspace_root(), repo_root());
+    fn ts_agent_worker_uses_default_tinybot_workspace_root() {
+        let fixture = WorkspaceFixture::new();
+        let expected = default_tinybot_workspace_root();
+
+        assert_eq!(
+            resolve_ts_agent_worker_workspace_root_from_config_path(
+                &fixture.root.join("missing.json")
+            ),
+            expected
+        );
+    }
+
+    #[test]
+    fn ts_agent_worker_uses_configured_workspace_root() {
+        let fixture = WorkspaceFixture::new();
+        let workspace_root = fixture.root.join("workspace");
+        fixture.write(
+            "config.json",
+            &serde_json::json!({
+                "agents": {
+                    "defaults": {
+                        "workspace": workspace_root.display().to_string()
+                    }
+                }
+            })
+            .to_string(),
+        );
+
+        assert_eq!(
+            resolve_ts_agent_worker_workspace_root_from_config_path(
+                &fixture.root.join("config.json")
+            ),
+            workspace_root
+        );
     }
 
     #[test]
