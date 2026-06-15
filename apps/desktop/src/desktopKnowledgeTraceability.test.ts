@@ -117,12 +117,37 @@ describe("desktop knowledge and traceability helpers", () => {
     });
   });
 
+  test("preserves failed document progress instead of falling back to queued", () => {
+    expect(
+      buildDesktopKnowledgeDocumentRows({
+        documents: [
+          {
+            id: "doc-failed",
+            title: "Broken notes",
+            path: "knowledge/files/broken.md",
+            category: "md",
+            chunk_count: 4,
+            status: "failed",
+          },
+        ],
+      })[0],
+    ).toMatchObject({
+      id: "doc-failed",
+      status: "failed",
+      phaseLabel: "Failed",
+      progressPercent: 0,
+      progressDetail: "4 chunks parsed; indexing failed",
+      meta: "md / Failed / 4 chunks",
+    });
+  });
+
   test("preserves native not configured semantic stages instead of showing them as pending work", () => {
     const view = buildDesktopKnowledgeReadinessView({
       total_documents: 1,
       total_chunks: 13,
       indexed_sparse: 26,
       stage_readiness: {
+        dense_indexing: { status: "not_configured", ready: false, processed: 0, total: 0, skipped: 13 },
         sparse_indexing: { status: "ready", ready: true, processed: 26, total: 26 },
         claim_extraction: { status: "not_configured", ready: false, processed: 0, total: 0, skipped: 13 },
         relation_extraction: { status: "not_configured", ready: false, processed: 0, total: 0, skipped: 13 },
@@ -131,6 +156,11 @@ describe("desktop knowledge and traceability helpers", () => {
       },
     });
 
+    expect(view.rows.find((row) => row.id === "retrieval")).toMatchObject({
+      status: "ready",
+      tone: "ready",
+      detail: "26 / 26 processed",
+    });
     expect(view.rows.find((row) => row.id === "claims")).toMatchObject({
       status: "not_configured",
       tone: "muted",

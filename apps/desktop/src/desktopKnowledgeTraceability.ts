@@ -331,10 +331,12 @@ function summarizeStages(stats: UnknownRecord, stages: string[]) {
     status = "not_configured";
   } else if (entries.length && statuses.every((item) => item === "complete" || item === "skipped")) {
     status = statuses.every((item) => item === "skipped") ? "skipped" : "complete";
+  } else if (entries.length && statuses.every((item) => ["complete", "ready", "skipped", "not_configured"].includes(item))) {
+    status = "ready";
   }
   return {
     status,
-    ready: entries.length ? entries.every((entry) => booleanValue(entry.ready) || ["complete", "skipped"].includes(asText(entry.status))) : false,
+    ready: entries.length ? status === "ready" || entries.every((entry) => booleanValue(entry.ready) || ["complete", "ready", "skipped"].includes(asText(entry.status))) : false,
     failed,
     stale,
     processed,
@@ -349,7 +351,7 @@ function stageTone(status: string, ready = false): DesktopKnowledgeReadinessRow[
   if (status === "stale" || status === "budget_limited" || status === "partial") {
     return "warn";
   }
-  if (ready || status === "complete" || status === "skipped") {
+  if (ready || status === "complete" || status === "ready" || status === "skipped") {
     return "ready";
   }
   return "muted";
@@ -360,7 +362,7 @@ function stageStatusKey(status: string, ready = false): string {
   if (status === "stale") return "knowledge.stageStatusStale";
   if (status === "budget_limited") return "knowledge.stageStatusBudgetLimited";
   if (status === "partial") return "knowledge.stageStatusPartial";
-  if (ready || status === "complete" || status === "skipped") return "knowledge.stageStatusReady";
+  if (ready || status === "complete" || status === "ready" || status === "skipped") return "knowledge.stageStatusReady";
   return "knowledge.stageStatusPending";
 }
 
@@ -645,6 +647,22 @@ function knowledgeDocumentProgress(rawStatus: string, chunkCount: number): {
       phaseLabel: chunkCount ? "Indexing chunks" : "Parsing",
       progressPercent: chunkCount ? 65 : 35,
       progressDetail: chunkCount ? `${chunkCount} chunks parsed; indexing continues` : "Parsing source document",
+    };
+  }
+  if (["failed", "error", "partial_failed"].includes(status)) {
+    return {
+      status: "failed",
+      phaseLabel: "Failed",
+      progressPercent: 0,
+      progressDetail: chunkCount ? `${chunkCount} chunks parsed; indexing failed` : "Indexing failed",
+    };
+  }
+  if (["cancelled", "canceled"].includes(status)) {
+    return {
+      status: "cancelled",
+      phaseLabel: "Cancelled",
+      progressPercent: 0,
+      progressDetail: "Indexing cancelled",
     };
   }
   if ((!status || status === "unknown") && chunkCount > 0) {
