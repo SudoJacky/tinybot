@@ -119,6 +119,7 @@ export type KnowledgeGraphExtractionOptions = {
   docIds?: string[];
   scope?: "all" | "selected";
   dryRun?: boolean;
+  force?: boolean;
 };
 
 export type KnowledgeGraphRagOptions = {
@@ -593,6 +594,7 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
           ...(extractOptions.docIds?.length ? { doc_ids: extractOptions.docIds } : {}),
           ...(extractOptions.scope ? { scope: extractOptions.scope } : {}),
           ...(typeof extractOptions.dryRun === "boolean" ? { dry_run: extractOptions.dryRun } : {}),
+          ...(typeof extractOptions.force === "boolean" ? { force: extractOptions.force } : {}),
         };
         return nativeOrGateway(
           () => options.nativeWebui?.route({

@@ -1301,6 +1301,20 @@ describe("gateway HTTP client", () => {
         },
       },
     });
+    await expect(client.knowledge.extractGraph({
+      docId: "docs/knowledge.md",
+      force: true,
+    })).resolves.toEqual({
+      native: true,
+      request: {
+        method: "POST",
+        path: "/v1/knowledge/graph/extract",
+        body: {
+          doc_id: "docs/knowledge.md",
+          force: true,
+        },
+      },
+    });
     await expect(client.knowledge.graphrag()).resolves.toEqual({
       native: true,
       request: {

@@ -1619,25 +1619,39 @@ async function knowledgeGraphExtractResponse(
     if (!knowledgeGraphExtractionEnabled(config)) {
       return { status: 403, body: knowledgeApiError(403, "Knowledge graph extraction is disabled", "forbidden") };
     }
+    const skippedDocs = body.force === true ? [] : await knowledgeGraphExistingExtractionSkips(plans, provider, traceId);
+    const skippedDocIds = new Set(skippedDocs.map((item) => item.doc_id));
+    const runnablePlans = plans.filter((plan) => !skippedDocIds.has(plan.docId));
+    if (!runnablePlans.length) {
+      return {
+        status: 200,
+        body: {
+          message: "Knowledge graph extraction skipped",
+          skipped: true,
+          skipped_docs: skippedDocs,
+        },
+      };
+    }
     if (!openAiCompatProvider) {
       return { status: 503, body: knowledgeApiError(503, "OpenAI-compatible runtime unavailable", "server_error") };
     }
     if (!provider.saveEntityGraphExtraction) {
       return { status: 503, body: knowledgeApiError(503, "Knowledge entity graph store not initialized", "server_error") };
     }
-    if (plans.some((plan) => plan.tokenEstimate.within_budget === false)) {
+    if (runnablePlans.some((plan) => plan.tokenEstimate.within_budget === false)) {
       return { status: 400, body: knowledgeApiError(400, "Graph extraction token estimate exceeds configured budget") };
     }
     const jobs = await runKnowledgeGraphExtractionPlans(
-      plans,
+      runnablePlans,
       knowledgeGraphExtractionConcurrency(config),
       async (plan) => runKnowledgeGraphExtractionPlan(plan, provider, openAiCompatProvider, model, maxTokens, config, traceId),
     );
     logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.graph_extract.complete", {
-      document_count: plans.length,
+      document_count: runnablePlans.length,
       job_count: jobs.length,
+      skipped_count: skippedDocs.length,
     });
-    if (jobs.length === 1) {
+    if (jobs.length === 1 && skippedDocs.length === 0) {
       const job = jobs[0] ?? {};
       return {
         status: 202,
@@ -1655,6 +1669,7 @@ async function knowledgeGraphExtractResponse(
         document_count: jobs.length,
         jobs,
         job_ids: jobs.map((job) => job.id).filter(Boolean),
+        ...(skippedDocs.length ? { skipped_docs: skippedDocs } : {}),
       },
     };
   } catch (error) {
@@ -1969,6 +1984,30 @@ function knowledgeGraphExtractionEnabled(config: Record<string, unknown>): boole
 function knowledgeGraphAutoExtractEnabled(config: Record<string, unknown>): boolean {
   const knowledge = asObject(config.knowledge);
   return (knowledge?.graphAutoExtract === true || knowledge?.graph_auto_extract === true) && knowledgeGraphExtractionEnabled(config);
+}
+
+async function knowledgeGraphExistingExtractionSkips(
+  plans: KnowledgeGraphExtractionPlan[],
+  provider: WebuiKnowledgeProvider,
+  traceId: string,
+): Promise<Array<{ doc_id: string; doc_name: string; reason: string }>> {
+  if (!provider.graph) {
+    return [];
+  }
+  const skipped = [];
+  for (const plan of plans) {
+    const graph = await provider.graph({
+      doc_id: plan.docId,
+      graph_type: "entity",
+      limit: 1,
+      edge_limit: 1,
+      include_orphans: true,
+    }, traceId);
+    if (arrayFromResult(graph, "nodes").length || arrayFromResult(graph, "edges").length) {
+      skipped.push({ doc_id: plan.docId, doc_name: plan.docName, reason: "entity_graph_exists" });
+    }
+  }
+  return skipped;
 }
 
 type KnowledgeGraphExtractionPlan = {
