@@ -2063,10 +2063,20 @@ async function knowledgeGraphExtractionDocIds(
     return { ok: true, docIds: Array.from(new Set(explicitIds)) };
   }
   if (stringValue(body.scope) === "all") {
-    const result = await provider.listDocuments({ limit: 100 }, traceId);
+    const result = await provider.listDocuments({ limit: knowledgeGraphExtractionDocumentLimit(body) }, traceId);
     return { ok: true, docIds: arrayFromResult(result, "documents").map((document) => stringValue(document.id)).filter((id): id is string => Boolean(id)) };
   }
   return { ok: true, docIds: [] };
+}
+
+function knowledgeGraphExtractionDocumentLimit(body: Record<string, unknown>): number {
+  return Math.max(
+    1,
+    Math.min(
+      10_000,
+      Math.trunc(numberValue(body.document_limit) ?? numberValue(body.documentLimit) ?? numberValue(body.limit) ?? 1000),
+    ),
+  );
 }
 
 function knowledgeGraphExtractionIdList(value: unknown): string[] {

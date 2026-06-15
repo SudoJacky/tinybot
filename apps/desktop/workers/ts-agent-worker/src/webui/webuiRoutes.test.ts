@@ -452,6 +452,62 @@ describe("WebUI knowledge graph extraction routes", () => {
     });
   });
 
+  test("uses configurable document limits when estimating all graph documents", async () => {
+    const listRequests: Record<string, unknown>[] = [];
+    const documents = [{ id: "doc-1", name: "One.md", chunk_count: 1 }];
+    const configProvider: WebuiConfigProvider = {
+      getConfig: () => ({
+        agents: { defaults: { model: "knowledge-model" } },
+        knowledge: {
+          enabled: true,
+          graph_extraction_enabled: true,
+          graph_extraction_max_tokens: 1200,
+        },
+      }),
+      patchConfig: () => ({}),
+    };
+    const knowledgeProvider: WebuiKnowledgeProvider = {
+      listDocuments: (request) => {
+        listRequests.push(request);
+        return { documents };
+      },
+      addDocument: () => ({ document: {} }),
+      getDocument: () => ({
+        document: documents[0],
+        content: "# One\nKnowledge graph content.",
+      }),
+      deleteDocument: () => ({ deleted: false }),
+      query: () => ({ results: [] }),
+      stats: () => ({ total_documents: documents.length, total_chunks: 1, retrieval_ready: true }),
+    };
+
+    const estimate = await handleWebuiRouteRequest(
+      {
+        method: "POST",
+        path: "/v1/knowledge/graph/extract",
+        body: { scope: "all", document_limit: 250, dry_run: true },
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      configProvider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      knowledgeProvider,
+      undefined,
+      "trace-all-limit",
+    );
+
+    expect(estimate.status).toBe(200);
+    expect(listRequests).toEqual([{ limit: 250 }]);
+  });
+
   test("rejects graph extraction batches that exceed the configured job token budget", async () => {
     let completions = 0;
     const documents = [
