@@ -939,7 +939,7 @@ fn pick_upload_file(options: UploadFilePickerOptions) -> Result<Option<PickedUpl
 
 #[tauri::command]
 fn reveal_workspace_file(path: String) -> Result<(), String> {
-    let target_path = allowed_workspace_file_path(&repo_root(), &path)?;
+    let target_path = reveal_workspace_file_path(&path)?;
     reveal_file_in_folder(&target_path)
 }
 
@@ -1104,6 +1104,18 @@ fn allowed_workspace_file_path(repo_root: &Path, requested_path: &str) -> Result
         return Err("workspace file is not revealable".to_string());
     }
     Ok(repo_root.join(normalized))
+}
+
+fn reveal_workspace_file_path(requested_path: &str) -> Result<PathBuf, String> {
+    reveal_workspace_file_path_from_config_path(&default_tinybot_config_path(), requested_path)
+}
+
+fn reveal_workspace_file_path_from_config_path(
+    config_path: &Path,
+    requested_path: &str,
+) -> Result<PathBuf, String> {
+    let root = resolve_ts_agent_worker_workspace_root_from_config_path(config_path);
+    allowed_workspace_file_path(&root, requested_path)
 }
 
 fn normalize_workspace_file_path(requested_path: &str) -> Option<String> {
@@ -2939,6 +2951,7 @@ fn experimental_worker_router(
             WorkerCapability::SessionWrite,
         ]),
     )
+    .with_builtin_skills_root(repo_root())
 }
 
 fn experimental_worker_router_with_runtime_restart(
@@ -3392,6 +3405,56 @@ mod tests {
             ),
             workspace_root
         );
+    }
+
+    #[test]
+    fn workspace_reveal_uses_configured_tinybot_workspace_root() {
+        let fixture = WorkspaceFixture::new();
+        let workspace_root = fixture.root.join("workspace");
+        fixture.write(
+            "config.json",
+            &serde_json::json!({
+                "agents": {
+                    "defaults": {
+                        "workspace": workspace_root.display().to_string()
+                    }
+                }
+            })
+            .to_string(),
+        );
+
+        assert_eq!(
+            reveal_workspace_file_path_from_config_path(
+                &fixture.root.join("config.json"),
+                "AGENTS.md"
+            )
+                .expect("allowed workspace file should resolve"),
+            workspace_root.join("AGENTS.md")
+        );
+    }
+
+    #[test]
+    fn experimental_worker_router_keeps_builtin_skills_root_separate_from_workspace_root() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = experimental_worker_router(fixture.root.clone(), serde_json::json!({}));
+        let request = WorkerRequest::new("req-1", "trace-1", "skills.list", serde_json::json!({}));
+
+        let response = router.dispatch(&request);
+        let skills = response
+            .result
+            .as_ref()
+            .and_then(|result| result.get("skills"))
+            .and_then(serde_json::Value::as_array)
+            .expect("skills.list should return skills array");
+
+        assert!(response.error.is_none());
+        assert!(skills.iter().any(|skill| {
+            skill.get("source").and_then(serde_json::Value::as_str) == Some("builtin")
+                && skill
+                    .get("path")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|path| path.starts_with("tinybot/skills/"))
+        }));
     }
 
     #[test]
