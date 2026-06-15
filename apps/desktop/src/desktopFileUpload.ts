@@ -40,6 +40,13 @@ export interface DesktopFileUploadActions {
   onWorkspaceFileImported?: (path: string) => Promise<void>;
 }
 
+type DesktopUploadBoundElement = HTMLElement & {
+  dataset: DOMStringMap & {
+    desktopFileUploadClickBound?: string;
+    desktopFileDropBound?: string;
+  };
+};
+
 export interface DesktopDroppedFileRejection {
   name: string;
   reason: string;
@@ -352,11 +359,11 @@ export function installDesktopFileUploadActions({
     await refreshSessionTemporaryFiles(sessionKey);
   };
 
-  targetDocument.querySelector<HTMLButtonElement>("#desktop-knowledge-upload")?.addEventListener("click", () => {
+  bindClickOnce(targetDocument.querySelector<HTMLButtonElement>("#desktop-knowledge-upload"), "knowledge-upload", () => {
     void runKnowledgeUpload({ targetDocument, pickFile, uploadKnowledgeDocument, onKnowledgeUploaded, onKnowledgeTaskUpdated });
   });
 
-  targetDocument.querySelector<HTMLButtonElement>("#desktop-session-file-upload")?.addEventListener("click", () => {
+  bindClickOnce(targetDocument.querySelector<HTMLButtonElement>("#desktop-session-file-upload"), "session-file-upload", () => {
     const sessionKey = (
       getSessionKey?.() ||
       targetDocument.querySelector<HTMLInputElement>("#desktop-session-upload-key")?.value ||
@@ -372,7 +379,7 @@ export function installDesktopFileUploadActions({
     });
   });
 
-  targetDocument.querySelector<HTMLButtonElement>("#desktop-session-files-refresh")?.addEventListener("click", () => {
+  bindClickOnce(targetDocument.querySelector<HTMLButtonElement>("#desktop-session-files-refresh"), "session-files-refresh", () => {
     const sessionKey = (
       getSessionKey?.() ||
       targetDocument.querySelector<HTMLInputElement>("#desktop-session-upload-key")?.value ||
@@ -384,7 +391,7 @@ export function installDesktopFileUploadActions({
     });
   });
 
-  targetDocument.querySelector<HTMLElement>("#desktop-workspace-file-drop")?.addEventListener("click", (event) => {
+  bindClickOnce(targetDocument.querySelector<HTMLElement>("#desktop-workspace-file-drop"), "workspace-file-drop", (event) => {
     if (!uploadWorkspaceFile) {
       return;
     }
@@ -397,15 +404,19 @@ export function installDesktopFileUploadActions({
     });
   });
 
-  targetDocument.addEventListener("tinybot:desktop-session-key-changed", (event) => {
-    const sessionKey = ((event as CustomEvent<{ sessionKey?: string }>).detail?.sessionKey ?? "").trim();
-    void refreshSessionTemporaryFiles(sessionKey).catch((error) => {
-      setUploadStatus(targetDocument, `Temporary file refresh failed: ${stringifyError(error)}`);
+  if (targetDocument.documentElement.dataset.desktopFileUploadSessionKeyListenerBound !== "true") {
+    targetDocument.documentElement.dataset.desktopFileUploadSessionKeyListenerBound = "true";
+    targetDocument.addEventListener("tinybot:desktop-session-key-changed", (event) => {
+      const sessionKey = ((event as CustomEvent<{ sessionKey?: string }>).detail?.sessionKey ?? "").trim();
+      void refreshSessionTemporaryFiles(sessionKey).catch((error) => {
+        setUploadStatus(targetDocument, `Temporary file refresh failed: ${stringifyError(error)}`);
+      });
     });
-  });
+  }
 
   const initialSessionKey = (getSessionKey?.() || targetDocument.querySelector<HTMLInputElement>("#desktop-session-upload-key")?.value || "").trim();
-  if (initialSessionKey) {
+  if (initialSessionKey && targetDocument.documentElement.dataset.desktopFileUploadInitialSessionRefresh !== "true") {
+    targetDocument.documentElement.dataset.desktopFileUploadInitialSessionRefresh = "true";
     void refreshSessionTemporaryFiles(initialSessionKey).catch((error) => {
       setUploadStatus(targetDocument, `Temporary file refresh failed: ${stringifyError(error)}`);
     });
@@ -424,6 +435,22 @@ export function installDesktopFileUploadActions({
       onWorkspaceFileImported,
     });
   }
+}
+
+function bindClickOnce(
+  target: HTMLElement | null | undefined,
+  bindingId: string,
+  listener: (event: MouseEvent) => void,
+): void {
+  if (!target) {
+    return;
+  }
+  const boundTarget = target as DesktopUploadBoundElement;
+  if (boundTarget.dataset.desktopFileUploadClickBound === bindingId) {
+    return;
+  }
+  boundTarget.dataset.desktopFileUploadClickBound = bindingId;
+  target.addEventListener("click", listener);
 }
 
 async function runWorkspaceFileImport({
@@ -463,6 +490,12 @@ function installDesktopFileDropActions({
     "uploadKnowledgeDocument" | "uploadSessionTemporaryFile" | "getSessionKey" | "onKnowledgeUploaded" | "onKnowledgeTaskUpdated" | "onSessionFileUploaded" | "onWorkspaceFileImported"
   >): void {
   targetDocument.querySelectorAll<HTMLElement>("[data-desktop-drop-target]").forEach((target) => {
+    const boundTarget = target as DesktopUploadBoundElement;
+    if (boundTarget.dataset.desktopFileDropBound === "true") {
+      return;
+    }
+    boundTarget.dataset.desktopFileDropBound = "true";
+
     target.addEventListener("dragover", (event) => {
       if (!event.dataTransfer) {
         return;

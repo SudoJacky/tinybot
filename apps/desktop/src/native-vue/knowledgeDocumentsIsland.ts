@@ -1,10 +1,11 @@
 import { createApp, defineComponent, h, type App } from "vue";
-import { NConfigProvider, NEmpty, NList, NListItem, NSpace, NTag } from "naive-ui";
+import { NConfigProvider, NEmpty, NTag } from "naive-ui";
 import type { DesktopKnowledgeDocumentRow } from "../desktopKnowledgeTraceability";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 
 export interface KnowledgeDocumentsIslandOptions {
   documents: DesktopKnowledgeDocumentRow[];
+  onDeleteDocument?: (document: DesktopKnowledgeDocumentRow) => void;
 }
 
 export interface MountedKnowledgeDocumentsIsland {
@@ -33,12 +34,21 @@ function createKnowledgeDocumentsApp(options: KnowledgeDocumentsIslandOptions): 
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
         default: () => [
-          h("h2", "Documents"),
+          h("div", { class: "desktop-knowledge-documents-toolbar" }, [
+            h("input", {
+              "aria-label": "Search documents",
+              "data-desktop-knowledge-document-search": "",
+              placeholder: "Search documents...",
+              type: "search",
+            }),
+            h("button", { "data-desktop-knowledge-document-filter": "", type: "button" }, "Filter"),
+            h("button", { "aria-label": "Document actions", type: "button" }, "More"),
+          ]),
           options.documents.length
-            ? renderDocuments(options.documents)
+            ? renderDocumentsTable(options)
             : h(NEmpty, {
               class: "desktop-knowledge-documents-empty",
-              description: "No knowledge documents loaded.",
+              description: "No documents yet",
               size: "small",
             }),
         ],
@@ -47,29 +57,50 @@ function createKnowledgeDocumentsApp(options: KnowledgeDocumentsIslandOptions): 
   }));
 }
 
-function renderDocuments(documents: DesktopKnowledgeDocumentRow[]) {
-  return h(NList, { bordered: false, hoverable: true }, {
-    default: () => documents.map((document) => h(NListItem, {
+function renderDocumentsTable(options: KnowledgeDocumentsIslandOptions) {
+  return h("table", { class: "desktop-knowledge-documents-table", "data-desktop-knowledge-documents-table": "" }, [
+    h("thead", [
+      h("tr", [
+        h("th", "Name"),
+        h("th", "Type"),
+        h("th", "Size"),
+        h("th", "Status"),
+        h("th", "Added"),
+        h("th", "Actions"),
+      ]),
+    ]),
+    h("tbody", options.documents.map((document) => h("tr", {
       "data-desktop-entity-module": "knowledge",
       "data-desktop-entity-id": document.id || document.path,
-    }, {
-      default: () => h(NSpace, { vertical: true, size: 4 }, {
-        default: () => [
-          h("span", `${document.title}: ${document.meta}`),
-          renderDocumentTags(document),
-        ],
-      }),
-    })),
-  });
+    }, [
+      h("td", [
+        h("strong", document.title),
+        h("span", { class: "desktop-knowledge-document-meta" }, document.meta),
+      ]),
+      h("td", document.typeLabel || document.category || "DOC"),
+      h("td", document.sizeLabel || "-"),
+      h("td", renderStatusTag(document)),
+      h("td", document.addedLabel || "-"),
+      h("td", [
+        h("button", {
+          "data-desktop-knowledge-document-action": "reindexDocument",
+          type: "button",
+        }, "Re-index"),
+        h("button", {
+          "data-desktop-knowledge-document-action": "deleteDocument",
+          type: "button",
+          onClick: () => options.onDeleteDocument?.(document),
+        }, "Delete"),
+      ]),
+    ]))),
+  ]);
 }
 
-function renderDocumentTags(document: DesktopKnowledgeDocumentRow) {
-  const tags = document.tags.length ? document.tags : [document.category || document.status];
-  return h(NSpace, { size: 4, wrap: true }, {
-    default: () => tags.filter(Boolean).map((tag) => h(NTag, {
-      size: "small",
-      round: true,
-      type: document.status === "indexed" ? "success" : "default",
-    }, { default: () => tag })),
-  });
+function renderStatusTag(document: DesktopKnowledgeDocumentRow) {
+  const status = document.status || "unknown";
+  return h(NTag, {
+    size: "small",
+    round: true,
+    type: status === "indexed" ? "success" : status === "failed" ? "error" : "warning",
+  }, { default: () => status });
 }

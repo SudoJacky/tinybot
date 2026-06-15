@@ -120,6 +120,7 @@ import {
 import {
   desktopUploadPickerOptions,
   installDesktopFileUploadActions,
+  type DesktopFileUploadActions,
   type DesktopPickedUploadFile,
   type DesktopUploadKind,
 } from "./desktopFileUpload";
@@ -501,11 +502,7 @@ function hydrateNativeSettingsPaneOnce(startupTrace?: DesktopNativeStartupTrace)
 function hydrateNativeKnowledgePaneOnce(startupTrace?: DesktopNativeStartupTrace): void {
   traceNativeRouteBackgroundOnce("knowledgePaneHydration", async () => {
     const pane = await loadNativeKnowledgePane();
-    updateDesktopKnowledgePane(document, pane, {
-      onKnowledgeAction: (event) => {
-        void handleNativeKnowledgeAction(event);
-      },
-    });
+    setNativeKnowledgePane(pane);
     logDesktopNativeDebug("knowledge.load.lazy.complete", {
       documentCount: pane.documentRows.length,
     });
@@ -1613,6 +1610,10 @@ async function handleNativeKnowledgeAction(event: DesktopKnowledgeActionEvent): 
       document.getElementById("desktop-knowledge-upload")?.click();
       return;
     }
+    if (event.action === "settings") {
+      outcome = "ignored";
+      return;
+    }
     if (event.action === "runQuery" && event.pane.actions.query) {
       const result = await gatewayApi.knowledge.query(event.pane.query.request);
       const pane = await loadNativeKnowledgePane({
@@ -1622,7 +1623,7 @@ async function handleNativeKnowledgeAction(event: DesktopKnowledgeActionEvent): 
       setNativeKnowledgePane(pane);
       return;
     }
-    if (event.action === "refreshGraph") {
+    if (event.action === "refreshGraph" || event.action === "refreshAll") {
       const pane = await loadNativeKnowledgePane({
         queryResultPayload: nativeKnowledgeQueryResult,
         selectedDocumentId: event.pane.selectedDocument?.id,
@@ -1643,8 +1644,18 @@ async function handleNativeKnowledgeAction(event: DesktopKnowledgeActionEvent): 
       setNativeKnowledgePane(pane);
       return;
     }
-    if (event.action === "deleteDocument" && event.pane.selectedDocument) {
-      await gatewayApi.knowledge.deleteDocument(event.pane.selectedDocument.id);
+    if (event.action === "deleteDocument") {
+      const documentId = event.documentId || event.pane.selectedDocument?.id;
+      if (!documentId) {
+        outcome = "ignored";
+        return;
+      }
+      const confirmed = window.confirm("Delete this knowledge document? This will remove it from the global knowledge base.");
+      if (!confirmed) {
+        outcome = "ignored";
+        return;
+      }
+      await gatewayApi.knowledge.deleteDocument(documentId);
       const pane = await loadNativeKnowledgePane({ queryResultPayload: nativeKnowledgeQueryResult });
       setNativeKnowledgePane(pane);
       return;
@@ -1678,6 +1689,7 @@ function setNativeKnowledgePane(pane: DesktopKnowledgePaneModel): void {
       void handleNativeKnowledgeAction(event);
     },
   });
+  refreshNativeFileUploadActions();
 }
 
 function mergeNativeKnowledgeGraphPayload(graphPayload: unknown, graphragPayload: unknown): unknown {
@@ -2098,8 +2110,10 @@ function installNativeWorkspaceFileActions(): Promise<void> {
   });
 }
 
+let nativeFileUploadActions: DesktopFileUploadActions | null = null;
+
 function installNativeFileUploadActions(): void {
-  installDesktopFileUploadActions({
+  nativeFileUploadActions = {
     pickFile: (kind: DesktopUploadKind) =>
       invoke<DesktopPickedUploadFile | null>("pick_upload_file", {
         options: desktopUploadPickerOptions(kind),
@@ -2110,7 +2124,15 @@ function installNativeFileUploadActions(): void {
     listSessionTemporaryFiles: (sessionKey) => gatewayApi.sessions.temporaryFiles(sessionKey),
     getSessionKey: () => nativeWorkbenchRuntime?.chat.activeSessionKey ?? "",
     uploadWorkspaceFile: (path, body) => gatewayApi.workspace.putFile(path, body),
-  });
+  };
+  refreshNativeFileUploadActions();
+}
+
+function refreshNativeFileUploadActions(): void {
+  if (!nativeFileUploadActions) {
+    return;
+  }
+  installDesktopFileUploadActions(nativeFileUploadActions);
 }
 
 function installRootWebUiDesktopAdapters(): void {

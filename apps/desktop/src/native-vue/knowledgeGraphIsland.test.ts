@@ -56,4 +56,41 @@ describe("knowledge graph Vue island", () => {
     mounted.unmount();
     expect(host.textContent).toBe("");
   });
+
+  test("draws graph edges between their source and target nodes", () => {
+    const host = document.createElement("section");
+    const mounted = mountKnowledgeGraphIsland(host, {
+      graph: {
+        ...graph,
+        view: {
+          nodes: [
+            { id: "center", label: "Center", type: "entity", raw: {} },
+            { id: "source", label: "Source", type: "entity", raw: {} },
+            { id: "target", label: "Target", type: "entity", raw: {} },
+          ],
+          edges: [{
+            id: "edge-source-target",
+            title: "Source relates to Target",
+            sourceId: "source",
+            targetId: "target",
+            sourceLabel: "Source",
+            targetLabel: "Target",
+            predicate: "relates",
+            confidenceLabel: "",
+            evidenceCount: 1,
+            raw: {},
+          }],
+          evidenceRows: [],
+        },
+      },
+    });
+
+    const edge = host.querySelector('[data-desktop-knowledge-graph-edge="edge-source-target"]');
+    expect(edge?.getAttribute("x1")).toBe("320");
+    expect(edge?.getAttribute("y1")).toBe("65");
+    expect(edge?.getAttribute("x2")).toBe("320");
+    expect(edge?.getAttribute("y2")).toBe("295");
+
+    mounted.unmount();
+  });
 });

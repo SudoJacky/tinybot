@@ -43,12 +43,17 @@ describe("knowledge readiness Vue island", () => {
 
     expect(host.getAttribute("data-desktop-vue-island")).toBe("knowledge-readiness");
     expect(host.className).toContain("desktop-knowledge-readiness");
-    expect(host.querySelector("h2")?.textContent).toBe("Readiness");
+    expect(host.textContent).toContain("Upload");
+    expect(host.textContent).toContain("Parse");
+    expect(host.textContent).toContain("Chunk");
+    expect(host.textContent).toContain("Embed");
+    expect(host.textContent).toContain("Graph Build");
+    expect(host.textContent).toContain("Complete");
     expect(host.textContent).toContain("Knowledge enabled");
     expect(host.textContent).toContain("Retrieval hybrid");
     expect(host.textContent).toContain("retrieval: ready");
     expect(host.textContent).toContain("graph: warn");
-    expect(host.textContent).toContain("80%");
+    expect(host.textContent).toContain("3 / 6 steps");
 
     mounted.unmount();
     expect(host.textContent).toBe("");

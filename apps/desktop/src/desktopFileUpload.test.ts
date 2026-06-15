@@ -74,6 +74,44 @@ describe("desktop file upload adapters", () => {
     expect([...form.keys()]).toEqual(["file"]);
   });
 
+  test("keeps knowledge upload binding after the upload control is replaced", async () => {
+    const targetDocument = createUploadTestDocument();
+    const status = targetDocument.createElement("p");
+    status.setAttribute("id", "desktop-file-upload-status");
+    const button = targetDocument.createElement("button");
+    button.setAttribute("id", "desktop-knowledge-upload");
+    targetDocument.body.append(button, status);
+    const pickedKinds: string[] = [];
+    const uploadedNames: string[] = [];
+
+    const install = () => installDesktopFileUploadActions({
+      targetDocument: targetDocument as unknown as Document,
+      pickFile: async (kind) => {
+        pickedKinds.push(kind);
+        return pickedFile;
+      },
+      uploadKnowledgeDocument: async (form) => {
+        uploadedNames.push((form.get("file") as File).name);
+      },
+      uploadSessionTemporaryFile: async () => undefined,
+    });
+
+    install();
+    install();
+    targetDocument.querySelector("#desktop-knowledge-upload")?.click();
+    await flushPromises();
+
+    const nextButton = targetDocument.createElement("button");
+    nextButton.setAttribute("id", "desktop-knowledge-upload");
+    targetDocument.body.replaceChildren(nextButton, status);
+    install();
+    targetDocument.querySelector("#desktop-knowledge-upload")?.click();
+    await flushPromises();
+
+    expect(pickedKinds).toEqual(["knowledge-document", "knowledge-document"]);
+    expect(uploadedNames).toEqual(["notes.md", "notes.md"]);
+  });
+
   test("classifies accepted and rejected dropped files for knowledge imports", () => {
     const accepted = new File(["# notes"], "notes.md", { type: "text/markdown" });
     const rejected = new File(["binary"], "installer.exe", { type: "application/x-msdownload" });
@@ -447,6 +485,7 @@ class UploadTestElement {
 }
 
 class UploadTestDocument {
+  public documentElement = new UploadTestElement("html");
   public body = new UploadTestElement("body");
   private listeners = new Map<string, ((event: { type: string; detail?: unknown }) => void)[]>();
 

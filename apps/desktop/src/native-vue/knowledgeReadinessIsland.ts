@@ -1,5 +1,5 @@
 import { createApp, defineComponent, h, type App } from "vue";
-import { NCard, NConfigProvider, NProgress, NSpace, NTag } from "naive-ui";
+import { NConfigProvider, NProgress, NSpace, NTag } from "naive-ui";
 import type { DesktopKnowledgeReadinessRow, DesktopKnowledgeReadinessView } from "../desktopKnowledgeTraceability";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 
@@ -33,23 +33,43 @@ function createKnowledgeReadinessApp(options: KnowledgeReadinessIslandOptions): 
     name: "KnowledgeReadinessIsland",
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => h(NCard, { size: "small", bordered: false }, {
-          default: () => [
-            h("h2", "Readiness"),
-            h(NProgress, {
-              percentage: options.readiness.score,
-              processing: options.readiness.partialAvailability,
-              status: progressStatus(options.readiness),
-              type: "line",
-            }),
-            h("p", `Score: ${options.readiness.score}%`),
-            renderHints(options.configHints),
-            renderRows(options.readiness.rows),
-          ],
-        }),
+        default: () => h("div", { class: "desktop-knowledge-pipeline-workspace" }, [
+          h("div", { class: "desktop-knowledge-pipeline-steps" }, pipelineSteps(options.readiness).map((step) => h("article", {
+            class: `desktop-knowledge-pipeline-step desktop-knowledge-pipeline-step-${step.state}`,
+          }, [
+            h("span", { class: "desktop-knowledge-pipeline-dot" }),
+            h("strong", step.label),
+            h("span", step.detail),
+          ]))),
+          h(NProgress, {
+            percentage: options.readiness.score,
+            processing: options.readiness.partialAvailability,
+            status: progressStatus(options.readiness),
+            type: "line",
+          }),
+          h("p", `${completedStepCount(options.readiness)} / 6 steps`),
+          renderHints(options.configHints),
+          renderRows(options.readiness.rows),
+        ]),
       });
     },
   }));
+}
+
+function pipelineSteps(readiness: DesktopKnowledgeReadinessView) {
+  const readyRows = new Set(readiness.rows.filter((row) => row.tone === "ready").map((row) => row.id));
+  return [
+    { label: "Upload", detail: readiness.score > 0 ? "Sources loaded" : "No files", state: readiness.score > 0 ? "done" : "wait" },
+    { label: "Parse", detail: readyRows.has("retrieval") ? "Ready" : "Wait", state: readyRows.has("retrieval") ? "done" : "active" },
+    { label: "Chunk", detail: readyRows.has("retrieval") ? "Chunks indexed" : "Wait", state: readyRows.has("retrieval") ? "done" : "wait" },
+    { label: "Embed", detail: readiness.partialAvailability ? "In progress" : "Ready", state: readiness.partialAvailability ? "active" : "done" },
+    { label: "Graph Build", detail: readyRows.has("graph") ? "Ready" : "Wait", state: readyRows.has("graph") ? "done" : "wait" },
+    { label: "Complete", detail: readiness.score >= 100 ? "Complete" : "-", state: readiness.score >= 100 ? "done" : "wait" },
+  ];
+}
+
+function completedStepCount(readiness: DesktopKnowledgeReadinessView): number {
+  return pipelineSteps(readiness).filter((step) => step.state === "done").length;
 }
 
 function renderHints(configHints: string[]) {

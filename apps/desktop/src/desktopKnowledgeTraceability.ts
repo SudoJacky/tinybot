@@ -25,6 +25,9 @@ export interface DesktopKnowledgeDocumentRow {
   title: string;
   path: string;
   category: string;
+  typeLabel?: string;
+  sizeLabel?: string;
+  addedLabel?: string;
   tags: string[];
   chunkCount: number;
   status: string;
@@ -171,6 +174,7 @@ export interface DesktopKnowledgePaneGraph {
 
 export interface DesktopKnowledgePaneModel {
   status: string;
+  lastIndexedLabel: string;
   readiness: DesktopKnowledgeReadinessView;
   configHints: string[];
   documentRows: DesktopKnowledgeDocumentRow[];
@@ -248,6 +252,37 @@ function booleanValue(value: unknown): boolean {
 function formatNumber(value: unknown): string {
   const number = Number(value);
   return Number.isFinite(number) ? number.toFixed(number >= 10 ? 0 : 3) : "";
+}
+
+function formatFileSize(value: unknown): string {
+  const bytes = numberValue(value);
+  if (bytes <= 0) {
+    return "-";
+  }
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(bytes >= 10 * 1024 * 1024 ? 0 : 2)} MB`;
+  }
+  if (bytes >= 1024) {
+    return `${Math.round(bytes / 1024)} KB`;
+  }
+  return `${Math.round(bytes)} B`;
+}
+
+function fileExtension(path: string): string {
+  const match = path.match(/\.([a-z0-9]+)$/i);
+  return match ? match[1].toUpperCase() : "";
+}
+
+function formatKnowledgeTimestamp(value: unknown): string {
+  const text = asText(value);
+  if (!text) {
+    return "Not indexed";
+  }
+  const iso = text.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+  if (iso) {
+    return `${iso[1]} ${iso[2]}`;
+  }
+  return text;
 }
 
 function stageEntriesFor(stats: UnknownRecord, stages: string[]): UnknownRecord[] {
@@ -442,6 +477,7 @@ export function buildDesktopKnowledgePaneModel(input: DesktopKnowledgePaneInput 
 
   return {
     status: `${documentRows.length} ${documentRows.length === 1 ? "doc" : "docs"} / readiness ${readiness.score}% / graph ${graphView.nodes.length} nodes / ${graphView.edges.length} ${edgeLabel}`,
+    lastIndexedLabel: knowledgeLastIndexedLabel(input.statsPayload, documentRows),
     readiness,
     configHints: buildKnowledgeConfigHints(input.config),
     documentRows,
@@ -469,6 +505,16 @@ export function buildDesktopKnowledgePaneModel(input: DesktopKnowledgePaneInput 
   };
 }
 
+function knowledgeLastIndexedLabel(statsPayload: unknown, documentRows: DesktopKnowledgeDocumentRow[]): string {
+  const stats = asRecord(statsPayload);
+  return formatKnowledgeTimestamp(
+    stats.last_indexed_at
+      ?? stats.lastIndexedAt
+      ?? stats.last_indexed
+      ?? documentRows.find((document) => document.addedLabel)?.addedLabel,
+  );
+}
+
 export function buildDesktopKnowledgeDocumentRows(payload: unknown): DesktopKnowledgeDocumentRow[] {
   const root = asRecord(payload);
   const documents = Array.isArray(payload) ? payload : asArray(root.items).length ? asArray(root.items) : asArray(root.documents);
@@ -477,8 +523,11 @@ export function buildDesktopKnowledgeDocumentRows(payload: unknown): DesktopKnow
     const title = firstNonEmpty(document.title, document.name, document.path, id);
     const path = firstNonEmpty(document.path, document.file_path);
     const category = firstNonEmpty(document.category, document.type);
+    const typeLabel = firstNonEmpty(category, document.mime_type, document.file_type, fileExtension(path), "DOC");
+    const sizeLabel = formatFileSize(document.size_bytes ?? document.sizeBytes ?? document.file_size ?? document.size);
     const status = firstNonEmpty(document.status, document.index_status);
-    const updatedAt = firstNonEmpty(document.updated_at, document.updatedAt, document.modified_at);
+    const updatedAt = firstNonEmpty(document.updated_at, document.updatedAt, document.created_at, document.createdAt, document.modified_at);
+    const addedLabel = formatKnowledgeTimestamp(updatedAt);
     const chunkCount = numberValue(document.chunk_count ?? document.chunks);
     const tags = asArray(document.tags).map(asText).filter(Boolean);
     const meta = [
@@ -487,7 +536,7 @@ export function buildDesktopKnowledgeDocumentRows(payload: unknown): DesktopKnow
       chunkCount ? `${chunkCount} chunks` : "",
       updatedAt,
     ].filter(Boolean).join(" / ");
-    return { id, title, path, category, tags, chunkCount, status, updatedAt, meta };
+    return { id, title, path, category, typeLabel, sizeLabel, addedLabel, tags, chunkCount, status, updatedAt, meta };
   });
 }
 
