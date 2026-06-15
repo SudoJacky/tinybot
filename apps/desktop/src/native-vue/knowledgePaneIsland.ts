@@ -13,7 +13,7 @@ import { mountKnowledgeGraphIsland } from "./knowledgeGraphIsland";
 import { mountKnowledgeReadinessIsland } from "./knowledgeReadinessIsland";
 import { mountModuleWorkSectionIsland } from "./moduleWorkSectionIsland";
 
-export type KnowledgePaneActionId = "refreshAll" | "settings" | "runQuery" | "refreshGraph" | "rebuildIndex" | "deleteDocument" | "uploadDocument";
+export type KnowledgePaneActionId = "refreshAll" | "settings" | "runQuery" | "refreshGraph" | "extractGraph" | "rebuildIndex" | "deleteDocument" | "uploadDocument";
 
 export interface KnowledgePaneActionEvent {
   action: KnowledgePaneActionId;
@@ -220,6 +220,7 @@ function renderKnowledgeGraphRegion(options: KnowledgePaneIslandOptions, graph: 
         h("p", "Explore entities and their relationships."),
       ]),
       h("div", { class: "desktop-knowledge-action-row" }, [
+        renderKnowledgeActionButton(options, "extractGraph", "Extract Graph", "primary"),
         renderKnowledgeActionButton(options, "rebuildIndex", "Build Graph", "secondary"),
         renderKnowledgeActionButton(options, "refreshGraph", "Refresh Graph", "secondary"),
         h("button", { class: "desktop-knowledge-action-button desktop-knowledge-action-button-secondary", type: "button" }, "Fit View"),
@@ -330,6 +331,9 @@ function knowledgeActionEnabled(pane: DesktopKnowledgePaneModel, action: Knowled
   }
   if (action === "rebuildIndex") {
     return pane.actions.rebuild;
+  }
+  if (action === "extractGraph") {
+    return pane.actions.rebuild && Boolean(pane.selectedDocument?.id);
   }
   if (action === "deleteDocument") {
     return pane.actions.deleteDocument;

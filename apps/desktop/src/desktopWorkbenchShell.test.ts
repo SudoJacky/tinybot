@@ -2985,8 +2985,9 @@ describe("desktop workbench shell", () => {
     expect(documentsRegion?.textContent).toContain("Desktop UX");
     expect(findEntityRow(pane, "knowledge", "doc-1")?.textContent).toContain("Desktop UX");
     expect(documentsRegion?.textContent).toContain("Document detail: Desktop UX");
-    expect(documentsRegion?.textContent).toContain("docs/desktop.md / indexed / 4 chunks");
+    expect(documentsRegion?.textContent).toContain("docs/desktop.md / Indexed / 4 chunks");
     expect(pane?.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Graph: 1 nodes / 0 edges / 0 evidence");
+    expect(pane?.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Extract Graph");
     expect(pane?.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Build Graph");
     expect(pane?.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Refresh Graph");
     expect(pane?.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Fit View");
@@ -3003,10 +3004,11 @@ describe("desktop workbench shell", () => {
     pane?.querySelector('[data-desktop-knowledge-action="refreshAll"]')?.click();
     pane?.querySelector('[data-desktop-knowledge-action="settings"]')?.click();
     pane?.querySelector('[data-desktop-knowledge-action="uploadDocument"]')?.click();
+    pane?.querySelector('[data-desktop-knowledge-action="extractGraph"]')?.click();
     pane?.querySelector('[data-desktop-knowledge-action="refreshGraph"]')?.click();
     pane?.querySelector('[data-desktop-knowledge-action="rebuildIndex"]')?.click();
     pane?.querySelector('[data-desktop-knowledge-document-action="deleteDocument"]')?.click();
-    expect(actionEvents).toEqual(["refreshAll", "settings", "uploadDocument", "refreshGraph", "rebuildIndex", "deleteDocument"]);
+    expect(actionEvents).toEqual(["refreshAll", "settings", "uploadDocument", "extractGraph", "refreshGraph", "rebuildIndex", "deleteDocument"]);
   });
 
   test("refreshes knowledge pane with active upload task feedback", () => {

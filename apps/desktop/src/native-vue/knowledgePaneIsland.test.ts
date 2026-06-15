@@ -165,6 +165,7 @@ describe("knowledge pane Vue island", () => {
     expect(host.querySelector('[data-desktop-knowledge-region="graph"] .desktop-knowledge-graph')?.getAttribute("data-desktop-vue-island")).toBe(
       "knowledge-graph",
     );
+    expect(host.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Extract Graph");
     expect(host.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Build Graph");
     expect(host.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Refresh Graph");
     expect(host.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Fit View");
@@ -189,12 +190,13 @@ describe("knowledge pane Vue island", () => {
     host.querySelector<HTMLButtonElement>('[data-desktop-knowledge-action="refreshAll"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-desktop-knowledge-action="settings"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-desktop-knowledge-action="uploadDocument"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-knowledge-action="extractGraph"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-desktop-knowledge-action="refreshGraph"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-desktop-knowledge-action="rebuildIndex"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-desktop-knowledge-document-action="deleteDocument"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-desktop-module-work="knowledge:rebuild"]')?.click();
 
-    expect(actions).toEqual(["refreshAll", "settings", "uploadDocument", "refreshGraph", "rebuildIndex", "deleteDocument"]);
+    expect(actions).toEqual(["refreshAll", "settings", "uploadDocument", "extractGraph", "refreshGraph", "rebuildIndex", "deleteDocument"]);
     expect(inspected).toEqual(["knowledge:rebuild"]);
 
     mounted.unmount();

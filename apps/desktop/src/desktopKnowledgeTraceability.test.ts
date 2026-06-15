@@ -239,6 +239,18 @@ describe("desktop knowledge and traceability helpers", () => {
         },
       },
       {
+        job: {
+          id: "kjob_extract",
+          doc_id: "doc-1",
+          name: "extract_graph:doc-1",
+          status: "running",
+          stage: "llm_extraction",
+          message: "Extracting entity graph",
+          processed: 0,
+          total: 1,
+        },
+      },
+      {
         data: {
           id: "kjob_failed",
           doc_id: "doc-2",
@@ -277,6 +289,17 @@ describe("desktop knowledge and traceability helpers", () => {
         updatedAt: "",
       },
       {
+        id: "knowledge:kjob_extract",
+        title: "Extract knowledge graph",
+        status: "running",
+        detail: "Extracting entity graph / llm_extraction",
+        progress: { completed: 0, total: 1 },
+        canonical: { module: "knowledge", entityId: "doc-1", href: "/knowledge" },
+        diagnostics: "",
+        retryable: false,
+        updatedAt: "",
+      },
+      {
         id: "knowledge:kjob_failed",
         title: "Index broken.md",
         status: "failed",
@@ -297,7 +320,7 @@ describe("desktop knowledge and traceability helpers", () => {
         route: { module: "knowledge", entityId: "doc-1", href: "/knowledge" },
       },
     ]);
-    expect(operations[2].outputs).toEqual([
+    expect(operations[3].outputs).toEqual([
       {
         kind: "diagnostic",
         id: "knowledge-diagnostic:kjob_failed",
