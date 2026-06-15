@@ -353,6 +353,7 @@ impl WorkerKnowledgeRpc {
                 label: entity.name.trim().to_string(),
                 node_type: "entity".to_string(),
                 doc_id: document.id.clone(),
+                evidence: Vec::new(),
                 attributes: serde_json::json!({
                     "entity_type": entity.entity_type,
                     "confidence": entity.confidence,
@@ -451,11 +452,13 @@ impl WorkerKnowledgeRpc {
         let store = KnowledgeStorePaths::new(&self.root);
         let mut nodes = read_jsonl::<KnowledgeGraphNode>(&store.entity_graph_nodes_file)?;
         let mut edges = read_jsonl::<KnowledgeGraphEdge>(&store.entity_graph_edges_file)?;
+        let evidence_records = read_jsonl::<Value>(&store.entity_graph_evidence_file)?;
         let requested_doc_id = params.doc_id.clone().unwrap_or_default();
         if let Some(doc_id) = params.doc_id.as_deref().filter(|value| !value.is_empty()) {
             nodes.retain(|node| node.doc_id == doc_id);
             edges.retain(|edge| edge.doc_id == doc_id);
         }
+        attach_entity_graph_node_evidence(&mut nodes, &evidence_records);
         let edge_limit = params.edge_limit.unwrap_or(160).clamp(1, 1000);
         edges.truncate(edge_limit);
         let connected_node_ids = edges
@@ -1168,6 +1171,8 @@ pub struct KnowledgeGraphNode {
     pub node_type: String,
     #[serde(default)]
     pub doc_id: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub evidence: Vec<Value>,
     #[serde(default)]
     pub attributes: Value,
 }
@@ -1671,6 +1676,7 @@ fn entity_graph_stub_node(
         label: name.trim().to_string(),
         node_type: "entity".to_string(),
         doc_id: document.id.clone(),
+        evidence: Vec::new(),
         attributes: serde_json::json!({
             "entity_type": "",
             "source_hash": source_hash,
@@ -1708,6 +1714,34 @@ fn mark_entity_graph_staleness(
         }
     }
     Ok(stale)
+}
+
+fn attach_entity_graph_node_evidence(nodes: &mut [KnowledgeGraphNode], evidence_records: &[Value]) {
+    for node in nodes {
+        let evidence_ids = node
+            .attributes
+            .get("evidence_ids")
+            .and_then(Value::as_array)
+            .map(|items| items.iter().filter_map(Value::as_str).collect::<HashSet<_>>())
+            .unwrap_or_default();
+        if evidence_ids.is_empty() {
+            node.evidence.clear();
+            continue;
+        }
+        node.evidence = evidence_records
+            .iter()
+            .filter(|item| {
+                value_string(item, "doc_id").as_deref() == Some(node.doc_id.as_str())
+                    && value_string(item, "owner_id").as_deref() == Some(node.id.as_str())
+                    && value_string(item, "owner_type").as_deref() == Some("entity")
+                    && value_string(item, "id")
+                        .as_deref()
+                        .map(|id| evidence_ids.contains(id))
+                        .unwrap_or(false)
+            })
+            .cloned()
+            .collect();
+    }
 }
 
 fn mark_graph_attributes_staleness(attributes: &mut Value, current_hash: Option<&String>) -> bool {
@@ -1890,6 +1924,7 @@ fn document_graph_document_node(document: &KnowledgeDocument) -> KnowledgeGraphN
         label: document.name.clone(),
         node_type: "document".to_string(),
         doc_id: document.id.clone(),
+        evidence: Vec::new(),
         attributes: serde_json::json!({
             "doc_id": document.id,
             "file_path": document.file_path,
@@ -1913,6 +1948,7 @@ fn document_graph_document_stub_node(
             label: doc_id.to_string(),
             node_type: "document".to_string(),
             doc_id: doc_id.to_string(),
+            evidence: Vec::new(),
             attributes: serde_json::json!({ "doc_id": doc_id }),
         })
 }
@@ -1923,6 +1959,7 @@ fn document_graph_value_node(kind: &str, value: &str) -> KnowledgeGraphNode {
         label: value.trim().to_string(),
         node_type: kind.to_string(),
         doc_id: String::new(),
+        evidence: Vec::new(),
         attributes: serde_json::json!({ "value": value.trim() }),
     }
 }

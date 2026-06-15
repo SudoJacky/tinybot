@@ -8352,6 +8352,10 @@ mod tests {
         assert_eq!(graph["stats"]["edge_count"], 1);
         assert_eq!(graph["readiness"]["entity_graph_ready"], true);
         assert_eq!(
+            graph["nodes"][0]["evidence"][0]["text"],
+            "TinyBot stores knowledge graph evidence."
+        );
+        assert_eq!(
             graph["edges"][0]["evidence"][0]["text"],
             "TinyBot stores knowledge graph evidence."
         );
