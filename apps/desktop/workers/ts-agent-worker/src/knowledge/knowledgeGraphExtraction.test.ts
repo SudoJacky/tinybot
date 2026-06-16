@@ -7,6 +7,7 @@ import {
   findExistingKnowledgeGraphExtractionSkips,
   parseKnowledgeGraphExtractionJson,
   resolveKnowledgeGraphExtractionDocIds,
+  runKnowledgeGraphExtractionPlan,
   runKnowledgeGraphExtractionPlans,
 } from "./knowledgeGraphExtraction.ts";
 
@@ -131,5 +132,61 @@ describe("knowledge graph extraction backend", () => {
 
     expect(maxActive).toBe(2);
     expect(results).toEqual(["doc-1", "doc-2", "doc-3"]);
+  });
+
+  test("runs one extraction plan through the LLM and persists normalized graph data", async () => {
+    const completions: Array<Record<string, unknown>> = [];
+    const saves: Array<Record<string, unknown>> = [];
+    const provider = {
+      listDocuments: () => ({ documents: [] }),
+      getDocument: () => null,
+      saveEntityGraphExtraction: (payload: Record<string, unknown>) => {
+        saves.push(payload);
+        return { id: "kjob_extract_graph_doc-1", status: "completed" };
+      },
+    };
+    const openAiProvider = {
+      completeChat: (request: Record<string, unknown>) => {
+        completions.push(request);
+        return JSON.stringify({
+          entities: [{ name: "TinyBot", type: "project", confidence: 0.9 }],
+          relations: [{ source: "TinyBot", target: "Knowledge", predicate: "stores", confidence: 0.8 }],
+        });
+      },
+    };
+
+    const job = await runKnowledgeGraphExtractionPlan({
+      plan: {
+        docId: "doc-1",
+        docName: "Knowledge.md",
+        content: "TinyBot stores knowledge.",
+        tokenEstimate: { total_tokens: 500, max_tokens: 640 },
+        extractionScope: { max_chunks: 1, chunk_count: 1, original_chunk_count: 1 },
+      },
+      provider,
+      openAiCompatProvider: openAiProvider,
+      model: "graph-model",
+      maxTokens: 640,
+      timeoutSeconds: 12,
+      traceId: "trace",
+    });
+
+    expect(job).toEqual({ id: "kjob_extract_graph_doc-1", status: "completed" });
+    expect(completions).toEqual([expect.objectContaining({
+      sessionKey: "knowledge:graph-extraction",
+      chatId: "knowledge-graph-extraction",
+      model: "graph-model",
+      timeoutSeconds: 12,
+    })]);
+    expect(String(completions[0]?.content)).toContain("TinyBot stores knowledge.");
+    expect(saves).toEqual([expect.objectContaining({
+      doc_id: "doc-1",
+      doc_name: "Knowledge.md",
+      model: "graph-model",
+      token_estimate: { total_tokens: 500, max_tokens: 640 },
+      extraction_scope: { max_chunks: 1, chunk_count: 1, original_chunk_count: 1 },
+      entities: [{ name: "TinyBot", type: "project", confidence: 0.9, evidence: [] }],
+      relations: [{ source: "TinyBot", target: "Knowledge", predicate: "stores", confidence: 0.8, evidence: [] }],
+    })]);
   });
 });

@@ -4,11 +4,10 @@ import type { HeartbeatStatus } from "../heartbeat/heartbeatTypes.ts";
 import type { McpRuntimeDiagnostics } from "../mcp/mcpRuntimeManager.ts";
 import { EMPTY_FINAL_RESPONSE_MESSAGE } from "../support/runtimeHelpers.ts";
 import {
-  buildKnowledgeGraphExtractionPrompt,
   buildKnowledgeGraphExtractionPlan,
   findExistingKnowledgeGraphExtractionSkips,
-  parseKnowledgeGraphExtractionJson,
   resolveKnowledgeGraphExtractionDocIds,
+  runKnowledgeGraphExtractionPlan,
   runKnowledgeGraphExtractionPlans,
   type KnowledgeGraphExtractionPlan,
   type KnowledgeGraphSkippedDoc,
@@ -1654,7 +1653,15 @@ async function knowledgeGraphExtractResponse(
     const jobs = await runKnowledgeGraphExtractionPlans(
       runnablePlans,
       knowledgeGraphExtractionConcurrency(config),
-      async (plan) => runKnowledgeGraphExtractionPlan(plan, provider, openAiCompatProvider, model, maxTokens, config, traceId),
+      async (plan) => runKnowledgeGraphExtractionPlan({
+        plan,
+        provider,
+        openAiCompatProvider,
+        model,
+        maxTokens,
+        timeoutSeconds: knowledgeSemanticTimeoutSeconds(config),
+        traceId,
+      }),
     );
     logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.graph_extract.complete", {
       document_count: runnablePlans.length,
@@ -2121,39 +2128,6 @@ function knowledgeGraphExtractionConcurrency(config: Record<string, unknown>): n
         ?? 1,
     ),
   );
-}
-
-async function runKnowledgeGraphExtractionPlan(
-  plan: KnowledgeGraphExtractionPlan,
-  provider: WebuiKnowledgeProvider,
-  openAiCompatProvider: WebuiOpenAiCompatProvider,
-  model: string,
-  maxTokens: number,
-  config: Record<string, unknown>,
-  traceId: string,
-): Promise<Record<string, unknown>> {
-  const extractionText = await openAiCompatProvider.completeChat({
-    content: buildKnowledgeGraphExtractionPrompt(plan.docName, plan.content, maxTokens),
-    sessionKey: "knowledge:graph-extraction",
-    chatId: "knowledge-graph-extraction",
-    model,
-    timeoutSeconds: knowledgeSemanticTimeoutSeconds(config),
-  }, traceId);
-  const extraction = parseKnowledgeGraphExtractionJson(extractionText);
-  const savePayload = {
-    doc_id: plan.docId,
-    doc_name: plan.docName,
-    model,
-    token_estimate: plan.tokenEstimate,
-    extraction_scope: plan.extractionScope,
-    entities: extraction.entities,
-    relations: extraction.relations,
-    diagnostics: {
-      raw_chars: extractionText.length,
-      content_chars: plan.content.length,
-    },
-  };
-  return asObject(await provider.saveEntityGraphExtraction?.(savePayload, traceId)) ?? {};
 }
 
 function arrayFromUnknown(value: unknown): unknown[] {

@@ -7,6 +7,20 @@ export type KnowledgeGraphExtractionProvider = {
   listDocuments(request: Record<string, unknown>, traceId: string): Promise<unknown> | unknown;
   getDocument(docId: string, traceId: string): Promise<unknown> | unknown;
   graph?(request: Record<string, unknown>, traceId: string): Promise<unknown> | unknown;
+  saveEntityGraphExtraction?(body: Record<string, unknown>, traceId: string): Promise<unknown> | unknown;
+};
+
+export type KnowledgeGraphOpenAiCompatProvider = {
+  completeChat(
+    request: {
+      content: string;
+      sessionKey: string;
+      chatId: string;
+      model: string;
+      timeoutSeconds: number;
+    },
+    traceId: string,
+  ): Promise<string> | string;
 };
 
 export type KnowledgeGraphExtractionPlan = {
@@ -112,6 +126,39 @@ export async function runKnowledgeGraphExtractionPlans<T>(
     }
   }));
   return results;
+}
+
+export async function runKnowledgeGraphExtractionPlan(options: {
+  plan: KnowledgeGraphExtractionPlan;
+  provider: KnowledgeGraphExtractionProvider;
+  openAiCompatProvider: KnowledgeGraphOpenAiCompatProvider;
+  model: string;
+  maxTokens: number;
+  timeoutSeconds: number;
+  traceId: string;
+}): Promise<Record<string, unknown>> {
+  const extractionText = await options.openAiCompatProvider.completeChat({
+    content: buildKnowledgeGraphExtractionPrompt(options.plan.docName, options.plan.content, options.maxTokens),
+    sessionKey: "knowledge:graph-extraction",
+    chatId: "knowledge-graph-extraction",
+    model: options.model,
+    timeoutSeconds: options.timeoutSeconds,
+  }, options.traceId);
+  const extraction = parseKnowledgeGraphExtractionJson(extractionText);
+  const savePayload = {
+    doc_id: options.plan.docId,
+    doc_name: options.plan.docName,
+    model: options.model,
+    token_estimate: options.plan.tokenEstimate,
+    extraction_scope: options.plan.extractionScope,
+    entities: extraction.entities,
+    relations: extraction.relations,
+    diagnostics: {
+      raw_chars: extractionText.length,
+      content_chars: options.plan.content.length,
+    },
+  };
+  return asObject(await options.provider.saveEntityGraphExtraction?.(savePayload, options.traceId)) ?? {};
 }
 
 export function estimateKnowledgeGraphExtractionTokens(content: string, maxTokens: number): Record<string, unknown> {
