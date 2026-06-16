@@ -1789,11 +1789,17 @@ async function knowledgeQueryResponse(
   });
   try {
     const result = await provider.query(request, traceId);
+    const resultObject = asObject(result) ?? {};
     const data = arrayFromResult(result, "results");
+    const retrievalPlan = isJsonObject(resultObject.retrieval_plan) ? resultObject.retrieval_plan : undefined;
     logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.query.complete", {
       mode: stringValue(request.mode) ?? "hybrid",
       top_k: numberValue(request.top_k) ?? 5,
       total: data.length,
+      retrieval_plan_classification: retrievalPlan ? stringValue(retrievalPlan.classification) : undefined,
+      selected_routes: retrievalPlan && Array.isArray(retrievalPlan.selected_routes)
+        ? retrievalPlan.selected_routes
+        : undefined,
     });
     return {
       status: 200,
@@ -1801,6 +1807,7 @@ async function knowledgeQueryResponse(
         object: "list",
         query,
         mode,
+        ...(retrievalPlan ? { retrieval_plan: retrievalPlan } : {}),
         data: data.map(knowledgeQueryItem),
         total: data.length,
       },

@@ -554,9 +554,11 @@ impl WorkerKnowledgeRpc {
     ) -> Result<KnowledgeQueryResultSet, WorkerProtocolError> {
         self.require(WorkerCapability::KnowledgeRead)?;
         let limit = params.limit.unwrap_or(5).min(20);
+        let retrieval_plan = build_knowledge_retrieval_plan(&params.query, limit);
         if limit == 0 {
             return Ok(KnowledgeQueryResultSet {
                 results: Vec::new(),
+                retrieval_plan,
             });
         }
         let query_terms = knowledge_query_terms(&params.query);
@@ -635,7 +637,10 @@ impl WorkerKnowledgeRpc {
             result.sparse_rank = index + 1;
         }
         results.truncate(limit);
-        Ok(KnowledgeQueryResultSet { results })
+        Ok(KnowledgeQueryResultSet {
+            results,
+            retrieval_plan,
+        })
     }
 
     pub fn context(
@@ -1192,6 +1197,7 @@ pub struct KnowledgeDeleteDocumentResult {
 #[derive(Clone, Debug, Serialize)]
 pub struct KnowledgeQueryResultSet {
     pub results: Vec<KnowledgeQueryResult>,
+    pub retrieval_plan: Value,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -2741,6 +2747,69 @@ fn markdown_heading(trimmed: &str) -> Option<(usize, String)> {
 
 fn section_id(doc_id: &str, section_ordinal: usize) -> String {
     format!("section_{doc_id}_{section_ordinal}")
+}
+
+fn build_knowledge_retrieval_plan(query: &str, limit: usize) -> Value {
+    let terms = knowledge_query_terms(query);
+    let exact_query = query.contains('.')
+        || query.contains('_')
+        || terms.iter().any(|term| {
+            matches!(
+                term.as_str(),
+                "api" | "id" | "ids" | "config" | "key" | "keys" | "path" | "method"
+            )
+        });
+    if exact_query {
+        serde_json::json!({
+            "object": "knowledge_retrieval_plan",
+            "classification": "exact",
+            "selected_routes": ["keyword"],
+            "route_reasons": [
+                {
+                    "route": "keyword",
+                    "reason": "query contains exact identifiers or API/config-like terms"
+                }
+            ],
+            "budgets": {
+                "limit": limit,
+                "keyword": limit,
+                "semantic": 0,
+                "graph": 0,
+                "tree": 0
+            },
+            "fallback_behavior": "fallback_to_hybrid_when_no_results",
+            "fallback_routes": ["keyword", "tree", "graph"]
+        })
+    } else {
+        serde_json::json!({
+            "object": "knowledge_retrieval_plan",
+            "classification": "hybrid",
+            "selected_routes": ["keyword", "tree", "graph"],
+            "route_reasons": [
+                {
+                    "route": "keyword",
+                    "reason": "baseline sparse retrieval remains available for all queries"
+                },
+                {
+                    "route": "tree",
+                    "reason": "section metadata can expand local structure context"
+                },
+                {
+                    "route": "graph",
+                    "reason": "entity graph expansion can be added when graph evidence is ready"
+                }
+            ],
+            "budgets": {
+                "limit": limit,
+                "keyword": limit,
+                "semantic": 0,
+                "graph": 0,
+                "tree": 0
+            },
+            "fallback_behavior": "fallback_to_keyword_sparse",
+            "fallback_routes": ["keyword"]
+        })
+    }
 }
 
 fn knowledge_query_terms(query: &str) -> Vec<String> {

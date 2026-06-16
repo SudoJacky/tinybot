@@ -2761,6 +2761,15 @@ describe("AgentWorker", () => {
         query: async (body, traceId) => {
           calls.push({ method: "query", traceId, params: body });
           return {
+            retrieval_plan: {
+              object: "knowledge_retrieval_plan",
+              classification: "exact",
+              selected_routes: ["keyword"],
+              route_reasons: [{ route: "keyword", reason: "exact API term" }],
+              budgets: { limit: 3, keyword: 3, semantic: 0, graph: 0, tree: 0 },
+              fallback_behavior: "fallback_to_hybrid_when_no_results",
+              fallback_routes: ["keyword", "tree", "graph"],
+            },
             results: [{
               id: "chunk-1",
               doc_id: "doc-1",
@@ -3080,6 +3089,15 @@ describe("AgentWorker", () => {
           object: "list",
           query: "native knowledge",
           mode: "sparse",
+          retrieval_plan: {
+            object: "knowledge_retrieval_plan",
+            classification: "exact",
+            selected_routes: ["keyword"],
+            route_reasons: [{ route: "keyword", reason: "exact API term" }],
+            budgets: { limit: 3, keyword: 3, semantic: 0, graph: 0, tree: 0 },
+            fallback_behavior: "fallback_to_hybrid_when_no_results",
+            fallback_routes: ["keyword", "tree", "graph"],
+          },
           total: 1,
           data: [expect.objectContaining({ id: "chunk-1", doc_id: "doc-1", score: 3 })],
         },

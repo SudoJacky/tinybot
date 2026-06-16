@@ -8005,6 +8005,75 @@ mod tests {
     }
 
     #[test]
+    fn knowledge_query_returns_deterministic_retrieval_plan() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-plan-1",
+            "trace-plan",
+            "knowledge.add_document",
+            json!({
+                "name": "Knowledge API Notes",
+                "content": "# Knowledge API Notes\n\nThe knowledge.document_tree API returns section hierarchy for exact navigation.\n",
+                "category": "desktop",
+                "file_type": "md"
+            }),
+        ));
+        assert_eq!(add_response.error, None);
+
+        let query_response = router.dispatch(&WorkerRequest::new(
+            "req-plan-2",
+            "trace-plan",
+            "knowledge.query",
+            json!({
+                "query": "knowledge.document_tree API",
+                "category": "desktop",
+                "limit": 4
+            }),
+        ));
+
+        assert_eq!(query_response.error, None);
+        let result = query_response
+            .result
+            .as_ref()
+            .expect("knowledge.query should return result");
+        assert_eq!(
+            result["retrieval_plan"],
+            json!({
+                "object": "knowledge_retrieval_plan",
+                "classification": "exact",
+                "selected_routes": ["keyword"],
+                "route_reasons": [
+                    {
+                        "route": "keyword",
+                        "reason": "query contains exact identifiers or API/config-like terms"
+                    }
+                ],
+                "budgets": {
+                    "limit": 4,
+                    "keyword": 4,
+                    "semantic": 0,
+                    "graph": 0,
+                    "tree": 0
+                },
+                "fallback_behavior": "fallback_to_hybrid_when_no_results",
+                "fallback_routes": ["keyword", "tree", "graph"]
+            })
+        );
+        assert_eq!(result["results"][0]["retrieval_method"], "sparse");
+    }
+
+    #[test]
     fn knowledge_document_tree_returns_markdown_section_hierarchy() {
         let fixture = WorkspaceFixture::new();
         let mut router = WorkerRpcRouter::new(
