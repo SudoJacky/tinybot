@@ -341,6 +341,7 @@ impl WorkerKnowledgeRpc {
         let Some(document) = find_document(&self.root, &params.doc_id)? else {
             return Err(unknown_knowledge_document(&params.doc_id));
         };
+        validate_entity_graph_relations(&document, &params)?;
         let store = KnowledgeStorePaths::new(&self.root);
         let source_hash = document_content_hash(&document);
         let mut nodes = read_jsonl::<KnowledgeGraphNode>(&store.entity_graph_nodes_file)?;
@@ -2021,6 +2022,59 @@ fn value_usize(value: &Value, key: &str) -> Option<usize> {
         .map(|number| number as usize)
 }
 
+fn validate_entity_graph_relations(
+    document: &KnowledgeDocument,
+    params: &KnowledgeEntityGraphExtractionParams,
+) -> Result<(), WorkerProtocolError> {
+    for (index, relation) in params.relations.iter().enumerate() {
+        if relation.source.trim().is_empty()
+            || relation.target.trim().is_empty()
+            || relation.predicate.trim().is_empty()
+        {
+            continue;
+        }
+        let evidence_texts = relation
+            .evidence
+            .iter()
+            .filter_map(|evidence| {
+                value_string(evidence, "text")
+                    .or_else(|| value_string(evidence, "quote"))
+                    .map(|text| text.trim().to_string())
+            })
+            .filter(|text| !text.is_empty())
+            .collect::<Vec<_>>();
+        if evidence_texts.is_empty() {
+            return Err(invalid_knowledge_request_with_details(
+                "relation evidence is required",
+                serde_json::json!({
+                    "doc_id": document.id,
+                    "relation_index": index,
+                    "source": relation.source,
+                    "target": relation.target,
+                    "predicate": relation.predicate
+                }),
+            ));
+        }
+        if let Some(text) = evidence_texts
+            .iter()
+            .find(|text| !document.content.contains(text.as_str()))
+        {
+            return Err(invalid_knowledge_request_with_details(
+                "relation evidence must match document content",
+                serde_json::json!({
+                    "doc_id": document.id,
+                    "relation_index": index,
+                    "source": relation.source,
+                    "target": relation.target,
+                    "predicate": relation.predicate,
+                    "evidence": text
+                }),
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn find_document(
     root: &Path,
     doc_id: &str,
@@ -3254,10 +3308,14 @@ fn knowledge_score(content: &str, terms: &[String]) -> usize {
 }
 
 fn invalid_knowledge_request(message: &str) -> WorkerProtocolError {
+    invalid_knowledge_request_with_details(message, serde_json::json!({}))
+}
+
+fn invalid_knowledge_request_with_details(message: &str, details: Value) -> WorkerProtocolError {
     WorkerProtocolError::new(
         WorkerProtocolErrorCode::InvalidProtocol,
         message,
-        serde_json::json!({}),
+        details,
         false,
         WorkerProtocolErrorSource::RustCore,
     )

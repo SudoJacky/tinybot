@@ -8395,6 +8395,155 @@ mod tests {
     }
 
     #[test]
+    fn save_entity_graph_extraction_rejects_relation_without_evidence() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-validate-relation-1",
+            "trace-validate-relation",
+            "knowledge.add_document",
+            json!({
+                "name": "Validation Source",
+                "content": "# Validation Source\n\nTinyBot validates relation evidence.\n",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-validate-relation-2",
+            "trace-validate-relation",
+            "knowledge.save_entity_graph_extraction",
+            json!({
+                "doc_id": doc_id,
+                "doc_name": "Validation Source",
+                "model": "knowledge-model",
+                "entities": [
+                    { "name": "TinyBot", "type": "project", "confidence": 0.9 },
+                    { "name": "EvidenceValidation", "type": "concept", "confidence": 0.9 }
+                ],
+                "relations": [
+                    {
+                        "source": "TinyBot",
+                        "target": "EvidenceValidation",
+                        "predicate": "supports",
+                        "confidence": 0.82
+                    }
+                ],
+                "diagnostics": { "chunks_used": 1 }
+            }),
+        ));
+
+        let error = save_response
+            .error
+            .expect("relation without evidence should be rejected");
+        assert_eq!(
+            error.code,
+            crate::worker_protocol::WorkerProtocolErrorCode::InvalidProtocol
+        );
+        assert_eq!(error.message, "relation evidence is required");
+        assert_eq!(error.details["relation_index"], 0);
+        let edges_path = fixture.root.join("knowledge/entity_graph_edges.jsonl");
+        let edges_content = std::fs::read_to_string(edges_path).unwrap_or_default();
+        assert_eq!(edges_content.trim(), "");
+    }
+
+    #[test]
+    fn save_entity_graph_extraction_rejects_relation_evidence_not_in_document() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-validate-evidence-1",
+            "trace-validate-evidence",
+            "knowledge.add_document",
+            json!({
+                "name": "Validation Source",
+                "content": "# Validation Source\n\nTinyBot validates relation evidence.\n",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-validate-evidence-2",
+            "trace-validate-evidence",
+            "knowledge.save_entity_graph_extraction",
+            json!({
+                "doc_id": doc_id,
+                "doc_name": "Validation Source",
+                "model": "knowledge-model",
+                "entities": [
+                    { "name": "TinyBot", "type": "project", "confidence": 0.9 },
+                    { "name": "EvidenceValidation", "type": "concept", "confidence": 0.9 }
+                ],
+                "relations": [
+                    {
+                        "source": "TinyBot",
+                        "target": "EvidenceValidation",
+                        "predicate": "supports",
+                        "confidence": 0.82,
+                        "evidence": [
+                            {
+                                "text": "This sentence is not in the document.",
+                                "line_start": 3,
+                                "line_end": 3
+                            }
+                        ]
+                    }
+                ],
+                "diagnostics": { "chunks_used": 1 }
+            }),
+        ));
+
+        let error = save_response
+            .error
+            .expect("mismatched relation evidence should be rejected");
+        assert_eq!(
+            error.code,
+            crate::worker_protocol::WorkerProtocolErrorCode::InvalidProtocol
+        );
+        assert_eq!(
+            error.message,
+            "relation evidence must match document content"
+        );
+        assert_eq!(error.details["relation_index"], 0);
+        assert_eq!(
+            error.details["evidence"],
+            "This sentence is not in the document."
+        );
+    }
+
+    #[test]
     fn knowledge_query_returns_deterministic_retrieval_plan() {
         let fixture = WorkspaceFixture::new();
         let mut router = WorkerRpcRouter::new(
