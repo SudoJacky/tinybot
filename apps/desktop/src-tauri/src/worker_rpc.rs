@@ -8544,6 +8544,91 @@ mod tests {
     }
 
     #[test]
+    fn save_entity_graph_extraction_rejects_unsupported_relation_predicate() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-validate-predicate-1",
+            "trace-validate-predicate",
+            "knowledge.add_document",
+            json!({
+                "name": "Predicate Source",
+                "content": "# Predicate Source\n\nTinyBot validates controlled predicates.\n",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-validate-predicate-2",
+            "trace-validate-predicate",
+            "knowledge.save_entity_graph_extraction",
+            json!({
+                "doc_id": doc_id,
+                "doc_name": "Predicate Source",
+                "model": "knowledge-model",
+                "entities": [
+                    { "name": "TinyBot", "type": "project", "confidence": 0.9 },
+                    { "name": "PredicateRegistry", "type": "concept", "confidence": 0.9 }
+                ],
+                "relations": [
+                    {
+                        "source": "TinyBot",
+                        "target": "PredicateRegistry",
+                        "predicate": "stores",
+                        "confidence": 0.82,
+                        "evidence": [
+                            {
+                                "text": "TinyBot validates controlled predicates.",
+                                "line_start": 3,
+                                "line_end": 3
+                            }
+                        ]
+                    }
+                ],
+                "diagnostics": { "chunks_used": 1 }
+            }),
+        ));
+
+        let error = save_response
+            .error
+            .expect("unsupported predicate should be rejected");
+        assert_eq!(
+            error.code,
+            crate::worker_protocol::WorkerProtocolErrorCode::InvalidProtocol
+        );
+        assert_eq!(error.message, "unsupported relation predicate");
+        assert_eq!(error.details["predicate"], "stores");
+        assert_eq!(
+            error.details["allowed_predicates"],
+            json!([
+                "depends_on",
+                "causes",
+                "implements",
+                "configures",
+                "mentions",
+                "conflicts_with",
+                "supports"
+            ])
+        );
+    }
+
+    #[test]
     fn knowledge_query_returns_deterministic_retrieval_plan() {
         let fixture = WorkspaceFixture::new();
         let mut router = WorkerRpcRouter::new(
@@ -9043,7 +9128,7 @@ mod tests {
                     { "name": "knowledge graph", "type": "concept", "confidence": 0.86 }
                 ],
                 "relations": [
-                    { "source": "TinyBot", "target": "knowledge graph", "predicate": "stores", "confidence": 0.82, "evidence": [{ "text": "TinyBot stores knowledge graph evidence.", "line_start": 3, "line_end": 3 }] }
+                    { "source": "TinyBot", "target": "knowledge graph", "predicate": "supports", "confidence": 0.82, "evidence": [{ "text": "TinyBot stores knowledge graph evidence.", "line_start": 3, "line_end": 3 }] }
                 ],
                 "diagnostics": { "chunks_used": 1 }
             }),
@@ -9062,7 +9147,7 @@ mod tests {
             .contains("TinyBot"));
         assert!(fixture
             .read("knowledge/entity_graph_edges.jsonl")
-            .contains("stores"));
+            .contains("supports"));
         assert!(fixture
             .read("knowledge/entity_graph_evidence.jsonl")
             .contains("knowledge graph evidence"));
@@ -9178,7 +9263,7 @@ mod tests {
                     { "name": "TinyBot", "type": "project", "confidence": 0.91, "evidence": [{ "text": "TinyBot deletion evidence should disappear.", "line_start": 3, "line_end": 3 }] }
                 ],
                 "relations": [
-                    { "source": "TinyBot", "target": "Deletion", "predicate": "removes", "confidence": 0.82, "evidence": [{ "text": "TinyBot deletion evidence should disappear.", "line_start": 3, "line_end": 3 }] }
+                    { "source": "TinyBot", "target": "Deletion", "predicate": "conflicts_with", "confidence": 0.82, "evidence": [{ "text": "TinyBot deletion evidence should disappear.", "line_start": 3, "line_end": 3 }] }
                 ]
             }),
         ));
@@ -9197,7 +9282,7 @@ mod tests {
             .contains("TinyBot"));
         assert!(!fixture
             .read("knowledge/entity_graph_edges.jsonl")
-            .contains("removes"));
+            .contains("conflicts_with"));
         assert!(!fixture
             .read("knowledge/entity_graph_evidence.jsonl")
             .contains("deletion evidence"));
@@ -9321,8 +9406,8 @@ mod tests {
                     { "name": "LowConfidence", "type": "concept", "confidence": 0.25 }
                 ],
                 "relations": [
-                    { "source": "HighConfidence", "target": "HighConfidence", "predicate": "supports", "confidence": 0.96 },
-                    { "source": "HighConfidence", "target": "LowConfidence", "predicate": "mentions", "confidence": 0.20 }
+                    { "source": "HighConfidence", "target": "HighConfidence", "predicate": "supports", "confidence": 0.96, "evidence": [{ "text": "High and low confidence graph data.", "line_start": 3, "line_end": 3 }] },
+                    { "source": "HighConfidence", "target": "LowConfidence", "predicate": "mentions", "confidence": 0.20, "evidence": [{ "text": "High and low confidence graph data.", "line_start": 3, "line_end": 3 }] }
                 ]
             }),
         ));

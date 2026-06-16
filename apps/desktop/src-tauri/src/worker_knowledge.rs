@@ -19,6 +19,16 @@ pub struct WorkerKnowledgeRpc {
     policy: CapabilityPolicy,
 }
 
+const CONTROLLED_RELATION_PREDICATES: &[&str] = &[
+    "depends_on",
+    "causes",
+    "implements",
+    "configures",
+    "mentions",
+    "conflicts_with",
+    "supports",
+];
+
 impl WorkerKnowledgeRpc {
     pub fn new(root: PathBuf, policy: CapabilityPolicy) -> Self {
         Self { root, policy }
@@ -2033,6 +2043,19 @@ fn validate_entity_graph_relations(
         {
             continue;
         }
+        if !controlled_relation_predicate(relation.predicate.trim()) {
+            return Err(invalid_knowledge_request_with_details(
+                "unsupported relation predicate",
+                serde_json::json!({
+                    "doc_id": document.id,
+                    "relation_index": index,
+                    "source": relation.source,
+                    "target": relation.target,
+                    "predicate": relation.predicate,
+                    "allowed_predicates": CONTROLLED_RELATION_PREDICATES
+                }),
+            ));
+        }
         let evidence_texts = relation
             .evidence
             .iter()
@@ -2073,6 +2096,12 @@ fn validate_entity_graph_relations(
         }
     }
     Ok(())
+}
+
+fn controlled_relation_predicate(predicate: &str) -> bool {
+    CONTROLLED_RELATION_PREDICATES
+        .iter()
+        .any(|allowed| predicate.eq_ignore_ascii_case(allowed))
 }
 
 fn find_document(
