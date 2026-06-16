@@ -5,8 +5,13 @@ import type { McpRuntimeDiagnostics } from "../mcp/mcpRuntimeManager.ts";
 import { EMPTY_FINAL_RESPONSE_MESSAGE } from "../support/runtimeHelpers.ts";
 import {
   buildKnowledgeGraphExtractionPrompt,
-  estimateKnowledgeGraphExtractionTokens,
+  buildKnowledgeGraphExtractionPlan,
+  findExistingKnowledgeGraphExtractionSkips,
   parseKnowledgeGraphExtractionJson,
+  resolveKnowledgeGraphExtractionDocIds,
+  runKnowledgeGraphExtractionPlans,
+  type KnowledgeGraphExtractionPlan,
+  type KnowledgeGraphSkippedDoc,
 } from "../knowledge/knowledgeGraphExtraction.ts";
 
 export type WebuiRouteSpec = {
@@ -1578,11 +1583,7 @@ async function knowledgeGraphExtractResponse(
   if (!isJsonObject(body)) {
     return { status: 400, body: knowledgeApiError(400, "Invalid JSON body") };
   }
-  const docIdsResult = await knowledgeGraphExtractionDocIds(body, provider, traceId);
-  if (!docIdsResult.ok) {
-    return docIdsResult.response;
-  }
-  const docIds = docIdsResult.docIds;
+  const docIds = await resolveKnowledgeGraphExtractionDocIds(body, provider, traceId);
   if (!docIds.length) {
     return { status: 400, body: knowledgeApiError(400, "doc_id is required") };
   }
@@ -1598,14 +1599,14 @@ async function knowledgeGraphExtractResponse(
     const maxChunks = knowledgeGraphExtractionMaxChunks(config);
     const plans = [];
     for (const docId of docIds) {
-      const plan = await knowledgeGraphExtractionPlan(provider, docId, maxTokens, maxChunks, traceId);
+      const plan = await buildKnowledgeGraphExtractionPlan(provider, docId, maxTokens, maxChunks, traceId);
       if (!plan) {
         return { status: 404, body: knowledgeApiError(404, `Document ${docId} not found`) };
       }
       plans.push(plan);
     }
     if (body.dry_run === true || body.estimate_only === true) {
-      const skippedDocs = body.force === true ? [] : await knowledgeGraphExistingExtractionSkips(plans, provider, traceId);
+      const skippedDocs = body.force === true ? [] : await findExistingKnowledgeGraphExtractionSkips(plans, provider, traceId);
       if (plans.length === 1) {
         const plan = plans[0]!;
         const skipped = skippedDocs.find((item) => item.doc_id === plan.docId);
@@ -1622,7 +1623,7 @@ async function knowledgeGraphExtractResponse(
     if (!knowledgeGraphExtractionEnabled(config)) {
       return { status: 403, body: knowledgeApiError(403, "Knowledge graph extraction is disabled", "forbidden") };
     }
-    const skippedDocs = body.force === true ? [] : await knowledgeGraphExistingExtractionSkips(plans, provider, traceId);
+    const skippedDocs = body.force === true ? [] : await findExistingKnowledgeGraphExtractionSkips(plans, provider, traceId);
     const skippedDocIds = new Set(skippedDocs.map((item) => item.doc_id));
     const runnablePlans = plans.filter((plan) => !skippedDocIds.has(plan.docId));
     if (!runnablePlans.length) {
@@ -2001,140 +2002,6 @@ function knowledgeGraphAutoExtractEnabled(config: Record<string, unknown>): bool
   return (knowledge?.graphAutoExtract === true || knowledge?.graph_auto_extract === true) && knowledgeGraphExtractionEnabled(config);
 }
 
-async function knowledgeGraphExistingExtractionSkips(
-  plans: KnowledgeGraphExtractionPlan[],
-  provider: WebuiKnowledgeProvider,
-  traceId: string,
-): Promise<KnowledgeGraphSkippedDoc[]> {
-  if (!provider.graph) {
-    return [];
-  }
-  const skipped = [];
-  for (const plan of plans) {
-    const graph = await provider.graph({
-      doc_id: plan.docId,
-      graph_type: "entity",
-      limit: 1,
-      edge_limit: 1,
-      include_orphans: true,
-    }, traceId);
-    if (arrayFromResult(graph, "nodes").length || arrayFromResult(graph, "edges").length) {
-      if (!knowledgeGraphExtractionStale(graph)) {
-        skipped.push({ doc_id: plan.docId, doc_name: plan.docName, reason: "entity_graph_exists" });
-      }
-    }
-  }
-  return skipped;
-}
-
-function knowledgeGraphExtractionStale(graph: unknown): boolean {
-  const graphObject = asObject(graph) ?? {};
-  const readiness = asObject(graphObject.readiness) ?? {};
-  const stats = asObject(graphObject.stats) ?? {};
-  if (readiness.entity_graph_stale === true) {
-    return true;
-  }
-  if ((numberValue(stats.stale_count) ?? 0) > 0) {
-    return true;
-  }
-  return [...arrayFromResult(graph, "nodes"), ...arrayFromResult(graph, "edges")]
-    .some((item) => asObject(asObject(item)?.attributes)?.stale === true);
-}
-
-type KnowledgeGraphExtractionPlan = {
-  docId: string;
-  docName: string;
-  content: string;
-  tokenEstimate: Record<string, unknown>;
-  extractionScope: Record<string, unknown>;
-};
-
-type KnowledgeGraphSkippedDoc = {
-  doc_id: string;
-  doc_name: string;
-  reason: string;
-};
-
-async function knowledgeGraphExtractionDocIds(
-  body: Record<string, unknown>,
-  provider: WebuiKnowledgeProvider,
-  traceId: string,
-): Promise<{ ok: true; docIds: string[] } | { ok: false; response: WebuiRouteResponse }> {
-  const explicitIds = [
-    stringValue(body.doc_id) ?? stringValue(body.docId),
-    ...knowledgeGraphExtractionIdList(body.doc_ids ?? body.docIds),
-  ].filter((value): value is string => Boolean(value));
-  if (explicitIds.length) {
-    return { ok: true, docIds: Array.from(new Set(explicitIds)) };
-  }
-  if (stringValue(body.scope) === "all") {
-    const result = await provider.listDocuments({ limit: knowledgeGraphExtractionDocumentLimit(body) }, traceId);
-    return { ok: true, docIds: arrayFromResult(result, "documents").map((document) => stringValue(document.id)).filter((id): id is string => Boolean(id)) };
-  }
-  return { ok: true, docIds: [] };
-}
-
-function knowledgeGraphExtractionDocumentLimit(body: Record<string, unknown>): number {
-  return Math.max(
-    1,
-    Math.min(
-      10_000,
-      Math.trunc(numberValue(body.document_limit) ?? numberValue(body.documentLimit) ?? numberValue(body.limit) ?? 1000),
-    ),
-  );
-}
-
-function knowledgeGraphExtractionIdList(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value.map((item) => String(item).trim()).filter(Boolean);
-  }
-  if (typeof value === "string") {
-    return value.split(",").map((item) => item.trim()).filter(Boolean);
-  }
-  return [];
-}
-
-async function knowledgeGraphExtractionPlan(
-  provider: WebuiKnowledgeProvider,
-  docId: string,
-  maxTokens: number,
-  maxChunks: number,
-  traceId: string,
-): Promise<KnowledgeGraphExtractionPlan | null> {
-  const result = await provider.getDocument(docId, traceId);
-  const document = documentFromResult(result);
-  if (!document) {
-    return null;
-  }
-  const rawContent = stringValue(asObject(result)?.content) ?? stringValue(document.content) ?? "";
-  const scoped = knowledgeGraphExtractionContent(rawContent, maxChunks);
-  const docName = stringValue(document.name) ?? docId;
-  return {
-    docId,
-    docName,
-    content: scoped.content,
-    tokenEstimate: estimateKnowledgeGraphExtractionTokens(scoped.content, maxTokens),
-    extractionScope: {
-      max_chunks: maxChunks,
-      chunk_count: scoped.chunkCount,
-      original_chunk_count: scoped.originalChunkCount,
-    },
-  };
-}
-
-function knowledgeGraphExtractionContent(content: string, maxChunks: number): { content: string; chunkCount: number; originalChunkCount: number } {
-  const chunks = content.split(/\n\s*\n/u).map((chunk) => chunk.trim()).filter(Boolean);
-  if (!chunks.length) {
-    return { content, chunkCount: 0, originalChunkCount: 0 };
-  }
-  const selected = chunks.slice(0, Math.max(1, maxChunks));
-  return {
-    content: selected.join("\n\n"),
-    chunkCount: selected.length,
-    originalChunkCount: chunks.length,
-  };
-}
-
 function knowledgeGraphBatchEstimateBody(
   plans: KnowledgeGraphExtractionPlan[],
   maxTokens: number,
@@ -2254,24 +2121,6 @@ function knowledgeGraphExtractionConcurrency(config: Record<string, unknown>): n
         ?? 1,
     ),
   );
-}
-
-async function runKnowledgeGraphExtractionPlans<T>(
-  plans: KnowledgeGraphExtractionPlan[],
-  concurrency: number,
-  run: (plan: KnowledgeGraphExtractionPlan) => Promise<T>,
-): Promise<T[]> {
-  const results = new Array<T>(plans.length);
-  let cursor = 0;
-  const workerCount = Math.min(Math.max(1, concurrency), plans.length);
-  await Promise.all(Array.from({ length: workerCount }, async () => {
-    while (cursor < plans.length) {
-      const index = cursor;
-      cursor += 1;
-      results[index] = await run(plans[index]!);
-    }
-  }));
-  return results;
 }
 
 async function runKnowledgeGraphExtractionPlan(

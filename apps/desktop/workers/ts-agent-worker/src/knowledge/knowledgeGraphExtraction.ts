@@ -3,6 +3,117 @@ export type KnowledgeGraphExtractionResult = {
   relations: Record<string, unknown>[];
 };
 
+export type KnowledgeGraphExtractionProvider = {
+  listDocuments(request: Record<string, unknown>, traceId: string): Promise<unknown> | unknown;
+  getDocument(docId: string, traceId: string): Promise<unknown> | unknown;
+  graph?(request: Record<string, unknown>, traceId: string): Promise<unknown> | unknown;
+};
+
+export type KnowledgeGraphExtractionPlan = {
+  docId: string;
+  docName: string;
+  content: string;
+  tokenEstimate: Record<string, unknown>;
+  extractionScope: Record<string, unknown>;
+};
+
+export type KnowledgeGraphSkippedDoc = {
+  doc_id: string;
+  doc_name: string;
+  reason: string;
+};
+
+export async function resolveKnowledgeGraphExtractionDocIds(
+  body: Record<string, unknown>,
+  provider: KnowledgeGraphExtractionProvider,
+  traceId: string,
+): Promise<string[]> {
+  const explicitIds = [
+    stringValue(body.doc_id) ?? stringValue(body.docId),
+    ...knowledgeGraphExtractionIdList(body.doc_ids ?? body.docIds),
+  ].filter((value): value is string => Boolean(value));
+  if (explicitIds.length) {
+    return Array.from(new Set(explicitIds));
+  }
+  if (stringValue(body.scope) === "all") {
+    const result = await provider.listDocuments({ limit: knowledgeGraphExtractionDocumentLimit(body) }, traceId);
+    return arrayFromResult(result, "documents").map((document) => stringValue(document.id)).filter((id): id is string => Boolean(id));
+  }
+  return [];
+}
+
+export async function buildKnowledgeGraphExtractionPlan(
+  provider: KnowledgeGraphExtractionProvider,
+  docId: string,
+  maxTokens: number,
+  maxChunks: number,
+  traceId: string,
+): Promise<KnowledgeGraphExtractionPlan | null> {
+  const result = await provider.getDocument(docId, traceId);
+  const document = documentFromResult(result);
+  if (!document) {
+    return null;
+  }
+  const rawContent = stringValue(asObject(result)?.content) ?? stringValue(document.content) ?? "";
+  const scoped = knowledgeGraphExtractionContent(rawContent, maxChunks);
+  const docName = stringValue(document.name) ?? docId;
+  return {
+    docId,
+    docName,
+    content: scoped.content,
+    tokenEstimate: estimateKnowledgeGraphExtractionTokens(scoped.content, maxTokens),
+    extractionScope: {
+      max_chunks: maxChunks,
+      chunk_count: scoped.chunkCount,
+      original_chunk_count: scoped.originalChunkCount,
+    },
+  };
+}
+
+export async function findExistingKnowledgeGraphExtractionSkips(
+  plans: KnowledgeGraphExtractionPlan[],
+  provider: KnowledgeGraphExtractionProvider,
+  traceId: string,
+): Promise<KnowledgeGraphSkippedDoc[]> {
+  if (!provider.graph) {
+    return [];
+  }
+  const skipped: KnowledgeGraphSkippedDoc[] = [];
+  for (const plan of plans) {
+    const graph = await provider.graph({
+      doc_id: plan.docId,
+      graph_type: "entity",
+      limit: 1,
+      edge_limit: 1,
+      include_orphans: true,
+    }, traceId);
+    if (arrayFromResult(graph, "nodes").length || arrayFromResult(graph, "edges").length) {
+      if (!knowledgeGraphExtractionStale(graph)) {
+        skipped.push({ doc_id: plan.docId, doc_name: plan.docName, reason: "entity_graph_exists" });
+      }
+    }
+  }
+  return skipped;
+}
+
+export async function runKnowledgeGraphExtractionPlans<T>(
+  plans: KnowledgeGraphExtractionPlan[],
+  concurrency: number,
+  run: (plan: KnowledgeGraphExtractionPlan) => Promise<T>,
+): Promise<T[]> {
+  const results = new Array<T>(plans.length);
+  let cursor = 0;
+  const workerCount = Math.min(Math.max(1, concurrency), plans.length);
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (cursor < plans.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await run(plans[index]!);
+    }
+  }));
+  return results;
+}
+
 export function estimateKnowledgeGraphExtractionTokens(content: string, maxTokens: number): Record<string, unknown> {
   const promptTokens = Math.ceil(content.length / 4) + 240;
   const completionTokens = Math.min(maxTokens, Math.max(256, Math.ceil(content.length / 8)));
@@ -14,6 +125,69 @@ export function estimateKnowledgeGraphExtractionTokens(content: string, maxToken
     max_tokens: maxTokens,
     within_budget: totalTokens <= maxTokens,
   };
+}
+
+function knowledgeGraphExtractionDocumentLimit(body: Record<string, unknown>): number {
+  return Math.max(
+    1,
+    Math.min(
+      10_000,
+      Math.trunc(numberValue(body.document_limit) ?? numberValue(body.documentLimit) ?? numberValue(body.limit) ?? 1000),
+    ),
+  );
+}
+
+function knowledgeGraphExtractionIdList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item).trim()).filter(Boolean);
+  }
+  if (typeof value === "string") {
+    return value.split(",").map((item) => item.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+function knowledgeGraphExtractionContent(content: string, maxChunks: number): { content: string; chunkCount: number; originalChunkCount: number } {
+  const chunks = content.split(/\n\s*\n/u).map((chunk) => chunk.trim()).filter(Boolean);
+  if (!chunks.length) {
+    return { content, chunkCount: 0, originalChunkCount: 0 };
+  }
+  const selected = chunks.slice(0, Math.max(1, maxChunks));
+  return {
+    content: selected.join("\n\n"),
+    chunkCount: selected.length,
+    originalChunkCount: chunks.length,
+  };
+}
+
+function knowledgeGraphExtractionStale(graph: unknown): boolean {
+  const graphObject = asObject(graph) ?? {};
+  const readiness = asObject(graphObject.readiness) ?? {};
+  const stats = asObject(graphObject.stats) ?? {};
+  if (readiness.entity_graph_stale === true) {
+    return true;
+  }
+  if ((numberValue(stats.stale_count) ?? 0) > 0) {
+    return true;
+  }
+  return [...arrayFromResult(graph, "nodes"), ...arrayFromResult(graph, "edges")]
+    .some((item) => asObject(asObject(item)?.attributes)?.stale === true);
+}
+
+function documentFromResult(result: unknown): Record<string, unknown> | null {
+  const object = asObject(result);
+  if (!object) {
+    return null;
+  }
+  return asObject(object.document) ?? object;
+}
+
+function arrayFromResult(result: unknown, key: string): Record<string, unknown>[] {
+  const object = asObject(result);
+  const value = object ? object[key] : result;
+  return Array.isArray(value)
+    ? value.map((item) => asObject(item)).filter((item): item is Record<string, unknown> => item !== null)
+    : [];
 }
 
 export function buildKnowledgeGraphExtractionPrompt(docName: string, content: string, maxTokens: number): string {
