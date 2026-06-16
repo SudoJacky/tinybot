@@ -1,8 +1,11 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  areKnowledgeGraphPlansWithinJobBudget,
+  buildKnowledgeGraphBatchEstimateBody,
   buildKnowledgeGraphExtractionPrompt,
   buildKnowledgeGraphExtractionPlan,
+  buildKnowledgeGraphSingleEstimateBody,
   estimateKnowledgeGraphExtractionTokens,
   findExistingKnowledgeGraphExtractionSkips,
   parseKnowledgeGraphExtractionJson,
@@ -188,5 +191,57 @@ describe("knowledge graph extraction backend", () => {
       entities: [{ name: "TinyBot", type: "project", confidence: 0.9, evidence: [] }],
       relations: [{ source: "TinyBot", target: "Knowledge", predicate: "stores", confidence: 0.8, evidence: [] }],
     })]);
+  });
+
+  test("builds batch estimates from runnable documents and configured job budget", () => {
+    const plans = [
+      { docId: "doc-1", docName: "One.md", content: "one", tokenEstimate: { prompt_tokens: 100, completion_tokens: 200, total_tokens: 300, max_tokens: 640, within_budget: true }, extractionScope: {} },
+      { docId: "doc-2", docName: "Two.md", content: "two", tokenEstimate: { prompt_tokens: 150, completion_tokens: 250, total_tokens: 400, max_tokens: 640, within_budget: true }, extractionScope: {} },
+    ];
+
+    expect(areKnowledgeGraphPlansWithinJobBudget(plans, 600)).toBe(false);
+    expect(buildKnowledgeGraphBatchEstimateBody(plans, 640, 600, "selected", [
+      { doc_id: "doc-2", doc_name: "Two.md", reason: "entity_graph_exists" },
+    ])).toMatchObject({
+      object: "knowledge_graph_extraction_estimate",
+      document_count: 2,
+      runnable_document_count: 1,
+      skipped_count: 1,
+      estimates: [
+        { doc_id: "doc-1", token_estimate: { total_tokens: 300 } },
+        { doc_id: "doc-2", skipped: true, skipped_reason: "entity_graph_exists" },
+      ],
+      token_estimate: {
+        prompt_tokens: 100,
+        completion_tokens: 200,
+        total_tokens: 300,
+        max_job_tokens: 600,
+        within_budget: true,
+      },
+    });
+  });
+
+  test("builds skipped single-document estimates without charging tokens", () => {
+    const body = buildKnowledgeGraphSingleEstimateBody({
+      docId: "doc-1",
+      docName: "One.md",
+      content: "one",
+      tokenEstimate: { prompt_tokens: 100, completion_tokens: 200, total_tokens: 300, max_tokens: 640, within_budget: true },
+      extractionScope: { max_chunks: 1 },
+    }, { doc_id: "doc-1", doc_name: "One.md", reason: "entity_graph_exists" });
+
+    expect(body).toMatchObject({
+      doc_id: "doc-1",
+      runnable_document_count: 0,
+      skipped_count: 1,
+      skipped_reason: "entity_graph_exists",
+      token_estimate: {
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0,
+        max_tokens: 640,
+        within_budget: true,
+      },
+    });
   });
 });

@@ -161,6 +161,82 @@ export async function runKnowledgeGraphExtractionPlan(options: {
   return asObject(await options.provider.saveEntityGraphExtraction?.(savePayload, options.traceId)) ?? {};
 }
 
+export function buildKnowledgeGraphBatchEstimateBody(
+  plans: KnowledgeGraphExtractionPlan[],
+  maxTokens: number,
+  maxJobTokens: number | null,
+  scope: string,
+  skippedDocs: KnowledgeGraphSkippedDoc[] = [],
+): Record<string, unknown> {
+  const skippedByDocId = new Map(skippedDocs.map((item) => [item.doc_id, item]));
+  const runnablePlans = plans.filter((plan) => !skippedByDocId.has(plan.docId));
+  const totals = knowledgeGraphPlansTokenTotals(runnablePlans);
+  return {
+    object: "knowledge_graph_extraction_estimate",
+    scope,
+    document_count: plans.length,
+    runnable_document_count: runnablePlans.length,
+    skipped_count: skippedDocs.length,
+    estimates: plans.map((plan) => ({
+      doc_id: plan.docId,
+      doc_name: plan.docName,
+      token_estimate: plan.tokenEstimate,
+      extraction_scope: plan.extractionScope,
+      ...(skippedByDocId.has(plan.docId)
+        ? {
+          skipped: true,
+          skipped_reason: skippedByDocId.get(plan.docId)?.reason,
+        }
+        : {}),
+    })),
+    token_estimate: {
+      prompt_tokens: totals.prompt,
+      completion_tokens: totals.completion,
+      total_tokens: totals.total,
+      max_tokens: maxTokens,
+      ...(maxJobTokens !== null ? { max_job_tokens: maxJobTokens } : {}),
+      within_budget: runnablePlans.every((plan) => plan.tokenEstimate.within_budget !== false)
+        && areKnowledgeGraphPlansWithinJobBudget(runnablePlans, maxJobTokens),
+    },
+    ...(skippedDocs.length ? { skipped_docs: skippedDocs } : {}),
+  };
+}
+
+export function buildKnowledgeGraphSingleEstimateBody(
+  plan: KnowledgeGraphExtractionPlan,
+  skipped?: KnowledgeGraphSkippedDoc,
+): Record<string, unknown> {
+  const tokenEstimate = skipped
+    ? {
+      prompt_tokens: 0,
+      completion_tokens: 0,
+      total_tokens: 0,
+      max_tokens: numberValue(plan.tokenEstimate.max_tokens) ?? 0,
+      within_budget: true,
+    }
+    : plan.tokenEstimate;
+  return {
+    object: "knowledge_graph_extraction_estimate",
+    doc_id: plan.docId,
+    doc_name: plan.docName,
+    token_estimate: tokenEstimate,
+    extraction_scope: plan.extractionScope,
+    runnable_document_count: skipped ? 0 : 1,
+    skipped_count: skipped ? 1 : 0,
+    ...(skipped
+      ? {
+        skipped: true,
+        skipped_reason: skipped.reason,
+        skipped_docs: [skipped],
+      }
+      : {}),
+  };
+}
+
+export function areKnowledgeGraphPlansWithinJobBudget(plans: KnowledgeGraphExtractionPlan[], maxJobTokens: number | null): boolean {
+  return maxJobTokens === null || knowledgeGraphPlansTokenTotals(plans).total <= maxJobTokens;
+}
+
 export function estimateKnowledgeGraphExtractionTokens(content: string, maxTokens: number): Record<string, unknown> {
   const promptTokens = Math.ceil(content.length / 4) + 240;
   const completionTokens = Math.min(maxTokens, Math.max(256, Math.ceil(content.length / 8)));
@@ -172,6 +248,15 @@ export function estimateKnowledgeGraphExtractionTokens(content: string, maxToken
     max_tokens: maxTokens,
     within_budget: totalTokens <= maxTokens,
   };
+}
+
+function knowledgeGraphPlansTokenTotals(plans: KnowledgeGraphExtractionPlan[]): { prompt: number; completion: number; total: number } {
+  return plans.reduce((acc, plan) => {
+    acc.prompt += numberValue(plan.tokenEstimate.prompt_tokens) ?? 0;
+    acc.completion += numberValue(plan.tokenEstimate.completion_tokens) ?? 0;
+    acc.total += numberValue(plan.tokenEstimate.total_tokens) ?? 0;
+    return acc;
+  }, { prompt: 0, completion: 0, total: 0 });
 }
 
 function knowledgeGraphExtractionDocumentLimit(body: Record<string, unknown>): number {
