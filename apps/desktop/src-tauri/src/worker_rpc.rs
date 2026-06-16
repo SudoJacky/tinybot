@@ -8075,6 +8075,122 @@ mod tests {
     }
 
     #[test]
+    fn knowledge_query_can_return_tree_structure_context() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let content = [
+            "# Desktop Knowledge Notes",
+            "",
+            "Root overview.",
+            "",
+            "## Retrieval Pipeline",
+            "",
+            "The uniquetree marker belongs to retrieval.",
+            "",
+            "### Ranking Details",
+            "",
+            "Ranking details should be listed as a child section.",
+            "",
+            "## Operational Notes",
+            "",
+            "Operational notes should be listed as a sibling section.",
+        ]
+        .join("\n");
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-structure-1",
+            "trace-structure",
+            "knowledge.add_document",
+            json!({
+                "name": "Structured Knowledge Notes",
+                "content": content,
+                "category": "desktop",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+
+        let query_response = router.dispatch(&WorkerRequest::new(
+            "req-structure-2",
+            "trace-structure",
+            "knowledge.query",
+            json!({
+                "query": "uniquetree",
+                "category": "desktop",
+                "limit": 3,
+                "include_structure_context": true
+            }),
+        ));
+
+        assert_eq!(query_response.error, None);
+        let result = &query_response
+            .result
+            .as_ref()
+            .expect("knowledge.query should return result")["results"][0];
+        assert_eq!(result["id"], format!("chunk_{doc_id}_1"));
+        assert_eq!(
+            result["structure_context"],
+            json!({
+                "object": "knowledge_structure_context",
+                "section": {
+                    "id": format!("section_{doc_id}_1"),
+                    "chunk_id": format!("chunk_{doc_id}_1"),
+                    "title": "Retrieval Pipeline",
+                    "section_path": "Retrieval Pipeline",
+                    "ordinal": 1,
+                    "line_start": 5,
+                    "line_end": 8
+                },
+                "parent_section": {
+                    "id": format!("section_{doc_id}_0"),
+                    "chunk_id": format!("chunk_{doc_id}_0"),
+                    "title": "Desktop Knowledge Notes",
+                    "section_path": "Desktop Knowledge Notes",
+                    "ordinal": 0,
+                    "line_start": 1,
+                    "line_end": 4
+                },
+                "sibling_sections": [
+                    {
+                        "id": format!("section_{doc_id}_3"),
+                        "chunk_id": format!("chunk_{doc_id}_3"),
+                        "title": "Operational Notes",
+                        "section_path": "Operational Notes",
+                        "ordinal": 3,
+                        "line_start": 13,
+                        "line_end": 15
+                    }
+                ],
+                "child_sections": [
+                    {
+                        "id": format!("section_{doc_id}_2"),
+                        "chunk_id": format!("chunk_{doc_id}_2"),
+                        "title": "Ranking Details",
+                        "section_path": "Ranking Details",
+                        "ordinal": 2,
+                        "line_start": 9,
+                        "line_end": 12
+                    }
+                ]
+            })
+        );
+    }
+
+    #[test]
     fn knowledge_query_returns_deterministic_retrieval_plan() {
         let fixture = WorkspaceFixture::new();
         let mut router = WorkerRpcRouter::new(

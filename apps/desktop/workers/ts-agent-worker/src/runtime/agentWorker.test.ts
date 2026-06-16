@@ -2777,6 +2777,13 @@ describe("AgentWorker", () => {
               content: "TS native knowledge API route.",
               score: 3,
               sparse_rank: 1,
+              structure_context: {
+                object: "knowledge_structure_context",
+                section: { id: "section-doc-1-1", title: "API", ordinal: 1 },
+                parent_section: { id: "section-doc-1-0", title: "Root", ordinal: 0 },
+                sibling_sections: [{ id: "section-doc-1-2", title: "Operations", ordinal: 2 }],
+                child_sections: [],
+              },
             }],
           };
         },
@@ -3099,7 +3106,18 @@ describe("AgentWorker", () => {
             fallback_routes: ["keyword", "tree", "graph"],
           },
           total: 1,
-          data: [expect.objectContaining({ id: "chunk-1", doc_id: "doc-1", score: 3 })],
+          data: [expect.objectContaining({
+            id: "chunk-1",
+            doc_id: "doc-1",
+            score: 3,
+            structure_context: {
+              object: "knowledge_structure_context",
+              section: { id: "section-doc-1-1", title: "API", ordinal: 1 },
+              parent_section: { id: "section-doc-1-0", title: "Root", ordinal: 0 },
+              sibling_sections: [{ id: "section-doc-1-2", title: "Operations", ordinal: 2 }],
+              child_sections: [],
+            },
+          })],
         },
       },
     });

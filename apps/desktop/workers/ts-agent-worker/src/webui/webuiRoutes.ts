@@ -2245,6 +2245,7 @@ function knowledgeQueryItem(value: Record<string, unknown>): Record<string, unkn
     method: value.method,
     retrieval_method: value.retrieval_method ?? value.method,
     score_metadata: isJsonObject(value.score_metadata) ? value.score_metadata : {},
+    structure_context: isJsonObject(value.structure_context) ? value.structure_context : {},
     source_snippets: Array.isArray(value.source_snippets) ? value.source_snippets : [],
     matched_methods: Array.isArray(value.matched_methods) ? value.matched_methods : [],
     matched_entities: Array.isArray(value.matched_entities) ? value.matched_entities : [],

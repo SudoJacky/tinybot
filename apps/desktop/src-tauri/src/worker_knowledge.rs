@@ -639,6 +639,9 @@ impl WorkerKnowledgeRpc {
         results.truncate(limit);
         for result in &mut results {
             populate_knowledge_score_metadata(result);
+            if params.include_structure_context == Some(true) {
+                populate_knowledge_structure_context(result, &parents);
+            }
         }
         Ok(KnowledgeQueryResultSet {
             results,
@@ -671,6 +674,7 @@ impl WorkerKnowledgeRpc {
                 category: None,
                 tags: None,
                 limit: Some(max_chunks),
+                include_structure_context: None,
             })?
             .results
         };
@@ -1132,6 +1136,8 @@ pub struct KnowledgeQueryParams {
     pub tags: Option<Vec<String>>,
     #[serde(default)]
     pub limit: Option<usize>,
+    #[serde(default)]
+    pub include_structure_context: Option<bool>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -1354,6 +1360,7 @@ pub struct KnowledgeQueryResult {
     pub method: String,
     pub retrieval_method: String,
     pub score_metadata: Value,
+    pub structure_context: Value,
     pub source_snippets: Vec<Value>,
     pub matched_methods: Vec<String>,
     pub matched_entities: Vec<Value>,
@@ -1402,6 +1409,7 @@ impl KnowledgeQueryResult {
             method: "sparse".to_string(),
             retrieval_method: "sparse".to_string(),
             score_metadata: serde_json::json!({}),
+            structure_context: serde_json::json!({}),
             source_snippets: Vec::new(),
             matched_methods: Vec::new(),
             matched_entities: Vec::new(),
@@ -1446,6 +1454,84 @@ fn populate_knowledge_score_metadata(result: &mut KnowledgeQueryResult) {
             }
         ]
     });
+}
+
+fn populate_knowledge_structure_context(
+    result: &mut KnowledgeQueryResult,
+    parent_chunks: &HashMap<String, KnowledgeChunk>,
+) {
+    let Some(section_chunk) = parent_chunks.get(&result.id) else {
+        return;
+    };
+    let parent_section =
+        if result.parent_section_id.is_empty() || result.parent_section_id == "section-root" {
+            Value::Null
+        } else {
+            parent_chunks
+                .values()
+                .find(|chunk| {
+                    chunk.doc_id == result.doc_id
+                        && knowledge_chunk_section_id(chunk) == result.parent_section_id
+                })
+                .map(knowledge_structure_context_section)
+                .unwrap_or(Value::Null)
+        };
+    let mut sibling_sections = parent_chunks
+        .values()
+        .filter(|chunk| {
+            chunk.doc_id == result.doc_id
+                && knowledge_chunk_parent_section_id(chunk) == result.parent_section_id
+                && knowledge_chunk_section_id(chunk) != result.section_id
+        })
+        .collect::<Vec<_>>();
+    sibling_sections.sort_by_key(|chunk| chunk.section_ordinal);
+    let sibling_sections = sibling_sections
+        .into_iter()
+        .map(knowledge_structure_context_section)
+        .collect::<Vec<_>>();
+    let mut child_sections = parent_chunks
+        .values()
+        .filter(|chunk| {
+            chunk.doc_id == result.doc_id
+                && knowledge_chunk_parent_section_id(chunk) == result.section_id
+        })
+        .collect::<Vec<_>>();
+    child_sections.sort_by_key(|chunk| chunk.section_ordinal);
+    let child_sections = child_sections
+        .into_iter()
+        .map(knowledge_structure_context_section)
+        .collect::<Vec<_>>();
+    result.structure_context = serde_json::json!({
+        "object": "knowledge_structure_context",
+        "section": knowledge_structure_context_section(section_chunk),
+        "parent_section": parent_section,
+        "sibling_sections": sibling_sections,
+        "child_sections": child_sections
+    });
+}
+
+fn knowledge_structure_context_section(chunk: &KnowledgeChunk) -> Value {
+    serde_json::json!({
+        "id": knowledge_chunk_section_id(chunk),
+        "chunk_id": chunk.id,
+        "title": if chunk.section_title.is_empty() {
+            chunk.section_path.clone()
+        } else {
+            chunk.section_title.clone()
+        },
+        "section_path": chunk.section_path,
+        "ordinal": chunk.section_ordinal,
+        "line_start": chunk.line_start,
+        "line_end": chunk.line_end
+    })
+}
+
+fn knowledge_chunk_parent_section_id(chunk: &KnowledgeChunk) -> String {
+    if chunk.parent_section_id.is_empty() {
+        "section-root".to_string()
+    } else {
+        chunk.parent_section_id.clone()
+    }
 }
 
 fn empty_knowledge_context() -> KnowledgeContextResult {
