@@ -3,6 +3,11 @@ import type { ToolRegistry } from "../tools/toolRegistry.ts";
 import type { HeartbeatStatus } from "../heartbeat/heartbeatTypes.ts";
 import type { McpRuntimeDiagnostics } from "../mcp/mcpRuntimeManager.ts";
 import { EMPTY_FINAL_RESPONSE_MESSAGE } from "../support/runtimeHelpers.ts";
+import {
+  buildKnowledgeGraphExtractionPrompt,
+  estimateKnowledgeGraphExtractionTokens,
+  parseKnowledgeGraphExtractionJson,
+} from "../knowledge/knowledgeGraphExtraction.ts";
 
 export type WebuiRouteSpec = {
   key: string;
@@ -2108,7 +2113,7 @@ async function knowledgeGraphExtractionPlan(
     docId,
     docName,
     content: scoped.content,
-    tokenEstimate: knowledgeGraphExtractionTokenEstimate(scoped.content, maxTokens),
+    tokenEstimate: estimateKnowledgeGraphExtractionTokens(scoped.content, maxTokens),
     extractionScope: {
       max_chunks: maxChunks,
       chunk_count: scoped.chunkCount,
@@ -2279,7 +2284,7 @@ async function runKnowledgeGraphExtractionPlan(
   traceId: string,
 ): Promise<Record<string, unknown>> {
   const extractionText = await openAiCompatProvider.completeChat({
-    content: knowledgeGraphExtractionPrompt(plan.docName, plan.content, maxTokens),
+    content: buildKnowledgeGraphExtractionPrompt(plan.docName, plan.content, maxTokens),
     sessionKey: "knowledge:graph-extraction",
     chatId: "knowledge-graph-extraction",
     model,
@@ -2300,87 +2305,6 @@ async function runKnowledgeGraphExtractionPlan(
     },
   };
   return asObject(await provider.saveEntityGraphExtraction?.(savePayload, traceId)) ?? {};
-}
-
-function knowledgeGraphExtractionTokenEstimate(content: string, maxTokens: number): Record<string, unknown> {
-  const promptTokens = Math.ceil(content.length / 4) + 240;
-  const completionTokens = Math.min(maxTokens, Math.max(256, Math.ceil(content.length / 8)));
-  const totalTokens = promptTokens + completionTokens;
-  return {
-    prompt_tokens: promptTokens,
-    completion_tokens: completionTokens,
-    total_tokens: totalTokens,
-    max_tokens: maxTokens,
-    within_budget: totalTokens <= maxTokens,
-  };
-}
-
-function knowledgeGraphExtractionPrompt(docName: string, content: string, maxTokens: number): string {
-  return [
-    "You extract a knowledge entity graph from one document.",
-    "Return strict JSON only, with no markdown fences.",
-    "Schema: {\"entities\":[{\"name\":\"\",\"type\":\"\",\"confidence\":0.0,\"evidence\":[{\"text\":\"\",\"line_start\":1,\"line_end\":1}]}],\"relations\":[{\"source\":\"\",\"target\":\"\",\"predicate\":\"\",\"confidence\":0.0,\"evidence\":[{\"text\":\"\",\"line_start\":1,\"line_end\":1}]}]}",
-    "Only include entities and relations directly supported by source evidence.",
-    `Token budget for the answer: ${maxTokens}.`,
-    `Document: ${docName}`,
-    "Content:",
-    content,
-  ].join("\n");
-}
-
-function parseKnowledgeGraphExtractionJson(raw: string): { entities: Record<string, unknown>[]; relations: Record<string, unknown>[] } {
-  const parsed = JSON.parse(stripJsonCodeFence(raw));
-  const root = asObject(parsed) ?? {};
-  return {
-    entities: arrayFromUnknown(root.entities).map(normalizeExtractedEntity).filter((entity) => stringValue(entity.name)),
-    relations: arrayFromUnknown(root.relations).map(normalizeExtractedRelation).filter((relation) =>
-      stringValue(relation.source) && stringValue(relation.target) && stringValue(relation.predicate)
-    ),
-  };
-}
-
-function normalizeExtractedEntity(value: unknown): Record<string, unknown> {
-  const entity = asObject(value) ?? {};
-  return {
-    name: stringValue(entity.name) ?? "",
-    type: stringValue(entity.type) ?? stringValue(entity.entity_type) ?? "",
-    confidence: normalizedConfidence(entity.confidence),
-    evidence: arrayFromUnknown(entity.evidence).map(normalizeExtractionEvidence),
-  };
-}
-
-function normalizeExtractedRelation(value: unknown): Record<string, unknown> {
-  const relation = asObject(value) ?? {};
-  return {
-    source: stringValue(relation.source) ?? "",
-    target: stringValue(relation.target) ?? "",
-    predicate: stringValue(relation.predicate) ?? stringValue(relation.type) ?? "related_to",
-    confidence: normalizedConfidence(relation.confidence),
-    evidence: arrayFromUnknown(relation.evidence).map(normalizeExtractionEvidence),
-  };
-}
-
-function normalizeExtractionEvidence(value: unknown): Record<string, unknown> {
-  const evidence = asObject(value) ?? {};
-  return {
-    text: stringValue(evidence.text) ?? stringValue(evidence.quote) ?? "",
-    line_start: numberValue(evidence.line_start) ?? numberValue(evidence.lineStart) ?? 1,
-    line_end: numberValue(evidence.line_end) ?? numberValue(evidence.lineEnd) ?? numberValue(evidence.line_start) ?? 1,
-  };
-}
-
-function normalizedConfidence(value: unknown): number {
-  const confidence = numberValue(value);
-  if (confidence === undefined) {
-    return 0;
-  }
-  return Math.max(0, Math.min(1, confidence));
-}
-
-function stripJsonCodeFence(raw: string): string {
-  const trimmed = raw.trim();
-  const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(trimmed);
-  return fenced ? fenced[1].trim() : trimmed;
 }
 
 function arrayFromUnknown(value: unknown): unknown[] {
