@@ -1167,11 +1167,12 @@ async function loadNativeKnowledgePane(
     hasQueryResult: options.queryResultPayload !== undefined,
     selectedDocumentId: options.selectedDocumentId ?? "",
   });
-  const [stats, documents, config, graph, graphrag] = await Promise.all([
+  const [stats, documents, config, documentGraph, entityGraph, graphrag] = await Promise.all([
     gatewayApi.knowledge.stats().catch(() => ({})),
     gatewayApi.knowledge.documents().catch(() => ({ documents: [] })),
     gatewayApi.config.get().catch(() => ({})),
-    gatewayApi.knowledge.graph().catch(() => ({})),
+    gatewayApi.knowledge.graph({ graphType: "document" }).catch(() => ({})),
+    gatewayApi.knowledge.graph({ graphType: "entity" }).catch(() => ({})),
     gatewayApi.knowledge.graphrag().catch(() => ({})),
   ]);
   nativeKnowledgeQueryResult = options.queryResultPayload ?? nativeKnowledgeQueryResult;
@@ -1182,7 +1183,7 @@ async function loadNativeKnowledgePane(
     selectedDocumentId: options.selectedDocumentId,
     queryDraft: nativeKnowledgePane?.query.draft,
     queryResultPayload: nativeKnowledgeQueryResult,
-    graphPayload: mergeNativeKnowledgeGraphPayload(graph, graphrag),
+    graphPayload: mergeNativeKnowledgeGraphPayload(selectNativeKnowledgeGraphPayload(entityGraph, documentGraph), graphrag),
   });
   logDesktopNativeDebug("knowledge.load.complete", {
     documentCount: nativeKnowledgePane.documentRows.length,
@@ -1654,6 +1655,34 @@ async function handleNativeKnowledgeAction(event: DesktopKnowledgeActionEvent): 
       setNativeKnowledgePane(pane);
       return;
     }
+    if (event.action === "extractGraph") {
+      const documentId = event.documentId || event.pane.selectedDocument?.id;
+      if (!documentId) {
+        outcome = "ignored";
+        return;
+      }
+      const estimate = asRecord(await gatewayApi.knowledge.extractGraph({ docId: documentId, dryRun: true }));
+      const tokenEstimate = asRecord(estimate.token_estimate);
+      const totalTokens = stringValue(tokenEstimate.total_tokens || tokenEstimate.totalTokens || "");
+      const maxTokens = stringValue(tokenEstimate.max_tokens || tokenEstimate.maxTokens || "");
+      const budgetText = totalTokens && maxTokens ? ` Estimated tokens: ${totalTokens} / ${maxTokens}.` : "";
+      const confirmed = window.confirm(`Extract an LLM entity graph for this document?${budgetText} This can spend model tokens.`);
+      if (!confirmed) {
+        outcome = "ignored";
+        return;
+      }
+      const result = await gatewayApi.knowledge.extractGraph({ docId: documentId });
+      const operation = buildDesktopKnowledgeTaskOperation(result);
+      if (operation) {
+        updateNativeKnowledgeTask(operation);
+      }
+      const pane = await loadNativeKnowledgePane({
+        queryResultPayload: nativeKnowledgeQueryResult,
+        selectedDocumentId: documentId,
+      });
+      setNativeKnowledgePane(pane);
+      return;
+    }
     if (event.action === "deleteDocument") {
       const documentId = event.documentId || event.pane.selectedDocument?.id;
       if (!documentId) {
@@ -1702,19 +1731,31 @@ function setNativeKnowledgePane(pane: DesktopKnowledgePaneModel): void {
   refreshNativeFileUploadActions();
 }
 
+function selectNativeKnowledgeGraphPayload(entityGraphPayload: unknown, documentGraphPayload: unknown): unknown {
+  const entityGraph = asRecord(entityGraphPayload);
+  if (asArrayValue(entityGraph.nodes).length || asArrayValue(entityGraph.edges).length) {
+    return entityGraphPayload;
+  }
+  return documentGraphPayload;
+}
+
 function mergeNativeKnowledgeGraphPayload(graphPayload: unknown, graphragPayload: unknown): unknown {
   const graph = asRecord(graphPayload);
   const graphrag = asRecord(graphragPayload);
-  if (graphrag.object === "graphrag_index") {
-    return graphrag;
-  }
-  return {
+  const mergedGraph = {
     ...graph,
     communities: asArrayValue(graph.communities).length ? graph.communities : graphrag.communities,
     reports: asArrayValue(graph.reports).length ? graph.reports : graphrag.community_reports,
     claims: asArrayValue(graph.claims).length ? graph.claims : graphrag.covariates,
     conflicts: asArrayValue(graph.conflicts).length ? graph.conflicts : graphrag.conflicts,
   };
+  if (asArrayValue(graph.nodes).length || asArrayValue(graph.edges).length) {
+    return mergedGraph;
+  }
+  if (graphrag.object === "graphrag_index") {
+    return graphrag;
+  }
+  return mergedGraph;
 }
 
 async function loadNativeToolsSkillsPane(

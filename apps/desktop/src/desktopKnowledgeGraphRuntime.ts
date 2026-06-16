@@ -5,7 +5,7 @@ export const DEFAULT_KNOWLEDGE_GRAPH_STACK = {
   optional3d: ["three", "3d-force-graph"],
 } as const;
 
-export type KnowledgeGraphNodeType = "document" | "entity" | "claim" | "community" | "conflict" | "unknown";
+export type KnowledgeGraphNodeType = "document" | "entity" | "claim" | "community" | "conflict" | "tag" | "category" | "url" | "file" | "unknown";
 
 export interface NormalizedKnowledgeGraphNode {
   id: string;
@@ -180,7 +180,7 @@ function normalizeEdge(edge: Record<string, unknown>, index: number): Normalized
 }
 
 function normalizeNodeType(type: string): KnowledgeGraphNodeType {
-  if (["document", "entity", "claim", "community", "conflict"].includes(type)) {
+  if (["document", "entity", "claim", "community", "conflict", "tag", "category", "url", "file"].includes(type)) {
     return type as KnowledgeGraphNodeType;
   }
   return "unknown";

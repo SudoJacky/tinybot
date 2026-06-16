@@ -3,6 +3,16 @@ import type { ToolRegistry } from "../tools/toolRegistry.ts";
 import type { HeartbeatStatus } from "../heartbeat/heartbeatTypes.ts";
 import type { McpRuntimeDiagnostics } from "../mcp/mcpRuntimeManager.ts";
 import { EMPTY_FINAL_RESPONSE_MESSAGE } from "../support/runtimeHelpers.ts";
+import {
+  areKnowledgeGraphPlansWithinJobBudget,
+  buildKnowledgeGraphBatchEstimateBody,
+  buildKnowledgeGraphExtractionPlan,
+  buildKnowledgeGraphSingleEstimateBody,
+  findExistingKnowledgeGraphExtractionSkips,
+  resolveKnowledgeGraphExtractionDocIds,
+  runKnowledgeGraphExtractionPlan,
+  runKnowledgeGraphExtractionPlans,
+} from "../knowledge/knowledgeGraphExtraction.ts";
 
 export type WebuiRouteSpec = {
   key: string;
@@ -282,6 +292,11 @@ export type WebuiKnowledgeProvider = {
     traceId: string,
   ): Promise<unknown> | unknown;
   addDocument(body: Record<string, unknown>, traceId: string): Promise<unknown> | unknown;
+  startIndexJob?(docId: string, traceId: string): Promise<unknown> | unknown;
+  getJob?(jobId: string, traceId: string): Promise<unknown> | unknown;
+  rebuildIndex?(type: "bm25" | "semantic" | "all", traceId: string): Promise<unknown> | unknown;
+  graph?(request: Record<string, unknown>, traceId: string): Promise<unknown> | unknown;
+  saveEntityGraphExtraction?(body: Record<string, unknown>, traceId: string): Promise<unknown> | unknown;
   getDocument(docId: string, traceId: string): Promise<unknown> | unknown;
   deleteDocument(docId: string, traceId: string): Promise<unknown> | unknown;
   query(body: Record<string, unknown>, traceId: string): Promise<unknown> | unknown;
@@ -345,6 +360,7 @@ const WEBUI_ROUTE_SPECS: WebuiRouteSpec[] = [
   { key: "knowledge_stats", method: "GET", path: "/v1/knowledge/stats", public: true },
   { key: "knowledge_job", method: "GET", path: "/v1/knowledge/jobs/{job_id}", public: true },
   { key: "knowledge_rebuild_index", method: "POST", path: "/v1/knowledge/rebuild-index", public: true },
+  { key: "knowledge_extract_graph", method: "POST", path: "/v1/knowledge/graph/extract", public: true },
   { key: "knowledge_graph", method: "GET", path: "/v1/knowledge/graph", public: true },
   { key: "knowledge_graphrag", method: "GET", path: "/v1/knowledge/graphrag", public: true },
   { key: "bootstrap", method: "GET", path: "/webui/bootstrap", public: true },
@@ -479,7 +495,8 @@ export async function handleWebuiRouteRequest(
     return knowledgeAddDocumentResponse(request.body, url.searchParams, knowledgeProvider, traceId, diagnosticsLogger);
   }
   if (method === "POST" && path === "/v1/knowledge/documents/upload") {
-    return knowledgeUploadDocumentResponse(request.body, url.searchParams, knowledgeProvider, traceId, diagnosticsLogger);
+    const config = configProvider ? await configProvider.getConfig(traceId) : {};
+    return knowledgeUploadDocumentResponse(request.body, url.searchParams, config, knowledgeProvider, openAiCompatProvider, traceId, diagnosticsLogger);
   }
   const knowledgeDocument = knowledgeDocumentPath(method, path);
   if (knowledgeDocument) {
@@ -508,6 +525,10 @@ export async function handleWebuiRouteRequest(
   }
   if (method === "POST" && path === "/v1/knowledge/rebuild-index") {
     return knowledgeRebuildIndexResponse(url.searchParams, knowledgeProvider, traceId, diagnosticsLogger);
+  }
+  if (method === "POST" && path === "/v1/knowledge/graph/extract") {
+    const config = configProvider ? await configProvider.getConfig(traceId) : {};
+    return knowledgeGraphExtractResponse(request.body, config, knowledgeProvider, openAiCompatProvider, traceId, diagnosticsLogger);
   }
   if (method === "GET" && path === "/v1/knowledge/graph") {
     return knowledgeGraphResponse(url.searchParams, knowledgeProvider, traceId);
@@ -1206,7 +1227,8 @@ async function knowledgeAddDocumentResponse(
         : `Document '${resultName}' added successfully`,
     };
     if (asyncIndex) {
-      const job = completedKnowledgeUploadJob(id, resultName, numberValue(document?.chunk_count ?? document?.chunks) ?? 1);
+      const job = await knowledgeStartIndexJob(provider, id, traceId)
+        ?? completedKnowledgeUploadJob(id, resultName, numberValue(document?.chunk_count ?? document?.chunks) ?? 1);
       responseBody.job = job;
       responseBody.job_id = job.id;
     }
@@ -1235,7 +1257,9 @@ function knowledgeAddDocumentProviderBody(body: Record<string, unknown>): Record
 async function knowledgeUploadDocumentResponse(
   body: unknown,
   query: URLSearchParams,
+  config: Record<string, unknown>,
   provider: WebuiKnowledgeProvider | undefined,
+  openAiCompatProvider: WebuiOpenAiCompatProvider | undefined,
   traceId: string,
   diagnosticsLogger?: WebuiDiagnosticsLogger,
 ): Promise<WebuiRouteResponse> {
@@ -1296,9 +1320,28 @@ async function knowledgeUploadDocumentResponse(
         : `File '${resultName}' uploaded and indexed successfully`,
     };
     if (asyncIndex) {
-      const job = completedKnowledgeUploadJob(id, resultName, numberValue(document?.chunk_count ?? document?.chunks) ?? 1);
+      const job = await knowledgeStartIndexJob(provider, id, traceId)
+        ?? completedKnowledgeUploadJob(id, resultName, numberValue(document?.chunk_count ?? document?.chunks) ?? 1);
       responseBody.job = job;
       responseBody.job_id = job.id;
+    }
+    if (id && knowledgeGraphAutoExtractEnabled(config)) {
+      const extractionResponse = await knowledgeGraphExtractResponse(
+        { doc_id: id },
+        config,
+        provider,
+        openAiCompatProvider,
+        traceId,
+        diagnosticsLogger,
+      );
+      const extractionBody = asObject(extractionResponse.body);
+      const extractionJob = asObject(extractionBody?.job);
+      if (extractionResponse.status === 202 && extractionJob) {
+        responseBody.graph_extraction_job = extractionJob;
+        responseBody.graph_extraction_job_id = extractionJob.id;
+      } else {
+        responseBody.graph_extraction_error = extractionBody?.error ?? extractionResponse.body;
+      }
     }
     return {
       status: asyncIndex ? 202 : 200,
@@ -1356,6 +1399,20 @@ async function knowledgeJobResponse(
   if (!provider) {
     return { status: 503, body: knowledgeApiError(503, "Knowledge store not initialized") };
   }
+  if (provider.getJob) {
+    try {
+      const job = asObject(await provider.getJob(jobId, traceId));
+      if (!job) {
+        return { status: 404, body: knowledgeApiError(404, `Knowledge job ${jobId} not found`) };
+      }
+      return { status: 200, body: job };
+    } catch (error) {
+      if (errorMessage(error).toLowerCase().includes("not found")) {
+        return { status: 404, body: knowledgeApiError(404, `Knowledge job ${jobId} not found`) };
+      }
+      return knowledgeServerError("Error getting knowledge job", error);
+    }
+  }
   if (jobId === "kjob_rebuild_bm25") {
     try {
       const stats = knowledgeStatsBody(await provider.stats(traceId));
@@ -1406,13 +1463,14 @@ async function knowledgeRebuildIndexResponse(
   if (!provider) {
     return { status: 503, body: knowledgeApiError(503, "Knowledge store not initialized") };
   }
-  const rebuildType = query.get("type") ?? "bm25";
-  if (rebuildType !== "bm25" && rebuildType !== "all" && rebuildType !== "semantic") {
+  const rebuildTypeRaw = query.get("type") ?? "bm25";
+  if (rebuildTypeRaw !== "bm25" && rebuildTypeRaw !== "all" && rebuildTypeRaw !== "semantic") {
     return {
       status: 400,
-      body: knowledgeApiError(400, `Invalid rebuild type '${rebuildType}'. Valid options: bm25, semantic, all`),
+      body: knowledgeApiError(400, `Invalid rebuild type '${rebuildTypeRaw}'. Valid options: bm25, semantic, all`),
     };
   }
+  const rebuildType: "bm25" | "semantic" | "all" = rebuildTypeRaw;
 
   const asyncIndex = booleanQuery(query.get("async_index"));
   logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.rebuild_index.start", {
@@ -1420,6 +1478,42 @@ async function knowledgeRebuildIndexResponse(
     async_index: asyncIndex,
   });
   try {
+    if (provider.rebuildIndex) {
+      const job = asObject(await provider.rebuildIndex(rebuildType, traceId)) ?? {};
+      logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.rebuild_index.complete", {
+        type: rebuildType,
+        async_index: asyncIndex,
+      });
+      const result = asObject(job.result) ?? {};
+      if (!asyncIndex) {
+        return {
+          status: 200,
+          body: rebuildType === "all"
+            ? {
+                message: "All available native knowledge indexes rebuilt successfully",
+                ...result,
+              }
+            : rebuildType === "semantic"
+              ? {
+                  message: "Semantic index is not available in native TS worker",
+                  ...result,
+                }
+            : {
+                message: "BM25 index rebuilt successfully",
+                ...result,
+              },
+        };
+      }
+      return {
+        status: 202,
+        body: {
+          message: "Knowledge index rebuild started",
+          job,
+          job_id: job.id,
+          type: rebuildType,
+        },
+      };
+    }
     const stats = knowledgeStatsBody(await provider.stats(traceId));
     const result = rebuildType === "all"
       ? knowledgeAllRebuildResult(stats)
@@ -1475,6 +1569,138 @@ async function knowledgeRebuildIndexResponse(
   }
 }
 
+async function knowledgeGraphExtractResponse(
+  body: unknown,
+  config: Record<string, unknown>,
+  provider: WebuiKnowledgeProvider | undefined,
+  openAiCompatProvider: WebuiOpenAiCompatProvider | undefined,
+  traceId: string,
+  diagnosticsLogger?: WebuiDiagnosticsLogger,
+): Promise<WebuiRouteResponse> {
+  if (!provider) {
+    return { status: 503, body: knowledgeApiError(503, "Knowledge store not initialized") };
+  }
+  if (!isJsonObject(body)) {
+    return { status: 400, body: knowledgeApiError(400, "Invalid JSON body") };
+  }
+  const docIds = await resolveKnowledgeGraphExtractionDocIds(body, provider, traceId);
+  if (!docIds.length) {
+    return { status: 400, body: knowledgeApiError(400, "doc_id is required") };
+  }
+  logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.graph_extract.start", {
+    doc_id: docIds[0] ?? "",
+    document_count: docIds.length,
+    dry_run: body.dry_run === true,
+  });
+  try {
+    const model = knowledgeExtractionModel(config);
+    const maxTokens = knowledgeGraphExtractionMaxTokens(config);
+    const maxJobTokens = knowledgeGraphExtractionMaxJobTokens(config);
+    const maxChunks = knowledgeGraphExtractionMaxChunks(config);
+    const plans = [];
+    for (const docId of docIds) {
+      const plan = await buildKnowledgeGraphExtractionPlan(provider, docId, maxTokens, maxChunks, traceId);
+      if (!plan) {
+        return { status: 404, body: knowledgeApiError(404, `Document ${docId} not found`) };
+      }
+      plans.push(plan);
+    }
+    if (body.dry_run === true || body.estimate_only === true) {
+      const skippedDocs = body.force === true ? [] : await findExistingKnowledgeGraphExtractionSkips(plans, provider, traceId);
+      if (plans.length === 1) {
+        const plan = plans[0]!;
+        const skipped = skippedDocs.find((item) => item.doc_id === plan.docId);
+        return {
+          status: 200,
+          body: buildKnowledgeGraphSingleEstimateBody(plan, skipped),
+        };
+      }
+      return {
+        status: 200,
+        body: buildKnowledgeGraphBatchEstimateBody(plans, maxTokens, maxJobTokens, stringValue(body.scope) ?? "selected", skippedDocs),
+      };
+    }
+    if (!knowledgeGraphExtractionEnabled(config)) {
+      return { status: 403, body: knowledgeApiError(403, "Knowledge graph extraction is disabled", "forbidden") };
+    }
+    const skippedDocs = body.force === true ? [] : await findExistingKnowledgeGraphExtractionSkips(plans, provider, traceId);
+    const skippedDocIds = new Set(skippedDocs.map((item) => item.doc_id));
+    const runnablePlans = plans.filter((plan) => !skippedDocIds.has(plan.docId));
+    if (!runnablePlans.length) {
+      return {
+        status: 200,
+        body: {
+          message: "Knowledge graph extraction skipped",
+          skipped: true,
+          document_count: plans.length,
+          runnable_document_count: 0,
+          skipped_count: skippedDocs.length,
+          skipped_docs: skippedDocs,
+        },
+      };
+    }
+    if (!openAiCompatProvider) {
+      return { status: 503, body: knowledgeApiError(503, "OpenAI-compatible runtime unavailable", "server_error") };
+    }
+    if (!provider.saveEntityGraphExtraction) {
+      return { status: 503, body: knowledgeApiError(503, "Knowledge entity graph store not initialized", "server_error") };
+    }
+    if (runnablePlans.some((plan) => plan.tokenEstimate.within_budget === false)) {
+      return { status: 400, body: knowledgeApiError(400, "Graph extraction token estimate exceeds configured budget") };
+    }
+    if (!areKnowledgeGraphPlansWithinJobBudget(runnablePlans, maxJobTokens)) {
+      return { status: 400, body: knowledgeApiError(400, "Graph extraction token estimate exceeds configured job budget") };
+    }
+    const jobs = await runKnowledgeGraphExtractionPlans(
+      runnablePlans,
+      knowledgeGraphExtractionConcurrency(config),
+      async (plan) => runKnowledgeGraphExtractionPlan({
+        plan,
+        provider,
+        openAiCompatProvider,
+        model,
+        maxTokens,
+        timeoutSeconds: knowledgeSemanticTimeoutSeconds(config),
+        traceId,
+      }),
+    );
+    logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.graph_extract.complete", {
+      document_count: runnablePlans.length,
+      job_count: jobs.length,
+      skipped_count: skippedDocs.length,
+    });
+    if (jobs.length === 1 && skippedDocs.length === 0) {
+      const job = jobs[0] ?? {};
+      return {
+        status: 202,
+        body: {
+          message: "Knowledge graph extraction completed",
+          job,
+          job_id: job.id,
+        },
+      };
+    }
+    return {
+      status: 202,
+      body: {
+        message: "Knowledge graph extraction completed",
+        document_count: plans.length,
+        runnable_document_count: jobs.length,
+        skipped_count: skippedDocs.length,
+        jobs,
+        job_ids: jobs.map((job) => job.id).filter(Boolean),
+        ...(skippedDocs.length ? { skipped_docs: skippedDocs } : {}),
+      },
+    };
+  } catch (error) {
+    logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.graph_extract.failed", {
+      doc_id: docIds[0] ?? "",
+      error: errorMessage(error),
+    });
+    return knowledgeValueError(error) ?? knowledgeServerError("Error extracting knowledge graph", error);
+  }
+}
+
 async function knowledgeGraphResponse(
   query: URLSearchParams,
   provider: WebuiKnowledgeProvider | undefined,
@@ -1488,6 +1714,9 @@ async function knowledgeGraphResponse(
     return { status: 400, body: knowledgeApiError(400, "Invalid graph query params") };
   }
   try {
+    if (provider.graph) {
+      return { status: 200, body: asObject(await provider.graph(knowledgeGraphProviderRequest(params.value), traceId)) ?? {} };
+    }
     const stats = knowledgeStatsBody(await provider.stats(traceId));
     return { status: 200, body: knowledgeGraphBody(stats, params.value) };
   } catch (error) {
@@ -1678,6 +1907,7 @@ function knowledgeAllRebuildResult(stats: Record<string, unknown>): Record<strin
 
 type KnowledgeGraphQuery = {
   docId: string;
+  graphType: string;
   limit: number;
   edgeLimit: number;
   minConfidence: number;
@@ -1709,6 +1939,7 @@ function parseKnowledgeGraphQuery(query: URLSearchParams): { ok: true; value: Kn
     ok: true,
     value: {
       docId: query.get("doc_id") ?? "",
+      graphType: query.get("graph_type") ?? "document",
       limit,
       edgeLimit,
       minConfidence,
@@ -1735,6 +1966,98 @@ function parseKnowledgeGraphRagQuery(
       includeReports: booleanQueryDefault(query.get("include_reports"), true),
       includeCovariates: booleanQueryDefault(query.get("include_covariates"), true),
     },
+  };
+}
+
+function knowledgeExtractionModel(config: Record<string, unknown>): string {
+  const knowledge = asObject(config.knowledge);
+  return stringValue(knowledge?.graphExtractionModel)
+    ?? stringValue(knowledge?.graph_extraction_model)
+    ?? stringValue(knowledge?.semanticLlmModel)
+    ?? stringValue(knowledge?.semantic_llm_model)
+    ?? openAiConfiguredModel(config);
+}
+
+function knowledgeGraphExtractionMaxTokens(config: Record<string, unknown>): number {
+  const knowledge = asObject(config.knowledge);
+  return Math.max(
+    1,
+    Math.trunc(
+      numberValue(knowledge?.graphExtractionMaxTokens)
+        ?? numberValue(knowledge?.graph_extraction_max_tokens)
+        ?? numberValue(knowledge?.semanticLlmMaxTokens)
+        ?? numberValue(knowledge?.semantic_llm_max_tokens)
+        ?? 1200,
+    ),
+  );
+}
+
+function knowledgeSemanticTimeoutSeconds(config: Record<string, unknown>): number {
+  const knowledge = asObject(config.knowledge);
+  const timeout = numberValue(knowledge?.semanticLlmTimeout)
+    ?? numberValue(knowledge?.semantic_llm_timeout)
+    ?? openAiRequestTimeoutSeconds(config);
+  return Math.max(1, timeout);
+}
+
+function knowledgeGraphExtractionEnabled(config: Record<string, unknown>): boolean {
+  const knowledge = asObject(config.knowledge);
+  return knowledge?.graphExtractionEnabled !== false && knowledge?.graph_extraction_enabled !== false;
+}
+
+function knowledgeGraphAutoExtractEnabled(config: Record<string, unknown>): boolean {
+  const knowledge = asObject(config.knowledge);
+  return (knowledge?.graphAutoExtract === true || knowledge?.graph_auto_extract === true) && knowledgeGraphExtractionEnabled(config);
+}
+
+function knowledgeGraphExtractionMaxChunks(config: Record<string, unknown>): number {
+  const knowledge = asObject(config.knowledge);
+  return Math.max(
+    1,
+    Math.trunc(
+      numberValue(knowledge?.graphExtractionMaxChunks)
+        ?? numberValue(knowledge?.graph_extraction_max_chunks)
+        ?? numberValue(knowledge?.maxChunks)
+        ?? numberValue(knowledge?.max_chunks)
+        ?? 5,
+    ),
+  );
+}
+
+function knowledgeGraphExtractionMaxJobTokens(config: Record<string, unknown>): number | null {
+  const knowledge = asObject(config.knowledge);
+  const value = numberValue(knowledge?.graphExtractionMaxJobTokens)
+    ?? numberValue(knowledge?.graph_extraction_max_job_tokens);
+  if (value === undefined || value <= 0) {
+    return null;
+  }
+  return Math.max(1, Math.trunc(value));
+}
+
+function knowledgeGraphExtractionConcurrency(config: Record<string, unknown>): number {
+  const knowledge = asObject(config.knowledge);
+  return Math.max(
+    1,
+    Math.trunc(
+      numberValue(knowledge?.graphExtractionConcurrency)
+        ?? numberValue(knowledge?.graph_extraction_concurrency)
+        ?? 1,
+    ),
+  );
+}
+
+function arrayFromUnknown(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function knowledgeGraphProviderRequest(query: KnowledgeGraphQuery): Record<string, unknown> {
+  return {
+    doc_id: query.docId,
+    graph_type: query.graphType,
+    limit: query.limit,
+    edge_limit: query.edgeLimit,
+    min_confidence: query.minConfidence,
+    include_orphans: query.includeOrphans,
   };
 }
 
@@ -1949,6 +2272,17 @@ function clampedConfigInteger(value: unknown, fallback: number, min: number, max
     return fallback;
   }
   return Math.max(min, Math.min(max, Math.trunc(parsed)));
+}
+
+async function knowledgeStartIndexJob(
+  provider: WebuiKnowledgeProvider,
+  docId: string,
+  traceId: string,
+): Promise<Record<string, unknown> | undefined> {
+  if (!docId || !provider.startIndexJob) {
+    return undefined;
+  }
+  return asObject(await provider.startIndexJob(docId, traceId));
 }
 
 function knowledgeUploadJobDocumentId(jobId: string): string | undefined {

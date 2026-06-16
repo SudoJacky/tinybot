@@ -48,6 +48,14 @@ describe("desktop settings and provider helpers", () => {
             docs: { command: "docs-mcp" },
           },
         },
+        knowledge: {
+          graph_extraction_enabled: false,
+          graph_auto_extract: true,
+          graph_extraction_model: "graph-model",
+          graph_extraction_max_tokens: 640,
+          graph_extraction_max_job_tokens: 1800,
+          graph_extraction_concurrency: 2,
+        },
       },
       [{ id: "openai", displayName: "OpenAI" }],
     );
@@ -56,6 +64,12 @@ describe("desktop settings and provider helpers", () => {
     expect(state.agent.provider).toBe("openai");
     expect(state.agent.temperature).toBe(0);
     expect(state.embedding.modelName).toBe("text-embedding-v3");
+    expect(state.knowledge.graphExtractionEnabled).toBe(false);
+    expect(state.knowledge.graphAutoExtract).toBe(true);
+    expect(state.knowledge.graphExtractionModel).toBe("graph-model");
+    expect(state.knowledge.graphExtractionMaxTokens).toBe(640);
+    expect(state.knowledge.graphExtractionMaxJobTokens).toBe(1800);
+    expect(state.knowledge.graphExtractionConcurrency).toBe(2);
     expect(state.providerEditor).toMatchObject({
       selectedProvider: "openai",
       profileId: "work",
@@ -91,6 +105,12 @@ describe("desktop settings and provider helpers", () => {
     state.providerEditor.apiBase = "https://api.deepseek.com";
     state.providerEditor.modelsText = "deepseek-chat\ndeepseek-reasoner";
     state.tools.mcpServersText = "{\"search\":{\"command\":\"search-mcp\"}}";
+    state.knowledge.graphExtractionEnabled = true;
+    state.knowledge.graphAutoExtract = true;
+    state.knowledge.graphExtractionModel = "graph-model";
+    state.knowledge.graphExtractionMaxTokens = 640;
+    state.knowledge.graphExtractionMaxJobTokens = 1800;
+    state.knowledge.graphExtractionConcurrency = 3;
 
     const patch = createDesktopSettingsPatch(
       state,
@@ -125,6 +145,14 @@ describe("desktop settings and provider helpers", () => {
         mcp_servers: {
           search: { command: "search-mcp" },
         },
+      },
+      knowledge: {
+        graph_extraction_enabled: true,
+        graph_auto_extract: true,
+        graph_extraction_model: "graph-model",
+        graph_extraction_max_tokens: 640,
+        graph_extraction_max_job_tokens: 1800,
+        graph_extraction_concurrency: 3,
       },
     });
     expect((patch.providers as Record<string, unknown>).profiles).toMatchObject({
@@ -403,6 +431,12 @@ describe("desktop settings and provider helpers", () => {
     expect(fields["tools-approvals.mcpServers"]).toMatchObject({ control: "textarea", requirement: "optional", configurationMode: "json", advanced: true });
     expect(fields["tools-approvals.searchProvider"]).toMatchObject({ control: "select", requirement: "optional", configurationMode: "fixed", advanced: true });
     expect(fields["knowledge.retrievalMode"]).toMatchObject({ control: "select", requirement: "optional", configurationMode: "fixed" });
+    expect(fields["knowledge.graphExtractionEnabled"]).toMatchObject({ control: "checkbox", requirement: "optional", configurationMode: "toggle" });
+    expect(fields["knowledge.graphAutoExtract"]).toMatchObject({ control: "checkbox", requirement: "optional", configurationMode: "toggle", advanced: true });
+    expect(fields["knowledge.graphExtractionModel"]).toMatchObject({ control: "text", requirement: "optional", configurationMode: "freeform", advanced: true });
+    expect(fields["knowledge.graphExtractionMaxTokens"]).toMatchObject({ control: "number", requirement: "optional", configurationMode: "numeric", advanced: true });
+    expect(fields["knowledge.graphExtractionMaxJobTokens"]).toMatchObject({ control: "number", requirement: "optional", configurationMode: "numeric", advanced: true });
+    expect(fields["knowledge.graphExtractionConcurrency"]).toMatchObject({ control: "number", requirement: "optional", configurationMode: "numeric", advanced: true });
     expect(fields["memory-experience.memory"]).toMatchObject({ control: "readonly", requirement: "readonly", configurationMode: "readonly" });
   });
 

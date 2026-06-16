@@ -10,7 +10,9 @@ use crate::worker_cron::{
 use crate::worker_diagnostics::WorkerDiagnosticsRpc;
 use crate::worker_knowledge::{
     KnowledgeAddDocumentParams, KnowledgeContextParams, KnowledgeDocumentIdParams,
-    KnowledgeListDocumentsParams, KnowledgeQueryParams, WorkerKnowledgeRpc,
+    KnowledgeEntityGraphExtractionParams, KnowledgeGraphParams, KnowledgeJobIdParams,
+    KnowledgeListDocumentsParams, KnowledgeQueryParams, KnowledgeRebuildIndexParams,
+    KnowledgeStartIndexJobParams, WorkerKnowledgeRpc,
 };
 use crate::worker_protocol::{validate_protocol_version, WorkerRequest, WorkerResponse};
 use crate::worker_secret::{ProviderResolveSecretParams, WorkerSecretRpc};
@@ -502,6 +504,30 @@ impl WorkerRpcRouter {
             "knowledge.delete_document" => {
                 let params: KnowledgeDocumentIdParams = parse_params(request)?;
                 serde_json::to_value(self.knowledge.delete_document(params)?)
+                    .map_err(serialization_error)
+            }
+            "knowledge.start_index_job" => {
+                let params: KnowledgeStartIndexJobParams = parse_params(request)?;
+                serde_json::to_value(self.knowledge.start_index_job(params)?)
+                    .map_err(serialization_error)
+            }
+            "knowledge.get_job" => {
+                let params: KnowledgeJobIdParams = parse_params(request)?;
+                serde_json::to_value(self.knowledge.get_job(params)?).map_err(serialization_error)
+            }
+            "knowledge.rebuild_index" => {
+                let params: KnowledgeRebuildIndexParams = parse_params(request)?;
+                serde_json::to_value(self.knowledge.rebuild_index(params)?)
+                    .map_err(serialization_error)
+            }
+            "knowledge.graph" => {
+                let params: KnowledgeGraphParams = parse_params(request)?;
+                serde_json::to_value(self.knowledge.document_graph(params)?)
+                    .map_err(serialization_error)
+            }
+            "knowledge.save_entity_graph_extraction" => {
+                let params: KnowledgeEntityGraphExtractionParams = parse_params(request)?;
+                serde_json::to_value(self.knowledge.save_entity_graph_extraction(params)?)
                     .map_err(serialization_error)
             }
             "knowledge.stats" => {
@@ -8068,6 +8094,526 @@ mod tests {
         assert_eq!(stats["stage_readiness"]["graph_projection"]["total"], 0);
         assert_eq!(stats["stage_coverage"]["sparse_indexing"], 1.0);
         assert_eq!(stats["stage_details"], json!([]));
+    }
+
+    #[test]
+    fn dispatches_persistent_knowledge_jobs_for_retrieval_index_and_rebuilds() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "knowledge.add_document",
+            json!({
+                "name": "Job Document",
+                "content": "# Job Document\n\nNative retrieval jobs should be persisted.\n",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+
+        let start_response = router.dispatch(&WorkerRequest::new(
+            "req-2",
+            "trace-1",
+            "knowledge.start_index_job",
+            json!({ "doc_id": doc_id }),
+        ));
+        assert_eq!(start_response.error, None);
+        let started = start_response
+            .result
+            .as_ref()
+            .expect("knowledge.start_index_job should return result");
+        assert_eq!(started["id"], format!("kjob_{doc_id}"));
+        assert_eq!(started["doc_id"], doc_id);
+        assert_eq!(started["status"], "completed");
+        assert_eq!(started["stage"], "retrieval_indexed");
+        assert_eq!(started["processed"], 1);
+        assert_eq!(started["total"], 1);
+        assert_eq!(started["retrieval_ready"], true);
+        assert_eq!(started["graph_ready"], false);
+        assert!(fixture
+            .read("knowledge/jobs.jsonl")
+            .contains(&format!("kjob_{doc_id}")));
+
+        let get_response = router.dispatch(&WorkerRequest::new(
+            "req-3",
+            "trace-1",
+            "knowledge.get_job",
+            json!({ "job_id": format!("kjob_{doc_id}") }),
+        ));
+        assert_eq!(get_response.error, None);
+        assert_eq!(
+            get_response.result.as_ref().unwrap()["id"],
+            format!("kjob_{doc_id}")
+        );
+
+        let rebuild_response = router.dispatch(&WorkerRequest::new(
+            "req-4",
+            "trace-1",
+            "knowledge.rebuild_index",
+            json!({ "type": "all" }),
+        ));
+        assert_eq!(rebuild_response.error, None);
+        let rebuild = rebuild_response
+            .result
+            .as_ref()
+            .expect("knowledge.rebuild_index should return result");
+        assert_eq!(rebuild["id"], "kjob_rebuild_all");
+        assert_eq!(rebuild["name"], "rebuild:all");
+        assert_eq!(rebuild["status"], "completed");
+        assert_eq!(rebuild["stage"], "completed");
+        assert_eq!(rebuild["result"]["semantic"]["available"], false);
+        assert_eq!(rebuild["result"]["bm25"]["chunks_indexed"], 1);
+    }
+
+    #[test]
+    fn dispatches_explicit_knowledge_document_graph() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let target_response = router.dispatch(&WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "knowledge.add_document",
+            json!({
+                "name": "Target.md",
+                "content": "# Target\n\nReferenced explicitly.\n",
+                "file_type": "md"
+            }),
+        ));
+        assert_eq!(target_response.error, None);
+
+        let source_response = router.dispatch(&WorkerRequest::new(
+            "req-2",
+            "trace-1",
+            "knowledge.add_document",
+            json!({
+                "name": "Source.md",
+                "content": "# Source\n\nSee [Target](Target.md), [Site](https://example.com/a), and notes/local.md.\n",
+                "file_type": "md",
+                "category": "docs",
+                "tags": ["ops"]
+            }),
+        ));
+        assert_eq!(source_response.error, None);
+        let source_id = source_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("source document id should be present")
+            .to_string();
+
+        let graph_response = router.dispatch(&WorkerRequest::new(
+            "req-3",
+            "trace-1",
+            "knowledge.graph",
+            json!({ "doc_id": source_id, "include_orphans": true }),
+        ));
+        assert_eq!(graph_response.error, None);
+        let graph = graph_response
+            .result
+            .as_ref()
+            .expect("knowledge.graph should return result");
+        assert_eq!(graph["object"], "knowledge_graph");
+        assert_eq!(graph["graph_type"], "document");
+        let edge_types = graph["edges"]
+            .as_array()
+            .expect("graph edges should be an array")
+            .iter()
+            .filter_map(|edge| edge["type"].as_str())
+            .collect::<Vec<_>>();
+        assert!(edge_types.contains(&"links_to"));
+        assert!(edge_types.contains(&"references_url"));
+        assert!(edge_types.contains(&"references_file"));
+        assert!(edge_types.contains(&"tagged"));
+        assert!(edge_types.contains(&"categorized_as"));
+        let node_types = graph["nodes"]
+            .as_array()
+            .expect("graph nodes should be an array")
+            .iter()
+            .filter_map(|node| node["type"].as_str())
+            .collect::<Vec<_>>();
+        assert!(node_types.contains(&"document"));
+        assert!(node_types.contains(&"tag"));
+        assert!(node_types.contains(&"category"));
+        assert!(node_types.contains(&"url"));
+        assert!(node_types.contains(&"file"));
+        assert!(fixture
+            .read("knowledge/document_graph_edges.jsonl")
+            .contains("references_url"));
+    }
+
+    #[test]
+    fn dispatches_entity_graph_extraction_persistence() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "knowledge.add_document",
+            json!({
+                "name": "Entity Source.md",
+                "content": "# Entity Source\n\nTinyBot stores knowledge graph evidence.\n",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-2",
+            "trace-1",
+            "knowledge.save_entity_graph_extraction",
+            json!({
+                "doc_id": doc_id,
+                "doc_name": "Entity Source.md",
+                "model": "knowledge-model",
+                "token_estimate": { "total_tokens": 120, "max_tokens": 800 },
+                "entities": [
+                    { "name": "TinyBot", "type": "project", "confidence": 0.91, "evidence": [{ "text": "TinyBot stores knowledge graph evidence.", "line_start": 3, "line_end": 3 }] },
+                    { "name": "knowledge graph", "type": "concept", "confidence": 0.86 }
+                ],
+                "relations": [
+                    { "source": "TinyBot", "target": "knowledge graph", "predicate": "stores", "confidence": 0.82, "evidence": [{ "text": "TinyBot stores knowledge graph evidence.", "line_start": 3, "line_end": 3 }] }
+                ],
+                "diagnostics": { "chunks_used": 1 }
+            }),
+        ));
+        assert_eq!(save_response.error, None);
+        let job = save_response
+            .result
+            .as_ref()
+            .expect("knowledge.save_entity_graph_extraction should return result");
+        assert_eq!(job["id"], format!("kjob_extract_graph_{doc_id}"));
+        assert_eq!(job["stage"], "entity_graph_extracted");
+        assert_eq!(job["result"]["entities"], 2);
+        assert_eq!(job["result"]["relations"], 1);
+        assert!(fixture
+            .read("knowledge/entity_graph_nodes.jsonl")
+            .contains("TinyBot"));
+        assert!(fixture
+            .read("knowledge/entity_graph_edges.jsonl")
+            .contains("stores"));
+        assert!(fixture
+            .read("knowledge/entity_graph_evidence.jsonl")
+            .contains("knowledge graph evidence"));
+
+        let graph_response = router.dispatch(&WorkerRequest::new(
+            "req-3",
+            "trace-1",
+            "knowledge.graph",
+            json!({ "doc_id": doc_id, "graph_type": "entity", "include_orphans": true }),
+        ));
+        assert_eq!(graph_response.error, None);
+        let graph = graph_response
+            .result
+            .as_ref()
+            .expect("knowledge.graph should return entity graph");
+        assert_eq!(graph["graph_type"], "entity");
+        assert_eq!(graph["stats"]["node_count"], 2);
+        assert_eq!(graph["stats"]["edge_count"], 1);
+        assert_eq!(graph["readiness"]["entity_graph_ready"], true);
+        assert_eq!(
+            graph["nodes"][0]["evidence"][0]["text"],
+            "TinyBot stores knowledge graph evidence."
+        );
+        assert_eq!(
+            graph["edges"][0]["evidence"][0]["text"],
+            "TinyBot stores knowledge graph evidence."
+        );
+        assert_eq!(graph["stats"]["stale_count"], 0);
+        assert_eq!(graph["readiness"]["entity_graph_stale"], false);
+
+        fixture.write(
+            "knowledge/documents.jsonl",
+            &fixture.read("knowledge/documents.jsonl").replace(
+                "TinyBot stores knowledge graph evidence.",
+                "TinyBot stores updated knowledge graph evidence.",
+            ),
+        );
+        let stale_graph_response = router.dispatch(&WorkerRequest::new(
+            "req-4",
+            "trace-1",
+            "knowledge.graph",
+            json!({ "doc_id": doc_id, "graph_type": "entity", "include_orphans": true }),
+        ));
+        assert_eq!(stale_graph_response.error, None);
+        let stale_graph = stale_graph_response
+            .result
+            .as_ref()
+            .expect("knowledge.graph should return stale entity graph");
+        assert_eq!(stale_graph["stats"]["stale_node_count"], 2);
+        assert_eq!(stale_graph["stats"]["stale_edge_count"], 1);
+        assert_eq!(stale_graph["readiness"]["entity_graph_stale"], true);
+        assert_eq!(stale_graph["nodes"][0]["attributes"]["stale"], true);
+        assert_eq!(stale_graph["edges"][0]["attributes"]["stale"], true);
+        assert!(stale_graph["nodes"][0]["attributes"]["current_source_hash"].is_string());
+
+        let stats_response = router.dispatch(&WorkerRequest::new(
+            "req-5",
+            "trace-1",
+            "knowledge.stats",
+            json!({}),
+        ));
+        assert_eq!(stats_response.error, None);
+        let stats = stats_response
+            .result
+            .as_ref()
+            .expect("knowledge.stats should return result");
+        assert_eq!(stats["entity_count"], 2);
+        assert_eq!(stats["relation_count"], 1);
+        assert_eq!(stats["source_count"], 2);
+        assert_eq!(stats["graph_ready"], true);
+    }
+
+    #[test]
+    fn deleting_knowledge_document_purges_entity_graph_records() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "knowledge.add_document",
+            json!({
+                "name": "Delete Entity Source.md",
+                "content": "# Delete Entity Source\n\nTinyBot deletion evidence should disappear.\n",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-2",
+            "trace-1",
+            "knowledge.save_entity_graph_extraction",
+            json!({
+                "doc_id": doc_id,
+                "doc_name": "Delete Entity Source.md",
+                "model": "knowledge-model",
+                "entities": [
+                    { "name": "TinyBot", "type": "project", "confidence": 0.91, "evidence": [{ "text": "TinyBot deletion evidence should disappear.", "line_start": 3, "line_end": 3 }] }
+                ],
+                "relations": [
+                    { "source": "TinyBot", "target": "Deletion", "predicate": "removes", "confidence": 0.82, "evidence": [{ "text": "TinyBot deletion evidence should disappear.", "line_start": 3, "line_end": 3 }] }
+                ]
+            }),
+        ));
+        assert_eq!(save_response.error, None);
+
+        let delete_response = router.dispatch(&WorkerRequest::new(
+            "req-3",
+            "trace-1",
+            "knowledge.delete_document",
+            json!({ "doc_id": doc_id }),
+        ));
+        assert_eq!(delete_response.error, None);
+        assert_eq!(delete_response.result.as_ref().unwrap()["deleted"], true);
+        assert!(!fixture
+            .read("knowledge/entity_graph_nodes.jsonl")
+            .contains("TinyBot"));
+        assert!(!fixture
+            .read("knowledge/entity_graph_edges.jsonl")
+            .contains("removes"));
+        assert!(!fixture
+            .read("knowledge/entity_graph_evidence.jsonl")
+            .contains("deletion evidence"));
+
+        let graph_response = router.dispatch(&WorkerRequest::new(
+            "req-4",
+            "trace-1",
+            "knowledge.graph",
+            json!({ "graph_type": "entity", "include_orphans": true }),
+        ));
+        assert_eq!(graph_response.error, None);
+        let graph = graph_response.result.as_ref().unwrap();
+        assert_eq!(graph["stats"]["node_count"], 0);
+        assert_eq!(graph["stats"]["edge_count"], 0);
+        assert_eq!(graph["readiness"]["entity_graph_ready"], false);
+    }
+
+    #[test]
+    fn rebuilding_knowledge_index_refreshes_document_graph() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let target_response = router.dispatch(&WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "knowledge.add_document",
+            json!({
+                "name": "Upgrade Target.md",
+                "content": "# Upgrade Target\n\nExisting workspace target.\n",
+                "file_type": "md"
+            }),
+        ));
+        assert_eq!(target_response.error, None);
+        let source_response = router.dispatch(&WorkerRequest::new(
+            "req-2",
+            "trace-1",
+            "knowledge.add_document",
+            json!({
+                "name": "Upgrade Source.md",
+                "content": "# Upgrade Source\n\nSee [Upgrade Target](Upgrade Target.md).\n",
+                "file_type": "md"
+            }),
+        ));
+        assert_eq!(source_response.error, None);
+        let document_graph_nodes = fixture.root.join("knowledge/document_graph_nodes.jsonl");
+        let document_graph_edges = fixture.root.join("knowledge/document_graph_edges.jsonl");
+        let _ = std::fs::remove_file(document_graph_nodes);
+        let _ = std::fs::remove_file(document_graph_edges);
+
+        let rebuild_response = router.dispatch(&WorkerRequest::new(
+            "req-3",
+            "trace-1",
+            "knowledge.rebuild_index",
+            json!({ "type": "bm25" }),
+        ));
+        assert_eq!(rebuild_response.error, None);
+
+        let graph_response = router.dispatch(&WorkerRequest::new(
+            "req-4",
+            "trace-1",
+            "knowledge.graph",
+            json!({ "graph_type": "document", "include_orphans": true }),
+        ));
+        assert_eq!(graph_response.error, None);
+        let graph = graph_response.result.as_ref().unwrap();
+        assert_eq!(graph["readiness"]["document_graph_ready"], true);
+        assert!(graph["stats"]["edge_count"].as_u64().unwrap_or_default() > 0);
+        assert!(fixture
+            .read("knowledge/document_graph_edges.jsonl")
+            .contains("links_to"));
+    }
+
+    #[test]
+    fn entity_graph_queries_honor_min_confidence() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "knowledge.add_document",
+            json!({
+                "name": "Confidence Source.md",
+                "content": "# Confidence Source\n\nHigh and low confidence graph data.\n",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-2",
+            "trace-1",
+            "knowledge.save_entity_graph_extraction",
+            json!({
+                "doc_id": doc_id,
+                "doc_name": "Confidence Source.md",
+                "model": "knowledge-model",
+                "entities": [
+                    { "name": "HighConfidence", "type": "concept", "confidence": 0.95 },
+                    { "name": "LowConfidence", "type": "concept", "confidence": 0.25 }
+                ],
+                "relations": [
+                    { "source": "HighConfidence", "target": "HighConfidence", "predicate": "supports", "confidence": 0.96 },
+                    { "source": "HighConfidence", "target": "LowConfidence", "predicate": "mentions", "confidence": 0.20 }
+                ]
+            }),
+        ));
+        assert_eq!(save_response.error, None);
+
+        let graph_response = router.dispatch(&WorkerRequest::new(
+            "req-3",
+            "trace-1",
+            "knowledge.graph",
+            json!({
+                "doc_id": doc_id,
+                "graph_type": "entity",
+                "include_orphans": true,
+                "min_confidence": 0.9
+            }),
+        ));
+        assert_eq!(graph_response.error, None);
+        let graph = graph_response.result.as_ref().unwrap();
+        assert_eq!(graph["stats"]["node_count"], 1);
+        assert_eq!(graph["stats"]["edge_count"], 1);
+        assert_eq!(graph["nodes"][0]["label"], "HighConfidence");
+        assert_eq!(graph["edges"][0]["label"], "supports");
     }
 
     #[test]

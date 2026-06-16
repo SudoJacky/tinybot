@@ -250,7 +250,7 @@ interface DesktopSettingsActionOptions {
   onSettingsAction?: (event: DesktopSettingsActionEvent) => void;
 }
 
-export type DesktopKnowledgeActionId = "refreshAll" | "settings" | "runQuery" | "refreshGraph" | "rebuildIndex" | "deleteDocument" | "uploadDocument";
+export type DesktopKnowledgeActionId = "refreshAll" | "settings" | "runQuery" | "refreshGraph" | "extractGraph" | "rebuildIndex" | "deleteDocument" | "uploadDocument";
 
 export interface DesktopKnowledgeActionEvent {
   action: DesktopKnowledgeActionId;
@@ -4062,6 +4062,7 @@ function createKnowledgePane(
   const graphActions = targetDocument.createElement("div");
   graphActions.className = "desktop-knowledge-action-row";
   graphActions.append(
+    createKnowledgeButton("extractGraph", "Extract Graph", pane.actions.rebuild && Boolean(pane.selectedDocument?.id), "primary"),
     createKnowledgeButton("rebuildIndex", "Build Graph", pane.actions.rebuild, "secondary"),
     createKnowledgeButton("refreshGraph", "Refresh Graph", pane.actions.refreshGraph, "secondary"),
   );

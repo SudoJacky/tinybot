@@ -1249,6 +1249,7 @@ describe("gateway HTTP client", () => {
     });
     await expect(client.knowledge.graph({
       docId: "docs/knowledge.md",
+      graphType: "entity",
       limit: 20,
       edgeLimit: 40,
       minConfidence: 0.2,
@@ -1257,7 +1258,61 @@ describe("gateway HTTP client", () => {
       native: true,
       request: {
         method: "GET",
-        path: "/v1/knowledge/graph?doc_id=docs%2Fknowledge.md&limit=20&edge_limit=40&min_confidence=0.2&include_orphans=true",
+        path: "/v1/knowledge/graph?doc_id=docs%2Fknowledge.md&graph_type=entity&limit=20&edge_limit=40&min_confidence=0.2&include_orphans=true",
+      },
+    });
+    await expect(client.knowledge.extractGraph({
+      docId: "docs/knowledge.md",
+      dryRun: true,
+    })).resolves.toEqual({
+      native: true,
+      request: {
+        method: "POST",
+        path: "/v1/knowledge/graph/extract",
+        body: {
+          doc_id: "docs/knowledge.md",
+          dry_run: true,
+        },
+      },
+    });
+    await expect(client.knowledge.extractGraph({
+      docIds: ["doc-1", "doc-2"],
+    })).resolves.toEqual({
+      native: true,
+      request: {
+        method: "POST",
+        path: "/v1/knowledge/graph/extract",
+        body: {
+          doc_ids: ["doc-1", "doc-2"],
+        },
+      },
+    });
+    await expect(client.knowledge.extractGraph({
+      scope: "all",
+      dryRun: true,
+    })).resolves.toEqual({
+      native: true,
+      request: {
+        method: "POST",
+        path: "/v1/knowledge/graph/extract",
+        body: {
+          scope: "all",
+          dry_run: true,
+        },
+      },
+    });
+    await expect(client.knowledge.extractGraph({
+      docId: "docs/knowledge.md",
+      force: true,
+    })).resolves.toEqual({
+      native: true,
+      request: {
+        method: "POST",
+        path: "/v1/knowledge/graph/extract",
+        body: {
+          doc_id: "docs/knowledge.md",
+          force: true,
+        },
       },
     });
     await expect(client.knowledge.graphrag()).resolves.toEqual({

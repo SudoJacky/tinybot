@@ -767,6 +767,9 @@ function knowledgeTaskTitle(name: string): string {
   if (name.startsWith("rebuild:")) {
     return "Rebuild knowledge index";
   }
+  if (name.startsWith("extract_graph:")) {
+    return "Extract knowledge graph";
+  }
   return `Index ${name || "knowledge document"}`;
 }
 

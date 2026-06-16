@@ -107,10 +107,19 @@ export type KnowledgeDocumentsOptions = {
 
 export type KnowledgeGraphOptions = {
   docId?: string;
+  graphType?: "document" | "entity";
   limit?: number;
   edgeLimit?: number;
   minConfidence?: number;
   includeOrphans?: boolean;
+};
+
+export type KnowledgeGraphExtractionOptions = {
+  docId?: string;
+  docIds?: string[];
+  scope?: "all" | "selected";
+  dryRun?: boolean;
+  force?: boolean;
 };
 
 export type KnowledgeGraphRagOptions = {
@@ -577,6 +586,24 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
           () => options.nativeWebui?.route({ method: "GET", path }),
           () => request(path),
           "knowledge.graph",
+        );
+      },
+      extractGraph: (extractOptions: KnowledgeGraphExtractionOptions) => {
+        const body = {
+          ...(extractOptions.docId ? { doc_id: extractOptions.docId } : {}),
+          ...(extractOptions.docIds?.length ? { doc_ids: extractOptions.docIds } : {}),
+          ...(extractOptions.scope ? { scope: extractOptions.scope } : {}),
+          ...(typeof extractOptions.dryRun === "boolean" ? { dry_run: extractOptions.dryRun } : {}),
+          ...(typeof extractOptions.force === "boolean" ? { force: extractOptions.force } : {}),
+        };
+        return nativeOrGateway(
+          () => options.nativeWebui?.route({
+            method: "POST",
+            path: "/v1/knowledge/graph/extract",
+            body,
+          }),
+          () => request("/v1/knowledge/graph/extract", jsonRequest("POST", body)),
+          "knowledge.extractGraph",
         );
       },
       graphrag: (graphRagOptions: KnowledgeGraphRagOptions = {}) => {
@@ -1547,6 +1574,9 @@ function knowledgeGraphPath(options: KnowledgeGraphOptions): string {
   const params = new URLSearchParams();
   if (options.docId) {
     params.set("doc_id", options.docId);
+  }
+  if (options.graphType) {
+    params.set("graph_type", options.graphType);
   }
   if (typeof options.limit === "number" && Number.isFinite(options.limit)) {
     params.set("limit", String(options.limit));
