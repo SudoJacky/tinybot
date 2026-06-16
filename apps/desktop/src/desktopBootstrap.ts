@@ -1671,10 +1671,38 @@ async function handleNativeKnowledgeAction(event: DesktopKnowledgeActionEvent): 
         outcome = "ignored";
         return;
       }
+      updateNativeKnowledgeTask(buildDesktopKnowledgeGraphExtractionTaskOperation({
+        documentId,
+        documentName: stringValue(estimate.doc_name || estimate.docName || event.pane.selectedDocument?.title),
+        status: "running",
+        stage: "llm_extraction",
+        detail: "Extracting entity graph",
+        completed: 6,
+        total: 8,
+        tokenEstimate,
+        extractionScope: asRecord(estimate.extraction_scope || estimate.extractionScope),
+      }));
       const result = await gatewayApi.knowledge.extractGraph({ docId: documentId });
       const operation = buildDesktopKnowledgeTaskOperation(result);
       if (operation) {
         updateNativeKnowledgeTask(operation);
+      } else {
+        const resultRecord = asRecord(result);
+        const skipped = resultRecord.skipped === true;
+        const skippedDocs = Array.isArray(resultRecord.skipped_docs) ? resultRecord.skipped_docs.map(asRecord) : [];
+        const skippedReason = stringValue(resultRecord.skipped_reason || skippedDocs[0]?.reason);
+        updateNativeKnowledgeTask(buildDesktopKnowledgeGraphExtractionTaskOperation({
+          documentId,
+          documentName: stringValue(estimate.doc_name || estimate.docName || event.pane.selectedDocument?.title),
+          status: "completed",
+          stage: skipped ? "skipped_existing_graph" : "completed",
+          detail: skipped ? "Knowledge graph extraction skipped" : "Knowledge graph extraction finished",
+          completed: 8,
+          total: 8,
+          tokenEstimate,
+          extractionScope: asRecord(estimate.extraction_scope || estimate.extractionScope),
+          diagnostics: skippedReason,
+        }));
       }
       const pane = await loadNativeKnowledgePane({
         queryResultPayload: nativeKnowledgeQueryResult,
@@ -1703,6 +1731,22 @@ async function handleNativeKnowledgeAction(event: DesktopKnowledgeActionEvent): 
   } catch (error) {
     outcome = "failed";
     errorMessage = stringifyError(error);
+    if (event.action === "extractGraph") {
+      const documentId = event.documentId || event.pane.selectedDocument?.id;
+      if (documentId) {
+        updateNativeKnowledgeTask(buildDesktopKnowledgeGraphExtractionTaskOperation({
+          documentId,
+          documentName: stringValue(event.pane.selectedDocument?.title),
+          status: "failed",
+          stage: "failed",
+          detail: "Knowledge graph extraction failed",
+          completed: 0,
+          total: 8,
+          diagnostics: errorMessage,
+        }));
+        return;
+      }
+    }
     updateNativeKnowledgeTask({
       id: `knowledge:action:${event.action}`,
       title: `Knowledge ${event.action}`,
@@ -2220,6 +2264,42 @@ function updateNativeKnowledgeTask(operation: DesktopTaskSourceOperation): void 
   nativeKnowledgeTaskOperations.set(operation.id, operation);
   logDesktopNativeDebug("task.operation.update", summarizeTaskOperation("knowledge", operation));
   publishNativeTaskCenterItems();
+}
+
+function buildDesktopKnowledgeGraphExtractionTaskOperation(input: {
+  documentId: string;
+  documentName: string;
+  status: string;
+  stage: string;
+  detail: string;
+  completed: number;
+  total: number;
+  tokenEstimate?: Record<string, unknown>;
+  extractionScope?: Record<string, unknown>;
+  diagnostics?: string;
+}): DesktopTaskSourceOperation {
+  const name = input.documentName || input.documentId;
+  const tokenTotal = stringValue(input.tokenEstimate?.total_tokens || input.tokenEstimate?.totalTokens);
+  const tokenMax = stringValue(input.tokenEstimate?.max_tokens || input.tokenEstimate?.maxTokens);
+  const chunkCount = stringValue(input.extractionScope?.chunk_count || input.extractionScope?.chunkCount);
+  const originalChunkCount = stringValue(input.extractionScope?.original_chunk_count || input.extractionScope?.originalChunkCount);
+  const diagnostics = input.diagnostics || [
+    `${name}: ${input.stage}`,
+    `${input.completed}/${input.total} stages`,
+    tokenTotal && tokenMax ? `${tokenTotal}/${tokenMax} tokens` : "",
+    chunkCount && originalChunkCount ? `${chunkCount}/${originalChunkCount} chunks` : "",
+  ].filter(Boolean).join(", ");
+  return {
+    id: `knowledge:kjob_extract_graph_${input.documentId}`,
+    title: "Extract knowledge graph",
+    status: input.status,
+    detail: `${input.detail} / ${input.stage} / 1 document: ${input.completed}/${input.total} stages`,
+    progress: { completed: input.completed, total: input.total },
+    canonical: { module: "knowledge", entityId: input.documentId, href: "/knowledge" },
+    diagnostics,
+    retryable: false,
+    updatedAt: "",
+  };
 }
 
 function updateNativeFileTask(operation: DesktopTaskSourceOperation): void {

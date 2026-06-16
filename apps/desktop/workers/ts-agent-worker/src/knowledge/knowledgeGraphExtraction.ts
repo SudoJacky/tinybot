@@ -37,6 +37,19 @@ export type KnowledgeGraphSkippedDoc = {
   reason: string;
 };
 
+export type KnowledgeGraphExtractionProgressPhase = "estimated" | "running" | "completed" | "skipped";
+
+const KNOWLEDGE_GRAPH_EXTRACTION_STAGES = [
+  "resolved_document",
+  "loaded_content",
+  "estimated_tokens",
+  "checked_existing_graph",
+  "checked_budget",
+  "llm_extraction",
+  "parsed_graph_json",
+  "persisted_entity_graph",
+] as const;
+
 export async function resolveKnowledgeGraphExtractionDocIds(
   body: Record<string, unknown>,
   provider: KnowledgeGraphExtractionProvider,
@@ -177,6 +190,7 @@ export function buildKnowledgeGraphBatchEstimateBody(
     document_count: plans.length,
     runnable_document_count: runnablePlans.length,
     skipped_count: skippedDocs.length,
+    progress: buildKnowledgeGraphExtractionProgress(plans, skippedDocs, "estimated"),
     estimates: plans.map((plan) => ({
       doc_id: plan.docId,
       doc_name: plan.docName,
@@ -223,6 +237,7 @@ export function buildKnowledgeGraphSingleEstimateBody(
     extraction_scope: plan.extractionScope,
     runnable_document_count: skipped ? 0 : 1,
     skipped_count: skipped ? 1 : 0,
+    progress: buildKnowledgeGraphExtractionProgress([plan], skipped ? [skipped] : [], "estimated"),
     ...(skipped
       ? {
         skipped: true,
@@ -230,6 +245,44 @@ export function buildKnowledgeGraphSingleEstimateBody(
         skipped_docs: [skipped],
       }
       : {}),
+  };
+}
+
+export function buildKnowledgeGraphExtractionProgress(
+  plans: KnowledgeGraphExtractionPlan[],
+  skippedDocs: KnowledgeGraphSkippedDoc[],
+  phase: KnowledgeGraphExtractionProgressPhase,
+  jobs: Record<string, unknown>[] = [],
+): Record<string, unknown> {
+  const skippedByDocId = new Map(skippedDocs.map((item) => [item.doc_id, item]));
+  const jobsByDocId = new Map<string, Record<string, unknown>>();
+  jobs.forEach((job, index) => {
+    const docId = stringValue(job.doc_id) ?? plans[index]?.docId;
+    if (docId) {
+      jobsByDocId.set(docId, job);
+    }
+  });
+  const documents = plans.map((plan) => knowledgeGraphDocumentProgress(
+    plan,
+    skippedByDocId.get(plan.docId),
+    phase,
+    jobsByDocId.get(plan.docId),
+  ));
+  const completedPhase = phase === "completed";
+  const completed = completedPhase
+    ? documents.reduce((total, document) => total + (numberValue(document.completed) ?? 0), 0)
+    : Math.min(5, KNOWLEDGE_GRAPH_EXTRACTION_STAGES.length);
+  const total = completedPhase
+    ? documents.reduce((sum, document) => sum + (numberValue(document.total) ?? KNOWLEDGE_GRAPH_EXTRACTION_STAGES.length), 0)
+    : KNOWLEDGE_GRAPH_EXTRACTION_STAGES.length;
+  return {
+    stage: phase,
+    completed,
+    total,
+    document_count: plans.length,
+    runnable_document_count: plans.length - skippedDocs.length,
+    skipped_count: skippedDocs.length,
+    documents,
   };
 }
 
@@ -257,6 +310,59 @@ function knowledgeGraphPlansTokenTotals(plans: KnowledgeGraphExtractionPlan[]): 
     acc.total += numberValue(plan.tokenEstimate.total_tokens) ?? 0;
     return acc;
   }, { prompt: 0, completion: 0, total: 0 });
+}
+
+function knowledgeGraphDocumentProgress(
+  plan: KnowledgeGraphExtractionPlan,
+  skipped: KnowledgeGraphSkippedDoc | undefined,
+  phase: KnowledgeGraphExtractionProgressPhase,
+  job: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const completed = phase === "completed" ? KNOWLEDGE_GRAPH_EXTRACTION_STAGES.length : 5;
+  const skippedDoc = Boolean(skipped);
+  const status = skippedDoc ? "skipped" : phase === "completed" ? "completed" : phase === "running" ? "running" : "ready";
+  const stage = skippedDoc ? "skipped_existing_graph" : phase === "completed" ? "persisted_entity_graph" : "budget_checked";
+  return {
+    doc_id: plan.docId,
+    doc_name: plan.docName,
+    status,
+    stage,
+    completed,
+    total: KNOWLEDGE_GRAPH_EXTRACTION_STAGES.length,
+    token_estimate: skippedDoc
+      ? {
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0,
+        max_tokens: numberValue(plan.tokenEstimate.max_tokens) ?? 0,
+        within_budget: true,
+      }
+      : plan.tokenEstimate,
+    extraction_scope: plan.extractionScope,
+    ...(skipped ? { skipped_reason: skipped.reason } : {}),
+    ...(job?.id ? { job_id: job.id } : {}),
+    ...(job?.result ? { result: job.result } : {}),
+    stages: KNOWLEDGE_GRAPH_EXTRACTION_STAGES.map((stageName, index) => ({
+      stage: stageName,
+      status: knowledgeGraphStageStatus(index, skippedDoc, phase),
+    })),
+  };
+}
+
+function knowledgeGraphStageStatus(index: number, skipped: boolean, phase: KnowledgeGraphExtractionProgressPhase): string {
+  if (index < 5) {
+    return "completed";
+  }
+  if (skipped) {
+    return "skipped";
+  }
+  if (phase === "completed") {
+    return "completed";
+  }
+  if (phase === "running" && index === 5) {
+    return "running";
+  }
+  return "pending";
 }
 
 function knowledgeGraphExtractionDocumentLimit(body: Record<string, unknown>): number {

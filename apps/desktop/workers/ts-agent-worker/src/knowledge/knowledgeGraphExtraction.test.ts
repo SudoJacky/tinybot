@@ -207,6 +207,36 @@ describe("knowledge graph extraction backend", () => {
       document_count: 2,
       runnable_document_count: 1,
       skipped_count: 1,
+      progress: {
+        stage: "estimated",
+        completed: 5,
+        total: 8,
+        documents: [
+          {
+            doc_id: "doc-1",
+            status: "ready",
+            stage: "budget_checked",
+            completed: 5,
+            total: 8,
+            stages: [
+              { stage: "resolved_document", status: "completed" },
+              { stage: "loaded_content", status: "completed" },
+              { stage: "estimated_tokens", status: "completed" },
+              { stage: "checked_existing_graph", status: "completed" },
+              { stage: "checked_budget", status: "completed" },
+              { stage: "llm_extraction", status: "pending" },
+              { stage: "parsed_graph_json", status: "pending" },
+              { stage: "persisted_entity_graph", status: "pending" },
+            ],
+          },
+          {
+            doc_id: "doc-2",
+            status: "skipped",
+            stage: "skipped_existing_graph",
+            skipped_reason: "entity_graph_exists",
+          },
+        ],
+      },
       estimates: [
         { doc_id: "doc-1", token_estimate: { total_tokens: 300 } },
         { doc_id: "doc-2", skipped: true, skipped_reason: "entity_graph_exists" },
@@ -235,6 +265,19 @@ describe("knowledge graph extraction backend", () => {
       runnable_document_count: 0,
       skipped_count: 1,
       skipped_reason: "entity_graph_exists",
+      progress: {
+        stage: "estimated",
+        completed: 5,
+        total: 8,
+        documents: [
+          {
+            doc_id: "doc-1",
+            status: "skipped",
+            stage: "skipped_existing_graph",
+            skipped_reason: "entity_graph_exists",
+          },
+        ],
+      },
       token_estimate: {
         prompt_tokens: 0,
         completion_tokens: 0,

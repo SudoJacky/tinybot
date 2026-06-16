@@ -696,16 +696,19 @@ export function buildDesktopKnowledgeTaskOperation(payload: unknown): DesktopTas
   const docId = firstNonEmpty(job.doc_id, root.doc_id, root.id);
   const stage = firstNonEmpty(job.stage);
   const message = firstNonEmpty(job.message, root.message);
-  const processed = numberValue(job.processed ?? job.completed);
-  const total = numberValue(job.total);
+  const progressPayload = knowledgeProgressPayload(job, root);
+  const processed = optionalNumberValue(progressPayload.completed) ?? numberValue(job.processed ?? job.completed);
+  const total = optionalNumberValue(progressPayload.total) ?? numberValue(job.total);
+  const progressSummary = formatKnowledgeProgressSummary(progressPayload);
+  const progressDiagnostics = formatKnowledgeProgressDiagnostics(progressPayload);
   const sourceTitle = firstNonEmpty(job.source_title, job.doc_name, job.document_name, root.source_title, root.doc_name, root.document_name, name, docId);
   const sourceDetail = firstNonEmpty(job.source_path, job.path, job.file_path, root.source_path, root.path, root.file_path, stage);
-  const diagnostics = firstNonEmpty(job.error, root.error);
+  const diagnostics = firstNonEmpty(job.error, root.error, progressDiagnostics);
   return {
     id: `knowledge:${id}`,
     title: knowledgeTaskTitle(name),
     status: firstNonEmpty(job.status, root.status, stage, "indexing"),
-    detail: [message, stage].filter(Boolean).join(" / "),
+    detail: [message, stage, progressSummary].filter(Boolean).join(" / "),
     progress: total ? { completed: processed, total } : undefined,
     canonical: { module: "knowledge", entityId: docId || id, href: "/knowledge" },
     diagnostics,
@@ -761,6 +764,59 @@ function normalizeKnowledgeJobPayload(root: UnknownRecord): UnknownRecord {
     return data;
   }
   return root;
+}
+
+function knowledgeProgressPayload(job: UnknownRecord, root: UnknownRecord): UnknownRecord {
+  const jobProgress = asRecord(job.progress);
+  if (Object.keys(jobProgress).length) {
+    return jobProgress;
+  }
+  const rootProgress = asRecord(root.progress);
+  if (Object.keys(rootProgress).length) {
+    return rootProgress;
+  }
+  return {};
+}
+
+function formatKnowledgeProgressSummary(progress: UnknownRecord): string {
+  const documents = asArray(progress.documents).map(asRecord);
+  const completed = optionalNumberValue(progress.completed);
+  const total = optionalNumberValue(progress.total);
+  if (!documents.length || completed === undefined || total === undefined) {
+    return "";
+  }
+  return `${documents.length} ${documents.length === 1 ? "document" : "documents"}: ${completed}/${total} stages`;
+}
+
+function formatKnowledgeProgressDiagnostics(progress: UnknownRecord): string {
+  const documents = asArray(progress.documents).map(asRecord);
+  if (!documents.length) {
+    return "";
+  }
+  return documents.map((document) => {
+    const name = firstNonEmpty(document.doc_name, document.document_name, document.doc_id, "document");
+    const stage = firstNonEmpty(document.stage, document.status);
+    const completed = optionalNumberValue(document.completed);
+    const total = optionalNumberValue(document.total);
+    const tokenEstimate = asRecord(document.token_estimate);
+    const tokenTotal = optionalNumberValue(tokenEstimate.total_tokens ?? tokenEstimate.totalTokens);
+    const tokenMax = optionalNumberValue(tokenEstimate.max_tokens ?? tokenEstimate.maxTokens);
+    const extractionScope = asRecord(document.extraction_scope);
+    const chunkCount = optionalNumberValue(extractionScope.chunk_count ?? extractionScope.chunkCount);
+    const originalChunkCount = optionalNumberValue(extractionScope.original_chunk_count ?? extractionScope.originalChunkCount);
+    return [
+      `${name}: ${stage}`,
+      completed !== undefined && total !== undefined ? `${completed}/${total} stages` : "",
+      tokenTotal !== undefined && tokenMax !== undefined ? `${tokenTotal}/${tokenMax} tokens` : "",
+      chunkCount !== undefined && originalChunkCount !== undefined ? `${chunkCount}/${originalChunkCount} chunks` : "",
+      firstNonEmpty(document.skipped_reason) ? `skipped: ${firstNonEmpty(document.skipped_reason)}` : "",
+    ].filter(Boolean).join(", ");
+  }).join("\n");
+}
+
+function optionalNumberValue(value: unknown): number | undefined {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : undefined;
 }
 
 function knowledgeTaskTitle(name: string): string {
