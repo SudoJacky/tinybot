@@ -501,6 +501,11 @@ impl WorkerRpcRouter {
                 serde_json::to_value(self.knowledge.get_document(params)?)
                     .map_err(serialization_error)
             }
+            "knowledge.document_tree" => {
+                let params: KnowledgeDocumentIdParams = parse_params(request)?;
+                serde_json::to_value(self.knowledge.document_tree(params)?)
+                    .map_err(serialization_error)
+            }
             "knowledge.delete_document" => {
                 let params: KnowledgeDocumentIdParams = parse_params(request)?;
                 serde_json::to_value(self.knowledge.delete_document(params)?)
@@ -7997,6 +8002,136 @@ mod tests {
             json!(["The child snippet contains uniqueneedle evidence for ranking."])
         );
         assert_eq!(result["retrieval_method"], "sparse");
+    }
+
+    #[test]
+    fn knowledge_document_tree_returns_markdown_section_hierarchy() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let content = [
+            "# Desktop Knowledge Notes",
+            "",
+            "Root overview.",
+            "",
+            "## Retrieval Pipeline",
+            "",
+            "Sparse retrieval should find parent sections.",
+            "",
+            "### Ranking Details",
+            "",
+            "RRF and sparse scores are tracked.",
+            "",
+            "## Operational Notes",
+            "",
+            "Unrelated final section.",
+        ]
+        .join("\n");
+
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-tree-1",
+            "trace-tree",
+            "knowledge.add_document",
+            json!({
+                "name": "Tree Knowledge Notes",
+                "content": content,
+                "category": "desktop",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+
+        let tree_response = router.dispatch(&WorkerRequest::new(
+            "req-tree-2",
+            "trace-tree",
+            "knowledge.document_tree",
+            json!({ "doc_id": doc_id }),
+        ));
+
+        assert_eq!(tree_response.error, None);
+        let tree = tree_response
+            .result
+            .as_ref()
+            .expect("knowledge.document_tree should return result");
+        assert_eq!(tree["object"], "knowledge_document_tree");
+        assert_eq!(tree["doc_id"], doc_id);
+        assert_eq!(tree["root"]["id"], "section-root");
+        assert_eq!(
+            tree["root"]["children"],
+            json!([format!("section_{doc_id}_0")])
+        );
+        assert_eq!(tree["section_count"], 4);
+        assert_eq!(
+            tree["sections"],
+            json!([
+                {
+                    "id": format!("section_{doc_id}_0"),
+                    "doc_id": doc_id,
+                    "chunk_id": format!("chunk_{doc_id}_0"),
+                    "title": "Desktop Knowledge Notes",
+                    "section_path": "Desktop Knowledge Notes",
+                    "parent_id": "section-root",
+                    "children": [format!("section_{doc_id}_1"), format!("section_{doc_id}_3")],
+                    "ordinal": 0,
+                    "line_start": 1,
+                    "line_end": 4,
+                    "chunk_count": 1
+                },
+                {
+                    "id": format!("section_{doc_id}_1"),
+                    "doc_id": doc_id,
+                    "chunk_id": format!("chunk_{doc_id}_1"),
+                    "title": "Retrieval Pipeline",
+                    "section_path": "Retrieval Pipeline",
+                    "parent_id": format!("section_{doc_id}_0"),
+                    "children": [format!("section_{doc_id}_2")],
+                    "ordinal": 1,
+                    "line_start": 5,
+                    "line_end": 8,
+                    "chunk_count": 1
+                },
+                {
+                    "id": format!("section_{doc_id}_2"),
+                    "doc_id": doc_id,
+                    "chunk_id": format!("chunk_{doc_id}_2"),
+                    "title": "Ranking Details",
+                    "section_path": "Ranking Details",
+                    "parent_id": format!("section_{doc_id}_1"),
+                    "children": [],
+                    "ordinal": 2,
+                    "line_start": 9,
+                    "line_end": 12,
+                    "chunk_count": 1
+                },
+                {
+                    "id": format!("section_{doc_id}_3"),
+                    "doc_id": doc_id,
+                    "chunk_id": format!("chunk_{doc_id}_3"),
+                    "title": "Operational Notes",
+                    "section_path": "Operational Notes",
+                    "parent_id": format!("section_{doc_id}_0"),
+                    "children": [],
+                    "ordinal": 3,
+                    "line_start": 13,
+                    "line_end": 15,
+                    "chunk_count": 1
+                }
+            ])
+        );
     }
 
     #[test]

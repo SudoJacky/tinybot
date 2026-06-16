@@ -133,6 +133,23 @@ impl WorkerKnowledgeRpc {
         })
     }
 
+    pub fn document_tree(
+        &self,
+        params: KnowledgeDocumentIdParams,
+    ) -> Result<KnowledgeDocumentTreeResult, WorkerProtocolError> {
+        self.require(WorkerCapability::KnowledgeRead)?;
+        if find_document(&self.root, &params.doc_id)?.is_none() {
+            return Err(unknown_knowledge_document(&params.doc_id));
+        }
+        let chunks =
+            read_jsonl::<KnowledgeChunk>(&KnowledgeStorePaths::new(&self.root).chunks_file)?;
+        let parent_chunks = chunks
+            .into_iter()
+            .filter(|chunk| chunk.doc_id == params.doc_id && chunk.chunk_type == "parent")
+            .collect::<Vec<_>>();
+        Ok(build_knowledge_document_tree(&params.doc_id, parent_chunks))
+    }
+
     pub fn delete_document(
         &self,
         params: KnowledgeDocumentIdParams,
@@ -1134,6 +1151,36 @@ pub struct KnowledgeDocumentsResult {
 pub struct KnowledgeGetDocumentResult {
     pub document: KnowledgeDocument,
     pub content: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct KnowledgeDocumentTreeResult {
+    pub object: String,
+    pub doc_id: String,
+    pub root: KnowledgeDocumentTreeRoot,
+    pub sections: Vec<KnowledgeDocumentTreeSection>,
+    pub section_count: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct KnowledgeDocumentTreeRoot {
+    pub id: String,
+    pub children: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct KnowledgeDocumentTreeSection {
+    pub id: String,
+    pub doc_id: String,
+    pub chunk_id: String,
+    pub title: String,
+    pub section_path: String,
+    pub parent_id: String,
+    pub children: Vec<String>,
+    pub ordinal: usize,
+    pub line_start: usize,
+    pub line_end: usize,
+    pub chunk_count: usize,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -2426,6 +2473,79 @@ fn build_document_chunks(
         }
     }
     chunks
+}
+
+fn build_knowledge_document_tree(
+    doc_id: &str,
+    mut parent_chunks: Vec<KnowledgeChunk>,
+) -> KnowledgeDocumentTreeResult {
+    parent_chunks.sort_by(|left, right| {
+        left.section_ordinal
+            .cmp(&right.section_ordinal)
+            .then_with(|| left.chunk_index.cmp(&right.chunk_index))
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    let mut children_by_parent: HashMap<String, Vec<String>> = HashMap::new();
+    for chunk in &parent_chunks {
+        let section_id = knowledge_chunk_section_id(chunk);
+        let parent_id = if chunk.parent_section_id.is_empty() {
+            "section-root".to_string()
+        } else {
+            chunk.parent_section_id.clone()
+        };
+        children_by_parent
+            .entry(parent_id)
+            .or_default()
+            .push(section_id);
+    }
+    let sections = parent_chunks
+        .into_iter()
+        .map(|chunk| {
+            let section_id = knowledge_chunk_section_id(&chunk);
+            KnowledgeDocumentTreeSection {
+                id: section_id.clone(),
+                doc_id: chunk.doc_id,
+                chunk_id: chunk.id,
+                title: if chunk.section_title.is_empty() {
+                    chunk.section_path.clone()
+                } else {
+                    chunk.section_title
+                },
+                section_path: chunk.section_path,
+                parent_id: if chunk.parent_section_id.is_empty() {
+                    "section-root".to_string()
+                } else {
+                    chunk.parent_section_id
+                },
+                children: children_by_parent.remove(&section_id).unwrap_or_default(),
+                ordinal: chunk.section_ordinal,
+                line_start: chunk.line_start,
+                line_end: chunk.line_end,
+                chunk_count: 1,
+            }
+        })
+        .collect::<Vec<_>>();
+    let section_count = sections.len();
+    KnowledgeDocumentTreeResult {
+        object: "knowledge_document_tree".to_string(),
+        doc_id: doc_id.to_string(),
+        root: KnowledgeDocumentTreeRoot {
+            id: "section-root".to_string(),
+            children: children_by_parent
+                .remove("section-root")
+                .unwrap_or_default(),
+        },
+        sections,
+        section_count,
+    }
+}
+
+fn knowledge_chunk_section_id(chunk: &KnowledgeChunk) -> String {
+    if chunk.section_id.is_empty() {
+        section_id(&chunk.doc_id, chunk.section_ordinal)
+    } else {
+        chunk.section_id.clone()
+    }
 }
 
 fn split_parent_sections(content: &str) -> Vec<ParentSection> {
