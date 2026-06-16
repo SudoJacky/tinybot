@@ -8191,6 +8191,97 @@ mod tests {
     }
 
     #[test]
+    fn knowledge_query_can_expand_from_entity_graph_evidence() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-graph-query-1",
+            "trace-graph-query",
+            "knowledge.add_document",
+            json!({
+                "name": "Graph Expansion Notes",
+                "content": "# Graph Expansion Notes\n\nThe orchestration layer coordinates background jobs.\n",
+                "category": "desktop",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-graph-query-2",
+            "trace-graph-query",
+            "knowledge.save_entity_graph_extraction",
+            json!({
+                "doc_id": doc_id,
+                "doc_name": "Graph Expansion Notes",
+                "model": "knowledge-model",
+                "entities": [
+                    {
+                        "name": "TinyBot",
+                        "type": "project",
+                        "confidence": 0.93,
+                        "evidence": [
+                            {
+                                "text": "The orchestration layer coordinates background jobs.",
+                                "line_start": 3,
+                                "line_end": 3
+                            }
+                        ]
+                    }
+                ],
+                "relations": [],
+                "diagnostics": { "chunks_used": 1 }
+            }),
+        ));
+        assert_eq!(save_response.error, None);
+
+        let query_response = router.dispatch(&WorkerRequest::new(
+            "req-graph-query-3",
+            "trace-graph-query",
+            "knowledge.query",
+            json!({
+                "query": "TinyBot dependency",
+                "category": "desktop",
+                "limit": 3,
+                "include_graph_context": true
+            }),
+        ));
+
+        assert_eq!(query_response.error, None);
+        let result = &query_response
+            .result
+            .as_ref()
+            .expect("knowledge.query should return result")["results"][0];
+        assert_eq!(result["id"], format!("chunk_{doc_id}_0"));
+        assert_eq!(result["retrieval_method"], "graph");
+        assert_eq!(result["matched_methods"], json!(["graph"]));
+        assert_eq!(result["matched_entities"][0]["label"], "TinyBot");
+        assert_eq!(
+            result["source_snippets"][0]["text"],
+            "The orchestration layer coordinates background jobs."
+        );
+        assert_eq!(result["source_snippets"][0]["owner_type"], "entity");
+        assert_eq!(
+            result["score_metadata"]["route_contributions"][0]["route"],
+            "graph"
+        );
+    }
+
+    #[test]
     fn knowledge_query_returns_deterministic_retrieval_plan() {
         let fixture = WorkspaceFixture::new();
         let mut router = WorkerRpcRouter::new(

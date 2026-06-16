@@ -576,15 +576,8 @@ impl WorkerKnowledgeRpc {
             .collect();
         let mut results_by_parent: HashMap<String, KnowledgeQueryResult> = HashMap::new();
         for chunk in chunks {
-            if let Some(category) = params.category.as_deref().filter(|value| !value.is_empty()) {
-                if chunk.category != category {
-                    continue;
-                }
-            }
-            if let Some(tags) = params.tags.as_ref().filter(|tags| !tags.is_empty()) {
-                if !tags.iter().any(|tag| chunk.tags.contains(tag)) {
-                    continue;
-                }
+            if !knowledge_chunk_matches_query_filters(&chunk, &params) {
+                continue;
             }
             let score = knowledge_score(&chunk.retrieval_text, &query_terms);
             if score == 0 {
@@ -624,6 +617,19 @@ impl WorkerKnowledgeRpc {
                         .push(chunk.section_path.clone());
                 }
             }
+        }
+        if params.include_graph_context == Some(true) {
+            let store = KnowledgeStorePaths::new(&self.root);
+            let entity_nodes = read_jsonl::<KnowledgeGraphNode>(&store.entity_graph_nodes_file)?;
+            let entity_evidence = read_jsonl::<Value>(&store.entity_graph_evidence_file)?;
+            expand_query_with_entity_graph(
+                &mut results_by_parent,
+                &parents,
+                &entity_nodes,
+                &entity_evidence,
+                &query_terms,
+                &params,
+            );
         }
         let mut results: Vec<KnowledgeQueryResult> = results_by_parent.into_values().collect();
         results.sort_by(|left, right| {
@@ -675,6 +681,7 @@ impl WorkerKnowledgeRpc {
                 tags: None,
                 limit: Some(max_chunks),
                 include_structure_context: None,
+                include_graph_context: None,
             })?
             .results
         };
@@ -1138,6 +1145,8 @@ pub struct KnowledgeQueryParams {
     pub limit: Option<usize>,
     #[serde(default)]
     pub include_structure_context: Option<bool>,
+    #[serde(default)]
+    pub include_graph_context: Option<bool>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -1424,6 +1433,125 @@ impl KnowledgeQueryResult {
     }
 }
 
+fn knowledge_chunk_matches_query_filters(
+    chunk: &KnowledgeChunk,
+    params: &KnowledgeQueryParams,
+) -> bool {
+    if let Some(category) = params.category.as_deref().filter(|value| !value.is_empty()) {
+        if chunk.category != category {
+            return false;
+        }
+    }
+    if let Some(tags) = params.tags.as_ref().filter(|tags| !tags.is_empty()) {
+        if !tags.iter().any(|tag| chunk.tags.contains(tag)) {
+            return false;
+        }
+    }
+    true
+}
+
+fn expand_query_with_entity_graph(
+    results_by_parent: &mut HashMap<String, KnowledgeQueryResult>,
+    parent_chunks: &HashMap<String, KnowledgeChunk>,
+    nodes: &[KnowledgeGraphNode],
+    evidence_records: &[Value],
+    query_terms: &[String],
+    params: &KnowledgeQueryParams,
+) {
+    for node in nodes
+        .iter()
+        .filter(|node| entity_graph_node_matches_query(node, query_terms))
+    {
+        if node.attributes.get("stale").and_then(Value::as_bool) == Some(true) {
+            continue;
+        }
+        let evidence_ids = graph_evidence_ids(&node.attributes);
+        for evidence in evidence_records.iter().filter(|evidence| {
+            value_string(evidence, "doc_id").as_deref() == Some(node.doc_id.as_str())
+                && value_string(evidence, "owner_id").as_deref() == Some(node.id.as_str())
+                && value_string(evidence, "owner_type").as_deref() == Some("entity")
+                && value_string(evidence, "id")
+                    .as_ref()
+                    .map(|id| evidence_ids.contains(id))
+                    .unwrap_or(false)
+        }) {
+            let Some(chunk) = graph_evidence_parent_chunk(parent_chunks, evidence, params) else {
+                continue;
+            };
+            let entry = results_by_parent
+                .entry(chunk.id.clone())
+                .or_insert_with(|| KnowledgeQueryResult::from_chunk(chunk.clone(), 0));
+            if entry.score == 0 {
+                entry.score = 1;
+                entry.rrf_score = 1;
+                entry.method = "graph".to_string();
+                entry.retrieval_method = "graph".to_string();
+            }
+            if !entry.matched_methods.iter().any(|method| method == "graph") {
+                entry.matched_methods.push("graph".to_string());
+            }
+            let node_value = serde_json::to_value(node).unwrap_or_else(|_| serde_json::json!({}));
+            if !entry.matched_entities.contains(&node_value) {
+                entry.matched_entities.push(node_value);
+            }
+            if !entry.source_snippets.contains(evidence) {
+                entry.source_snippets.push(evidence.clone());
+            }
+        }
+    }
+}
+
+fn entity_graph_node_matches_query(node: &KnowledgeGraphNode, query_terms: &[String]) -> bool {
+    let label = node.label.to_ascii_lowercase();
+    query_terms
+        .iter()
+        .any(|term| label.contains(term) || term.contains(label.as_str()))
+}
+
+fn graph_evidence_ids(attributes: &Value) -> HashSet<String> {
+    attributes
+        .get("evidence_ids")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect::<HashSet<_>>()
+        })
+        .unwrap_or_default()
+}
+
+fn graph_evidence_parent_chunk(
+    parent_chunks: &HashMap<String, KnowledgeChunk>,
+    evidence: &Value,
+    params: &KnowledgeQueryParams,
+) -> Option<KnowledgeChunk> {
+    let doc_id = value_string(evidence, "doc_id")?;
+    let line_start = value_usize(evidence, "line_start").unwrap_or(1);
+    let line_end = value_usize(evidence, "line_end").unwrap_or(line_start);
+    let mut candidates = parent_chunks
+        .values()
+        .filter(|chunk| {
+            chunk.doc_id == doc_id
+                && knowledge_chunk_matches_query_filters(chunk, params)
+                && ranges_overlap(chunk.line_start, chunk.line_end, line_start, line_end)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    candidates.sort_by_key(|chunk| (chunk.line_start, chunk.chunk_index));
+    candidates.into_iter().next()
+}
+
+fn ranges_overlap(
+    left_start: usize,
+    left_end: usize,
+    right_start: usize,
+    right_end: usize,
+) -> bool {
+    left_start <= right_end && right_start <= left_end
+}
+
 fn populate_knowledge_score_metadata(result: &mut KnowledgeQueryResult) {
     if result.sparse_contribution > 0
         && !result
@@ -1433,26 +1561,61 @@ fn populate_knowledge_score_metadata(result: &mut KnowledgeQueryResult) {
     {
         result.matched_methods.push("keyword".to_string());
     }
+    let graph_contribution = if result
+        .matched_methods
+        .iter()
+        .any(|method| method == "graph")
+    {
+        1
+    } else {
+        0
+    };
+    let mut components = serde_json::Map::new();
+    let mut route_contributions = Vec::new();
+    if result.sparse_contribution > 0 {
+        components.insert(
+            "sparse".to_string(),
+            serde_json::json!({
+                "score": result.bm25_score,
+                "rank": result.sparse_rank,
+                "contribution": result.sparse_contribution
+            }),
+        );
+        route_contributions.push(serde_json::json!({
+            "route": "keyword",
+            "method": "sparse",
+            "score": result.bm25_score,
+            "rank": result.sparse_rank,
+            "contribution": result.sparse_contribution
+        }));
+    }
+    if graph_contribution > 0 {
+        components.insert(
+            "graph".to_string(),
+            serde_json::json!({
+                "score": graph_contribution,
+                "rank": result.sparse_rank,
+                "contribution": graph_contribution
+            }),
+        );
+        route_contributions.push(serde_json::json!({
+            "route": "graph",
+            "method": "entity_evidence",
+            "score": graph_contribution,
+            "rank": result.sparse_rank,
+            "contribution": graph_contribution
+        }));
+    }
     result.score_metadata = serde_json::json!({
         "object": "knowledge_score_metadata",
-        "score_model": "deterministic_sparse_v1",
-        "final_score": result.score,
-        "components": {
-            "sparse": {
-                "score": result.bm25_score,
-                "rank": result.sparse_rank,
-                "contribution": result.sparse_contribution
-            }
+        "score_model": if graph_contribution > 0 {
+            "deterministic_sparse_graph_v1"
+        } else {
+            "deterministic_sparse_v1"
         },
-        "route_contributions": [
-            {
-                "route": "keyword",
-                "method": "sparse",
-                "score": result.bm25_score,
-                "rank": result.sparse_rank,
-                "contribution": result.sparse_contribution
-            }
-        ]
+        "final_score": result.score,
+        "components": components,
+        "route_contributions": route_contributions
     });
 }
 
