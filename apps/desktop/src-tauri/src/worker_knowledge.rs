@@ -621,11 +621,13 @@ impl WorkerKnowledgeRpc {
         if params.include_graph_context == Some(true) {
             let store = KnowledgeStorePaths::new(&self.root);
             let entity_nodes = read_jsonl::<KnowledgeGraphNode>(&store.entity_graph_nodes_file)?;
+            let entity_edges = read_jsonl::<KnowledgeGraphEdge>(&store.entity_graph_edges_file)?;
             let entity_evidence = read_jsonl::<Value>(&store.entity_graph_evidence_file)?;
             expand_query_with_entity_graph(
                 &mut results_by_parent,
                 &parents,
                 &entity_nodes,
+                &entity_edges,
                 &entity_evidence,
                 &query_terms,
                 &params,
@@ -682,6 +684,9 @@ impl WorkerKnowledgeRpc {
                 limit: Some(max_chunks),
                 include_structure_context: None,
                 include_graph_context: None,
+                graph_relation_filters: None,
+                graph_min_confidence: None,
+                graph_max_added_chunks: None,
             })?
             .results
         };
@@ -1147,6 +1152,12 @@ pub struct KnowledgeQueryParams {
     pub include_structure_context: Option<bool>,
     #[serde(default)]
     pub include_graph_context: Option<bool>,
+    #[serde(default)]
+    pub graph_relation_filters: Option<Vec<String>>,
+    #[serde(default)]
+    pub graph_min_confidence: Option<f64>,
+    #[serde(default)]
+    pub graph_max_added_chunks: Option<usize>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -1454,15 +1465,29 @@ fn expand_query_with_entity_graph(
     results_by_parent: &mut HashMap<String, KnowledgeQueryResult>,
     parent_chunks: &HashMap<String, KnowledgeChunk>,
     nodes: &[KnowledgeGraphNode],
+    edges: &[KnowledgeGraphEdge],
     evidence_records: &[Value],
     query_terms: &[String],
     params: &KnowledgeQueryParams,
 ) {
+    let mut added_chunks = 0usize;
+    let max_added_chunks = params.graph_max_added_chunks.unwrap_or(5).min(20);
+    let min_confidence = params.graph_min_confidence.unwrap_or(0.0).clamp(0.0, 1.0);
+    let node_lookup = nodes
+        .iter()
+        .map(|node| (node.id.clone(), node))
+        .collect::<HashMap<_, _>>();
     for node in nodes
         .iter()
         .filter(|node| entity_graph_node_matches_query(node, query_terms))
     {
+        if added_chunks >= max_added_chunks {
+            break;
+        }
         if node.attributes.get("stale").and_then(Value::as_bool) == Some(true) {
+            continue;
+        }
+        if graph_record_confidence(&node.attributes) < min_confidence {
             continue;
         }
         let evidence_ids = graph_evidence_ids(&node.attributes);
@@ -1478,34 +1503,149 @@ fn expand_query_with_entity_graph(
             let Some(chunk) = graph_evidence_parent_chunk(parent_chunks, evidence, params) else {
                 continue;
             };
-            let entry = results_by_parent
-                .entry(chunk.id.clone())
-                .or_insert_with(|| KnowledgeQueryResult::from_chunk(chunk.clone(), 0));
-            if entry.score == 0 {
-                entry.score = 1;
-                entry.rrf_score = 1;
-                entry.method = "graph".to_string();
-                entry.retrieval_method = "graph".to_string();
-            }
-            if !entry.matched_methods.iter().any(|method| method == "graph") {
-                entry.matched_methods.push("graph".to_string());
-            }
             let node_value = serde_json::to_value(node).unwrap_or_else(|_| serde_json::json!({}));
-            if !entry.matched_entities.contains(&node_value) {
-                entry.matched_entities.push(node_value);
-            }
-            if !entry.source_snippets.contains(evidence) {
-                entry.source_snippets.push(evidence.clone());
+            let inserted = add_graph_evidence_query_result(
+                results_by_parent,
+                chunk,
+                evidence,
+                Some(node_value),
+                None,
+            );
+            if inserted {
+                added_chunks += 1;
+                if added_chunks >= max_added_chunks {
+                    break;
+                }
             }
         }
     }
+    for edge in edges.iter().filter(|edge| {
+        relation_graph_edge_matches_query(edge, &node_lookup, query_terms)
+            && relation_graph_edge_matches_filters(edge, params)
+            && graph_record_confidence(&edge.attributes) >= min_confidence
+    }) {
+        if added_chunks >= max_added_chunks {
+            break;
+        }
+        if edge.attributes.get("stale").and_then(Value::as_bool) == Some(true) {
+            continue;
+        }
+        let evidence_ids = graph_evidence_ids(&edge.attributes);
+        for evidence in evidence_records.iter().filter(|evidence| {
+            value_string(evidence, "doc_id").as_deref() == Some(edge.doc_id.as_str())
+                && value_string(evidence, "owner_id").as_deref() == Some(edge.id.as_str())
+                && value_string(evidence, "owner_type").as_deref() == Some("relation")
+                && value_string(evidence, "id")
+                    .as_ref()
+                    .map(|id| evidence_ids.contains(id))
+                    .unwrap_or(false)
+        }) {
+            let Some(chunk) = graph_evidence_parent_chunk(parent_chunks, evidence, params) else {
+                continue;
+            };
+            let edge_value = serde_json::to_value(edge).unwrap_or_else(|_| serde_json::json!({}));
+            let inserted = add_graph_evidence_query_result(
+                results_by_parent,
+                chunk,
+                evidence,
+                None,
+                Some(edge_value),
+            );
+            if inserted {
+                added_chunks += 1;
+                if added_chunks >= max_added_chunks {
+                    break;
+                }
+            }
+        }
+    }
+}
+
+fn add_graph_evidence_query_result(
+    results_by_parent: &mut HashMap<String, KnowledgeQueryResult>,
+    chunk: KnowledgeChunk,
+    evidence: &Value,
+    matched_entity: Option<Value>,
+    matched_relation: Option<Value>,
+) -> bool {
+    let inserted = !results_by_parent.contains_key(&chunk.id);
+    let entry = results_by_parent
+        .entry(chunk.id.clone())
+        .or_insert_with(|| KnowledgeQueryResult::from_chunk(chunk, 0));
+    if entry.score == 0 {
+        entry.score = 1;
+        entry.rrf_score = 1;
+        entry.method = "graph".to_string();
+        entry.retrieval_method = "graph".to_string();
+    }
+    if !entry.matched_methods.iter().any(|method| method == "graph") {
+        entry.matched_methods.push("graph".to_string());
+    }
+    if let Some(entity) = matched_entity {
+        if !entry.matched_entities.contains(&entity) {
+            entry.matched_entities.push(entity);
+        }
+    }
+    if let Some(relation) = matched_relation {
+        if !entry.matched_relations.contains(&relation) {
+            entry.matched_relations.push(relation);
+        }
+        if !entry.matched_relation_evidence.contains(evidence) {
+            entry.matched_relation_evidence.push(evidence.clone());
+        }
+    }
+    if !entry.source_snippets.contains(evidence) {
+        entry.source_snippets.push(evidence.clone());
+    }
+    inserted
 }
 
 fn entity_graph_node_matches_query(node: &KnowledgeGraphNode, query_terms: &[String]) -> bool {
     let label = node.label.to_ascii_lowercase();
     query_terms
         .iter()
-        .any(|term| label.contains(term) || term.contains(label.as_str()))
+        .any(|term| graph_text_matches_query_term(&label, term))
+}
+
+fn relation_graph_edge_matches_query(
+    edge: &KnowledgeGraphEdge,
+    node_lookup: &HashMap<String, &KnowledgeGraphNode>,
+    query_terms: &[String],
+) -> bool {
+    let source_label = node_lookup
+        .get(&edge.source)
+        .map(|node| node.label.to_ascii_lowercase())
+        .unwrap_or_default();
+    let target_label = node_lookup
+        .get(&edge.target)
+        .map(|node| node.label.to_ascii_lowercase())
+        .unwrap_or_default();
+    let predicate = edge.label.to_ascii_lowercase();
+    query_terms.iter().any(|term| {
+        graph_text_matches_query_term(&source_label, term)
+            || graph_text_matches_query_term(&target_label, term)
+            || graph_text_matches_query_term(&predicate, term)
+    })
+}
+
+fn graph_text_matches_query_term(value: &str, term: &str) -> bool {
+    !value.is_empty() && (value.contains(term) || term.contains(value))
+}
+
+fn relation_graph_edge_matches_filters(
+    edge: &KnowledgeGraphEdge,
+    params: &KnowledgeQueryParams,
+) -> bool {
+    let Some(filters) = params
+        .graph_relation_filters
+        .as_ref()
+        .filter(|filters| !filters.is_empty())
+    else {
+        return true;
+    };
+    filters
+        .iter()
+        .any(|filter| filter.eq_ignore_ascii_case(&edge.label))
 }
 
 fn graph_evidence_ids(attributes: &Value) -> HashSet<String> {
@@ -1600,7 +1740,7 @@ fn populate_knowledge_score_metadata(result: &mut KnowledgeQueryResult) {
         );
         route_contributions.push(serde_json::json!({
             "route": "graph",
-            "method": "entity_evidence",
+            "method": "graph_evidence",
             "score": graph_contribution,
             "rank": result.sparse_rank,
             "contribution": graph_contribution

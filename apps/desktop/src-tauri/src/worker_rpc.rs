@@ -8282,6 +8282,119 @@ mod tests {
     }
 
     #[test]
+    fn knowledge_query_can_expand_from_relation_graph_evidence() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-relation-query-1",
+            "trace-relation-query",
+            "knowledge.add_document",
+            json!({
+                "name": "Relation Expansion Notes",
+                "content": "# Relation Expansion Notes\n\nThe orchestration layer coordinates background jobs.\n",
+                "category": "desktop",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-relation-query-2",
+            "trace-relation-query",
+            "knowledge.save_entity_graph_extraction",
+            json!({
+                "doc_id": doc_id,
+                "doc_name": "Relation Expansion Notes",
+                "model": "knowledge-model",
+                "entities": [
+                    { "name": "TinyBot", "type": "project", "confidence": 0.93 },
+                    { "name": "RuntimeScheduler", "type": "component", "confidence": 0.91 }
+                ],
+                "relations": [
+                    {
+                        "source": "TinyBot",
+                        "target": "RuntimeScheduler",
+                        "predicate": "depends_on",
+                        "confidence": 0.88,
+                        "evidence": [
+                            {
+                                "text": "The orchestration layer coordinates background jobs.",
+                                "line_start": 3,
+                                "line_end": 3
+                            }
+                        ]
+                    },
+                    {
+                        "source": "TinyBot",
+                        "target": "Unrelated",
+                        "predicate": "mentions",
+                        "confidence": 0.95,
+                        "evidence": [
+                            {
+                                "text": "The orchestration layer coordinates background jobs.",
+                                "line_start": 3,
+                                "line_end": 3
+                            }
+                        ]
+                    }
+                ],
+                "diagnostics": { "chunks_used": 1 }
+            }),
+        ));
+        assert_eq!(save_response.error, None);
+
+        let query_response = router.dispatch(&WorkerRequest::new(
+            "req-relation-query-3",
+            "trace-relation-query",
+            "knowledge.query",
+            json!({
+                "query": "TinyBot",
+                "category": "desktop",
+                "limit": 3,
+                "include_graph_context": true,
+                "graph_relation_filters": ["depends_on"],
+                "graph_min_confidence": 0.8,
+                "graph_max_added_chunks": 1
+            }),
+        ));
+
+        assert_eq!(query_response.error, None);
+        let result = &query_response
+            .result
+            .as_ref()
+            .expect("knowledge.query should return result")["results"][0];
+        assert_eq!(result["id"], format!("chunk_{doc_id}_0"));
+        assert_eq!(result["retrieval_method"], "graph");
+        assert_eq!(result["matched_methods"], json!(["graph"]));
+        assert_eq!(result["matched_entities"], json!([]));
+        assert_eq!(result["matched_relations"].as_array().unwrap().len(), 1);
+        assert_eq!(result["matched_relations"][0]["label"], "depends_on");
+        assert_eq!(
+            result["matched_relation_evidence"][0]["text"],
+            "The orchestration layer coordinates background jobs."
+        );
+        assert_eq!(result["source_snippets"][0]["owner_type"], "relation");
+        assert_eq!(
+            result["score_metadata"]["route_contributions"][0]["method"],
+            "graph_evidence"
+        );
+    }
+
+    #[test]
     fn knowledge_query_returns_deterministic_retrieval_plan() {
         let fixture = WorkspaceFixture::new();
         let mut router = WorkerRpcRouter::new(
