@@ -363,6 +363,7 @@ impl WorkerKnowledgeRpc {
             .retain(|item| value_string(item, "doc_id").as_deref() != Some(document.id.as_str()));
 
         let mut entity_ids = HashMap::new();
+        let mut entity_node_indexes = HashMap::new();
         for entity in params
             .entities
             .iter()
@@ -385,20 +386,26 @@ impl WorkerKnowledgeRpc {
                     )
                 })
                 .collect::<Vec<_>>();
-            nodes.push(KnowledgeGraphNode {
-                id,
-                label: entity.name.trim().to_string(),
-                node_type: "entity".to_string(),
-                doc_id: document.id.clone(),
-                evidence: Vec::new(),
-                attributes: serde_json::json!({
-                    "entity_type": entity.entity_type,
-                    "confidence": entity.confidence,
-                    "source_hash": source_hash,
-                    "stale": false,
-                    "evidence_ids": evidence_ids
-                }),
-            });
+            if let Some(index) = entity_node_indexes.get(&id).copied() {
+                merge_entity_graph_node(&mut nodes[index], entity, evidence_ids);
+            } else {
+                nodes.push(KnowledgeGraphNode {
+                    id: id.clone(),
+                    label: entity.name.trim().to_string(),
+                    node_type: "entity".to_string(),
+                    doc_id: document.id.clone(),
+                    evidence: Vec::new(),
+                    attributes: serde_json::json!({
+                        "entity_type": normalize_entity_graph_type(&entity.entity_type),
+                        "aliases": [],
+                        "confidence": entity.confidence,
+                        "source_hash": source_hash,
+                        "stale": false,
+                        "evidence_ids": evidence_ids
+                    }),
+                });
+                entity_node_indexes.insert(id, nodes.len() - 1);
+            }
         }
         for relation in params.relations.iter().filter(|relation| {
             !relation.source.trim().is_empty()
@@ -2286,6 +2293,69 @@ fn completed_entity_graph_job(
             "diagnostics": params.diagnostics
         }),
     }
+}
+
+fn merge_entity_graph_node(
+    node: &mut KnowledgeGraphNode,
+    entity: &KnowledgeExtractedEntity,
+    evidence_ids: Vec<String>,
+) {
+    if let Value::Object(attributes) = &mut node.attributes {
+        append_unique_json_strings(attributes, "evidence_ids", evidence_ids);
+
+        let alias = entity.name.trim();
+        if !alias.is_empty() && alias != node.label {
+            append_unique_json_strings(attributes, "aliases", vec![alias.to_string()]);
+        }
+
+        let entity_type = normalize_entity_graph_type(&entity.entity_type);
+        let existing_type = attributes
+            .get("entity_type")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .trim();
+        if existing_type.is_empty() && !entity_type.is_empty() {
+            attributes.insert("entity_type".to_string(), Value::String(entity_type));
+        }
+
+        if let Some(confidence) = entity.confidence {
+            let existing_confidence = attributes.get("confidence").and_then(Value::as_f64);
+            if existing_confidence.map_or(true, |existing| confidence > existing) {
+                attributes.insert("confidence".to_string(), serde_json::json!(confidence));
+            }
+        }
+    }
+}
+
+fn append_unique_json_strings(
+    attributes: &mut serde_json::Map<String, Value>,
+    key: &str,
+    values: Vec<String>,
+) {
+    let mut existing = attributes
+        .get(key)
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut seen = existing
+        .iter()
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect::<HashSet<_>>();
+    for value in values
+        .into_iter()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    {
+        if seen.insert(value.clone()) {
+            existing.push(Value::String(value));
+        }
+    }
+    attributes.insert(key.to_string(), Value::Array(existing));
+}
+
+fn normalize_entity_graph_type(value: &str) -> String {
+    value.trim().to_ascii_lowercase()
 }
 
 fn entity_graph_stub_node(

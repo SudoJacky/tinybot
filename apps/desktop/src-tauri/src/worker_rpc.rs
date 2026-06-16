@@ -8395,6 +8395,103 @@ mod tests {
     }
 
     #[test]
+    fn save_entity_graph_extraction_merges_duplicate_entity_aliases() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-entity-alias-1",
+            "trace-entity-alias",
+            "knowledge.add_document",
+            json!({
+                "name": "Entity Alias Source",
+                "content": "# Entity Alias Source\n\nTinyBot validates entity aliases.\ntinybot records duplicate evidence.\n",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-entity-alias-2",
+            "trace-entity-alias",
+            "knowledge.save_entity_graph_extraction",
+            json!({
+                "doc_id": doc_id,
+                "doc_name": "Entity Alias Source",
+                "model": "knowledge-model",
+                "entities": [
+                    {
+                        "name": "TinyBot",
+                        "type": "Project",
+                        "confidence": 0.91,
+                        "evidence": [
+                            {
+                                "text": "TinyBot validates entity aliases.",
+                                "line_start": 3,
+                                "line_end": 3
+                            }
+                        ]
+                    },
+                    {
+                        "name": " tinybot ",
+                        "type": "project",
+                        "confidence": 0.86,
+                        "evidence": [
+                            {
+                                "text": "tinybot records duplicate evidence.",
+                                "line_start": 4,
+                                "line_end": 4
+                            }
+                        ]
+                    }
+                ],
+                "relations": [],
+                "diagnostics": { "chunks_used": 1 }
+            }),
+        ));
+        assert_eq!(save_response.error, None);
+
+        let graph_response = router.dispatch(&WorkerRequest::new(
+            "req-entity-alias-3",
+            "trace-entity-alias",
+            "knowledge.graph",
+            json!({
+                "graph_type": "entity",
+                "doc_id": doc_id,
+                "include_orphans": true
+            }),
+        ));
+
+        assert_eq!(graph_response.error, None);
+        let result = graph_response
+            .result
+            .as_ref()
+            .expect("knowledge.graph should return result");
+        assert_eq!(result["stats"]["node_count"], 1);
+        assert_eq!(result["nodes"][0]["label"], "TinyBot");
+        assert_eq!(result["nodes"][0]["attributes"]["entity_type"], "project");
+        assert_eq!(
+            result["nodes"][0]["attributes"]["aliases"],
+            json!(["tinybot"])
+        );
+        assert_eq!(result["nodes"][0]["evidence"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
     fn save_entity_graph_extraction_rejects_relation_without_evidence() {
         let fixture = WorkspaceFixture::new();
         let mut router = WorkerRpcRouter::new(
