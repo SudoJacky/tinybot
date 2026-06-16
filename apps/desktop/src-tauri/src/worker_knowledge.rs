@@ -155,6 +155,7 @@ impl WorkerKnowledgeRpc {
         let mut chunks = read_jsonl::<KnowledgeChunk>(&store.chunks_file)?;
         chunks.retain(|chunk| chunk.doc_id != params.doc_id);
         write_jsonl(&store.chunks_file, &chunks)?;
+        purge_entity_graph_records(&store, &params.doc_id)?;
         let _ = fs::remove_file(self.root.join(&document.file_path));
         refresh_document_graph(&self.root)?;
         Ok(KnowledgeDeleteDocumentResult {
@@ -208,12 +209,20 @@ impl WorkerKnowledgeRpc {
         }
         let stats = self.stats()?;
         let result = match rebuild_type.as_str() {
-            "bm25" => knowledge_bm25_rebuild_result(&self.root)?,
+            "bm25" => {
+                let result = knowledge_bm25_rebuild_result(&self.root)?;
+                refresh_document_graph(&self.root)?;
+                result
+            }
             "semantic" => knowledge_semantic_unavailable_result(),
-            "all" => serde_json::json!({
-                "bm25": knowledge_bm25_rebuild_result(&self.root)?,
-                "semantic": knowledge_semantic_unavailable_result()
-            }),
+            "all" => {
+                let result = serde_json::json!({
+                    "bm25": knowledge_bm25_rebuild_result(&self.root)?,
+                    "semantic": knowledge_semantic_unavailable_result()
+                });
+                refresh_document_graph(&self.root)?;
+                result
+            }
             _ => unreachable!(),
         };
         let job = completed_rebuild_job(&rebuild_type, &stats, result);
@@ -458,6 +467,17 @@ impl WorkerKnowledgeRpc {
             nodes.retain(|node| node.doc_id == doc_id);
             edges.retain(|edge| edge.doc_id == doc_id);
         }
+        let min_confidence = params.min_confidence.unwrap_or(0.0).clamp(0.0, 1.0);
+        nodes.retain(|node| graph_record_confidence(&node.attributes) >= min_confidence);
+        let retained_node_ids = nodes
+            .iter()
+            .map(|node| node.id.clone())
+            .collect::<HashSet<_>>();
+        edges.retain(|edge| {
+            graph_record_confidence(&edge.attributes) >= min_confidence
+                && retained_node_ids.contains(&edge.source)
+                && retained_node_ids.contains(&edge.target)
+        });
         attach_entity_graph_node_evidence(&mut nodes, &evidence_records);
         let edge_limit = params.edge_limit.unwrap_or(160).clamp(1, 1000);
         edges.truncate(edge_limit);
@@ -487,7 +507,7 @@ impl WorkerKnowledgeRpc {
                 "doc_id": requested_doc_id,
                 "limit": limit,
                 "edge_limit": edge_limit,
-                "min_confidence": params.min_confidence.unwrap_or(0.0),
+                "min_confidence": min_confidence,
                 "include_orphans": params.include_orphans.unwrap_or(false)
             }),
             readiness: serde_json::json!({
@@ -1686,6 +1706,29 @@ fn entity_graph_stub_node(
     }
 }
 
+fn purge_entity_graph_records(
+    store: &KnowledgeStorePaths,
+    doc_id: &str,
+) -> Result<(), WorkerProtocolError> {
+    let mut nodes = read_jsonl::<KnowledgeGraphNode>(&store.entity_graph_nodes_file)?;
+    let mut edges = read_jsonl::<KnowledgeGraphEdge>(&store.entity_graph_edges_file)?;
+    let mut evidence_records = read_jsonl::<Value>(&store.entity_graph_evidence_file)?;
+    nodes.retain(|node| node.doc_id != doc_id);
+    edges.retain(|edge| edge.doc_id != doc_id);
+    evidence_records.retain(|item| value_string(item, "doc_id").as_deref() != Some(doc_id));
+    write_jsonl(&store.entity_graph_nodes_file, &nodes)?;
+    write_jsonl(&store.entity_graph_edges_file, &edges)?;
+    write_jsonl(&store.entity_graph_evidence_file, &evidence_records)
+}
+
+fn graph_record_confidence(attributes: &Value) -> f64 {
+    attributes
+        .get("confidence")
+        .and_then(Value::as_f64)
+        .unwrap_or(1.0)
+        .clamp(0.0, 1.0)
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 struct EntityGraphStaleness {
     node_count: usize,
@@ -1697,7 +1740,8 @@ fn mark_entity_graph_staleness(
     nodes: &mut [KnowledgeGraphNode],
     edges: &mut [KnowledgeGraphEdge],
 ) -> Result<EntityGraphStaleness, WorkerProtocolError> {
-    let documents = read_jsonl::<KnowledgeDocument>(&KnowledgeStorePaths::new(root).documents_file)?;
+    let documents =
+        read_jsonl::<KnowledgeDocument>(&KnowledgeStorePaths::new(root).documents_file)?;
     let current_hashes = documents
         .iter()
         .map(|document| (document.id.clone(), document_content_hash(document)))
@@ -1722,7 +1766,12 @@ fn attach_entity_graph_node_evidence(nodes: &mut [KnowledgeGraphNode], evidence_
             .attributes
             .get("evidence_ids")
             .and_then(Value::as_array)
-            .map(|items| items.iter().filter_map(Value::as_str).collect::<HashSet<_>>())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<HashSet<_>>()
+            })
             .unwrap_or_default();
         if evidence_ids.is_empty() {
             node.evidence.clear();
@@ -1754,7 +1803,10 @@ fn mark_graph_attributes_staleness(attributes: &mut Value, current_hash: Option<
         map.insert("stale".to_string(), Value::Bool(stale));
         if stale {
             if let Some(hash) = current_hash {
-                map.insert("current_source_hash".to_string(), Value::String(hash.clone()));
+                map.insert(
+                    "current_source_hash".to_string(),
+                    Value::String(hash.clone()),
+                );
             }
         } else {
             map.remove("current_source_hash");
