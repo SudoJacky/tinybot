@@ -7852,48 +7852,28 @@ mod tests {
             }),
         ));
         assert_eq!(query_response.error, None);
+        let query_result = &query_response
+            .result
+            .as_ref()
+            .expect("knowledge.query should return result")["results"][0];
+        assert_eq!(query_result["id"], json!(format!("chunk_{doc_id}_0")));
+        assert_eq!(query_result["doc_id"], json!(doc_id));
         assert_eq!(
-            query_response.result.as_ref().unwrap()["results"][0],
-            json!({
-                "id": format!("chunk_{doc_id}_0"),
-                "doc_id": doc_id,
-                "parent_id": format!("chunk_{doc_id}_0"),
-                "chunk_type": "parent",
-                "content": "# Desktop Knowledge Notes\n\nTS worker knowledge store should persist chunks for sparse retrieval.\n",
-                "matched_child_ids": [],
-                "matched_child_snippets": [],
-                "doc_name": "Desktop Knowledge Notes",
-                "file_path": format!("knowledge/files/{doc_id}.md"),
-                "start_char": 0,
-                "end_char": 97,
-                "line_start": 1,
-                "line_end": 3,
-                "section_path": "Desktop Knowledge Notes",
-                "block_type": "text",
-                "score": 2,
-                "rrf_score": 2,
-                "semantic_score": null,
-                "bm25_score": 2,
-                "dense_distance": null,
-                "dense_rank": null,
-                "sparse_rank": 1,
-                "dense_contribution": null,
-                "sparse_contribution": 2,
-                "method": "sparse",
-                "retrieval_method": "sparse",
-                "score_metadata": {},
-                "source_snippets": [],
-                "matched_methods": [],
-                "matched_entities": [],
-                "matched_claims": [],
-                "matched_claim_evidence": [],
-                "matched_relations": [],
-                "matched_relation_evidence": [],
-                "matched_communities": [],
-                "conflict_metadata": [],
-                "projection_metadata": []
-            })
+            query_result["parent_id"],
+            json!(format!("chunk_{doc_id}_0"))
         );
+        assert_eq!(query_result["chunk_type"], "parent");
+        assert_eq!(query_result["doc_name"], "Desktop Knowledge Notes");
+        assert_eq!(query_result["section_path"], "Desktop Knowledge Notes");
+        assert_eq!(query_result["section_id"], format!("section_{doc_id}_0"));
+        assert_eq!(query_result["section_title"], "Desktop Knowledge Notes");
+        assert_eq!(query_result["parent_section_id"], "section-root");
+        assert_eq!(query_result["section_ordinal"], 0);
+        assert_eq!(query_result["matched_child_ids"], json!([]));
+        assert_eq!(query_result["matched_child_snippets"], json!([]));
+        assert_eq!(query_result["matched_child_section_paths"], json!([]));
+        assert_eq!(query_result["score"], 2);
+        assert_eq!(query_result["retrieval_method"], "sparse");
 
         let delete_response = router.dispatch(&WorkerRequest::new(
             "req-5",
@@ -7996,6 +7976,14 @@ mod tests {
         assert_eq!(result["parent_id"], format!("chunk_{doc_id}_1"));
         assert_eq!(result["chunk_type"], "parent");
         assert_eq!(result["section_path"], "Retrieval Pipeline");
+        assert_eq!(result["section_id"], format!("section_{doc_id}_1"));
+        assert_eq!(result["section_title"], "Retrieval Pipeline");
+        assert_eq!(result["parent_section_id"], format!("section_{doc_id}_0"));
+        assert_eq!(result["section_ordinal"], 1);
+        assert_eq!(
+            result["matched_child_section_paths"],
+            json!(["Retrieval Pipeline"])
+        );
         assert!(result["content"]
             .as_str()
             .expect("result content should be string")

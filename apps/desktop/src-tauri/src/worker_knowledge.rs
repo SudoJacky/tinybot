@@ -596,6 +596,14 @@ impl WorkerKnowledgeRpc {
                 if !entry.matched_child_snippets.contains(&chunk.content) {
                     entry.matched_child_snippets.push(chunk.content.clone());
                 }
+                if !entry
+                    .matched_child_section_paths
+                    .contains(&chunk.section_path)
+                {
+                    entry
+                        .matched_child_section_paths
+                        .push(chunk.section_path.clone());
+                }
             }
         }
         let mut results: Vec<KnowledgeQueryResult> = results_by_parent.into_values().collect();
@@ -863,6 +871,14 @@ pub struct KnowledgeChunk {
     #[serde(default)]
     pub section_path: String,
     #[serde(default)]
+    pub section_id: String,
+    #[serde(default)]
+    pub section_title: String,
+    #[serde(default)]
+    pub parent_section_id: String,
+    #[serde(default)]
+    pub section_ordinal: usize,
+    #[serde(default)]
     pub block_type: String,
 }
 
@@ -900,6 +916,13 @@ impl KnowledgeChunk {
             category: params.category.clone().unwrap_or_default(),
             tags: params.tags.clone().unwrap_or_default(),
             section_path: section.section_path.clone(),
+            section_id: section_id(doc_id, index),
+            section_title: section.section_title.clone(),
+            parent_section_id: section
+                .parent_section_index
+                .map(|parent_index| section_id(doc_id, parent_index))
+                .unwrap_or_else(|| "section-root".to_string()),
+            section_ordinal: section.section_ordinal,
             block_type: "text".to_string(),
         }
     }
@@ -913,6 +936,9 @@ impl KnowledgeChunk {
         child_index: usize,
         line: &SectionLine,
         section_path: &str,
+        section_title: &str,
+        parent_section_id: &str,
+        section_ordinal: usize,
         params: &KnowledgeAddDocumentParams,
         created_at: &str,
     ) -> Self {
@@ -939,6 +965,10 @@ impl KnowledgeChunk {
             category: params.category.clone().unwrap_or_default(),
             tags: params.tags.clone().unwrap_or_default(),
             section_path: section_path.to_string(),
+            section_id: section_id(doc_id, parent_index),
+            section_title: section_title.to_string(),
+            parent_section_id: parent_section_id.to_string(),
+            section_ordinal,
             block_type: "text".to_string(),
         }
     }
@@ -952,6 +982,9 @@ struct ParentSection {
     line_start: usize,
     line_end: usize,
     section_path: String,
+    section_title: String,
+    parent_section_index: Option<usize>,
+    section_ordinal: usize,
     child_lines: Vec<SectionLine>,
 }
 
@@ -1238,6 +1271,7 @@ pub struct KnowledgeQueryResult {
     pub content: String,
     pub matched_child_ids: Vec<String>,
     pub matched_child_snippets: Vec<String>,
+    pub matched_child_section_paths: Vec<String>,
     pub doc_name: String,
     pub file_path: String,
     pub start_char: usize,
@@ -1247,6 +1281,10 @@ pub struct KnowledgeQueryResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub page: Option<usize>,
     pub section_path: String,
+    pub section_id: String,
+    pub section_title: String,
+    pub parent_section_id: String,
+    pub section_ordinal: usize,
     pub block_type: String,
     pub score: usize,
     pub rrf_score: usize,
@@ -1282,6 +1320,7 @@ impl KnowledgeQueryResult {
             content: chunk.content,
             matched_child_ids: Vec::new(),
             matched_child_snippets: Vec::new(),
+            matched_child_section_paths: Vec::new(),
             doc_name: chunk.doc_name,
             file_path: chunk.file_path,
             start_char: chunk.start_char,
@@ -1290,6 +1329,10 @@ impl KnowledgeQueryResult {
             line_end: chunk.line_end,
             page: chunk.page,
             section_path: chunk.section_path,
+            section_id: chunk.section_id,
+            section_title: chunk.section_title,
+            parent_section_id: chunk.parent_section_id,
+            section_ordinal: chunk.section_ordinal,
             block_type: chunk.block_type,
             score,
             rrf_score: score,
@@ -2361,6 +2404,10 @@ fn build_document_chunks(
             continue;
         }
         for (child_index, line) in section.child_lines.iter().enumerate() {
+            let parent_section_id = section
+                .parent_section_index
+                .map(|parent_index| section_id(doc_id, parent_index))
+                .unwrap_or_else(|| "section-root".to_string());
             chunks.push(KnowledgeChunk::child(
                 doc_id,
                 doc_name,
@@ -2370,6 +2417,9 @@ fn build_document_chunks(
                 child_index,
                 line,
                 &section.section_path,
+                &section.section_title,
+                &parent_section_id,
+                section.section_ordinal,
                 params,
                 created_at,
             ));
@@ -2388,6 +2438,9 @@ fn split_parent_sections(content: &str) -> Vec<ParentSection> {
             line_start: 1,
             line_end: 1,
             section_path: String::new(),
+            section_title: String::new(),
+            parent_section_index: None,
+            section_ordinal: 0,
             child_lines: Vec::new(),
         }];
     }
@@ -2395,18 +2448,33 @@ fn split_parent_sections(content: &str) -> Vec<ParentSection> {
     let mut current_start = 0usize;
     let mut current_line_start = 1usize;
     let mut current_section_path = first_markdown_heading(content).unwrap_or_default();
+    let mut current_heading_level = first_markdown_heading_level(content).unwrap_or(0);
+    let mut current_parent_section_index = None;
     let mut current_child_lines = Vec::new();
+    let mut heading_stack: Vec<(usize, usize)> = Vec::new();
     for (index, line) in line_spans.iter().enumerate() {
         if line.is_heading && index != current_start {
+            let closed_section_index = sections.len();
             sections.push(parent_section_from_lines(
                 &line_spans[current_start..index],
                 current_line_start,
                 current_section_path,
+                current_parent_section_index,
+                closed_section_index,
                 current_child_lines,
             ));
+            if current_heading_level > 0 {
+                heading_stack.retain(|(level, _)| *level < current_heading_level);
+                heading_stack.push((current_heading_level, closed_section_index));
+            }
             current_start = index;
             current_line_start = line.line_number;
             current_section_path = line.heading.clone().unwrap_or_default();
+            current_heading_level = line.heading_level.unwrap_or(0);
+            heading_stack.retain(|(level, _)| *level < current_heading_level);
+            current_parent_section_index = heading_stack
+                .last()
+                .map(|(_, section_index)| *section_index);
             current_child_lines = Vec::new();
         }
         if !line.is_heading && !line.trimmed.is_empty() {
@@ -2422,6 +2490,8 @@ fn split_parent_sections(content: &str) -> Vec<ParentSection> {
         &line_spans[current_start..],
         current_line_start,
         current_section_path,
+        current_parent_section_index,
+        sections.len(),
         current_child_lines,
     ));
     sections
@@ -2431,6 +2501,8 @@ fn parent_section_from_lines(
     lines: &[LineSpan],
     line_start: usize,
     section_path: String,
+    parent_section_index: Option<usize>,
+    section_ordinal: usize,
     child_lines: Vec<SectionLine>,
 ) -> ParentSection {
     let content = lines
@@ -2450,7 +2522,10 @@ fn parent_section_from_lines(
         end_char,
         line_start,
         line_end,
+        section_title: section_path.clone(),
         section_path,
+        parent_section_index,
+        section_ordinal,
         child_lines,
     }
 }
@@ -2464,6 +2539,7 @@ struct LineSpan {
     line_number: usize,
     is_heading: bool,
     heading: Option<String>,
+    heading_level: Option<usize>,
 }
 
 fn content_line_spans(content: &str) -> Vec<LineSpan> {
@@ -2472,7 +2548,7 @@ fn content_line_spans(content: &str) -> Vec<LineSpan> {
     for (index, line) in content.split_inclusive('\n').enumerate() {
         let line_without_newline = line.trim_end_matches(['\r', '\n']);
         let trimmed = line_without_newline.trim().to_string();
-        let heading = markdown_heading_text(&trimmed);
+        let heading = markdown_heading(&trimmed);
         let end_char = offset + line.chars().count();
         spans.push(LineSpan {
             original: line.to_string(),
@@ -2481,14 +2557,15 @@ fn content_line_spans(content: &str) -> Vec<LineSpan> {
             end_char,
             line_number: index + 1,
             is_heading: heading.is_some(),
-            heading,
+            heading: heading.as_ref().map(|(_, title)| title.clone()),
+            heading_level: heading.map(|(level, _)| level),
         });
         offset = end_char;
     }
     if offset < content.chars().count() {
         let remainder = &content[offset..];
         let trimmed = remainder.trim().to_string();
-        let heading = markdown_heading_text(&trimmed);
+        let heading = markdown_heading(&trimmed);
         spans.push(LineSpan {
             original: remainder.to_string(),
             trimmed,
@@ -2496,7 +2573,8 @@ fn content_line_spans(content: &str) -> Vec<LineSpan> {
             end_char: content.chars().count(),
             line_number: spans.len() + 1,
             is_heading: heading.is_some(),
-            heading,
+            heading: heading.as_ref().map(|(_, title)| title.clone()),
+            heading_level: heading.map(|(level, _)| level),
         });
     }
     spans
@@ -2516,13 +2594,33 @@ fn first_markdown_heading(content: &str) -> Option<String> {
         .find_map(|line| markdown_heading_text(line.trim()))
 }
 
+fn first_markdown_heading_level(content: &str) -> Option<usize> {
+    content
+        .lines()
+        .find_map(|line| markdown_heading(line.trim()).map(|(level, _)| level))
+}
+
 fn markdown_heading_text(trimmed: &str) -> Option<String> {
-    let title = trimmed.trim_start_matches('#').trim();
-    if trimmed.starts_with('#') && !title.is_empty() {
-        Some(title.to_string())
-    } else {
-        None
+    markdown_heading(trimmed).map(|(_, title)| title)
+}
+
+fn markdown_heading(trimmed: &str) -> Option<(usize, String)> {
+    let level = trimmed
+        .chars()
+        .take_while(|character| *character == '#')
+        .count();
+    if level == 0 || level > 6 {
+        return None;
     }
+    let title = trimmed[level..].trim();
+    if title.is_empty() {
+        return None;
+    }
+    Some((level, title.to_string()))
+}
+
+fn section_id(doc_id: &str, section_ordinal: usize) -> String {
+    format!("section_{doc_id}_{section_ordinal}")
 }
 
 fn knowledge_query_terms(query: &str) -> Vec<String> {
