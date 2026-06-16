@@ -169,6 +169,21 @@ describe("WebUI knowledge graph extraction routes", () => {
         extraction_scope: { max_chunks: 5, chunk_count: 1, original_chunk_count: 1 },
         runnable_document_count: 1,
         skipped_count: 0,
+        progress: {
+          stage: "estimated",
+          completed: 5,
+          total: 8,
+          documents: [
+            {
+              doc_id: "doc-1",
+              doc_name: "Knowledge.md",
+              status: "ready",
+              stage: "budget_checked",
+              completed: 5,
+              total: 8,
+            },
+          ],
+        },
         token_estimate: { total_tokens: expect.any(Number), max_tokens: 640, within_budget: true },
       },
     });
@@ -206,6 +221,20 @@ describe("WebUI knowledge graph extraction routes", () => {
         job: {
           id: "kjob_extract_graph_doc-1",
           stage: "entity_graph_extracted",
+          progress: {
+            stage: "completed",
+            completed: 8,
+            total: 8,
+            documents: [
+              {
+                doc_id: "doc-1",
+                status: "completed",
+                stage: "persisted_entity_graph",
+                completed: 8,
+                total: 8,
+              },
+            ],
+          },
           result: { entities: 1, relations: 1, evidence: 2 },
         },
       },
@@ -436,9 +465,18 @@ describe("WebUI knowledge graph extraction routes", () => {
         message: "Knowledge graph extraction completed",
         document_count: 2,
         jobs: [
-          { id: "kjob_extract_graph_doc-1", doc_id: "doc-1" },
-          { id: "kjob_extract_graph_doc-2", doc_id: "doc-2" },
+          { id: "kjob_extract_graph_doc-1", doc_id: "doc-1", progress: { completed: 8, total: 8 } },
+          { id: "kjob_extract_graph_doc-2", doc_id: "doc-2", progress: { completed: 8, total: 8 } },
         ],
+        progress: {
+          stage: "completed",
+          completed: 16,
+          total: 16,
+          documents: [
+            { doc_id: "doc-1", status: "completed", completed: 8, total: 8 },
+            { doc_id: "doc-2", status: "completed", completed: 8, total: 8 },
+          ],
+        },
       },
     });
     expect(completions).toHaveLength(2);

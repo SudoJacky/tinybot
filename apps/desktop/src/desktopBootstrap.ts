@@ -1671,6 +1671,16 @@ async function handleNativeKnowledgeAction(event: DesktopKnowledgeActionEvent): 
         outcome = "ignored";
         return;
       }
+      updateNativeKnowledgeTask(buildDesktopKnowledgeGraphExtractionTaskOperation({
+        documentId,
+        documentName: stringValue(estimate.doc_name || estimate.docName || event.pane.selectedDocument?.title),
+        stage: "llm_extraction",
+        detail: "Extracting entity graph",
+        completed: 6,
+        total: 8,
+        tokenEstimate,
+        extractionScope: asRecord(estimate.extraction_scope || estimate.extractionScope),
+      }));
       const result = await gatewayApi.knowledge.extractGraph({ docId: documentId });
       const operation = buildDesktopKnowledgeTaskOperation(result);
       if (operation) {
@@ -2220,6 +2230,40 @@ function updateNativeKnowledgeTask(operation: DesktopTaskSourceOperation): void 
   nativeKnowledgeTaskOperations.set(operation.id, operation);
   logDesktopNativeDebug("task.operation.update", summarizeTaskOperation("knowledge", operation));
   publishNativeTaskCenterItems();
+}
+
+function buildDesktopKnowledgeGraphExtractionTaskOperation(input: {
+  documentId: string;
+  documentName: string;
+  stage: string;
+  detail: string;
+  completed: number;
+  total: number;
+  tokenEstimate?: Record<string, unknown>;
+  extractionScope?: Record<string, unknown>;
+}): DesktopTaskSourceOperation {
+  const name = input.documentName || input.documentId;
+  const tokenTotal = stringValue(input.tokenEstimate?.total_tokens || input.tokenEstimate?.totalTokens);
+  const tokenMax = stringValue(input.tokenEstimate?.max_tokens || input.tokenEstimate?.maxTokens);
+  const chunkCount = stringValue(input.extractionScope?.chunk_count || input.extractionScope?.chunkCount);
+  const originalChunkCount = stringValue(input.extractionScope?.original_chunk_count || input.extractionScope?.originalChunkCount);
+  const diagnostics = [
+    `${name}: ${input.stage}`,
+    `${input.completed}/${input.total} stages`,
+    tokenTotal && tokenMax ? `${tokenTotal}/${tokenMax} tokens` : "",
+    chunkCount && originalChunkCount ? `${chunkCount}/${originalChunkCount} chunks` : "",
+  ].filter(Boolean).join(", ");
+  return {
+    id: `knowledge:kjob_extract_graph_${input.documentId}`,
+    title: "Extract knowledge graph",
+    status: "running",
+    detail: `${input.detail} / ${input.stage} / 1 document: ${input.completed}/${input.total} stages`,
+    progress: { completed: input.completed, total: input.total },
+    canonical: { module: "knowledge", entityId: input.documentId, href: "/knowledge" },
+    diagnostics,
+    retryable: false,
+    updatedAt: "",
+  };
 }
 
 function updateNativeFileTask(operation: DesktopTaskSourceOperation): void {

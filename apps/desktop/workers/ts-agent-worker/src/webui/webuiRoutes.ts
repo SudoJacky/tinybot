@@ -6,6 +6,7 @@ import { EMPTY_FINAL_RESPONSE_MESSAGE } from "../support/runtimeHelpers.ts";
 import {
   areKnowledgeGraphPlansWithinJobBudget,
   buildKnowledgeGraphBatchEstimateBody,
+  buildKnowledgeGraphExtractionProgress,
   buildKnowledgeGraphExtractionPlan,
   buildKnowledgeGraphSingleEstimateBody,
   findExistingKnowledgeGraphExtractionSkips,
@@ -1636,6 +1637,7 @@ async function knowledgeGraphExtractResponse(
           runnable_document_count: 0,
           skipped_count: skippedDocs.length,
           skipped_docs: skippedDocs,
+          progress: buildKnowledgeGraphExtractionProgress(plans, skippedDocs, "skipped"),
         },
       };
     }
@@ -1651,7 +1653,7 @@ async function knowledgeGraphExtractResponse(
     if (!areKnowledgeGraphPlansWithinJobBudget(runnablePlans, maxJobTokens)) {
       return { status: 400, body: knowledgeApiError(400, "Graph extraction token estimate exceeds configured job budget") };
     }
-    const jobs = await runKnowledgeGraphExtractionPlans(
+    const jobs: Record<string, unknown>[] = await runKnowledgeGraphExtractionPlans(
       runnablePlans,
       knowledgeGraphExtractionConcurrency(config),
       async (plan) => runKnowledgeGraphExtractionPlan({
@@ -1664,19 +1666,44 @@ async function knowledgeGraphExtractResponse(
         traceId,
       }),
     );
+    const completedProgress = buildKnowledgeGraphExtractionProgress(plans, skippedDocs, "completed", jobs);
+    const progressByDocId = new Map(
+      (Array.isArray(completedProgress.documents) ? completedProgress.documents : [])
+        .map((item) => asObject(item))
+        .filter((item): item is Record<string, unknown> => Boolean(item?.doc_id))
+        .map((item) => [String(item.doc_id), item]),
+    );
+    const jobsWithProgress: Record<string, unknown>[] = jobs.map((job, index) => {
+      const docId = stringValue(job.doc_id) ?? runnablePlans[index]?.docId;
+      const documentProgress = docId ? progressByDocId.get(docId) : undefined;
+      return {
+        ...job,
+        ...(documentProgress
+          ? {
+            progress: {
+              stage: completedProgress.stage,
+              completed: documentProgress.completed,
+              total: documentProgress.total,
+              documents: [documentProgress],
+            },
+          }
+          : {}),
+      };
+    });
     logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.graph_extract.complete", {
       document_count: runnablePlans.length,
       job_count: jobs.length,
       skipped_count: skippedDocs.length,
     });
     if (jobs.length === 1 && skippedDocs.length === 0) {
-      const job = jobs[0] ?? {};
+      const job = jobsWithProgress[0] ?? {};
       return {
         status: 202,
         body: {
           message: "Knowledge graph extraction completed",
           job,
-          job_id: job.id,
+          job_id: job["id"],
+          progress: completedProgress,
         },
       };
     }
@@ -1685,10 +1712,11 @@ async function knowledgeGraphExtractResponse(
       body: {
         message: "Knowledge graph extraction completed",
         document_count: plans.length,
-        runnable_document_count: jobs.length,
+        runnable_document_count: jobsWithProgress.length,
         skipped_count: skippedDocs.length,
-        jobs,
-        job_ids: jobs.map((job) => job.id).filter(Boolean),
+        jobs: jobsWithProgress,
+        job_ids: jobsWithProgress.map((job) => job["id"]).filter(Boolean),
+        progress: completedProgress,
         ...(skippedDocs.length ? { skipped_docs: skippedDocs } : {}),
       },
     };
