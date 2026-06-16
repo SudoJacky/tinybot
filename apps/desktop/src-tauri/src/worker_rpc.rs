@@ -8005,6 +8005,76 @@ mod tests {
     }
 
     #[test]
+    fn knowledge_query_returns_score_component_metadata() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-score-1",
+            "trace-score",
+            "knowledge.add_document",
+            json!({
+                "name": "Score Metadata Notes",
+                "content": "# Score Metadata Notes\n\nSparse retrieval ranking should explain sparse score contribution.\n",
+                "category": "desktop",
+                "file_type": "md"
+            }),
+        ));
+        assert_eq!(add_response.error, None);
+
+        let query_response = router.dispatch(&WorkerRequest::new(
+            "req-score-2",
+            "trace-score",
+            "knowledge.query",
+            json!({
+                "query": "sparse retrieval",
+                "category": "desktop",
+                "limit": 3
+            }),
+        ));
+
+        assert_eq!(query_response.error, None);
+        let result = &query_response
+            .result
+            .as_ref()
+            .expect("knowledge.query should return result")["results"][0];
+        assert_eq!(result["score"], 2);
+        assert_eq!(result["matched_methods"], json!(["keyword"]));
+        assert_eq!(
+            result["score_metadata"],
+            json!({
+                "object": "knowledge_score_metadata",
+                "score_model": "deterministic_sparse_v1",
+                "final_score": 2,
+                "components": {
+                    "sparse": {
+                        "score": 2,
+                        "rank": 1,
+                        "contribution": 2
+                    }
+                },
+                "route_contributions": [
+                    {
+                        "route": "keyword",
+                        "method": "sparse",
+                        "score": 2,
+                        "rank": 1,
+                        "contribution": 2
+                    }
+                ]
+            })
+        );
+    }
+
+    #[test]
     fn knowledge_query_returns_deterministic_retrieval_plan() {
         let fixture = WorkspaceFixture::new();
         let mut router = WorkerRpcRouter::new(

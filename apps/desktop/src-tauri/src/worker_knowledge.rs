@@ -637,6 +637,9 @@ impl WorkerKnowledgeRpc {
             result.sparse_rank = index + 1;
         }
         results.truncate(limit);
+        for result in &mut results {
+            populate_knowledge_score_metadata(result);
+        }
         Ok(KnowledgeQueryResultSet {
             results,
             retrieval_plan,
@@ -1411,6 +1414,38 @@ impl KnowledgeQueryResult {
             projection_metadata: Vec::new(),
         }
     }
+}
+
+fn populate_knowledge_score_metadata(result: &mut KnowledgeQueryResult) {
+    if result.sparse_contribution > 0
+        && !result
+            .matched_methods
+            .iter()
+            .any(|method| method == "keyword")
+    {
+        result.matched_methods.push("keyword".to_string());
+    }
+    result.score_metadata = serde_json::json!({
+        "object": "knowledge_score_metadata",
+        "score_model": "deterministic_sparse_v1",
+        "final_score": result.score,
+        "components": {
+            "sparse": {
+                "score": result.bm25_score,
+                "rank": result.sparse_rank,
+                "contribution": result.sparse_contribution
+            }
+        },
+        "route_contributions": [
+            {
+                "route": "keyword",
+                "method": "sparse",
+                "score": result.bm25_score,
+                "rank": result.sparse_rank,
+                "contribution": result.sparse_contribution
+            }
+        ]
+    });
 }
 
 fn empty_knowledge_context() -> KnowledgeContextResult {
