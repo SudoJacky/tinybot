@@ -8071,7 +8071,13 @@ mod tests {
                         "normalized_score": 1.0,
                         "contribution": 2
                     }
-                ]
+                ],
+                "rerank": {
+                    "object": "knowledge_rerank_metadata",
+                    "method": "deterministic_score_path_id_v1",
+                    "sort_keys": ["score_desc", "file_path_asc", "chunk_id_asc"],
+                    "rank": 1
+                }
             })
         );
     }

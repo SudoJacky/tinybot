@@ -1882,7 +1882,13 @@ fn populate_knowledge_score_metadata(result: &mut KnowledgeQueryResult) {
         "score_model": knowledge_score_model(graph_contribution > 0, structure_score > 0),
         "final_score": result.score,
         "components": components,
-        "route_contributions": route_contributions
+        "route_contributions": route_contributions,
+        "rerank": {
+            "object": "knowledge_rerank_metadata",
+            "method": "deterministic_score_path_id_v1",
+            "sort_keys": ["score_desc", "file_path_asc", "chunk_id_asc"],
+            "rank": result.sparse_rank
+        }
     });
 }
 
