@@ -24,7 +24,7 @@ export class NativeKnowledgeBridge implements WebuiKnowledgeProvider {
     return this.rpcClient.request(traceId, "knowledge.get_job", { job_id: jobId });
   }
 
-  rebuildIndex(type: "bm25" | "semantic" | "all", traceId: string): Promise<unknown> {
+  rebuildIndex(type: "bm25" | "semantic" | "tree" | "all", traceId: string): Promise<unknown> {
     return this.rpcClient.request(traceId, "knowledge.rebuild_index", { type });
   }
 

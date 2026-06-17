@@ -570,7 +570,7 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
       rebuildIndex: (type: string = "all") => {
         const path = `/v1/knowledge/rebuild-index?type=${encodeURIComponent(type)}&async_index=true`;
         return nativeOrGateway(
-          () => ["bm25", "all", "semantic"].includes(type) ? options.nativeWebui?.route({ method: "POST", path }) : undefined,
+          () => ["bm25", "all", "semantic", "tree"].includes(type) ? options.nativeWebui?.route({ method: "POST", path }) : undefined,
           () => request(path, { method: "POST" }),
           "knowledge.rebuildIndex",
         );

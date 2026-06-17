@@ -479,44 +479,64 @@ function normalizeExtractedEntity(value: unknown): Record<string, unknown> {
   };
 }
 
+type NormalizedRelationPredicate = {
+  predicate: string;
+  inverse: boolean;
+};
+
 function normalizeExtractedRelation(value: unknown): Record<string, unknown> {
   const relation = asObject(value) ?? {};
+  const source = stringValue(relation.source) ?? "";
+  const target = stringValue(relation.target) ?? "";
+  const normalizedPredicate = normalizeRelationPredicate(stringValue(relation.predicate) ?? stringValue(relation.type));
   return {
-    source: stringValue(relation.source) ?? "",
-    target: stringValue(relation.target) ?? "",
-    predicate: normalizeRelationPredicate(stringValue(relation.predicate) ?? stringValue(relation.type)),
+    source: normalizedPredicate.inverse ? target : source,
+    target: normalizedPredicate.inverse ? source : target,
+    predicate: normalizedPredicate.predicate,
     confidence: normalizedConfidence(relation.confidence),
     evidence: arrayFromUnknown(relation.evidence).map(normalizeExtractionEvidence),
   };
 }
 
-function normalizeRelationPredicate(value: string | undefined): string {
+function normalizeRelationPredicate(value: string | undefined): NormalizedRelationPredicate {
   const normalized = (value ?? "")
     .trim()
     .toLowerCase()
     .replace(/[\s-]+/g, "_");
   if ((CONTROLLED_RELATION_PREDICATES as readonly string[]).includes(normalized)) {
-    return normalized;
+    return { predicate: normalized, inverse: false };
   }
   if (["depends", "depends_on", "dependency", "requires", "uses", "relies_on"].includes(normalized)) {
-    return "depends_on";
+    return { predicate: "depends_on", inverse: false };
   }
-  if (["cause", "caused_by", "leads_to", "produces"].includes(normalized)) {
-    return "causes";
+  if (["cause", "leads_to", "produces"].includes(normalized)) {
+    return { predicate: "causes", inverse: false };
   }
-  if (["implement", "implemented_by", "built_by"].includes(normalized)) {
-    return "implements";
+  if (normalized === "caused_by") {
+    return { predicate: "causes", inverse: true };
   }
-  if (["configure", "configured_by", "sets", "controls"].includes(normalized)) {
-    return "configures";
+  if (["implement", "built_by"].includes(normalized)) {
+    return { predicate: "implements", inverse: false };
+  }
+  if (normalized === "implemented_by") {
+    return { predicate: "implements", inverse: true };
+  }
+  if (["configure", "sets", "controls"].includes(normalized)) {
+    return { predicate: "configures", inverse: false };
+  }
+  if (normalized === "configured_by") {
+    return { predicate: "configures", inverse: true };
   }
   if (["conflict", "conflicts", "contradicts", "opposes"].includes(normalized)) {
-    return "conflicts_with";
+    return { predicate: "conflicts_with", inverse: false };
   }
-  if (["support", "supported_by", "validates"].includes(normalized)) {
-    return "supports";
+  if (["support", "validates"].includes(normalized)) {
+    return { predicate: "supports", inverse: false };
   }
-  return "mentions";
+  if (normalized === "supported_by") {
+    return { predicate: "supports", inverse: true };
+  }
+  return { predicate: "mentions", inverse: false };
 }
 
 function normalizeExtractionEvidence(value: unknown): Record<string, unknown> {

@@ -287,6 +287,8 @@ export type WebuiKnowledgeListRequest = {
   limit?: number;
 };
 
+type KnowledgeRebuildType = "bm25" | "semantic" | "tree" | "all";
+
 export type WebuiKnowledgeProvider = {
   listDocuments(
     request: WebuiKnowledgeListRequest,
@@ -295,7 +297,7 @@ export type WebuiKnowledgeProvider = {
   addDocument(body: Record<string, unknown>, traceId: string): Promise<unknown> | unknown;
   startIndexJob?(docId: string, traceId: string): Promise<unknown> | unknown;
   getJob?(jobId: string, traceId: string): Promise<unknown> | unknown;
-  rebuildIndex?(type: "bm25" | "semantic" | "all", traceId: string): Promise<unknown> | unknown;
+  rebuildIndex?(type: KnowledgeRebuildType, traceId: string): Promise<unknown> | unknown;
   graph?(request: Record<string, unknown>, traceId: string): Promise<unknown> | unknown;
   saveEntityGraphExtraction?(body: Record<string, unknown>, traceId: string): Promise<unknown> | unknown;
   getDocument(docId: string, traceId: string): Promise<unknown> | unknown;
@@ -1438,6 +1440,14 @@ async function knowledgeJobResponse(
       return knowledgeServerError("Error getting knowledge job", error);
     }
   }
+  if (jobId === "kjob_rebuild_tree") {
+    try {
+      const stats = knowledgeStatsBody(await provider.stats(traceId));
+      return { status: 200, body: completedKnowledgeTreeRebuildJob(stats, knowledgeTreeRebuildResult(stats)) };
+    } catch (error) {
+      return knowledgeServerError("Error getting knowledge job", error);
+    }
+  }
   const docId = knowledgeUploadJobDocumentId(jobId);
   if (!docId) {
     return { status: 404, body: knowledgeApiError(404, `Knowledge job ${jobId} not found`) };
@@ -1465,13 +1475,13 @@ async function knowledgeRebuildIndexResponse(
     return { status: 503, body: knowledgeApiError(503, "Knowledge store not initialized") };
   }
   const rebuildTypeRaw = query.get("type") ?? "bm25";
-  if (rebuildTypeRaw !== "bm25" && rebuildTypeRaw !== "all" && rebuildTypeRaw !== "semantic") {
+  if (!isKnowledgeRebuildType(rebuildTypeRaw)) {
     return {
       status: 400,
-      body: knowledgeApiError(400, `Invalid rebuild type '${rebuildTypeRaw}'. Valid options: bm25, semantic, all`),
+      body: knowledgeApiError(400, `Invalid rebuild type '${rebuildTypeRaw}'. Valid options: bm25, semantic, tree, all`),
     };
   }
-  const rebuildType: "bm25" | "semantic" | "all" = rebuildTypeRaw;
+  const rebuildType = rebuildTypeRaw;
 
   const asyncIndex = booleanQuery(query.get("async_index"));
   logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.rebuild_index.start", {
@@ -1489,20 +1499,7 @@ async function knowledgeRebuildIndexResponse(
       if (!asyncIndex) {
         return {
           status: 200,
-          body: rebuildType === "all"
-            ? {
-                message: "All available native knowledge indexes rebuilt successfully",
-                ...result,
-              }
-            : rebuildType === "semantic"
-              ? {
-                  message: "Semantic index is not available in native TS worker",
-                  ...result,
-                }
-            : {
-                message: "BM25 index rebuilt successfully",
-                ...result,
-              },
+          body: knowledgeRebuildSuccessBody(rebuildType, result),
         };
       }
       return {
@@ -1520,6 +1517,8 @@ async function knowledgeRebuildIndexResponse(
       ? knowledgeAllRebuildResult(stats)
       : rebuildType === "semantic"
         ? knowledgeSemanticUnavailableResult()
+        : rebuildType === "tree"
+          ? knowledgeTreeRebuildResult(stats)
         : knowledgeBm25RebuildResult(stats);
     logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.rebuild_index.complete", {
       type: rebuildType,
@@ -1529,20 +1528,7 @@ async function knowledgeRebuildIndexResponse(
     if (!asyncIndex) {
       return {
         status: 200,
-        body: rebuildType === "all"
-          ? {
-              message: "All available native knowledge indexes rebuilt successfully",
-              ...result,
-            }
-          : rebuildType === "semantic"
-            ? {
-                message: "Semantic index is not available in native TS worker",
-                ...result,
-              }
-          : {
-              message: "BM25 index rebuilt successfully",
-              ...result,
-            },
+        body: knowledgeRebuildSuccessBody(rebuildType, result),
       };
     }
 
@@ -1550,6 +1536,8 @@ async function knowledgeRebuildIndexResponse(
       ? completedKnowledgeAllRebuildJob(stats, result)
       : rebuildType === "semantic"
         ? completedKnowledgeSemanticRebuildJob(stats)
+        : rebuildType === "tree"
+          ? completedKnowledgeTreeRebuildJob(stats, result)
       : completedKnowledgeBm25RebuildJob(stats, result);
     return {
       status: 202,
@@ -1933,10 +1921,51 @@ function knowledgeSemanticUnavailableResult(): Record<string, unknown> {
   };
 }
 
+function knowledgeTreeRebuildResult(stats: Record<string, unknown>): Record<string, unknown> {
+  const stageReadiness = asObject(stats.stage_readiness) ?? {};
+  const treeIndex = asObject(stageReadiness.tree_index) ?? {};
+  const sectionsIndexed = numberValue(treeIndex.processed) ?? numberValue(stats.total_chunks) ?? 0;
+  return {
+    available: true,
+    documents_scanned: numberValue(stats.total_documents) ?? 0,
+    sections_indexed: sectionsIndexed,
+    tree_ready: Boolean(treeIndex.ready) || sectionsIndexed > 0,
+  };
+}
+
 function knowledgeAllRebuildResult(stats: Record<string, unknown>): Record<string, unknown> {
   return {
     bm25: knowledgeBm25RebuildResult(stats),
+    tree: knowledgeTreeRebuildResult(stats),
     semantic: knowledgeSemanticUnavailableResult(),
+  };
+}
+
+function knowledgeRebuildSuccessBody(
+  rebuildType: KnowledgeRebuildType,
+  result: Record<string, unknown>,
+): Record<string, unknown> {
+  if (rebuildType === "all") {
+    return {
+      message: "All available native knowledge indexes rebuilt successfully",
+      ...result,
+    };
+  }
+  if (rebuildType === "semantic") {
+    return {
+      message: "Semantic index is not available in native TS worker",
+      ...result,
+    };
+  }
+  if (rebuildType === "tree") {
+    return {
+      message: "Knowledge tree index rebuilt successfully",
+      ...result,
+    };
+  }
+  return {
+    message: "BM25 index rebuilt successfully",
+    ...result,
   };
 }
 
@@ -2289,6 +2318,10 @@ function booleanQuery(value: string | null): boolean {
   return value !== null && ["1", "true", "yes", "on"].includes(value.toLowerCase());
 }
 
+function isKnowledgeRebuildType(value: string): value is KnowledgeRebuildType {
+  return value === "bm25" || value === "semantic" || value === "tree" || value === "all";
+}
+
 function booleanQueryDefault(value: string | null, fallback: boolean): boolean {
   if (value === null) {
     return fallback;
@@ -2393,6 +2426,34 @@ function completedKnowledgeAllRebuildJob(
     message: "Native available knowledge indexes are rebuilt; semantic index is not available natively",
     processed: 3,
     total: 3,
+    error: "",
+    ...lifecycle,
+    stage_details: Array.isArray(stats.stage_details) ? stats.stage_details : [],
+    failed_stage_count: numberValue(stats.failed_stage_count) ?? 0,
+    stale_stage_count: numberValue(stats.stale_stage_count) ?? 0,
+    retrieval_ready: retrievalReady,
+    graph_ready: graphReady,
+    partial_availability: retrievalReady && !graphReady,
+    result,
+  };
+}
+
+function completedKnowledgeTreeRebuildJob(
+  stats: Record<string, unknown>,
+  result: Record<string, unknown>,
+): Record<string, unknown> {
+  const sectionsIndexed = numberValue(result.sections_indexed) ?? 0;
+  const retrievalReady = Boolean(stats.retrieval_ready) || sectionsIndexed > 0;
+  const graphReady = Boolean(stats.graph_ready);
+  const lifecycle = completedKnowledgeJobLifecycle();
+  return {
+    id: "kjob_rebuild_tree",
+    name: "rebuild:tree",
+    status: "completed",
+    stage: "completed",
+    message: "Knowledge tree index rebuilt successfully",
+    processed: sectionsIndexed,
+    total: sectionsIndexed,
     error: "",
     ...lifecycle,
     stage_details: Array.isArray(stats.stage_details) ? stats.stage_details : [],

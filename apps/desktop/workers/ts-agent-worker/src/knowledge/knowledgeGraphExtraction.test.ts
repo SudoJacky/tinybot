@@ -70,6 +70,7 @@ describe("knowledge graph extraction backend", () => {
       relations: [
         { source: "TinyBot", target: "Knowledge", predicate: "uses", confidence: 0.8, evidence: [] },
         { source: "TinyBot", target: "Runtime", predicate: "depends on", confidence: 0.8, evidence: [{ text: "TinyBot uses Runtime." }] },
+        { source: "Outage", target: "Config drift", predicate: "caused_by", confidence: 0.7, evidence: [{ text: "The outage was caused by config drift." }] },
       ],
     }));
 
@@ -80,6 +81,13 @@ describe("knowledge graph extraction backend", () => {
         predicate: "depends_on",
         confidence: 0.8,
         evidence: [{ text: "TinyBot uses Runtime.", line_start: 1, line_end: 1 }],
+      },
+      {
+        source: "Config drift",
+        target: "Outage",
+        predicate: "causes",
+        confidence: 0.7,
+        evidence: [{ text: "The outage was caused by config drift.", line_start: 1, line_end: 1 }],
       },
     ]);
   });
