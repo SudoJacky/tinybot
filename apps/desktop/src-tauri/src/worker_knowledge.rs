@@ -781,6 +781,7 @@ impl WorkerKnowledgeRpc {
             .map(|document| document.content.chars().count())
             .sum();
         let retrieval_ready = parent_chunk_count > 0;
+        let tree_ready = parent_chunk_count > 0;
         let claims_ready = false;
         let relations_ready = !entity_edges.is_empty();
         let graph_ready = !entity_nodes.is_empty() || !entity_edges.is_empty();
@@ -801,6 +802,7 @@ impl WorkerKnowledgeRpc {
         };
         let stage_readiness = serde_json::json!({
             "sparse_indexing": sparse_stage,
+            "tree_index": { "ready": tree_ready, "status": if tree_ready { "ready" } else { "empty" }, "processed": parent_chunk_count, "total": parent_chunk_count, "failed": 0, "stale": 0, "skipped": 0 },
             "dense_indexing": { "ready": false, "status": "not_configured", "processed": 0, "total": 0, "failed": 0, "stale": 0, "skipped": parent_chunk_count },
             "claim_extraction": { "ready": false, "status": "not_configured", "processed": 0, "total": 0, "failed": 0, "stale": 0, "skipped": parent_chunk_count },
             "claim_validation": { "ready": false, "status": "not_configured", "processed": 0, "total": 0, "failed": 0, "stale": 0, "skipped": parent_chunk_count },
@@ -811,6 +813,7 @@ impl WorkerKnowledgeRpc {
         });
         let stage_coverage = serde_json::json!({
             "sparse_indexing": if retrieval_ready { 1.0 } else { 0.0 },
+            "tree_index": if tree_ready { 1.0 } else { 0.0 },
             "dense_indexing": 0.0,
             "claim_extraction": 0.0,
             "claim_validation": 0.0,

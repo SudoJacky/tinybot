@@ -9581,6 +9581,11 @@ mod tests {
         assert_eq!(stats["failed_stage_count"], 0);
         assert_eq!(stats["stale_stage_count"], 0);
         assert_eq!(stats["stage_readiness"]["sparse_indexing"]["ready"], true);
+        assert_eq!(stats["stage_readiness"]["tree_index"]["ready"], true);
+        assert_eq!(stats["stage_readiness"]["tree_index"]["status"], "ready");
+        assert_eq!(stats["stage_readiness"]["tree_index"]["processed"], 2);
+        assert_eq!(stats["stage_readiness"]["tree_index"]["total"], 2);
+        assert_eq!(stats["stage_readiness"]["tree_index"]["stale"], 0);
         assert_eq!(
             stats["stage_readiness"]["claim_extraction"]["status"],
             "not_configured"
@@ -9597,6 +9602,7 @@ mod tests {
         );
         assert_eq!(stats["stage_readiness"]["graph_projection"]["total"], 0);
         assert_eq!(stats["stage_coverage"]["sparse_indexing"], 1.0);
+        assert_eq!(stats["stage_coverage"]["tree_index"], 1.0);
         assert_eq!(stats["stage_details"], json!([]));
     }
 
