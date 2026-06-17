@@ -754,6 +754,10 @@ impl WorkerKnowledgeRpc {
         let graph_stale =
             mark_entity_graph_staleness(&self.root, &mut entity_nodes, &mut entity_edges)?;
         let graph_stale_count = graph_stale.node_count + graph_stale.edge_count;
+        let conflict_count = entity_edges
+            .iter()
+            .filter(|edge| entity_graph_edge_is_conflict(edge))
+            .count();
         let parent_chunk_count = chunks
             .iter()
             .filter(|chunk| chunk.chunk_type == "parent")
@@ -825,7 +829,7 @@ impl WorkerKnowledgeRpc {
             claim_count: 0,
             relation_count: entity_edges.len(),
             source_count: entity_evidence.len(),
-            conflict_count: 0,
+            conflict_count,
             stage_status_count: 0,
             candidate_diagnostic_count: 0,
             community_count: 0,
@@ -2496,10 +2500,7 @@ fn entity_graph_conflicts(
         .collect::<HashMap<_, _>>();
     edges
         .iter()
-        .filter(|edge| {
-            edge.label.eq_ignore_ascii_case("conflicts_with")
-                || edge.edge_type.eq_ignore_ascii_case("conflicts_with")
-        })
+        .filter(|edge| entity_graph_edge_is_conflict(edge))
         .map(|edge| {
             serde_json::json!({
                 "id": edge.id,
@@ -2517,6 +2518,11 @@ fn entity_graph_conflicts(
             })
         })
         .collect()
+}
+
+fn entity_graph_edge_is_conflict(edge: &KnowledgeGraphEdge) -> bool {
+    edge.label.eq_ignore_ascii_case("conflicts_with")
+        || edge.edge_type.eq_ignore_ascii_case("conflicts_with")
 }
 
 #[derive(Clone, Copy, Debug, Default)]

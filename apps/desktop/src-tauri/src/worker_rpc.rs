@@ -8987,6 +8987,19 @@ mod tests {
             graph["conflicts"][0]["evidence"][0]["text"],
             "TinyBot conflicts with LegacyBot behavior."
         );
+
+        let stats_response = router.dispatch(&WorkerRequest::new(
+            "req-conflict-graph-4",
+            "trace-conflict-graph",
+            "knowledge.stats",
+            json!({}),
+        ));
+        assert_eq!(stats_response.error, None);
+        let stats = stats_response
+            .result
+            .as_ref()
+            .expect("knowledge.stats should return result");
+        assert_eq!(stats["conflict_count"], 1);
     }
 
     #[test]
