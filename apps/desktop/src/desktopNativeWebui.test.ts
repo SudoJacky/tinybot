@@ -72,4 +72,16 @@ describe("desktop native WebUI API", () => {
       status: 200,
     });
   });
+
+  test("surfaces native WebUI error body messages", async () => {
+    const invoke = vi.fn(async (_command: string, _args?: unknown) => ({
+      status: 500,
+      body: { error: { message: "Error extracting knowledge graph: unsupported relation predicate" } },
+    }));
+    const api = createDesktopNativeWebuiApi({ invoke });
+
+    await expect(api.route({ method: "POST", path: "/v1/knowledge/graph/extract" }))
+      .rejects
+      .toThrow("Error extracting knowledge graph: unsupported relation predicate");
+  });
 });

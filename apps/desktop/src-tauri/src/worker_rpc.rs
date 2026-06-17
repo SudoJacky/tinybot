@@ -501,6 +501,11 @@ impl WorkerRpcRouter {
                 serde_json::to_value(self.knowledge.get_document(params)?)
                     .map_err(serialization_error)
             }
+            "knowledge.document_tree" => {
+                let params: KnowledgeDocumentIdParams = parse_params(request)?;
+                serde_json::to_value(self.knowledge.document_tree(params)?)
+                    .map_err(serialization_error)
+            }
             "knowledge.delete_document" => {
                 let params: KnowledgeDocumentIdParams = parse_params(request)?;
                 serde_json::to_value(self.knowledge.delete_document(params)?)
@@ -7852,48 +7857,28 @@ mod tests {
             }),
         ));
         assert_eq!(query_response.error, None);
+        let query_result = &query_response
+            .result
+            .as_ref()
+            .expect("knowledge.query should return result")["results"][0];
+        assert_eq!(query_result["id"], json!(format!("chunk_{doc_id}_0")));
+        assert_eq!(query_result["doc_id"], json!(doc_id));
         assert_eq!(
-            query_response.result.as_ref().unwrap()["results"][0],
-            json!({
-                "id": format!("chunk_{doc_id}_0"),
-                "doc_id": doc_id,
-                "parent_id": format!("chunk_{doc_id}_0"),
-                "chunk_type": "parent",
-                "content": "# Desktop Knowledge Notes\n\nTS worker knowledge store should persist chunks for sparse retrieval.\n",
-                "matched_child_ids": [],
-                "matched_child_snippets": [],
-                "doc_name": "Desktop Knowledge Notes",
-                "file_path": format!("knowledge/files/{doc_id}.md"),
-                "start_char": 0,
-                "end_char": 97,
-                "line_start": 1,
-                "line_end": 3,
-                "section_path": "Desktop Knowledge Notes",
-                "block_type": "text",
-                "score": 2,
-                "rrf_score": 2,
-                "semantic_score": null,
-                "bm25_score": 2,
-                "dense_distance": null,
-                "dense_rank": null,
-                "sparse_rank": 1,
-                "dense_contribution": null,
-                "sparse_contribution": 2,
-                "method": "sparse",
-                "retrieval_method": "sparse",
-                "score_metadata": {},
-                "source_snippets": [],
-                "matched_methods": [],
-                "matched_entities": [],
-                "matched_claims": [],
-                "matched_claim_evidence": [],
-                "matched_relations": [],
-                "matched_relation_evidence": [],
-                "matched_communities": [],
-                "conflict_metadata": [],
-                "projection_metadata": []
-            })
+            query_result["parent_id"],
+            json!(format!("chunk_{doc_id}_0"))
         );
+        assert_eq!(query_result["chunk_type"], "parent");
+        assert_eq!(query_result["doc_name"], "Desktop Knowledge Notes");
+        assert_eq!(query_result["section_path"], "Desktop Knowledge Notes");
+        assert_eq!(query_result["section_id"], format!("section_{doc_id}_0"));
+        assert_eq!(query_result["section_title"], "Desktop Knowledge Notes");
+        assert_eq!(query_result["parent_section_id"], "section-root");
+        assert_eq!(query_result["section_ordinal"], 0);
+        assert_eq!(query_result["matched_child_ids"], json!([]));
+        assert_eq!(query_result["matched_child_snippets"], json!([]));
+        assert_eq!(query_result["matched_child_section_paths"], json!([]));
+        assert_eq!(query_result["score"], 2);
+        assert_eq!(query_result["retrieval_method"], "sparse");
 
         let delete_response = router.dispatch(&WorkerRequest::new(
             "req-5",
@@ -7996,6 +7981,14 @@ mod tests {
         assert_eq!(result["parent_id"], format!("chunk_{doc_id}_1"));
         assert_eq!(result["chunk_type"], "parent");
         assert_eq!(result["section_path"], "Retrieval Pipeline");
+        assert_eq!(result["section_id"], format!("section_{doc_id}_1"));
+        assert_eq!(result["section_title"], "Retrieval Pipeline");
+        assert_eq!(result["parent_section_id"], format!("section_{doc_id}_0"));
+        assert_eq!(result["section_ordinal"], 1);
+        assert_eq!(
+            result["matched_child_section_paths"],
+            json!(["Retrieval Pipeline"])
+        );
         assert!(result["content"]
             .as_str()
             .expect("result content should be string")
@@ -8009,6 +8002,1969 @@ mod tests {
             json!(["The child snippet contains uniqueneedle evidence for ranking."])
         );
         assert_eq!(result["retrieval_method"], "sparse");
+    }
+
+    #[test]
+    fn knowledge_query_returns_score_component_metadata() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-score-1",
+            "trace-score",
+            "knowledge.add_document",
+            json!({
+                "name": "Score Metadata Notes",
+                "content": "# Score Metadata Notes\n\nSparse retrieval ranking should explain sparse score contribution.\n",
+                "category": "desktop",
+                "file_type": "md"
+            }),
+        ));
+        assert_eq!(add_response.error, None);
+
+        let query_response = router.dispatch(&WorkerRequest::new(
+            "req-score-2",
+            "trace-score",
+            "knowledge.query",
+            json!({
+                "query": "sparse retrieval",
+                "category": "desktop",
+                "limit": 3
+            }),
+        ));
+
+        assert_eq!(query_response.error, None);
+        let result = &query_response
+            .result
+            .as_ref()
+            .expect("knowledge.query should return result")["results"][0];
+        assert_eq!(result["score"], 2);
+        assert_eq!(result["matched_methods"], json!(["keyword"]));
+        assert_eq!(
+            result["score_metadata"],
+            json!({
+                "object": "knowledge_score_metadata",
+                "score_model": "deterministic_sparse_v1",
+                "final_score": 2,
+                "components": {
+                    "sparse": {
+                        "score": 2,
+                        "rank": 1,
+                        "normalized_score": 1.0,
+                        "contribution": 2
+                    }
+                },
+                "route_contributions": [
+                    {
+                        "route": "keyword",
+                        "method": "sparse",
+                        "score": 2,
+                        "rank": 1,
+                        "normalized_score": 1.0,
+                        "contribution": 2
+                    }
+                ],
+                "rerank": {
+                    "object": "knowledge_rerank_metadata",
+                    "method": "deterministic_score_path_id_v1",
+                    "sort_keys": ["score_desc", "file_path_asc", "chunk_id_asc"],
+                    "rank": 1
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn knowledge_query_can_return_tree_structure_context() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let content = [
+            "# Desktop Knowledge Notes",
+            "",
+            "Root overview.",
+            "",
+            "## Retrieval Pipeline",
+            "",
+            "The uniquetree marker belongs to retrieval.",
+            "",
+            "### Ranking Details",
+            "",
+            "Ranking details should be listed as a child section.",
+            "",
+            "## Operational Notes",
+            "",
+            "Operational notes should be listed as a sibling section.",
+        ]
+        .join("\n");
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-structure-1",
+            "trace-structure",
+            "knowledge.add_document",
+            json!({
+                "name": "Structured Knowledge Notes",
+                "content": content,
+                "category": "desktop",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+
+        let query_response = router.dispatch(&WorkerRequest::new(
+            "req-structure-2",
+            "trace-structure",
+            "knowledge.query",
+            json!({
+                "query": "uniquetree",
+                "category": "desktop",
+                "limit": 3,
+                "include_structure_context": true
+            }),
+        ));
+
+        assert_eq!(query_response.error, None);
+        let result = &query_response
+            .result
+            .as_ref()
+            .expect("knowledge.query should return result")["results"][0];
+        assert_eq!(result["id"], format!("chunk_{doc_id}_1"));
+        assert_eq!(
+            result["structure_context"],
+            json!({
+                "object": "knowledge_structure_context",
+                "section": {
+                    "id": format!("section_{doc_id}_1"),
+                    "chunk_id": format!("chunk_{doc_id}_1"),
+                    "title": "Retrieval Pipeline",
+                    "section_path": "Retrieval Pipeline",
+                    "ordinal": 1,
+                    "line_start": 5,
+                    "line_end": 8
+                },
+                "parent_section": {
+                    "id": format!("section_{doc_id}_0"),
+                    "chunk_id": format!("chunk_{doc_id}_0"),
+                    "title": "Desktop Knowledge Notes",
+                    "section_path": "Desktop Knowledge Notes",
+                    "ordinal": 0,
+                    "line_start": 1,
+                    "line_end": 4
+                },
+                "sibling_sections": [
+                    {
+                        "id": format!("section_{doc_id}_3"),
+                        "chunk_id": format!("chunk_{doc_id}_3"),
+                        "title": "Operational Notes",
+                        "section_path": "Operational Notes",
+                        "ordinal": 3,
+                        "line_start": 13,
+                        "line_end": 15
+                    }
+                ],
+                "child_sections": [
+                    {
+                        "id": format!("section_{doc_id}_2"),
+                        "chunk_id": format!("chunk_{doc_id}_2"),
+                        "title": "Ranking Details",
+                        "section_path": "Ranking Details",
+                        "ordinal": 2,
+                        "line_start": 9,
+                        "line_end": 12
+                    }
+                ]
+            })
+        );
+        assert_eq!(result["matched_methods"], json!(["keyword", "structure"]));
+        assert_eq!(
+            result["score_metadata"]["components"]["structure"],
+            json!({
+                "score": 4,
+                "rank": 1,
+                "normalized_score": 0.0,
+                "contribution": 0
+            })
+        );
+        assert_eq!(
+            result["score_metadata"]["route_contributions"][1],
+            json!({
+                "route": "tree",
+                "method": "structure_context",
+                "score": 4,
+                "rank": 1,
+                "normalized_score": 0.0,
+                "contribution": 0
+            })
+        );
+    }
+
+    #[test]
+    fn knowledge_query_auto_routes_tree_location_questions() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let content = [
+            "# Desktop Knowledge Notes",
+            "",
+            "Root overview.",
+            "",
+            "## Retrieval Pipeline",
+            "",
+            "The uniquetree marker belongs to retrieval.",
+            "",
+            "### Ranking Details",
+            "",
+            "Ranking details should be listed as a child section.",
+            "",
+            "## Operational Notes",
+            "",
+            "Operational notes should be listed as a sibling section.",
+        ]
+        .join("\n");
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-auto-tree-1",
+            "trace-auto-tree",
+            "knowledge.add_document",
+            json!({
+                "name": "Auto Tree Notes",
+                "content": content,
+                "category": "desktop",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+
+        let query_response = router.dispatch(&WorkerRequest::new(
+            "req-auto-tree-2",
+            "trace-auto-tree",
+            "knowledge.query",
+            json!({
+                "query": "where uniquetree",
+                "category": "desktop",
+                "limit": 3
+            }),
+        ));
+
+        assert_eq!(query_response.error, None);
+        let response = query_response
+            .result
+            .as_ref()
+            .expect("knowledge.query should return result");
+        assert_eq!(
+            response["retrieval_plan"]["selected_routes"],
+            json!(["keyword", "tree"])
+        );
+        assert_eq!(response["retrieval_plan"]["budgets"]["tree"], 3);
+        let result = &response["results"][0];
+        assert_eq!(result["id"], format!("chunk_{doc_id}_1"));
+        assert_eq!(result["matched_methods"], json!(["keyword", "structure"]));
+        assert_eq!(
+            result["structure_context"]["section"]["title"],
+            "Retrieval Pipeline"
+        );
+        assert_eq!(
+            result["structure_context"]["parent_section"]["title"],
+            "Desktop Knowledge Notes"
+        );
+        assert_eq!(
+            result["structure_context"]["child_sections"][0]["title"],
+            "Ranking Details"
+        );
+    }
+
+    #[test]
+    fn knowledge_query_can_expand_from_entity_graph_evidence() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-graph-query-1",
+            "trace-graph-query",
+            "knowledge.add_document",
+            json!({
+                "name": "Graph Expansion Notes",
+                "content": "# Graph Expansion Notes\n\nThe orchestration layer coordinates background jobs.\n",
+                "category": "desktop",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-graph-query-2",
+            "trace-graph-query",
+            "knowledge.save_entity_graph_extraction",
+            json!({
+                "doc_id": doc_id,
+                "doc_name": "Graph Expansion Notes",
+                "model": "knowledge-model",
+                "entities": [
+                    {
+                        "name": "TinyBot",
+                        "type": "project",
+                        "confidence": 0.93,
+                        "evidence": [
+                            {
+                                "text": "The orchestration layer coordinates background jobs.",
+                                "line_start": 3,
+                                "line_end": 3
+                            }
+                        ]
+                    }
+                ],
+                "relations": [],
+                "diagnostics": { "chunks_used": 1 }
+            }),
+        ));
+        assert_eq!(save_response.error, None);
+
+        let query_response = router.dispatch(&WorkerRequest::new(
+            "req-graph-query-3",
+            "trace-graph-query",
+            "knowledge.query",
+            json!({
+                "query": "TinyBot dependency",
+                "category": "desktop",
+                "limit": 3,
+                "include_graph_context": true
+            }),
+        ));
+
+        assert_eq!(query_response.error, None);
+        let result = &query_response
+            .result
+            .as_ref()
+            .expect("knowledge.query should return result")["results"][0];
+        assert_eq!(result["id"], format!("chunk_{doc_id}_0"));
+        assert_eq!(result["score"], 2);
+        assert_eq!(result["retrieval_method"], "graph");
+        assert_eq!(result["matched_methods"], json!(["graph"]));
+        assert_eq!(result["matched_entities"][0]["label"], "TinyBot");
+        assert_eq!(
+            result["source_snippets"][0]["text"],
+            "The orchestration layer coordinates background jobs."
+        );
+        assert_eq!(result["source_snippets"][0]["owner_type"], "entity");
+        assert_eq!(
+            result["score_metadata"]["route_contributions"][0]["route"],
+            "graph"
+        );
+        assert_eq!(
+            result["score_metadata"]["components"]["evidence_quality_bonus"],
+            json!({
+                "score": 1,
+                "verified_evidence_count": 1,
+                "normalized_score": 0.5,
+                "contribution": 1
+            })
+        );
+        assert_eq!(
+            result["projection_metadata"][0]["object"],
+            "knowledge_projection_metadata"
+        );
+        assert_eq!(
+            result["projection_metadata"][0]["projection"],
+            "entity_graph"
+        );
+        assert_eq!(result["projection_metadata"][0]["owner_type"], "entity");
+        assert_eq!(result["projection_metadata"][0]["owner_label"], "TinyBot");
+        assert_eq!(
+            result["projection_metadata"][0]["evidence_status"],
+            "verified"
+        );
+        assert_eq!(result["projection_metadata"][0]["confidence"], 0.93);
+        assert_eq!(result["projection_metadata"][0]["stale"], false);
+        assert!(result["projection_metadata"][0]["source_hash"].is_string());
+        assert!(result["projection_metadata"][0]["evidence_id"].is_string());
+    }
+
+    #[test]
+    fn knowledge_query_can_expand_from_relation_graph_evidence() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-relation-query-1",
+            "trace-relation-query",
+            "knowledge.add_document",
+            json!({
+                "name": "Relation Expansion Notes",
+                "content": "# Relation Expansion Notes\n\nThe orchestration layer coordinates background jobs.\n",
+                "category": "desktop",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-relation-query-2",
+            "trace-relation-query",
+            "knowledge.save_entity_graph_extraction",
+            json!({
+                "doc_id": doc_id,
+                "doc_name": "Relation Expansion Notes",
+                "model": "knowledge-model",
+                "entities": [
+                    { "name": "TinyBot", "type": "project", "confidence": 0.93 },
+                    { "name": "RuntimeScheduler", "type": "component", "confidence": 0.91 }
+                ],
+                "relations": [
+                    {
+                        "source": "TinyBot",
+                        "target": "RuntimeScheduler",
+                        "predicate": "depends_on",
+                        "confidence": 0.88,
+                        "evidence": [
+                            {
+                                "text": "The orchestration layer coordinates background jobs.",
+                                "line_start": 3,
+                                "line_end": 3
+                            }
+                        ]
+                    },
+                    {
+                        "source": "TinyBot",
+                        "target": "Unrelated",
+                        "predicate": "mentions",
+                        "confidence": 0.95,
+                        "evidence": [
+                            {
+                                "text": "The orchestration layer coordinates background jobs.",
+                                "line_start": 3,
+                                "line_end": 3
+                            }
+                        ]
+                    }
+                ],
+                "diagnostics": { "chunks_used": 1 }
+            }),
+        ));
+        assert_eq!(save_response.error, None);
+
+        let query_response = router.dispatch(&WorkerRequest::new(
+            "req-relation-query-3",
+            "trace-relation-query",
+            "knowledge.query",
+            json!({
+                "query": "TinyBot",
+                "category": "desktop",
+                "limit": 3,
+                "include_graph_context": true,
+                "graph_relation_filters": ["depends_on"],
+                "graph_min_confidence": 0.8,
+                "graph_max_added_chunks": 1
+            }),
+        ));
+
+        assert_eq!(query_response.error, None);
+        let result = &query_response
+            .result
+            .as_ref()
+            .expect("knowledge.query should return result")["results"][0];
+        assert_eq!(result["id"], format!("chunk_{doc_id}_0"));
+        assert_eq!(result["retrieval_method"], "graph");
+        assert_eq!(result["matched_methods"], json!(["graph"]));
+        assert_eq!(result["matched_entities"], json!([]));
+        assert_eq!(result["matched_relations"].as_array().unwrap().len(), 1);
+        assert_eq!(result["matched_relations"][0]["label"], "depends_on");
+        assert_eq!(
+            result["matched_relation_evidence"][0]["text"],
+            "The orchestration layer coordinates background jobs."
+        );
+        assert_eq!(result["source_snippets"][0]["owner_type"], "relation");
+        assert_eq!(
+            result["score_metadata"]["route_contributions"][0]["method"],
+            "graph_evidence"
+        );
+        assert_eq!(
+            result["projection_metadata"][0]["object"],
+            "knowledge_projection_metadata"
+        );
+        assert_eq!(
+            result["projection_metadata"][0]["projection"],
+            "entity_graph"
+        );
+        assert_eq!(result["projection_metadata"][0]["owner_type"], "relation");
+        assert_eq!(
+            result["projection_metadata"][0]["owner_label"],
+            "depends_on"
+        );
+        assert_eq!(result["projection_metadata"][0]["predicate"], "depends_on");
+        assert_eq!(result["projection_metadata"][0]["source_label"], "TinyBot");
+        assert_eq!(
+            result["projection_metadata"][0]["target_label"],
+            "RuntimeScheduler"
+        );
+    }
+
+    #[test]
+    fn knowledge_query_can_disable_relation_hop_graph_expansion() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-relation-hop-query-1",
+            "trace-relation-hop-query",
+            "knowledge.add_document",
+            json!({
+                "name": "Relation Hop Notes",
+                "content": "# Relation Hop Notes\n\nThe orchestration layer coordinates background jobs.\n",
+                "category": "desktop",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-relation-hop-query-2",
+            "trace-relation-hop-query",
+            "knowledge.save_entity_graph_extraction",
+            json!({
+                "doc_id": doc_id,
+                "doc_name": "Relation Hop Notes",
+                "model": "knowledge-model",
+                "entities": [
+                    { "name": "TinyBot", "type": "project", "confidence": 0.93 },
+                    { "name": "RuntimeScheduler", "type": "component", "confidence": 0.91 }
+                ],
+                "relations": [
+                    {
+                        "source": "TinyBot",
+                        "target": "RuntimeScheduler",
+                        "predicate": "depends_on",
+                        "confidence": 0.88,
+                        "evidence": [
+                            {
+                                "text": "The orchestration layer coordinates background jobs.",
+                                "line_start": 3,
+                                "line_end": 3
+                            }
+                        ]
+                    }
+                ],
+                "diagnostics": { "chunks_used": 1 }
+            }),
+        ));
+        assert_eq!(save_response.error, None);
+
+        let query_response = router.dispatch(&WorkerRequest::new(
+            "req-relation-hop-query-3",
+            "trace-relation-hop-query",
+            "knowledge.query",
+            json!({
+                "query": "TinyBot",
+                "category": "desktop",
+                "limit": 3,
+                "include_graph_context": true,
+                "graph_max_hops": 0,
+                "graph_relation_filters": ["depends_on"],
+                "graph_min_confidence": 0.8,
+                "graph_max_added_chunks": 1
+            }),
+        ));
+
+        assert_eq!(query_response.error, None);
+        assert_eq!(
+            query_response
+                .result
+                .as_ref()
+                .expect("knowledge.query should return result")["results"],
+            json!([])
+        );
+    }
+
+    #[test]
+    fn knowledge_query_auto_routes_graph_intent_questions() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-auto-graph-query-1",
+            "trace-auto-graph-query",
+            "knowledge.add_document",
+            json!({
+                "name": "Auto Graph Notes",
+                "content": "# Auto Graph Notes\n\nThe orchestration layer coordinates background jobs.\n",
+                "category": "desktop",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-auto-graph-query-2",
+            "trace-auto-graph-query",
+            "knowledge.save_entity_graph_extraction",
+            json!({
+                "doc_id": doc_id,
+                "doc_name": "Auto Graph Notes",
+                "model": "knowledge-model",
+                "entities": [
+                    { "name": "TinyBot", "type": "project", "confidence": 0.93 },
+                    { "name": "RuntimeScheduler", "type": "component", "confidence": 0.91 }
+                ],
+                "relations": [
+                    {
+                        "source": "TinyBot",
+                        "target": "RuntimeScheduler",
+                        "predicate": "depends_on",
+                        "confidence": 0.88,
+                        "evidence": [
+                            {
+                                "text": "The orchestration layer coordinates background jobs.",
+                                "line_start": 3,
+                                "line_end": 3
+                            }
+                        ]
+                    }
+                ],
+                "diagnostics": { "chunks_used": 1 }
+            }),
+        ));
+        assert_eq!(save_response.error, None);
+
+        let query_response = router.dispatch(&WorkerRequest::new(
+            "req-auto-graph-query-3",
+            "trace-auto-graph-query",
+            "knowledge.query",
+            json!({
+                "query": "why TinyBot dependency RuntimeScheduler",
+                "category": "desktop",
+                "limit": 3,
+                "graph_min_confidence": 0.8
+            }),
+        ));
+
+        assert_eq!(query_response.error, None);
+        let response = query_response
+            .result
+            .as_ref()
+            .expect("knowledge.query should return result");
+        assert_eq!(
+            response["retrieval_plan"]["selected_routes"],
+            json!(["keyword", "graph"])
+        );
+        let result = &response["results"][0];
+        assert_eq!(result["id"], format!("chunk_{doc_id}_0"));
+        assert_eq!(result["retrieval_method"], "graph");
+        assert_eq!(result["matched_relations"][0]["label"], "depends_on");
+        assert_eq!(
+            result["matched_relation_evidence"][0]["text"],
+            "The orchestration layer coordinates background jobs."
+        );
+    }
+
+    #[test]
+    fn knowledge_query_can_expand_relation_graph_two_hops() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-relation-two-hop-1",
+            "trace-relation-two-hop",
+            "knowledge.add_document",
+            json!({
+                "name": "Relation Two Hop Notes",
+                "content": "# Relation Two Hop Notes\n\n## Runtime\n\nThe orchestration layer coordinates background jobs.\n\n## Worker Pool\n\nThe scheduler configures worker pool slots.\n",
+                "category": "desktop",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-relation-two-hop-2",
+            "trace-relation-two-hop",
+            "knowledge.save_entity_graph_extraction",
+            json!({
+                "doc_id": doc_id,
+                "doc_name": "Relation Two Hop Notes",
+                "model": "knowledge-model",
+                "entities": [
+                    { "name": "TinyBot", "type": "project", "confidence": 0.93 },
+                    { "name": "RuntimeScheduler", "type": "component", "confidence": 0.91 },
+                    { "name": "WorkerPool", "type": "component", "confidence": 0.9 }
+                ],
+                "relations": [
+                    {
+                        "source": "TinyBot",
+                        "target": "RuntimeScheduler",
+                        "predicate": "depends_on",
+                        "confidence": 0.88,
+                        "evidence": [
+                            {
+                                "text": "The orchestration layer coordinates background jobs.",
+                                "line_start": 5,
+                                "line_end": 5
+                            }
+                        ]
+                    },
+                    {
+                        "source": "RuntimeScheduler",
+                        "target": "WorkerPool",
+                        "predicate": "configures",
+                        "confidence": 0.86,
+                        "evidence": [
+                            {
+                                "text": "The scheduler configures worker pool slots.",
+                                "line_start": 9,
+                                "line_end": 9
+                            }
+                        ]
+                    }
+                ],
+                "diagnostics": { "chunks_used": 2 }
+            }),
+        ));
+        assert_eq!(save_response.error, None);
+
+        let query_response = router.dispatch(&WorkerRequest::new(
+            "req-relation-two-hop-3",
+            "trace-relation-two-hop",
+            "knowledge.query",
+            json!({
+                "query": "TinyBot",
+                "category": "desktop",
+                "limit": 3,
+                "include_graph_context": true,
+                "graph_max_hops": 2,
+                "graph_min_confidence": 0.8,
+                "graph_max_added_chunks": 2
+            }),
+        ));
+
+        assert_eq!(query_response.error, None);
+        let results = query_response
+            .result
+            .as_ref()
+            .expect("knowledge.query should return result")["results"]
+            .as_array()
+            .expect("results should be an array");
+        assert_eq!(results.len(), 2);
+        let relation_labels = results
+            .iter()
+            .flat_map(|result| {
+                result["matched_relations"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|relation| relation["label"].as_str())
+            })
+            .collect::<Vec<_>>();
+        assert!(relation_labels.contains(&"depends_on"));
+        assert!(relation_labels.contains(&"configures"));
+        let snippets = results
+            .iter()
+            .flat_map(|result| {
+                result["source_snippets"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|snippet| snippet["text"].as_str())
+            })
+            .collect::<Vec<_>>();
+        assert!(snippets.contains(&"The orchestration layer coordinates background jobs."));
+        assert!(snippets.contains(&"The scheduler configures worker pool slots."));
+    }
+
+    #[test]
+    fn save_entity_graph_extraction_merges_duplicate_entity_aliases() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-entity-alias-1",
+            "trace-entity-alias",
+            "knowledge.add_document",
+            json!({
+                "name": "Entity Alias Source",
+                "content": "# Entity Alias Source\n\nTinyBot validates entity aliases.\ntinybot records duplicate evidence.\n",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-entity-alias-2",
+            "trace-entity-alias",
+            "knowledge.save_entity_graph_extraction",
+            json!({
+                "doc_id": doc_id,
+                "doc_name": "Entity Alias Source",
+                "model": "knowledge-model",
+                "entities": [
+                    {
+                        "name": "TinyBot",
+                        "type": "Project",
+                        "confidence": 0.91,
+                        "evidence": [
+                            {
+                                "text": "TinyBot validates entity aliases.",
+                                "line_start": 3,
+                                "line_end": 3
+                            }
+                        ]
+                    },
+                    {
+                        "name": " tinybot ",
+                        "type": "project",
+                        "confidence": 0.86,
+                        "evidence": [
+                            {
+                                "text": "tinybot records duplicate evidence.",
+                                "line_start": 4,
+                                "line_end": 4
+                            }
+                        ]
+                    }
+                ],
+                "relations": [],
+                "diagnostics": { "chunks_used": 1 }
+            }),
+        ));
+        assert_eq!(save_response.error, None);
+
+        let graph_response = router.dispatch(&WorkerRequest::new(
+            "req-entity-alias-3",
+            "trace-entity-alias",
+            "knowledge.graph",
+            json!({
+                "graph_type": "entity",
+                "doc_id": doc_id,
+                "include_orphans": true
+            }),
+        ));
+
+        assert_eq!(graph_response.error, None);
+        let result = graph_response
+            .result
+            .as_ref()
+            .expect("knowledge.graph should return result");
+        assert_eq!(result["stats"]["node_count"], 1);
+        assert_eq!(result["nodes"][0]["label"], "TinyBot");
+        assert_eq!(result["nodes"][0]["attributes"]["entity_type"], "project");
+        assert_eq!(
+            result["nodes"][0]["attributes"]["aliases"],
+            json!(["tinybot"])
+        );
+        assert_eq!(result["nodes"][0]["evidence"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn entity_graph_flags_entities_without_evidence() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-entity-evidence-status-1",
+            "trace-entity-evidence-status",
+            "knowledge.add_document",
+            json!({
+                "name": "Entity Evidence Status",
+                "content": "# Entity Evidence Status\n\nTinyBot has direct entity evidence.\n",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-entity-evidence-status-2",
+            "trace-entity-evidence-status",
+            "knowledge.save_entity_graph_extraction",
+            json!({
+                "doc_id": doc_id,
+                "doc_name": "Entity Evidence Status",
+                "model": "knowledge-model",
+                "entities": [
+                    {
+                        "name": "TinyBot",
+                        "type": "project",
+                        "confidence": 0.91,
+                        "evidence": [
+                            {
+                                "text": "TinyBot has direct entity evidence.",
+                                "line_start": 3,
+                                "line_end": 3
+                            }
+                        ]
+                    },
+                    {
+                        "name": "UnverifiedEntity",
+                        "type": "concept",
+                        "confidence": 0.64
+                    }
+                ],
+                "relations": [],
+                "diagnostics": { "chunks_used": 1 }
+            }),
+        ));
+        assert_eq!(save_response.error, None);
+
+        let graph_response = router.dispatch(&WorkerRequest::new(
+            "req-entity-evidence-status-3",
+            "trace-entity-evidence-status",
+            "knowledge.graph",
+            json!({
+                "graph_type": "entity",
+                "doc_id": doc_id,
+                "include_orphans": true
+            }),
+        ));
+
+        assert_eq!(graph_response.error, None);
+        let graph = graph_response
+            .result
+            .as_ref()
+            .expect("knowledge.graph should return result");
+        assert_eq!(graph["stats"]["verified_node_count"], 1);
+        assert_eq!(graph["stats"]["unverified_node_count"], 1);
+        let nodes = graph["nodes"].as_array().expect("nodes should be an array");
+        let verified = nodes
+            .iter()
+            .find(|node| node["label"] == "TinyBot")
+            .expect("verified entity should be present");
+        let missing = nodes
+            .iter()
+            .find(|node| node["label"] == "UnverifiedEntity")
+            .expect("unverified entity should be present");
+        assert_eq!(verified["attributes"]["evidence_status"], "verified");
+        assert_eq!(missing["attributes"]["evidence_status"], "missing");
+    }
+
+    #[test]
+    fn save_entity_graph_extraction_rejects_relation_without_evidence() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-validate-relation-1",
+            "trace-validate-relation",
+            "knowledge.add_document",
+            json!({
+                "name": "Validation Source",
+                "content": "# Validation Source\n\nTinyBot validates relation evidence.\n",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-validate-relation-2",
+            "trace-validate-relation",
+            "knowledge.save_entity_graph_extraction",
+            json!({
+                "doc_id": doc_id,
+                "doc_name": "Validation Source",
+                "model": "knowledge-model",
+                "entities": [
+                    { "name": "TinyBot", "type": "project", "confidence": 0.9 },
+                    { "name": "EvidenceValidation", "type": "concept", "confidence": 0.9 }
+                ],
+                "relations": [
+                    {
+                        "source": "TinyBot",
+                        "target": "EvidenceValidation",
+                        "predicate": "supports",
+                        "confidence": 0.82
+                    }
+                ],
+                "diagnostics": { "chunks_used": 1 }
+            }),
+        ));
+
+        let error = save_response
+            .error
+            .expect("relation without evidence should be rejected");
+        assert_eq!(
+            error.code,
+            crate::worker_protocol::WorkerProtocolErrorCode::InvalidProtocol
+        );
+        assert_eq!(error.message, "relation evidence is required");
+        assert_eq!(error.details["relation_index"], 0);
+        let edges_path = fixture.root.join("knowledge/entity_graph_edges.jsonl");
+        let edges_content = std::fs::read_to_string(edges_path).unwrap_or_default();
+        assert_eq!(edges_content.trim(), "");
+    }
+
+    #[test]
+    fn save_entity_graph_extraction_rejects_relation_evidence_not_in_document() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-validate-evidence-1",
+            "trace-validate-evidence",
+            "knowledge.add_document",
+            json!({
+                "name": "Validation Source",
+                "content": "# Validation Source\n\nTinyBot validates relation evidence.\n",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-validate-evidence-2",
+            "trace-validate-evidence",
+            "knowledge.save_entity_graph_extraction",
+            json!({
+                "doc_id": doc_id,
+                "doc_name": "Validation Source",
+                "model": "knowledge-model",
+                "entities": [
+                    { "name": "TinyBot", "type": "project", "confidence": 0.9 },
+                    { "name": "EvidenceValidation", "type": "concept", "confidence": 0.9 }
+                ],
+                "relations": [
+                    {
+                        "source": "TinyBot",
+                        "target": "EvidenceValidation",
+                        "predicate": "supports",
+                        "confidence": 0.82,
+                        "evidence": [
+                            {
+                                "text": "This sentence is not in the document.",
+                                "line_start": 3,
+                                "line_end": 3
+                            }
+                        ]
+                    }
+                ],
+                "diagnostics": { "chunks_used": 1 }
+            }),
+        ));
+
+        let error = save_response
+            .error
+            .expect("mismatched relation evidence should be rejected");
+        assert_eq!(
+            error.code,
+            crate::worker_protocol::WorkerProtocolErrorCode::InvalidProtocol
+        );
+        assert_eq!(
+            error.message,
+            "relation evidence must match document content"
+        );
+        assert_eq!(error.details["relation_index"], 0);
+        assert_eq!(
+            error.details["evidence"],
+            "This sentence is not in the document."
+        );
+    }
+
+    #[test]
+    fn save_entity_graph_extraction_rejects_relation_evidence_from_other_document() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-validate-source-1",
+            "trace-validate-source",
+            "knowledge.add_document",
+            json!({
+                "name": "Source Identity",
+                "content": "# Source Identity\n\nTinyBot validates relation source identity.\n",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-validate-source-2",
+            "trace-validate-source",
+            "knowledge.save_entity_graph_extraction",
+            json!({
+                "doc_id": doc_id,
+                "doc_name": "Source Identity",
+                "model": "knowledge-model",
+                "entities": [
+                    { "name": "TinyBot", "type": "project", "confidence": 0.9 },
+                    { "name": "SourceIdentity", "type": "concept", "confidence": 0.9 }
+                ],
+                "relations": [
+                    {
+                        "source": "TinyBot",
+                        "target": "SourceIdentity",
+                        "predicate": "supports",
+                        "confidence": 0.82,
+                        "evidence": [
+                            {
+                                "doc_id": "other_doc",
+                                "text": "TinyBot validates relation source identity.",
+                                "line_start": 3,
+                                "line_end": 3
+                            }
+                        ]
+                    }
+                ],
+                "diagnostics": { "chunks_used": 1 }
+            }),
+        ));
+
+        let error = save_response
+            .error
+            .expect("wrong-document relation evidence should be rejected");
+        assert_eq!(
+            error.code,
+            crate::worker_protocol::WorkerProtocolErrorCode::InvalidProtocol
+        );
+        assert_eq!(
+            error.message,
+            "relation evidence doc_id must match document"
+        );
+        assert_eq!(error.details["relation_index"], 0);
+        assert_eq!(error.details["evidence_doc_id"], "other_doc");
+        assert_eq!(error.details["doc_id"], doc_id);
+    }
+
+    #[test]
+    fn save_entity_graph_extraction_rejects_unsupported_relation_predicate() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-validate-predicate-1",
+            "trace-validate-predicate",
+            "knowledge.add_document",
+            json!({
+                "name": "Predicate Source",
+                "content": "# Predicate Source\n\nTinyBot validates controlled predicates.\n",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-validate-predicate-2",
+            "trace-validate-predicate",
+            "knowledge.save_entity_graph_extraction",
+            json!({
+                "doc_id": doc_id,
+                "doc_name": "Predicate Source",
+                "model": "knowledge-model",
+                "entities": [
+                    { "name": "TinyBot", "type": "project", "confidence": 0.9 },
+                    { "name": "PredicateRegistry", "type": "concept", "confidence": 0.9 }
+                ],
+                "relations": [
+                    {
+                        "source": "TinyBot",
+                        "target": "PredicateRegistry",
+                        "predicate": "stores",
+                        "confidence": 0.82,
+                        "evidence": [
+                            {
+                                "text": "TinyBot validates controlled predicates.",
+                                "line_start": 3,
+                                "line_end": 3
+                            }
+                        ]
+                    }
+                ],
+                "diagnostics": { "chunks_used": 1 }
+            }),
+        ));
+
+        let error = save_response
+            .error
+            .expect("unsupported predicate should be rejected");
+        assert_eq!(
+            error.code,
+            crate::worker_protocol::WorkerProtocolErrorCode::InvalidProtocol
+        );
+        assert_eq!(error.message, "unsupported relation predicate");
+        assert_eq!(error.details["predicate"], "stores");
+        assert_eq!(
+            error.details["allowed_predicates"],
+            json!([
+                "depends_on",
+                "causes",
+                "implements",
+                "configures",
+                "mentions",
+                "conflicts_with",
+                "supports"
+            ])
+        );
+    }
+
+    #[test]
+    fn entity_graph_exposes_conflicting_relations_with_evidence() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-conflict-graph-1",
+            "trace-conflict-graph",
+            "knowledge.add_document",
+            json!({
+                "name": "Conflict Source",
+                "content": "# Conflict Source\n\nTinyBot conflicts with LegacyBot behavior.\n",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-conflict-graph-2",
+            "trace-conflict-graph",
+            "knowledge.save_entity_graph_extraction",
+            json!({
+                "doc_id": doc_id,
+                "doc_name": "Conflict Source",
+                "model": "knowledge-model",
+                "entities": [
+                    { "name": "TinyBot", "type": "project", "confidence": 0.91 },
+                    { "name": "LegacyBot", "type": "project", "confidence": 0.88 }
+                ],
+                "relations": [
+                    {
+                        "source": "TinyBot",
+                        "target": "LegacyBot",
+                        "predicate": "conflicts_with",
+                        "confidence": 0.84,
+                        "evidence": [
+                            {
+                                "text": "TinyBot conflicts with LegacyBot behavior.",
+                                "line_start": 3,
+                                "line_end": 3
+                            }
+                        ]
+                    }
+                ],
+                "diagnostics": { "chunks_used": 1 }
+            }),
+        ));
+        assert_eq!(save_response.error, None);
+
+        let graph_response = router.dispatch(&WorkerRequest::new(
+            "req-conflict-graph-3",
+            "trace-conflict-graph",
+            "knowledge.graph",
+            json!({
+                "graph_type": "entity",
+                "doc_id": doc_id,
+                "include_orphans": true
+            }),
+        ));
+
+        assert_eq!(graph_response.error, None);
+        let graph = graph_response
+            .result
+            .as_ref()
+            .expect("knowledge.graph should return result");
+        assert_eq!(graph["stats"]["conflict_count"], 1);
+        assert_eq!(graph["conflicts"].as_array().unwrap().len(), 1);
+        assert_eq!(graph["conflicts"][0]["source_label"], "TinyBot");
+        assert_eq!(graph["conflicts"][0]["target_label"], "LegacyBot");
+        assert_eq!(graph["conflicts"][0]["predicate"], "conflicts_with");
+        assert_eq!(
+            graph["conflicts"][0]["evidence"][0]["text"],
+            "TinyBot conflicts with LegacyBot behavior."
+        );
+
+        let stats_response = router.dispatch(&WorkerRequest::new(
+            "req-conflict-graph-4",
+            "trace-conflict-graph",
+            "knowledge.stats",
+            json!({}),
+        ));
+        assert_eq!(stats_response.error, None);
+        let stats = stats_response
+            .result
+            .as_ref()
+            .expect("knowledge.stats should return result");
+        assert_eq!(stats["conflict_count"], 1);
+    }
+
+    #[test]
+    fn knowledge_query_returns_conflict_metadata_for_graph_conflicts() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-query-conflict-1",
+            "trace-query-conflict",
+            "knowledge.add_document",
+            json!({
+                "name": "Query Conflict Source",
+                "content": "# Query Conflict Source\n\nTinyBot conflicts with LegacyBot behavior.\n",
+                "category": "desktop",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-query-conflict-2",
+            "trace-query-conflict",
+            "knowledge.save_entity_graph_extraction",
+            json!({
+                "doc_id": doc_id,
+                "doc_name": "Query Conflict Source",
+                "model": "knowledge-model",
+                "entities": [
+                    { "name": "TinyBot", "type": "project", "confidence": 0.91 },
+                    { "name": "LegacyBot", "type": "project", "confidence": 0.88 }
+                ],
+                "relations": [
+                    {
+                        "source": "TinyBot",
+                        "target": "LegacyBot",
+                        "predicate": "conflicts_with",
+                        "confidence": 0.84,
+                        "evidence": [
+                            {
+                                "text": "TinyBot conflicts with LegacyBot behavior.",
+                                "line_start": 3,
+                                "line_end": 3
+                            }
+                        ]
+                    }
+                ],
+                "diagnostics": { "chunks_used": 1 }
+            }),
+        ));
+        assert_eq!(save_response.error, None);
+
+        let query_response = router.dispatch(&WorkerRequest::new(
+            "req-query-conflict-3",
+            "trace-query-conflict",
+            "knowledge.query",
+            json!({
+                "query": "TinyBot conflict LegacyBot",
+                "category": "desktop",
+                "limit": 3
+            }),
+        ));
+
+        assert_eq!(query_response.error, None);
+        let response = query_response
+            .result
+            .as_ref()
+            .expect("knowledge.query should return result");
+        assert_eq!(
+            response["retrieval_plan"]["selected_routes"],
+            json!(["keyword", "graph"])
+        );
+        let result = &response["results"][0];
+        assert_eq!(result["matched_relations"][0]["label"], "conflicts_with");
+        assert_eq!(
+            result["matched_relation_evidence"][0]["text"],
+            "TinyBot conflicts with LegacyBot behavior."
+        );
+        assert_eq!(result["conflict_metadata"].as_array().unwrap().len(), 1);
+        assert_eq!(result["conflict_metadata"][0]["source_label"], "TinyBot");
+        assert_eq!(result["conflict_metadata"][0]["target_label"], "LegacyBot");
+        assert_eq!(
+            result["conflict_metadata"][0]["predicate"],
+            "conflicts_with"
+        );
+        assert_eq!(
+            result["conflict_metadata"][0]["evidence"][0]["text"],
+            "TinyBot conflicts with LegacyBot behavior."
+        );
+    }
+
+    #[test]
+    fn knowledge_query_returns_deterministic_retrieval_plan() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-plan-1",
+            "trace-plan",
+            "knowledge.add_document",
+            json!({
+                "name": "Knowledge API Notes",
+                "content": "# Knowledge API Notes\n\nThe knowledge.document_tree API returns section hierarchy for exact navigation.\n",
+                "category": "desktop",
+                "file_type": "md"
+            }),
+        ));
+        assert_eq!(add_response.error, None);
+
+        let query_response = router.dispatch(&WorkerRequest::new(
+            "req-plan-2",
+            "trace-plan",
+            "knowledge.query",
+            json!({
+                "query": "knowledge.document_tree API",
+                "category": "desktop",
+                "limit": 4
+            }),
+        ));
+
+        assert_eq!(query_response.error, None);
+        let result = query_response
+            .result
+            .as_ref()
+            .expect("knowledge.query should return result");
+        assert_eq!(
+            result["retrieval_plan"],
+            json!({
+                "object": "knowledge_retrieval_plan",
+                "classification": "exact",
+                "selected_routes": ["keyword"],
+                "route_reasons": [
+                    {
+                        "route": "keyword",
+                        "reason": "query contains exact identifiers or API/config-like terms"
+                    }
+                ],
+                "budgets": {
+                    "limit": 4,
+                    "keyword": 4,
+                    "semantic": 0,
+                    "graph": 0,
+                    "tree": 0
+                },
+                "fallback_behavior": "fallback_to_hybrid_when_no_results",
+                "fallback_routes": ["keyword", "tree", "graph"],
+                "graph_options": {
+                    "include_graph_context": false,
+                    "max_hops": 1,
+                    "relation_filters": [],
+                    "min_confidence": 0.0,
+                    "max_added_chunks": 5
+                },
+                "tree_options": {
+                    "include_structure_context": false,
+                    "context_budget": 0,
+                    "trigger": "none"
+                }
+            })
+        );
+        assert_eq!(result["results"][0]["retrieval_method"], "sparse");
+    }
+
+    #[test]
+    fn knowledge_query_exact_retrieval_plan_includes_enabled_tree_route() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-plan-exact-tree-1",
+            "trace-plan-exact-tree",
+            "knowledge.add_document",
+            json!({
+                "name": "Knowledge API Tree Notes",
+                "content": "# Knowledge API Tree Notes\n\nThe knowledge.document_tree API exposes exact section hierarchy.\n",
+                "category": "desktop",
+                "file_type": "md"
+            }),
+        ));
+        assert_eq!(add_response.error, None);
+
+        let query_response = router.dispatch(&WorkerRequest::new(
+            "req-plan-exact-tree-2",
+            "trace-plan-exact-tree",
+            "knowledge.query",
+            json!({
+                "query": "where knowledge.document_tree API",
+                "category": "desktop",
+                "limit": 3
+            }),
+        ));
+
+        assert_eq!(query_response.error, None);
+        let result = query_response
+            .result
+            .as_ref()
+            .expect("knowledge.query should return result");
+        assert_eq!(result["retrieval_plan"]["classification"], "exact");
+        assert_eq!(
+            result["retrieval_plan"]["selected_routes"],
+            json!(["keyword", "tree"])
+        );
+        assert_eq!(result["retrieval_plan"]["budgets"]["tree"], 3);
+        assert_eq!(
+            result["results"][0]["matched_methods"],
+            json!(["keyword", "structure"])
+        );
+    }
+
+    #[test]
+    fn knowledge_query_retrieval_plan_exposes_graph_options() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-plan-graph-1",
+            "trace-plan-graph",
+            "knowledge.add_document",
+            json!({
+                "name": "Knowledge Graph Notes",
+                "content": "# Knowledge Graph Notes\n\nTinyBot depends on WorkerPool through RuntimeScheduler.\n",
+                "category": "desktop",
+                "file_type": "md"
+            }),
+        ));
+        assert_eq!(add_response.error, None);
+
+        let query_response = router.dispatch(&WorkerRequest::new(
+            "req-plan-graph-2",
+            "trace-plan-graph",
+            "knowledge.query",
+            json!({
+                "query": "TinyBot dependency graph",
+                "category": "desktop",
+                "limit": 3,
+                "include_structure_context": true,
+                "include_graph_context": true,
+                "graph_max_hops": 2,
+                "graph_relation_filters": ["depends_on", "configures"],
+                "graph_min_confidence": 0.75,
+                "graph_max_added_chunks": 3
+            }),
+        ));
+
+        assert_eq!(query_response.error, None);
+        let result = query_response
+            .result
+            .as_ref()
+            .expect("knowledge.query should return result");
+        assert_eq!(
+            result["retrieval_plan"]["graph_options"],
+            json!({
+                "include_graph_context": true,
+                "max_hops": 2,
+                "relation_filters": ["depends_on", "configures"],
+                "min_confidence": 0.75,
+                "max_added_chunks": 3
+            })
+        );
+        assert_eq!(
+            result["retrieval_plan"]["tree_options"],
+            json!({
+                "include_structure_context": true,
+                "context_budget": 3,
+                "trigger": "explicit"
+            })
+        );
+        assert_eq!(result["retrieval_plan"]["budgets"]["graph"], 3);
+        assert_eq!(result["retrieval_plan"]["budgets"]["tree"], 3);
+    }
+
+    #[test]
+    fn knowledge_query_retrieval_plan_selects_only_enabled_routes() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-plan-routes-1",
+            "trace-plan-routes",
+            "knowledge.add_document",
+            json!({
+                "name": "Concept Recall Notes",
+                "content": "# Concept Recall Notes\n\nHybrid concept recall should still describe only enabled routes.\n",
+                "category": "desktop",
+                "file_type": "md"
+            }),
+        ));
+        assert_eq!(add_response.error, None);
+
+        let query_response = router.dispatch(&WorkerRequest::new(
+            "req-plan-routes-2",
+            "trace-plan-routes",
+            "knowledge.query",
+            json!({
+                "query": "concept recall",
+                "category": "desktop",
+                "limit": 3
+            }),
+        ));
+
+        assert_eq!(query_response.error, None);
+        let result = query_response
+            .result
+            .as_ref()
+            .expect("knowledge.query should return result");
+        assert_eq!(result["retrieval_plan"]["classification"], "hybrid");
+        assert_eq!(
+            result["retrieval_plan"]["selected_routes"],
+            json!(["keyword"])
+        );
+        assert_eq!(result["retrieval_plan"]["budgets"]["graph"], 0);
+        assert_eq!(result["retrieval_plan"]["budgets"]["tree"], 0);
+    }
+
+    #[test]
+    fn knowledge_document_tree_returns_markdown_section_hierarchy() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let content = [
+            "# Desktop Knowledge Notes",
+            "",
+            "Root overview.",
+            "",
+            "## Retrieval Pipeline",
+            "",
+            "Sparse retrieval should find parent sections.",
+            "",
+            "### Ranking Details",
+            "",
+            "RRF and sparse scores are tracked.",
+            "",
+            "## Operational Notes",
+            "",
+            "Unrelated final section.",
+        ]
+        .join("\n");
+
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-tree-1",
+            "trace-tree",
+            "knowledge.add_document",
+            json!({
+                "name": "Tree Knowledge Notes",
+                "content": content,
+                "category": "desktop",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+
+        let tree_response = router.dispatch(&WorkerRequest::new(
+            "req-tree-2",
+            "trace-tree",
+            "knowledge.document_tree",
+            json!({ "doc_id": doc_id }),
+        ));
+
+        assert_eq!(tree_response.error, None);
+        let tree = tree_response
+            .result
+            .as_ref()
+            .expect("knowledge.document_tree should return result");
+        assert_eq!(tree["object"], "knowledge_document_tree");
+        assert_eq!(tree["doc_id"], doc_id);
+        assert_eq!(tree["root"]["id"], "section-root");
+        assert_eq!(
+            tree["root"]["children"],
+            json!([format!("section_{doc_id}_0")])
+        );
+        assert_eq!(tree["section_count"], 4);
+        assert_eq!(
+            tree["sections"],
+            json!([
+                {
+                    "id": format!("section_{doc_id}_0"),
+                    "doc_id": doc_id,
+                    "chunk_id": format!("chunk_{doc_id}_0"),
+                    "title": "Desktop Knowledge Notes",
+                    "section_path": "Desktop Knowledge Notes",
+                    "parent_id": "section-root",
+                    "children": [format!("section_{doc_id}_1"), format!("section_{doc_id}_3")],
+                    "ordinal": 0,
+                    "line_start": 1,
+                    "line_end": 4,
+                    "chunk_count": 1
+                },
+                {
+                    "id": format!("section_{doc_id}_1"),
+                    "doc_id": doc_id,
+                    "chunk_id": format!("chunk_{doc_id}_1"),
+                    "title": "Retrieval Pipeline",
+                    "section_path": "Retrieval Pipeline",
+                    "parent_id": format!("section_{doc_id}_0"),
+                    "children": [format!("section_{doc_id}_2")],
+                    "ordinal": 1,
+                    "line_start": 5,
+                    "line_end": 8,
+                    "chunk_count": 1
+                },
+                {
+                    "id": format!("section_{doc_id}_2"),
+                    "doc_id": doc_id,
+                    "chunk_id": format!("chunk_{doc_id}_2"),
+                    "title": "Ranking Details",
+                    "section_path": "Ranking Details",
+                    "parent_id": format!("section_{doc_id}_1"),
+                    "children": [],
+                    "ordinal": 2,
+                    "line_start": 9,
+                    "line_end": 12,
+                    "chunk_count": 1
+                },
+                {
+                    "id": format!("section_{doc_id}_3"),
+                    "doc_id": doc_id,
+                    "chunk_id": format!("chunk_{doc_id}_3"),
+                    "title": "Operational Notes",
+                    "section_path": "Operational Notes",
+                    "parent_id": format!("section_{doc_id}_0"),
+                    "children": [],
+                    "ordinal": 3,
+                    "line_start": 13,
+                    "line_end": 15,
+                    "chunk_count": 1
+                }
+            ])
+        );
     }
 
     #[test]
@@ -8077,6 +10033,11 @@ mod tests {
         assert_eq!(stats["failed_stage_count"], 0);
         assert_eq!(stats["stale_stage_count"], 0);
         assert_eq!(stats["stage_readiness"]["sparse_indexing"]["ready"], true);
+        assert_eq!(stats["stage_readiness"]["tree_index"]["ready"], true);
+        assert_eq!(stats["stage_readiness"]["tree_index"]["status"], "ready");
+        assert_eq!(stats["stage_readiness"]["tree_index"]["processed"], 2);
+        assert_eq!(stats["stage_readiness"]["tree_index"]["total"], 2);
+        assert_eq!(stats["stage_readiness"]["tree_index"]["stale"], 0);
         assert_eq!(
             stats["stage_readiness"]["claim_extraction"]["status"],
             "not_configured"
@@ -8093,6 +10054,7 @@ mod tests {
         );
         assert_eq!(stats["stage_readiness"]["graph_projection"]["total"], 0);
         assert_eq!(stats["stage_coverage"]["sparse_indexing"], 1.0);
+        assert_eq!(stats["stage_coverage"]["tree_index"], 1.0);
         assert_eq!(stats["stage_details"], json!([]));
     }
 
@@ -8179,6 +10141,25 @@ mod tests {
         assert_eq!(rebuild["stage"], "completed");
         assert_eq!(rebuild["result"]["semantic"]["available"], false);
         assert_eq!(rebuild["result"]["bm25"]["chunks_indexed"], 1);
+
+        let tree_rebuild_response = router.dispatch(&WorkerRequest::new(
+            "req-5",
+            "trace-1",
+            "knowledge.rebuild_index",
+            json!({ "type": "tree" }),
+        ));
+        assert_eq!(tree_rebuild_response.error, None);
+        let tree_rebuild = tree_rebuild_response
+            .result
+            .as_ref()
+            .expect("knowledge.rebuild_index tree should return result");
+        assert_eq!(tree_rebuild["id"], "kjob_rebuild_tree");
+        assert_eq!(tree_rebuild["name"], "rebuild:tree");
+        assert_eq!(tree_rebuild["status"], "completed");
+        assert_eq!(tree_rebuild["result"]["available"], true);
+        assert_eq!(tree_rebuild["result"]["documents_scanned"], 1);
+        assert_eq!(tree_rebuild["result"]["sections_indexed"], 1);
+        assert_eq!(tree_rebuild["result"]["tree_ready"], true);
     }
 
     #[test]
@@ -8312,7 +10293,7 @@ mod tests {
                     { "name": "knowledge graph", "type": "concept", "confidence": 0.86 }
                 ],
                 "relations": [
-                    { "source": "TinyBot", "target": "knowledge graph", "predicate": "stores", "confidence": 0.82, "evidence": [{ "text": "TinyBot stores knowledge graph evidence.", "line_start": 3, "line_end": 3 }] }
+                    { "source": "TinyBot", "target": "knowledge graph", "predicate": "supports", "confidence": 0.82, "evidence": [{ "text": "TinyBot stores knowledge graph evidence.", "line_start": 3, "line_end": 3 }] }
                 ],
                 "diagnostics": { "chunks_used": 1 }
             }),
@@ -8331,7 +10312,7 @@ mod tests {
             .contains("TinyBot"));
         assert!(fixture
             .read("knowledge/entity_graph_edges.jsonl")
-            .contains("stores"));
+            .contains("supports"));
         assert!(fixture
             .read("knowledge/entity_graph_evidence.jsonl")
             .contains("knowledge graph evidence"));
@@ -8402,6 +10383,12 @@ mod tests {
         assert_eq!(stats["relation_count"], 1);
         assert_eq!(stats["source_count"], 2);
         assert_eq!(stats["graph_ready"], true);
+        assert_eq!(stats["stale_stage_count"], 1);
+        assert_eq!(
+            stats["stage_readiness"]["graph_projection"]["status"],
+            "stale"
+        );
+        assert_eq!(stats["stage_readiness"]["graph_projection"]["stale"], 3);
     }
 
     #[test]
@@ -8447,7 +10434,7 @@ mod tests {
                     { "name": "TinyBot", "type": "project", "confidence": 0.91, "evidence": [{ "text": "TinyBot deletion evidence should disappear.", "line_start": 3, "line_end": 3 }] }
                 ],
                 "relations": [
-                    { "source": "TinyBot", "target": "Deletion", "predicate": "removes", "confidence": 0.82, "evidence": [{ "text": "TinyBot deletion evidence should disappear.", "line_start": 3, "line_end": 3 }] }
+                    { "source": "TinyBot", "target": "Deletion", "predicate": "conflicts_with", "confidence": 0.82, "evidence": [{ "text": "TinyBot deletion evidence should disappear.", "line_start": 3, "line_end": 3 }] }
                 ]
             }),
         ));
@@ -8466,7 +10453,7 @@ mod tests {
             .contains("TinyBot"));
         assert!(!fixture
             .read("knowledge/entity_graph_edges.jsonl")
-            .contains("removes"));
+            .contains("conflicts_with"));
         assert!(!fixture
             .read("knowledge/entity_graph_evidence.jsonl")
             .contains("deletion evidence"));
@@ -8590,8 +10577,8 @@ mod tests {
                     { "name": "LowConfidence", "type": "concept", "confidence": 0.25 }
                 ],
                 "relations": [
-                    { "source": "HighConfidence", "target": "HighConfidence", "predicate": "supports", "confidence": 0.96 },
-                    { "source": "HighConfidence", "target": "LowConfidence", "predicate": "mentions", "confidence": 0.20 }
+                    { "source": "HighConfidence", "target": "HighConfidence", "predicate": "supports", "confidence": 0.96, "evidence": [{ "text": "High and low confidence graph data.", "line_start": 3, "line_end": 3 }] },
+                    { "source": "HighConfidence", "target": "LowConfidence", "predicate": "mentions", "confidence": 0.20, "evidence": [{ "text": "High and low confidence graph data.", "line_start": 3, "line_end": 3 }] }
                 ]
             }),
         ));
@@ -8691,6 +10678,249 @@ mod tests {
                 "line_end": 3,
                 "retrieval_method": "sparse"
             })
+        );
+    }
+
+    #[test]
+    fn knowledge_context_references_preserve_graph_evidence_metadata() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-context-graph-1",
+            "trace-context-graph",
+            "knowledge.add_document",
+            json!({
+                "name": "Context Graph Notes",
+                "content": "# Context Graph Notes\n\nThe orchestration layer coordinates background jobs.\n",
+                "category": "desktop",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-context-graph-2",
+            "trace-context-graph",
+            "knowledge.save_entity_graph_extraction",
+            json!({
+                "doc_id": doc_id,
+                "doc_name": "Context Graph Notes",
+                "model": "knowledge-model",
+                "entities": [
+                    {
+                        "name": "TinyBot",
+                        "type": "project",
+                        "confidence": 0.93,
+                        "evidence": [
+                            {
+                                "text": "The orchestration layer coordinates background jobs.",
+                                "line_start": 3,
+                                "line_end": 3
+                            }
+                        ]
+                    }
+                ],
+                "relations": [],
+                "diagnostics": { "chunks_used": 1 }
+            }),
+        ));
+        assert_eq!(save_response.error, None);
+
+        let context_response = router.dispatch(&WorkerRequest::new(
+            "req-context-graph-3",
+            "trace-context-graph",
+            "knowledge.context",
+            json!({
+                "current_message": "TinyBot dependency",
+                "session_key": "desktop:session-graph",
+                "max_chunks": 3,
+                "use_persistent_knowledge": true
+            }),
+        ));
+
+        assert_eq!(context_response.error, None);
+        let result = context_response
+            .result
+            .as_ref()
+            .expect("knowledge.context should return result");
+        assert_eq!(result["persistent_results"][0]["retrieval_method"], "graph");
+        assert_eq!(result["references"][0]["retrieval_method"], "graph");
+        assert_eq!(
+            result["references"][0]["source_snippets"][0]["text"],
+            "The orchestration layer coordinates background jobs."
+        );
+        assert_eq!(
+            result["references"][0]["projection_metadata"][0]["projection"],
+            "entity_graph"
+        );
+        assert_eq!(
+            result["references"][0]["projection_metadata"][0]["owner_label"],
+            "TinyBot"
+        );
+        assert_eq!(
+            result["references"][0]["score_metadata"]["components"]["evidence_quality_bonus"]["score"],
+            1
+        );
+    }
+
+    #[test]
+    fn knowledge_context_references_preserve_tree_structure_metadata() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let content = [
+            "# Context Tree Notes",
+            "",
+            "Root overview.",
+            "",
+            "## Retrieval Pipeline",
+            "",
+            "The uniquetreecontext marker belongs to retrieval.",
+            "",
+            "### Ranking Details",
+            "",
+            "Ranking details should be listed as a child section.",
+        ]
+        .join("\n");
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-context-tree-1",
+            "trace-context-tree",
+            "knowledge.add_document",
+            json!({
+                "name": "Context Tree Notes",
+                "content": content,
+                "category": "desktop",
+                "file_type": "md"
+            }),
+        ));
+        assert_eq!(add_response.error, None);
+
+        let context_response = router.dispatch(&WorkerRequest::new(
+            "req-context-tree-2",
+            "trace-context-tree",
+            "knowledge.context",
+            json!({
+                "current_message": "where uniquetreecontext",
+                "session_key": "desktop:session-tree",
+                "max_chunks": 3,
+                "use_persistent_knowledge": true
+            }),
+        ));
+
+        assert_eq!(context_response.error, None);
+        let result = context_response
+            .result
+            .as_ref()
+            .expect("knowledge.context should return result");
+        assert_eq!(
+            result["persistent_results"][0]["matched_methods"],
+            json!(["keyword", "structure"])
+        );
+        assert_eq!(
+            result["references"][0]["structure_context"]["section"]["title"],
+            "Retrieval Pipeline"
+        );
+        assert_eq!(
+            result["references"][0]["structure_context"]["parent_section"]["title"],
+            "Context Tree Notes"
+        );
+        assert_eq!(
+            result["references"][0]["structure_context"]["child_sections"][0]["title"],
+            "Ranking Details"
+        );
+    }
+
+    #[test]
+    fn knowledge_context_returns_retrieval_plan_for_persistent_results() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let content = [
+            "# Context Plan Notes",
+            "",
+            "Root overview.",
+            "",
+            "## Retrieval Location",
+            "",
+            "The uniquetreeplan marker belongs under the retrieval location section.",
+        ]
+        .join("\n");
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-context-plan-1",
+            "trace-context-plan",
+            "knowledge.add_document",
+            json!({
+                "name": "Context Plan Notes",
+                "content": content,
+                "category": "desktop",
+                "file_type": "md"
+            }),
+        ));
+        assert_eq!(add_response.error, None);
+
+        let context_response = router.dispatch(&WorkerRequest::new(
+            "req-context-plan-2",
+            "trace-context-plan",
+            "knowledge.context",
+            json!({
+                "current_message": "where uniquetreeplan",
+                "session_key": "desktop:session-plan",
+                "max_chunks": 3,
+                "use_persistent_knowledge": true
+            }),
+        ));
+
+        assert_eq!(context_response.error, None);
+        let result = context_response
+            .result
+            .as_ref()
+            .expect("knowledge.context should return result");
+        assert_eq!(
+            result["retrieval_plan"]["selected_routes"],
+            json!(["keyword", "tree"])
+        );
+        assert_eq!(
+            result["retrieval_plan"]["tree_options"],
+            json!({
+                "include_structure_context": true,
+                "context_budget": 3,
+                "trigger": "auto"
+            })
+        );
+        assert_eq!(
+            result["persistent_results"][0]["matched_methods"],
+            json!(["keyword", "structure"])
         );
     }
 

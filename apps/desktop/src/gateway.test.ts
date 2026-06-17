@@ -1240,6 +1240,13 @@ describe("gateway HTTP client", () => {
         path: "/v1/knowledge/rebuild-index?type=semantic&async_index=true",
       },
     });
+    await expect(client.knowledge.rebuildIndex("tree")).resolves.toEqual({
+      native: true,
+      request: {
+        method: "POST",
+        path: "/v1/knowledge/rebuild-index?type=tree&async_index=true",
+      },
+    });
     await expect(client.knowledge.graph()).resolves.toEqual({
       native: true,
       request: {
@@ -1335,6 +1342,25 @@ describe("gateway HTTP client", () => {
         path: "/v1/knowledge/graphrag?doc_id=docs%2Fknowledge.md&min_confidence=0.2&level=1&include_reports=false&include_covariates=true",
       },
     });
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  test("does not fallback to gateway HTTP when native graph extraction fails", async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
+    const nativeWebui = {
+      route: vi.fn(async () => {
+        throw new Error("Error extracting knowledge graph: unsupported relation predicate");
+      }),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeWebui,
+    });
+
+    await expect(client.knowledge.extractGraph({ docId: "doc-1" }))
+      .rejects
+      .toThrow("unsupported relation predicate");
     expect(fetchFn).not.toHaveBeenCalled();
   });
 

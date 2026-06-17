@@ -44,6 +44,7 @@ function createKnowledgeQueryApp(options: KnowledgeQueryIslandOptions): App {
             h("h2", `Query: ${options.draft.query || "empty"}`),
             h("p", `Mode: ${options.draft.mode} / top ${options.draft.topK}`),
             h("p", `Results: ${options.results.summary.count}`),
+            renderRetrievalPlan(options.results.summary.retrievalPlan),
             options.results.rows.length
               ? renderResults(options.results.rows)
               : h(NEmpty, {
@@ -56,6 +57,25 @@ function createKnowledgeQueryApp(options: KnowledgeQueryIslandOptions): App {
       });
     },
   }));
+}
+
+function renderRetrievalPlan(plan: DesktopKnowledgeQueryResultView["summary"]["retrievalPlan"]) {
+  if (!plan) {
+    return null;
+  }
+  return h(NSpace, {
+    class: "desktop-knowledge-query-plan",
+    size: 4,
+    wrap: true,
+  }, {
+    default: () => [
+      h(NTag, { size: "small", round: true, type: "info" }, { default: () => `Plan: ${plan.classification}` }),
+      plan.routes.length ? h(NTag, { size: "small", round: true }, { default: () => `Routes: ${plan.routes.join(" + ")}` }) : null,
+      plan.budgetLabel ? h(NTag, { size: "small", round: true }, { default: () => plan.budgetLabel }) : null,
+      plan.treeLabel ? h(NTag, { size: "small", round: true }, { default: () => plan.treeLabel }) : null,
+      plan.graphLabel ? h(NTag, { size: "small", round: true }, { default: () => plan.graphLabel }) : null,
+    ],
+  });
 }
 
 function renderResults(rows: DesktopKnowledgeQueryResultRow[]) {

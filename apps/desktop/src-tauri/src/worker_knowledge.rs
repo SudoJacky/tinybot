@@ -19,6 +19,16 @@ pub struct WorkerKnowledgeRpc {
     policy: CapabilityPolicy,
 }
 
+const CONTROLLED_RELATION_PREDICATES: &[&str] = &[
+    "depends_on",
+    "causes",
+    "implements",
+    "configures",
+    "mentions",
+    "conflicts_with",
+    "supports",
+];
+
 impl WorkerKnowledgeRpc {
     pub fn new(root: PathBuf, policy: CapabilityPolicy) -> Self {
         Self { root, policy }
@@ -133,6 +143,23 @@ impl WorkerKnowledgeRpc {
         })
     }
 
+    pub fn document_tree(
+        &self,
+        params: KnowledgeDocumentIdParams,
+    ) -> Result<KnowledgeDocumentTreeResult, WorkerProtocolError> {
+        self.require(WorkerCapability::KnowledgeRead)?;
+        if find_document(&self.root, &params.doc_id)?.is_none() {
+            return Err(unknown_knowledge_document(&params.doc_id));
+        }
+        let chunks =
+            read_jsonl::<KnowledgeChunk>(&KnowledgeStorePaths::new(&self.root).chunks_file)?;
+        let parent_chunks = chunks
+            .into_iter()
+            .filter(|chunk| chunk.doc_id == params.doc_id && chunk.chunk_type == "parent")
+            .collect::<Vec<_>>();
+        Ok(build_knowledge_document_tree(&params.doc_id, parent_chunks))
+    }
+
     pub fn delete_document(
         &self,
         params: KnowledgeDocumentIdParams,
@@ -202,9 +229,9 @@ impl WorkerKnowledgeRpc {
     ) -> Result<KnowledgeJob, WorkerProtocolError> {
         self.require(WorkerCapability::KnowledgeWrite)?;
         let rebuild_type = params.rebuild_type.unwrap_or_else(|| "bm25".to_string());
-        if !matches!(rebuild_type.as_str(), "bm25" | "semantic" | "all") {
+        if !matches!(rebuild_type.as_str(), "bm25" | "semantic" | "tree" | "all") {
             return Err(invalid_knowledge_request(
-                "type must be bm25, semantic, or all",
+                "type must be bm25, semantic, tree, or all",
             ));
         }
         let stats = self.stats()?;
@@ -214,10 +241,12 @@ impl WorkerKnowledgeRpc {
                 refresh_document_graph(&self.root)?;
                 result
             }
+            "tree" => knowledge_tree_rebuild_result(&self.root)?,
             "semantic" => knowledge_semantic_unavailable_result(),
             "all" => {
                 let result = serde_json::json!({
                     "bm25": knowledge_bm25_rebuild_result(&self.root)?,
+                    "tree": knowledge_tree_rebuild_result(&self.root)?,
                     "semantic": knowledge_semantic_unavailable_result()
                 });
                 refresh_document_graph(&self.root)?;
@@ -324,6 +353,7 @@ impl WorkerKnowledgeRpc {
         let Some(document) = find_document(&self.root, &params.doc_id)? else {
             return Err(unknown_knowledge_document(&params.doc_id));
         };
+        validate_entity_graph_relations(&document, &params)?;
         let store = KnowledgeStorePaths::new(&self.root);
         let source_hash = document_content_hash(&document);
         let mut nodes = read_jsonl::<KnowledgeGraphNode>(&store.entity_graph_nodes_file)?;
@@ -335,6 +365,7 @@ impl WorkerKnowledgeRpc {
             .retain(|item| value_string(item, "doc_id").as_deref() != Some(document.id.as_str()));
 
         let mut entity_ids = HashMap::new();
+        let mut entity_node_indexes = HashMap::new();
         for entity in params
             .entities
             .iter()
@@ -357,20 +388,28 @@ impl WorkerKnowledgeRpc {
                     )
                 })
                 .collect::<Vec<_>>();
-            nodes.push(KnowledgeGraphNode {
-                id,
-                label: entity.name.trim().to_string(),
-                node_type: "entity".to_string(),
-                doc_id: document.id.clone(),
-                evidence: Vec::new(),
-                attributes: serde_json::json!({
-                    "entity_type": entity.entity_type,
-                    "confidence": entity.confidence,
-                    "source_hash": source_hash,
-                    "stale": false,
-                    "evidence_ids": evidence_ids
-                }),
-            });
+            if let Some(index) = entity_node_indexes.get(&id).copied() {
+                merge_entity_graph_node(&mut nodes[index], entity, evidence_ids);
+            } else {
+                let evidence_status = entity_graph_evidence_status(&evidence_ids);
+                nodes.push(KnowledgeGraphNode {
+                    id: id.clone(),
+                    label: entity.name.trim().to_string(),
+                    node_type: "entity".to_string(),
+                    doc_id: document.id.clone(),
+                    evidence: Vec::new(),
+                    attributes: serde_json::json!({
+                        "entity_type": normalize_entity_graph_type(&entity.entity_type),
+                        "aliases": [],
+                        "confidence": entity.confidence,
+                        "source_hash": source_hash,
+                        "stale": false,
+                        "evidence_status": evidence_status,
+                        "evidence_ids": evidence_ids
+                    }),
+                });
+                entity_node_indexes.insert(id, nodes.len() - 1);
+            }
         }
         for relation in params.relations.iter().filter(|relation| {
             !relation.source.trim().is_empty()
@@ -491,6 +530,12 @@ impl WorkerKnowledgeRpc {
         let limit = params.limit.unwrap_or(80).clamp(1, 500);
         nodes.truncate(limit);
         let stale = mark_entity_graph_staleness(&self.root, &mut nodes, &mut edges)?;
+        let conflicts = entity_graph_conflicts(&nodes, &edges);
+        let verified_node_count = nodes
+            .iter()
+            .filter(|node| entity_graph_node_evidence_status(&node.attributes) == "verified")
+            .count();
+        let unverified_node_count = nodes.len().saturating_sub(verified_node_count);
         let entity_ready = !nodes.is_empty() || !edges.is_empty();
         Ok(KnowledgeGraphResult {
             object: "knowledge_graph".to_string(),
@@ -501,6 +546,9 @@ impl WorkerKnowledgeRpc {
                 "total_entities": nodes.len(),
                 "total_relations": edges.len(),
                 "total_mentions": edges.iter().map(|edge| edge.evidence.len()).sum::<usize>(),
+                "conflict_count": conflicts.len(),
+                "verified_node_count": verified_node_count,
+                "unverified_node_count": unverified_node_count,
                 "stale_count": stale.node_count + stale.edge_count,
                 "stale_node_count": stale.node_count,
                 "stale_edge_count": stale.edge_count,
@@ -525,7 +573,7 @@ impl WorkerKnowledgeRpc {
             communities: Vec::new(),
             reports: Vec::new(),
             claims: Vec::new(),
-            conflicts: Vec::new(),
+            conflicts,
             stage_readiness: serde_json::json!({}),
             stage_coverage: serde_json::json!({}),
         })
@@ -537,9 +585,11 @@ impl WorkerKnowledgeRpc {
     ) -> Result<KnowledgeQueryResultSet, WorkerProtocolError> {
         self.require(WorkerCapability::KnowledgeRead)?;
         let limit = params.limit.unwrap_or(5).min(20);
+        let retrieval_plan = build_knowledge_retrieval_plan(&params, limit);
         if limit == 0 {
             return Ok(KnowledgeQueryResultSet {
                 results: Vec::new(),
+                retrieval_plan,
             });
         }
         let query_terms = knowledge_query_terms(&params.query);
@@ -548,6 +598,10 @@ impl WorkerKnowledgeRpc {
                 "query must contain at least one searchable term",
             ));
         }
+        let include_structure_context =
+            knowledge_query_should_include_structure_context(&params, &query_terms);
+        let include_graph_context =
+            knowledge_query_should_include_graph_context(&params, &query_terms);
         let chunks =
             read_jsonl::<KnowledgeChunk>(&KnowledgeStorePaths::new(&self.root).chunks_file)?;
         let parents: HashMap<String, KnowledgeChunk> = chunks
@@ -557,15 +611,8 @@ impl WorkerKnowledgeRpc {
             .collect();
         let mut results_by_parent: HashMap<String, KnowledgeQueryResult> = HashMap::new();
         for chunk in chunks {
-            if let Some(category) = params.category.as_deref().filter(|value| !value.is_empty()) {
-                if chunk.category != category {
-                    continue;
-                }
-            }
-            if let Some(tags) = params.tags.as_ref().filter(|tags| !tags.is_empty()) {
-                if !tags.iter().any(|tag| chunk.tags.contains(tag)) {
-                    continue;
-                }
+            if !knowledge_chunk_matches_query_filters(&chunk, &params) {
+                continue;
             }
             let score = knowledge_score(&chunk.retrieval_text, &query_terms);
             if score == 0 {
@@ -596,9 +643,35 @@ impl WorkerKnowledgeRpc {
                 if !entry.matched_child_snippets.contains(&chunk.content) {
                     entry.matched_child_snippets.push(chunk.content.clone());
                 }
+                if !entry
+                    .matched_child_section_paths
+                    .contains(&chunk.section_path)
+                {
+                    entry
+                        .matched_child_section_paths
+                        .push(chunk.section_path.clone());
+                }
             }
         }
+        if include_graph_context {
+            let store = KnowledgeStorePaths::new(&self.root);
+            let entity_nodes = read_jsonl::<KnowledgeGraphNode>(&store.entity_graph_nodes_file)?;
+            let entity_edges = read_jsonl::<KnowledgeGraphEdge>(&store.entity_graph_edges_file)?;
+            let entity_evidence = read_jsonl::<Value>(&store.entity_graph_evidence_file)?;
+            expand_query_with_entity_graph(
+                &mut results_by_parent,
+                &parents,
+                &entity_nodes,
+                &entity_edges,
+                &entity_evidence,
+                &query_terms,
+                &params,
+            );
+        }
         let mut results: Vec<KnowledgeQueryResult> = results_by_parent.into_values().collect();
+        for result in &mut results {
+            apply_knowledge_evidence_quality_bonus(result);
+        }
         results.sort_by(|left, right| {
             right
                 .score
@@ -610,7 +683,16 @@ impl WorkerKnowledgeRpc {
             result.sparse_rank = index + 1;
         }
         results.truncate(limit);
-        Ok(KnowledgeQueryResultSet { results })
+        for result in &mut results {
+            if include_structure_context {
+                populate_knowledge_structure_context(result, &parents);
+            }
+            populate_knowledge_score_metadata(result);
+        }
+        Ok(KnowledgeQueryResultSet {
+            results,
+            retrieval_plan,
+        })
     }
 
     pub fn context(
@@ -630,17 +712,24 @@ impl WorkerKnowledgeRpc {
         if max_chunks == 0 {
             return Ok(empty_knowledge_context());
         }
-        let persistent_results = if params.use_persistent_knowledge == Some(false) {
-            Vec::new()
-        } else {
-            self.query(KnowledgeQueryParams {
-                query: params.current_message.clone(),
-                category: None,
-                tags: None,
-                limit: Some(max_chunks),
-            })?
-            .results
-        };
+        let (persistent_results, retrieval_plan) =
+            if params.use_persistent_knowledge == Some(false) {
+                (Vec::new(), serde_json::json!({}))
+            } else {
+                let query_result = self.query(KnowledgeQueryParams {
+                    query: params.current_message.clone(),
+                    category: None,
+                    tags: None,
+                    limit: Some(max_chunks),
+                    include_structure_context: None,
+                    include_graph_context: None,
+                    graph_relation_filters: None,
+                    graph_max_hops: None,
+                    graph_min_confidence: None,
+                    graph_max_added_chunks: None,
+                })?;
+                (query_result.results, query_result.retrieval_plan)
+            };
         let session_results = session_temporary_context_results(
             params.session_key.as_deref(),
             &session_files,
@@ -662,6 +751,7 @@ impl WorkerKnowledgeRpc {
             persistent_results,
             session_results,
             references,
+            retrieval_plan,
         })
     }
 
@@ -670,9 +760,16 @@ impl WorkerKnowledgeRpc {
         let store = KnowledgeStorePaths::new(&self.root);
         let documents = read_jsonl::<KnowledgeDocument>(&store.documents_file)?;
         let chunks = read_jsonl::<KnowledgeChunk>(&store.chunks_file)?;
-        let entity_nodes = read_jsonl::<KnowledgeGraphNode>(&store.entity_graph_nodes_file)?;
-        let entity_edges = read_jsonl::<KnowledgeGraphEdge>(&store.entity_graph_edges_file)?;
+        let mut entity_nodes = read_jsonl::<KnowledgeGraphNode>(&store.entity_graph_nodes_file)?;
+        let mut entity_edges = read_jsonl::<KnowledgeGraphEdge>(&store.entity_graph_edges_file)?;
         let entity_evidence = read_jsonl::<Value>(&store.entity_graph_evidence_file)?;
+        let graph_stale =
+            mark_entity_graph_staleness(&self.root, &mut entity_nodes, &mut entity_edges)?;
+        let graph_stale_count = graph_stale.node_count + graph_stale.edge_count;
+        let conflict_count = entity_edges
+            .iter()
+            .filter(|edge| entity_graph_edge_is_conflict(edge))
+            .count();
         let parent_chunk_count = chunks
             .iter()
             .filter(|chunk| chunk.chunk_type == "parent")
@@ -695,6 +792,7 @@ impl WorkerKnowledgeRpc {
             .map(|document| document.content.chars().count())
             .sum();
         let retrieval_ready = parent_chunk_count > 0;
+        let tree_ready = parent_chunk_count > 0;
         let claims_ready = false;
         let relations_ready = !entity_edges.is_empty();
         let graph_ready = !entity_nodes.is_empty() || !entity_edges.is_empty();
@@ -706,18 +804,27 @@ impl WorkerKnowledgeRpc {
             "failed": 0,
             "stale": 0
         });
+        let graph_projection_status = if graph_stale_count > 0 {
+            "stale"
+        } else if graph_ready {
+            "ready"
+        } else {
+            "not_configured"
+        };
         let stage_readiness = serde_json::json!({
             "sparse_indexing": sparse_stage,
+            "tree_index": { "ready": tree_ready, "status": if tree_ready { "ready" } else { "empty" }, "processed": parent_chunk_count, "total": parent_chunk_count, "failed": 0, "stale": 0, "skipped": 0 },
             "dense_indexing": { "ready": false, "status": "not_configured", "processed": 0, "total": 0, "failed": 0, "stale": 0, "skipped": parent_chunk_count },
             "claim_extraction": { "ready": false, "status": "not_configured", "processed": 0, "total": 0, "failed": 0, "stale": 0, "skipped": parent_chunk_count },
             "claim_validation": { "ready": false, "status": "not_configured", "processed": 0, "total": 0, "failed": 0, "stale": 0, "skipped": parent_chunk_count },
             "relation_extraction": { "ready": relations_ready, "status": if relations_ready { "ready" } else { "not_configured" }, "processed": entity_edges.len(), "total": entity_edges.len(), "failed": 0, "stale": 0, "skipped": if relations_ready { 0 } else { parent_chunk_count } },
             "relation_validation": { "ready": relations_ready, "status": if relations_ready { "ready" } else { "not_configured" }, "processed": entity_edges.len(), "total": entity_edges.len(), "failed": 0, "stale": 0, "skipped": if relations_ready { 0 } else { parent_chunk_count } },
-            "graph_projection": { "ready": graph_ready, "status": if graph_ready { "ready" } else { "not_configured" }, "processed": entity_nodes.len() + entity_edges.len(), "total": entity_nodes.len() + entity_edges.len(), "failed": 0, "stale": 0, "skipped": if graph_ready { 0 } else { parent_chunk_count } },
+            "graph_projection": { "ready": graph_ready, "status": graph_projection_status, "processed": entity_nodes.len() + entity_edges.len(), "total": entity_nodes.len() + entity_edges.len(), "failed": 0, "stale": graph_stale_count, "skipped": if graph_ready { 0 } else { parent_chunk_count } },
             "community_report_projection": { "ready": false, "status": "not_configured", "processed": 0, "total": 0, "failed": 0, "stale": 0, "skipped": parent_chunk_count }
         });
         let stage_coverage = serde_json::json!({
             "sparse_indexing": if retrieval_ready { 1.0 } else { 0.0 },
+            "tree_index": if tree_ready { 1.0 } else { 0.0 },
             "dense_indexing": 0.0,
             "claim_extraction": 0.0,
             "claim_validation": 0.0,
@@ -737,7 +844,7 @@ impl WorkerKnowledgeRpc {
             claim_count: 0,
             relation_count: entity_edges.len(),
             source_count: entity_evidence.len(),
-            conflict_count: 0,
+            conflict_count,
             stage_status_count: 0,
             candidate_diagnostic_count: 0,
             community_count: 0,
@@ -751,7 +858,7 @@ impl WorkerKnowledgeRpc {
             stage_readiness,
             stage_coverage,
             failed_stage_count: 0,
-            stale_stage_count: 0,
+            stale_stage_count: usize::from(graph_stale_count > 0),
             retrieval_ready,
             claims_ready,
             relations_ready,
@@ -863,6 +970,14 @@ pub struct KnowledgeChunk {
     #[serde(default)]
     pub section_path: String,
     #[serde(default)]
+    pub section_id: String,
+    #[serde(default)]
+    pub section_title: String,
+    #[serde(default)]
+    pub parent_section_id: String,
+    #[serde(default)]
+    pub section_ordinal: usize,
+    #[serde(default)]
     pub block_type: String,
 }
 
@@ -900,6 +1015,13 @@ impl KnowledgeChunk {
             category: params.category.clone().unwrap_or_default(),
             tags: params.tags.clone().unwrap_or_default(),
             section_path: section.section_path.clone(),
+            section_id: section_id(doc_id, index),
+            section_title: section.section_title.clone(),
+            parent_section_id: section
+                .parent_section_index
+                .map(|parent_index| section_id(doc_id, parent_index))
+                .unwrap_or_else(|| "section-root".to_string()),
+            section_ordinal: section.section_ordinal,
             block_type: "text".to_string(),
         }
     }
@@ -913,6 +1035,9 @@ impl KnowledgeChunk {
         child_index: usize,
         line: &SectionLine,
         section_path: &str,
+        section_title: &str,
+        parent_section_id: &str,
+        section_ordinal: usize,
         params: &KnowledgeAddDocumentParams,
         created_at: &str,
     ) -> Self {
@@ -939,6 +1064,10 @@ impl KnowledgeChunk {
             category: params.category.clone().unwrap_or_default(),
             tags: params.tags.clone().unwrap_or_default(),
             section_path: section_path.to_string(),
+            section_id: section_id(doc_id, parent_index),
+            section_title: section_title.to_string(),
+            parent_section_id: parent_section_id.to_string(),
+            section_ordinal,
             block_type: "text".to_string(),
         }
     }
@@ -952,6 +1081,9 @@ struct ParentSection {
     line_start: usize,
     line_end: usize,
     section_path: String,
+    section_title: String,
+    parent_section_index: Option<usize>,
+    section_ordinal: usize,
     child_lines: Vec<SectionLine>,
 }
 
@@ -1074,6 +1206,18 @@ pub struct KnowledgeQueryParams {
     pub tags: Option<Vec<String>>,
     #[serde(default)]
     pub limit: Option<usize>,
+    #[serde(default)]
+    pub include_structure_context: Option<bool>,
+    #[serde(default)]
+    pub include_graph_context: Option<bool>,
+    #[serde(default)]
+    pub graph_relation_filters: Option<Vec<String>>,
+    #[serde(default)]
+    pub graph_max_hops: Option<usize>,
+    #[serde(default)]
+    pub graph_min_confidence: Option<f64>,
+    #[serde(default)]
+    pub graph_max_added_chunks: Option<usize>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -1104,6 +1248,36 @@ pub struct KnowledgeGetDocumentResult {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub struct KnowledgeDocumentTreeResult {
+    pub object: String,
+    pub doc_id: String,
+    pub root: KnowledgeDocumentTreeRoot,
+    pub sections: Vec<KnowledgeDocumentTreeSection>,
+    pub section_count: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct KnowledgeDocumentTreeRoot {
+    pub id: String,
+    pub children: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct KnowledgeDocumentTreeSection {
+    pub id: String,
+    pub doc_id: String,
+    pub chunk_id: String,
+    pub title: String,
+    pub section_path: String,
+    pub parent_id: String,
+    pub children: Vec<String>,
+    pub ordinal: usize,
+    pub line_start: usize,
+    pub line_end: usize,
+    pub chunk_count: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct KnowledgeDeleteDocumentResult {
     pub deleted: bool,
     pub doc_id: String,
@@ -1112,6 +1286,7 @@ pub struct KnowledgeDeleteDocumentResult {
 #[derive(Clone, Debug, Serialize)]
 pub struct KnowledgeQueryResultSet {
     pub results: Vec<KnowledgeQueryResult>,
+    pub retrieval_plan: Value,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1120,6 +1295,7 @@ pub struct KnowledgeContextResult {
     pub persistent_results: Vec<KnowledgeQueryResult>,
     pub session_results: Vec<Value>,
     pub references: Vec<Value>,
+    pub retrieval_plan: Value,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1238,6 +1414,7 @@ pub struct KnowledgeQueryResult {
     pub content: String,
     pub matched_child_ids: Vec<String>,
     pub matched_child_snippets: Vec<String>,
+    pub matched_child_section_paths: Vec<String>,
     pub doc_name: String,
     pub file_path: String,
     pub start_char: usize,
@@ -1247,6 +1424,10 @@ pub struct KnowledgeQueryResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub page: Option<usize>,
     pub section_path: String,
+    pub section_id: String,
+    pub section_title: String,
+    pub parent_section_id: String,
+    pub section_ordinal: usize,
     pub block_type: String,
     pub score: usize,
     pub rrf_score: usize,
@@ -1260,6 +1441,7 @@ pub struct KnowledgeQueryResult {
     pub method: String,
     pub retrieval_method: String,
     pub score_metadata: Value,
+    pub structure_context: Value,
     pub source_snippets: Vec<Value>,
     pub matched_methods: Vec<String>,
     pub matched_entities: Vec<Value>,
@@ -1282,6 +1464,7 @@ impl KnowledgeQueryResult {
             content: chunk.content,
             matched_child_ids: Vec::new(),
             matched_child_snippets: Vec::new(),
+            matched_child_section_paths: Vec::new(),
             doc_name: chunk.doc_name,
             file_path: chunk.file_path,
             start_char: chunk.start_char,
@@ -1290,6 +1473,10 @@ impl KnowledgeQueryResult {
             line_end: chunk.line_end,
             page: chunk.page,
             section_path: chunk.section_path,
+            section_id: chunk.section_id,
+            section_title: chunk.section_title,
+            parent_section_id: chunk.parent_section_id,
+            section_ordinal: chunk.section_ordinal,
             block_type: chunk.block_type,
             score,
             rrf_score: score,
@@ -1303,6 +1490,7 @@ impl KnowledgeQueryResult {
             method: "sparse".to_string(),
             retrieval_method: "sparse".to_string(),
             score_metadata: serde_json::json!({}),
+            structure_context: serde_json::json!({}),
             source_snippets: Vec::new(),
             matched_methods: Vec::new(),
             matched_entities: Vec::new(),
@@ -1317,12 +1505,721 @@ impl KnowledgeQueryResult {
     }
 }
 
+fn knowledge_chunk_matches_query_filters(
+    chunk: &KnowledgeChunk,
+    params: &KnowledgeQueryParams,
+) -> bool {
+    if let Some(category) = params.category.as_deref().filter(|value| !value.is_empty()) {
+        if chunk.category != category {
+            return false;
+        }
+    }
+    if let Some(tags) = params.tags.as_ref().filter(|tags| !tags.is_empty()) {
+        if !tags.iter().any(|tag| chunk.tags.contains(tag)) {
+            return false;
+        }
+    }
+    true
+}
+
+fn expand_query_with_entity_graph(
+    results_by_parent: &mut HashMap<String, KnowledgeQueryResult>,
+    parent_chunks: &HashMap<String, KnowledgeChunk>,
+    nodes: &[KnowledgeGraphNode],
+    edges: &[KnowledgeGraphEdge],
+    evidence_records: &[Value],
+    query_terms: &[String],
+    params: &KnowledgeQueryParams,
+) {
+    let mut added_chunks = 0usize;
+    let max_added_chunks = params.graph_max_added_chunks.unwrap_or(5).min(20);
+    let max_hops = params.graph_max_hops.unwrap_or(1).min(4);
+    let min_confidence = params.graph_min_confidence.unwrap_or(0.0).clamp(0.0, 1.0);
+    let node_lookup = nodes
+        .iter()
+        .map(|node| (node.id.clone(), node))
+        .collect::<HashMap<_, _>>();
+    let mut graph_frontier = HashSet::new();
+    for node in nodes
+        .iter()
+        .filter(|node| entity_graph_node_matches_query(node, query_terms))
+    {
+        if node.attributes.get("stale").and_then(Value::as_bool) != Some(true)
+            && graph_record_confidence(&node.attributes) >= min_confidence
+        {
+            graph_frontier.insert(node.id.clone());
+        }
+        if added_chunks >= max_added_chunks {
+            break;
+        }
+        if node.attributes.get("stale").and_then(Value::as_bool) == Some(true) {
+            continue;
+        }
+        if graph_record_confidence(&node.attributes) < min_confidence {
+            continue;
+        }
+        let evidence_ids = graph_evidence_ids(&node.attributes);
+        for evidence in evidence_records.iter().filter(|evidence| {
+            value_string(evidence, "doc_id").as_deref() == Some(node.doc_id.as_str())
+                && value_string(evidence, "owner_id").as_deref() == Some(node.id.as_str())
+                && value_string(evidence, "owner_type").as_deref() == Some("entity")
+                && value_string(evidence, "id")
+                    .as_ref()
+                    .map(|id| evidence_ids.contains(id))
+                    .unwrap_or(false)
+        }) {
+            let Some(chunk) = graph_evidence_parent_chunk(parent_chunks, evidence, params) else {
+                continue;
+            };
+            let node_value = serde_json::to_value(node).unwrap_or_else(|_| serde_json::json!({}));
+            let inserted = add_graph_evidence_query_result(
+                results_by_parent,
+                chunk,
+                evidence,
+                Some(node_value),
+                None,
+                None,
+                Some(entity_graph_query_projection_metadata(
+                    "entity",
+                    &node.id,
+                    &node.label,
+                    &node.attributes,
+                    evidence,
+                )),
+            );
+            if inserted {
+                added_chunks += 1;
+                if added_chunks >= max_added_chunks {
+                    break;
+                }
+            }
+        }
+    }
+    if max_hops == 0 {
+        return;
+    }
+    let mut visited_edges = HashSet::new();
+    for hop in 1..=max_hops {
+        if added_chunks >= max_added_chunks {
+            break;
+        }
+        let mut next_frontier = HashSet::new();
+        for edge in edges.iter().filter(|edge| {
+            relation_graph_edge_matches_filters(edge, params)
+                && graph_record_confidence(&edge.attributes) >= min_confidence
+                && edge.attributes.get("stale").and_then(Value::as_bool) != Some(true)
+                && (relation_graph_edge_matches_frontier(edge, &graph_frontier)
+                    || (hop == 1
+                        && relation_graph_edge_matches_query(edge, &node_lookup, query_terms)))
+        }) {
+            if !visited_edges.insert(edge.id.clone()) {
+                continue;
+            }
+            if add_relation_graph_evidence_query_results(
+                results_by_parent,
+                parent_chunks,
+                evidence_records,
+                edge,
+                &node_lookup,
+                params,
+                &mut added_chunks,
+                max_added_chunks,
+            ) {
+                next_frontier.insert(edge.source.clone());
+                next_frontier.insert(edge.target.clone());
+            }
+            if added_chunks >= max_added_chunks {
+                break;
+            }
+        }
+        if next_frontier.is_empty() {
+            break;
+        }
+        graph_frontier = next_frontier;
+    }
+}
+
+fn relation_graph_edge_matches_frontier(
+    edge: &KnowledgeGraphEdge,
+    frontier: &HashSet<String>,
+) -> bool {
+    frontier.contains(&edge.source) || frontier.contains(&edge.target)
+}
+
+fn add_relation_graph_evidence_query_results(
+    results_by_parent: &mut HashMap<String, KnowledgeQueryResult>,
+    parent_chunks: &HashMap<String, KnowledgeChunk>,
+    evidence_records: &[Value],
+    edge: &KnowledgeGraphEdge,
+    node_lookup: &HashMap<String, &KnowledgeGraphNode>,
+    params: &KnowledgeQueryParams,
+    added_chunks: &mut usize,
+    max_added_chunks: usize,
+) -> bool {
+    let mut added = false;
+    let evidence_ids = graph_evidence_ids(&edge.attributes);
+    for evidence in evidence_records.iter().filter(|evidence| {
+        value_string(evidence, "doc_id").as_deref() == Some(edge.doc_id.as_str())
+            && value_string(evidence, "owner_id").as_deref() == Some(edge.id.as_str())
+            && value_string(evidence, "owner_type").as_deref() == Some("relation")
+            && value_string(evidence, "id")
+                .as_ref()
+                .map(|id| evidence_ids.contains(id))
+                .unwrap_or(false)
+    }) {
+        let Some(chunk) = graph_evidence_parent_chunk(parent_chunks, evidence, params) else {
+            continue;
+        };
+        let edge_value = serde_json::to_value(edge).unwrap_or_else(|_| serde_json::json!({}));
+        let inserted = add_graph_evidence_query_result(
+            results_by_parent,
+            chunk,
+            evidence,
+            None,
+            Some(edge_value),
+            graph_query_conflict_metadata(edge, node_lookup, evidence),
+            Some(relation_graph_query_projection_metadata(
+                edge,
+                node_lookup,
+                evidence,
+            )),
+        );
+        if inserted {
+            added = true;
+            *added_chunks += 1;
+            if *added_chunks >= max_added_chunks {
+                break;
+            }
+        }
+    }
+    added
+}
+
+fn add_graph_evidence_query_result(
+    results_by_parent: &mut HashMap<String, KnowledgeQueryResult>,
+    chunk: KnowledgeChunk,
+    evidence: &Value,
+    matched_entity: Option<Value>,
+    matched_relation: Option<Value>,
+    conflict_metadata: Option<Value>,
+    projection_metadata: Option<Value>,
+) -> bool {
+    let inserted = !results_by_parent.contains_key(&chunk.id);
+    let entry = results_by_parent
+        .entry(chunk.id.clone())
+        .or_insert_with(|| KnowledgeQueryResult::from_chunk(chunk, 0));
+    if entry.score == 0 {
+        entry.score = 1;
+        entry.rrf_score = 1;
+        entry.method = "graph".to_string();
+        entry.retrieval_method = "graph".to_string();
+    }
+    if !entry.matched_methods.iter().any(|method| method == "graph") {
+        entry.matched_methods.push("graph".to_string());
+    }
+    if let Some(entity) = matched_entity {
+        if !entry.matched_entities.contains(&entity) {
+            entry.matched_entities.push(entity);
+        }
+    }
+    if let Some(relation) = matched_relation {
+        if !entry.matched_relations.contains(&relation) {
+            entry.matched_relations.push(relation);
+        }
+        if !entry.matched_relation_evidence.contains(evidence) {
+            entry.matched_relation_evidence.push(evidence.clone());
+        }
+    }
+    if let Some(conflict) = conflict_metadata {
+        if !entry.conflict_metadata.contains(&conflict) {
+            entry.conflict_metadata.push(conflict);
+        }
+    }
+    if let Some(projection) = projection_metadata {
+        if !entry.projection_metadata.contains(&projection) {
+            entry.projection_metadata.push(projection);
+        }
+    }
+    if !entry.source_snippets.contains(evidence) {
+        entry.source_snippets.push(evidence.clone());
+    }
+    inserted
+}
+
+fn entity_graph_query_projection_metadata(
+    owner_type: &str,
+    owner_id: &str,
+    owner_label: &str,
+    attributes: &Value,
+    evidence: &Value,
+) -> Value {
+    serde_json::json!({
+        "object": "knowledge_projection_metadata",
+        "projection": "entity_graph",
+        "owner_type": owner_type,
+        "owner_id": owner_id,
+        "owner_label": owner_label,
+        "evidence_id": value_string(evidence, "id").unwrap_or_default(),
+        "evidence_status": attributes
+            .get("evidence_status")
+            .and_then(Value::as_str)
+            .unwrap_or("verified"),
+        "confidence": graph_record_confidence(attributes),
+        "source_hash": attributes
+            .get("source_hash")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+        "current_source_hash": attributes
+            .get("current_source_hash")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+        "stale": attributes.get("stale").and_then(Value::as_bool).unwrap_or(false),
+        "doc_id": value_string(evidence, "doc_id").unwrap_or_default()
+    })
+}
+
+fn relation_graph_query_projection_metadata(
+    edge: &KnowledgeGraphEdge,
+    node_lookup: &HashMap<String, &KnowledgeGraphNode>,
+    evidence: &Value,
+) -> Value {
+    let mut metadata = entity_graph_query_projection_metadata(
+        "relation",
+        &edge.id,
+        &edge.label,
+        &edge.attributes,
+        evidence,
+    );
+    if let Some(map) = metadata.as_object_mut() {
+        map.insert("predicate".to_string(), Value::String(edge.label.clone()));
+        map.insert(
+            "source_label".to_string(),
+            Value::String(
+                node_lookup
+                    .get(&edge.source)
+                    .map(|node| node.label.clone())
+                    .unwrap_or_else(|| edge.source.clone()),
+            ),
+        );
+        map.insert(
+            "target_label".to_string(),
+            Value::String(
+                node_lookup
+                    .get(&edge.target)
+                    .map(|node| node.label.clone())
+                    .unwrap_or_else(|| edge.target.clone()),
+            ),
+        );
+    }
+    metadata
+}
+
+fn graph_query_conflict_metadata(
+    edge: &KnowledgeGraphEdge,
+    node_lookup: &HashMap<String, &KnowledgeGraphNode>,
+    evidence: &Value,
+) -> Option<Value> {
+    if !entity_graph_edge_is_conflict(edge) {
+        return None;
+    }
+    Some(serde_json::json!({
+        "id": edge.id,
+        "type": "relation_conflict",
+        "edge_id": edge.id,
+        "source": edge.source,
+        "source_label": node_lookup
+            .get(&edge.source)
+            .map(|node| node.label.as_str())
+            .unwrap_or(edge.source.as_str()),
+        "target": edge.target,
+        "target_label": node_lookup
+            .get(&edge.target)
+            .map(|node| node.label.as_str())
+            .unwrap_or(edge.target.as_str()),
+        "predicate": edge.label,
+        "confidence": graph_record_confidence(&edge.attributes),
+        "doc_id": edge.doc_id,
+        "stale": edge.attributes.get("stale").and_then(Value::as_bool).unwrap_or(false),
+        "evidence": [evidence]
+    }))
+}
+
+fn entity_graph_node_matches_query(node: &KnowledgeGraphNode, query_terms: &[String]) -> bool {
+    let label = node.label.to_ascii_lowercase();
+    query_terms
+        .iter()
+        .any(|term| graph_text_matches_query_term(&label, term))
+}
+
+fn relation_graph_edge_matches_query(
+    edge: &KnowledgeGraphEdge,
+    node_lookup: &HashMap<String, &KnowledgeGraphNode>,
+    query_terms: &[String],
+) -> bool {
+    let source_label = node_lookup
+        .get(&edge.source)
+        .map(|node| node.label.to_ascii_lowercase())
+        .unwrap_or_default();
+    let target_label = node_lookup
+        .get(&edge.target)
+        .map(|node| node.label.to_ascii_lowercase())
+        .unwrap_or_default();
+    let predicate = edge.label.to_ascii_lowercase();
+    query_terms.iter().any(|term| {
+        graph_text_matches_query_term(&source_label, term)
+            || graph_text_matches_query_term(&target_label, term)
+            || graph_text_matches_query_term(&predicate, term)
+    })
+}
+
+fn graph_text_matches_query_term(value: &str, term: &str) -> bool {
+    !value.is_empty() && (value.contains(term) || term.contains(value))
+}
+
+fn relation_graph_edge_matches_filters(
+    edge: &KnowledgeGraphEdge,
+    params: &KnowledgeQueryParams,
+) -> bool {
+    let Some(filters) = params
+        .graph_relation_filters
+        .as_ref()
+        .filter(|filters| !filters.is_empty())
+    else {
+        return true;
+    };
+    filters
+        .iter()
+        .any(|filter| filter.eq_ignore_ascii_case(&edge.label))
+}
+
+fn graph_evidence_ids(attributes: &Value) -> HashSet<String> {
+    attributes
+        .get("evidence_ids")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect::<HashSet<_>>()
+        })
+        .unwrap_or_default()
+}
+
+fn graph_evidence_parent_chunk(
+    parent_chunks: &HashMap<String, KnowledgeChunk>,
+    evidence: &Value,
+    params: &KnowledgeQueryParams,
+) -> Option<KnowledgeChunk> {
+    let doc_id = value_string(evidence, "doc_id")?;
+    let line_start = value_usize(evidence, "line_start").unwrap_or(1);
+    let line_end = value_usize(evidence, "line_end").unwrap_or(line_start);
+    let mut candidates = parent_chunks
+        .values()
+        .filter(|chunk| {
+            chunk.doc_id == doc_id
+                && knowledge_chunk_matches_query_filters(chunk, params)
+                && ranges_overlap(chunk.line_start, chunk.line_end, line_start, line_end)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    candidates.sort_by_key(|chunk| (chunk.line_start, chunk.chunk_index));
+    candidates.into_iter().next()
+}
+
+fn ranges_overlap(
+    left_start: usize,
+    left_end: usize,
+    right_start: usize,
+    right_end: usize,
+) -> bool {
+    left_start <= right_end && right_start <= left_end
+}
+
+fn populate_knowledge_score_metadata(result: &mut KnowledgeQueryResult) {
+    if result.sparse_contribution > 0
+        && !result
+            .matched_methods
+            .iter()
+            .any(|method| method == "keyword")
+    {
+        result.matched_methods.push("keyword".to_string());
+    }
+    sort_knowledge_matched_methods(&mut result.matched_methods);
+    let graph_contribution = if result
+        .matched_methods
+        .iter()
+        .any(|method| method == "graph")
+    {
+        1
+    } else {
+        0
+    };
+    let structure_score = knowledge_structure_score(&result.structure_context);
+    let evidence_quality_bonus = knowledge_evidence_quality_bonus(result);
+    let mut components = serde_json::Map::new();
+    let mut route_contributions = Vec::new();
+    if result.sparse_contribution > 0 {
+        let normalized_score =
+            normalized_route_score(result.sparse_contribution as f64, result.score);
+        components.insert(
+            "sparse".to_string(),
+            serde_json::json!({
+                "score": result.bm25_score,
+                "rank": result.sparse_rank,
+                "normalized_score": normalized_score,
+                "contribution": result.sparse_contribution
+            }),
+        );
+        route_contributions.push(serde_json::json!({
+            "route": "keyword",
+            "method": "sparse",
+            "score": result.bm25_score,
+            "rank": result.sparse_rank,
+            "normalized_score": normalized_score,
+            "contribution": result.sparse_contribution
+        }));
+    }
+    if graph_contribution > 0 {
+        let normalized_score = normalized_route_score(graph_contribution as f64, result.score);
+        components.insert(
+            "graph".to_string(),
+            serde_json::json!({
+                "score": graph_contribution,
+                "rank": result.sparse_rank,
+                "normalized_score": normalized_score,
+                "contribution": graph_contribution
+            }),
+        );
+        route_contributions.push(serde_json::json!({
+            "route": "graph",
+            "method": "graph_evidence",
+            "score": graph_contribution,
+            "rank": result.sparse_rank,
+            "normalized_score": normalized_score,
+            "contribution": graph_contribution
+        }));
+    }
+    if structure_score > 0 {
+        components.insert(
+            "structure".to_string(),
+            serde_json::json!({
+                "score": structure_score,
+                "rank": result.sparse_rank,
+                "normalized_score": 0.0,
+                "contribution": 0
+            }),
+        );
+        route_contributions.push(serde_json::json!({
+            "route": "tree",
+            "method": "structure_context",
+            "score": structure_score,
+            "rank": result.sparse_rank,
+            "normalized_score": 0.0,
+            "contribution": 0
+        }));
+    }
+    if evidence_quality_bonus > 0 {
+        components.insert(
+            "evidence_quality_bonus".to_string(),
+            serde_json::json!({
+                "score": evidence_quality_bonus,
+                "verified_evidence_count": result.source_snippets.len(),
+                "normalized_score": normalized_route_score(evidence_quality_bonus as f64, result.score),
+                "contribution": evidence_quality_bonus
+            }),
+        );
+    }
+    result.score_metadata = serde_json::json!({
+        "object": "knowledge_score_metadata",
+        "score_model": knowledge_score_model(
+            graph_contribution > 0,
+            structure_score > 0,
+            evidence_quality_bonus > 0,
+        ),
+        "final_score": result.score,
+        "components": components,
+        "route_contributions": route_contributions,
+        "rerank": {
+            "object": "knowledge_rerank_metadata",
+            "method": "deterministic_score_path_id_v1",
+            "sort_keys": ["score_desc", "file_path_asc", "chunk_id_asc"],
+            "rank": result.sparse_rank
+        }
+    });
+}
+
+fn apply_knowledge_evidence_quality_bonus(result: &mut KnowledgeQueryResult) {
+    let bonus = knowledge_evidence_quality_bonus(result);
+    if bonus == 0 {
+        return;
+    }
+    result.score += bonus;
+    result.rrf_score += bonus;
+}
+
+fn knowledge_evidence_quality_bonus(result: &KnowledgeQueryResult) -> usize {
+    usize::from(!result.source_snippets.is_empty())
+}
+
+fn sort_knowledge_matched_methods(methods: &mut [String]) {
+    methods.sort_by_key(|method| match method.as_str() {
+        "keyword" => 0,
+        "graph" => 1,
+        "structure" => 2,
+        _ => 10,
+    });
+}
+
+fn knowledge_score_model(
+    has_graph: bool,
+    has_structure: bool,
+    has_evidence_quality_bonus: bool,
+) -> &'static str {
+    match (has_graph, has_structure, has_evidence_quality_bonus) {
+        (true, true, true) => "deterministic_sparse_graph_structure_evidence_v1",
+        (true, true, false) => "deterministic_sparse_graph_structure_v1",
+        (true, false, true) => "deterministic_sparse_graph_evidence_v1",
+        (true, false, false) => "deterministic_sparse_graph_v1",
+        (false, true, true) => "deterministic_sparse_structure_evidence_v1",
+        (false, true, false) => "deterministic_sparse_structure_v1",
+        (false, false, true) => "deterministic_sparse_evidence_v1",
+        (false, false, false) => "deterministic_sparse_v1",
+    }
+}
+
+fn knowledge_structure_score(structure_context: &Value) -> usize {
+    if structure_context.get("object").and_then(Value::as_str)
+        != Some("knowledge_structure_context")
+    {
+        return 0;
+    }
+    let mut score = 0usize;
+    if structure_context
+        .get("section")
+        .is_some_and(Value::is_object)
+    {
+        score += 1;
+    }
+    if structure_context
+        .get("parent_section")
+        .is_some_and(Value::is_object)
+    {
+        score += 1;
+    }
+    score += structure_context
+        .get("sibling_sections")
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or(0);
+    score += structure_context
+        .get("child_sections")
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or(0);
+    score
+}
+
+fn normalized_route_score(contribution: f64, final_score: usize) -> f64 {
+    if final_score == 0 {
+        0.0
+    } else {
+        (contribution / final_score as f64).clamp(0.0, 1.0)
+    }
+}
+
+fn populate_knowledge_structure_context(
+    result: &mut KnowledgeQueryResult,
+    parent_chunks: &HashMap<String, KnowledgeChunk>,
+) {
+    let Some(section_chunk) = parent_chunks.get(&result.id) else {
+        return;
+    };
+    let parent_section =
+        if result.parent_section_id.is_empty() || result.parent_section_id == "section-root" {
+            Value::Null
+        } else {
+            parent_chunks
+                .values()
+                .find(|chunk| {
+                    chunk.doc_id == result.doc_id
+                        && knowledge_chunk_section_id(chunk) == result.parent_section_id
+                })
+                .map(knowledge_structure_context_section)
+                .unwrap_or(Value::Null)
+        };
+    let mut sibling_sections = parent_chunks
+        .values()
+        .filter(|chunk| {
+            chunk.doc_id == result.doc_id
+                && knowledge_chunk_parent_section_id(chunk) == result.parent_section_id
+                && knowledge_chunk_section_id(chunk) != result.section_id
+        })
+        .collect::<Vec<_>>();
+    sibling_sections.sort_by_key(|chunk| chunk.section_ordinal);
+    let sibling_sections = sibling_sections
+        .into_iter()
+        .map(knowledge_structure_context_section)
+        .collect::<Vec<_>>();
+    let mut child_sections = parent_chunks
+        .values()
+        .filter(|chunk| {
+            chunk.doc_id == result.doc_id
+                && knowledge_chunk_parent_section_id(chunk) == result.section_id
+        })
+        .collect::<Vec<_>>();
+    child_sections.sort_by_key(|chunk| chunk.section_ordinal);
+    let child_sections = child_sections
+        .into_iter()
+        .map(knowledge_structure_context_section)
+        .collect::<Vec<_>>();
+    result.structure_context = serde_json::json!({
+        "object": "knowledge_structure_context",
+        "section": knowledge_structure_context_section(section_chunk),
+        "parent_section": parent_section,
+        "sibling_sections": sibling_sections,
+        "child_sections": child_sections
+    });
+    if !result
+        .matched_methods
+        .iter()
+        .any(|method| method == "structure")
+    {
+        result.matched_methods.push("structure".to_string());
+    }
+}
+
+fn knowledge_structure_context_section(chunk: &KnowledgeChunk) -> Value {
+    serde_json::json!({
+        "id": knowledge_chunk_section_id(chunk),
+        "chunk_id": chunk.id,
+        "title": if chunk.section_title.is_empty() {
+            chunk.section_path.clone()
+        } else {
+            chunk.section_title.clone()
+        },
+        "section_path": chunk.section_path,
+        "ordinal": chunk.section_ordinal,
+        "line_start": chunk.line_start,
+        "line_end": chunk.line_end
+    })
+}
+
+fn knowledge_chunk_parent_section_id(chunk: &KnowledgeChunk) -> String {
+    if chunk.parent_section_id.is_empty() {
+        "section-root".to_string()
+    } else {
+        chunk.parent_section_id.clone()
+    }
+}
+
 fn empty_knowledge_context() -> KnowledgeContextResult {
     KnowledgeContextResult {
         context: String::new(),
         persistent_results: Vec::new(),
         session_results: Vec::new(),
         references: Vec::new(),
+        retrieval_plan: serde_json::json!({}),
     }
 }
 
@@ -1385,7 +2282,7 @@ fn compact_knowledge_excerpt(content: &str) -> String {
 }
 
 fn knowledge_reference_metadata(result: &KnowledgeQueryResult) -> Value {
-    serde_json::json!({
+    let mut reference = serde_json::json!({
         "doc_id": result.doc_id,
         "doc_name": result.doc_name,
         "chunk_id": result.id,
@@ -1393,7 +2290,49 @@ fn knowledge_reference_metadata(result: &KnowledgeQueryResult) -> Value {
         "line_start": result.line_start,
         "line_end": result.line_end,
         "retrieval_method": result.retrieval_method
-    })
+    });
+    let has_rich_evidence_metadata = !result.source_snippets.is_empty()
+        || !result.projection_metadata.is_empty()
+        || !result.conflict_metadata.is_empty();
+    if let Some(map) = reference.as_object_mut() {
+        if !result
+            .structure_context
+            .as_object()
+            .map_or(true, |map| map.is_empty())
+        {
+            map.insert(
+                "structure_context".to_string(),
+                result.structure_context.clone(),
+            );
+        }
+        if !result.source_snippets.is_empty() {
+            map.insert(
+                "source_snippets".to_string(),
+                Value::Array(result.source_snippets.clone()),
+            );
+        }
+        if !result.projection_metadata.is_empty() {
+            map.insert(
+                "projection_metadata".to_string(),
+                Value::Array(result.projection_metadata.clone()),
+            );
+        }
+        if !result.conflict_metadata.is_empty() {
+            map.insert(
+                "conflict_metadata".to_string(),
+                Value::Array(result.conflict_metadata.clone()),
+            );
+        }
+        if has_rich_evidence_metadata
+            && !result
+                .score_metadata
+                .as_object()
+                .map_or(true, |map| map.is_empty())
+        {
+            map.insert("score_metadata".to_string(), result.score_metadata.clone());
+        }
+    }
+    reference
 }
 
 fn knowledge_session_reference_metadata(result: &Value) -> Value {
@@ -1501,6 +2440,95 @@ fn value_usize(value: &Value, key: &str) -> Option<usize> {
         .map(|number| number as usize)
 }
 
+fn validate_entity_graph_relations(
+    document: &KnowledgeDocument,
+    params: &KnowledgeEntityGraphExtractionParams,
+) -> Result<(), WorkerProtocolError> {
+    for (index, relation) in params.relations.iter().enumerate() {
+        if relation.source.trim().is_empty()
+            || relation.target.trim().is_empty()
+            || relation.predicate.trim().is_empty()
+        {
+            continue;
+        }
+        if !controlled_relation_predicate(relation.predicate.trim()) {
+            return Err(invalid_knowledge_request_with_details(
+                "unsupported relation predicate",
+                serde_json::json!({
+                    "doc_id": document.id,
+                    "relation_index": index,
+                    "source": relation.source,
+                    "target": relation.target,
+                    "predicate": relation.predicate,
+                    "allowed_predicates": CONTROLLED_RELATION_PREDICATES
+                }),
+            ));
+        }
+        let evidence_texts = relation
+            .evidence
+            .iter()
+            .filter_map(|evidence| {
+                value_string(evidence, "text")
+                    .or_else(|| value_string(evidence, "quote"))
+                    .map(|text| text.trim().to_string())
+            })
+            .filter(|text| !text.is_empty())
+            .collect::<Vec<_>>();
+        if evidence_texts.is_empty() {
+            return Err(invalid_knowledge_request_with_details(
+                "relation evidence is required",
+                serde_json::json!({
+                    "doc_id": document.id,
+                    "relation_index": index,
+                    "source": relation.source,
+                    "target": relation.target,
+                    "predicate": relation.predicate
+                }),
+            ));
+        }
+        if let Some(text) = evidence_texts
+            .iter()
+            .find(|text| !document.content.contains(text.as_str()))
+        {
+            return Err(invalid_knowledge_request_with_details(
+                "relation evidence must match document content",
+                serde_json::json!({
+                    "doc_id": document.id,
+                    "relation_index": index,
+                    "source": relation.source,
+                    "target": relation.target,
+                    "predicate": relation.predicate,
+                    "evidence": text
+                }),
+            ));
+        }
+        if let Some(evidence_doc_id) = relation.evidence.iter().find_map(|evidence| {
+            value_string(evidence, "doc_id")
+                .map(|doc_id| doc_id.trim().to_string())
+                .filter(|doc_id| !doc_id.is_empty() && doc_id != &document.id)
+        }) {
+            return Err(invalid_knowledge_request_with_details(
+                "relation evidence doc_id must match document",
+                serde_json::json!({
+                    "doc_id": document.id,
+                    "relation_index": index,
+                    "source": relation.source,
+                    "target": relation.target,
+                    "predicate": relation.predicate,
+                    "evidence_doc_id": evidence_doc_id
+                }),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn controlled_relation_predicate(predicate: &str) -> bool {
+    CONTROLLED_RELATION_PREDICATES
+        .iter()
+        .any(|allowed| predicate.eq_ignore_ascii_case(allowed))
+}
+
 fn find_document(
     root: &Path,
     doc_id: &str,
@@ -1560,9 +2588,22 @@ fn completed_rebuild_job(
     };
     let (processed, total, message) = match rebuild_type {
         "all" => (
-            3,
-            3,
+            4,
+            4,
             "Native available knowledge indexes are rebuilt; semantic index is not available natively",
+        ),
+        "tree" => (
+            result
+                .get("sections_indexed")
+                .and_then(Value::as_u64)
+                .map(|value| value as usize)
+                .unwrap_or(stats.total_chunks),
+            result
+                .get("sections_indexed")
+                .and_then(Value::as_u64)
+                .map(|value| value as usize)
+                .unwrap_or(stats.total_chunks),
+            "Tree index is available from section-aware knowledge chunks",
         ),
         "semantic" => (2, 2, "Semantic index is not available in native TS worker"),
         _ => (
@@ -1614,6 +2655,22 @@ fn knowledge_bm25_rebuild_result(root: &Path) -> Result<Value, WorkerProtocolErr
         "chunks_indexed": chunks_indexed,
         "terms_created": terms.len(),
         "total_docs": documents.len()
+    }))
+}
+
+fn knowledge_tree_rebuild_result(root: &Path) -> Result<Value, WorkerProtocolError> {
+    let store = KnowledgeStorePaths::new(root);
+    let documents = read_jsonl::<KnowledgeDocument>(&store.documents_file)?;
+    let chunks = read_jsonl::<KnowledgeChunk>(&store.chunks_file)?;
+    let sections_indexed = chunks
+        .iter()
+        .filter(|chunk| chunk.chunk_type == "parent")
+        .count();
+    Ok(serde_json::json!({
+        "available": true,
+        "documents_scanned": documents.len(),
+        "sections_indexed": sections_indexed,
+        "tree_ready": sections_indexed > 0
     }))
 }
 
@@ -1685,6 +2742,114 @@ fn completed_entity_graph_job(
     }
 }
 
+fn merge_entity_graph_node(
+    node: &mut KnowledgeGraphNode,
+    entity: &KnowledgeExtractedEntity,
+    evidence_ids: Vec<String>,
+) {
+    if let Value::Object(attributes) = &mut node.attributes {
+        append_unique_json_strings(attributes, "evidence_ids", evidence_ids);
+        update_entity_graph_evidence_status(attributes);
+
+        let alias = entity.name.trim();
+        if !alias.is_empty() && alias != node.label {
+            append_unique_json_strings(attributes, "aliases", vec![alias.to_string()]);
+        }
+
+        let entity_type = normalize_entity_graph_type(&entity.entity_type);
+        let existing_type = attributes
+            .get("entity_type")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .trim();
+        if existing_type.is_empty() && !entity_type.is_empty() {
+            attributes.insert("entity_type".to_string(), Value::String(entity_type));
+        }
+
+        if let Some(confidence) = entity.confidence {
+            let existing_confidence = attributes.get("confidence").and_then(Value::as_f64);
+            if existing_confidence.map_or(true, |existing| confidence > existing) {
+                attributes.insert("confidence".to_string(), serde_json::json!(confidence));
+            }
+        }
+    }
+}
+
+fn append_unique_json_strings(
+    attributes: &mut serde_json::Map<String, Value>,
+    key: &str,
+    values: Vec<String>,
+) {
+    let mut existing = attributes
+        .get(key)
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut seen = existing
+        .iter()
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect::<HashSet<_>>();
+    for value in values
+        .into_iter()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    {
+        if seen.insert(value.clone()) {
+            existing.push(Value::String(value));
+        }
+    }
+    attributes.insert(key.to_string(), Value::Array(existing));
+}
+
+fn update_entity_graph_evidence_status(attributes: &mut serde_json::Map<String, Value>) {
+    let evidence_ids = attributes
+        .get("evidence_ids")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .filter(|id| !id.trim().is_empty())
+                .count()
+        })
+        .unwrap_or(0);
+    let status = if evidence_ids == 0 {
+        "missing"
+    } else {
+        "verified"
+    };
+    attributes.insert(
+        "evidence_status".to_string(),
+        Value::String(status.to_string()),
+    );
+}
+
+fn entity_graph_evidence_status(evidence_ids: &[String]) -> &'static str {
+    if evidence_ids.iter().any(|id| !id.trim().is_empty()) {
+        "verified"
+    } else {
+        "missing"
+    }
+}
+
+fn entity_graph_node_evidence_status(attributes: &Value) -> &str {
+    attributes
+        .get("evidence_status")
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| {
+            if graph_evidence_ids(attributes).is_empty() {
+                "missing"
+            } else {
+                "verified"
+            }
+        })
+}
+
+fn normalize_entity_graph_type(value: &str) -> String {
+    value.trim().to_ascii_lowercase()
+}
+
 fn entity_graph_stub_node(
     document: &KnowledgeDocument,
     name: &str,
@@ -1701,6 +2866,7 @@ fn entity_graph_stub_node(
             "entity_type": "",
             "source_hash": source_hash,
             "stale": false,
+            "evidence_status": "missing",
             "evidence_ids": []
         }),
     }
@@ -1727,6 +2893,41 @@ fn graph_record_confidence(attributes: &Value) -> f64 {
         .and_then(Value::as_f64)
         .unwrap_or(1.0)
         .clamp(0.0, 1.0)
+}
+
+fn entity_graph_conflicts(
+    nodes: &[KnowledgeGraphNode],
+    edges: &[KnowledgeGraphEdge],
+) -> Vec<Value> {
+    let labels = nodes
+        .iter()
+        .map(|node| (node.id.as_str(), node.label.as_str()))
+        .collect::<HashMap<_, _>>();
+    edges
+        .iter()
+        .filter(|edge| entity_graph_edge_is_conflict(edge))
+        .map(|edge| {
+            serde_json::json!({
+                "id": edge.id,
+                "type": "relation_conflict",
+                "edge_id": edge.id,
+                "source": edge.source,
+                "source_label": labels.get(edge.source.as_str()).copied().unwrap_or(edge.source.as_str()),
+                "target": edge.target,
+                "target_label": labels.get(edge.target.as_str()).copied().unwrap_or(edge.target.as_str()),
+                "predicate": edge.label,
+                "confidence": graph_record_confidence(&edge.attributes),
+                "doc_id": edge.doc_id,
+                "stale": edge.attributes.get("stale").and_then(Value::as_bool).unwrap_or(false),
+                "evidence": edge.evidence
+            })
+        })
+        .collect()
+}
+
+fn entity_graph_edge_is_conflict(edge: &KnowledgeGraphEdge) -> bool {
+    edge.label.eq_ignore_ascii_case("conflicts_with")
+        || edge.edge_type.eq_ignore_ascii_case("conflicts_with")
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -2361,6 +3562,10 @@ fn build_document_chunks(
             continue;
         }
         for (child_index, line) in section.child_lines.iter().enumerate() {
+            let parent_section_id = section
+                .parent_section_index
+                .map(|parent_index| section_id(doc_id, parent_index))
+                .unwrap_or_else(|| "section-root".to_string());
             chunks.push(KnowledgeChunk::child(
                 doc_id,
                 doc_name,
@@ -2370,12 +3575,88 @@ fn build_document_chunks(
                 child_index,
                 line,
                 &section.section_path,
+                &section.section_title,
+                &parent_section_id,
+                section.section_ordinal,
                 params,
                 created_at,
             ));
         }
     }
     chunks
+}
+
+fn build_knowledge_document_tree(
+    doc_id: &str,
+    mut parent_chunks: Vec<KnowledgeChunk>,
+) -> KnowledgeDocumentTreeResult {
+    parent_chunks.sort_by(|left, right| {
+        left.section_ordinal
+            .cmp(&right.section_ordinal)
+            .then_with(|| left.chunk_index.cmp(&right.chunk_index))
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    let mut children_by_parent: HashMap<String, Vec<String>> = HashMap::new();
+    for chunk in &parent_chunks {
+        let section_id = knowledge_chunk_section_id(chunk);
+        let parent_id = if chunk.parent_section_id.is_empty() {
+            "section-root".to_string()
+        } else {
+            chunk.parent_section_id.clone()
+        };
+        children_by_parent
+            .entry(parent_id)
+            .or_default()
+            .push(section_id);
+    }
+    let sections = parent_chunks
+        .into_iter()
+        .map(|chunk| {
+            let section_id = knowledge_chunk_section_id(&chunk);
+            KnowledgeDocumentTreeSection {
+                id: section_id.clone(),
+                doc_id: chunk.doc_id,
+                chunk_id: chunk.id,
+                title: if chunk.section_title.is_empty() {
+                    chunk.section_path.clone()
+                } else {
+                    chunk.section_title
+                },
+                section_path: chunk.section_path,
+                parent_id: if chunk.parent_section_id.is_empty() {
+                    "section-root".to_string()
+                } else {
+                    chunk.parent_section_id
+                },
+                children: children_by_parent.remove(&section_id).unwrap_or_default(),
+                ordinal: chunk.section_ordinal,
+                line_start: chunk.line_start,
+                line_end: chunk.line_end,
+                chunk_count: 1,
+            }
+        })
+        .collect::<Vec<_>>();
+    let section_count = sections.len();
+    KnowledgeDocumentTreeResult {
+        object: "knowledge_document_tree".to_string(),
+        doc_id: doc_id.to_string(),
+        root: KnowledgeDocumentTreeRoot {
+            id: "section-root".to_string(),
+            children: children_by_parent
+                .remove("section-root")
+                .unwrap_or_default(),
+        },
+        sections,
+        section_count,
+    }
+}
+
+fn knowledge_chunk_section_id(chunk: &KnowledgeChunk) -> String {
+    if chunk.section_id.is_empty() {
+        section_id(&chunk.doc_id, chunk.section_ordinal)
+    } else {
+        chunk.section_id.clone()
+    }
 }
 
 fn split_parent_sections(content: &str) -> Vec<ParentSection> {
@@ -2388,6 +3669,9 @@ fn split_parent_sections(content: &str) -> Vec<ParentSection> {
             line_start: 1,
             line_end: 1,
             section_path: String::new(),
+            section_title: String::new(),
+            parent_section_index: None,
+            section_ordinal: 0,
             child_lines: Vec::new(),
         }];
     }
@@ -2395,18 +3679,33 @@ fn split_parent_sections(content: &str) -> Vec<ParentSection> {
     let mut current_start = 0usize;
     let mut current_line_start = 1usize;
     let mut current_section_path = first_markdown_heading(content).unwrap_or_default();
+    let mut current_heading_level = first_markdown_heading_level(content).unwrap_or(0);
+    let mut current_parent_section_index = None;
     let mut current_child_lines = Vec::new();
+    let mut heading_stack: Vec<(usize, usize)> = Vec::new();
     for (index, line) in line_spans.iter().enumerate() {
         if line.is_heading && index != current_start {
+            let closed_section_index = sections.len();
             sections.push(parent_section_from_lines(
                 &line_spans[current_start..index],
                 current_line_start,
                 current_section_path,
+                current_parent_section_index,
+                closed_section_index,
                 current_child_lines,
             ));
+            if current_heading_level > 0 {
+                heading_stack.retain(|(level, _)| *level < current_heading_level);
+                heading_stack.push((current_heading_level, closed_section_index));
+            }
             current_start = index;
             current_line_start = line.line_number;
             current_section_path = line.heading.clone().unwrap_or_default();
+            current_heading_level = line.heading_level.unwrap_or(0);
+            heading_stack.retain(|(level, _)| *level < current_heading_level);
+            current_parent_section_index = heading_stack
+                .last()
+                .map(|(_, section_index)| *section_index);
             current_child_lines = Vec::new();
         }
         if !line.is_heading && !line.trimmed.is_empty() {
@@ -2422,6 +3721,8 @@ fn split_parent_sections(content: &str) -> Vec<ParentSection> {
         &line_spans[current_start..],
         current_line_start,
         current_section_path,
+        current_parent_section_index,
+        sections.len(),
         current_child_lines,
     ));
     sections
@@ -2431,6 +3732,8 @@ fn parent_section_from_lines(
     lines: &[LineSpan],
     line_start: usize,
     section_path: String,
+    parent_section_index: Option<usize>,
+    section_ordinal: usize,
     child_lines: Vec<SectionLine>,
 ) -> ParentSection {
     let content = lines
@@ -2450,7 +3753,10 @@ fn parent_section_from_lines(
         end_char,
         line_start,
         line_end,
+        section_title: section_path.clone(),
         section_path,
+        parent_section_index,
+        section_ordinal,
         child_lines,
     }
 }
@@ -2464,6 +3770,7 @@ struct LineSpan {
     line_number: usize,
     is_heading: bool,
     heading: Option<String>,
+    heading_level: Option<usize>,
 }
 
 fn content_line_spans(content: &str) -> Vec<LineSpan> {
@@ -2472,7 +3779,7 @@ fn content_line_spans(content: &str) -> Vec<LineSpan> {
     for (index, line) in content.split_inclusive('\n').enumerate() {
         let line_without_newline = line.trim_end_matches(['\r', '\n']);
         let trimmed = line_without_newline.trim().to_string();
-        let heading = markdown_heading_text(&trimmed);
+        let heading = markdown_heading(&trimmed);
         let end_char = offset + line.chars().count();
         spans.push(LineSpan {
             original: line.to_string(),
@@ -2481,14 +3788,15 @@ fn content_line_spans(content: &str) -> Vec<LineSpan> {
             end_char,
             line_number: index + 1,
             is_heading: heading.is_some(),
-            heading,
+            heading: heading.as_ref().map(|(_, title)| title.clone()),
+            heading_level: heading.map(|(level, _)| level),
         });
         offset = end_char;
     }
     if offset < content.chars().count() {
         let remainder = &content[offset..];
         let trimmed = remainder.trim().to_string();
-        let heading = markdown_heading_text(&trimmed);
+        let heading = markdown_heading(&trimmed);
         spans.push(LineSpan {
             original: remainder.to_string(),
             trimmed,
@@ -2496,7 +3804,8 @@ fn content_line_spans(content: &str) -> Vec<LineSpan> {
             end_char: content.chars().count(),
             line_number: spans.len() + 1,
             is_heading: heading.is_some(),
-            heading,
+            heading: heading.as_ref().map(|(_, title)| title.clone()),
+            heading_level: heading.map(|(level, _)| level),
         });
     }
     spans
@@ -2516,12 +3825,217 @@ fn first_markdown_heading(content: &str) -> Option<String> {
         .find_map(|line| markdown_heading_text(line.trim()))
 }
 
+fn first_markdown_heading_level(content: &str) -> Option<usize> {
+    content
+        .lines()
+        .find_map(|line| markdown_heading(line.trim()).map(|(level, _)| level))
+}
+
 fn markdown_heading_text(trimmed: &str) -> Option<String> {
-    let title = trimmed.trim_start_matches('#').trim();
-    if trimmed.starts_with('#') && !title.is_empty() {
-        Some(title.to_string())
+    markdown_heading(trimmed).map(|(_, title)| title)
+}
+
+fn markdown_heading(trimmed: &str) -> Option<(usize, String)> {
+    let level = trimmed
+        .chars()
+        .take_while(|character| *character == '#')
+        .count();
+    if level == 0 || level > 6 {
+        return None;
+    }
+    let title = trimmed[level..].trim();
+    if title.is_empty() {
+        return None;
+    }
+    Some((level, title.to_string()))
+}
+
+fn section_id(doc_id: &str, section_ordinal: usize) -> String {
+    format!("section_{doc_id}_{section_ordinal}")
+}
+
+fn build_knowledge_retrieval_plan(params: &KnowledgeQueryParams, limit: usize) -> Value {
+    let query = params.query.as_str();
+    let terms = knowledge_query_terms(query);
+    let budgets = knowledge_retrieval_plan_budgets(params, limit);
+    let (selected_routes, route_reasons) = knowledge_retrieval_plan_routes(params);
+    let graph_options = knowledge_retrieval_plan_graph_options(params);
+    let tree_options = knowledge_retrieval_plan_tree_options(params, limit);
+    let exact_query = query.contains('.')
+        || query.contains('_')
+        || terms.iter().any(|term| {
+            matches!(
+                term.as_str(),
+                "api" | "id" | "ids" | "config" | "key" | "keys" | "path" | "method"
+            )
+        });
+    if exact_query {
+        let mut exact_route_reasons = vec![serde_json::json!({
+            "route": "keyword",
+            "reason": "query contains exact identifiers or API/config-like terms"
+        })];
+        exact_route_reasons.extend(route_reasons.into_iter().skip(1));
+        serde_json::json!({
+            "object": "knowledge_retrieval_plan",
+            "classification": "exact",
+            "selected_routes": selected_routes,
+            "route_reasons": exact_route_reasons,
+            "budgets": budgets,
+            "fallback_behavior": "fallback_to_hybrid_when_no_results",
+            "fallback_routes": ["keyword", "tree", "graph"],
+            "graph_options": graph_options,
+            "tree_options": tree_options
+        })
     } else {
-        None
+        serde_json::json!({
+            "object": "knowledge_retrieval_plan",
+            "classification": "hybrid",
+            "selected_routes": selected_routes,
+            "route_reasons": route_reasons,
+            "budgets": budgets,
+            "fallback_behavior": "fallback_to_keyword_sparse",
+            "fallback_routes": ["keyword"],
+            "graph_options": graph_options,
+            "tree_options": tree_options
+        })
+    }
+}
+
+fn knowledge_retrieval_plan_routes(
+    params: &KnowledgeQueryParams,
+) -> (Vec<&'static str>, Vec<Value>) {
+    let terms = knowledge_query_terms(&params.query);
+    let include_structure_context =
+        knowledge_query_should_include_structure_context(params, &terms);
+    let include_graph_context = knowledge_query_should_include_graph_context(params, &terms);
+    let mut selected_routes = vec!["keyword"];
+    let mut route_reasons = vec![serde_json::json!({
+        "route": "keyword",
+        "reason": "baseline sparse retrieval remains available for all queries"
+    })];
+    if include_structure_context {
+        selected_routes.push("tree");
+        route_reasons.push(serde_json::json!({
+            "route": "tree",
+            "reason": if params.include_structure_context == Some(true) { "section metadata is requested for local structure context" } else { "query terms indicate section, chapter, or location navigation intent" }
+        }));
+    }
+    if include_graph_context {
+        selected_routes.push("graph");
+        route_reasons.push(serde_json::json!({
+            "route": "graph",
+            "reason": if params.include_graph_context == Some(true) { "entity graph expansion is requested for evidence recall" } else { "query terms indicate dependency, causal, relation, or why/how graph intent" }
+        }));
+    }
+    (selected_routes, route_reasons)
+}
+
+fn knowledge_retrieval_plan_budgets(params: &KnowledgeQueryParams, limit: usize) -> Value {
+    let terms = knowledge_query_terms(&params.query);
+    let graph_budget = if knowledge_query_should_include_graph_context(params, &terms) {
+        params.graph_max_added_chunks.unwrap_or(5).min(20)
+    } else {
+        0
+    };
+    let tree_budget = if knowledge_query_should_include_structure_context(params, &terms) {
+        limit
+    } else {
+        0
+    };
+    serde_json::json!({
+        "limit": limit,
+        "keyword": limit,
+        "semantic": 0,
+        "graph": graph_budget,
+        "tree": tree_budget
+    })
+}
+
+fn knowledge_retrieval_plan_graph_options(params: &KnowledgeQueryParams) -> Value {
+    let terms = knowledge_query_terms(&params.query);
+    serde_json::json!({
+        "include_graph_context": knowledge_query_should_include_graph_context(params, &terms),
+        "max_hops": params.graph_max_hops.unwrap_or(1).min(4),
+        "relation_filters": params.graph_relation_filters.clone().unwrap_or_default(),
+        "min_confidence": params.graph_min_confidence.unwrap_or(0.0).clamp(0.0, 1.0),
+        "max_added_chunks": params.graph_max_added_chunks.unwrap_or(5).min(20)
+    })
+}
+
+fn knowledge_retrieval_plan_tree_options(params: &KnowledgeQueryParams, limit: usize) -> Value {
+    let terms = knowledge_query_terms(&params.query);
+    let include_structure_context =
+        knowledge_query_should_include_structure_context(params, &terms);
+    serde_json::json!({
+        "include_structure_context": include_structure_context,
+        "context_budget": if include_structure_context { limit } else { 0 },
+        "trigger": match params.include_structure_context {
+            Some(true) => "explicit",
+            Some(false) => "disabled",
+            None if include_structure_context => "auto",
+            None => "none",
+        }
+    })
+}
+
+fn knowledge_query_should_include_structure_context(
+    params: &KnowledgeQueryParams,
+    terms: &[String],
+) -> bool {
+    match params.include_structure_context {
+        Some(value) => value,
+        None => terms.iter().any(|term| {
+            matches!(
+                term.as_str(),
+                "where"
+                    | "section"
+                    | "sections"
+                    | "chapter"
+                    | "chapters"
+                    | "heading"
+                    | "headings"
+                    | "location"
+                    | "located"
+                    | "parent"
+                    | "sibling"
+                    | "siblings"
+                    | "child"
+                    | "children"
+            )
+        }),
+    }
+}
+
+fn knowledge_query_should_include_graph_context(
+    params: &KnowledgeQueryParams,
+    terms: &[String],
+) -> bool {
+    match params.include_graph_context {
+        Some(value) => value,
+        None => terms.iter().any(|term| {
+            matches!(
+                term.as_str(),
+                "why"
+                    | "how"
+                    | "depend"
+                    | "depends"
+                    | "dependency"
+                    | "dependencies"
+                    | "cause"
+                    | "causes"
+                    | "causal"
+                    | "relation"
+                    | "relations"
+                    | "relationship"
+                    | "relationships"
+                    | "configure"
+                    | "configures"
+                    | "conflict"
+                    | "conflicts"
+                    | "support"
+                    | "supports"
+            )
+        }),
     }
 }
 
@@ -2543,10 +4057,14 @@ fn knowledge_score(content: &str, terms: &[String]) -> usize {
 }
 
 fn invalid_knowledge_request(message: &str) -> WorkerProtocolError {
+    invalid_knowledge_request_with_details(message, serde_json::json!({}))
+}
+
+fn invalid_knowledge_request_with_details(message: &str, details: Value) -> WorkerProtocolError {
     WorkerProtocolError::new(
         WorkerProtocolErrorCode::InvalidProtocol,
         message,
-        serde_json::json!({}),
+        details,
         false,
         WorkerProtocolErrorSource::RustCore,
     )

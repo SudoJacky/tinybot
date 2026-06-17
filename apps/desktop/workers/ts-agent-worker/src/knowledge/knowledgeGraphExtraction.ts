@@ -50,6 +50,16 @@ const KNOWLEDGE_GRAPH_EXTRACTION_STAGES = [
   "persisted_entity_graph",
 ] as const;
 
+const CONTROLLED_RELATION_PREDICATES = [
+  "depends_on",
+  "causes",
+  "implements",
+  "configures",
+  "mentions",
+  "conflicts_with",
+  "supports",
+] as const;
+
 export async function resolveKnowledgeGraphExtractionDocIds(
   body: Record<string, unknown>,
   provider: KnowledgeGraphExtractionProvider,
@@ -433,6 +443,8 @@ export function buildKnowledgeGraphExtractionPrompt(docName: string, content: st
     "You extract a knowledge entity graph from one document.",
     "Return strict JSON only, with no markdown fences.",
     "Schema: {\"entities\":[{\"name\":\"\",\"type\":\"\",\"confidence\":0.0,\"evidence\":[{\"text\":\"\",\"line_start\":1,\"line_end\":1}]}],\"relations\":[{\"source\":\"\",\"target\":\"\",\"predicate\":\"\",\"confidence\":0.0,\"evidence\":[{\"text\":\"\",\"line_start\":1,\"line_end\":1}]}]}",
+    `Allowed relation predicates: ${CONTROLLED_RELATION_PREDICATES.join(", ")}.`,
+    "Use mentions for generic, containment, storage, or unclear relations.",
     "Only include entities and relations directly supported by source evidence.",
     `Token budget for the answer: ${maxTokens}.`,
     `Document: ${docName}`,
@@ -446,9 +458,14 @@ export function parseKnowledgeGraphExtractionJson(raw: string): KnowledgeGraphEx
   const root = asObject(parsed) ?? {};
   return {
     entities: arrayFromUnknown(root.entities).map(normalizeExtractedEntity).filter((entity) => stringValue(entity.name)),
-    relations: arrayFromUnknown(root.relations).map(normalizeExtractedRelation).filter((relation) =>
-      stringValue(relation.source) && stringValue(relation.target) && stringValue(relation.predicate)
-    ),
+    relations: arrayFromUnknown(root.relations)
+      .map(normalizeExtractedRelation)
+      .filter((relation) =>
+        stringValue(relation.source)
+        && stringValue(relation.target)
+        && stringValue(relation.predicate)
+        && arrayFromUnknown(relation.evidence).some((evidence) => Boolean(stringValue(asObject(evidence)?.text)))
+      ),
   };
 }
 
@@ -462,15 +479,64 @@ function normalizeExtractedEntity(value: unknown): Record<string, unknown> {
   };
 }
 
+type NormalizedRelationPredicate = {
+  predicate: string;
+  inverse: boolean;
+};
+
 function normalizeExtractedRelation(value: unknown): Record<string, unknown> {
   const relation = asObject(value) ?? {};
+  const source = stringValue(relation.source) ?? "";
+  const target = stringValue(relation.target) ?? "";
+  const normalizedPredicate = normalizeRelationPredicate(stringValue(relation.predicate) ?? stringValue(relation.type));
   return {
-    source: stringValue(relation.source) ?? "",
-    target: stringValue(relation.target) ?? "",
-    predicate: stringValue(relation.predicate) ?? stringValue(relation.type) ?? "related_to",
+    source: normalizedPredicate.inverse ? target : source,
+    target: normalizedPredicate.inverse ? source : target,
+    predicate: normalizedPredicate.predicate,
     confidence: normalizedConfidence(relation.confidence),
     evidence: arrayFromUnknown(relation.evidence).map(normalizeExtractionEvidence),
   };
+}
+
+function normalizeRelationPredicate(value: string | undefined): NormalizedRelationPredicate {
+  const normalized = (value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  if ((CONTROLLED_RELATION_PREDICATES as readonly string[]).includes(normalized)) {
+    return { predicate: normalized, inverse: false };
+  }
+  if (["depends", "depends_on", "dependency", "requires", "uses", "relies_on"].includes(normalized)) {
+    return { predicate: "depends_on", inverse: false };
+  }
+  if (["cause", "leads_to", "produces"].includes(normalized)) {
+    return { predicate: "causes", inverse: false };
+  }
+  if (normalized === "caused_by") {
+    return { predicate: "causes", inverse: true };
+  }
+  if (["implement", "built_by"].includes(normalized)) {
+    return { predicate: "implements", inverse: false };
+  }
+  if (normalized === "implemented_by") {
+    return { predicate: "implements", inverse: true };
+  }
+  if (["configure", "sets", "controls"].includes(normalized)) {
+    return { predicate: "configures", inverse: false };
+  }
+  if (normalized === "configured_by") {
+    return { predicate: "configures", inverse: true };
+  }
+  if (["conflict", "conflicts", "contradicts", "opposes"].includes(normalized)) {
+    return { predicate: "conflicts_with", inverse: false };
+  }
+  if (["support", "validates"].includes(normalized)) {
+    return { predicate: "supports", inverse: false };
+  }
+  if (normalized === "supported_by") {
+    return { predicate: "supports", inverse: true };
+  }
+  return { predicate: "mentions", inverse: false };
 }
 
 function normalizeExtractionEvidence(value: unknown): Record<string, unknown> {

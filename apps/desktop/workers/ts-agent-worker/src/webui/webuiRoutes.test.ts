@@ -252,7 +252,7 @@ describe("WebUI knowledge graph extraction routes", () => {
       doc_name: "Knowledge.md",
       model: "graph-model",
       entities: [{ name: "TinyBot", type: "project", confidence: 0.91 }],
-      relations: [{ source: "TinyBot", target: "knowledge graph", predicate: "stores", confidence: 0.82 }],
+      relations: [{ source: "TinyBot", target: "knowledge graph", predicate: "mentions", confidence: 0.82 }],
       token_estimate: { max_tokens: 640 },
     });
   });
@@ -1365,6 +1365,64 @@ describe("WebUI route temporary files", () => {
 });
 
 describe("WebUI knowledge diagnostics", () => {
+  test("routes tree index rebuilds through the knowledge provider", async () => {
+    const rebuilds: Array<{ type: string; traceId: string }> = [];
+    const knowledgeProvider: WebuiKnowledgeProvider = {
+      listDocuments: () => ({ documents: [] }),
+      addDocument: () => ({ document: { id: "doc-1" } }),
+      getDocument: () => null,
+      deleteDocument: () => ({ deleted: false }),
+      query: () => ({ results: [] }),
+      stats: () => ({ total_documents: 1, total_chunks: 2, retrieval_ready: true }),
+      rebuildIndex: (type, traceId) => {
+        rebuilds.push({ type, traceId });
+        return {
+          id: `kjob_rebuild_${type}`,
+          result: {
+            available: true,
+            documents_scanned: 1,
+            sections_indexed: 2,
+            tree_ready: true,
+          },
+        };
+      },
+    };
+
+    const response = await handleWebuiRouteRequest(
+      {
+        method: "POST",
+        path: "/v1/knowledge/rebuild-index?type=tree",
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      knowledgeProvider,
+      undefined,
+      "trace-tree-rebuild",
+    );
+
+    expect(response).toEqual({
+      status: 200,
+      body: {
+        message: "Knowledge tree index rebuilt successfully",
+        available: true,
+        documents_scanned: 1,
+        sections_indexed: 2,
+        tree_ready: true,
+      },
+    });
+    expect(rebuilds).toEqual([{ type: "tree", traceId: "trace-tree-rebuild" }]);
+  });
+
   test("auto-extracts a graph after upload when graph auto extract is enabled", async () => {
     const saves: Array<Record<string, unknown>> = [];
     const configProvider: WebuiConfigProvider = {

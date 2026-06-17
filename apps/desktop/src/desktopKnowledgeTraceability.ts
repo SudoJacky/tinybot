@@ -67,8 +67,17 @@ export interface DesktopKnowledgeQueryResultView {
     count: number;
     docs: string[];
     lowConfidence: boolean;
+    retrievalPlan?: DesktopKnowledgeRetrievalPlanSummary;
   };
   rows: DesktopKnowledgeQueryResultRow[];
+}
+
+export interface DesktopKnowledgeRetrievalPlanSummary {
+  classification: string;
+  routes: string[];
+  budgetLabel: string;
+  treeLabel: string;
+  graphLabel: string;
 }
 
 export interface DesktopKnowledgeQueryResultRow {
@@ -841,14 +850,64 @@ export function buildDesktopKnowledgeQueryResultRows(resultInput: unknown, optio
   const result = asRecord(resultInput);
   const items = asArray(result.data).map(asRecord);
   const rows = items.map((item, index) => buildQueryResultRow(item, options.query || asText(result.query), index));
+  const retrievalPlan = buildKnowledgeRetrievalPlanSummary(result.retrieval_plan ?? result.retrievalPlan);
   return {
     summary: {
       count: rows.length,
       docs: Array.from(new Set(rows.map((row) => row.docName).filter(Boolean))).slice(0, 3),
       lowConfidence: rows.length > 0 && rows.every((row) => row.relevance === "low"),
+      ...(retrievalPlan ? { retrievalPlan } : {}),
     },
     rows,
   };
+}
+
+function buildKnowledgeRetrievalPlanSummary(input: unknown): DesktopKnowledgeRetrievalPlanSummary | undefined {
+  const plan = asRecord(input);
+  if (!Object.keys(plan).length) {
+    return undefined;
+  }
+  const routes = asArray(plan.selected_routes ?? plan.selectedRoutes).map(asText).filter(Boolean);
+  const budgets = asRecord(plan.budgets);
+  const treeOptions = asRecord(plan.tree_options ?? plan.treeOptions);
+  const graphOptions = asRecord(plan.graph_options ?? plan.graphOptions);
+  return {
+    classification: firstNonEmpty(plan.classification, "unknown"),
+    routes,
+    budgetLabel: formatRetrievalPlanBudgets(budgets),
+    treeLabel: formatTreeRetrievalOptions(treeOptions),
+    graphLabel: formatGraphRetrievalOptions(graphOptions),
+  };
+}
+
+function formatRetrievalPlanBudgets(budgets: UnknownRecord): string {
+  return ["keyword", "tree", "graph", "semantic"]
+    .map((route) => {
+      const value = budgets[route];
+      return value == null ? "" : `${route} ${numberValue(value)}`;
+    })
+    .filter(Boolean)
+    .join(" / ");
+}
+
+function formatTreeRetrievalOptions(options: UnknownRecord): string {
+  if (!Object.keys(options).length) {
+    return "";
+  }
+  return [
+    `tree ${firstNonEmpty(options.trigger, "none")}`,
+    `context ${numberValue(options.context_budget ?? options.contextBudget)}`,
+  ].join(", ");
+}
+
+function formatGraphRetrievalOptions(options: UnknownRecord): string {
+  if (!Object.keys(options).length) {
+    return "";
+  }
+  return [
+    `graph hops ${numberValue(options.max_hops ?? options.maxHops)}`,
+    `adds ${numberValue(options.max_added_chunks ?? options.maxAddedChunks)}`,
+  ].join(", ");
 }
 
 function buildQueryResultRow(item: UnknownRecord, query: string, index: number): DesktopKnowledgeQueryResultRow {
