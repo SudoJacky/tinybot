@@ -60,4 +60,35 @@ describe("knowledge query Vue island", () => {
     mounted.unmount();
     expect(host.textContent).toBe("");
   });
+
+  test("renders retrieval plan inspection metadata", () => {
+    const host = document.createElement("section");
+
+    const mounted = mountKnowledgeQueryIsland(host, {
+      draft,
+      results: {
+        summary: {
+          count: 1,
+          docs: ["Doc 1"],
+          lowConfidence: false,
+          retrievalPlan: {
+            classification: "hybrid",
+            routes: ["keyword", "tree", "graph"],
+            budgetLabel: "keyword 3 / tree 3 / graph 2 / semantic 0",
+            treeLabel: "tree auto, context 3",
+            graphLabel: "graph hops 2, adds 2",
+          },
+        },
+        rows: [queryRow(1)],
+      },
+    });
+
+    expect(host.textContent).toContain("Plan: hybrid");
+    expect(host.textContent).toContain("Routes: keyword + tree + graph");
+    expect(host.textContent).toContain("keyword 3 / tree 3 / graph 2 / semantic 0");
+    expect(host.textContent).toContain("tree auto, context 3");
+    expect(host.textContent).toContain("graph hops 2, adds 2");
+
+    mounted.unmount();
+  });
 });

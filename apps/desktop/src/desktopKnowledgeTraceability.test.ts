@@ -418,6 +418,43 @@ describe("desktop knowledge and traceability helpers", () => {
     expect(view.rows[0].traceabilitySections.map((section) => section.kind)).toEqual(["source", "claims"]);
   });
 
+  test("summarizes query retrieval plan metadata for UI inspection", () => {
+    const view = buildDesktopKnowledgeQueryResultRows({
+      retrieval_plan: {
+        classification: "hybrid",
+        selected_routes: ["keyword", "tree", "graph"],
+        budgets: { keyword: 3, tree: 3, graph: 2, semantic: 0 },
+        tree_options: {
+          include_structure_context: true,
+          context_budget: 3,
+          trigger: "auto",
+        },
+        graph_options: {
+          include_graph_context: true,
+          max_hops: 2,
+          max_added_chunks: 2,
+        },
+      },
+      data: [
+        {
+          doc_id: "doc-1",
+          doc_name: "Runtime Notes",
+          content: "Runtime scheduler details.",
+          matched_methods: ["keyword", "structure"],
+          score: 1,
+        },
+      ],
+    });
+
+    expect(view.summary.retrievalPlan).toEqual({
+      classification: "hybrid",
+      routes: ["keyword", "tree", "graph"],
+      budgetLabel: "keyword 3 / tree 3 / graph 2 / semantic 0",
+      treeLabel: "tree auto, context 3",
+      graphLabel: "graph hops 2, adds 2",
+    });
+  });
+
   test("normalizes graph evidence and traceability inspections", () => {
     const graph = buildDesktopKnowledgeGraphView({
       nodes: [
