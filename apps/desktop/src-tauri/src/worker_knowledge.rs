@@ -389,6 +389,7 @@ impl WorkerKnowledgeRpc {
             if let Some(index) = entity_node_indexes.get(&id).copied() {
                 merge_entity_graph_node(&mut nodes[index], entity, evidence_ids);
             } else {
+                let evidence_status = entity_graph_evidence_status(&evidence_ids);
                 nodes.push(KnowledgeGraphNode {
                     id: id.clone(),
                     label: entity.name.trim().to_string(),
@@ -401,6 +402,7 @@ impl WorkerKnowledgeRpc {
                         "confidence": entity.confidence,
                         "source_hash": source_hash,
                         "stale": false,
+                        "evidence_status": evidence_status,
                         "evidence_ids": evidence_ids
                     }),
                 });
@@ -527,6 +529,11 @@ impl WorkerKnowledgeRpc {
         nodes.truncate(limit);
         let stale = mark_entity_graph_staleness(&self.root, &mut nodes, &mut edges)?;
         let conflicts = entity_graph_conflicts(&nodes, &edges);
+        let verified_node_count = nodes
+            .iter()
+            .filter(|node| entity_graph_node_evidence_status(&node.attributes) == "verified")
+            .count();
+        let unverified_node_count = nodes.len().saturating_sub(verified_node_count);
         let entity_ready = !nodes.is_empty() || !edges.is_empty();
         Ok(KnowledgeGraphResult {
             object: "knowledge_graph".to_string(),
@@ -538,6 +545,8 @@ impl WorkerKnowledgeRpc {
                 "total_relations": edges.len(),
                 "total_mentions": edges.iter().map(|edge| edge.evidence.len()).sum::<usize>(),
                 "conflict_count": conflicts.len(),
+                "verified_node_count": verified_node_count,
+                "unverified_node_count": unverified_node_count,
                 "stale_count": stale.node_count + stale.edge_count,
                 "stale_node_count": stale.node_count,
                 "stale_edge_count": stale.edge_count,
@@ -2321,6 +2330,7 @@ fn merge_entity_graph_node(
 ) {
     if let Value::Object(attributes) = &mut node.attributes {
         append_unique_json_strings(attributes, "evidence_ids", evidence_ids);
+        update_entity_graph_evidence_status(attributes);
 
         let alias = entity.name.trim();
         if !alias.is_empty() && alias != node.label {
@@ -2373,6 +2383,50 @@ fn append_unique_json_strings(
     attributes.insert(key.to_string(), Value::Array(existing));
 }
 
+fn update_entity_graph_evidence_status(attributes: &mut serde_json::Map<String, Value>) {
+    let evidence_ids = attributes
+        .get("evidence_ids")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .filter(|id| !id.trim().is_empty())
+                .count()
+        })
+        .unwrap_or(0);
+    let status = if evidence_ids == 0 {
+        "missing"
+    } else {
+        "verified"
+    };
+    attributes.insert(
+        "evidence_status".to_string(),
+        Value::String(status.to_string()),
+    );
+}
+
+fn entity_graph_evidence_status(evidence_ids: &[String]) -> &'static str {
+    if evidence_ids.iter().any(|id| !id.trim().is_empty()) {
+        "verified"
+    } else {
+        "missing"
+    }
+}
+
+fn entity_graph_node_evidence_status(attributes: &Value) -> &str {
+    attributes
+        .get("evidence_status")
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| {
+            if graph_evidence_ids(attributes).is_empty() {
+                "missing"
+            } else {
+                "verified"
+            }
+        })
+}
+
 fn normalize_entity_graph_type(value: &str) -> String {
     value.trim().to_ascii_lowercase()
 }
@@ -2393,6 +2447,7 @@ fn entity_graph_stub_node(
             "entity_type": "",
             "source_hash": source_hash,
             "stale": false,
+            "evidence_status": "missing",
             "evidence_ids": []
         }),
     }

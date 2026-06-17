@@ -8492,6 +8492,101 @@ mod tests {
     }
 
     #[test]
+    fn entity_graph_flags_entities_without_evidence() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-entity-evidence-status-1",
+            "trace-entity-evidence-status",
+            "knowledge.add_document",
+            json!({
+                "name": "Entity Evidence Status",
+                "content": "# Entity Evidence Status\n\nTinyBot has direct entity evidence.\n",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-entity-evidence-status-2",
+            "trace-entity-evidence-status",
+            "knowledge.save_entity_graph_extraction",
+            json!({
+                "doc_id": doc_id,
+                "doc_name": "Entity Evidence Status",
+                "model": "knowledge-model",
+                "entities": [
+                    {
+                        "name": "TinyBot",
+                        "type": "project",
+                        "confidence": 0.91,
+                        "evidence": [
+                            {
+                                "text": "TinyBot has direct entity evidence.",
+                                "line_start": 3,
+                                "line_end": 3
+                            }
+                        ]
+                    },
+                    {
+                        "name": "UnverifiedEntity",
+                        "type": "concept",
+                        "confidence": 0.64
+                    }
+                ],
+                "relations": [],
+                "diagnostics": { "chunks_used": 1 }
+            }),
+        ));
+        assert_eq!(save_response.error, None);
+
+        let graph_response = router.dispatch(&WorkerRequest::new(
+            "req-entity-evidence-status-3",
+            "trace-entity-evidence-status",
+            "knowledge.graph",
+            json!({
+                "graph_type": "entity",
+                "doc_id": doc_id,
+                "include_orphans": true
+            }),
+        ));
+
+        assert_eq!(graph_response.error, None);
+        let graph = graph_response
+            .result
+            .as_ref()
+            .expect("knowledge.graph should return result");
+        assert_eq!(graph["stats"]["verified_node_count"], 1);
+        assert_eq!(graph["stats"]["unverified_node_count"], 1);
+        let nodes = graph["nodes"].as_array().expect("nodes should be an array");
+        let verified = nodes
+            .iter()
+            .find(|node| node["label"] == "TinyBot")
+            .expect("verified entity should be present");
+        let missing = nodes
+            .iter()
+            .find(|node| node["label"] == "UnverifiedEntity")
+            .expect("unverified entity should be present");
+        assert_eq!(verified["attributes"]["evidence_status"], "verified");
+        assert_eq!(missing["attributes"]["evidence_status"], "missing");
+    }
+
+    #[test]
     fn save_entity_graph_extraction_rejects_relation_without_evidence() {
         let fixture = WorkspaceFixture::new();
         let mut router = WorkerRpcRouter::new(
