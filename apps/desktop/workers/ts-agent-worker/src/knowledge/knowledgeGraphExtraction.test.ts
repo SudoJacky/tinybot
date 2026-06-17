@@ -31,6 +31,7 @@ describe("knowledge graph extraction backend", () => {
     const prompt = buildKnowledgeGraphExtractionPrompt("Knowledge.md", "TinyBot stores knowledge.", 640);
 
     expect(prompt).toContain("Return strict JSON only");
+    expect(prompt).toContain("Allowed relation predicates: depends_on, causes, implements, configures, mentions, conflicts_with, supports.");
     expect(prompt).toContain("Token budget for the answer: 640.");
     expect(prompt).toContain("Document: Knowledge.md");
     expect(prompt).toContain("TinyBot stores knowledge.");
@@ -56,11 +57,31 @@ describe("knowledge graph extraction backend", () => {
       relations: [{
         source: "TinyBot",
         target: "Knowledge",
-        predicate: "stores",
+        predicate: "mentions",
         confidence: 0,
         evidence: [{ text: "TinyBot stores knowledge.", line_start: 1, line_end: 1 }],
       }],
     });
+  });
+
+  test("drops extracted relations that cannot satisfy native graph validation", () => {
+    const result = parseKnowledgeGraphExtractionJson(JSON.stringify({
+      entities: [],
+      relations: [
+        { source: "TinyBot", target: "Knowledge", predicate: "uses", confidence: 0.8, evidence: [] },
+        { source: "TinyBot", target: "Runtime", predicate: "depends on", confidence: 0.8, evidence: [{ text: "TinyBot uses Runtime." }] },
+      ],
+    }));
+
+    expect(result.relations).toEqual([
+      {
+        source: "TinyBot",
+        target: "Runtime",
+        predicate: "depends_on",
+        confidence: 0.8,
+        evidence: [{ text: "TinyBot uses Runtime.", line_start: 1, line_end: 1 }],
+      },
+    ]);
   });
 
   test("resolves explicit and scope-all extraction document ids", async () => {
@@ -189,7 +210,7 @@ describe("knowledge graph extraction backend", () => {
       token_estimate: { total_tokens: 500, max_tokens: 640 },
       extraction_scope: { max_chunks: 1, chunk_count: 1, original_chunk_count: 1 },
       entities: [{ name: "TinyBot", type: "project", confidence: 0.9, evidence: [] }],
-      relations: [{ source: "TinyBot", target: "Knowledge", predicate: "stores", confidence: 0.8, evidence: [] }],
+      relations: [],
     })]);
   });
 

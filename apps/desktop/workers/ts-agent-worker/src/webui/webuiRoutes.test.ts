@@ -252,7 +252,7 @@ describe("WebUI knowledge graph extraction routes", () => {
       doc_name: "Knowledge.md",
       model: "graph-model",
       entities: [{ name: "TinyBot", type: "project", confidence: 0.91 }],
-      relations: [{ source: "TinyBot", target: "knowledge graph", predicate: "stores", confidence: 0.82 }],
+      relations: [{ source: "TinyBot", target: "knowledge graph", predicate: "mentions", confidence: 0.82 }],
       token_estimate: { max_tokens: 640 },
     });
   });

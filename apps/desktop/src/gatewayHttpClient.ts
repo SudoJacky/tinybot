@@ -604,6 +604,7 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
           }),
           () => request("/v1/knowledge/graph/extract", jsonRequest("POST", body)),
           "knowledge.extractGraph",
+          false,
         );
       },
       graphrag: (graphRagOptions: KnowledgeGraphRagOptions = {}) => {

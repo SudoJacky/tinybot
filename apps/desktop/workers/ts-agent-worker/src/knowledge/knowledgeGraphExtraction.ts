@@ -50,6 +50,16 @@ const KNOWLEDGE_GRAPH_EXTRACTION_STAGES = [
   "persisted_entity_graph",
 ] as const;
 
+const CONTROLLED_RELATION_PREDICATES = [
+  "depends_on",
+  "causes",
+  "implements",
+  "configures",
+  "mentions",
+  "conflicts_with",
+  "supports",
+] as const;
+
 export async function resolveKnowledgeGraphExtractionDocIds(
   body: Record<string, unknown>,
   provider: KnowledgeGraphExtractionProvider,
@@ -433,6 +443,8 @@ export function buildKnowledgeGraphExtractionPrompt(docName: string, content: st
     "You extract a knowledge entity graph from one document.",
     "Return strict JSON only, with no markdown fences.",
     "Schema: {\"entities\":[{\"name\":\"\",\"type\":\"\",\"confidence\":0.0,\"evidence\":[{\"text\":\"\",\"line_start\":1,\"line_end\":1}]}],\"relations\":[{\"source\":\"\",\"target\":\"\",\"predicate\":\"\",\"confidence\":0.0,\"evidence\":[{\"text\":\"\",\"line_start\":1,\"line_end\":1}]}]}",
+    `Allowed relation predicates: ${CONTROLLED_RELATION_PREDICATES.join(", ")}.`,
+    "Use mentions for generic, containment, storage, or unclear relations.",
     "Only include entities and relations directly supported by source evidence.",
     `Token budget for the answer: ${maxTokens}.`,
     `Document: ${docName}`,
@@ -446,9 +458,14 @@ export function parseKnowledgeGraphExtractionJson(raw: string): KnowledgeGraphEx
   const root = asObject(parsed) ?? {};
   return {
     entities: arrayFromUnknown(root.entities).map(normalizeExtractedEntity).filter((entity) => stringValue(entity.name)),
-    relations: arrayFromUnknown(root.relations).map(normalizeExtractedRelation).filter((relation) =>
-      stringValue(relation.source) && stringValue(relation.target) && stringValue(relation.predicate)
-    ),
+    relations: arrayFromUnknown(root.relations)
+      .map(normalizeExtractedRelation)
+      .filter((relation) =>
+        stringValue(relation.source)
+        && stringValue(relation.target)
+        && stringValue(relation.predicate)
+        && arrayFromUnknown(relation.evidence).some((evidence) => Boolean(stringValue(asObject(evidence)?.text)))
+      ),
   };
 }
 
@@ -467,10 +484,39 @@ function normalizeExtractedRelation(value: unknown): Record<string, unknown> {
   return {
     source: stringValue(relation.source) ?? "",
     target: stringValue(relation.target) ?? "",
-    predicate: stringValue(relation.predicate) ?? stringValue(relation.type) ?? "related_to",
+    predicate: normalizeRelationPredicate(stringValue(relation.predicate) ?? stringValue(relation.type)),
     confidence: normalizedConfidence(relation.confidence),
     evidence: arrayFromUnknown(relation.evidence).map(normalizeExtractionEvidence),
   };
+}
+
+function normalizeRelationPredicate(value: string | undefined): string {
+  const normalized = (value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  if ((CONTROLLED_RELATION_PREDICATES as readonly string[]).includes(normalized)) {
+    return normalized;
+  }
+  if (["depends", "depends_on", "dependency", "requires", "uses", "relies_on"].includes(normalized)) {
+    return "depends_on";
+  }
+  if (["cause", "caused_by", "leads_to", "produces"].includes(normalized)) {
+    return "causes";
+  }
+  if (["implement", "implemented_by", "built_by"].includes(normalized)) {
+    return "implements";
+  }
+  if (["configure", "configured_by", "sets", "controls"].includes(normalized)) {
+    return "configures";
+  }
+  if (["conflict", "conflicts", "contradicts", "opposes"].includes(normalized)) {
+    return "conflicts_with";
+  }
+  if (["support", "supported_by", "validates"].includes(normalized)) {
+    return "supports";
+  }
+  return "mentions";
 }
 
 function normalizeExtractionEvidence(value: unknown): Record<string, unknown> {

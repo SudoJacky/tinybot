@@ -42,7 +42,15 @@ function unwrapWebuiRouteResponse(response: NativeWebuiRouteResponse): unknown {
   if (response.status >= 200 && response.status < 300) {
     return response.body;
   }
-  throw new Error(`Native WebUI route failed: HTTP ${response.status}`);
+  throw new Error(nativeWebuiRouteErrorMessage(response));
+}
+
+function nativeWebuiRouteErrorMessage(response: NativeWebuiRouteResponse): string {
+  const body = isRecord(response.body) ? response.body : {};
+  const error = isRecord(body.error) ? body.error : {};
+  return typeof error.message === "string" && error.message.trim()
+    ? error.message
+    : `Native WebUI route failed: HTTP ${response.status}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
