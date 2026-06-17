@@ -1675,11 +1675,9 @@ fn add_relation_graph_evidence_query_results(
             None,
             Some(edge_value),
             graph_query_conflict_metadata(edge, node_lookup, evidence),
-            Some(entity_graph_query_projection_metadata(
-                "relation",
-                &edge.id,
-                &edge.label,
-                &edge.attributes,
+            Some(relation_graph_query_projection_metadata(
+                edge,
+                node_lookup,
                 evidence,
             )),
         );
@@ -1775,6 +1773,42 @@ fn entity_graph_query_projection_metadata(
         "stale": attributes.get("stale").and_then(Value::as_bool).unwrap_or(false),
         "doc_id": value_string(evidence, "doc_id").unwrap_or_default()
     })
+}
+
+fn relation_graph_query_projection_metadata(
+    edge: &KnowledgeGraphEdge,
+    node_lookup: &HashMap<String, &KnowledgeGraphNode>,
+    evidence: &Value,
+) -> Value {
+    let mut metadata = entity_graph_query_projection_metadata(
+        "relation",
+        &edge.id,
+        &edge.label,
+        &edge.attributes,
+        evidence,
+    );
+    if let Some(map) = metadata.as_object_mut() {
+        map.insert("predicate".to_string(), Value::String(edge.label.clone()));
+        map.insert(
+            "source_label".to_string(),
+            Value::String(
+                node_lookup
+                    .get(&edge.source)
+                    .map(|node| node.label.clone())
+                    .unwrap_or_else(|| edge.source.clone()),
+            ),
+        );
+        map.insert(
+            "target_label".to_string(),
+            Value::String(
+                node_lookup
+                    .get(&edge.target)
+                    .map(|node| node.label.clone())
+                    .unwrap_or_else(|| edge.target.clone()),
+            ),
+        );
+    }
+    metadata
 }
 
 fn graph_query_conflict_metadata(

@@ -8537,6 +8537,25 @@ mod tests {
             result["score_metadata"]["route_contributions"][0]["method"],
             "graph_evidence"
         );
+        assert_eq!(
+            result["projection_metadata"][0]["object"],
+            "knowledge_projection_metadata"
+        );
+        assert_eq!(
+            result["projection_metadata"][0]["projection"],
+            "entity_graph"
+        );
+        assert_eq!(result["projection_metadata"][0]["owner_type"], "relation");
+        assert_eq!(
+            result["projection_metadata"][0]["owner_label"],
+            "depends_on"
+        );
+        assert_eq!(result["projection_metadata"][0]["predicate"], "depends_on");
+        assert_eq!(result["projection_metadata"][0]["source_label"], "TinyBot");
+        assert_eq!(
+            result["projection_metadata"][0]["target_label"],
+            "RuntimeScheduler"
+        );
     }
 
     #[test]
