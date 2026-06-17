@@ -10854,6 +10854,77 @@ mod tests {
     }
 
     #[test]
+    fn knowledge_context_returns_retrieval_plan_for_persistent_results() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let content = [
+            "# Context Plan Notes",
+            "",
+            "Root overview.",
+            "",
+            "## Retrieval Location",
+            "",
+            "The uniquetreeplan marker belongs under the retrieval location section.",
+        ]
+        .join("\n");
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-context-plan-1",
+            "trace-context-plan",
+            "knowledge.add_document",
+            json!({
+                "name": "Context Plan Notes",
+                "content": content,
+                "category": "desktop",
+                "file_type": "md"
+            }),
+        ));
+        assert_eq!(add_response.error, None);
+
+        let context_response = router.dispatch(&WorkerRequest::new(
+            "req-context-plan-2",
+            "trace-context-plan",
+            "knowledge.context",
+            json!({
+                "current_message": "where uniquetreeplan",
+                "session_key": "desktop:session-plan",
+                "max_chunks": 3,
+                "use_persistent_knowledge": true
+            }),
+        ));
+
+        assert_eq!(context_response.error, None);
+        let result = context_response
+            .result
+            .as_ref()
+            .expect("knowledge.context should return result");
+        assert_eq!(
+            result["retrieval_plan"]["selected_routes"],
+            json!(["keyword", "tree"])
+        );
+        assert_eq!(
+            result["retrieval_plan"]["tree_options"],
+            json!({
+                "include_structure_context": true,
+                "context_budget": 3,
+                "trigger": "auto"
+            })
+        );
+        assert_eq!(
+            result["persistent_results"][0]["matched_methods"],
+            json!(["keyword", "structure"])
+        );
+    }
+
+    #[test]
     fn dispatches_knowledge_context_with_session_temporary_files() {
         let fixture = WorkspaceFixture::new();
         let mut session = session_fixture();

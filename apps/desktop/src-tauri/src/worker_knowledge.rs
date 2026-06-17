@@ -712,23 +712,24 @@ impl WorkerKnowledgeRpc {
         if max_chunks == 0 {
             return Ok(empty_knowledge_context());
         }
-        let persistent_results = if params.use_persistent_knowledge == Some(false) {
-            Vec::new()
-        } else {
-            self.query(KnowledgeQueryParams {
-                query: params.current_message.clone(),
-                category: None,
-                tags: None,
-                limit: Some(max_chunks),
-                include_structure_context: None,
-                include_graph_context: None,
-                graph_relation_filters: None,
-                graph_max_hops: None,
-                graph_min_confidence: None,
-                graph_max_added_chunks: None,
-            })?
-            .results
-        };
+        let (persistent_results, retrieval_plan) =
+            if params.use_persistent_knowledge == Some(false) {
+                (Vec::new(), serde_json::json!({}))
+            } else {
+                let query_result = self.query(KnowledgeQueryParams {
+                    query: params.current_message.clone(),
+                    category: None,
+                    tags: None,
+                    limit: Some(max_chunks),
+                    include_structure_context: None,
+                    include_graph_context: None,
+                    graph_relation_filters: None,
+                    graph_max_hops: None,
+                    graph_min_confidence: None,
+                    graph_max_added_chunks: None,
+                })?;
+                (query_result.results, query_result.retrieval_plan)
+            };
         let session_results = session_temporary_context_results(
             params.session_key.as_deref(),
             &session_files,
@@ -750,6 +751,7 @@ impl WorkerKnowledgeRpc {
             persistent_results,
             session_results,
             references,
+            retrieval_plan,
         })
     }
 
@@ -1293,6 +1295,7 @@ pub struct KnowledgeContextResult {
     pub persistent_results: Vec<KnowledgeQueryResult>,
     pub session_results: Vec<Value>,
     pub references: Vec<Value>,
+    pub retrieval_plan: Value,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -2216,6 +2219,7 @@ fn empty_knowledge_context() -> KnowledgeContextResult {
         persistent_results: Vec::new(),
         session_results: Vec::new(),
         references: Vec::new(),
+        retrieval_plan: serde_json::json!({}),
     }
 }
 
