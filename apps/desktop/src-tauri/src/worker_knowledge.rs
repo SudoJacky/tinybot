@@ -229,9 +229,9 @@ impl WorkerKnowledgeRpc {
     ) -> Result<KnowledgeJob, WorkerProtocolError> {
         self.require(WorkerCapability::KnowledgeWrite)?;
         let rebuild_type = params.rebuild_type.unwrap_or_else(|| "bm25".to_string());
-        if !matches!(rebuild_type.as_str(), "bm25" | "semantic" | "all") {
+        if !matches!(rebuild_type.as_str(), "bm25" | "semantic" | "tree" | "all") {
             return Err(invalid_knowledge_request(
-                "type must be bm25, semantic, or all",
+                "type must be bm25, semantic, tree, or all",
             ));
         }
         let stats = self.stats()?;
@@ -241,10 +241,12 @@ impl WorkerKnowledgeRpc {
                 refresh_document_graph(&self.root)?;
                 result
             }
+            "tree" => knowledge_tree_rebuild_result(&self.root)?,
             "semantic" => knowledge_semantic_unavailable_result(),
             "all" => {
                 let result = serde_json::json!({
                     "bm25": knowledge_bm25_rebuild_result(&self.root)?,
+                    "tree": knowledge_tree_rebuild_result(&self.root)?,
                     "semantic": knowledge_semantic_unavailable_result()
                 });
                 refresh_document_graph(&self.root)?;
@@ -2370,9 +2372,22 @@ fn completed_rebuild_job(
     };
     let (processed, total, message) = match rebuild_type {
         "all" => (
-            3,
-            3,
+            4,
+            4,
             "Native available knowledge indexes are rebuilt; semantic index is not available natively",
+        ),
+        "tree" => (
+            result
+                .get("sections_indexed")
+                .and_then(Value::as_u64)
+                .map(|value| value as usize)
+                .unwrap_or(stats.total_chunks),
+            result
+                .get("sections_indexed")
+                .and_then(Value::as_u64)
+                .map(|value| value as usize)
+                .unwrap_or(stats.total_chunks),
+            "Tree index is available from section-aware knowledge chunks",
         ),
         "semantic" => (2, 2, "Semantic index is not available in native TS worker"),
         _ => (
@@ -2424,6 +2439,22 @@ fn knowledge_bm25_rebuild_result(root: &Path) -> Result<Value, WorkerProtocolErr
         "chunks_indexed": chunks_indexed,
         "terms_created": terms.len(),
         "total_docs": documents.len()
+    }))
+}
+
+fn knowledge_tree_rebuild_result(root: &Path) -> Result<Value, WorkerProtocolError> {
+    let store = KnowledgeStorePaths::new(root);
+    let documents = read_jsonl::<KnowledgeDocument>(&store.documents_file)?;
+    let chunks = read_jsonl::<KnowledgeChunk>(&store.chunks_file)?;
+    let sections_indexed = chunks
+        .iter()
+        .filter(|chunk| chunk.chunk_type == "parent")
+        .count();
+    Ok(serde_json::json!({
+        "available": true,
+        "documents_scanned": documents.len(),
+        "sections_indexed": sections_indexed,
+        "tree_ready": sections_indexed > 0
     }))
 }
 

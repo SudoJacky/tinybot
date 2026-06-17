@@ -9689,6 +9689,25 @@ mod tests {
         assert_eq!(rebuild["stage"], "completed");
         assert_eq!(rebuild["result"]["semantic"]["available"], false);
         assert_eq!(rebuild["result"]["bm25"]["chunks_indexed"], 1);
+
+        let tree_rebuild_response = router.dispatch(&WorkerRequest::new(
+            "req-5",
+            "trace-1",
+            "knowledge.rebuild_index",
+            json!({ "type": "tree" }),
+        ));
+        assert_eq!(tree_rebuild_response.error, None);
+        let tree_rebuild = tree_rebuild_response
+            .result
+            .as_ref()
+            .expect("knowledge.rebuild_index tree should return result");
+        assert_eq!(tree_rebuild["id"], "kjob_rebuild_tree");
+        assert_eq!(tree_rebuild["name"], "rebuild:tree");
+        assert_eq!(tree_rebuild["status"], "completed");
+        assert_eq!(tree_rebuild["result"]["available"], true);
+        assert_eq!(tree_rebuild["result"]["documents_scanned"], 1);
+        assert_eq!(tree_rebuild["result"]["sections_indexed"], 1);
+        assert_eq!(tree_rebuild["result"]["tree_ready"], true);
     }
 
     #[test]
