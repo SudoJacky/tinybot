@@ -8406,6 +8406,24 @@ mod tests {
                 "contribution": 1
             })
         );
+        assert_eq!(
+            result["projection_metadata"][0]["object"],
+            "knowledge_projection_metadata"
+        );
+        assert_eq!(
+            result["projection_metadata"][0]["projection"],
+            "entity_graph"
+        );
+        assert_eq!(result["projection_metadata"][0]["owner_type"], "entity");
+        assert_eq!(result["projection_metadata"][0]["owner_label"], "TinyBot");
+        assert_eq!(
+            result["projection_metadata"][0]["evidence_status"],
+            "verified"
+        );
+        assert_eq!(result["projection_metadata"][0]["confidence"], 0.93);
+        assert_eq!(result["projection_metadata"][0]["stale"], false);
+        assert!(result["projection_metadata"][0]["source_hash"].is_string());
+        assert!(result["projection_metadata"][0]["evidence_id"].is_string());
     }
 
     #[test]

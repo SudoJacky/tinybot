@@ -1576,6 +1576,13 @@ fn expand_query_with_entity_graph(
                 Some(node_value),
                 None,
                 None,
+                Some(entity_graph_query_projection_metadata(
+                    "entity",
+                    &node.id,
+                    &node.label,
+                    &node.attributes,
+                    evidence,
+                )),
             );
             if inserted {
                 added_chunks += 1;
@@ -1668,6 +1675,13 @@ fn add_relation_graph_evidence_query_results(
             None,
             Some(edge_value),
             graph_query_conflict_metadata(edge, node_lookup, evidence),
+            Some(entity_graph_query_projection_metadata(
+                "relation",
+                &edge.id,
+                &edge.label,
+                &edge.attributes,
+                evidence,
+            )),
         );
         if inserted {
             added = true;
@@ -1687,6 +1701,7 @@ fn add_graph_evidence_query_result(
     matched_entity: Option<Value>,
     matched_relation: Option<Value>,
     conflict_metadata: Option<Value>,
+    projection_metadata: Option<Value>,
 ) -> bool {
     let inserted = !results_by_parent.contains_key(&chunk.id);
     let entry = results_by_parent
@@ -1719,10 +1734,47 @@ fn add_graph_evidence_query_result(
             entry.conflict_metadata.push(conflict);
         }
     }
+    if let Some(projection) = projection_metadata {
+        if !entry.projection_metadata.contains(&projection) {
+            entry.projection_metadata.push(projection);
+        }
+    }
     if !entry.source_snippets.contains(evidence) {
         entry.source_snippets.push(evidence.clone());
     }
     inserted
+}
+
+fn entity_graph_query_projection_metadata(
+    owner_type: &str,
+    owner_id: &str,
+    owner_label: &str,
+    attributes: &Value,
+    evidence: &Value,
+) -> Value {
+    serde_json::json!({
+        "object": "knowledge_projection_metadata",
+        "projection": "entity_graph",
+        "owner_type": owner_type,
+        "owner_id": owner_id,
+        "owner_label": owner_label,
+        "evidence_id": value_string(evidence, "id").unwrap_or_default(),
+        "evidence_status": attributes
+            .get("evidence_status")
+            .and_then(Value::as_str)
+            .unwrap_or("verified"),
+        "confidence": graph_record_confidence(attributes),
+        "source_hash": attributes
+            .get("source_hash")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+        "current_source_hash": attributes
+            .get("current_source_hash")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+        "stale": attributes.get("stale").and_then(Value::as_bool).unwrap_or(false),
+        "doc_id": value_string(evidence, "doc_id").unwrap_or_default()
+    })
 }
 
 fn graph_query_conflict_metadata(
