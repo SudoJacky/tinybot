@@ -8220,6 +8220,94 @@ mod tests {
     }
 
     #[test]
+    fn knowledge_query_auto_routes_tree_location_questions() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let content = [
+            "# Desktop Knowledge Notes",
+            "",
+            "Root overview.",
+            "",
+            "## Retrieval Pipeline",
+            "",
+            "The uniquetree marker belongs to retrieval.",
+            "",
+            "### Ranking Details",
+            "",
+            "Ranking details should be listed as a child section.",
+            "",
+            "## Operational Notes",
+            "",
+            "Operational notes should be listed as a sibling section.",
+        ]
+        .join("\n");
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-auto-tree-1",
+            "trace-auto-tree",
+            "knowledge.add_document",
+            json!({
+                "name": "Auto Tree Notes",
+                "content": content,
+                "category": "desktop",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+
+        let query_response = router.dispatch(&WorkerRequest::new(
+            "req-auto-tree-2",
+            "trace-auto-tree",
+            "knowledge.query",
+            json!({
+                "query": "where uniquetree",
+                "category": "desktop",
+                "limit": 3
+            }),
+        ));
+
+        assert_eq!(query_response.error, None);
+        let response = query_response
+            .result
+            .as_ref()
+            .expect("knowledge.query should return result");
+        assert_eq!(
+            response["retrieval_plan"]["selected_routes"],
+            json!(["keyword", "tree"])
+        );
+        assert_eq!(response["retrieval_plan"]["budgets"]["tree"], 3);
+        let result = &response["results"][0];
+        assert_eq!(result["id"], format!("chunk_{doc_id}_1"));
+        assert_eq!(result["matched_methods"], json!(["keyword", "structure"]));
+        assert_eq!(
+            result["structure_context"]["section"]["title"],
+            "Retrieval Pipeline"
+        );
+        assert_eq!(
+            result["structure_context"]["parent_section"]["title"],
+            "Desktop Knowledge Notes"
+        );
+        assert_eq!(
+            result["structure_context"]["child_sections"][0]["title"],
+            "Ranking Details"
+        );
+    }
+
+    #[test]
     fn knowledge_query_can_expand_from_entity_graph_evidence() {
         let fixture = WorkspaceFixture::new();
         let mut router = WorkerRpcRouter::new(
@@ -9414,6 +9502,61 @@ mod tests {
             })
         );
         assert_eq!(result["results"][0]["retrieval_method"], "sparse");
+    }
+
+    #[test]
+    fn knowledge_query_exact_retrieval_plan_includes_enabled_tree_route() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-plan-exact-tree-1",
+            "trace-plan-exact-tree",
+            "knowledge.add_document",
+            json!({
+                "name": "Knowledge API Tree Notes",
+                "content": "# Knowledge API Tree Notes\n\nThe knowledge.document_tree API exposes exact section hierarchy.\n",
+                "category": "desktop",
+                "file_type": "md"
+            }),
+        ));
+        assert_eq!(add_response.error, None);
+
+        let query_response = router.dispatch(&WorkerRequest::new(
+            "req-plan-exact-tree-2",
+            "trace-plan-exact-tree",
+            "knowledge.query",
+            json!({
+                "query": "where knowledge.document_tree API",
+                "category": "desktop",
+                "limit": 3
+            }),
+        ));
+
+        assert_eq!(query_response.error, None);
+        let result = query_response
+            .result
+            .as_ref()
+            .expect("knowledge.query should return result");
+        assert_eq!(result["retrieval_plan"]["classification"], "exact");
+        assert_eq!(
+            result["retrieval_plan"]["selected_routes"],
+            json!(["keyword", "tree"])
+        );
+        assert_eq!(result["retrieval_plan"]["budgets"]["tree"], 3);
+        assert_eq!(
+            result["results"][0]["matched_methods"],
+            json!(["keyword", "structure"])
+        );
     }
 
     #[test]

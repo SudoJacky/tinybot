@@ -598,6 +598,8 @@ impl WorkerKnowledgeRpc {
                 "query must contain at least one searchable term",
             ));
         }
+        let include_structure_context =
+            knowledge_query_should_include_structure_context(&params, &query_terms);
         let include_graph_context =
             knowledge_query_should_include_graph_context(&params, &query_terms);
         let chunks =
@@ -679,7 +681,7 @@ impl WorkerKnowledgeRpc {
         }
         results.truncate(limit);
         for result in &mut results {
-            if params.include_structure_context == Some(true) {
+            if include_structure_context {
                 populate_knowledge_structure_context(result, &parents);
             }
             populate_knowledge_score_metadata(result);
@@ -3655,16 +3657,16 @@ fn build_knowledge_retrieval_plan(params: &KnowledgeQueryParams, limit: usize) -
             )
         });
     if exact_query {
+        let mut exact_route_reasons = vec![serde_json::json!({
+            "route": "keyword",
+            "reason": "query contains exact identifiers or API/config-like terms"
+        })];
+        exact_route_reasons.extend(route_reasons.into_iter().skip(1));
         serde_json::json!({
             "object": "knowledge_retrieval_plan",
             "classification": "exact",
-            "selected_routes": ["keyword"],
-            "route_reasons": [
-                {
-                    "route": "keyword",
-                    "reason": "query contains exact identifiers or API/config-like terms"
-                }
-            ],
+            "selected_routes": selected_routes,
+            "route_reasons": exact_route_reasons,
             "budgets": budgets,
             "fallback_behavior": "fallback_to_hybrid_when_no_results",
             "fallback_routes": ["keyword", "tree", "graph"],
@@ -3688,17 +3690,19 @@ fn knowledge_retrieval_plan_routes(
     params: &KnowledgeQueryParams,
 ) -> (Vec<&'static str>, Vec<Value>) {
     let terms = knowledge_query_terms(&params.query);
+    let include_structure_context =
+        knowledge_query_should_include_structure_context(params, &terms);
     let include_graph_context = knowledge_query_should_include_graph_context(params, &terms);
     let mut selected_routes = vec!["keyword"];
     let mut route_reasons = vec![serde_json::json!({
         "route": "keyword",
         "reason": "baseline sparse retrieval remains available for all queries"
     })];
-    if params.include_structure_context.unwrap_or(false) {
+    if include_structure_context {
         selected_routes.push("tree");
         route_reasons.push(serde_json::json!({
             "route": "tree",
-            "reason": "section metadata is requested for local structure context"
+            "reason": if params.include_structure_context == Some(true) { "section metadata is requested for local structure context" } else { "query terms indicate section, chapter, or location navigation intent" }
         }));
     }
     if include_graph_context {
@@ -3718,7 +3722,7 @@ fn knowledge_retrieval_plan_budgets(params: &KnowledgeQueryParams, limit: usize)
     } else {
         0
     };
-    let tree_budget = if params.include_structure_context.unwrap_or(false) {
+    let tree_budget = if knowledge_query_should_include_structure_context(params, &terms) {
         limit
     } else {
         0
@@ -3741,6 +3745,34 @@ fn knowledge_retrieval_plan_graph_options(params: &KnowledgeQueryParams) -> Valu
         "min_confidence": params.graph_min_confidence.unwrap_or(0.0).clamp(0.0, 1.0),
         "max_added_chunks": params.graph_max_added_chunks.unwrap_or(5).min(20)
     })
+}
+
+fn knowledge_query_should_include_structure_context(
+    params: &KnowledgeQueryParams,
+    terms: &[String],
+) -> bool {
+    match params.include_structure_context {
+        Some(value) => value,
+        None => terms.iter().any(|term| {
+            matches!(
+                term.as_str(),
+                "where"
+                    | "section"
+                    | "sections"
+                    | "chapter"
+                    | "chapters"
+                    | "heading"
+                    | "headings"
+                    | "location"
+                    | "located"
+                    | "parent"
+                    | "sibling"
+                    | "siblings"
+                    | "child"
+                    | "children"
+            )
+        }),
+    }
 }
 
 fn knowledge_query_should_include_graph_context(
