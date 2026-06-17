@@ -8058,6 +8058,7 @@ mod tests {
                     "sparse": {
                         "score": 2,
                         "rank": 1,
+                        "normalized_score": 1.0,
                         "contribution": 2
                     }
                 },
@@ -8067,6 +8068,7 @@ mod tests {
                         "method": "sparse",
                         "score": 2,
                         "rank": 1,
+                        "normalized_score": 1.0,
                         "contribution": 2
                     }
                 ]

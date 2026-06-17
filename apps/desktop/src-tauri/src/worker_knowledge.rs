@@ -1756,11 +1756,14 @@ fn populate_knowledge_score_metadata(result: &mut KnowledgeQueryResult) {
     let mut components = serde_json::Map::new();
     let mut route_contributions = Vec::new();
     if result.sparse_contribution > 0 {
+        let normalized_score =
+            normalized_route_score(result.sparse_contribution as f64, result.score);
         components.insert(
             "sparse".to_string(),
             serde_json::json!({
                 "score": result.bm25_score,
                 "rank": result.sparse_rank,
+                "normalized_score": normalized_score,
                 "contribution": result.sparse_contribution
             }),
         );
@@ -1769,15 +1772,18 @@ fn populate_knowledge_score_metadata(result: &mut KnowledgeQueryResult) {
             "method": "sparse",
             "score": result.bm25_score,
             "rank": result.sparse_rank,
+            "normalized_score": normalized_score,
             "contribution": result.sparse_contribution
         }));
     }
     if graph_contribution > 0 {
+        let normalized_score = normalized_route_score(graph_contribution as f64, result.score);
         components.insert(
             "graph".to_string(),
             serde_json::json!({
                 "score": graph_contribution,
                 "rank": result.sparse_rank,
+                "normalized_score": normalized_score,
                 "contribution": graph_contribution
             }),
         );
@@ -1786,6 +1792,7 @@ fn populate_knowledge_score_metadata(result: &mut KnowledgeQueryResult) {
             "method": "graph_evidence",
             "score": graph_contribution,
             "rank": result.sparse_rank,
+            "normalized_score": normalized_score,
             "contribution": graph_contribution
         }));
     }
@@ -1800,6 +1807,14 @@ fn populate_knowledge_score_metadata(result: &mut KnowledgeQueryResult) {
         "components": components,
         "route_contributions": route_contributions
     });
+}
+
+fn normalized_route_score(contribution: f64, final_score: usize) -> f64 {
+    if final_score == 0 {
+        0.0
+    } else {
+        (contribution / final_score as f64).clamp(0.0, 1.0)
+    }
 }
 
 fn populate_knowledge_structure_context(
