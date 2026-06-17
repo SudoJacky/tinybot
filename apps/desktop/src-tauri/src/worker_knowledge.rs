@@ -1572,6 +1572,7 @@ fn expand_query_with_entity_graph(
                 evidence,
                 Some(node_value),
                 None,
+                None,
             );
             if inserted {
                 added_chunks += 1;
@@ -1606,6 +1607,7 @@ fn expand_query_with_entity_graph(
                 parent_chunks,
                 evidence_records,
                 edge,
+                &node_lookup,
                 params,
                 &mut added_chunks,
                 max_added_chunks,
@@ -1636,6 +1638,7 @@ fn add_relation_graph_evidence_query_results(
     parent_chunks: &HashMap<String, KnowledgeChunk>,
     evidence_records: &[Value],
     edge: &KnowledgeGraphEdge,
+    node_lookup: &HashMap<String, &KnowledgeGraphNode>,
     params: &KnowledgeQueryParams,
     added_chunks: &mut usize,
     max_added_chunks: usize,
@@ -1661,6 +1664,7 @@ fn add_relation_graph_evidence_query_results(
             evidence,
             None,
             Some(edge_value),
+            graph_query_conflict_metadata(edge, node_lookup, evidence),
         );
         if inserted {
             added = true;
@@ -1679,6 +1683,7 @@ fn add_graph_evidence_query_result(
     evidence: &Value,
     matched_entity: Option<Value>,
     matched_relation: Option<Value>,
+    conflict_metadata: Option<Value>,
 ) -> bool {
     let inserted = !results_by_parent.contains_key(&chunk.id);
     let entry = results_by_parent
@@ -1706,10 +1711,45 @@ fn add_graph_evidence_query_result(
             entry.matched_relation_evidence.push(evidence.clone());
         }
     }
+    if let Some(conflict) = conflict_metadata {
+        if !entry.conflict_metadata.contains(&conflict) {
+            entry.conflict_metadata.push(conflict);
+        }
+    }
     if !entry.source_snippets.contains(evidence) {
         entry.source_snippets.push(evidence.clone());
     }
     inserted
+}
+
+fn graph_query_conflict_metadata(
+    edge: &KnowledgeGraphEdge,
+    node_lookup: &HashMap<String, &KnowledgeGraphNode>,
+    evidence: &Value,
+) -> Option<Value> {
+    if !entity_graph_edge_is_conflict(edge) {
+        return None;
+    }
+    Some(serde_json::json!({
+        "id": edge.id,
+        "type": "relation_conflict",
+        "edge_id": edge.id,
+        "source": edge.source,
+        "source_label": node_lookup
+            .get(&edge.source)
+            .map(|node| node.label.as_str())
+            .unwrap_or(edge.source.as_str()),
+        "target": edge.target,
+        "target_label": node_lookup
+            .get(&edge.target)
+            .map(|node| node.label.as_str())
+            .unwrap_or(edge.target.as_str()),
+        "predicate": edge.label,
+        "confidence": graph_record_confidence(&edge.attributes),
+        "doc_id": edge.doc_id,
+        "stale": edge.attributes.get("stale").and_then(Value::as_bool).unwrap_or(false),
+        "evidence": [evidence]
+    }))
 }
 
 fn entity_graph_node_matches_query(node: &KnowledgeGraphNode, query_terms: &[String]) -> bool {

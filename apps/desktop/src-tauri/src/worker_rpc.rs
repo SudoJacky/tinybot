@@ -9429,6 +9429,109 @@ mod tests {
     }
 
     #[test]
+    fn knowledge_query_returns_conflict_metadata_for_graph_conflicts() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-query-conflict-1",
+            "trace-query-conflict",
+            "knowledge.add_document",
+            json!({
+                "name": "Query Conflict Source",
+                "content": "# Query Conflict Source\n\nTinyBot conflicts with LegacyBot behavior.\n",
+                "category": "desktop",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-query-conflict-2",
+            "trace-query-conflict",
+            "knowledge.save_entity_graph_extraction",
+            json!({
+                "doc_id": doc_id,
+                "doc_name": "Query Conflict Source",
+                "model": "knowledge-model",
+                "entities": [
+                    { "name": "TinyBot", "type": "project", "confidence": 0.91 },
+                    { "name": "LegacyBot", "type": "project", "confidence": 0.88 }
+                ],
+                "relations": [
+                    {
+                        "source": "TinyBot",
+                        "target": "LegacyBot",
+                        "predicate": "conflicts_with",
+                        "confidence": 0.84,
+                        "evidence": [
+                            {
+                                "text": "TinyBot conflicts with LegacyBot behavior.",
+                                "line_start": 3,
+                                "line_end": 3
+                            }
+                        ]
+                    }
+                ],
+                "diagnostics": { "chunks_used": 1 }
+            }),
+        ));
+        assert_eq!(save_response.error, None);
+
+        let query_response = router.dispatch(&WorkerRequest::new(
+            "req-query-conflict-3",
+            "trace-query-conflict",
+            "knowledge.query",
+            json!({
+                "query": "TinyBot conflict LegacyBot",
+                "category": "desktop",
+                "limit": 3
+            }),
+        ));
+
+        assert_eq!(query_response.error, None);
+        let response = query_response
+            .result
+            .as_ref()
+            .expect("knowledge.query should return result");
+        assert_eq!(
+            response["retrieval_plan"]["selected_routes"],
+            json!(["keyword", "graph"])
+        );
+        let result = &response["results"][0];
+        assert_eq!(result["matched_relations"][0]["label"], "conflicts_with");
+        assert_eq!(
+            result["matched_relation_evidence"][0]["text"],
+            "TinyBot conflicts with LegacyBot behavior."
+        );
+        assert_eq!(result["conflict_metadata"].as_array().unwrap().len(), 1);
+        assert_eq!(result["conflict_metadata"][0]["source_label"], "TinyBot");
+        assert_eq!(result["conflict_metadata"][0]["target_label"], "LegacyBot");
+        assert_eq!(
+            result["conflict_metadata"][0]["predicate"],
+            "conflicts_with"
+        );
+        assert_eq!(
+            result["conflict_metadata"][0]["evidence"][0]["text"],
+            "TinyBot conflicts with LegacyBot behavior."
+        );
+    }
+
+    #[test]
     fn knowledge_query_returns_deterministic_retrieval_plan() {
         let fixture = WorkspaceFixture::new();
         let mut router = WorkerRpcRouter::new(
