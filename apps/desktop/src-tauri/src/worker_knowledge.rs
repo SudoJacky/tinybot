@@ -3642,6 +3642,7 @@ fn build_knowledge_retrieval_plan(params: &KnowledgeQueryParams, limit: usize) -
     let query = params.query.as_str();
     let terms = knowledge_query_terms(query);
     let budgets = knowledge_retrieval_plan_budgets(params, limit);
+    let (selected_routes, route_reasons) = knowledge_retrieval_plan_routes(params);
     let graph_options = knowledge_retrieval_plan_graph_options(params);
     let exact_query = query.contains('.')
         || query.contains('_')
@@ -3671,27 +3672,39 @@ fn build_knowledge_retrieval_plan(params: &KnowledgeQueryParams, limit: usize) -
         serde_json::json!({
             "object": "knowledge_retrieval_plan",
             "classification": "hybrid",
-            "selected_routes": ["keyword", "tree", "graph"],
-            "route_reasons": [
-                {
-                    "route": "keyword",
-                    "reason": "baseline sparse retrieval remains available for all queries"
-                },
-                {
-                    "route": "tree",
-                    "reason": "section metadata can expand local structure context"
-                },
-                {
-                    "route": "graph",
-                    "reason": "entity graph expansion can be added when graph evidence is ready"
-                }
-            ],
+            "selected_routes": selected_routes,
+            "route_reasons": route_reasons,
             "budgets": budgets,
             "fallback_behavior": "fallback_to_keyword_sparse",
             "fallback_routes": ["keyword"],
             "graph_options": graph_options
         })
     }
+}
+
+fn knowledge_retrieval_plan_routes(
+    params: &KnowledgeQueryParams,
+) -> (Vec<&'static str>, Vec<Value>) {
+    let mut selected_routes = vec!["keyword"];
+    let mut route_reasons = vec![serde_json::json!({
+        "route": "keyword",
+        "reason": "baseline sparse retrieval remains available for all queries"
+    })];
+    if params.include_structure_context.unwrap_or(false) {
+        selected_routes.push("tree");
+        route_reasons.push(serde_json::json!({
+            "route": "tree",
+            "reason": "section metadata is requested for local structure context"
+        }));
+    }
+    if params.include_graph_context.unwrap_or(false) {
+        selected_routes.push("graph");
+        route_reasons.push(serde_json::json!({
+            "route": "graph",
+            "reason": "entity graph expansion is requested for evidence recall"
+        }));
+    }
+    (selected_routes, route_reasons)
 }
 
 fn knowledge_retrieval_plan_budgets(params: &KnowledgeQueryParams, limit: usize) -> Value {

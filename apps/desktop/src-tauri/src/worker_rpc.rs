@@ -9386,6 +9386,58 @@ mod tests {
     }
 
     #[test]
+    fn knowledge_query_retrieval_plan_selects_only_enabled_routes() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-plan-routes-1",
+            "trace-plan-routes",
+            "knowledge.add_document",
+            json!({
+                "name": "Concept Recall Notes",
+                "content": "# Concept Recall Notes\n\nHybrid concept recall should still describe only enabled routes.\n",
+                "category": "desktop",
+                "file_type": "md"
+            }),
+        ));
+        assert_eq!(add_response.error, None);
+
+        let query_response = router.dispatch(&WorkerRequest::new(
+            "req-plan-routes-2",
+            "trace-plan-routes",
+            "knowledge.query",
+            json!({
+                "query": "concept recall",
+                "category": "desktop",
+                "limit": 3
+            }),
+        ));
+
+        assert_eq!(query_response.error, None);
+        let result = query_response
+            .result
+            .as_ref()
+            .expect("knowledge.query should return result");
+        assert_eq!(result["retrieval_plan"]["classification"], "hybrid");
+        assert_eq!(
+            result["retrieval_plan"]["selected_routes"],
+            json!(["keyword"])
+        );
+        assert_eq!(result["retrieval_plan"]["budgets"]["graph"], 0);
+        assert_eq!(result["retrieval_plan"]["budgets"]["tree"], 0);
+    }
+
+    #[test]
     fn knowledge_document_tree_returns_markdown_section_hierarchy() {
         let fixture = WorkspaceFixture::new();
         let mut router = WorkerRpcRouter::new(
