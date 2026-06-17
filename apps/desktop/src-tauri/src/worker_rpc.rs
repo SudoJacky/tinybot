@@ -8641,6 +8641,85 @@ mod tests {
     }
 
     #[test]
+    fn save_entity_graph_extraction_rejects_relation_evidence_from_other_document() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-validate-source-1",
+            "trace-validate-source",
+            "knowledge.add_document",
+            json!({
+                "name": "Source Identity",
+                "content": "# Source Identity\n\nTinyBot validates relation source identity.\n",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-validate-source-2",
+            "trace-validate-source",
+            "knowledge.save_entity_graph_extraction",
+            json!({
+                "doc_id": doc_id,
+                "doc_name": "Source Identity",
+                "model": "knowledge-model",
+                "entities": [
+                    { "name": "TinyBot", "type": "project", "confidence": 0.9 },
+                    { "name": "SourceIdentity", "type": "concept", "confidence": 0.9 }
+                ],
+                "relations": [
+                    {
+                        "source": "TinyBot",
+                        "target": "SourceIdentity",
+                        "predicate": "supports",
+                        "confidence": 0.82,
+                        "evidence": [
+                            {
+                                "doc_id": "other_doc",
+                                "text": "TinyBot validates relation source identity.",
+                                "line_start": 3,
+                                "line_end": 3
+                            }
+                        ]
+                    }
+                ],
+                "diagnostics": { "chunks_used": 1 }
+            }),
+        ));
+
+        let error = save_response
+            .error
+            .expect("wrong-document relation evidence should be rejected");
+        assert_eq!(
+            error.code,
+            crate::worker_protocol::WorkerProtocolErrorCode::InvalidProtocol
+        );
+        assert_eq!(
+            error.message,
+            "relation evidence doc_id must match document"
+        );
+        assert_eq!(error.details["relation_index"], 0);
+        assert_eq!(error.details["evidence_doc_id"], "other_doc");
+        assert_eq!(error.details["doc_id"], doc_id);
+    }
+
+    #[test]
     fn save_entity_graph_extraction_rejects_unsupported_relation_predicate() {
         let fixture = WorkspaceFixture::new();
         let mut router = WorkerRpcRouter::new(

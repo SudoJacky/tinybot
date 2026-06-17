@@ -2103,6 +2103,23 @@ fn validate_entity_graph_relations(
                 }),
             ));
         }
+        if let Some(evidence_doc_id) = relation.evidence.iter().find_map(|evidence| {
+            value_string(evidence, "doc_id")
+                .map(|doc_id| doc_id.trim().to_string())
+                .filter(|doc_id| !doc_id.is_empty() && doc_id != &document.id)
+        }) {
+            return Err(invalid_knowledge_request_with_details(
+                "relation evidence doc_id must match document",
+                serde_json::json!({
+                    "doc_id": document.id,
+                    "relation_index": index,
+                    "source": relation.source,
+                    "target": relation.target,
+                    "predicate": relation.predicate,
+                    "evidence_doc_id": evidence_doc_id
+                }),
+            ));
+        }
     }
     Ok(())
 }
