@@ -8513,6 +8513,100 @@ mod tests {
     }
 
     #[test]
+    fn knowledge_query_auto_routes_graph_intent_questions() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-auto-graph-query-1",
+            "trace-auto-graph-query",
+            "knowledge.add_document",
+            json!({
+                "name": "Auto Graph Notes",
+                "content": "# Auto Graph Notes\n\nThe orchestration layer coordinates background jobs.\n",
+                "category": "desktop",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-auto-graph-query-2",
+            "trace-auto-graph-query",
+            "knowledge.save_entity_graph_extraction",
+            json!({
+                "doc_id": doc_id,
+                "doc_name": "Auto Graph Notes",
+                "model": "knowledge-model",
+                "entities": [
+                    { "name": "TinyBot", "type": "project", "confidence": 0.93 },
+                    { "name": "RuntimeScheduler", "type": "component", "confidence": 0.91 }
+                ],
+                "relations": [
+                    {
+                        "source": "TinyBot",
+                        "target": "RuntimeScheduler",
+                        "predicate": "depends_on",
+                        "confidence": 0.88,
+                        "evidence": [
+                            {
+                                "text": "The orchestration layer coordinates background jobs.",
+                                "line_start": 3,
+                                "line_end": 3
+                            }
+                        ]
+                    }
+                ],
+                "diagnostics": { "chunks_used": 1 }
+            }),
+        ));
+        assert_eq!(save_response.error, None);
+
+        let query_response = router.dispatch(&WorkerRequest::new(
+            "req-auto-graph-query-3",
+            "trace-auto-graph-query",
+            "knowledge.query",
+            json!({
+                "query": "why TinyBot dependency RuntimeScheduler",
+                "category": "desktop",
+                "limit": 3,
+                "graph_min_confidence": 0.8
+            }),
+        ));
+
+        assert_eq!(query_response.error, None);
+        let response = query_response
+            .result
+            .as_ref()
+            .expect("knowledge.query should return result");
+        assert_eq!(
+            response["retrieval_plan"]["selected_routes"],
+            json!(["keyword", "graph"])
+        );
+        let result = &response["results"][0];
+        assert_eq!(result["id"], format!("chunk_{doc_id}_0"));
+        assert_eq!(result["retrieval_method"], "graph");
+        assert_eq!(result["matched_relations"][0]["label"], "depends_on");
+        assert_eq!(
+            result["matched_relation_evidence"][0]["text"],
+            "The orchestration layer coordinates background jobs."
+        );
+    }
+
+    #[test]
     fn knowledge_query_can_expand_relation_graph_two_hops() {
         let fixture = WorkspaceFixture::new();
         let mut router = WorkerRpcRouter::new(

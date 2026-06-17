@@ -598,6 +598,8 @@ impl WorkerKnowledgeRpc {
                 "query must contain at least one searchable term",
             ));
         }
+        let include_graph_context =
+            knowledge_query_should_include_graph_context(&params, &query_terms);
         let chunks =
             read_jsonl::<KnowledgeChunk>(&KnowledgeStorePaths::new(&self.root).chunks_file)?;
         let parents: HashMap<String, KnowledgeChunk> = chunks
@@ -649,7 +651,7 @@ impl WorkerKnowledgeRpc {
                 }
             }
         }
-        if params.include_graph_context == Some(true) {
+        if include_graph_context {
             let store = KnowledgeStorePaths::new(&self.root);
             let entity_nodes = read_jsonl::<KnowledgeGraphNode>(&store.entity_graph_nodes_file)?;
             let entity_edges = read_jsonl::<KnowledgeGraphEdge>(&store.entity_graph_edges_file)?;
@@ -3685,6 +3687,8 @@ fn build_knowledge_retrieval_plan(params: &KnowledgeQueryParams, limit: usize) -
 fn knowledge_retrieval_plan_routes(
     params: &KnowledgeQueryParams,
 ) -> (Vec<&'static str>, Vec<Value>) {
+    let terms = knowledge_query_terms(&params.query);
+    let include_graph_context = knowledge_query_should_include_graph_context(params, &terms);
     let mut selected_routes = vec!["keyword"];
     let mut route_reasons = vec![serde_json::json!({
         "route": "keyword",
@@ -3697,18 +3701,19 @@ fn knowledge_retrieval_plan_routes(
             "reason": "section metadata is requested for local structure context"
         }));
     }
-    if params.include_graph_context.unwrap_or(false) {
+    if include_graph_context {
         selected_routes.push("graph");
         route_reasons.push(serde_json::json!({
             "route": "graph",
-            "reason": "entity graph expansion is requested for evidence recall"
+            "reason": if params.include_graph_context == Some(true) { "entity graph expansion is requested for evidence recall" } else { "query terms indicate dependency, causal, relation, or why/how graph intent" }
         }));
     }
     (selected_routes, route_reasons)
 }
 
 fn knowledge_retrieval_plan_budgets(params: &KnowledgeQueryParams, limit: usize) -> Value {
-    let graph_budget = if params.include_graph_context.unwrap_or(false) {
+    let terms = knowledge_query_terms(&params.query);
+    let graph_budget = if knowledge_query_should_include_graph_context(params, &terms) {
         params.graph_max_added_chunks.unwrap_or(5).min(20)
     } else {
         0
@@ -3728,13 +3733,47 @@ fn knowledge_retrieval_plan_budgets(params: &KnowledgeQueryParams, limit: usize)
 }
 
 fn knowledge_retrieval_plan_graph_options(params: &KnowledgeQueryParams) -> Value {
+    let terms = knowledge_query_terms(&params.query);
     serde_json::json!({
-        "include_graph_context": params.include_graph_context.unwrap_or(false),
+        "include_graph_context": knowledge_query_should_include_graph_context(params, &terms),
         "max_hops": params.graph_max_hops.unwrap_or(1).min(4),
         "relation_filters": params.graph_relation_filters.clone().unwrap_or_default(),
         "min_confidence": params.graph_min_confidence.unwrap_or(0.0).clamp(0.0, 1.0),
         "max_added_chunks": params.graph_max_added_chunks.unwrap_or(5).min(20)
     })
+}
+
+fn knowledge_query_should_include_graph_context(
+    params: &KnowledgeQueryParams,
+    terms: &[String],
+) -> bool {
+    match params.include_graph_context {
+        Some(value) => value,
+        None => terms.iter().any(|term| {
+            matches!(
+                term.as_str(),
+                "why"
+                    | "how"
+                    | "depend"
+                    | "depends"
+                    | "dependency"
+                    | "dependencies"
+                    | "cause"
+                    | "causes"
+                    | "causal"
+                    | "relation"
+                    | "relations"
+                    | "relationship"
+                    | "relationships"
+                    | "configure"
+                    | "configures"
+                    | "conflict"
+                    | "conflicts"
+                    | "support"
+                    | "supports"
+            )
+        }),
+    }
 }
 
 fn knowledge_query_terms(query: &str) -> Vec<String> {
