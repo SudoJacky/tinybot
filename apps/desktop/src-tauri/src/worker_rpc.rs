@@ -10779,6 +10779,81 @@ mod tests {
     }
 
     #[test]
+    fn knowledge_context_references_preserve_tree_structure_metadata() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let content = [
+            "# Context Tree Notes",
+            "",
+            "Root overview.",
+            "",
+            "## Retrieval Pipeline",
+            "",
+            "The uniquetreecontext marker belongs to retrieval.",
+            "",
+            "### Ranking Details",
+            "",
+            "Ranking details should be listed as a child section.",
+        ]
+        .join("\n");
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-context-tree-1",
+            "trace-context-tree",
+            "knowledge.add_document",
+            json!({
+                "name": "Context Tree Notes",
+                "content": content,
+                "category": "desktop",
+                "file_type": "md"
+            }),
+        ));
+        assert_eq!(add_response.error, None);
+
+        let context_response = router.dispatch(&WorkerRequest::new(
+            "req-context-tree-2",
+            "trace-context-tree",
+            "knowledge.context",
+            json!({
+                "current_message": "where uniquetreecontext",
+                "session_key": "desktop:session-tree",
+                "max_chunks": 3,
+                "use_persistent_knowledge": true
+            }),
+        ));
+
+        assert_eq!(context_response.error, None);
+        let result = context_response
+            .result
+            .as_ref()
+            .expect("knowledge.context should return result");
+        assert_eq!(
+            result["persistent_results"][0]["matched_methods"],
+            json!(["keyword", "structure"])
+        );
+        assert_eq!(
+            result["references"][0]["structure_context"]["section"]["title"],
+            "Retrieval Pipeline"
+        );
+        assert_eq!(
+            result["references"][0]["structure_context"]["parent_section"]["title"],
+            "Context Tree Notes"
+        );
+        assert_eq!(
+            result["references"][0]["structure_context"]["child_sections"][0]["title"],
+            "Ranking Details"
+        );
+    }
+
+    #[test]
     fn dispatches_knowledge_context_with_session_temporary_files() {
         let fixture = WorkspaceFixture::new();
         let mut session = session_fixture();

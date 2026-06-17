@@ -2291,6 +2291,16 @@ fn knowledge_reference_metadata(result: &KnowledgeQueryResult) -> Value {
         || !result.projection_metadata.is_empty()
         || !result.conflict_metadata.is_empty();
     if let Some(map) = reference.as_object_mut() {
+        if !result
+            .structure_context
+            .as_object()
+            .map_or(true, |map| map.is_empty())
+        {
+            map.insert(
+                "structure_context".to_string(),
+                result.structure_context.clone(),
+            );
+        }
         if !result.source_snippets.is_empty() {
             map.insert(
                 "source_snippets".to_string(),
