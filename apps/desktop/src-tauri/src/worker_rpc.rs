@@ -8384,6 +8384,7 @@ mod tests {
             .as_ref()
             .expect("knowledge.query should return result")["results"][0];
         assert_eq!(result["id"], format!("chunk_{doc_id}_0"));
+        assert_eq!(result["score"], 2);
         assert_eq!(result["retrieval_method"], "graph");
         assert_eq!(result["matched_methods"], json!(["graph"]));
         assert_eq!(result["matched_entities"][0]["label"], "TinyBot");
@@ -8395,6 +8396,15 @@ mod tests {
         assert_eq!(
             result["score_metadata"]["route_contributions"][0]["route"],
             "graph"
+        );
+        assert_eq!(
+            result["score_metadata"]["components"]["evidence_quality_bonus"],
+            json!({
+                "score": 1,
+                "verified_evidence_count": 1,
+                "normalized_score": 0.5,
+                "contribution": 1
+            })
         );
     }
 

@@ -669,6 +669,9 @@ impl WorkerKnowledgeRpc {
             );
         }
         let mut results: Vec<KnowledgeQueryResult> = results_by_parent.into_values().collect();
+        for result in &mut results {
+            apply_knowledge_evidence_quality_bonus(result);
+        }
         results.sort_by(|left, right| {
             right
                 .score
@@ -1864,6 +1867,7 @@ fn populate_knowledge_score_metadata(result: &mut KnowledgeQueryResult) {
         0
     };
     let structure_score = knowledge_structure_score(&result.structure_context);
+    let evidence_quality_bonus = knowledge_evidence_quality_bonus(result);
     let mut components = serde_json::Map::new();
     let mut route_contributions = Vec::new();
     if result.sparse_contribution > 0 {
@@ -1926,9 +1930,24 @@ fn populate_knowledge_score_metadata(result: &mut KnowledgeQueryResult) {
             "contribution": 0
         }));
     }
+    if evidence_quality_bonus > 0 {
+        components.insert(
+            "evidence_quality_bonus".to_string(),
+            serde_json::json!({
+                "score": evidence_quality_bonus,
+                "verified_evidence_count": result.source_snippets.len(),
+                "normalized_score": normalized_route_score(evidence_quality_bonus as f64, result.score),
+                "contribution": evidence_quality_bonus
+            }),
+        );
+    }
     result.score_metadata = serde_json::json!({
         "object": "knowledge_score_metadata",
-        "score_model": knowledge_score_model(graph_contribution > 0, structure_score > 0),
+        "score_model": knowledge_score_model(
+            graph_contribution > 0,
+            structure_score > 0,
+            evidence_quality_bonus > 0,
+        ),
         "final_score": result.score,
         "components": components,
         "route_contributions": route_contributions,
@@ -1941,6 +1960,19 @@ fn populate_knowledge_score_metadata(result: &mut KnowledgeQueryResult) {
     });
 }
 
+fn apply_knowledge_evidence_quality_bonus(result: &mut KnowledgeQueryResult) {
+    let bonus = knowledge_evidence_quality_bonus(result);
+    if bonus == 0 {
+        return;
+    }
+    result.score += bonus;
+    result.rrf_score += bonus;
+}
+
+fn knowledge_evidence_quality_bonus(result: &KnowledgeQueryResult) -> usize {
+    usize::from(!result.source_snippets.is_empty())
+}
+
 fn sort_knowledge_matched_methods(methods: &mut [String]) {
     methods.sort_by_key(|method| match method.as_str() {
         "keyword" => 0,
@@ -1950,12 +1982,20 @@ fn sort_knowledge_matched_methods(methods: &mut [String]) {
     });
 }
 
-fn knowledge_score_model(has_graph: bool, has_structure: bool) -> &'static str {
-    match (has_graph, has_structure) {
-        (true, true) => "deterministic_sparse_graph_structure_v1",
-        (true, false) => "deterministic_sparse_graph_v1",
-        (false, true) => "deterministic_sparse_structure_v1",
-        (false, false) => "deterministic_sparse_v1",
+fn knowledge_score_model(
+    has_graph: bool,
+    has_structure: bool,
+    has_evidence_quality_bonus: bool,
+) -> &'static str {
+    match (has_graph, has_structure, has_evidence_quality_bonus) {
+        (true, true, true) => "deterministic_sparse_graph_structure_evidence_v1",
+        (true, true, false) => "deterministic_sparse_graph_structure_v1",
+        (true, false, true) => "deterministic_sparse_graph_evidence_v1",
+        (true, false, false) => "deterministic_sparse_graph_v1",
+        (false, true, true) => "deterministic_sparse_structure_evidence_v1",
+        (false, true, false) => "deterministic_sparse_structure_v1",
+        (false, false, true) => "deterministic_sparse_evidence_v1",
+        (false, false, false) => "deterministic_sparse_v1",
     }
 }
 
