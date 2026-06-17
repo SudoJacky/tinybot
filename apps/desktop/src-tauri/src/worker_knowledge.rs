@@ -675,10 +675,10 @@ impl WorkerKnowledgeRpc {
         }
         results.truncate(limit);
         for result in &mut results {
-            populate_knowledge_score_metadata(result);
             if params.include_structure_context == Some(true) {
                 populate_knowledge_structure_context(result, &parents);
             }
+            populate_knowledge_score_metadata(result);
         }
         Ok(KnowledgeQueryResultSet {
             results,
@@ -1744,6 +1744,7 @@ fn populate_knowledge_score_metadata(result: &mut KnowledgeQueryResult) {
     {
         result.matched_methods.push("keyword".to_string());
     }
+    sort_knowledge_matched_methods(&mut result.matched_methods);
     let graph_contribution = if result
         .matched_methods
         .iter()
@@ -1753,6 +1754,7 @@ fn populate_knowledge_score_metadata(result: &mut KnowledgeQueryResult) {
     } else {
         0
     };
+    let structure_score = knowledge_structure_score(&result.structure_context);
     let mut components = serde_json::Map::new();
     let mut route_contributions = Vec::new();
     if result.sparse_contribution > 0 {
@@ -1796,17 +1798,82 @@ fn populate_knowledge_score_metadata(result: &mut KnowledgeQueryResult) {
             "contribution": graph_contribution
         }));
     }
+    if structure_score > 0 {
+        components.insert(
+            "structure".to_string(),
+            serde_json::json!({
+                "score": structure_score,
+                "rank": result.sparse_rank,
+                "normalized_score": 0.0,
+                "contribution": 0
+            }),
+        );
+        route_contributions.push(serde_json::json!({
+            "route": "tree",
+            "method": "structure_context",
+            "score": structure_score,
+            "rank": result.sparse_rank,
+            "normalized_score": 0.0,
+            "contribution": 0
+        }));
+    }
     result.score_metadata = serde_json::json!({
         "object": "knowledge_score_metadata",
-        "score_model": if graph_contribution > 0 {
-            "deterministic_sparse_graph_v1"
-        } else {
-            "deterministic_sparse_v1"
-        },
+        "score_model": knowledge_score_model(graph_contribution > 0, structure_score > 0),
         "final_score": result.score,
         "components": components,
         "route_contributions": route_contributions
     });
+}
+
+fn sort_knowledge_matched_methods(methods: &mut [String]) {
+    methods.sort_by_key(|method| match method.as_str() {
+        "keyword" => 0,
+        "graph" => 1,
+        "structure" => 2,
+        _ => 10,
+    });
+}
+
+fn knowledge_score_model(has_graph: bool, has_structure: bool) -> &'static str {
+    match (has_graph, has_structure) {
+        (true, true) => "deterministic_sparse_graph_structure_v1",
+        (true, false) => "deterministic_sparse_graph_v1",
+        (false, true) => "deterministic_sparse_structure_v1",
+        (false, false) => "deterministic_sparse_v1",
+    }
+}
+
+fn knowledge_structure_score(structure_context: &Value) -> usize {
+    if structure_context.get("object").and_then(Value::as_str)
+        != Some("knowledge_structure_context")
+    {
+        return 0;
+    }
+    let mut score = 0usize;
+    if structure_context
+        .get("section")
+        .is_some_and(Value::is_object)
+    {
+        score += 1;
+    }
+    if structure_context
+        .get("parent_section")
+        .is_some_and(Value::is_object)
+    {
+        score += 1;
+    }
+    score += structure_context
+        .get("sibling_sections")
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or(0);
+    score += structure_context
+        .get("child_sections")
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or(0);
+    score
 }
 
 fn normalized_route_score(contribution: f64, final_score: usize) -> f64 {
@@ -1869,6 +1936,13 @@ fn populate_knowledge_structure_context(
         "sibling_sections": sibling_sections,
         "child_sections": child_sections
     });
+    if !result
+        .matched_methods
+        .iter()
+        .any(|method| method == "structure")
+    {
+        result.matched_methods.push("structure".to_string());
+    }
 }
 
 fn knowledge_structure_context_section(chunk: &KnowledgeChunk) -> Value {

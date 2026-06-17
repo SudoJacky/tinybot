@@ -8190,6 +8190,27 @@ mod tests {
                 ]
             })
         );
+        assert_eq!(result["matched_methods"], json!(["keyword", "structure"]));
+        assert_eq!(
+            result["score_metadata"]["components"]["structure"],
+            json!({
+                "score": 4,
+                "rank": 1,
+                "normalized_score": 0.0,
+                "contribution": 0
+            })
+        );
+        assert_eq!(
+            result["score_metadata"]["route_contributions"][1],
+            json!({
+                "route": "tree",
+                "method": "structure_context",
+                "score": 4,
+                "rank": 1,
+                "normalized_score": 0.0,
+                "contribution": 0
+            })
+        );
     }
 
     #[test]
