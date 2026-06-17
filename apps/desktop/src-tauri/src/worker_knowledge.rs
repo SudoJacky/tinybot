@@ -3814,6 +3814,7 @@ fn build_knowledge_retrieval_plan(params: &KnowledgeQueryParams, limit: usize) -
     let budgets = knowledge_retrieval_plan_budgets(params, limit);
     let (selected_routes, route_reasons) = knowledge_retrieval_plan_routes(params);
     let graph_options = knowledge_retrieval_plan_graph_options(params);
+    let tree_options = knowledge_retrieval_plan_tree_options(params, limit);
     let exact_query = query.contains('.')
         || query.contains('_')
         || terms.iter().any(|term| {
@@ -3836,7 +3837,8 @@ fn build_knowledge_retrieval_plan(params: &KnowledgeQueryParams, limit: usize) -
             "budgets": budgets,
             "fallback_behavior": "fallback_to_hybrid_when_no_results",
             "fallback_routes": ["keyword", "tree", "graph"],
-            "graph_options": graph_options
+            "graph_options": graph_options,
+            "tree_options": tree_options
         })
     } else {
         serde_json::json!({
@@ -3847,7 +3849,8 @@ fn build_knowledge_retrieval_plan(params: &KnowledgeQueryParams, limit: usize) -
             "budgets": budgets,
             "fallback_behavior": "fallback_to_keyword_sparse",
             "fallback_routes": ["keyword"],
-            "graph_options": graph_options
+            "graph_options": graph_options,
+            "tree_options": tree_options
         })
     }
 }
@@ -3910,6 +3913,22 @@ fn knowledge_retrieval_plan_graph_options(params: &KnowledgeQueryParams) -> Valu
         "relation_filters": params.graph_relation_filters.clone().unwrap_or_default(),
         "min_confidence": params.graph_min_confidence.unwrap_or(0.0).clamp(0.0, 1.0),
         "max_added_chunks": params.graph_max_added_chunks.unwrap_or(5).min(20)
+    })
+}
+
+fn knowledge_retrieval_plan_tree_options(params: &KnowledgeQueryParams, limit: usize) -> Value {
+    let terms = knowledge_query_terms(&params.query);
+    let include_structure_context =
+        knowledge_query_should_include_structure_context(params, &terms);
+    serde_json::json!({
+        "include_structure_context": include_structure_context,
+        "context_budget": if include_structure_context { limit } else { 0 },
+        "trigger": match params.include_structure_context {
+            Some(true) => "explicit",
+            Some(false) => "disabled",
+            None if include_structure_context => "auto",
+            None => "none",
+        }
     })
 }
 

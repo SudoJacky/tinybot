@@ -9648,6 +9648,11 @@ mod tests {
                     "relation_filters": [],
                     "min_confidence": 0.0,
                     "max_added_chunks": 5
+                },
+                "tree_options": {
+                    "include_structure_context": false,
+                    "context_budget": 0,
+                    "trigger": "none"
                 }
             })
         );
@@ -9766,6 +9771,14 @@ mod tests {
                 "relation_filters": ["depends_on", "configures"],
                 "min_confidence": 0.75,
                 "max_added_chunks": 3
+            })
+        );
+        assert_eq!(
+            result["retrieval_plan"]["tree_options"],
+            json!({
+                "include_structure_context": true,
+                "context_budget": 3,
+                "trigger": "explicit"
             })
         );
         assert_eq!(result["retrieval_plan"]["budgets"]["graph"], 3);
