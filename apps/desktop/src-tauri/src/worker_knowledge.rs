@@ -3607,6 +3607,7 @@ fn section_id(doc_id: &str, section_ordinal: usize) -> String {
 fn build_knowledge_retrieval_plan(params: &KnowledgeQueryParams, limit: usize) -> Value {
     let query = params.query.as_str();
     let terms = knowledge_query_terms(query);
+    let budgets = knowledge_retrieval_plan_budgets(params, limit);
     let graph_options = knowledge_retrieval_plan_graph_options(params);
     let exact_query = query.contains('.')
         || query.contains('_')
@@ -3627,13 +3628,7 @@ fn build_knowledge_retrieval_plan(params: &KnowledgeQueryParams, limit: usize) -
                     "reason": "query contains exact identifiers or API/config-like terms"
                 }
             ],
-            "budgets": {
-                "limit": limit,
-                "keyword": limit,
-                "semantic": 0,
-                "graph": 0,
-                "tree": 0
-            },
+            "budgets": budgets,
             "fallback_behavior": "fallback_to_hybrid_when_no_results",
             "fallback_routes": ["keyword", "tree", "graph"],
             "graph_options": graph_options
@@ -3657,18 +3652,32 @@ fn build_knowledge_retrieval_plan(params: &KnowledgeQueryParams, limit: usize) -
                     "reason": "entity graph expansion can be added when graph evidence is ready"
                 }
             ],
-            "budgets": {
-                "limit": limit,
-                "keyword": limit,
-                "semantic": 0,
-                "graph": 0,
-                "tree": 0
-            },
+            "budgets": budgets,
             "fallback_behavior": "fallback_to_keyword_sparse",
             "fallback_routes": ["keyword"],
             "graph_options": graph_options
         })
     }
+}
+
+fn knowledge_retrieval_plan_budgets(params: &KnowledgeQueryParams, limit: usize) -> Value {
+    let graph_budget = if params.include_graph_context.unwrap_or(false) {
+        params.graph_max_added_chunks.unwrap_or(5).min(20)
+    } else {
+        0
+    };
+    let tree_budget = if params.include_structure_context.unwrap_or(false) {
+        limit
+    } else {
+        0
+    };
+    serde_json::json!({
+        "limit": limit,
+        "keyword": limit,
+        "semantic": 0,
+        "graph": graph_budget,
+        "tree": tree_budget
+    })
 }
 
 fn knowledge_retrieval_plan_graph_options(params: &KnowledgeQueryParams) -> Value {

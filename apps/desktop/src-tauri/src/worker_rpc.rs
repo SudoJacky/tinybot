@@ -9357,6 +9357,7 @@ mod tests {
                 "query": "TinyBot dependency graph",
                 "category": "desktop",
                 "limit": 3,
+                "include_structure_context": true,
                 "include_graph_context": true,
                 "graph_max_hops": 2,
                 "graph_relation_filters": ["depends_on", "configures"],
@@ -9380,6 +9381,8 @@ mod tests {
                 "max_added_chunks": 3
             })
         );
+        assert_eq!(result["retrieval_plan"]["budgets"]["graph"], 3);
+        assert_eq!(result["retrieval_plan"]["budgets"]["tree"], 3);
     }
 
     #[test]
