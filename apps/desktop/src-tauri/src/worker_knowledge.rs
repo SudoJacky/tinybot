@@ -2278,7 +2278,7 @@ fn compact_knowledge_excerpt(content: &str) -> String {
 }
 
 fn knowledge_reference_metadata(result: &KnowledgeQueryResult) -> Value {
-    serde_json::json!({
+    let mut reference = serde_json::json!({
         "doc_id": result.doc_id,
         "doc_name": result.doc_name,
         "chunk_id": result.id,
@@ -2286,7 +2286,39 @@ fn knowledge_reference_metadata(result: &KnowledgeQueryResult) -> Value {
         "line_start": result.line_start,
         "line_end": result.line_end,
         "retrieval_method": result.retrieval_method
-    })
+    });
+    let has_rich_evidence_metadata = !result.source_snippets.is_empty()
+        || !result.projection_metadata.is_empty()
+        || !result.conflict_metadata.is_empty();
+    if let Some(map) = reference.as_object_mut() {
+        if !result.source_snippets.is_empty() {
+            map.insert(
+                "source_snippets".to_string(),
+                Value::Array(result.source_snippets.clone()),
+            );
+        }
+        if !result.projection_metadata.is_empty() {
+            map.insert(
+                "projection_metadata".to_string(),
+                Value::Array(result.projection_metadata.clone()),
+            );
+        }
+        if !result.conflict_metadata.is_empty() {
+            map.insert(
+                "conflict_metadata".to_string(),
+                Value::Array(result.conflict_metadata.clone()),
+            );
+        }
+        if has_rich_evidence_metadata
+            && !result
+                .score_metadata
+                .as_object()
+                .map_or(true, |map| map.is_empty())
+        {
+            map.insert("score_metadata".to_string(), result.score_metadata.clone());
+        }
+    }
+    reference
 }
 
 fn knowledge_session_reference_metadata(result: &Value) -> Value {

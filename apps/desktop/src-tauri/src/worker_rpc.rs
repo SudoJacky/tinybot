@@ -10682,6 +10682,103 @@ mod tests {
     }
 
     #[test]
+    fn knowledge_context_references_preserve_graph_evidence_metadata() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-context-graph-1",
+            "trace-context-graph",
+            "knowledge.add_document",
+            json!({
+                "name": "Context Graph Notes",
+                "content": "# Context Graph Notes\n\nThe orchestration layer coordinates background jobs.\n",
+                "category": "desktop",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-context-graph-2",
+            "trace-context-graph",
+            "knowledge.save_entity_graph_extraction",
+            json!({
+                "doc_id": doc_id,
+                "doc_name": "Context Graph Notes",
+                "model": "knowledge-model",
+                "entities": [
+                    {
+                        "name": "TinyBot",
+                        "type": "project",
+                        "confidence": 0.93,
+                        "evidence": [
+                            {
+                                "text": "The orchestration layer coordinates background jobs.",
+                                "line_start": 3,
+                                "line_end": 3
+                            }
+                        ]
+                    }
+                ],
+                "relations": [],
+                "diagnostics": { "chunks_used": 1 }
+            }),
+        ));
+        assert_eq!(save_response.error, None);
+
+        let context_response = router.dispatch(&WorkerRequest::new(
+            "req-context-graph-3",
+            "trace-context-graph",
+            "knowledge.context",
+            json!({
+                "current_message": "TinyBot dependency",
+                "session_key": "desktop:session-graph",
+                "max_chunks": 3,
+                "use_persistent_knowledge": true
+            }),
+        ));
+
+        assert_eq!(context_response.error, None);
+        let result = context_response
+            .result
+            .as_ref()
+            .expect("knowledge.context should return result");
+        assert_eq!(result["persistent_results"][0]["retrieval_method"], "graph");
+        assert_eq!(result["references"][0]["retrieval_method"], "graph");
+        assert_eq!(
+            result["references"][0]["source_snippets"][0]["text"],
+            "The orchestration layer coordinates background jobs."
+        );
+        assert_eq!(
+            result["references"][0]["projection_metadata"][0]["projection"],
+            "entity_graph"
+        );
+        assert_eq!(
+            result["references"][0]["projection_metadata"][0]["owner_label"],
+            "TinyBot"
+        );
+        assert_eq!(
+            result["references"][0]["score_metadata"]["components"]["evidence_quality_bonus"]["score"],
+            1
+        );
+    }
+
+    #[test]
     fn dispatches_knowledge_context_with_session_temporary_files() {
         let fixture = WorkspaceFixture::new();
         let mut session = session_fixture();
