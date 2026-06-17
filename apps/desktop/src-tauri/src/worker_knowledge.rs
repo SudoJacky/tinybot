@@ -714,6 +714,7 @@ impl WorkerKnowledgeRpc {
                 include_structure_context: None,
                 include_graph_context: None,
                 graph_relation_filters: None,
+                graph_max_hops: None,
                 graph_min_confidence: None,
                 graph_max_added_chunks: None,
             })?
@@ -1198,6 +1199,8 @@ pub struct KnowledgeQueryParams {
     #[serde(default)]
     pub graph_relation_filters: Option<Vec<String>>,
     #[serde(default)]
+    pub graph_max_hops: Option<usize>,
+    #[serde(default)]
     pub graph_min_confidence: Option<f64>,
     #[serde(default)]
     pub graph_max_added_chunks: Option<usize>,
@@ -1515,6 +1518,7 @@ fn expand_query_with_entity_graph(
 ) {
     let mut added_chunks = 0usize;
     let max_added_chunks = params.graph_max_added_chunks.unwrap_or(5).min(20);
+    let max_hops = params.graph_max_hops.unwrap_or(1).min(4);
     let min_confidence = params.graph_min_confidence.unwrap_or(0.0).clamp(0.0, 1.0);
     let node_lookup = nodes
         .iter()
@@ -1561,6 +1565,9 @@ fn expand_query_with_entity_graph(
                 }
             }
         }
+    }
+    if max_hops == 0 {
+        return;
     }
     for edge in edges.iter().filter(|edge| {
         relation_graph_edge_matches_query(edge, &node_lookup, query_terms)
