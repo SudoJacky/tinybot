@@ -8726,6 +8726,96 @@ mod tests {
     }
 
     #[test]
+    fn entity_graph_exposes_conflicting_relations_with_evidence() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-conflict-graph-1",
+            "trace-conflict-graph",
+            "knowledge.add_document",
+            json!({
+                "name": "Conflict Source",
+                "content": "# Conflict Source\n\nTinyBot conflicts with LegacyBot behavior.\n",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-conflict-graph-2",
+            "trace-conflict-graph",
+            "knowledge.save_entity_graph_extraction",
+            json!({
+                "doc_id": doc_id,
+                "doc_name": "Conflict Source",
+                "model": "knowledge-model",
+                "entities": [
+                    { "name": "TinyBot", "type": "project", "confidence": 0.91 },
+                    { "name": "LegacyBot", "type": "project", "confidence": 0.88 }
+                ],
+                "relations": [
+                    {
+                        "source": "TinyBot",
+                        "target": "LegacyBot",
+                        "predicate": "conflicts_with",
+                        "confidence": 0.84,
+                        "evidence": [
+                            {
+                                "text": "TinyBot conflicts with LegacyBot behavior.",
+                                "line_start": 3,
+                                "line_end": 3
+                            }
+                        ]
+                    }
+                ],
+                "diagnostics": { "chunks_used": 1 }
+            }),
+        ));
+        assert_eq!(save_response.error, None);
+
+        let graph_response = router.dispatch(&WorkerRequest::new(
+            "req-conflict-graph-3",
+            "trace-conflict-graph",
+            "knowledge.graph",
+            json!({
+                "graph_type": "entity",
+                "doc_id": doc_id,
+                "include_orphans": true
+            }),
+        ));
+
+        assert_eq!(graph_response.error, None);
+        let graph = graph_response
+            .result
+            .as_ref()
+            .expect("knowledge.graph should return result");
+        assert_eq!(graph["stats"]["conflict_count"], 1);
+        assert_eq!(graph["conflicts"].as_array().unwrap().len(), 1);
+        assert_eq!(graph["conflicts"][0]["source_label"], "TinyBot");
+        assert_eq!(graph["conflicts"][0]["target_label"], "LegacyBot");
+        assert_eq!(graph["conflicts"][0]["predicate"], "conflicts_with");
+        assert_eq!(
+            graph["conflicts"][0]["evidence"][0]["text"],
+            "TinyBot conflicts with LegacyBot behavior."
+        );
+    }
+
+    #[test]
     fn knowledge_query_returns_deterministic_retrieval_plan() {
         let fixture = WorkspaceFixture::new();
         let mut router = WorkerRpcRouter::new(

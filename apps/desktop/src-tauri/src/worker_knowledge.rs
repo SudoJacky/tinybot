@@ -526,6 +526,7 @@ impl WorkerKnowledgeRpc {
         let limit = params.limit.unwrap_or(80).clamp(1, 500);
         nodes.truncate(limit);
         let stale = mark_entity_graph_staleness(&self.root, &mut nodes, &mut edges)?;
+        let conflicts = entity_graph_conflicts(&nodes, &edges);
         let entity_ready = !nodes.is_empty() || !edges.is_empty();
         Ok(KnowledgeGraphResult {
             object: "knowledge_graph".to_string(),
@@ -536,6 +537,7 @@ impl WorkerKnowledgeRpc {
                 "total_entities": nodes.len(),
                 "total_relations": edges.len(),
                 "total_mentions": edges.iter().map(|edge| edge.evidence.len()).sum::<usize>(),
+                "conflict_count": conflicts.len(),
                 "stale_count": stale.node_count + stale.edge_count,
                 "stale_node_count": stale.node_count,
                 "stale_edge_count": stale.edge_count,
@@ -560,7 +562,7 @@ impl WorkerKnowledgeRpc {
             communities: Vec::new(),
             reports: Vec::new(),
             claims: Vec::new(),
-            conflicts: Vec::new(),
+            conflicts,
             stage_readiness: serde_json::json!({}),
             stage_coverage: serde_json::json!({}),
         })
@@ -2400,6 +2402,39 @@ fn graph_record_confidence(attributes: &Value) -> f64 {
         .and_then(Value::as_f64)
         .unwrap_or(1.0)
         .clamp(0.0, 1.0)
+}
+
+fn entity_graph_conflicts(
+    nodes: &[KnowledgeGraphNode],
+    edges: &[KnowledgeGraphEdge],
+) -> Vec<Value> {
+    let labels = nodes
+        .iter()
+        .map(|node| (node.id.as_str(), node.label.as_str()))
+        .collect::<HashMap<_, _>>();
+    edges
+        .iter()
+        .filter(|edge| {
+            edge.label.eq_ignore_ascii_case("conflicts_with")
+                || edge.edge_type.eq_ignore_ascii_case("conflicts_with")
+        })
+        .map(|edge| {
+            serde_json::json!({
+                "id": edge.id,
+                "type": "relation_conflict",
+                "edge_id": edge.id,
+                "source": edge.source,
+                "source_label": labels.get(edge.source.as_str()).copied().unwrap_or(edge.source.as_str()),
+                "target": edge.target,
+                "target_label": labels.get(edge.target.as_str()).copied().unwrap_or(edge.target.as_str()),
+                "predicate": edge.label,
+                "confidence": graph_record_confidence(&edge.attributes),
+                "doc_id": edge.doc_id,
+                "stale": edge.attributes.get("stale").and_then(Value::as_bool).unwrap_or(false),
+                "evidence": edge.evidence
+            })
+        })
+        .collect()
 }
 
 #[derive(Clone, Copy, Debug, Default)]
