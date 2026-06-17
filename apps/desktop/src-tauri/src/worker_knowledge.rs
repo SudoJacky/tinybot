@@ -1524,10 +1524,16 @@ fn expand_query_with_entity_graph(
         .iter()
         .map(|node| (node.id.clone(), node))
         .collect::<HashMap<_, _>>();
+    let mut graph_frontier = HashSet::new();
     for node in nodes
         .iter()
         .filter(|node| entity_graph_node_matches_query(node, query_terms))
     {
+        if node.attributes.get("stale").and_then(Value::as_bool) != Some(true)
+            && graph_record_confidence(&node.attributes) >= min_confidence
+        {
+            graph_frontier.insert(node.id.clone());
+        }
         if added_chunks >= max_added_chunks {
             break;
         }
@@ -1569,46 +1575,93 @@ fn expand_query_with_entity_graph(
     if max_hops == 0 {
         return;
     }
-    for edge in edges.iter().filter(|edge| {
-        relation_graph_edge_matches_query(edge, &node_lookup, query_terms)
-            && relation_graph_edge_matches_filters(edge, params)
-            && graph_record_confidence(&edge.attributes) >= min_confidence
-    }) {
+    let mut visited_edges = HashSet::new();
+    for hop in 1..=max_hops {
         if added_chunks >= max_added_chunks {
             break;
         }
-        if edge.attributes.get("stale").and_then(Value::as_bool) == Some(true) {
-            continue;
-        }
-        let evidence_ids = graph_evidence_ids(&edge.attributes);
-        for evidence in evidence_records.iter().filter(|evidence| {
-            value_string(evidence, "doc_id").as_deref() == Some(edge.doc_id.as_str())
-                && value_string(evidence, "owner_id").as_deref() == Some(edge.id.as_str())
-                && value_string(evidence, "owner_type").as_deref() == Some("relation")
-                && value_string(evidence, "id")
-                    .as_ref()
-                    .map(|id| evidence_ids.contains(id))
-                    .unwrap_or(false)
+        let mut next_frontier = HashSet::new();
+        for edge in edges.iter().filter(|edge| {
+            relation_graph_edge_matches_filters(edge, params)
+                && graph_record_confidence(&edge.attributes) >= min_confidence
+                && edge.attributes.get("stale").and_then(Value::as_bool) != Some(true)
+                && (relation_graph_edge_matches_frontier(edge, &graph_frontier)
+                    || (hop == 1
+                        && relation_graph_edge_matches_query(edge, &node_lookup, query_terms)))
         }) {
-            let Some(chunk) = graph_evidence_parent_chunk(parent_chunks, evidence, params) else {
+            if !visited_edges.insert(edge.id.clone()) {
                 continue;
-            };
-            let edge_value = serde_json::to_value(edge).unwrap_or_else(|_| serde_json::json!({}));
-            let inserted = add_graph_evidence_query_result(
+            }
+            if add_relation_graph_evidence_query_results(
                 results_by_parent,
-                chunk,
-                evidence,
-                None,
-                Some(edge_value),
-            );
-            if inserted {
-                added_chunks += 1;
-                if added_chunks >= max_added_chunks {
-                    break;
-                }
+                parent_chunks,
+                evidence_records,
+                edge,
+                params,
+                &mut added_chunks,
+                max_added_chunks,
+            ) {
+                next_frontier.insert(edge.source.clone());
+                next_frontier.insert(edge.target.clone());
+            }
+            if added_chunks >= max_added_chunks {
+                break;
+            }
+        }
+        if next_frontier.is_empty() {
+            break;
+        }
+        graph_frontier = next_frontier;
+    }
+}
+
+fn relation_graph_edge_matches_frontier(
+    edge: &KnowledgeGraphEdge,
+    frontier: &HashSet<String>,
+) -> bool {
+    frontier.contains(&edge.source) || frontier.contains(&edge.target)
+}
+
+fn add_relation_graph_evidence_query_results(
+    results_by_parent: &mut HashMap<String, KnowledgeQueryResult>,
+    parent_chunks: &HashMap<String, KnowledgeChunk>,
+    evidence_records: &[Value],
+    edge: &KnowledgeGraphEdge,
+    params: &KnowledgeQueryParams,
+    added_chunks: &mut usize,
+    max_added_chunks: usize,
+) -> bool {
+    let mut added = false;
+    let evidence_ids = graph_evidence_ids(&edge.attributes);
+    for evidence in evidence_records.iter().filter(|evidence| {
+        value_string(evidence, "doc_id").as_deref() == Some(edge.doc_id.as_str())
+            && value_string(evidence, "owner_id").as_deref() == Some(edge.id.as_str())
+            && value_string(evidence, "owner_type").as_deref() == Some("relation")
+            && value_string(evidence, "id")
+                .as_ref()
+                .map(|id| evidence_ids.contains(id))
+                .unwrap_or(false)
+    }) {
+        let Some(chunk) = graph_evidence_parent_chunk(parent_chunks, evidence, params) else {
+            continue;
+        };
+        let edge_value = serde_json::to_value(edge).unwrap_or_else(|_| serde_json::json!({}));
+        let inserted = add_graph_evidence_query_result(
+            results_by_parent,
+            chunk,
+            evidence,
+            None,
+            Some(edge_value),
+        );
+        if inserted {
+            added = true;
+            *added_chunks += 1;
+            if *added_chunks >= max_added_chunks {
+                break;
             }
         }
     }
+    added
 }
 
 fn add_graph_evidence_query_result(

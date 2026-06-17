@@ -8507,6 +8507,132 @@ mod tests {
     }
 
     #[test]
+    fn knowledge_query_can_expand_relation_graph_two_hops() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-relation-two-hop-1",
+            "trace-relation-two-hop",
+            "knowledge.add_document",
+            json!({
+                "name": "Relation Two Hop Notes",
+                "content": "# Relation Two Hop Notes\n\n## Runtime\n\nThe orchestration layer coordinates background jobs.\n\n## Worker Pool\n\nThe scheduler configures worker pool slots.\n",
+                "category": "desktop",
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-relation-two-hop-2",
+            "trace-relation-two-hop",
+            "knowledge.save_entity_graph_extraction",
+            json!({
+                "doc_id": doc_id,
+                "doc_name": "Relation Two Hop Notes",
+                "model": "knowledge-model",
+                "entities": [
+                    { "name": "TinyBot", "type": "project", "confidence": 0.93 },
+                    { "name": "RuntimeScheduler", "type": "component", "confidence": 0.91 },
+                    { "name": "WorkerPool", "type": "component", "confidence": 0.9 }
+                ],
+                "relations": [
+                    {
+                        "source": "TinyBot",
+                        "target": "RuntimeScheduler",
+                        "predicate": "depends_on",
+                        "confidence": 0.88,
+                        "evidence": [
+                            {
+                                "text": "The orchestration layer coordinates background jobs.",
+                                "line_start": 5,
+                                "line_end": 5
+                            }
+                        ]
+                    },
+                    {
+                        "source": "RuntimeScheduler",
+                        "target": "WorkerPool",
+                        "predicate": "configures",
+                        "confidence": 0.86,
+                        "evidence": [
+                            {
+                                "text": "The scheduler configures worker pool slots.",
+                                "line_start": 9,
+                                "line_end": 9
+                            }
+                        ]
+                    }
+                ],
+                "diagnostics": { "chunks_used": 2 }
+            }),
+        ));
+        assert_eq!(save_response.error, None);
+
+        let query_response = router.dispatch(&WorkerRequest::new(
+            "req-relation-two-hop-3",
+            "trace-relation-two-hop",
+            "knowledge.query",
+            json!({
+                "query": "TinyBot",
+                "category": "desktop",
+                "limit": 3,
+                "include_graph_context": true,
+                "graph_max_hops": 2,
+                "graph_min_confidence": 0.8,
+                "graph_max_added_chunks": 2
+            }),
+        ));
+
+        assert_eq!(query_response.error, None);
+        let results = query_response
+            .result
+            .as_ref()
+            .expect("knowledge.query should return result")["results"]
+            .as_array()
+            .expect("results should be an array");
+        assert_eq!(results.len(), 2);
+        let relation_labels = results
+            .iter()
+            .flat_map(|result| {
+                result["matched_relations"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|relation| relation["label"].as_str())
+            })
+            .collect::<Vec<_>>();
+        assert!(relation_labels.contains(&"depends_on"));
+        assert!(relation_labels.contains(&"configures"));
+        let snippets = results
+            .iter()
+            .flat_map(|result| {
+                result["source_snippets"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|snippet| snippet["text"].as_str())
+            })
+            .collect::<Vec<_>>();
+        assert!(snippets.contains(&"The orchestration layer coordinates background jobs."));
+        assert!(snippets.contains(&"The scheduler configures worker pool slots."));
+    }
+
+    #[test]
     fn save_entity_graph_extraction_merges_duplicate_entity_aliases() {
         let fixture = WorkspaceFixture::new();
         let mut router = WorkerRpcRouter::new(
