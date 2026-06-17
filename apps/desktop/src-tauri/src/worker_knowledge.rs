@@ -748,9 +748,12 @@ impl WorkerKnowledgeRpc {
         let store = KnowledgeStorePaths::new(&self.root);
         let documents = read_jsonl::<KnowledgeDocument>(&store.documents_file)?;
         let chunks = read_jsonl::<KnowledgeChunk>(&store.chunks_file)?;
-        let entity_nodes = read_jsonl::<KnowledgeGraphNode>(&store.entity_graph_nodes_file)?;
-        let entity_edges = read_jsonl::<KnowledgeGraphEdge>(&store.entity_graph_edges_file)?;
+        let mut entity_nodes = read_jsonl::<KnowledgeGraphNode>(&store.entity_graph_nodes_file)?;
+        let mut entity_edges = read_jsonl::<KnowledgeGraphEdge>(&store.entity_graph_edges_file)?;
         let entity_evidence = read_jsonl::<Value>(&store.entity_graph_evidence_file)?;
+        let graph_stale =
+            mark_entity_graph_staleness(&self.root, &mut entity_nodes, &mut entity_edges)?;
+        let graph_stale_count = graph_stale.node_count + graph_stale.edge_count;
         let parent_chunk_count = chunks
             .iter()
             .filter(|chunk| chunk.chunk_type == "parent")
@@ -784,6 +787,13 @@ impl WorkerKnowledgeRpc {
             "failed": 0,
             "stale": 0
         });
+        let graph_projection_status = if graph_stale_count > 0 {
+            "stale"
+        } else if graph_ready {
+            "ready"
+        } else {
+            "not_configured"
+        };
         let stage_readiness = serde_json::json!({
             "sparse_indexing": sparse_stage,
             "dense_indexing": { "ready": false, "status": "not_configured", "processed": 0, "total": 0, "failed": 0, "stale": 0, "skipped": parent_chunk_count },
@@ -791,7 +801,7 @@ impl WorkerKnowledgeRpc {
             "claim_validation": { "ready": false, "status": "not_configured", "processed": 0, "total": 0, "failed": 0, "stale": 0, "skipped": parent_chunk_count },
             "relation_extraction": { "ready": relations_ready, "status": if relations_ready { "ready" } else { "not_configured" }, "processed": entity_edges.len(), "total": entity_edges.len(), "failed": 0, "stale": 0, "skipped": if relations_ready { 0 } else { parent_chunk_count } },
             "relation_validation": { "ready": relations_ready, "status": if relations_ready { "ready" } else { "not_configured" }, "processed": entity_edges.len(), "total": entity_edges.len(), "failed": 0, "stale": 0, "skipped": if relations_ready { 0 } else { parent_chunk_count } },
-            "graph_projection": { "ready": graph_ready, "status": if graph_ready { "ready" } else { "not_configured" }, "processed": entity_nodes.len() + entity_edges.len(), "total": entity_nodes.len() + entity_edges.len(), "failed": 0, "stale": 0, "skipped": if graph_ready { 0 } else { parent_chunk_count } },
+            "graph_projection": { "ready": graph_ready, "status": graph_projection_status, "processed": entity_nodes.len() + entity_edges.len(), "total": entity_nodes.len() + entity_edges.len(), "failed": 0, "stale": graph_stale_count, "skipped": if graph_ready { 0 } else { parent_chunk_count } },
             "community_report_projection": { "ready": false, "status": "not_configured", "processed": 0, "total": 0, "failed": 0, "stale": 0, "skipped": parent_chunk_count }
         });
         let stage_coverage = serde_json::json!({
@@ -829,7 +839,7 @@ impl WorkerKnowledgeRpc {
             stage_readiness,
             stage_coverage,
             failed_stage_count: 0,
-            stale_stage_count: 0,
+            stale_stage_count: usize::from(graph_stale_count > 0),
             retrieval_ready,
             claims_ready,
             relations_ready,

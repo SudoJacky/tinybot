@@ -9579,6 +9579,12 @@ mod tests {
         assert_eq!(stats["relation_count"], 1);
         assert_eq!(stats["source_count"], 2);
         assert_eq!(stats["graph_ready"], true);
+        assert_eq!(stats["stale_stage_count"], 1);
+        assert_eq!(
+            stats["stage_readiness"]["graph_projection"]["status"],
+            "stale"
+        );
+        assert_eq!(stats["stage_readiness"]["graph_projection"]["stale"], 3);
     }
 
     #[test]
