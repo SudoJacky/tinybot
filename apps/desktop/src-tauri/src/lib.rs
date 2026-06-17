@@ -69,6 +69,8 @@ fn desktop_status() -> DesktopStatus {
 
 type SharedGateway = Arc<Mutex<GatewayRuntime>>;
 const WORKER_CRON_TIMER_MAX_POLL: Duration = Duration::from_secs(30);
+const WORKER_WEBUI_ROUTE_TIMEOUT: Duration = Duration::from_secs(10);
+const WORKER_WEBUI_LONG_ROUTE_TIMEOUT: Duration = Duration::from_secs(120);
 
 struct GatewayRuntime {
     worker: WorkerManager,
@@ -653,12 +655,13 @@ fn worker_webui_route(
     input: WorkerWebuiRouteInput,
     state: State<'_, SharedGateway>,
 ) -> Result<serde_json::Value, String> {
+    let timeout = worker_webui_route_timeout(&input);
     worker_webui_route_with_options(
         state.inner(),
         input,
         ts_agent_worker_workspace_root(),
         experimental_worker_config_snapshot(),
-        Duration::from_secs(10),
+        timeout,
     )
 }
 
@@ -2131,6 +2134,14 @@ fn worker_webui_route_with_options(
     response
         .result
         .ok_or_else(|| "worker webui route response missing result".to_string())
+}
+
+fn worker_webui_route_timeout(input: &WorkerWebuiRouteInput) -> Duration {
+    let path = input.path.split('?').next().unwrap_or(input.path.as_str());
+    if input.method.eq_ignore_ascii_case("POST") && path == "/v1/knowledge/graph/extract" {
+        return WORKER_WEBUI_LONG_ROUTE_TIMEOUT;
+    }
+    WORKER_WEBUI_ROUTE_TIMEOUT
 }
 
 fn build_worker_webui_route_request(
@@ -3903,6 +3914,28 @@ mod tests {
                 "path": "/api/status",
                 "headers": { "Authorization": "Bearer token-1" }
             })
+        );
+    }
+
+    #[test]
+    fn worker_webui_route_uses_extended_timeout_for_graph_extraction() {
+        assert_eq!(
+            worker_webui_route_timeout(&WorkerWebuiRouteInput {
+                method: "POST".to_string(),
+                path: "/v1/knowledge/graph/extract".to_string(),
+                body: None,
+                headers: None,
+            }),
+            Duration::from_secs(120)
+        );
+        assert_eq!(
+            worker_webui_route_timeout(&WorkerWebuiRouteInput {
+                method: "GET".to_string(),
+                path: "/api/status".to_string(),
+                body: None,
+                headers: None,
+            }),
+            Duration::from_secs(10)
         );
     }
 
