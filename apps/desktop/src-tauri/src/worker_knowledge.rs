@@ -583,7 +583,7 @@ impl WorkerKnowledgeRpc {
     ) -> Result<KnowledgeQueryResultSet, WorkerProtocolError> {
         self.require(WorkerCapability::KnowledgeRead)?;
         let limit = params.limit.unwrap_or(5).min(20);
-        let retrieval_plan = build_knowledge_retrieval_plan(&params.query, limit);
+        let retrieval_plan = build_knowledge_retrieval_plan(&params, limit);
         if limit == 0 {
             return Ok(KnowledgeQueryResultSet {
                 results: Vec::new(),
@@ -3604,8 +3604,10 @@ fn section_id(doc_id: &str, section_ordinal: usize) -> String {
     format!("section_{doc_id}_{section_ordinal}")
 }
 
-fn build_knowledge_retrieval_plan(query: &str, limit: usize) -> Value {
+fn build_knowledge_retrieval_plan(params: &KnowledgeQueryParams, limit: usize) -> Value {
+    let query = params.query.as_str();
     let terms = knowledge_query_terms(query);
+    let graph_options = knowledge_retrieval_plan_graph_options(params);
     let exact_query = query.contains('.')
         || query.contains('_')
         || terms.iter().any(|term| {
@@ -3633,7 +3635,8 @@ fn build_knowledge_retrieval_plan(query: &str, limit: usize) -> Value {
                 "tree": 0
             },
             "fallback_behavior": "fallback_to_hybrid_when_no_results",
-            "fallback_routes": ["keyword", "tree", "graph"]
+            "fallback_routes": ["keyword", "tree", "graph"],
+            "graph_options": graph_options
         })
     } else {
         serde_json::json!({
@@ -3662,9 +3665,20 @@ fn build_knowledge_retrieval_plan(query: &str, limit: usize) -> Value {
                 "tree": 0
             },
             "fallback_behavior": "fallback_to_keyword_sparse",
-            "fallback_routes": ["keyword"]
+            "fallback_routes": ["keyword"],
+            "graph_options": graph_options
         })
     }
+}
+
+fn knowledge_retrieval_plan_graph_options(params: &KnowledgeQueryParams) -> Value {
+    serde_json::json!({
+        "include_graph_context": params.include_graph_context.unwrap_or(false),
+        "max_hops": params.graph_max_hops.unwrap_or(1).min(4),
+        "relation_filters": params.graph_relation_filters.clone().unwrap_or_default(),
+        "min_confidence": params.graph_min_confidence.unwrap_or(0.0).clamp(0.0, 1.0),
+        "max_added_chunks": params.graph_max_added_chunks.unwrap_or(5).min(20)
+    })
 }
 
 fn knowledge_query_terms(query: &str) -> Vec<String> {

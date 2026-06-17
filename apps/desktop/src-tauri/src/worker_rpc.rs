@@ -9309,10 +9309,77 @@ mod tests {
                     "tree": 0
                 },
                 "fallback_behavior": "fallback_to_hybrid_when_no_results",
-                "fallback_routes": ["keyword", "tree", "graph"]
+                "fallback_routes": ["keyword", "tree", "graph"],
+                "graph_options": {
+                    "include_graph_context": false,
+                    "max_hops": 1,
+                    "relation_filters": [],
+                    "min_confidence": 0.0,
+                    "max_added_chunks": 5
+                }
             })
         );
         assert_eq!(result["results"][0]["retrieval_method"], "sparse");
+    }
+
+    #[test]
+    fn knowledge_query_retrieval_plan_exposes_graph_options() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-plan-graph-1",
+            "trace-plan-graph",
+            "knowledge.add_document",
+            json!({
+                "name": "Knowledge Graph Notes",
+                "content": "# Knowledge Graph Notes\n\nTinyBot depends on WorkerPool through RuntimeScheduler.\n",
+                "category": "desktop",
+                "file_type": "md"
+            }),
+        ));
+        assert_eq!(add_response.error, None);
+
+        let query_response = router.dispatch(&WorkerRequest::new(
+            "req-plan-graph-2",
+            "trace-plan-graph",
+            "knowledge.query",
+            json!({
+                "query": "TinyBot dependency graph",
+                "category": "desktop",
+                "limit": 3,
+                "include_graph_context": true,
+                "graph_max_hops": 2,
+                "graph_relation_filters": ["depends_on", "configures"],
+                "graph_min_confidence": 0.75,
+                "graph_max_added_chunks": 3
+            }),
+        ));
+
+        assert_eq!(query_response.error, None);
+        let result = query_response
+            .result
+            .as_ref()
+            .expect("knowledge.query should return result");
+        assert_eq!(
+            result["retrieval_plan"]["graph_options"],
+            json!({
+                "include_graph_context": true,
+                "max_hops": 2,
+                "relation_filters": ["depends_on", "configures"],
+                "min_confidence": 0.75,
+                "max_added_chunks": 3
+            })
+        );
     }
 
     #[test]
