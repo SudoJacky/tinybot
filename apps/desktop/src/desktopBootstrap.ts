@@ -1686,6 +1686,11 @@ async function handleNativeKnowledgeAction(event: DesktopKnowledgeActionEvent): 
       const operation = buildDesktopKnowledgeTaskOperation(result);
       if (operation) {
         updateNativeKnowledgeTask(operation);
+        const resultRecord = asRecord(result);
+        const jobId = stringValue(resultRecord.job_id || resultRecord.jobId || asRecord(resultRecord.job)?.id);
+        if (jobId) {
+          void pollNativeKnowledgeGraphExtractionJob(jobId, documentId);
+        }
       } else {
         const resultRecord = asRecord(result);
         const skipped = resultRecord.skipped === true;
@@ -2264,6 +2269,36 @@ function updateNativeKnowledgeTask(operation: DesktopTaskSourceOperation): void 
   nativeKnowledgeTaskOperations.set(operation.id, operation);
   logDesktopNativeDebug("task.operation.update", summarizeTaskOperation("knowledge", operation));
   publishNativeTaskCenterItems();
+}
+
+async function pollNativeKnowledgeGraphExtractionJob(jobId: string, selectedDocumentId: string): Promise<void> {
+  for (let attempt = 0; attempt < 1800; attempt += 1) {
+    try {
+      const job = await gatewayApi.knowledge.job(jobId);
+      const operation = buildDesktopKnowledgeTaskOperation(job);
+      if (operation) {
+        updateNativeKnowledgeTask(operation);
+      }
+      const jobRecord = asRecord(job);
+      const status = stringValue(jobRecord.status || asRecord(jobRecord.job)?.status);
+      if (status === "completed" || status === "failed" || status === "cancelled") {
+        const pane = await loadNativeKnowledgePane({
+          queryResultPayload: nativeKnowledgeQueryResult,
+          selectedDocumentId,
+        });
+        setNativeKnowledgePane(pane);
+        return;
+      }
+    } catch (error) {
+      logDesktopNativeDebug("knowledge.graph_extract.poll.failed", {
+        jobId,
+        selectedDocumentId,
+        error: stringifyError(error),
+      });
+    }
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 2000));
+  }
+  logDesktopNativeDebug("knowledge.graph_extract.poll.timeout", { jobId, selectedDocumentId });
 }
 
 function buildDesktopKnowledgeGraphExtractionTaskOperation(input: {

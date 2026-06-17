@@ -10,6 +10,8 @@ import {
   buildKnowledgeGraphExtractionPlan,
   buildKnowledgeGraphSingleEstimateBody,
   findExistingKnowledgeGraphExtractionSkips,
+  type KnowledgeGraphExtractionPlan,
+  type KnowledgeGraphSkippedDoc,
   resolveKnowledgeGraphExtractionDocIds,
   runKnowledgeGraphExtractionPlan,
   runKnowledgeGraphExtractionPlans,
@@ -289,6 +291,36 @@ export type WebuiKnowledgeListRequest = {
 
 type KnowledgeRebuildType = "bm25" | "semantic" | "tree" | "all";
 
+type KnowledgeGraphExtractionJob = {
+  id: string;
+  doc_id: string;
+  name: string;
+  status: "queued" | "running" | "completed" | "failed";
+  stage: string;
+  message: string;
+  processed: number;
+  total: number;
+  error: string;
+  created_at: string;
+  updated_at: string;
+  completed_at: string;
+  stage_details?: Record<string, unknown>[];
+  llm_preview?: string;
+  llm_output_chars?: number;
+  llm_reasoning_chars?: number;
+  last_llm_delta_at?: string;
+  progress?: Record<string, unknown>;
+  result?: unknown;
+  jobs?: Record<string, unknown>[];
+  job_ids?: unknown[];
+  skipped_docs?: KnowledgeGraphSkippedDoc[];
+};
+
+const knowledgeGraphExtractionJobs = new Map<string, KnowledgeGraphExtractionJob>();
+let knowledgeGraphExtractionJobCounter = 0;
+const KNOWLEDGE_GRAPH_LLM_PREVIEW_LIMIT = 4096;
+const KNOWLEDGE_GRAPH_STAGE_DETAILS_LIMIT = 24;
+
 export type WebuiKnowledgeProvider = {
   listDocuments(
     request: WebuiKnowledgeListRequest,
@@ -317,6 +349,8 @@ export type WebuiOpenAiChatRequest = {
   chatId: string;
   model: string;
   timeoutSeconds: number;
+  onContentDelta?: (delta: string) => void;
+  onReasoningDelta?: (delta: string) => void;
 };
 
 export type WebuiOpenAiCompatProvider = {
@@ -1399,6 +1433,10 @@ async function knowledgeJobResponse(
   provider: WebuiKnowledgeProvider | undefined,
   traceId: string,
 ): Promise<WebuiRouteResponse> {
+  const localJob = knowledgeGraphExtractionJobSnapshot(jobId);
+  if (localJob) {
+    return { status: 200, body: localJob };
+  }
   if (!provider) {
     return { status: 503, body: knowledgeApiError(503, "Knowledge store not initialized") };
   }
@@ -1641,70 +1679,31 @@ async function knowledgeGraphExtractResponse(
     if (!areKnowledgeGraphPlansWithinJobBudget(runnablePlans, maxJobTokens)) {
       return { status: 400, body: knowledgeApiError(400, "Graph extraction token estimate exceeds configured job budget") };
     }
-    const jobs: Record<string, unknown>[] = await runKnowledgeGraphExtractionPlans(
+    const job = createKnowledgeGraphExtractionJob(plans, runnablePlans, skippedDocs);
+    void runKnowledgeGraphExtractionJob({
+      jobId: job.id,
+      plans,
       runnablePlans,
-      knowledgeGraphExtractionConcurrency(config),
-      async (plan) => runKnowledgeGraphExtractionPlan({
-        plan,
-        provider,
-        openAiCompatProvider,
-        model,
-        maxTokens,
-        timeoutSeconds: knowledgeSemanticTimeoutSeconds(config),
-        traceId,
-      }),
-    );
-    const completedProgress = buildKnowledgeGraphExtractionProgress(plans, skippedDocs, "completed", jobs);
-    const progressByDocId = new Map(
-      (Array.isArray(completedProgress.documents) ? completedProgress.documents : [])
-        .map((item) => asObject(item))
-        .filter((item): item is Record<string, unknown> => Boolean(item?.doc_id))
-        .map((item) => [String(item.doc_id), item]),
-    );
-    const jobsWithProgress: Record<string, unknown>[] = jobs.map((job, index) => {
-      const docId = stringValue(job.doc_id) ?? runnablePlans[index]?.docId;
-      const documentProgress = docId ? progressByDocId.get(docId) : undefined;
-      return {
-        ...job,
-        ...(documentProgress
-          ? {
-            progress: {
-              stage: completedProgress.stage,
-              completed: documentProgress.completed,
-              total: documentProgress.total,
-              documents: [documentProgress],
-            },
-          }
-          : {}),
-      };
+      skippedDocs,
+      provider,
+      openAiCompatProvider,
+      model,
+      maxTokens,
+      concurrency: knowledgeGraphExtractionConcurrency(config),
+      timeoutSeconds: knowledgeSemanticTimeoutSeconds(config),
+      traceId,
+      diagnosticsLogger,
     });
-    logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.graph_extract.complete", {
-      document_count: runnablePlans.length,
-      job_count: jobs.length,
-      skipped_count: skippedDocs.length,
-    });
-    if (jobs.length === 1 && skippedDocs.length === 0) {
-      const job = jobsWithProgress[0] ?? {};
-      return {
-        status: 202,
-        body: {
-          message: "Knowledge graph extraction completed",
-          job,
-          job_id: job["id"],
-          progress: completedProgress,
-        },
-      };
-    }
     return {
       status: 202,
       body: {
-        message: "Knowledge graph extraction completed",
+        message: "Knowledge graph extraction started",
         document_count: plans.length,
-        runnable_document_count: jobsWithProgress.length,
+        runnable_document_count: runnablePlans.length,
         skipped_count: skippedDocs.length,
-        jobs: jobsWithProgress,
-        job_ids: jobsWithProgress.map((job) => job["id"]).filter(Boolean),
-        progress: completedProgress,
+        job: knowledgeGraphExtractionJobSnapshot(job.id),
+        job_id: job.id,
+        progress: job.progress,
         ...(skippedDocs.length ? { skipped_docs: skippedDocs } : {}),
       },
     };
@@ -1715,6 +1714,255 @@ async function knowledgeGraphExtractResponse(
     });
     return knowledgeValueError(error) ?? knowledgeServerError("Error extracting knowledge graph", error);
   }
+}
+
+function createKnowledgeGraphExtractionJob(
+  plans: KnowledgeGraphExtractionPlan[],
+  runnablePlans: KnowledgeGraphExtractionPlan[],
+  skippedDocs: KnowledgeGraphSkippedDoc[],
+): KnowledgeGraphExtractionJob {
+  knowledgeGraphExtractionJobCounter += 1;
+  const primaryPlan = runnablePlans[0] ?? plans[0];
+  const timestamp = nowIsoString();
+  const jobId = `kjob_extract_graph_${Date.now().toString(36)}_${knowledgeGraphExtractionJobCounter.toString(36)}`;
+  const job: KnowledgeGraphExtractionJob = {
+    id: jobId,
+    doc_id: primaryPlan?.docId ?? "",
+    name: runnablePlans.length === 1 && primaryPlan
+      ? `extract_graph:${primaryPlan.docName}`
+      : `extract_graph:${runnablePlans.length}_documents`,
+    status: "queued",
+    stage: "queued",
+    message: "Queued for knowledge graph extraction",
+    processed: 0,
+    total: Math.max(1, runnablePlans.length * 8),
+    error: "",
+    created_at: timestamp,
+    updated_at: timestamp,
+    completed_at: "",
+    stage_details: [{
+      stage: "queued",
+      message: "Queued for knowledge graph extraction",
+      updated_at: timestamp,
+    }],
+    progress: buildKnowledgeGraphExtractionProgress(plans, skippedDocs, "running"),
+    ...(skippedDocs.length ? { skipped_docs: skippedDocs } : {}),
+  };
+  knowledgeGraphExtractionJobs.set(job.id, job);
+  return job;
+}
+
+async function runKnowledgeGraphExtractionJob(options: {
+  jobId: string;
+  plans: KnowledgeGraphExtractionPlan[];
+  runnablePlans: KnowledgeGraphExtractionPlan[];
+  skippedDocs: KnowledgeGraphSkippedDoc[];
+  provider: WebuiKnowledgeProvider;
+  openAiCompatProvider: WebuiOpenAiCompatProvider;
+  model: string;
+  maxTokens: number;
+  concurrency: number;
+  timeoutSeconds: number;
+  traceId: string;
+  diagnosticsLogger?: WebuiDiagnosticsLogger;
+}): Promise<void> {
+  const startedAt = Date.now();
+  updateKnowledgeGraphExtractionJob(options.jobId, {
+    status: "running",
+    stage: "llm_extraction",
+    message: "Extracting entity graph with LLM",
+    processed: 0,
+    progress: buildKnowledgeGraphExtractionProgress(options.plans, options.skippedDocs, "running"),
+    stage_details: appendKnowledgeGraphStageDetail(
+      knowledgeGraphExtractionJobs.get(options.jobId)?.stage_details,
+      { stage: "llm_extraction", message: "Starting LLM extraction", updated_at: nowIsoString() },
+    ),
+  });
+  const heartbeat = setInterval(() => {
+    const current = knowledgeGraphExtractionJobs.get(options.jobId);
+    if (!current || current.status !== "running") {
+      return;
+    }
+    const elapsedSeconds = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
+    updateKnowledgeGraphExtractionJob(options.jobId, {
+      message: `Waiting for LLM response (${elapsedSeconds}s elapsed)`,
+      stage_details: appendKnowledgeGraphStageDetail(current.stage_details, {
+        stage: "llm_waiting",
+        message: `Waiting for LLM response (${elapsedSeconds}s elapsed)`,
+        elapsed_seconds: elapsedSeconds,
+        updated_at: nowIsoString(),
+      }),
+    });
+  }, 5000);
+  try {
+    const jobs: Record<string, unknown>[] = await runKnowledgeGraphExtractionPlans(
+      options.runnablePlans,
+      options.concurrency,
+      async (plan) => runKnowledgeGraphExtractionPlan({
+        plan,
+        provider: options.provider,
+        openAiCompatProvider: options.openAiCompatProvider,
+        model: options.model,
+        maxTokens: options.maxTokens,
+        timeoutSeconds: options.timeoutSeconds,
+        traceId: options.traceId,
+        onContentDelta: (delta) => recordKnowledgeGraphLlmDelta(options.jobId, plan, "content", delta),
+        onReasoningDelta: (delta) => recordKnowledgeGraphLlmDelta(options.jobId, plan, "reasoning", delta),
+      }),
+    );
+    const completedProgress = buildKnowledgeGraphExtractionProgress(options.plans, options.skippedDocs, "completed", jobs);
+    const jobsWithProgress = knowledgeGraphExtractionJobsWithProgress(jobs, options.runnablePlans, completedProgress);
+    const result = jobsWithProgress.length === 1
+      ? asObject(jobsWithProgress[0]?.result) ?? asObject(jobsWithProgress[0]) ?? {}
+      : {
+        document_count: options.plans.length,
+        runnable_document_count: jobsWithProgress.length,
+        skipped_count: options.skippedDocs.length,
+      };
+    updateKnowledgeGraphExtractionJob(options.jobId, {
+      status: "completed",
+      stage: "completed",
+      message: "Knowledge graph extraction completed",
+      processed: Math.max(1, options.runnablePlans.length * 8),
+      total: Math.max(1, options.runnablePlans.length * 8),
+      completed_at: nowIsoString(),
+      progress: completedProgress,
+      result,
+      jobs: jobsWithProgress,
+      job_ids: jobsWithProgress.map((job) => job["id"]).filter(Boolean),
+    });
+    logKnowledgeDiagnostic(options.diagnosticsLogger, options.traceId, "knowledge.graph_extract.complete", {
+      document_count: options.runnablePlans.length,
+      job_count: jobs.length,
+      skipped_count: options.skippedDocs.length,
+    });
+  } catch (error) {
+    updateKnowledgeGraphExtractionJob(options.jobId, {
+      status: "failed",
+      stage: "failed",
+      message: "Knowledge graph extraction failed",
+      error: errorMessage(error),
+      completed_at: nowIsoString(),
+    });
+    logKnowledgeDiagnostic(options.diagnosticsLogger, options.traceId, "knowledge.graph_extract.failed", {
+      doc_id: options.runnablePlans[0]?.docId ?? "",
+      error: errorMessage(error),
+    });
+  } finally {
+    clearInterval(heartbeat);
+  }
+}
+
+function knowledgeGraphExtractionJobsWithProgress(
+  jobs: Record<string, unknown>[],
+  runnablePlans: KnowledgeGraphExtractionPlan[],
+  completedProgress: Record<string, unknown>,
+): Record<string, unknown>[] {
+  const progressByDocId = new Map(
+    (Array.isArray(completedProgress.documents) ? completedProgress.documents : [])
+      .map((item) => asObject(item))
+      .filter((item): item is Record<string, unknown> => Boolean(item?.doc_id))
+      .map((item) => [String(item.doc_id), item]),
+  );
+  return jobs.map((job, index) => {
+    const docId = stringValue(job.doc_id) ?? runnablePlans[index]?.docId;
+    const documentProgress = docId ? progressByDocId.get(docId) : undefined;
+    return {
+      ...job,
+      ...(documentProgress
+        ? {
+          progress: {
+            stage: completedProgress.stage,
+            completed: documentProgress.completed,
+            total: documentProgress.total,
+            documents: [documentProgress],
+          },
+        }
+        : {}),
+    };
+  });
+}
+
+function recordKnowledgeGraphLlmDelta(
+  jobId: string,
+  plan: KnowledgeGraphExtractionPlan,
+  kind: "content" | "reasoning",
+  delta: string,
+): void {
+  if (!delta) {
+    return;
+  }
+  const current = knowledgeGraphExtractionJobs.get(jobId);
+  if (!current) {
+    return;
+  }
+  const timestamp = nowIsoString();
+  const outputChars = (current.llm_output_chars ?? 0) + (kind === "content" ? delta.length : 0);
+  const reasoningChars = (current.llm_reasoning_chars ?? 0) + (kind === "reasoning" ? delta.length : 0);
+  const preview = kind === "content"
+    ? trimKnowledgeGraphLlmPreview(`${current.llm_preview ?? ""}${delta}`)
+    : current.llm_preview;
+  updateKnowledgeGraphExtractionJob(jobId, {
+    status: "running",
+    stage: "llm_extraction",
+    message: kind === "content"
+      ? `Receiving LLM graph JSON (${outputChars} chars)`
+      : `Receiving LLM reasoning (${reasoningChars} chars)`,
+    llm_output_chars: outputChars,
+    llm_reasoning_chars: reasoningChars,
+    last_llm_delta_at: timestamp,
+    ...(preview !== undefined ? { llm_preview: preview } : {}),
+    stage_details: appendKnowledgeGraphStageDetail(current.stage_details, {
+      stage: "llm_delta",
+      kind,
+      doc_id: plan.docId,
+      doc_name: plan.docName,
+      delta_chars: delta.length,
+      output_chars: outputChars,
+      reasoning_chars: reasoningChars,
+      preview: kind === "content" ? trimKnowledgeGraphLlmPreview(delta) : undefined,
+      updated_at: timestamp,
+    }),
+  });
+}
+
+function appendKnowledgeGraphStageDetail(
+  details: Record<string, unknown>[] | undefined,
+  detail: Record<string, unknown>,
+): Record<string, unknown>[] {
+  return [...(details ?? []), compactKnowledgeGraphStageDetail(detail)]
+    .slice(-KNOWLEDGE_GRAPH_STAGE_DETAILS_LIMIT);
+}
+
+function compactKnowledgeGraphStageDetail(detail: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(detail).filter(([, value]) => value !== undefined));
+}
+
+function trimKnowledgeGraphLlmPreview(value: string): string {
+  return value.length <= KNOWLEDGE_GRAPH_LLM_PREVIEW_LIMIT
+    ? value
+    : value.slice(value.length - KNOWLEDGE_GRAPH_LLM_PREVIEW_LIMIT);
+}
+
+function updateKnowledgeGraphExtractionJob(jobId: string, patch: Partial<KnowledgeGraphExtractionJob>): void {
+  const current = knowledgeGraphExtractionJobs.get(jobId);
+  if (!current) {
+    return;
+  }
+  knowledgeGraphExtractionJobs.set(jobId, {
+    ...current,
+    ...patch,
+    updated_at: nowIsoString(),
+  });
+}
+
+function knowledgeGraphExtractionJobSnapshot(jobId: string): Record<string, unknown> | undefined {
+  const job = knowledgeGraphExtractionJobs.get(jobId);
+  return job ? { ...job } : undefined;
+}
+
+function nowIsoString(): string {
+  return new Date().toISOString();
 }
 
 async function knowledgeGraphResponse(

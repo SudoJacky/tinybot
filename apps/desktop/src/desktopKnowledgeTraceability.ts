@@ -710,9 +710,10 @@ export function buildDesktopKnowledgeTaskOperation(payload: unknown): DesktopTas
   const total = optionalNumberValue(progressPayload.total) ?? numberValue(job.total);
   const progressSummary = formatKnowledgeProgressSummary(progressPayload);
   const progressDiagnostics = formatKnowledgeProgressDiagnostics(progressPayload);
+  const llmDiagnostics = formatKnowledgeLlmDiagnostics(job, root);
   const sourceTitle = firstNonEmpty(job.source_title, job.doc_name, job.document_name, root.source_title, root.doc_name, root.document_name, name, docId);
   const sourceDetail = firstNonEmpty(job.source_path, job.path, job.file_path, root.source_path, root.path, root.file_path, stage);
-  const diagnostics = firstNonEmpty(job.error, root.error, progressDiagnostics);
+  const diagnostics = firstNonEmpty(job.error, root.error, joinKnowledgeDiagnostics(progressDiagnostics, llmDiagnostics));
   return {
     id: `knowledge:${id}`,
     title: knowledgeTaskTitle(name),
@@ -757,6 +758,24 @@ export function buildDesktopKnowledgeUploadTaskOperation(fileName: string): Desk
     retryable: false,
     updatedAt: "",
   };
+}
+
+function joinKnowledgeDiagnostics(...items: string[]): string {
+  return items.filter(Boolean).join("\n");
+}
+
+function formatKnowledgeLlmDiagnostics(job: UnknownRecord, root: UnknownRecord): string {
+  const outputChars = optionalNumberValue(job.llm_output_chars ?? job.llmOutputChars ?? root.llm_output_chars ?? root.llmOutputChars);
+  const reasoningChars = optionalNumberValue(job.llm_reasoning_chars ?? job.llmReasoningChars ?? root.llm_reasoning_chars ?? root.llmReasoningChars);
+  const preview = firstNonEmpty(job.llm_preview, job.llmPreview, root.llm_preview, root.llmPreview);
+  if (outputChars === undefined && reasoningChars === undefined && !preview) {
+    return "";
+  }
+  return [
+    `LLM output: ${outputChars ?? 0} chars`,
+    reasoningChars !== undefined ? `reasoning: ${reasoningChars} chars` : "",
+    preview ? `preview: ${preview}` : "",
+  ].filter(Boolean).join("; ");
 }
 
 function normalizeKnowledgeJobPayload(root: UnknownRecord): UnknownRecord {
