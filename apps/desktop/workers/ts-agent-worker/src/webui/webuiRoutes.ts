@@ -11,6 +11,7 @@ import {
   buildKnowledgeGraphSingleEstimateBody,
   findExistingKnowledgeGraphExtractionSkips,
   type KnowledgeGraphExtractionPlan,
+  type KnowledgeGraphExtractionStageEvent,
   type KnowledgeGraphSkippedDoc,
   resolveKnowledgeGraphExtractionDocIds,
   runKnowledgeGraphExtractionPlan,
@@ -1680,6 +1681,12 @@ async function knowledgeGraphExtractResponse(
       return { status: 400, body: knowledgeApiError(400, "Graph extraction token estimate exceeds configured job budget") };
     }
     const job = createKnowledgeGraphExtractionJob(plans, runnablePlans, skippedDocs);
+    logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.graph_extract.job_queued", {
+      job_id: job.id,
+      document_count: plans.length,
+      runnable_document_count: runnablePlans.length,
+      skipped_count: skippedDocs.length,
+    });
     void runKnowledgeGraphExtractionJob({
       jobId: job.id,
       plans,
@@ -1808,8 +1815,9 @@ async function runKnowledgeGraphExtractionJob(options: {
         maxTokens: options.maxTokens,
         timeoutSeconds: options.timeoutSeconds,
         traceId: options.traceId,
-        onContentDelta: (delta) => recordKnowledgeGraphLlmDelta(options.jobId, plan, "content", delta),
-        onReasoningDelta: (delta) => recordKnowledgeGraphLlmDelta(options.jobId, plan, "reasoning", delta),
+        onContentDelta: (delta) => recordKnowledgeGraphLlmDelta(options.jobId, plan, "content", delta, options.diagnosticsLogger, options.traceId),
+        onReasoningDelta: (delta) => recordKnowledgeGraphLlmDelta(options.jobId, plan, "reasoning", delta, options.diagnosticsLogger, options.traceId),
+        onStage: (event) => recordKnowledgeGraphExtractionStage(options.jobId, plan, event, options.diagnosticsLogger, options.traceId),
       }),
     );
     const completedProgress = buildKnowledgeGraphExtractionProgress(options.plans, options.skippedDocs, "completed", jobs);
@@ -1885,11 +1893,123 @@ function knowledgeGraphExtractionJobsWithProgress(
   });
 }
 
+const KNOWLEDGE_GRAPH_EXTRACTION_STAGE_ORDER = [
+  "resolved_document",
+  "loaded_content",
+  "estimated_tokens",
+  "checked_existing_graph",
+  "checked_budget",
+  "llm_extraction",
+  "parsed_graph_json",
+  "persisted_entity_graph",
+] as const;
+
+function recordKnowledgeGraphExtractionStage(
+  jobId: string,
+  plan: KnowledgeGraphExtractionPlan,
+  event: KnowledgeGraphExtractionStageEvent,
+  diagnosticsLogger: WebuiDiagnosticsLogger | undefined,
+  traceId: string,
+): void {
+  const current = knowledgeGraphExtractionJobs.get(jobId);
+  if (!current) {
+    return;
+  }
+  const timestamp = nowIsoString();
+  const details = event.details ?? {};
+  const progress = updateKnowledgeGraphExtractionProgressForStage(asObject(current.progress) ?? {}, plan, event);
+  updateKnowledgeGraphExtractionJob(jobId, {
+    stage: event.stage,
+    message: knowledgeGraphExtractionStageMessage(event.stage, event.status),
+    processed: numberValue(progress.completed) ?? current.processed,
+    progress,
+    stage_details: appendKnowledgeGraphStageDetail(current.stage_details, {
+      stage: event.stage,
+      status: event.status,
+      doc_id: plan.docId,
+      doc_name: plan.docName,
+      updated_at: timestamp,
+      ...details,
+    }),
+  });
+  logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.graph_extract.stage", {
+    job_id: jobId,
+    doc_id: plan.docId,
+    doc_name: plan.docName,
+    extract_stage: event.stage,
+    status: event.status,
+    ...details,
+  });
+}
+
+function updateKnowledgeGraphExtractionProgressForStage(
+  progress: Record<string, unknown>,
+  plan: KnowledgeGraphExtractionPlan,
+  event: KnowledgeGraphExtractionStageEvent,
+): Record<string, unknown> {
+  const documents = arrayFromUnknown(progress.documents)
+    .map(asObject)
+    .filter((item): item is Record<string, unknown> => Boolean(item));
+  const updatedDocuments = documents.map((document) =>
+    stringValue(document.doc_id) === plan.docId
+      ? knowledgeGraphExtractionDocumentStageProgress(document, event)
+      : document
+  );
+  const completed = updatedDocuments.reduce((total, document) => total + (numberValue(document.completed) ?? 0), 0);
+  const total = updatedDocuments.reduce((sum, document) => sum + (numberValue(document.total) ?? KNOWLEDGE_GRAPH_EXTRACTION_STAGE_ORDER.length), 0);
+  return {
+    ...progress,
+    stage: event.stage,
+    completed,
+    total,
+    documents: updatedDocuments,
+  };
+}
+
+function knowledgeGraphExtractionDocumentStageProgress(
+  document: Record<string, unknown>,
+  event: KnowledgeGraphExtractionStageEvent,
+): Record<string, unknown> {
+  const stageIndex = Math.max(0, KNOWLEDGE_GRAPH_EXTRACTION_STAGE_ORDER.indexOf(event.stage as typeof KNOWLEDGE_GRAPH_EXTRACTION_STAGE_ORDER[number]));
+  const lastStageIndex = KNOWLEDGE_GRAPH_EXTRACTION_STAGE_ORDER.length - 1;
+  const completed = event.status === "completed" ? stageIndex + 1 : stageIndex;
+  return {
+    ...document,
+    status: event.status === "failed" ? "failed" : completed >= KNOWLEDGE_GRAPH_EXTRACTION_STAGE_ORDER.length ? "completed" : "running",
+    stage: event.stage,
+    completed,
+    total: KNOWLEDGE_GRAPH_EXTRACTION_STAGE_ORDER.length,
+    stages: KNOWLEDGE_GRAPH_EXTRACTION_STAGE_ORDER.map((stageName, index) => ({
+      stage: stageName,
+      status: index < stageIndex
+        ? "completed"
+        : index === stageIndex
+          ? event.status
+          : "pending",
+    })),
+    ...(event.status === "failed" ? { failed_stage: event.stage } : {}),
+    ...(event.status === "completed" && stageIndex === lastStageIndex ? { completed_stage: event.stage } : {}),
+  };
+}
+
+function knowledgeGraphExtractionStageMessage(stage: string, status: KnowledgeGraphExtractionStageEvent["status"]): string {
+  const label = stage.replace(/_/g, " ");
+  if (status === "failed") {
+    return `Knowledge graph extraction failed during ${label}`;
+  }
+  if (status === "completed") {
+    return `Completed ${label}`;
+  }
+  return `Running ${label}`;
+}
+
 function recordKnowledgeGraphLlmDelta(
   jobId: string,
   plan: KnowledgeGraphExtractionPlan,
   kind: "content" | "reasoning",
   delta: string,
+  diagnosticsLogger: WebuiDiagnosticsLogger | undefined,
+  traceId: string,
 ): void {
   if (!delta) {
     return;
@@ -1925,6 +2045,16 @@ function recordKnowledgeGraphLlmDelta(
       preview: kind === "content" ? trimKnowledgeGraphLlmPreview(delta) : undefined,
       updated_at: timestamp,
     }),
+  });
+  logKnowledgeDiagnostic(diagnosticsLogger, traceId, "knowledge.graph_extract.llm_delta", {
+    job_id: jobId,
+    doc_id: plan.docId,
+    doc_name: plan.docName,
+    kind,
+    delta_chars: delta.length,
+    output_chars: outputChars,
+    reasoning_chars: reasoningChars,
+    preview: kind === "content" ? trimKnowledgeGraphLlmPreview(delta) : undefined,
   });
 }
 

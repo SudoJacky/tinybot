@@ -41,6 +41,12 @@ export type KnowledgeGraphSkippedDoc = {
 
 export type KnowledgeGraphExtractionProgressPhase = "estimated" | "running" | "completed" | "skipped";
 
+export type KnowledgeGraphExtractionStageEvent = {
+  stage: string;
+  status: "running" | "completed" | "failed";
+  details?: Record<string, unknown>;
+};
+
 const KNOWLEDGE_GRAPH_EXTRACTION_STAGES = [
   "resolved_document",
   "loaded_content",
@@ -163,31 +169,53 @@ export async function runKnowledgeGraphExtractionPlan(options: {
   traceId: string;
   onContentDelta?: (delta: string) => void;
   onReasoningDelta?: (delta: string) => void;
+  onStage?: (event: KnowledgeGraphExtractionStageEvent) => void;
 }): Promise<Record<string, unknown>> {
-  const extractionText = await options.openAiCompatProvider.completeChat({
-    content: buildKnowledgeGraphExtractionPrompt(options.plan.docName, options.plan.content, options.maxTokens),
-    sessionKey: "knowledge:graph-extraction",
-    chatId: "knowledge-graph-extraction",
-    model: options.model,
-    timeoutSeconds: options.timeoutSeconds,
-    onContentDelta: options.onContentDelta,
-    onReasoningDelta: options.onReasoningDelta,
-  }, options.traceId);
-  const extraction = parseKnowledgeGraphExtractionJson(extractionText);
-  const savePayload = {
-    doc_id: options.plan.docId,
-    doc_name: options.plan.docName,
-    model: options.model,
-    token_estimate: options.plan.tokenEstimate,
-    extraction_scope: options.plan.extractionScope,
-    entities: extraction.entities,
-    relations: extraction.relations,
-    diagnostics: {
-      raw_chars: extractionText.length,
-      content_chars: options.plan.content.length,
-    },
-  };
-  return asObject(await options.provider.saveEntityGraphExtraction?.(savePayload, options.traceId)) ?? {};
+  let activeStage = "llm_extraction";
+  try {
+    options.onStage?.({ stage: activeStage, status: "running", details: { model: options.model } });
+    const extractionText = await options.openAiCompatProvider.completeChat({
+      content: buildKnowledgeGraphExtractionPrompt(options.plan.docName, options.plan.content, options.maxTokens),
+      sessionKey: "knowledge:graph-extraction",
+      chatId: "knowledge-graph-extraction",
+      model: options.model,
+      timeoutSeconds: options.timeoutSeconds,
+      onContentDelta: options.onContentDelta,
+      onReasoningDelta: options.onReasoningDelta,
+    }, options.traceId);
+    options.onStage?.({ stage: activeStage, status: "completed", details: { raw_chars: extractionText.length } });
+
+    activeStage = "parsed_graph_json";
+    options.onStage?.({ stage: activeStage, status: "running" });
+    const extraction = parseKnowledgeGraphExtractionJson(extractionText);
+    options.onStage?.({
+      stage: activeStage,
+      status: "completed",
+      details: { entity_count: extraction.entities.length, relation_count: extraction.relations.length },
+    });
+
+    activeStage = "persisted_entity_graph";
+    options.onStage?.({ stage: activeStage, status: "running" });
+    const savePayload = {
+      doc_id: options.plan.docId,
+      doc_name: options.plan.docName,
+      model: options.model,
+      token_estimate: options.plan.tokenEstimate,
+      extraction_scope: options.plan.extractionScope,
+      entities: extraction.entities,
+      relations: extraction.relations,
+      diagnostics: {
+        raw_chars: extractionText.length,
+        content_chars: options.plan.content.length,
+      },
+    };
+    const saved = asObject(await options.provider.saveEntityGraphExtraction?.(savePayload, options.traceId)) ?? {};
+    options.onStage?.({ stage: activeStage, status: "completed", details: { result_id: stringValue(saved.id) } });
+    return saved;
+  } catch (error) {
+    options.onStage?.({ stage: activeStage, status: "failed", details: { error: errorMessage(error) } });
+    throw error;
+  }
 }
 
 export function buildKnowledgeGraphBatchEstimateBody(
@@ -589,4 +617,8 @@ function stringValue(value: unknown): string | undefined {
 
 function numberValue(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
