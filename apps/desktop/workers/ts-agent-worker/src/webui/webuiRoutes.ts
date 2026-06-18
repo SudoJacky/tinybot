@@ -1724,7 +1724,9 @@ function createKnowledgeGraphExtractionJob(
   knowledgeGraphExtractionJobCounter += 1;
   const primaryPlan = runnablePlans[0] ?? plans[0];
   const timestamp = nowIsoString();
-  const jobId = `kjob_extract_graph_${Date.now().toString(36)}_${knowledgeGraphExtractionJobCounter.toString(36)}`;
+  const jobId = runnablePlans.length === 1 && primaryPlan?.docId
+    ? `kjob_extract_graph_${primaryPlan.docId}`
+    : `kjob_extract_graph_${Date.now().toString(36)}_${knowledgeGraphExtractionJobCounter.toString(36)}`;
   const job: KnowledgeGraphExtractionJob = {
     id: jobId,
     doc_id: primaryPlan?.docId ?? "",

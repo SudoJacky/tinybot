@@ -179,8 +179,9 @@ describe("WebUI knowledge graph extraction routes", () => {
       status: 202,
       body: {
         message: "Knowledge graph extraction started",
-        job_id: expect.stringMatching(/^kjob_extract_graph_/),
+        job_id: "kjob_extract_graph_doc-async",
         job: {
+          id: "kjob_extract_graph_doc-async",
           status: expect.stringMatching(/queued|running/),
           stage: expect.stringMatching(/queued|planning|llm_extraction/),
           doc_id: "doc-async",
@@ -318,6 +319,7 @@ describe("WebUI knowledge graph extraction routes", () => {
       "trace-stream-extract",
     );
     const jobId = String((response.body as Record<string, unknown>).job_id);
+    expect(jobId).toBe("kjob_extract_graph_doc-stream");
 
     await waitForExpectation(async () => {
       const completedJob = await handleWebuiRouteRequest(
