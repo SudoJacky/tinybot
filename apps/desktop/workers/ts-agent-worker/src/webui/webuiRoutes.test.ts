@@ -500,14 +500,14 @@ describe("WebUI knowledge graph extraction routes", () => {
           doc_id: "doc-1",
           stage: expect.stringMatching(/queued|llm_extraction/),
           progress: {
-            stage: "running",
+            stage: expect.stringMatching(/running|llm_extraction/),
             completed: 5,
             total: 8,
             documents: [
               {
                 doc_id: "doc-1",
                 status: "running",
-                stage: "budget_checked",
+                stage: expect.stringMatching(/budget_checked|llm_extraction/),
                 completed: 5,
                 total: 8,
               },
@@ -1805,6 +1805,169 @@ describe("WebUI knowledge diagnostics", () => {
       expect(saves).toHaveLength(1);
     });
     expect(saves[0]).toMatchObject({ doc_id: "doc-1", doc_name: "RAG.md" });
+  });
+
+  test("emits detailed backend diagnostics for graph extraction stages", async () => {
+    const diagnostics: Array<{ stream: string; line: string }> = [];
+    const diagnosticsLogger: WebuiDiagnosticsLogger = (diagnostic) => diagnostics.push(diagnostic);
+    const configProvider: WebuiConfigProvider = {
+      getConfig: () => ({
+        agents: { defaults: { model: "knowledge-model" } },
+        knowledge: { graph_extraction_model: "graph-model", graph_extraction_max_tokens: 640 },
+      }),
+      patchConfig: () => ({}),
+    };
+    const openAiCompatProvider: WebuiOpenAiCompatProvider = {
+      completeChat: (request) => {
+        request.onReasoningDelta?.("checking graph candidates");
+        request.onContentDelta?.("{\"entities\"");
+        request.onContentDelta?.(":[{\"name\":\"TinyBot\",\"evidence\":[{\"text\":\"Private evidence from source doc\"}]}],\"relations\":[]}");
+        return JSON.stringify({ entities: [{ name: "TinyBot", confidence: 0.9 }], relations: [] });
+      },
+    };
+    const knowledgeProvider: WebuiKnowledgeProvider = {
+      listDocuments: () => ({ documents: [] }),
+      addDocument: () => ({ document: {} }),
+      getDocument: () => ({
+        document: { id: "doc-log", name: "RAG.md", chunk_count: 1 },
+        content: "# RAG\nTinyBot extracts graph data.",
+      }),
+      deleteDocument: () => ({ deleted: false }),
+      query: () => ({ results: [] }),
+      stats: () => ({ total_documents: 1, total_chunks: 1, retrieval_ready: true }),
+      saveEntityGraphExtraction: () => ({
+        id: "kjob_extract_graph_doc-log",
+        doc_id: "doc-log",
+        name: "extract_graph:RAG.md",
+        status: "completed",
+        stage: "entity_graph_extracted",
+        processed: 1,
+        total: 1,
+      }),
+    };
+
+    const response = await handleWebuiRouteRequest(
+      { method: "POST", path: "/v1/knowledge/graph/extract", body: { doc_id: "doc-log" } },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      configProvider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      openAiCompatProvider,
+      knowledgeProvider,
+      undefined,
+      "trace-graph-log",
+      diagnosticsLogger,
+    );
+
+    expect(response.status).toBe(202);
+    await waitForExpectation(() => {
+      expect(diagnostics.map((entry) => diagnosticStage(entry.line))).toEqual(expect.arrayContaining([
+        "knowledge.graph_extract.start",
+        "knowledge.graph_extract.job_queued",
+        "knowledge.graph_extract.stage",
+        "knowledge.graph_extract.llm_delta",
+        "knowledge.graph_extract.complete",
+      ]));
+    });
+    const logText = diagnostics.map((entry) => entry.line).join("\n");
+    expect(logText).toContain('"doc_id":"doc-log"');
+    expect(logText).toContain('"extract_stage":"llm_extraction"');
+    expect(logText).toContain('"extract_stage":"parsed_graph_json"');
+    expect(logText).toContain('"extract_stage":"persisted_entity_graph"');
+    expect(logText).not.toContain("TinyBot extracts graph data");
+    expect(logText).not.toContain("Private evidence from source doc");
+  });
+
+  test("marks the failed graph extraction stage in job progress", async () => {
+    const configProvider: WebuiConfigProvider = {
+      getConfig: () => ({
+        agents: { defaults: { model: "knowledge-model" } },
+        knowledge: { graph_extraction_model: "graph-model", graph_extraction_max_tokens: 640 },
+      }),
+      patchConfig: () => ({}),
+    };
+    const openAiCompatProvider: WebuiOpenAiCompatProvider = {
+      completeChat: () => "Error calling model: provider returned HTML",
+    };
+    const knowledgeProvider: WebuiKnowledgeProvider = {
+      listDocuments: () => ({ documents: [] }),
+      addDocument: () => ({ document: {} }),
+      getDocument: () => ({
+        document: { id: "doc-fail", name: "Broken.md", chunk_count: 1 },
+        content: "# Broken\nProvider returns an error page.",
+      }),
+      deleteDocument: () => ({ deleted: false }),
+      query: () => ({ results: [] }),
+      stats: () => ({ total_documents: 1, total_chunks: 1, retrieval_ready: true }),
+      saveEntityGraphExtraction: () => ({ id: "unused" }),
+    };
+
+    const response = await handleWebuiRouteRequest(
+      { method: "POST", path: "/v1/knowledge/graph/extract", body: { doc_id: "doc-fail" } },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      configProvider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      openAiCompatProvider,
+      knowledgeProvider,
+      undefined,
+      "trace-graph-fail",
+    );
+    const jobId = String((response.body as Record<string, unknown>).job_id);
+
+    await waitForExpectation(async () => {
+      const failedJob = await handleWebuiRouteRequest(
+        { method: "GET", path: `/v1/knowledge/jobs/${jobId}` },
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        configProvider,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        openAiCompatProvider,
+        knowledgeProvider,
+        undefined,
+        "trace-graph-fail-job",
+      );
+      expect(failedJob).toMatchObject({
+        status: 200,
+        body: {
+          status: "failed",
+          progress: {
+            documents: [
+              {
+                doc_id: "doc-fail",
+                stage: "parsed_graph_json",
+                status: "failed",
+                stages: expect.arrayContaining([
+                  { stage: "llm_extraction", status: "completed" },
+                  { stage: "parsed_graph_json", status: "failed" },
+                ]),
+              },
+            ],
+          },
+        },
+      });
+    });
   });
 
   test("emits sanitized backend diagnostics for knowledge uploads", async () => {

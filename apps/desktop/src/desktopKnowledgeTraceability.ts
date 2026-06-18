@@ -845,14 +845,28 @@ function formatKnowledgeProgressDiagnostics(progress: UnknownRecord): string {
     const extractionScope = asRecord(document.extraction_scope);
     const chunkCount = optionalNumberValue(extractionScope.chunk_count ?? extractionScope.chunkCount);
     const originalChunkCount = optionalNumberValue(extractionScope.original_chunk_count ?? extractionScope.originalChunkCount);
-    return [
+    const stageDetail = formatKnowledgeDocumentStageDiagnostics(document);
+    const summary = [
       `${name}: ${stage}`,
       completed !== undefined && total !== undefined ? `${completed}/${total} stages` : "",
       tokenTotal !== undefined && tokenMax !== undefined ? `${tokenTotal}/${tokenMax} tokens` : "",
       chunkCount !== undefined && originalChunkCount !== undefined ? `${chunkCount}/${originalChunkCount} chunks` : "",
       firstNonEmpty(document.skipped_reason) ? `skipped: ${firstNonEmpty(document.skipped_reason)}` : "",
     ].filter(Boolean).join(", ");
+    return stageDetail ? `${summary}\n${stageDetail}` : summary;
   }).join("\n");
+}
+
+function formatKnowledgeDocumentStageDiagnostics(document: UnknownRecord): string {
+  const stages = asArray(document.stages).map(asRecord);
+  if (!stages.length) {
+    return "";
+  }
+  return `Stages: ${stages.map((stage) => {
+    const name = firstNonEmpty(stage.stage, "stage");
+    const status = firstNonEmpty(stage.status, "unknown");
+    return `${name}=${status}`;
+  }).join(", ")}`;
 }
 
 function optionalNumberValue(value: unknown): number | undefined {
