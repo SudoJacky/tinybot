@@ -35,6 +35,7 @@ function queryRow(index: number): DesktopKnowledgeQueryResultRow {
 describe("knowledge query Vue island", () => {
   test("renders query summary and the existing first-four result copy", () => {
     const host = document.createElement("section");
+    const actions: Array<{ query: string; mode: string; topK: number }> = [];
 
     const mounted = mountKnowledgeQueryIsland(host, {
       draft,
@@ -46,16 +47,30 @@ describe("knowledge query Vue island", () => {
         },
         rows: [1, 2, 3, 4, 5].map(queryRow),
       },
+      onRunQuery: (nextDraft) => actions.push(nextDraft),
     });
 
     expect(host.getAttribute("data-desktop-vue-island")).toBe("knowledge-query");
     expect(host.className).toContain("desktop-knowledge-query");
-    expect(host.querySelector("h2")?.textContent).toBe("Query: desktop");
+    expect(host.querySelector("h2")?.textContent).toBe("Knowledge Query");
+    expect(host.querySelector<HTMLInputElement>("[data-desktop-knowledge-query-input]")?.value).toBe("desktop");
+    expect(host.querySelector<HTMLSelectElement>("[data-desktop-knowledge-query-mode]")?.value).toBe("hybrid");
+    expect(host.querySelector<HTMLInputElement>("[data-desktop-knowledge-query-top-k]")?.value).toBe("5");
     expect(host.textContent).toContain("Mode: hybrid / top 5");
     expect(host.textContent).toContain("Results: 5");
     expect(host.textContent).toContain("Doc 1: Knowledge result 1");
     expect(host.textContent).toContain("Doc 4: Knowledge result 4");
     expect(host.textContent).not.toContain("Doc 5: Knowledge result 5");
+
+    host.querySelector<HTMLInputElement>("[data-desktop-knowledge-query-input]")!.value = "graph evidence";
+    host.querySelector<HTMLInputElement>("[data-desktop-knowledge-query-input]")?.dispatchEvent(new Event("input"));
+    host.querySelector<HTMLSelectElement>("[data-desktop-knowledge-query-mode]")!.value = "local";
+    host.querySelector<HTMLSelectElement>("[data-desktop-knowledge-query-mode]")?.dispatchEvent(new Event("change"));
+    host.querySelector<HTMLInputElement>("[data-desktop-knowledge-query-top-k]")!.value = "7";
+    host.querySelector<HTMLInputElement>("[data-desktop-knowledge-query-top-k]")?.dispatchEvent(new Event("input"));
+    host.querySelector<HTMLButtonElement>('[data-desktop-knowledge-action="runQuery"]')?.click();
+
+    expect(actions).toEqual([{ query: "graph evidence", mode: "local", topK: 7 }]);
 
     mounted.unmount();
     expect(host.textContent).toBe("");
