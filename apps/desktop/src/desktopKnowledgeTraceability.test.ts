@@ -172,6 +172,34 @@ describe("desktop knowledge and traceability helpers", () => {
     });
   });
 
+  test("does not advertise deterministic GraphRAG reports when report projection is not configured", () => {
+    const pane = buildDesktopKnowledgePaneModel({
+      statsPayload: {
+        total_documents: 1,
+        total_chunks: 135,
+        retrieval_ready: true,
+        stage_readiness: {
+          sparse_indexing: { status: "ready", ready: true, processed: 135, total: 135 },
+          claim_extraction: { status: "not_configured", ready: false, processed: 0, total: 0, skipped: 135 },
+          relation_extraction: { status: "not_configured", ready: false, processed: 0, total: 0, skipped: 135 },
+          graph_projection: { status: "not_configured", ready: false, processed: 0, total: 0, skipped: 135 },
+          community_report_projection: { status: "not_configured", ready: false, processed: 0, total: 0, skipped: 135 },
+        },
+      },
+      config: {
+        knowledge: {
+          enabled: true,
+          retrieval_mode: "hybrid",
+          max_chunks: 5,
+          graphrag_report_llm_enabled: false,
+        },
+      },
+    });
+
+    expect(pane.configHints).toContain("GraphRAG reports not configured");
+    expect(pane.configHints).not.toContain("GraphRAG reports use deterministic summaries");
+  });
+
   test("normalizes root WebUI list envelopes for native knowledge documents", () => {
     expect(
       buildDesktopKnowledgeDocumentRows({

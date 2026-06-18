@@ -244,17 +244,24 @@ function normalizeKnowledgeQueryDraft(input: Partial<DesktopKnowledgeQueryReques
   };
 }
 
-function buildKnowledgeConfigHints(configInput: unknown): string[] {
+function buildKnowledgeConfigHints(configInput: unknown, statsInput: unknown = {}): string[] {
   const knowledge = asRecord(asRecord(configInput).knowledge);
   const enabled = knowledge.enabled !== false;
   const retrievalMode = firstNonEmpty(knowledge.retrieval_mode, knowledge.retrievalMode, "hybrid");
   const maxChunks = numberValue(knowledge.max_chunks ?? knowledge.maxChunks) || 5;
+  const graphRagEnabled = knowledge.graphrag_enabled !== false && knowledge.graphRagEnabled !== false;
   const reportLlm = knowledge.graphrag_report_llm_enabled === true || knowledge.graphRagReportLlmEnabled === true;
+  const reportStages = summarizeStages(asRecord(statsInput), ["community_report_projection"]);
+  const reportHint = !graphRagEnabled || reportStages.status === "not_configured"
+    ? "GraphRAG reports not configured"
+    : reportLlm
+      ? "GraphRAG reports use LLM summaries"
+      : "GraphRAG reports use deterministic summaries";
   return [
     enabled ? "Knowledge enabled" : "Knowledge disabled",
     `Retrieval ${retrievalMode}`,
     `Max chunks ${maxChunks}`,
-    reportLlm ? "GraphRAG reports use LLM summaries" : "GraphRAG reports use deterministic summaries",
+    reportHint,
   ];
 }
 
@@ -551,7 +558,7 @@ export function buildDesktopKnowledgePaneModel(input: DesktopKnowledgePaneInput 
     status: `${documentRows.length} ${documentRows.length === 1 ? "doc" : "docs"} / readiness ${readiness.score}% / graph ${graphView.nodes.length} nodes / ${graphView.edges.length} ${edgeLabel}`,
     lastIndexedLabel: knowledgeLastIndexedLabel(input.statsPayload, documentRows),
     readiness,
-    configHints: buildKnowledgeConfigHints(input.config),
+    configHints: buildKnowledgeConfigHints(input.config, input.statsPayload),
     documentRows,
     selectedDocument: selectedDocumentRow
       ? {
