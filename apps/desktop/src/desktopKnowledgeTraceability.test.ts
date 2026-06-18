@@ -246,6 +246,9 @@ describe("desktop knowledge and traceability helpers", () => {
           status: "running",
           stage: "llm_extraction",
           message: "Extracting entity graph",
+          llm_output_chars: 128,
+          llm_reasoning_chars: 24,
+          llm_preview: "{\"entities\":[{\"name\":\"TinyBot\"}],\"relations\":[]}",
           progress: {
             stage: "llm_extraction",
             completed: 6,
@@ -315,7 +318,7 @@ describe("desktop knowledge and traceability helpers", () => {
         detail: "Extracting entity graph / llm_extraction / 1 document: 6/8 stages",
         progress: { completed: 6, total: 8 },
         canonical: { module: "knowledge", entityId: "doc-1", href: "/knowledge" },
-        diagnostics: "Architecture.md: llm_extraction, 6/8 stages, 512/1200 tokens, 2/4 chunks",
+        diagnostics: "Architecture.md: llm_extraction, 6/8 stages, 512/1200 tokens, 2/4 chunks\nLLM output: 128 chars; reasoning: 24 chars; preview: {\"entities\":[{\"name\":\"TinyBot\"}],\"relations\":[]}",
         retryable: false,
         updatedAt: "",
       },

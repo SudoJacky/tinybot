@@ -18,6 +18,8 @@ export type KnowledgeGraphOpenAiCompatProvider = {
       chatId: string;
       model: string;
       timeoutSeconds: number;
+      onContentDelta?: (delta: string) => void;
+      onReasoningDelta?: (delta: string) => void;
     },
     traceId: string,
   ): Promise<string> | string;
@@ -159,6 +161,8 @@ export async function runKnowledgeGraphExtractionPlan(options: {
   maxTokens: number;
   timeoutSeconds: number;
   traceId: string;
+  onContentDelta?: (delta: string) => void;
+  onReasoningDelta?: (delta: string) => void;
 }): Promise<Record<string, unknown>> {
   const extractionText = await options.openAiCompatProvider.completeChat({
     content: buildKnowledgeGraphExtractionPrompt(options.plan.docName, options.plan.content, options.maxTokens),
@@ -166,6 +170,8 @@ export async function runKnowledgeGraphExtractionPlan(options: {
     chatId: "knowledge-graph-extraction",
     model: options.model,
     timeoutSeconds: options.timeoutSeconds,
+    onContentDelta: options.onContentDelta,
+    onReasoningDelta: options.onReasoningDelta,
   }, options.traceId);
   const extraction = parseKnowledgeGraphExtractionJson(extractionText);
   const savePayload = {

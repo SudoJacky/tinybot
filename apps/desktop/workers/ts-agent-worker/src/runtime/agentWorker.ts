@@ -3354,7 +3354,21 @@ export class AgentWorker {
             messages: [{ role: "user", content: chatRequest.content }],
             model: chatRequest.model,
             maxIterations: 20,
-            stream: false,
+            stream: Boolean(chatRequest.onContentDelta || chatRequest.onReasoningDelta),
+            emitEvent: (event) => {
+              if (event.type === "content_delta") {
+                const delta = typeof event.payload.delta === "string" ? event.payload.delta : "";
+                if (delta) {
+                  chatRequest.onContentDelta?.(delta);
+                }
+              }
+              if (event.type === "reasoning_delta") {
+                const delta = typeof event.payload.delta === "string" ? event.payload.delta : "";
+                if (delta) {
+                  chatRequest.onReasoningDelta?.(delta);
+                }
+              }
+            },
             metadata: { channel: "api", chatId: chatRequest.chatId },
           };
           const response = await this.runOpenAiChatSpec({

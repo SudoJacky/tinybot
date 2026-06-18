@@ -70,7 +70,6 @@ fn desktop_status() -> DesktopStatus {
 type SharedGateway = Arc<Mutex<GatewayRuntime>>;
 const WORKER_CRON_TIMER_MAX_POLL: Duration = Duration::from_secs(30);
 const WORKER_WEBUI_ROUTE_TIMEOUT: Duration = Duration::from_secs(10);
-const WORKER_WEBUI_LONG_ROUTE_TIMEOUT: Duration = Duration::from_secs(120);
 
 struct GatewayRuntime {
     worker: WorkerManager,
@@ -2137,10 +2136,7 @@ fn worker_webui_route_with_options(
 }
 
 fn worker_webui_route_timeout(input: &WorkerWebuiRouteInput) -> Duration {
-    let path = input.path.split('?').next().unwrap_or(input.path.as_str());
-    if input.method.eq_ignore_ascii_case("POST") && path == "/v1/knowledge/graph/extract" {
-        return WORKER_WEBUI_LONG_ROUTE_TIMEOUT;
-    }
+    let _ = input;
     WORKER_WEBUI_ROUTE_TIMEOUT
 }
 
@@ -3918,7 +3914,7 @@ mod tests {
     }
 
     #[test]
-    fn worker_webui_route_uses_extended_timeout_for_graph_extraction() {
+    fn worker_webui_route_uses_default_timeout_for_graph_extraction_start() {
         assert_eq!(
             worker_webui_route_timeout(&WorkerWebuiRouteInput {
                 method: "POST".to_string(),
@@ -3926,7 +3922,7 @@ mod tests {
                 body: None,
                 headers: None,
             }),
-            Duration::from_secs(120)
+            Duration::from_secs(10)
         );
         assert_eq!(
             worker_webui_route_timeout(&WorkerWebuiRouteInput {

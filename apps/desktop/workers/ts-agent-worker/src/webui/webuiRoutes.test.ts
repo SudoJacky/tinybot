@@ -11,6 +11,23 @@ import {
   type WebuiSessionProvider,
 } from "./webuiRoutes.ts";
 
+async function waitForExpectation(assertion: () => Promise<void> | void, timeoutMs = 250): Promise<void> {
+  const startedAt = Date.now();
+  let lastError: unknown;
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      await assertion();
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+  if (lastError) {
+    throw lastError;
+  }
+}
+
 describe("WebUI OpenAI-compatible routes", () => {
   test("retries empty chat completions once before returning the Python fallback", async () => {
     const completions: Array<{ content: string; sessionKey: string; traceId: string; timeoutSeconds: number }> = [];
@@ -78,6 +95,266 @@ describe("WebUI OpenAI-compatible routes", () => {
 });
 
 describe("WebUI knowledge graph extraction routes", () => {
+  test("starts manual LLM graph extraction as a background job without waiting for chat completion", async () => {
+    let resolveCompletion: ((value: string) => void) | undefined;
+    const saves: Array<Record<string, unknown>> = [];
+    const configProvider: WebuiConfigProvider = {
+      getConfig: () => ({
+        agents: { defaults: { model: "knowledge-model" } },
+        knowledge: {
+          enabled: true,
+          graph_extraction_enabled: true,
+          graph_extraction_model: "graph-model",
+          graph_extraction_max_tokens: 640,
+        },
+      }),
+      patchConfig: () => ({}),
+    };
+    const openAiCompatProvider: WebuiOpenAiCompatProvider = {
+      completeChat: () => new Promise((resolve) => {
+        resolveCompletion = resolve;
+      }),
+    };
+    const knowledgeProvider: WebuiKnowledgeProvider = {
+      listDocuments: () => ({ documents: [] }),
+      addDocument: () => ({ document: {} }),
+      getDocument: () => ({
+        document: { id: "doc-async", name: "Async.md", chunk_count: 1 },
+        content: "# Async\nTinyBot stores knowledge asynchronously.\n",
+      }),
+      deleteDocument: () => ({ deleted: false }),
+      query: () => ({ results: [] }),
+      stats: () => ({ total_documents: 1, total_chunks: 1, retrieval_ready: true }),
+      saveEntityGraphExtraction: (payload) => {
+        saves.push(payload);
+        return {
+          id: "kjob_extract_graph_doc-async",
+          doc_id: "doc-async",
+          name: "extract_graph:Async.md",
+          status: "completed",
+          stage: "entity_graph_extracted",
+          processed: 1,
+          total: 1,
+          result: { entities: 1, relations: 0, evidence: 1 },
+        };
+      },
+    };
+
+    const responsePromise = handleWebuiRouteRequest(
+      {
+        method: "POST",
+        path: "/v1/knowledge/graph/extract",
+        body: { doc_id: "doc-async" },
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      configProvider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      openAiCompatProvider,
+      knowledgeProvider,
+      undefined,
+      "trace-async-extract",
+    );
+    const early = await Promise.race([
+      responsePromise.then((response) => ({ kind: "response" as const, response })),
+      new Promise<{ kind: "pending" }>((resolve) => setTimeout(() => resolve({ kind: "pending" }), 25)),
+    ]);
+    if (early.kind === "pending") {
+      resolveCompletion?.(JSON.stringify({ entities: [], relations: [] }));
+      await responsePromise;
+    }
+
+    expect(early.kind).toBe("response");
+    if (early.kind !== "response") {
+      return;
+    }
+    expect(early.response).toMatchObject({
+      status: 202,
+      body: {
+        message: "Knowledge graph extraction started",
+        job_id: "kjob_extract_graph_doc-async",
+        job: {
+          id: "kjob_extract_graph_doc-async",
+          status: expect.stringMatching(/queued|running/),
+          stage: expect.stringMatching(/queued|planning|llm_extraction/),
+          doc_id: "doc-async",
+        },
+      },
+    });
+    expect(saves).toHaveLength(0);
+
+    const jobId = String((early.response.body as Record<string, unknown>).job_id);
+    const runningJob = await handleWebuiRouteRequest(
+      { method: "GET", path: `/v1/knowledge/jobs/${jobId}` },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      configProvider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      openAiCompatProvider,
+      knowledgeProvider,
+      undefined,
+      "trace-async-extract",
+    );
+    expect(runningJob.status).toBe(200);
+
+    resolveCompletion?.(JSON.stringify({
+      entities: [{ name: "TinyBot", type: "project", confidence: 0.91, evidence: [{ text: "TinyBot stores knowledge asynchronously." }] }],
+      relations: [],
+    }));
+    await waitForExpectation(async () => {
+      const completedJob = await handleWebuiRouteRequest(
+        { method: "GET", path: `/v1/knowledge/jobs/${jobId}` },
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        configProvider,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        openAiCompatProvider,
+        knowledgeProvider,
+        undefined,
+        "trace-async-extract",
+      );
+      expect(completedJob).toMatchObject({
+        status: 200,
+        body: {
+          status: "completed",
+          stage: "completed",
+          result: { entities: 1, relations: 0, evidence: 1 },
+        },
+      });
+    });
+    expect(saves).toHaveLength(1);
+  });
+
+  test("records streamed LLM extraction output details on the background job", async () => {
+    const configProvider: WebuiConfigProvider = {
+      getConfig: () => ({
+        agents: { defaults: { model: "knowledge-model" } },
+        knowledge: {
+          enabled: true,
+          graph_extraction_enabled: true,
+          graph_extraction_model: "graph-model",
+          graph_extraction_max_tokens: 640,
+        },
+      }),
+      patchConfig: () => ({}),
+    };
+    const openAiCompatProvider: WebuiOpenAiCompatProvider = {
+      completeChat: (request) => {
+        const callbacks = request as typeof request & {
+          onContentDelta?: (delta: string) => void;
+          onReasoningDelta?: (delta: string) => void;
+        };
+        callbacks.onReasoningDelta?.("checking graph candidates");
+        callbacks.onContentDelta?.("{\"entities\"");
+        callbacks.onContentDelta?.(":[{\"name\":\"TinyBot\"}],\"relations\":[]}");
+        return JSON.stringify({
+          entities: [{ name: "TinyBot", type: "project", confidence: 0.91 }],
+          relations: [],
+        });
+      },
+    };
+    const knowledgeProvider: WebuiKnowledgeProvider = {
+      listDocuments: () => ({ documents: [] }),
+      addDocument: () => ({ document: {} }),
+      getDocument: () => ({
+        document: { id: "doc-stream", name: "Stream.md", chunk_count: 1 },
+        content: "# Stream\nTinyBot streams graph extraction diagnostics.\n",
+      }),
+      deleteDocument: () => ({ deleted: false }),
+      query: () => ({ results: [] }),
+      stats: () => ({ total_documents: 1, total_chunks: 1, retrieval_ready: true }),
+      saveEntityGraphExtraction: () => ({
+        id: "kjob_extract_graph_doc-stream",
+        doc_id: "doc-stream",
+        name: "extract_graph:Stream.md",
+        status: "completed",
+        stage: "entity_graph_extracted",
+        processed: 1,
+        total: 1,
+        result: { entities: 1, relations: 0, evidence: 0 },
+      }),
+    };
+
+    const response = await handleWebuiRouteRequest(
+      {
+        method: "POST",
+        path: "/v1/knowledge/graph/extract",
+        body: { doc_id: "doc-stream" },
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      configProvider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      openAiCompatProvider,
+      knowledgeProvider,
+      undefined,
+      "trace-stream-extract",
+    );
+    const jobId = String((response.body as Record<string, unknown>).job_id);
+    expect(jobId).toBe("kjob_extract_graph_doc-stream");
+
+    await waitForExpectation(async () => {
+      const completedJob = await handleWebuiRouteRequest(
+        { method: "GET", path: `/v1/knowledge/jobs/${jobId}` },
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        configProvider,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        openAiCompatProvider,
+        knowledgeProvider,
+        undefined,
+        "trace-stream-extract",
+      );
+      expect(completedJob).toMatchObject({
+        status: 200,
+        body: {
+          status: "completed",
+          llm_output_chars: expect.any(Number),
+          llm_preview: expect.stringContaining("\"entities\""),
+          llm_reasoning_chars: expect.any(Number),
+          stage_details: expect.arrayContaining([
+            expect.objectContaining({ stage: "llm_delta", doc_id: "doc-stream" }),
+          ]),
+        },
+      });
+    });
+  });
+
   test("estimates and persists manual LLM graph extraction", async () => {
     const completions: Array<{ content: string; sessionKey: string; model: string; timeoutSeconds: number }> = [];
     const saves: Array<Record<string, unknown>> = [];
@@ -216,30 +493,33 @@ describe("WebUI knowledge graph extraction routes", () => {
     expect(extraction).toMatchObject({
       status: 202,
       body: {
-        message: "Knowledge graph extraction completed",
-        job_id: "kjob_extract_graph_doc-1",
+        message: "Knowledge graph extraction started",
+        job_id: expect.stringMatching(/^kjob_extract_graph_/),
         job: {
-          id: "kjob_extract_graph_doc-1",
-          stage: "entity_graph_extracted",
+          id: expect.stringMatching(/^kjob_extract_graph_/),
+          doc_id: "doc-1",
+          stage: expect.stringMatching(/queued|llm_extraction/),
           progress: {
-            stage: "completed",
-            completed: 8,
+            stage: "running",
+            completed: 5,
             total: 8,
             documents: [
               {
                 doc_id: "doc-1",
-                status: "completed",
-                stage: "persisted_entity_graph",
-                completed: 8,
+                status: "running",
+                stage: "budget_checked",
+                completed: 5,
                 total: 8,
               },
             ],
           },
-          result: { entities: 1, relations: 1, evidence: 2 },
         },
       },
     });
-    expect(completions).toHaveLength(1);
+    await waitForExpectation(() => {
+      expect(completions).toHaveLength(1);
+      expect(saves).toHaveLength(1);
+    });
     expect(completions[0]).toMatchObject({
       sessionKey: "knowledge:graph-extraction",
       model: "graph-model",
@@ -462,28 +742,28 @@ describe("WebUI knowledge graph extraction routes", () => {
     expect(extraction).toMatchObject({
       status: 202,
       body: {
-        message: "Knowledge graph extraction completed",
+        message: "Knowledge graph extraction started",
         document_count: 2,
-        jobs: [
-          { id: "kjob_extract_graph_doc-1", doc_id: "doc-1", progress: { completed: 8, total: 8 } },
-          { id: "kjob_extract_graph_doc-2", doc_id: "doc-2", progress: { completed: 8, total: 8 } },
-        ],
+        runnable_document_count: 2,
+        job_id: expect.stringMatching(/^kjob_extract_graph_/),
         progress: {
-          stage: "completed",
-          completed: 16,
-          total: 16,
+          stage: "running",
+          completed: 5,
+          total: 8,
           documents: [
-            { doc_id: "doc-1", status: "completed", completed: 8, total: 8 },
-            { doc_id: "doc-2", status: "completed", completed: 8, total: 8 },
+            { doc_id: "doc-1", status: "running", completed: 5, total: 8 },
+            { doc_id: "doc-2", status: "running", completed: 5, total: 8 },
           ],
         },
       },
     });
-    expect(completions).toHaveLength(2);
+    await waitForExpectation(() => {
+      expect(completions).toHaveLength(2);
+      expect(saves).toHaveLength(2);
+    });
     expect(completions[0].content).toContain("# One");
     expect(completions[0].content).toContain("first chunk");
     expect(completions[0].content).not.toContain("third chunk");
-    expect(saves).toHaveLength(2);
     expect(saves[0]).toMatchObject({
       doc_id: "doc-1",
       extraction_scope: { max_chunks: 2, chunk_count: 2, original_chunk_count: 4 },
@@ -727,7 +1007,9 @@ describe("WebUI knowledge graph extraction routes", () => {
         runnable_document_count: 2,
       },
     });
-    expect(completions).toBe(2);
+    await waitForExpectation(() => {
+      expect(completions).toBe(2);
+    });
   });
 
   test("honors graph extraction concurrency for batch LLM calls", async () => {
@@ -807,10 +1089,13 @@ describe("WebUI knowledge graph extraction routes", () => {
       status: 202,
       body: {
         document_count: 3,
-        job_ids: ["kjob_extract_graph_doc-1", "kjob_extract_graph_doc-2", "kjob_extract_graph_doc-3"],
+        runnable_document_count: 3,
+        job_id: expect.stringMatching(/^kjob_extract_graph_/),
       },
     });
-    expect(maxActiveCompletions).toBe(2);
+    await waitForExpectation(() => {
+      expect(maxActiveCompletions).toBe(2);
+    });
   });
 
   test("skips existing entity graph extraction unless force is requested", async () => {
@@ -964,11 +1249,13 @@ describe("WebUI knowledge graph extraction routes", () => {
     expect(forced).toMatchObject({
       status: 202,
       body: {
-        job_id: "kjob_extract_graph_doc-1",
+        job_id: expect.stringMatching(/^kjob_extract_graph_/),
       },
     });
-    expect(completions).toBe(1);
-    expect(saves).toHaveLength(1);
+    await waitForExpectation(() => {
+      expect(completions).toBe(1);
+      expect(saves).toHaveLength(1);
+    });
   });
 
   test("re-extracts existing entity graphs when the native graph is stale", async () => {
@@ -1056,11 +1343,13 @@ describe("WebUI knowledge graph extraction routes", () => {
     expect(extraction).toMatchObject({
       status: 202,
       body: {
-        job_id: "kjob_extract_graph_doc-1",
+        job_id: expect.stringMatching(/^kjob_extract_graph_/),
       },
     });
-    expect(completions).toBe(1);
-    expect(saves).toHaveLength(1);
+    await waitForExpectation(() => {
+      expect(completions).toBe(1);
+      expect(saves).toHaveLength(1);
+    });
   });
 });
 
@@ -1506,13 +1795,15 @@ describe("WebUI knowledge diagnostics", () => {
       body: {
         id: "doc-1",
         graph_extraction_job: {
-          id: "kjob_extract_graph_doc-1",
+          id: expect.stringMatching(/^kjob_extract_graph_/),
           doc_id: "doc-1",
-          stage: "entity_graph_extracted",
+          stage: expect.stringMatching(/queued|llm_extraction/),
         },
       },
     });
-    expect(saves).toHaveLength(1);
+    await waitForExpectation(() => {
+      expect(saves).toHaveLength(1);
+    });
     expect(saves[0]).toMatchObject({ doc_id: "doc-1", doc_name: "RAG.md" });
   });
 
