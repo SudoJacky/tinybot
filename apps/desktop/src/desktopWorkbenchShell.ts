@@ -7865,6 +7865,7 @@ function formatDesktopBackendLogs(runtimeStatus: GatewayRuntimeStatus | null, ga
   return [
     `Gateway: ${runtimeStatus?.gateway_http || gatewayHttp || "unknown"}`,
     "Source: bounded in-memory runtime buffers",
+    `Log file: ${runtimeStatus?.log_path || "not configured"}`,
     "",
     `Gateway runtime logs (${runtimeLogs.length})`,
     runtimeLogs.length ? runtimeLogs.join("\n") : "No recent gateway logs.",

@@ -69,11 +69,13 @@ fn desktop_status() -> DesktopStatus {
 type SharedGateway = Arc<Mutex<GatewayRuntime>>;
 const WORKER_CRON_TIMER_MAX_POLL: Duration = Duration::from_secs(30);
 const WORKER_WEBUI_ROUTE_TIMEOUT: Duration = Duration::from_secs(10);
+const NATIVE_BACKEND_LOG_MAX_BYTES: u64 = 5 * 1024 * 1024;
 
 struct GatewayRuntime {
     worker: WorkerManager,
     experimental_worker: WorkerManager,
     logs: VecDeque<String>,
+    persistent_log_path: PathBuf,
     last_error: Option<String>,
     keep_background: bool,
     cron_dispatch_running: Arc<AtomicBool>,
@@ -87,6 +89,7 @@ impl Default for GatewayRuntime {
             worker: WorkerManager::new(200),
             experimental_worker: WorkerManager::new(200),
             logs: VecDeque::with_capacity(200),
+            persistent_log_path: native_backend_log_path(),
             last_error: None,
             keep_background: false,
             cron_dispatch_running: Arc::new(AtomicBool::new(false)),
@@ -106,6 +109,7 @@ struct GatewayRuntimeStatus {
     command: &'static str,
     port: u16,
     repo_root: String,
+    log_path: String,
     logs: Vec<String>,
     last_error: Option<String>,
     exit_policy: &'static str,
@@ -1190,6 +1194,18 @@ fn gateway_exit_policy_preference_path() -> PathBuf {
         .join("gateway-exit-policy.json")
 }
 
+fn native_backend_log_path() -> PathBuf {
+    let base = std::env::var_os("LOCALAPPDATA")
+        .or_else(|| std::env::var_os("APPDATA"))
+        .or_else(|| std::env::var_os("XDG_STATE_HOME"))
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local").join("state"))
+        })
+        .unwrap_or_else(std::env::temp_dir);
+    base.join("tinybot").join("logs").join("native-backend.log")
+}
+
 fn load_gateway_exit_policy(path: &Path) -> bool {
     std::fs::read_to_string(path)
         .ok()
@@ -1277,6 +1293,7 @@ fn current_status(shared: &SharedGateway) -> GatewayRuntimeStatus {
         command: "node workers/ts-agent-worker/src/index.ts",
         port: 18790,
         repo_root: repo_root().display().to_string(),
+        log_path: runtime.persistent_log_path.display().to_string(),
         logs: gateway_runtime_logs(&runtime.logs, &worker_status.diagnostics),
         last_error: runtime
             .last_error
@@ -3064,8 +3081,13 @@ fn now_unix_ms() -> u128 {
 }
 
 fn push_log(shared: &SharedGateway, line: &str) {
-    let mut runtime = lock_runtime(shared);
-    append_log(&mut runtime, line);
+    let log_path = {
+        let mut runtime = lock_runtime(shared);
+        append_log(&mut runtime, line);
+        runtime.persistent_log_path.clone()
+    };
+    let _ =
+        append_native_backend_log_line(&log_path, NATIVE_BACKEND_LOG_MAX_BYTES, "runtime", line);
 }
 
 fn append_log(runtime: &mut GatewayRuntime, line: &str) {
@@ -3073,6 +3095,64 @@ fn append_log(runtime: &mut GatewayRuntime, line: &str) {
         runtime.logs.pop_front();
     }
     runtime.logs.push_back(line.to_string());
+}
+
+fn record_worker_manager_event_for_logs(shared: &SharedGateway, event: &WorkerManagerEvent) {
+    let WorkerManagerEvent::Diagnostics(line) = event else {
+        return;
+    };
+    let log_path = {
+        let runtime = lock_runtime(shared);
+        runtime.persistent_log_path.clone()
+    };
+    let _ = append_native_backend_log_line(
+        &log_path,
+        NATIVE_BACKEND_LOG_MAX_BYTES,
+        &line.stream,
+        &line.line,
+    );
+}
+
+fn append_native_backend_log_line(
+    path: &Path,
+    max_bytes: u64,
+    stream: &str,
+    line: &str,
+) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("failed to create native backend log directory: {error}"))?;
+    }
+    rotate_native_backend_log_if_needed(path, max_bytes)
+        .map_err(|error| format!("failed to rotate native backend log: {error}"))?;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|error| format!("failed to open native backend log: {error}"))?;
+    writeln!(file, "{} {} {}", now_unix_ms(), stream, line)
+        .map_err(|error| format!("failed to write native backend log: {error}"))
+}
+
+fn rotate_native_backend_log_if_needed(path: &Path, max_bytes: u64) -> std::io::Result<()> {
+    if max_bytes == 0
+        || std::fs::metadata(path)
+            .map(|metadata| metadata.len())
+            .unwrap_or(0)
+            < max_bytes
+    {
+        return Ok(());
+    }
+    let rotated = native_backend_rotated_log_path(path);
+    let _ = std::fs::remove_file(&rotated);
+    std::fs::rename(path, rotated)
+}
+
+fn native_backend_rotated_log_path(path: &Path) -> PathBuf {
+    let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+        return path.with_extension("1");
+    };
+    path.with_file_name(format!("{file_name}.1"))
 }
 
 fn gateway_runtime_logs(
@@ -3146,12 +3226,16 @@ pub fn run() {
         .setup(move |app| {
             install_desktop_application_menu(app)?;
             let app_handle = app.handle().clone();
+            let log_state = setup_state.clone();
             let runtime = lock_runtime(&setup_state);
             runtime.worker.set_event_sink(move |event| {
+                record_worker_manager_event_for_logs(&log_state, &event);
                 emit_worker_manager_frontend_event(&app_handle, event);
             });
             let app_handle = app.handle().clone();
+            let log_state = setup_state.clone();
             runtime.experimental_worker.set_event_sink(move |event| {
+                record_worker_manager_event_for_logs(&log_state, &event);
                 emit_worker_manager_frontend_event(&app_handle, event);
             });
             drop(runtime);
@@ -4244,6 +4328,48 @@ mod tests {
     }
 
     #[test]
+    fn worker_diagnostics_append_to_persistent_backend_log() {
+        let fixture = WorkspaceFixture::new();
+        let log_path = fixture.root.join("logs").join("native-backend.log");
+        let shared = Arc::new(Mutex::new(GatewayRuntime {
+            persistent_log_path: log_path.clone(),
+            ..GatewayRuntime::default()
+        }));
+
+        record_worker_manager_event_for_logs(
+            &shared,
+            &WorkerManagerEvent::Diagnostics(crate::worker_protocol::WorkerDiagnosticLine::new(
+                "stderr",
+                "[ts-agent-worker] worker.request.start route=POST /v1/knowledge/graph/extract",
+            )),
+        );
+
+        let contents =
+            std::fs::read_to_string(log_path).expect("persistent backend log should be written");
+        assert!(contents.contains(
+            "stderr [ts-agent-worker] worker.request.start route=POST /v1/knowledge/graph/extract"
+        ));
+    }
+
+    #[test]
+    fn persistent_backend_log_rotates_when_size_limit_is_exceeded() {
+        let fixture = WorkspaceFixture::new();
+        let log_path = fixture.root.join("logs").join("native-backend.log");
+        std::fs::create_dir_all(log_path.parent().expect("log path should have parent"))
+            .expect("log directory should create");
+        std::fs::write(&log_path, "older diagnostic line\n").expect("old log should write");
+
+        append_native_backend_log_line(&log_path, 8, "stderr", "new diagnostic line")
+            .expect("new log line should append");
+
+        let rotated = std::fs::read_to_string(log_path.with_extension("log.1"))
+            .expect("rotated log should exist");
+        let current = std::fs::read_to_string(log_path).expect("current log should exist");
+        assert!(rotated.contains("older diagnostic line"));
+        assert!(current.contains("stderr new diagnostic line"));
+    }
+
+    #[test]
     fn native_config_patch_result_persists_python_compatible_config_file() {
         let fixture = WorkspaceFixture::new();
         let config_path = fixture.root.join(".tinybot").join("config.json");
@@ -4315,6 +4441,7 @@ mod tests {
             command: "node workers/ts-agent-worker/src/index.ts",
             port: 18790,
             repo_root: "/repo".to_string(),
+            log_path: "/logs/native-backend.log".to_string(),
             logs: vec![],
             last_error: None,
             exit_policy: "stop_on_exit",
