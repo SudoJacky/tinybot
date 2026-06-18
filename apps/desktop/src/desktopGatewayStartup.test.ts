@@ -94,6 +94,28 @@ describe("desktop gateway startup", () => {
     expect(invoke.mock.calls.map((call) => call[0])).toEqual(["gateway_status", "start_gateway"]);
   });
 
+  test("rejects native startup when start_gateway returns a non-running status", async () => {
+    const offline = status("none", "offline", false);
+    const failed = status("shell", "failed", false);
+    failed.last_error = "worker exited immediately";
+    const invoke = vi.fn(async (command: string) => {
+      if (command === "gateway_status") {
+        return offline;
+      }
+      expect(command).toBe("start_gateway");
+      return failed;
+    });
+
+    await expect(
+      ensureGatewayReady(DEFAULT_GATEWAY_CONFIG, {
+        fetchFn: vi.fn(),
+        invoke,
+        hasTauriRuntime: () => true,
+      }),
+    ).rejects.toThrow("Gateway failed to start");
+    expect(invoke.mock.calls.map((call) => call[0])).toEqual(["gateway_status", "start_gateway"]);
+  });
+
   test("does not wait for Python bootstrap readiness after starting the native TS worker", async () => {
     const offline = status("none", "offline", false);
     const running = status("shell", "running", true);

@@ -48,7 +48,11 @@ export async function ensureGatewayReady(
     if (status.state === "running") {
       return status;
     }
-    return deps.invoke("start_gateway");
+    const started = await deps.invoke("start_gateway");
+    if (started.state !== "running") {
+      throw new Error(formatNativeStartupStatusError(started));
+    }
+    return started;
   }
 
   const externalBootstrap = await fetchBootstrap(config, deps);
@@ -93,6 +97,16 @@ async function fetchBootstrap(config: GatewayConfig, deps: GatewayStartupDeps): 
 
 function hasTauriRuntime(): boolean {
   return "__TAURI_INTERNALS__" in globalThis;
+}
+
+function formatNativeStartupStatusError(status: GatewayRuntimeStatus): string {
+  const details = [
+    `state=${status.state}`,
+    `owner=${status.owner}`,
+    status.last_error ? `last_error=${status.last_error}` : null,
+    status.recovery_hint ? `recovery_hint=${status.recovery_hint}` : null,
+  ].filter(Boolean);
+  return `Gateway failed to start (${details.join(", ")})`;
 }
 
 function stringifyError(error: unknown): string {

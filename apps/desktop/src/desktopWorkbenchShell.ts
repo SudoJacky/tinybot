@@ -507,6 +507,20 @@ export function updateDesktopGatewayRuntimeStatus(
   }
   const next = createGatewayRuntimeSurface(targetDocument, runtimeStatus, gatewayHttp, gatewayActions);
   runtime.replaceChildren(...Array.from(next.children));
+  refreshOpenDesktopBackendLogs(targetDocument, runtimeStatus, gatewayHttp);
+}
+
+function refreshOpenDesktopBackendLogs(
+  targetDocument: Document,
+  runtimeStatus: GatewayRuntimeStatus | null,
+  gatewayHttp: string,
+): void {
+  const existing = targetDocument.getElementById("desktop-backend-logs-dialog") as HTMLElement | null;
+  if (!existing || existing.hidden) {
+    return;
+  }
+  const logText = formatDesktopBackendLogs(runtimeStatus, gatewayHttp);
+  existing.replaceChildren(createDesktopBackendLogsPanel(targetDocument, existing, logText));
 }
 
 export function updateDesktopSettingsPane(

@@ -9,6 +9,7 @@ import { buildDesktopWorkLensProjection } from "./desktopWorkLens";
 import { createDefaultWorkbenchLayout } from "./desktopWorkbenchLayout";
 import {
   installDesktopWorkbenchShell,
+  updateDesktopGatewayRuntimeStatus,
   updateDesktopKnowledgePane,
   updateDesktopNativeChat,
   updateDesktopSettingsPane,
@@ -979,6 +980,33 @@ describe("desktop workbench shell", () => {
     expect(backendLogsDialog?.textContent).toContain("gateway ready");
     expect(backendLogsDialog?.textContent).toContain("[knowledge]");
     expect(backendLogsDialog?.textContent).toContain("RAG.md");
+
+    updateDesktopGatewayRuntimeStatus(
+      targetDocument as unknown as Document,
+      {
+        state: "running",
+        owner: "shell",
+        http_ok: true,
+        gateway_http: "http://127.0.0.1:18790",
+        gateway_ws: "ws://127.0.0.1:18790/ws",
+        command: "tinybot gateway",
+        repo_root: "D:/code/tinybot/tinybot",
+        logs: ["gateway ready", "knowledge upload accepted", "graph extraction streamed"],
+        last_error: null,
+        worker_runtime: {
+          state: "running",
+          transport_mode: "stdio",
+          diagnostics: [
+            { stream: "stderr", line: "[knowledge] {\"stage\":\"knowledge.upload_document.start\",\"name\":\"RAG.md\"}" },
+            { stream: "stderr", line: "[graph] {\"stage\":\"knowledge.graph.extract.progress\",\"percent\":60}" },
+          ],
+        },
+      },
+      "http://127.0.0.1:18790",
+    );
+
+    expect(backendLogsDialog?.textContent).toContain("graph extraction streamed");
+    expect(backendLogsDialog?.textContent).toContain("knowledge.graph.extract.progress");
 
     help?.querySelector('[data-desktop-help-action="help-tour"]')?.click();
     const inspector = targetDocument.body.querySelector('[data-workbench-region="inspector"]');
@@ -2466,7 +2494,7 @@ describe("desktop workbench shell", () => {
       "Repo root: D:/Code/py/tinybot",
       "Recent logs: stdout: ready",
       "Last error: No recent error",
-      "Exit policy: Keep shell-owned gateway running after exit",
+      "Exit policy: Keep native TS backend running after exit",
     ]);
   });
 
@@ -2954,8 +2982,6 @@ describe("desktop workbench shell", () => {
     const pane = targetDocument.body.querySelector(".desktop-knowledge-pane");
     expect(pane?.getAttribute("aria-label")).toBe("Knowledge workbench");
     expect(pane?.querySelector(".desktop-knowledge-toolbar")?.textContent).toContain("Refresh All");
-    expect(pane?.querySelector(".desktop-knowledge-toolbar")?.textContent).toContain("Settings");
-    expect(pane?.querySelector(".desktop-knowledge-toolbar")?.textContent).toContain("Upload Documents");
     expect(pane?.querySelector(".desktop-knowledge-management-grid")?.getAttribute("data-desktop-knowledge-layout")).toBe(
       "source-left-graph-right",
     );
@@ -2964,6 +2990,7 @@ describe("desktop workbench shell", () => {
       "upload",
       "queue",
       "documents",
+      "query",
       "graph",
       "pipeline",
     ]);
@@ -2981,7 +3008,7 @@ describe("desktop workbench shell", () => {
     expect(uploadRegion?.textContent).toContain("Drag & drop files here or click to browse");
     expect(uploadRegion?.textContent).toContain("Max 200MB per file");
     expect(uploadRegion?.querySelector("#desktop-knowledge-upload")?.getAttribute("data-desktop-file-upload")).toBe("knowledge-document");
-    expect(pane?.querySelector('[data-desktop-knowledge-region="queue"]')?.textContent).toContain("Ingestion Queue");
+    expect(pane?.querySelector('[data-desktop-knowledge-region="queue"]')?.textContent).toContain("Knowledge Jobs");
     const documentsRegion = pane?.querySelector('[data-desktop-knowledge-region="documents"]');
     expect(documentsRegion?.textContent).toContain("Documents (1)");
     expect(documentsRegion?.querySelector("[data-desktop-knowledge-document-search]")?.getAttribute("placeholder")).toBe("Search documents...");
@@ -2994,11 +3021,7 @@ describe("desktop workbench shell", () => {
     expect(documentsRegion?.textContent).toContain("docs/desktop.md / Indexed / 4 chunks");
     expect(pane?.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Graph: 1 nodes / 0 edges / 0 evidence");
     expect(pane?.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Extract Graph");
-    expect(pane?.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Build Graph");
-    expect(pane?.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Refresh Graph");
-    expect(pane?.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Fit View");
-    expect(pane?.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Layout");
-    expect(pane?.querySelector(".desktop-knowledge-graph-tools")?.textContent).toContain("Zoom in");
+    expect(pane?.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Rebuild Index");
     expect(pane?.querySelector(".desktop-knowledge-graph-legend")?.textContent).toContain("Entity");
     expect(pane?.querySelector(".desktop-knowledge-graph-minimap")).not.toBeNull();
     expect(pane?.querySelector('[data-desktop-knowledge-region="pipeline"]')?.textContent).toContain("Graph Build");
@@ -3008,13 +3031,11 @@ describe("desktop workbench shell", () => {
     expect(pane?.textContent).toContain("Claim: Desktop knowledge pane");
 
     pane?.querySelector('[data-desktop-knowledge-action="refreshAll"]')?.click();
-    pane?.querySelector('[data-desktop-knowledge-action="settings"]')?.click();
     pane?.querySelector('[data-desktop-knowledge-action="uploadDocument"]')?.click();
     pane?.querySelector('[data-desktop-knowledge-action="extractGraph"]')?.click();
-    pane?.querySelector('[data-desktop-knowledge-action="refreshGraph"]')?.click();
     pane?.querySelector('[data-desktop-knowledge-action="rebuildIndex"]')?.click();
     pane?.querySelector('[data-desktop-knowledge-document-action="deleteDocument"]')?.click();
-    expect(actionEvents).toEqual(["refreshAll", "settings", "uploadDocument", "extractGraph", "refreshGraph", "rebuildIndex", "deleteDocument"]);
+    expect(actionEvents).toEqual(["refreshAll", "uploadDocument", "extractGraph", "rebuildIndex", "deleteDocument"]);
   });
 
   test("refreshes knowledge pane with active upload task feedback", () => {
@@ -3049,8 +3070,8 @@ describe("desktop workbench shell", () => {
     );
 
     const pane = targetDocument.body.querySelector(".desktop-knowledge-pane");
-    expect(pane?.querySelector('[data-desktop-knowledge-region="pipeline"]')?.textContent).toContain("Knowledge jobs");
-    expect(pane?.querySelector('[data-desktop-knowledge-region="pipeline"]')?.textContent).toContain("Upload notes.md");
+    expect(pane?.querySelector('[data-desktop-knowledge-region="queue"]')?.textContent).toContain("Knowledge jobs");
+    expect(pane?.querySelector('[data-desktop-knowledge-region="queue"]')?.textContent).toContain("Upload notes.md");
   });
 
   test("renders a desktop Cowork cockpit with session list, graph, inspector, actions, and task feed", () => {
