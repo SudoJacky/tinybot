@@ -56,6 +56,50 @@ describe("desktop knowledge and traceability helpers", () => {
     ]);
   });
 
+  test("keeps graph build ready when graph stats are available but graph stages report not configured", () => {
+    const view = buildDesktopKnowledgeReadinessView({
+      total_documents: 1,
+      total_chunks: 4,
+      indexed_dense: 4,
+      indexed_sparse: 4,
+      entity_count: 3,
+      relation_count: 2,
+      community_count: 1,
+      community_report_count: 1,
+      graph_ready: true,
+      stage_readiness: {
+        graph_projection: { stage: "graph_projection", status: "not_configured", ready: false, processed: 0, total: 0 },
+        community_report_projection: { stage: "community_report_projection", status: "not_configured", ready: false, processed: 0, total: 0 },
+      },
+    });
+
+    expect(view.rows.find((row) => row.id === "graph")).toMatchObject({
+      status: "ready",
+      tone: "ready",
+      detail: "1 communities / 1 reports",
+    });
+  });
+
+  test("shows graph build as pending instead of not configured before entity graph output exists", () => {
+    const view = buildDesktopKnowledgeReadinessView({
+      total_documents: 1,
+      total_chunks: 4,
+      indexed_sparse: 4,
+      retrieval_ready: true,
+      graph_ready: false,
+      stage_readiness: {
+        graph_projection: { stage: "graph_projection", status: "not_configured", ready: false, processed: 0, total: 0 },
+        community_report_projection: { stage: "community_report_projection", status: "not_configured", ready: false, processed: 0, total: 0 },
+      },
+    });
+
+    expect(view.rows.find((row) => row.id === "graph")).toMatchObject({
+      status: "pending",
+      tone: "muted",
+      detail: "0 communities / 0 reports",
+    });
+  });
+
   test("normalizes document lists for stable desktop panes", () => {
     expect(
       buildDesktopKnowledgeDocumentRows({
@@ -141,7 +185,7 @@ describe("desktop knowledge and traceability helpers", () => {
     });
   });
 
-  test("preserves native not configured semantic stages instead of showing them as pending work", () => {
+  test("preserves native not configured semantic stages while treating graph build as pending work", () => {
     const view = buildDesktopKnowledgeReadinessView({
       total_documents: 1,
       total_chunks: 13,
@@ -167,8 +211,9 @@ describe("desktop knowledge and traceability helpers", () => {
       detail: "not_configured",
     });
     expect(view.rows.find((row) => row.id === "graph")).toMatchObject({
-      status: "not_configured",
+      status: "pending",
       tone: "muted",
+      detail: "0 communities / 0 reports",
     });
   });
 

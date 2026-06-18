@@ -430,9 +430,13 @@ export function buildDesktopKnowledgeReadinessView(statsInput: unknown = {}): De
   const staleStageCount = stats.stale_stage_count !== undefined && stats.stale_stage_count !== null
     ? numberValue(stats.stale_stage_count)
     : [retrievalStages, claimStages, relationStages, expansionStages, graphStages].filter((stage) => stage.status === "stale").length;
-  const graphStatus = graphReady || ["failed", "stale", "budget_limited", "partial", "not_configured"].includes(graphStages.status)
-    ? graphStages.status
-    : "pending";
+  const graphStatus = graphStages.status === "not_configured"
+    ? graphReady ? "ready" : "pending"
+    : graphReady && ["not_started", "pending"].includes(graphStages.status)
+      ? "ready"
+      : graphReady || ["failed", "stale", "budget_limited", "partial"].includes(graphStages.status)
+        ? graphStages.status
+        : "pending";
   const partialAvailability = booleanValue(stats.partial_availability)
     || Boolean(retrievalReady && (failedStageCount || staleStageCount || !claimsReady || !relationsReady || !graphReady));
   const checks = [
@@ -540,7 +544,7 @@ export function buildDesktopKnowledgeReadinessView(statsInput: unknown = {}): De
         total: graphStages.total,
         failed: graphStages.failed,
         stale: graphStages.stale,
-        detail: stageProgressDetail(graphStages, `${communities} communities / ${reports} reports`),
+        detail: stageProgressDetail({ ...graphStages, status: graphStatus }, `${communities} communities / ${reports} reports`),
       },
     ],
   };

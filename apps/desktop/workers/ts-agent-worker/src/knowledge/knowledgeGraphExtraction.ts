@@ -460,7 +460,13 @@ export function buildKnowledgeGraphExtractionPrompt(docName: string, content: st
 }
 
 export function parseKnowledgeGraphExtractionJson(raw: string): KnowledgeGraphExtractionResult {
-  const parsed = JSON.parse(stripJsonCodeFence(raw));
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stripJsonCodeFence(raw));
+  } catch {
+    const preview = stripJsonCodeFence(raw).replace(/\s+/g, " ").slice(0, 120).trim();
+    throw new Error(`LLM returned non-JSON graph extraction output${preview ? `: ${preview}` : ""}`);
+  }
   const root = asObject(parsed) ?? {};
   return {
     entities: arrayFromUnknown(root.entities).map(normalizeExtractedEntity).filter((entity) => stringValue(entity.name)),
