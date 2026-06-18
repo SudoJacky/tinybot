@@ -874,6 +874,10 @@ export function buildDesktopKnowledgeQueryRequest(input: DesktopKnowledgeQueryRe
   };
 }
 
+export function hasRunnableKnowledgeQueryDraft(input: Partial<DesktopKnowledgeQueryRequestInput> = {}): boolean {
+  return Boolean(buildDesktopKnowledgeQueryRequest(normalizeKnowledgeQueryDraft(input)).query);
+}
+
 export function buildDesktopKnowledgeQueryResultRows(resultInput: unknown, options: { query?: string } = {}): DesktopKnowledgeQueryResultView {
   const result = asRecord(resultInput);
   const items = asArray(result.data).map(asRecord);

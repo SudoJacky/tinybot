@@ -25,6 +25,7 @@ import {
   buildDesktopKnowledgePaneModel,
   buildDesktopKnowledgeQueryRequest,
   buildDesktopKnowledgeTaskOperation,
+  hasRunnableKnowledgeQueryDraft,
   type DesktopKnowledgeQueryRequestInput,
   type DesktopKnowledgePaneModel,
 } from "./desktopKnowledgeTraceability";
@@ -1627,8 +1628,12 @@ async function handleNativeKnowledgeAction(event: DesktopKnowledgeActionEvent): 
       document.getElementById("desktop-knowledge-upload")?.click();
       return;
     }
-    if (event.action === "runQuery" && event.pane.actions.query) {
+    if (event.action === "runQuery") {
       const queryDraft = event.queryDraft ?? event.pane.query.draft;
+      if (!hasRunnableKnowledgeQueryDraft(queryDraft)) {
+        outcome = "ignored";
+        return;
+      }
       const result = await gatewayApi.knowledge.query(buildDesktopKnowledgeQueryRequest(queryDraft));
       const pane = await loadNativeKnowledgePane({
         queryDraft,
