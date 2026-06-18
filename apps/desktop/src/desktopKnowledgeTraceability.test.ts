@@ -8,6 +8,7 @@ import {
   buildDesktopKnowledgeReadinessView,
   buildDesktopKnowledgeTaskOperations,
   buildDesktopKnowledgeTraceabilityInspection,
+  hasRunnableKnowledgeQueryDraft,
 } from "./desktopKnowledgeTraceability";
 
 describe("desktop knowledge and traceability helpers", () => {
@@ -54,6 +55,12 @@ describe("desktop knowledge and traceability helpers", () => {
       ["expansion", "warn"],
       ["graph", "muted"],
     ]);
+  });
+
+  test("honors fresh query drafts when deciding whether a query can run", () => {
+    expect(hasRunnableKnowledgeQueryDraft({ query: "", mode: "hybrid", topK: 5 })).toBe(false);
+    expect(hasRunnableKnowledgeQueryDraft({ query: "   ", mode: "hybrid", topK: 5 })).toBe(false);
+    expect(hasRunnableKnowledgeQueryDraft({ query: "fresh graph query", mode: "hybrid", topK: 5 })).toBe(true);
   });
 
   test("normalizes document lists for stable desktop panes", () => {

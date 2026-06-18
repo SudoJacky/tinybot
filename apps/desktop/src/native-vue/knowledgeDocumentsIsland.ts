@@ -1,4 +1,4 @@
-import { createApp, defineComponent, h, type App } from "vue";
+import { computed, createApp, defineComponent, h, ref, type App } from "vue";
 import { NConfigProvider, NEmpty, NTag } from "naive-ui";
 import type { DesktopKnowledgeDocumentRow } from "../desktopKnowledgeTraceability";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
@@ -32,6 +32,14 @@ function createKnowledgeDocumentsApp(options: KnowledgeDocumentsIslandOptions): 
   return createApp(defineComponent({
     name: "KnowledgeDocumentsIsland",
     setup() {
+      const searchQuery = ref("");
+      const filteredDocuments = computed(() => {
+        const query = searchQuery.value.trim().toLowerCase();
+        if (!query) {
+          return options.documents;
+        }
+        return options.documents.filter((document) => documentMatchesSearch(document, query));
+      });
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
         default: () => [
           h("div", { class: "desktop-knowledge-documents-toolbar" }, [
@@ -40,15 +48,17 @@ function createKnowledgeDocumentsApp(options: KnowledgeDocumentsIslandOptions): 
               "data-desktop-knowledge-document-search": "",
               placeholder: "Search documents...",
               type: "search",
+              value: searchQuery.value,
+              onInput: (event: Event) => {
+                searchQuery.value = (event.target as HTMLInputElement).value;
+              },
             }),
-            h("button", { "data-desktop-knowledge-document-filter": "", type: "button" }, "Filter"),
-            h("button", { "aria-label": "Document actions", type: "button" }, "More"),
           ]),
-          options.documents.length
-            ? renderDocumentsTable(options)
+          filteredDocuments.value.length
+            ? renderDocumentsTable(filteredDocuments.value, options)
             : h(NEmpty, {
               class: "desktop-knowledge-documents-empty",
-              description: "No documents yet",
+              description: options.documents.length ? "No matching documents" : "No documents yet",
               size: "small",
             }),
         ],
@@ -57,7 +67,19 @@ function createKnowledgeDocumentsApp(options: KnowledgeDocumentsIslandOptions): 
   }));
 }
 
-function renderDocumentsTable(options: KnowledgeDocumentsIslandOptions) {
+function documentMatchesSearch(document: DesktopKnowledgeDocumentRow, query: string): boolean {
+  return [
+    document.title,
+    document.path,
+    document.category,
+    document.typeLabel,
+    document.status,
+    document.meta,
+    ...document.tags,
+  ].some((value) => String(value ?? "").toLowerCase().includes(query));
+}
+
+function renderDocumentsTable(documents: DesktopKnowledgeDocumentRow[], options: KnowledgeDocumentsIslandOptions) {
   return h("table", { class: "desktop-knowledge-documents-table", "data-desktop-knowledge-documents-table": "" }, [
     h("thead", [
       h("tr", [
@@ -69,7 +91,7 @@ function renderDocumentsTable(options: KnowledgeDocumentsIslandOptions) {
         h("th", "Actions"),
       ]),
     ]),
-    h("tbody", options.documents.map((document) => h("tr", {
+    h("tbody", documents.map((document) => h("tr", {
       "data-desktop-entity-module": "knowledge",
       "data-desktop-entity-id": document.id || document.path,
     }, [
@@ -82,10 +104,6 @@ function renderDocumentsTable(options: KnowledgeDocumentsIslandOptions) {
       h("td", renderStatusTag(document)),
       h("td", document.addedLabel || "-"),
       h("td", [
-        h("button", {
-          "data-desktop-knowledge-document-action": "reindexDocument",
-          type: "button",
-        }, "Re-index"),
         h("button", {
           "data-desktop-knowledge-document-action": "deleteDocument",
           type: "button",

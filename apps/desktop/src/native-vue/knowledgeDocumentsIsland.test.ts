@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { describe, expect, test } from "vitest";
+import { nextTick } from "vue";
 import type { DesktopKnowledgeDocumentRow } from "../desktopKnowledgeTraceability";
 import { mountKnowledgeDocumentsIsland } from "./knowledgeDocumentsIsland";
 
@@ -50,9 +51,11 @@ describe("knowledge documents Vue island", () => {
     expect(host.getAttribute("data-desktop-vue-island")).toBe("knowledge-documents");
     expect(host.className).toContain("desktop-knowledge-documents");
     expect(host.querySelector("[data-desktop-knowledge-document-search]")?.getAttribute("placeholder")).toBe("Search documents...");
-    expect(host.querySelector("[data-desktop-knowledge-document-filter]")?.textContent).toContain("Filter");
+    expect(host.querySelector("[data-desktop-knowledge-document-filter]")).toBeNull();
+    expect(host.querySelector('[aria-label="Document actions"]')).toBeNull();
     expect(host.querySelector("[data-desktop-knowledge-documents-table]")?.textContent).toContain("Name");
     expect(host.querySelector("[data-desktop-knowledge-documents-table]")?.textContent).toContain("Actions");
+    expect(host.querySelector('[data-desktop-knowledge-document-action="reindexDocument"]')).toBeNull();
     const first = host.querySelector<HTMLElement>('[data-desktop-entity-id="doc-1"]');
     const second = host.querySelector<HTMLElement>('[data-desktop-entity-id="notes/inbox.md"]');
     expect(first?.getAttribute("data-desktop-entity-module")).toBe("knowledge");
@@ -67,5 +70,28 @@ describe("knowledge documents Vue island", () => {
 
     mounted.unmount();
     expect(host.textContent).toBe("");
+  });
+
+  test("filters documents by search text", async () => {
+    const host = document.createElement("section");
+
+    const mounted = mountKnowledgeDocumentsIsland(host, { documents });
+    const search = host.querySelector<HTMLInputElement>("[data-desktop-knowledge-document-search]")!;
+
+    search.value = "desktop";
+    search.dispatchEvent(new Event("input"));
+    await nextTick();
+
+    expect(host.querySelector('[data-desktop-entity-id="doc-1"]')?.textContent).toContain("Desktop UX");
+    expect(host.querySelector('[data-desktop-entity-id="notes/inbox.md"]')).toBeNull();
+
+    search.value = "notes";
+    search.dispatchEvent(new Event("input"));
+    await nextTick();
+
+    expect(host.querySelector('[data-desktop-entity-id="doc-1"]')).toBeNull();
+    expect(host.querySelector('[data-desktop-entity-id="notes/inbox.md"]')?.textContent).toContain("Inbox note");
+
+    mounted.unmount();
   });
 });

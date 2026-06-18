@@ -42,14 +42,6 @@ function createKnowledgeGraphApp(options: KnowledgeGraphIslandOptions): App {
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
         default: () => h("div", { class: "desktop-knowledge-graph-workspace" }, [
-          h("div", { class: "desktop-knowledge-graph-tools", "aria-label": "Graph interaction tools" }, [
-            graphTool("Select"),
-            graphTool("Zoom in"),
-            graphTool("Zoom out"),
-            graphTool("Center"),
-            graphTool("Layers"),
-            graphTool("Filter"),
-          ]),
           renderGraphCanvas(options.graph),
           h("div", { class: "desktop-knowledge-graph-legend" }, [
             h("span", [h("i", { class: "desktop-knowledge-legend-node" }), "Entity"]),
@@ -71,10 +63,6 @@ function createKnowledgeGraphApp(options: KnowledgeGraphIslandOptions): App {
       });
     },
   }));
-}
-
-function graphTool(label: string) {
-  return h("button", { "aria-label": label, type: "button" }, label);
 }
 
 function renderGraphCanvas(graph: DesktopKnowledgePaneGraph) {

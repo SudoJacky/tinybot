@@ -1,24 +1,23 @@
 import { createApp, defineComponent, h, onBeforeUnmount, onMounted, ref, type App, type Ref } from "vue";
 import { NConfigProvider } from "naive-ui";
 import type { DesktopTaskCenterItem } from "../desktopTaskCenter";
-import type {
-  DesktopKnowledgeDocumentRow,
-  DesktopKnowledgePaneModel,
-} from "../desktopKnowledgeTraceability";
+import type { DesktopKnowledgePaneModel } from "../desktopKnowledgeTraceability";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 import { mountFileUploadStatusIsland } from "./fileUploadStatusIsland";
 import { mountKnowledgeDocumentDetailIsland } from "./knowledgeDocumentDetailIsland";
 import { mountKnowledgeDocumentsIsland } from "./knowledgeDocumentsIsland";
 import { mountKnowledgeGraphIsland } from "./knowledgeGraphIsland";
+import { mountKnowledgeQueryIsland } from "./knowledgeQueryIsland";
 import { mountKnowledgeReadinessIsland } from "./knowledgeReadinessIsland";
 import { mountModuleWorkSectionIsland } from "./moduleWorkSectionIsland";
 
-export type KnowledgePaneActionId = "refreshAll" | "settings" | "runQuery" | "refreshGraph" | "extractGraph" | "rebuildIndex" | "deleteDocument" | "uploadDocument";
+export type KnowledgePaneActionId = "refreshAll" | "runQuery" | "extractGraph" | "rebuildIndex" | "deleteDocument" | "uploadDocument";
 
 export interface KnowledgePaneActionEvent {
   action: KnowledgePaneActionId;
   pane: DesktopKnowledgePaneModel;
   documentId?: string;
+  queryDraft?: DesktopKnowledgePaneModel["query"]["draft"];
 }
 
 export interface KnowledgePaneIslandOptions {
@@ -61,6 +60,7 @@ function createKnowledgePaneApp(options: KnowledgePaneIslandOptions): App {
       const uploadStatus = ref<HTMLElement | null>(null);
       const documents = ref<HTMLElement | null>(null);
       const documentDetail = ref<HTMLElement | null>(null);
+      const query = ref<HTMLElement | null>(null);
       const graph = ref<HTMLElement | null>(null);
 
       onMounted(() => {
@@ -91,6 +91,15 @@ function createKnowledgePaneApp(options: KnowledgePaneIslandOptions): App {
             document: options.pane.selectedDocument!,
           }));
         }
+        mountChild(mountedChildren, query.value, (host) => mountKnowledgeQueryIsland(host, {
+          draft: options.pane.query.draft,
+          results: options.pane.query.results,
+          onRunQuery: (queryDraft) => options.onKnowledgeAction?.({
+            action: "runQuery",
+            pane: options.pane,
+            queryDraft,
+          }),
+        }));
         mountChild(mountedChildren, graph.value, (host) => mountKnowledgeGraphIsland(host, {
           graph: options.pane.graph,
         }));
@@ -115,10 +124,11 @@ function createKnowledgePaneApp(options: KnowledgePaneIslandOptions): App {
               "aria-label": "Knowledge base overview",
             }, renderKnowledgeOverview(options.pane)),
             renderKnowledgeUploadRegion(options, uploadStatus),
-            renderKnowledgeQueueRegion(options),
+            renderKnowledgeQueueRegion(options, work),
             renderKnowledgeDocumentsRegion(options, documents, documentDetail),
+            renderKnowledgeQueryRegion(query),
             renderKnowledgeGraphRegion(options, graph),
-            renderKnowledgePipelineRegion(options, readiness, work),
+            renderKnowledgePipelineRegion(readiness),
           ]),
         ]),
       });
@@ -136,8 +146,6 @@ function renderKnowledgeHeader(options: KnowledgePaneIslandOptions) {
     ]),
     h("div", { class: "desktop-knowledge-toolbar" }, [
       renderKnowledgeActionButton(options, "refreshAll", "Refresh All", "secondary"),
-      renderKnowledgeActionButton(options, "settings", "Settings", "secondary"),
-      renderKnowledgeActionButton(options, "uploadDocument", "Upload Documents", "primary"),
     ]),
   ]);
 }
@@ -168,22 +176,22 @@ function renderKnowledgeUploadRegion(options: KnowledgePaneIslandOptions, upload
   ]);
 }
 
-function renderKnowledgeQueueRegion(options: KnowledgePaneIslandOptions) {
-  const queueRows = options.pane.documentRows.slice(0, 2);
+function renderKnowledgeQueueRegion(options: KnowledgePaneIslandOptions, work: Ref<HTMLElement | null>) {
+  const hasWorkItems = Boolean(options.workItems?.length);
   return h("section", {
     class: "desktop-knowledge-region desktop-knowledge-queue-region",
     "data-desktop-knowledge-region": "queue",
-    "aria-label": "Knowledge ingestion queue",
+    "aria-label": "Knowledge jobs",
   }, [
     h("div", { class: "desktop-knowledge-region-header" }, [
       h("div", [
-        h("h3", `Ingestion Queue${queueRows.length ? ` (${queueRows.length})` : ""}`),
-        h("p", "Track files as they move through parsing and indexing."),
+        h("h3", `Knowledge Jobs${hasWorkItems ? ` (${options.workItems?.length})` : ""}`),
+        h("p", "Track active indexing, rebuild, upload, and graph extraction jobs."),
       ]),
     ]),
-    queueRows.length
-      ? h("div", { class: "desktop-knowledge-queue-list" }, queueRows.map((document, index) => renderKnowledgeQueueRow(document, index)))
-      : h("p", { class: "desktop-knowledge-empty-note" }, "No ingestion jobs running."),
+    hasWorkItems
+      ? h("section", { ref: work })
+      : h("p", { class: "desktop-knowledge-empty-note" }, "No knowledge jobs running."),
   ]);
 }
 
@@ -200,11 +208,27 @@ function renderKnowledgeDocumentsRegion(
     h("div", { class: "desktop-knowledge-region-header" }, [
       h("div", [
         h("h3", `Documents (${options.pane.documentRows.length})`),
-        h("p", "Search, filter, inspect, re-index, and delete knowledge sources."),
+        h("p", "Search, inspect, and delete knowledge sources."),
       ]),
     ]),
     h("section", { ref: documents }),
     options.pane.selectedDocument ? h("section", { ref: documentDetail }) : null,
+  ]);
+}
+
+function renderKnowledgeQueryRegion(query: Ref<HTMLElement | null>) {
+  return h("section", {
+    class: "desktop-knowledge-region desktop-knowledge-query-region",
+    "data-desktop-knowledge-region": "query",
+    "aria-label": "Knowledge query",
+  }, [
+    h("div", { class: "desktop-knowledge-region-header" }, [
+      h("div", [
+        h("h3", "Knowledge Query"),
+        h("p", "Search the knowledge base and inspect retrieval context."),
+      ]),
+    ]),
+    h("section", { ref: query }),
   ]);
 }
 
@@ -221,21 +245,14 @@ function renderKnowledgeGraphRegion(options: KnowledgePaneIslandOptions, graph: 
       ]),
       h("div", { class: "desktop-knowledge-action-row" }, [
         renderKnowledgeActionButton(options, "extractGraph", "Extract Graph", "primary"),
-        renderKnowledgeActionButton(options, "rebuildIndex", "Build Graph", "secondary"),
-        renderKnowledgeActionButton(options, "refreshGraph", "Refresh Graph", "secondary"),
-        h("button", { class: "desktop-knowledge-action-button desktop-knowledge-action-button-secondary", type: "button" }, "Fit View"),
-        h("button", { class: "desktop-knowledge-action-button desktop-knowledge-action-button-secondary", type: "button" }, "Layout"),
+        renderKnowledgeActionButton(options, "rebuildIndex", "Rebuild Index", "secondary"),
       ]),
     ]),
     h("section", { ref: graph }),
   ]);
 }
 
-function renderKnowledgePipelineRegion(
-  options: KnowledgePaneIslandOptions,
-  readiness: Ref<HTMLElement | null>,
-  work: Ref<HTMLElement | null>,
-) {
+function renderKnowledgePipelineRegion(readiness: Ref<HTMLElement | null>) {
   return h("section", {
     class: "desktop-knowledge-region desktop-knowledge-pipeline",
     "data-desktop-knowledge-region": "pipeline",
@@ -248,25 +265,6 @@ function renderKnowledgePipelineRegion(
       ]),
     ]),
     h("section", { ref: readiness }),
-    options.workItems?.length ? h("section", { ref: work }) : null,
-  ]);
-}
-
-function renderKnowledgeQueueRow(document: DesktopKnowledgeDocumentRow, index: number) {
-  const progress = document.progressPercent;
-  const stage = document.phaseLabel;
-  return h("article", { class: "desktop-knowledge-queue-row" }, [
-    h("div", { class: "desktop-knowledge-queue-file" }, [
-      h("strong", document.title),
-      h("span", `${document.typeLabel || "DOC"} / ${document.sizeLabel || "-"} / ${stage}`),
-      h("small", document.progressDetail),
-    ]),
-    h("div", { class: "desktop-knowledge-queue-progress", "aria-label": `${stage} ${progress}%` }, [
-      h("span", { style: { width: `${progress}%` } }),
-    ]),
-    h("span", { class: "desktop-knowledge-queue-percent" }, progress ? `${progress}%` : "-"),
-    h("button", { "data-desktop-knowledge-queue-action": "pause", type: "button", disabled: index > 0 }, "Pause"),
-    h("button", { "data-desktop-knowledge-queue-action": "cancel", type: "button" }, "Cancel"),
   ]);
 }
 
@@ -322,9 +320,6 @@ function renderKnowledgeActionButton(
 function knowledgeActionEnabled(pane: DesktopKnowledgePaneModel, action: KnowledgePaneActionId): boolean {
   if (action === "uploadDocument") {
     return pane.actions.upload;
-  }
-  if (action === "refreshGraph") {
-    return pane.actions.refreshGraph;
   }
   if (action === "runQuery") {
     return pane.actions.query;
