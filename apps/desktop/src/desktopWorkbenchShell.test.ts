@@ -935,6 +935,7 @@ describe("desktop workbench shell", () => {
         gateway_ws: "ws://127.0.0.1:18790/ws",
         command: "tinybot gateway",
         repo_root: "D:/code/tinybot/tinybot",
+        log_path: "C:/Users/me/AppData/Local/tinybot/logs/native-backend.log",
         logs: ["gateway ready", "knowledge upload accepted"],
         last_error: null,
         worker_runtime: {
@@ -978,6 +979,7 @@ describe("desktop workbench shell", () => {
     expect(backendLogsDialog?.getAttribute("role")).toBe("dialog");
     expect(backendLogsDialog?.getAttribute("aria-modal")).toBe("true");
     expect(backendLogsDialog?.textContent).toContain("Backend Logs");
+    expect(backendLogsDialog?.textContent).toContain("Log file: C:/Users/me/AppData/Local/tinybot/logs/native-backend.log");
     expect(backendLogsDialog?.textContent).toContain("gateway ready");
     expect(backendLogsDialog?.textContent).toContain("[knowledge]");
     expect(backendLogsDialog?.textContent).toContain("RAG.md");
@@ -992,6 +994,7 @@ describe("desktop workbench shell", () => {
         gateway_ws: "ws://127.0.0.1:18790/ws",
         command: "tinybot gateway",
         repo_root: "D:/code/tinybot/tinybot",
+        log_path: "C:/Users/me/AppData/Local/tinybot/logs/native-backend.log",
         logs: ["gateway ready", "knowledge upload accepted", "graph extraction streamed"],
         last_error: null,
         worker_runtime: {
