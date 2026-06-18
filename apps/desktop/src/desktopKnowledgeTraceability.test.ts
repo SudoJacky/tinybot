@@ -200,6 +200,28 @@ describe("desktop knowledge and traceability helpers", () => {
     expect(pane.configHints).not.toContain("GraphRAG reports use deterministic summaries");
   });
 
+  test("reads canonical GraphRAG enabled config key when building report hints", () => {
+    const pane = buildDesktopKnowledgePaneModel({
+      statsPayload: {
+        total_documents: 1,
+        total_chunks: 12,
+        retrieval_ready: true,
+      },
+      config: {
+        knowledge: {
+          enabled: true,
+          retrieval_mode: "hybrid",
+          max_chunks: 5,
+          graphragEnabled: false,
+          graphrag_report_llm_enabled: false,
+        },
+      },
+    });
+
+    expect(pane.configHints).toContain("GraphRAG reports not configured");
+    expect(pane.configHints).not.toContain("GraphRAG reports use deterministic summaries");
+  });
+
   test("normalizes root WebUI list envelopes for native knowledge documents", () => {
     expect(
       buildDesktopKnowledgeDocumentRows({

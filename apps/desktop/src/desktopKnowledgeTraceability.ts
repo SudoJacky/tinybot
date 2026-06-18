@@ -249,7 +249,9 @@ function buildKnowledgeConfigHints(configInput: unknown, statsInput: unknown = {
   const enabled = knowledge.enabled !== false;
   const retrievalMode = firstNonEmpty(knowledge.retrieval_mode, knowledge.retrievalMode, "hybrid");
   const maxChunks = numberValue(knowledge.max_chunks ?? knowledge.maxChunks) || 5;
-  const graphRagEnabled = knowledge.graphrag_enabled !== false && knowledge.graphRagEnabled !== false;
+  const graphRagEnabled = knowledge.graphrag_enabled !== false
+    && knowledge.graphragEnabled !== false
+    && knowledge.graphRagEnabled !== false;
   const reportLlm = knowledge.graphrag_report_llm_enabled === true || knowledge.graphRagReportLlmEnabled === true;
   const reportStages = summarizeStages(asRecord(statsInput), ["community_report_projection"]);
   const reportHint = !graphRagEnabled || reportStages.status === "not_configured"
