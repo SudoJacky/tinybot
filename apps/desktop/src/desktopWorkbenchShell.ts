@@ -501,13 +501,13 @@ export function updateDesktopGatewayRuntimeStatus(
   gatewayActions: DesktopGatewayRuntimeActionOptions = {},
 ): void {
   desktopRuntimeStatusSnapshots.set(targetDocument, { gatewayHttp, runtimeStatus });
+  refreshOpenDesktopBackendLogs(targetDocument, runtimeStatus, gatewayHttp);
   const runtime = targetDocument.querySelector<HTMLElement>(".desktop-gateway-runtime");
   if (!runtime) {
     return;
   }
   const next = createGatewayRuntimeSurface(targetDocument, runtimeStatus, gatewayHttp, gatewayActions);
   runtime.replaceChildren(...Array.from(next.children));
-  refreshOpenDesktopBackendLogs(targetDocument, runtimeStatus, gatewayHttp);
 }
 
 function refreshOpenDesktopBackendLogs(

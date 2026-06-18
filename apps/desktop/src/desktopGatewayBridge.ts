@@ -143,8 +143,18 @@ async function nativeWebuiFetchResponse(
   nativeWebui: DesktopNativeWebuiFetchApi,
   pageOrigin: string,
 ): Promise<Response | undefined> {
-  const request = await nativeWebuiRouteRequest(input, init, pageOrigin);
+  const sourceUrl = requestUrl(input, pageOrigin);
+  if (!sourceUrl || sourceUrl.origin !== pageOrigin || !isGatewayHttpPath(sourceUrl.pathname)) {
+    return undefined;
+  }
+  const request = await nativeWebuiRouteRequestForUrl(sourceUrl, input, init);
   if (!request) {
+    if (isNativeOnlyGatewayPath(sourceUrl.pathname)) {
+      return nativeOnlyGatewayErrorResponse(
+        415,
+        `Native WebUI route does not support this request body: ${sourceUrl.pathname}`,
+      );
+    }
     return undefined;
   }
   try {
@@ -157,20 +167,22 @@ async function nativeWebuiFetchResponse(
       return undefined;
     }
     return webuiFetchResponse(response);
-  } catch {
+  } catch (error) {
+    if (isNativeOnlyGatewayPath(sourceUrl.pathname)) {
+      return nativeOnlyGatewayErrorResponse(
+        502,
+        `Native WebUI route failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
     return undefined;
   }
 }
 
-async function nativeWebuiRouteRequest(
+async function nativeWebuiRouteRequestForUrl(
+  sourceUrl: URL,
   input: RequestInfo | URL,
   init: RequestInit | undefined,
-  pageOrigin: string,
 ): Promise<NativeWebuiRouteRequest | undefined> {
-  const sourceUrl = requestUrl(input, pageOrigin);
-  if (!sourceUrl || sourceUrl.origin !== pageOrigin || !isGatewayHttpPath(sourceUrl.pathname)) {
-    return undefined;
-  }
   const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
   const headers = headersRecord(init?.headers ?? (input instanceof Request ? input.headers : undefined));
   const body = await jsonFetchBody(input, init, headers);
@@ -183,6 +195,21 @@ async function nativeWebuiRouteRequest(
     ...(headers ? { headers } : {}),
     ...(body.value !== undefined ? { body: body.value } : {}),
   };
+}
+
+function isNativeOnlyGatewayPath(pathname: string): boolean {
+  return pathname === "/v1/knowledge" || pathname.startsWith("/v1/knowledge/");
+}
+
+function nativeOnlyGatewayErrorResponse(status: number, message: string): Response {
+  return webuiFetchResponse({
+    status,
+    body: {
+      error: {
+        message,
+      },
+    },
+  });
 }
 
 async function jsonFetchBody(

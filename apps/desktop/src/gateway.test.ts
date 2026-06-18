@@ -1364,7 +1364,31 @@ describe("gateway HTTP client", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
-  test("keeps unsupported Knowledge uploads on the HTTP gateway fallback", async () => {
+  test("does not fallback to gateway HTTP for native Knowledge graph read routes", async () => {
+    const fetchFn = vi.fn(async (url: RequestInfo | URL) => {
+      if (String(url).endsWith("/webui/bootstrap")) {
+        return new Response(JSON.stringify({ token: "token-1" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ gateway: true }), { status: 200 });
+    });
+    const nativeWebui = {
+      route: vi.fn(async () => {
+        throw new Error("native knowledge route unavailable");
+      }),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeWebui,
+    });
+
+    await expect(client.knowledge.job("kjob_1")).rejects.toThrow("native knowledge route unavailable");
+    await expect(client.knowledge.graph({ graphType: "entity" })).rejects.toThrow("native knowledge route unavailable");
+    await expect(client.knowledge.graphrag()).rejects.toThrow("native knowledge route unavailable");
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  test("rejects unsupported native Knowledge uploads without gateway HTTP fallback", async () => {
     const fetchFn = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
       if (String(url).endsWith("/webui/bootstrap")) {
         return new Response(JSON.stringify({ token: "token-1" }), { status: 200 });
@@ -1384,16 +1408,11 @@ describe("gateway HTTP client", () => {
     const form = new FormData();
     form.append("file", new File(["%PDF-1.4"], "paper.pdf", { type: "application/pdf" }));
 
-    await expect(client.knowledge.uploadDocument(form)).resolves.toEqual({ gateway: true });
+    await expect(client.knowledge.uploadDocument(form))
+      .rejects
+      .toThrow("Native Knowledge uploads only support txt, md, json, and csv files.");
     expect(nativeWebui.route).not.toHaveBeenCalled();
-    expect(fetchFn.mock.calls.map((call) => String((call as unknown[])[0]))).toEqual([
-      "http://127.0.0.1:18790/webui/bootstrap",
-      "http://127.0.0.1:18790/v1/knowledge/documents/upload?async_index=true",
-    ]);
-    expect(fetchFn.mock.calls[1][1]).toMatchObject({
-      method: "POST",
-      body: form,
-    });
+    expect(fetchFn).not.toHaveBeenCalled();
   });
 
   test("falls back to gateway skills operations when native skills are unavailable", async () => {
@@ -2653,33 +2672,33 @@ describe("gateway HTTP client", () => {
             { status: 200 },
           );
         }
-        if (path === "/v1/knowledge/documents/upload") {
-          return new Response(JSON.stringify({ gateway: true }), { status: 200 });
+        if (path === "/api/sessions") {
+          return new Response(JSON.stringify({ items: [] }), { status: 200 });
         }
         return new Response(JSON.stringify({ error: "unexpected route" }), { status: 404 });
       });
       const nativeWebui = {
-        route: vi.fn(async (request: { method: string; path: string; headers?: Record<string, unknown> }) => ({
-          token: "token-2",
-          refresh_token_path: "/webui/refresh-token",
-          token_ttl_s: 300,
-          request,
-        })),
+        route: vi.fn(async (request: { method: string; path: string; headers?: Record<string, unknown> }) => {
+          if (request.path === "/webui/refresh-token") {
+            return {
+              token: "token-2",
+              refresh_token_path: "/webui/refresh-token",
+              token_ttl_s: 300,
+              request,
+            };
+          }
+          throw new Error("native sessions unavailable");
+        }),
       };
       const client = createGatewayApiClient({
         config: DEFAULT_GATEWAY_CONFIG,
         fetchFn,
         nativeWebui,
       });
-      const form = () => {
-        const data = new FormData();
-        data.append("file", new File(["%PDF-1.4"], "native.pdf", { type: "application/pdf" }));
-        return data;
-      };
 
-      await client.knowledge.uploadDocument(form());
+      await client.sessions.list();
       vi.setSystemTime(new Date("2026-06-08T10:04:15.000Z"));
-      await client.knowledge.uploadDocument(form());
+      await client.sessions.list();
 
       expect(nativeWebui.route).toHaveBeenCalledWith({
         method: "POST",
@@ -2688,8 +2707,8 @@ describe("gateway HTTP client", () => {
       });
       expect(fetchFn.mock.calls.map((call) => String(call[0]))).toEqual([
         "http://127.0.0.1:18790/webui/bootstrap",
-        "http://127.0.0.1:18790/v1/knowledge/documents/upload?async_index=true",
-        "http://127.0.0.1:18790/v1/knowledge/documents/upload?async_index=true",
+        "http://127.0.0.1:18790/api/sessions",
+        "http://127.0.0.1:18790/api/sessions",
       ]);
     } finally {
       vi.useRealTimers();

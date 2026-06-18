@@ -16,6 +16,7 @@ import {
   updateDesktopTaskCenterItems,
   updateDesktopToolsSkillsPane,
 } from "./desktopWorkbenchShell";
+import type { GatewayRuntimeStatus } from "./desktopGatewayStartup";
 import type { NativeChatMessage, NativeChatSession } from "./nativeChat";
 
 class FakeElement {
@@ -1013,6 +1014,59 @@ describe("desktop workbench shell", () => {
     expect(inspector?.textContent).toContain("Desktop help tour");
     expect(inspector?.textContent).toContain("Step 1: Activity rail");
     expect(inspector?.textContent).toContain("Inspector - Review run-chain, task, gateway, file, and help details");
+  });
+
+  test("refreshes an open backend logs dialog even when the runtime panel is not mounted", () => {
+    const targetDocument = new FakeDocument();
+    const runtimeStatus: GatewayRuntimeStatus = {
+      state: "running",
+      owner: "shell",
+      http_ok: true,
+      gateway_http: "http://127.0.0.1:18790",
+      gateway_ws: "ws://127.0.0.1:18790/ws",
+      command: "tinybot gateway",
+      repo_root: "D:/code/tinybot/tinybot",
+      logs: ["gateway ready"],
+      last_error: null,
+      worker_runtime: {
+        state: "running",
+        transport_mode: "stdio",
+        diagnostics: [{ stream: "stderr", line: "[ts-agent-worker] ready" }],
+      },
+    };
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      runtimeStatus,
+    });
+    targetDocument.dispatchEvent({ type: "tinybot:open-backend-logs" });
+    const backendLogsDialog = targetDocument.body.querySelector("#desktop-backend-logs-dialog");
+    const runtime = targetDocument.body.querySelector(".desktop-gateway-runtime");
+    if (runtime) {
+      runtime.className = "desktop-gateway-runtime-unmounted";
+    }
+
+    updateDesktopGatewayRuntimeStatus(
+      targetDocument as unknown as Document,
+      {
+        ...runtimeStatus,
+        logs: ["gateway ready", "route handled natively"],
+        worker_runtime: {
+          state: "running",
+          transport_mode: "stdio",
+          diagnostics: [
+            { stream: "stderr", line: "[ts-agent-worker] ready" },
+            { stream: "stderr", line: "worker.request.complete method=webui.handle_request route=GET /v1/knowledge/jobs/kjob_1" },
+          ],
+        },
+      },
+      "http://127.0.0.1:18790",
+    );
+
+    expect(backendLogsDialog?.textContent).toContain("route handled natively");
+    expect(backendLogsDialog?.textContent).toContain("GET /v1/knowledge/jobs/kjob_1");
   });
 
   test("marks compact activity controls with predictable focus order and accessible labels", () => {
