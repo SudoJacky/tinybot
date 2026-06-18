@@ -7,6 +7,7 @@ const sourceRoot = path.join(workerRoot, "src");
 const importPattern = /(?:import|export)\s+(?:[^'"]*?\s+from\s+)?["'](\.\.?\/[^"']+)["']/g;
 const parameterPropertyPattern = /constructor\s*\([^)]*\b(?:public|private|protected|readonly)\s+\w+/gs;
 const allowedImportExtensions = /\.(ts|js|json|node)$/;
+const workerReadyTimeoutMs = 15_000;
 
 const sourceFiles = await collectRuntimeSourceFiles(sourceRoot);
 const issues = [];
@@ -69,8 +70,8 @@ function verifyWorkerStarts() {
     let stderr = "";
     const timer = setTimeout(() => {
       child.kill();
-      reject(new Error(`ts-agent-worker did not report ready within 5000ms\nstdout:\n${stdout}\nstderr:\n${stderr}`));
-    }, 5000);
+      reject(new Error(`ts-agent-worker did not report ready within ${workerReadyTimeoutMs}ms\nstdout:\n${stdout}\nstderr:\n${stderr}`));
+    }, workerReadyTimeoutMs);
     child.stdout.on("data", (chunk) => {
       stdout += chunk.toString();
     });

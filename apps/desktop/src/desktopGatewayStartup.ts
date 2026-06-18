@@ -43,44 +43,24 @@ export async function ensureGatewayReady(
   config: GatewayConfig,
   deps: GatewayStartupDeps,
 ): Promise<GatewayRuntimeStatus | null> {
+  if ((deps.hasTauriRuntime ?? hasTauriRuntime)()) {
+    const status = await deps.invoke("gateway_status");
+    if (status.state === "running") {
+      return status;
+    }
+    const started = await deps.invoke("start_gateway");
+    if (started.state !== "running") {
+      throw new Error(formatNativeStartupStatusError(started));
+    }
+    return started;
+  }
+
   const externalBootstrap = await fetchBootstrap(config, deps);
   if (externalBootstrap.ok) {
     return null;
   }
 
-  if (!(deps.hasTauriRuntime ?? hasTauriRuntime)()) {
-    throw new Error(`Gateway is unreachable and Tauri runtime commands are unavailable: ${externalBootstrap.error}`);
-  }
-
-  const beforeStart = await deps.invoke("gateway_status");
-  if (beforeStart.http_ok) {
-    return beforeStart;
-  }
-
-  const started = await deps.invoke("start_gateway");
-  const ready = await waitForBootstrap(config, 30_000, deps);
-  if (!ready.ok) {
-    throw new Error(
-      `Gateway did not become ready after start_gateway. Last status: ${started.state}/${started.owner}. ${ready.error}`,
-    );
-  }
-  return deps.invoke("gateway_status");
-}
-
-async function waitForBootstrap(config: GatewayConfig, timeoutMs: number, deps: GatewayStartupDeps): Promise<BootstrapResult> {
-  const now = deps.now ?? Date.now;
-  const delay = deps.delay ?? defaultDelay;
-  const startedAt = now();
-  let lastError = "not checked";
-  while (now() - startedAt < timeoutMs) {
-    const result = await fetchBootstrap(config, deps);
-    if (result.ok) {
-      return { ok: true };
-    }
-    lastError = result.error;
-    await delay(500);
-  }
-  return { ok: false, error: lastError };
+  throw new Error(`Gateway is unreachable and Tauri runtime commands are unavailable: ${externalBootstrap.error}`);
 }
 
 async function fetchBootstrap(config: GatewayConfig, deps: GatewayStartupDeps): Promise<BootstrapResult> {
@@ -119,8 +99,14 @@ function hasTauriRuntime(): boolean {
   return "__TAURI_INTERNALS__" in globalThis;
 }
 
-function defaultDelay(ms: number): Promise<void> {
-  return new Promise((resolve) => globalThis.setTimeout(resolve, ms));
+function formatNativeStartupStatusError(status: GatewayRuntimeStatus): string {
+  const details = [
+    `state=${status.state}`,
+    `owner=${status.owner}`,
+    status.last_error ? `last_error=${status.last_error}` : null,
+    status.recovery_hint ? `recovery_hint=${status.recovery_hint}` : null,
+  ].filter(Boolean);
+  return `Gateway failed to start (${details.join(", ")})`;
 }
 
 function stringifyError(error: unknown): string {

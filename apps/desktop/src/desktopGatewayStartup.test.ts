@@ -9,7 +9,7 @@ function status(owner: GatewayRuntimeStatus["owner"], state: GatewayRuntimeStatu
     http_ok: httpOk,
     gateway_http: DEFAULT_GATEWAY_CONFIG.httpBaseUrl,
     gateway_ws: DEFAULT_GATEWAY_CONFIG.wsUrl,
-    command: "uv run tinybot gateway",
+    command: "node workers/ts-agent-worker/src/index.ts",
     repo_root: "D:/Code/py/tinybot",
     logs: [],
     last_error: null,
@@ -17,9 +17,10 @@ function status(owner: GatewayRuntimeStatus["owner"], state: GatewayRuntimeStatu
 }
 
 describe("desktop gateway startup", () => {
-  test("attaches to an already reachable external gateway without invoking Tauri commands", async () => {
-    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ token: "token-1" }), { status: 200 }));
-    const invoke = vi.fn();
+  test("uses gateway_status for native Tauri startup without probing the Python gateway", async () => {
+    const reachable = status("shell", "running", true);
+    const fetchFn = vi.fn();
+    const invoke = vi.fn(async () => reachable);
 
     const result = await ensureGatewayReady(DEFAULT_GATEWAY_CONFIG, {
       fetchFn,
@@ -27,11 +28,22 @@ describe("desktop gateway startup", () => {
       hasTauriRuntime: () => true,
     });
 
+    expect(result).toBe(reachable);
+    expect(fetchFn).not.toHaveBeenCalled();
+    expect(invoke).toHaveBeenCalledWith("gateway_status");
+  });
+
+  test("attaches to an already reachable external gateway outside Tauri without runtime logs", async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ token: "token-1" }), { status: 200 }));
+    const invoke = vi.fn();
+
+    const result = await ensureGatewayReady(DEFAULT_GATEWAY_CONFIG, {
+      fetchFn,
+      invoke,
+      hasTauriRuntime: () => false,
+    });
+
     expect(result).toBeNull();
-    expect(fetchFn).toHaveBeenCalledWith(
-      "http://127.0.0.1:18790/webui/bootstrap",
-      expect.objectContaining({ cache: "no-store", signal: expect.any(AbortSignal) }),
-    );
     expect(invoke).not.toHaveBeenCalled();
   });
 
@@ -61,40 +73,62 @@ describe("desktop gateway startup", () => {
     ).rejects.toThrow("Tauri runtime commands are unavailable: connect ECONNREFUSED");
   });
 
-  test("uses gateway_status when Tauri reports an externally reachable gateway", async () => {
-    const external = status("external", "running", true);
+  test("starts the native TS worker when Tauri reports no running backend", async () => {
+    const offline = status("none", "offline", false);
+    const running = status("shell", "running", false);
     const invoke = vi.fn(async (command: string) => {
-      expect(command).toBe("gateway_status");
-      return external;
+      if (command === "gateway_status") {
+        return offline;
+      }
+      expect(command).toBe("start_gateway");
+      return running;
     });
 
     const result = await ensureGatewayReady(DEFAULT_GATEWAY_CONFIG, {
-      fetchFn: vi.fn(async () => new Response("{}", { status: 503 })),
+      fetchFn: vi.fn(),
       invoke,
       hasTauriRuntime: () => true,
     });
 
-    expect(result).toBe(external);
-    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(result).toBe(running);
+    expect(invoke.mock.calls.map((call) => call[0])).toEqual(["gateway_status", "start_gateway"]);
   });
 
-  test("starts a shell-owned gateway and waits for bootstrap readiness", async () => {
+  test("rejects native startup when start_gateway returns a non-running status", async () => {
     const offline = status("none", "offline", false);
-    const starting = status("shell", "starting", false);
+    const failed = status("shell", "failed", false);
+    failed.last_error = "worker exited immediately";
+    const invoke = vi.fn(async (command: string) => {
+      if (command === "gateway_status") {
+        return offline;
+      }
+      expect(command).toBe("start_gateway");
+      return failed;
+    });
+
+    await expect(
+      ensureGatewayReady(DEFAULT_GATEWAY_CONFIG, {
+        fetchFn: vi.fn(),
+        invoke,
+        hasTauriRuntime: () => true,
+      }),
+    ).rejects.toThrow("Gateway failed to start");
+    expect(invoke.mock.calls.map((call) => call[0])).toEqual(["gateway_status", "start_gateway"]);
+  });
+
+  test("does not wait for Python bootstrap readiness after starting the native TS worker", async () => {
+    const offline = status("none", "offline", false);
     const running = status("shell", "running", true);
     const invoke = vi.fn(async (command: string) => {
-      if (command === "gateway_status" && invoke.mock.calls.length === 1) {
+      if (command === "gateway_status") {
         return offline;
       }
       if (command === "start_gateway") {
-        return starting;
+        return running;
       }
-      return running;
+      throw new Error(`unexpected command: ${command}`);
     });
-    const fetchFn = vi
-      .fn()
-      .mockResolvedValueOnce(new Response("{}", { status: 503 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ token: "token-1" }), { status: 200 }));
+    const fetchFn = vi.fn(async () => new Response("{}", { status: 503 }));
 
     const result = await ensureGatewayReady(DEFAULT_GATEWAY_CONFIG, {
       fetchFn,
@@ -104,24 +138,22 @@ describe("desktop gateway startup", () => {
     });
 
     expect(result).toBe(running);
-    expect(invoke.mock.calls.map((call) => call[0])).toEqual(["gateway_status", "start_gateway", "gateway_status"]);
+    expect(fetchFn).not.toHaveBeenCalled();
+    expect(invoke.mock.calls.map((call) => call[0])).toEqual(["gateway_status", "start_gateway"]);
   });
 
-  test("reports shell startup timeout with the last readiness error", async () => {
+  test("reports native TS worker startup errors", async () => {
     const invoke = vi
       .fn()
       .mockResolvedValueOnce(status("none", "offline", false))
-      .mockResolvedValueOnce(status("shell", "starting", false));
-    const now = vi.fn().mockReturnValueOnce(0).mockReturnValueOnce(0).mockReturnValueOnce(31_000);
+      .mockRejectedValueOnce(new Error("TS worker failed"));
 
     await expect(
       ensureGatewayReady(DEFAULT_GATEWAY_CONFIG, {
-        fetchFn: vi.fn(async () => new Response("{}", { status: 503 })),
+        fetchFn: vi.fn(),
         invoke,
         hasTauriRuntime: () => true,
-        delay: async () => undefined,
-        now,
       }),
-    ).rejects.toThrow("Gateway did not become ready after start_gateway. Last status: starting/shell. HTTP 503");
+    ).rejects.toThrow("TS worker failed");
   });
 });

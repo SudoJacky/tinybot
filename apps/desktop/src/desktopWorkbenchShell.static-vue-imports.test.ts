@@ -177,7 +177,7 @@ describe("desktop workbench shell static Vue imports", () => {
     expect(source).not.toContain('void import("./native-vue/knowledgeQueryIsland")');
     expect(source).toContain('import { mountKnowledgeReadinessIsland } from "./native-vue/knowledgeReadinessIsland";');
     expect(source).not.toContain('void import("./native-vue/knowledgeReadinessIsland")');
-    expect(source).toContain('import { mountKnowledgeReferenceRowIsland } from "./native-vue/knowledgeReferenceRowIsland";');
+    expect(source).not.toContain('import { mountKnowledgeReferenceRowIsland } from "./native-vue/knowledgeReferenceRowIsland";');
     expect(source).not.toContain('void import("./native-vue/knowledgeReferenceRowIsland")');
   });
 

@@ -20,7 +20,7 @@ export interface DesktopGatewayRuntimeAction {
   label: string;
 }
 
-export type DesktopGatewayRuntimeCommand = "start_gateway" | "stop_gateway" | "set_gateway_keep_running";
+export type DesktopGatewayRuntimeCommand = "gateway_status" | "start_gateway" | "stop_gateway" | "set_gateway_keep_running";
 
 export type DesktopGatewayRuntimeCommandPayload = { keep_running: boolean };
 
@@ -51,7 +51,7 @@ export function buildDesktopGatewayRuntimeRows(
   return [
     { label: "State", value: formatState(status?.state ?? "running") },
     { label: "Owner", value: formatOwner(status?.owner ?? "external") },
-    { label: "Command", value: status?.command || "uv run tinybot gateway" },
+    { label: "Command", value: status?.command || "node workers/ts-agent-worker/src/index.ts" },
     { label: "Port", value: formatPort(status?.port, gatewayHttp) },
     { label: "Repo root", value: status?.repo_root || "Unknown" },
     { label: "Recent logs", value: logs.length ? logs.join("\n") : "No recent logs" },
@@ -185,7 +185,7 @@ function formatExitPolicy(policy: GatewayRuntimeStatus["exit_policy"], owner: Ga
     return "External gateway is not managed by desktop";
   }
   if (policy === "keep_running") {
-    return "Keep shell-owned gateway running after exit";
+    return "Keep native TS backend running after exit";
   }
-  return "Stop shell-owned gateway on exit";
+  return "Stop native TS backend on exit";
 }

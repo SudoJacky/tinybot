@@ -39,8 +39,7 @@ pub mod worker_workspace;
 use crate::config_store::{ConfigPatchApplyResult, ConfigPatchBridgeResult, ConfigStore};
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_manager::{
-    WorkerCommandSpec, WorkerManager, WorkerManagerError, WorkerManagerEvent, WorkerManagerState,
-    WorkerManagerStatus,
+    WorkerCommandSpec, WorkerManager, WorkerManagerEvent, WorkerManagerState, WorkerManagerStatus,
 };
 use crate::worker_protocol::WorkerRequest;
 use crate::worker_rpc::WorkerRpcRouter;
@@ -845,47 +844,32 @@ fn apply_config_patch_result(
 
 #[tauri::command]
 fn start_gateway(state: State<'_, SharedGateway>) -> Result<GatewayRuntimeStatus, String> {
-    match gateway_bootstrap_probe() {
-        GatewayBootstrapProbe::Ready => {
-            push_log(
-                state.inner(),
-                "gateway already reachable; treating process as external",
-            );
-            return Ok(current_status(state.inner()));
-        }
-        GatewayBootstrapProbe::Incompatible { detail } => {
-            push_log(state.inner(), &detail);
-            return Ok(current_status(state.inner()));
-        }
-        GatewayBootstrapProbe::BootstrapError { detail, .. } => {
-            push_log(state.inner(), &detail);
-            return Ok(current_status(state.inner()));
-        }
-        GatewayBootstrapProbe::Offline(_) => {}
-    }
-
     let repo_root = repo_root();
     let worker = {
         let runtime = lock_runtime(state.inner());
-        runtime.worker.clone()
+        runtime.experimental_worker.clone()
     };
-    match worker.start(gateway_worker_command_spec()) {
+    match ensure_ts_agent_worker_running(
+        &worker,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+    ) {
         Ok(()) => {
             let mut runtime = lock_runtime(state.inner());
             runtime.last_error = None;
             append_log(
                 &mut runtime,
-                "started shell-owned gateway with `uv run tinybot gateway`",
+                "started native TS backend with `node workers/ts-agent-worker/src/index.ts`",
             );
         }
-        Err(WorkerManagerError::AlreadyRunning) => {
+        Err(error) if error.contains("AlreadyRunning") => {
             push_log(
                 state.inner(),
-                "shell-owned gateway worker is already running",
+                "native TS backend worker is already running",
             );
         }
         Err(error) => {
-            let message = format!("failed to start gateway: {error:?}");
+            let message = format!("failed to start native TS backend: {error}");
             let mut runtime = lock_runtime(state.inner());
             runtime.last_error = Some(message.clone());
             return Err(message);
@@ -896,7 +880,7 @@ fn start_gateway(state: State<'_, SharedGateway>) -> Result<GatewayRuntimeStatus
         let mut runtime = lock_runtime(state.inner());
         append_log(
             &mut runtime,
-            &format!("gateway worker cwd: {}", repo_root.display()),
+            &format!("native TS backend cwd: {}", repo_root.display()),
         );
     }
 
@@ -921,9 +905,9 @@ fn set_gateway_keep_running(
         append_log(
             &mut runtime,
             if keep_running {
-                "configured shell-owned gateway to keep running after desktop exits"
+                "configured native TS backend to keep running after desktop exits"
             } else {
-                "configured shell-owned gateway to stop when desktop exits"
+                "configured native TS backend to stop when desktop exits"
             },
         );
     }
@@ -1264,22 +1248,17 @@ fn current_status(shared: &SharedGateway) -> GatewayRuntimeStatus {
     let probe = gateway_bootstrap_probe();
     let http_ok = probe.is_ready();
     let runtime = lock_runtime(shared);
-    let worker_status = runtime.worker.status();
-    let worker_running = worker_status.state == WorkerManagerState::Running;
+    let worker_status = runtime.experimental_worker.status();
 
-    let owner = if worker_running {
+    let owner = if worker_status.state == WorkerManagerState::Running {
         "shell"
-    } else if http_ok {
-        "external"
     } else {
         "none"
     };
-    let state = if http_ok {
+    let state = if worker_status.state == WorkerManagerState::Running {
         "running"
-    } else if probe.is_conflict_or_error() {
+    } else if worker_status.state == WorkerManagerState::Failed || probe.is_conflict_or_error() {
         "failed"
-    } else if worker_running {
-        "starting"
     } else {
         "offline"
     };
@@ -1295,7 +1274,7 @@ fn current_status(shared: &SharedGateway) -> GatewayRuntimeStatus {
         http_ok,
         gateway_http: "http://127.0.0.1:18790",
         gateway_ws: "ws://127.0.0.1:18790/ws",
-        command: "uv run tinybot gateway",
+        command: "node workers/ts-agent-worker/src/index.ts",
         port: 18790,
         repo_root: repo_root().display().to_string(),
         logs: gateway_runtime_logs(&runtime.logs, &worker_status.diagnostics),
@@ -1407,11 +1386,6 @@ fn http_response_body(response: &str) -> &str {
         .map(|(_, body)| body)
         .or_else(|| response.split_once("\n\n").map(|(_, body)| body))
         .unwrap_or(response)
-}
-
-fn gateway_worker_command_spec() -> WorkerCommandSpec {
-    WorkerCommandSpec::new("uv", ["run", "tinybot", "gateway"], repo_root())
-        .with_label("tinybot-gateway")
 }
 
 fn worker_echo_agent_with_options(
@@ -3059,16 +3033,16 @@ fn stop_owned_gateway(shared: &SharedGateway, explicit: bool) -> Result<(), Stri
     let (worker, experimental_worker) = {
         let runtime = lock_runtime(shared);
         if !explicit && runtime.keep_background {
-            let experimental_worker = runtime.experimental_worker.clone();
+            let worker = runtime.worker.clone();
             drop(runtime);
-            let _ = experimental_worker.stop();
-            push_log(shared, "leaving shell-owned gateway running in background");
+            let _ = worker.stop();
+            push_log(shared, "leaving native TS backend running in background");
             return Ok(());
         }
         (runtime.worker.clone(), runtime.experimental_worker.clone())
     };
 
-    let was_running = worker.status().state == WorkerManagerState::Running;
+    let was_running = experimental_worker.status().state == WorkerManagerState::Running;
     worker
         .stop()
         .map_err(|error| format!("failed to stop gateway: {error:?}"))?;
@@ -3077,7 +3051,7 @@ fn stop_owned_gateway(shared: &SharedGateway, explicit: bool) -> Result<(), Stri
         .map_err(|error| format!("failed to stop experimental worker: {error:?}"))?;
     if was_running {
         let mut runtime = lock_runtime(shared);
-        append_log(&mut runtime, "stopped shell-owned gateway");
+        append_log(&mut runtime, "stopped native TS backend");
     }
     Ok(())
 }
@@ -3265,45 +3239,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn close_shutdown_stops_shell_owned_gateway_child() {
+    fn close_shutdown_stops_native_ts_backend_child() {
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
         {
             let runtime = lock_runtime(&shared);
             runtime
-                .worker
-                .start(test_gateway_worker_spec("gateway-close-worker"))
+                .experimental_worker
+                .start(test_gateway_worker_spec("ts-backend-close-worker"))
                 .expect("test worker should start");
         }
 
-        stop_owned_gateway(&shared, false).expect("shell-owned gateway child should stop");
+        stop_owned_gateway(&shared, false).expect("native TS backend child should stop");
 
         let runtime = lock_runtime(&shared);
         assert_eq!(
-            runtime.worker.status().state,
+            runtime.experimental_worker.status().state,
             crate::worker_manager::WorkerManagerState::Stopped
         );
         assert!(runtime
             .logs
             .iter()
-            .any(|line| line == "stopped shell-owned gateway"));
+            .any(|line| line == "stopped native TS backend"));
     }
 
     #[test]
-    fn gateway_worker_command_spec_uses_uv_gateway_in_repo_root() {
-        let spec = gateway_worker_command_spec();
-
-        assert_eq!(spec.label, "tinybot-gateway");
-        assert_eq!(spec.program, "uv");
-        assert_eq!(spec.args, vec!["run", "tinybot", "gateway"]);
-        assert_eq!(spec.cwd, repo_root());
-    }
-
-    #[test]
-    fn gateway_status_uses_worker_manager_for_shell_owned_process() {
+    fn gateway_status_uses_ts_worker_manager_for_native_backend() {
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
         let worker = {
             let runtime = lock_runtime(&shared);
-            runtime.worker.clone()
+            runtime.experimental_worker.clone()
         };
         worker
             .start(test_gateway_short_worker_spec("gateway-status-worker"))
@@ -3312,14 +3276,7 @@ mod tests {
         let status = current_status(&shared);
 
         assert_eq!(status.owner, "shell");
-        assert_eq!(
-            status.state,
-            if status.http_ok {
-                "running"
-            } else {
-                "starting"
-            }
-        );
+        assert_eq!(status.state, "running");
     }
 
     #[test]
@@ -3327,7 +3284,7 @@ mod tests {
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
         let worker = {
             let runtime = lock_runtime(&shared);
-            runtime.worker.clone()
+            runtime.experimental_worker.clone()
         };
         worker
             .start(test_gateway_short_worker_spec("gateway-runtime-worker"))
@@ -3344,6 +3301,48 @@ mod tests {
             Some(crate::worker_protocol::WorkerTransportMode::Stdio)
         );
         assert!(!status.worker_runtime.gateway_compatibility_available);
+    }
+
+    #[test]
+    fn gateway_status_reports_ts_worker_diagnostics_instead_of_legacy_gateway_logs() {
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let (legacy_worker, ts_worker) = {
+            let runtime = lock_runtime(&shared);
+            (runtime.worker.clone(), runtime.experimental_worker.clone())
+        };
+        legacy_worker
+            .start(test_logging_sleep_worker_spec(
+                "tinybot-gateway",
+                "legacy python backend",
+            ))
+            .expect("legacy worker should start");
+        ts_worker
+            .start(test_logging_sleep_worker_spec(
+                "ts-agent-worker",
+                "ts native backend",
+            ))
+            .expect("ts worker should start");
+        let _ = wait_for_worker_diagnostics(&ts_worker, |diagnostics| {
+            diagnostics
+                .iter()
+                .any(|line| line.line.contains("ts native backend"))
+        });
+
+        let status = current_status(&shared);
+        let log_text = status.logs.join("\n");
+        let diagnostic_text = status
+            .worker_runtime
+            .diagnostics
+            .iter()
+            .map(|line| line.line.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(log_text.contains("ts native backend"));
+        assert!(!log_text.contains("legacy python backend"));
+        assert!(diagnostic_text.contains("ts native backend"));
+        assert!(!diagnostic_text.contains("legacy python backend"));
+        assert_eq!(status.command, "node workers/ts-agent-worker/src/index.ts");
     }
 
     #[test]
@@ -4313,7 +4312,7 @@ mod tests {
             http_ok: true,
             gateway_http: "http://127.0.0.1:18790",
             gateway_ws: "ws://127.0.0.1:18790/ws",
-            command: "uv run tinybot gateway",
+            command: "node workers/ts-agent-worker/src/index.ts",
             port: 18790,
             repo_root: "/repo".to_string(),
             logs: vec![],
@@ -4619,6 +4618,34 @@ mod tests {
             std::thread::sleep(Duration::from_millis(100));
         }
         manager.status()
+    }
+
+    fn test_logging_sleep_worker_spec(
+        label: &str,
+        message: &str,
+    ) -> crate::worker_manager::WorkerCommandSpec {
+        #[cfg(target_os = "windows")]
+        {
+            crate::worker_manager::WorkerCommandSpec::new(
+                "cmd",
+                [
+                    "/C",
+                    &format!("echo {message} & ping -n 3 127.0.0.1 > NUL"),
+                ],
+                PathBuf::from("."),
+            )
+            .with_label(label)
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            crate::worker_manager::WorkerCommandSpec::new(
+                "sh",
+                ["-c", &format!("echo {message}; sleep 2")],
+                PathBuf::from("."),
+            )
+            .with_label(label)
+        }
     }
 
     fn wait_for_worker_diagnostics(

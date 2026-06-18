@@ -89,7 +89,7 @@ describe("desktop knowledge workbench projection", () => {
       id: "doc-1",
       title: "Native app overview",
       status: "indexed",
-      meta: "native / indexed / 8 chunks / 2026-06-02T08:00:00Z",
+      meta: "native / Indexed / 8 chunks / 2026-06-02T08:00:00Z",
       selected: true,
     });
     expect(projection.mainView).toEqual({

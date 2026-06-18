@@ -3527,7 +3527,7 @@ describe("AgentWorker", () => {
         status: 400,
         body: {
           error: {
-            message: "Invalid rebuild type 'vector'. Valid options: bm25, semantic, all",
+            message: "Invalid rebuild type 'vector'. Valid options: bm25, semantic, tree, all",
             type: "invalid_request_error",
             code: 400,
           },

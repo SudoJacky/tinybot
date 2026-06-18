@@ -39,7 +39,7 @@ describe("gateway runtime Vue island", () => {
       "Repo rootD:/Code/py/tinybot",
       "Recent logsstdout: ready",
       "Last errorNo recent error",
-      "Exit policyStop shell-owned gateway on exit",
+      "Exit policyStop native TS backend on exit",
     ]);
 
     host.querySelector<HTMLButtonElement>('[data-desktop-gateway-action="stop"]')?.click();
