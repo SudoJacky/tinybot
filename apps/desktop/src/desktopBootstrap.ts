@@ -2497,7 +2497,7 @@ function failedGatewayRuntimeStatus(
     http_ok: false,
     gateway_http: previousStatus?.gateway_http ?? gatewayConfig.httpBaseUrl,
     gateway_ws: previousStatus?.gateway_ws ?? gatewayConfig.wsUrl,
-    command: previousStatus?.command ?? "uv run tinybot gateway",
+    command: previousStatus?.command ?? "node workers/ts-agent-worker/src/index.ts",
     port: previousStatus?.port ?? 18790,
     repo_root: previousStatus?.repo_root ?? "",
     logs: [...(previousStatus?.logs ?? []), `error: ${message}`].slice(-12),

@@ -14,7 +14,7 @@ describe("desktop gateway runtime controls", () => {
       http_ok: false,
       gateway_http: "http://127.0.0.1:18790",
       gateway_ws: "ws://127.0.0.1:18790/ws",
-      command: "uv run tinybot gateway",
+      command: "node workers/ts-agent-worker/src/index.ts",
       port: 18790,
       repo_root: "D:/Code/py/tinybot",
       logs: ["stdout: booting", "stderr: warning", "stdout: listening"],
@@ -25,12 +25,12 @@ describe("desktop gateway runtime controls", () => {
     expect(buildDesktopGatewayRuntimeRows(status, "http://127.0.0.1:18790")).toEqual([
       { label: "State", value: "Starting" },
       { label: "Owner", value: "Shell-owned" },
-      { label: "Command", value: "uv run tinybot gateway" },
+      { label: "Command", value: "node workers/ts-agent-worker/src/index.ts" },
       { label: "Port", value: "18790" },
       { label: "Repo root", value: "D:/Code/py/tinybot" },
       { label: "Recent logs", value: "stdout: booting\nstderr: warning\nstdout: listening" },
       { label: "Last error", value: "HTTP 503" },
-      { label: "Exit policy", value: "Stop shell-owned gateway on exit" },
+      { label: "Exit policy", value: "Stop native TS backend on exit" },
     ]);
   });
 
@@ -41,7 +41,7 @@ describe("desktop gateway runtime controls", () => {
       http_ok: true,
       gateway_http: "http://127.0.0.1:18790",
       gateway_ws: "ws://127.0.0.1:18790/ws",
-      command: "uv run tinybot gateway",
+      command: "node workers/ts-agent-worker/src/index.ts",
       port: 18790,
       repo_root: "D:/Code/py/tinybot",
       logs: ["external gateway reachable"],
@@ -81,7 +81,7 @@ describe("desktop gateway runtime controls", () => {
       http_ok: true,
       gateway_http: "http://127.0.0.1:18790",
       gateway_ws: "ws://127.0.0.1:18790/ws",
-      command: "uv run tinybot gateway",
+      command: "node workers/ts-agent-worker/src/index.ts",
       port: 18790,
       repo_root: "D:/Code/py/tinybot",
       logs: [],
@@ -107,14 +107,14 @@ describe("desktop gateway runtime controls", () => {
     expect(commands).toEqual(["stop_gateway", "start_gateway"]);
   });
 
-  test("toggles shell-owned gateway exit policy through a persisted runtime command", async () => {
+  test("toggles native TS backend exit policy through a persisted runtime command", async () => {
     const status: GatewayRuntimeStatus = {
       state: "running",
       owner: "shell",
       http_ok: true,
       gateway_http: "http://127.0.0.1:18790",
       gateway_ws: "ws://127.0.0.1:18790/ws",
-      command: "uv run tinybot gateway",
+      command: "node workers/ts-agent-worker/src/index.ts",
       port: 18790,
       repo_root: "D:/Code/py/tinybot",
       logs: [],
@@ -149,7 +149,7 @@ describe("desktop gateway runtime controls", () => {
       http_ok: false,
       gateway_http: "http://127.0.0.1:18790",
       gateway_ws: "ws://127.0.0.1:18790/ws",
-      command: "uv run tinybot gateway",
+      command: "node workers/ts-agent-worker/src/index.ts",
       port: 18790,
       repo_root: "D:/Code/py/tinybot",
       logs: [],
@@ -175,7 +175,7 @@ describe("desktop gateway runtime controls", () => {
       http_ok: true,
       gateway_http: "http://127.0.0.1:18790",
       gateway_ws: "ws://127.0.0.1:18790/ws",
-      command: "uv run tinybot gateway",
+      command: "node workers/ts-agent-worker/src/index.ts",
       port: 18790,
       repo_root: "D:/Code/py/tinybot",
       logs: [],

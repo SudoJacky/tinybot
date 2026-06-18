@@ -52,7 +52,7 @@ export function buildDesktopGatewayTaskOperation(
     : status?.state === "running" || status === null
       ? "completed"
       : status?.state || "starting";
-  const command = status?.command || "uv run tinybot gateway";
+  const command = status?.command || "node workers/ts-agent-worker/src/index.ts";
   const owner = status?.owner || "external";
   const diagnostics = status?.last_error || (status?.logs ?? []).slice(-4).join("\n");
   return {
