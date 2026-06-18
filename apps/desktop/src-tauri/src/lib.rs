@@ -3036,7 +3036,7 @@ fn expand_tinybot_workspace_path(workspace: &str) -> PathBuf {
     PathBuf::from(workspace)
 }
 
-fn experimental_worker_config_snapshot() -> serde_json::Value {
+fn experimental_worker_default_config_snapshot() -> serde_json::Value {
     serde_json::json!({
         "agents": {
             "defaults": {
@@ -3044,6 +3044,19 @@ fn experimental_worker_config_snapshot() -> serde_json::Value {
             }
         }
     })
+}
+
+fn experimental_worker_config_snapshot_from_path(config_path: &Path) -> serde_json::Value {
+    ConfigStore::load(
+        config_path.to_path_buf(),
+        experimental_worker_default_config_snapshot(),
+    )
+    .map(|store| store.snapshot().clone())
+    .unwrap_or_else(|_| experimental_worker_default_config_snapshot())
+}
+
+fn experimental_worker_config_snapshot() -> serde_json::Value {
+    experimental_worker_config_snapshot_from_path(&default_tinybot_config_path())
 }
 
 fn stop_owned_gateway(shared: &SharedGateway, explicit: bool) -> Result<(), String> {
@@ -3555,9 +3568,34 @@ mod tests {
     }
 
     #[test]
-    fn experimental_worker_config_defaults_to_auto_provider_without_fixture_model() {
+    fn experimental_worker_config_snapshot_loads_real_tinybot_config() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("config.json", r#"{
+          "agents": {
+            "defaults": {
+              "provider": "deepseek",
+              "model": "deepseek-v4-flash"
+            }
+          },
+          "knowledge": {
+            "semanticLlmTimeout": 30.0,
+            "semanticLlmMaxTokens": 1200
+          }
+        }"#);
+        let config_path = fixture.root.join("config.json");
+
+        let snapshot = experimental_worker_config_snapshot_from_path(&config_path);
+
+        assert_eq!(snapshot["agents"]["defaults"]["provider"], "deepseek");
+        assert_eq!(snapshot["agents"]["defaults"]["model"], "deepseek-v4-flash");
+        assert_eq!(snapshot["knowledge"]["semanticLlmTimeout"], 30.0);
+    }
+
+    #[test]
+    fn experimental_worker_config_defaults_to_auto_provider_without_config_file() {
+        let fixture = WorkspaceFixture::new();
         assert_eq!(
-            experimental_worker_config_snapshot(),
+            experimental_worker_config_snapshot_from_path(&fixture.root.join("missing-config.json")),
             serde_json::json!({
                 "agents": {
                     "defaults": {
