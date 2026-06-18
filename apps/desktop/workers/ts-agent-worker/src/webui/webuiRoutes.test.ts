@@ -1821,7 +1821,7 @@ describe("WebUI knowledge diagnostics", () => {
       completeChat: (request) => {
         request.onReasoningDelta?.("checking graph candidates");
         request.onContentDelta?.("{\"entities\"");
-        request.onContentDelta?.(":[{\"name\":\"TinyBot\"}],\"relations\":[]}");
+        request.onContentDelta?.(":[{\"name\":\"TinyBot\",\"evidence\":[{\"text\":\"Private evidence from source doc\"}]}],\"relations\":[]}");
         return JSON.stringify({ entities: [{ name: "TinyBot", confidence: 0.9 }], relations: [] });
       },
     };
@@ -1882,6 +1882,7 @@ describe("WebUI knowledge diagnostics", () => {
     expect(logText).toContain('"extract_stage":"parsed_graph_json"');
     expect(logText).toContain('"extract_stage":"persisted_entity_graph"');
     expect(logText).not.toContain("TinyBot extracts graph data");
+    expect(logText).not.toContain("Private evidence from source doc");
   });
 
   test("marks the failed graph extraction stage in job progress", async () => {

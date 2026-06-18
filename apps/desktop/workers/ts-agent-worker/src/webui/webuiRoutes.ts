@@ -2054,7 +2054,6 @@ function recordKnowledgeGraphLlmDelta(
     delta_chars: delta.length,
     output_chars: outputChars,
     reasoning_chars: reasoningChars,
-    preview: kind === "content" ? trimKnowledgeGraphLlmPreview(delta) : undefined,
   });
 }
 
