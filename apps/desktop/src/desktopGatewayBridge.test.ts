@@ -178,6 +178,77 @@ describe("desktop gateway bridge", () => {
     bridge.restore();
   });
 
+  test("does not fallback to gateway HTTP for native Knowledge fetch failures", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
+    const nativeWebui = {
+      routeResponse: vi.fn(async () => {
+        throw new Error("native knowledge route unavailable");
+      }),
+    };
+    const target = {
+      location: { origin: pageOrigin },
+      fetch: fetchMock,
+      WebSocket: class TestWebSocket {} as unknown as typeof WebSocket,
+    } as unknown as typeof globalThis;
+    const bridge = installDesktopGatewayBridge({
+      config: DEFAULT_GATEWAY_CONFIG,
+      pageOrigin,
+      fetchTarget: target,
+      webSocketTarget: target,
+      nativeWebui,
+    });
+
+    const response = await target.fetch("/v1/knowledge/graph?graph_type=entity");
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        message: "Native WebUI route failed: native knowledge route unavailable",
+      },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    bridge.restore();
+  });
+
+  test("does not fallback to gateway HTTP for unsupported native Knowledge fetch bodies", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
+    const nativeWebui = {
+      routeResponse: vi.fn(async () => ({
+        status: 200,
+        body: { native: true },
+      })),
+    };
+    const target = {
+      location: { origin: pageOrigin },
+      fetch: fetchMock,
+      WebSocket: class TestWebSocket {} as unknown as typeof WebSocket,
+    } as unknown as typeof globalThis;
+    const bridge = installDesktopGatewayBridge({
+      config: DEFAULT_GATEWAY_CONFIG,
+      pageOrigin,
+      fetchTarget: target,
+      webSocketTarget: target,
+      nativeWebui,
+    });
+    const body = new FormData();
+    body.append("file", new File(["%PDF-1.4"], "paper.pdf", { type: "application/pdf" }));
+
+    const response = await target.fetch("/v1/knowledge/documents/upload?async_index=true", {
+      method: "POST",
+      body,
+    });
+
+    expect(response.status).toBe(415);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        message: "Native WebUI route does not support this request body: /v1/knowledge/documents/upload",
+      },
+    });
+    expect(nativeWebui.routeResponse).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    bridge.restore();
+  });
+
   test("routes WebUI WebSocket URLs with original query parameters", () => {
     expect(String(rewriteGatewayWebSocketUrl("/ws?token=abc&chat=1", DEFAULT_GATEWAY_CONFIG, pageOrigin))).toBe(
       "ws://127.0.0.1:18790/ws?token=abc&chat=1",

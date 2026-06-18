@@ -519,12 +519,14 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
           () => options.nativeWebui?.route({ method: "GET", path }),
           () => request(path),
           "knowledge.documents",
+          false,
         );
       },
       addDocument: (body: unknown) => nativeOrGateway(
         () => options.nativeWebui?.route({ method: "POST", path: "/v1/knowledge/documents", body }),
         () => request("/v1/knowledge/documents", jsonRequest("POST", body)),
         "knowledge.addDocument",
+        false,
       ),
       document: (documentId: string) => {
         const path = `/v1/knowledge/documents/${encodePathSegment(documentId)}`;
@@ -532,6 +534,7 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
           () => options.nativeWebui?.route({ method: "GET", path }),
           () => request(path),
           "knowledge.document",
+          false,
         );
       },
       uploadDocument: (body: FormData) => nativeOrGateway(
@@ -546,10 +549,11 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
               path: "/v1/knowledge/documents/upload?async_index=true",
               body: payload,
             }))
-            : undefined;
+            : Promise.reject(new Error("Native Knowledge uploads only support txt, md, json, and csv files."));
         },
         () => request("/v1/knowledge/documents/upload?async_index=true", formRequest("POST", body)),
         "knowledge.uploadDocument",
+        false,
       ),
       deleteDocument: (documentId: string) => {
         const path = `/v1/knowledge/documents/${encodePathSegment(documentId)}`;
@@ -557,6 +561,7 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
           () => options.nativeWebui?.route({ method: "DELETE", path }),
           () => request(path, { method: "DELETE" }),
           "knowledge.deleteDocument",
+          false,
         );
       },
       job: (jobId: string) => {
@@ -565,20 +570,23 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
           () => options.nativeWebui?.route({ method: "GET", path }),
           () => request(path),
           "knowledge.job",
+          false,
         );
       },
       rebuildIndex: (type: string = "all") => {
         const path = `/v1/knowledge/rebuild-index?type=${encodeURIComponent(type)}&async_index=true`;
         return nativeOrGateway(
-          () => ["bm25", "all", "semantic", "tree"].includes(type) ? options.nativeWebui?.route({ method: "POST", path }) : undefined,
+          () => options.nativeWebui?.route({ method: "POST", path }),
           () => request(path, { method: "POST" }),
           "knowledge.rebuildIndex",
+          false,
         );
       },
       stats: () => nativeOrGateway(
         () => options.nativeWebui?.route({ method: "GET", path: "/v1/knowledge/stats" }),
         () => request("/v1/knowledge/stats"),
         "knowledge.stats",
+        false,
       ),
       graph: (graphOptions: KnowledgeGraphOptions = {}) => {
         const path = knowledgeGraphPath(graphOptions);
@@ -586,6 +594,7 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
           () => options.nativeWebui?.route({ method: "GET", path }),
           () => request(path),
           "knowledge.graph",
+          false,
         );
       },
       extractGraph: (extractOptions: KnowledgeGraphExtractionOptions) => {
@@ -616,12 +625,14 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
           }),
           () => request(path),
           "knowledge.graphrag",
+          false,
         );
       },
       query: (body: unknown) => nativeOrGateway(
         () => options.nativeWebui?.route({ method: "POST", path: "/v1/knowledge/query", body }),
         () => request("/v1/knowledge/query", jsonRequest("POST", body)),
         "knowledge.query",
+        false,
       ),
     },
     workspace: {
