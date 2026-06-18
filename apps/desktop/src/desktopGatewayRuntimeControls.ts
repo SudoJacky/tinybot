@@ -20,7 +20,7 @@ export interface DesktopGatewayRuntimeAction {
   label: string;
 }
 
-export type DesktopGatewayRuntimeCommand = "start_gateway" | "stop_gateway" | "set_gateway_keep_running";
+export type DesktopGatewayRuntimeCommand = "gateway_status" | "start_gateway" | "stop_gateway" | "set_gateway_keep_running";
 
 export type DesktopGatewayRuntimeCommandPayload = { keep_running: boolean };
 

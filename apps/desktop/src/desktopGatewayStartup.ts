@@ -45,6 +45,9 @@ export async function ensureGatewayReady(
 ): Promise<GatewayRuntimeStatus | null> {
   const externalBootstrap = await fetchBootstrap(config, deps);
   if (externalBootstrap.ok) {
+    if ((deps.hasTauriRuntime ?? hasTauriRuntime)()) {
+      return deps.invoke("gateway_status");
+    }
     return null;
   }
 

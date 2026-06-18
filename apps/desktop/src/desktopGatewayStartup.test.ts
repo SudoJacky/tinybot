@@ -17,9 +17,10 @@ function status(owner: GatewayRuntimeStatus["owner"], state: GatewayRuntimeStatu
 }
 
 describe("desktop gateway startup", () => {
-  test("attaches to an already reachable external gateway without invoking Tauri commands", async () => {
+  test("uses gateway_status for an already reachable gateway in Tauri so runtime logs are available", async () => {
+    const reachable = status("shell", "running", true);
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ token: "token-1" }), { status: 200 }));
-    const invoke = vi.fn();
+    const invoke = vi.fn(async () => reachable);
 
     const result = await ensureGatewayReady(DEFAULT_GATEWAY_CONFIG, {
       fetchFn,
@@ -27,11 +28,25 @@ describe("desktop gateway startup", () => {
       hasTauriRuntime: () => true,
     });
 
-    expect(result).toBeNull();
+    expect(result).toBe(reachable);
     expect(fetchFn).toHaveBeenCalledWith(
       "http://127.0.0.1:18790/webui/bootstrap",
       expect.objectContaining({ cache: "no-store", signal: expect.any(AbortSignal) }),
     );
+    expect(invoke).toHaveBeenCalledWith("gateway_status");
+  });
+
+  test("attaches to an already reachable external gateway outside Tauri without runtime logs", async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ token: "token-1" }), { status: 200 }));
+    const invoke = vi.fn();
+
+    const result = await ensureGatewayReady(DEFAULT_GATEWAY_CONFIG, {
+      fetchFn,
+      invoke,
+      hasTauriRuntime: () => false,
+    });
+
+    expect(result).toBeNull();
     expect(invoke).not.toHaveBeenCalled();
   });
 

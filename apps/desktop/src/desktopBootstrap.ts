@@ -162,6 +162,10 @@ const nativeFileTaskOperations = new Map<string, DesktopTaskSourceOperation>();
 const nativeGatewayTaskOperations = new Map<string, DesktopTaskSourceOperation>();
 const nativeApprovalTaskOperations = new Map<string, DesktopTaskSourceOperation>();
 let nativeRuntimeStatus: GatewayRuntimeStatus | null = null;
+let nativeRuntimeStatusEventsInstalled = false;
+let nativeRuntimeStatusRefreshTimer: number | null = null;
+let nativeRuntimeStatusRefreshInFlight = false;
+let nativeRuntimeStatusRefreshPending = false;
 let nativeSettingsConfig: unknown = {};
 let nativeSettingsState: DesktopSettingsFormState | null = null;
 let nativeSettingsLastSavedState: DesktopSettingsFormState | null = null;
@@ -228,6 +232,7 @@ async function bootDesktopWebUi(): Promise<void> {
       runtimeState: status?.state ?? "",
     });
     nativeRuntimeStatus = status;
+    installNativeRuntimeStatusEventRouting();
     updateNativeGatewayTask(buildDesktopGatewayTaskOperation("startup", status));
     startupTrace.start("channelRuntime");
     await startDesktopNativeChannelRuntime({
@@ -2403,6 +2408,65 @@ async function handleNativeGatewayRuntimeAction(event: DesktopGatewayRuntimeActi
       action: event.action,
       error: message,
     });
+  }
+}
+
+function installNativeRuntimeStatusEventRouting(): void {
+  if (!hasTauriRuntime() || nativeRuntimeStatusEventsInstalled) {
+    return;
+  }
+  nativeRuntimeStatusEventsInstalled = true;
+  void listen("diagnostics.log", () => {
+    scheduleNativeRuntimeStatusRefresh("diagnostics.log");
+  });
+  void listen("worker.status", () => {
+    scheduleNativeRuntimeStatusRefresh("worker.status");
+  });
+}
+
+function scheduleNativeRuntimeStatusRefresh(reason: string): void {
+  if (nativeRuntimeStatusRefreshTimer !== null) {
+    nativeRuntimeStatusRefreshPending = true;
+    return;
+  }
+  nativeRuntimeStatusRefreshTimer = window.setTimeout(() => {
+    nativeRuntimeStatusRefreshTimer = null;
+    void refreshNativeRuntimeStatus(reason);
+  }, 250);
+}
+
+async function refreshNativeRuntimeStatus(reason: string): Promise<void> {
+  if (nativeRuntimeStatusRefreshInFlight) {
+    nativeRuntimeStatusRefreshPending = true;
+    return;
+  }
+  nativeRuntimeStatusRefreshInFlight = true;
+  try {
+    const nextStatus = await invokeGatewayRuntimeCommand("gateway_status");
+    nativeRuntimeStatus = nextStatus;
+    updateDesktopGatewayRuntimeStatus(document, nextStatus, gatewayConfig.httpBaseUrl, {
+      onGatewayRuntimeAction: (nextEvent) => {
+        void handleNativeGatewayRuntimeAction(nextEvent);
+      },
+    });
+    setDesktopWindowRuntimeStatus(nextStatus);
+    updateNativeGatewayTask(buildDesktopGatewayTaskOperation("startup", nextStatus));
+    logDesktopNativeDebug("gatewayRuntime.status.refresh", {
+      reason,
+      workerDiagnostics: nextStatus.worker_runtime?.diagnostics?.length ?? 0,
+      runtimeLogs: nextStatus.logs.length,
+    });
+  } catch (error) {
+    logDesktopNativeDebug("gatewayRuntime.status.refresh.failed", {
+      reason,
+      error: stringifyError(error),
+    });
+  } finally {
+    nativeRuntimeStatusRefreshInFlight = false;
+    if (nativeRuntimeStatusRefreshPending) {
+      nativeRuntimeStatusRefreshPending = false;
+      scheduleNativeRuntimeStatusRefresh(reason);
+    }
   }
 }
 
