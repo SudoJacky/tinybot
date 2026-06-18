@@ -64,6 +64,11 @@ describe("knowledge graph extraction backend", () => {
     });
   });
 
+  test("reports non-JSON LLM graph extraction output without leaking a raw parser error", () => {
+    expect(() => parseKnowledgeGraphExtractionJson('Error calling model: provider returned HTML'))
+      .toThrow("LLM returned non-JSON graph extraction output");
+  });
+
   test("drops extracted relations that cannot satisfy native graph validation", () => {
     const result = parseKnowledgeGraphExtractionJson(JSON.stringify({
       entities: [],
