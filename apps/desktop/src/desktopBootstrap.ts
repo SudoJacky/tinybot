@@ -23,7 +23,10 @@ import { installDesktopGatewayBridge } from "./desktopGatewayBridge";
 import {
   buildDesktopKnowledgeDocumentRows,
   buildDesktopKnowledgePaneModel,
+  buildDesktopKnowledgeQueryRequest,
   buildDesktopKnowledgeTaskOperation,
+  hasRunnableKnowledgeQueryDraft,
+  type DesktopKnowledgeQueryRequestInput,
   type DesktopKnowledgePaneModel,
 } from "./desktopKnowledgeTraceability";
 import { installWebUiRenderGlobals } from "./desktopMarkdownGlobals";
@@ -1161,7 +1164,11 @@ async function selectNativeChatFromRoute(path: string): Promise<void> {
 }
 
 async function loadNativeKnowledgePane(
-  options: { queryResultPayload?: unknown; selectedDocumentId?: string | null } = {},
+  options: {
+    queryDraft?: Partial<DesktopKnowledgeQueryRequestInput>;
+    queryResultPayload?: unknown;
+    selectedDocumentId?: string | null;
+  } = {},
 ): Promise<DesktopKnowledgePaneModel> {
   logDesktopNativeDebug("knowledge.load.start", {
     hasQueryResult: options.queryResultPayload !== undefined,
@@ -1181,7 +1188,7 @@ async function loadNativeKnowledgePane(
     config,
     documentsPayload: documents,
     selectedDocumentId: options.selectedDocumentId,
-    queryDraft: nativeKnowledgePane?.query.draft,
+    queryDraft: options.queryDraft ?? nativeKnowledgePane?.query.draft,
     queryResultPayload: nativeKnowledgeQueryResult,
     graphPayload: mergeNativeKnowledgeGraphPayload(selectNativeKnowledgeGraphPayload(entityGraph, documentGraph), graphrag),
   });
@@ -1621,20 +1628,22 @@ async function handleNativeKnowledgeAction(event: DesktopKnowledgeActionEvent): 
       document.getElementById("desktop-knowledge-upload")?.click();
       return;
     }
-    if (event.action === "settings") {
-      outcome = "ignored";
-      return;
-    }
-    if (event.action === "runQuery" && event.pane.actions.query) {
-      const result = await gatewayApi.knowledge.query(event.pane.query.request);
+    if (event.action === "runQuery") {
+      const queryDraft = event.queryDraft ?? event.pane.query.draft;
+      if (!hasRunnableKnowledgeQueryDraft(queryDraft)) {
+        outcome = "ignored";
+        return;
+      }
+      const result = await gatewayApi.knowledge.query(buildDesktopKnowledgeQueryRequest(queryDraft));
       const pane = await loadNativeKnowledgePane({
+        queryDraft,
         queryResultPayload: result,
         selectedDocumentId: event.pane.selectedDocument?.id,
       });
       setNativeKnowledgePane(pane);
       return;
     }
-    if (event.action === "refreshGraph" || event.action === "refreshAll") {
+    if (event.action === "refreshAll") {
       const pane = await loadNativeKnowledgePane({
         queryResultPayload: nativeKnowledgeQueryResult,
         selectedDocumentId: event.pane.selectedDocument?.id,

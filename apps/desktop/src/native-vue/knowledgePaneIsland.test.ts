@@ -86,14 +86,14 @@ const workItem: DesktopTaskCenterItem = {
 describe("knowledge pane Vue island", () => {
   test("renders the knowledge surface and forwards actions", () => {
     const host = document.createElement("section");
-    const actions: string[] = [];
+    const actions: Array<{ action: string; query?: string }> = [];
     const inspected: string[] = [];
 
     const mounted = mountKnowledgePaneIsland(host, {
       pane,
       workItems: [workItem],
       onInspectWorkItem: (item) => inspected.push(item.id),
-      onKnowledgeAction: (event) => actions.push(event.action),
+      onKnowledgeAction: (event) => actions.push({ action: event.action, query: event.queryDraft?.query }),
     });
 
     expect(host.className).toBe("desktop-workbench-section desktop-knowledge-pane");
@@ -101,8 +101,8 @@ describe("knowledge pane Vue island", () => {
     expect(host.getAttribute("data-desktop-module-surface")).toBe("knowledge");
     expect(host.getAttribute("aria-label")).toBe("Knowledge workbench");
     expect(host.querySelector(".desktop-knowledge-toolbar")?.textContent).toContain("Refresh All");
-    expect(host.querySelector(".desktop-knowledge-toolbar")?.textContent).toContain("Settings");
-    expect(host.querySelector(".desktop-knowledge-toolbar")?.textContent).toContain("Upload Documents");
+    expect(host.querySelector(".desktop-knowledge-toolbar")?.textContent).not.toContain("Settings");
+    expect(host.querySelector(".desktop-knowledge-toolbar")?.textContent).not.toContain("Upload Documents");
     expect(host.querySelector(".desktop-knowledge-management-grid")?.getAttribute("data-desktop-knowledge-layout")).toBe(
       "source-left-graph-right",
     );
@@ -111,6 +111,7 @@ describe("knowledge pane Vue island", () => {
       "upload",
       "queue",
       "documents",
+      "query",
       "graph",
       "pipeline",
     ]);
@@ -137,17 +138,17 @@ describe("knowledge pane Vue island", () => {
     expect(host.querySelector('[data-desktop-knowledge-region="upload"] #desktop-knowledge-upload')?.getAttribute("data-desktop-file-upload")).toBe(
       "knowledge-document",
     );
-    expect(host.querySelector('[data-desktop-knowledge-region="queue"]')?.textContent).toContain("Ingestion Queue");
-    expect(host.querySelector('[data-desktop-knowledge-region="queue"]')?.textContent).toContain("Desktop UX");
-    expect(host.querySelector('[data-desktop-knowledge-region="queue"]')?.textContent).toContain("Migration progress");
-    expect(host.querySelector('[data-desktop-knowledge-region="queue"]')?.textContent).toContain("Chunks indexed");
-    expect(host.querySelector('[data-desktop-knowledge-region="queue"]')?.textContent).toContain("13 chunks available; waiting for semantic or graph stages");
-    expect(host.querySelector('[data-desktop-knowledge-region="queue"]')?.textContent).not.toContain("Queued");
-    expect(host.querySelector('[data-desktop-knowledge-queue-action="pause"]')?.getAttribute("type")).toBe("button");
-    expect(host.querySelector('[data-desktop-knowledge-queue-action="cancel"]')?.getAttribute("type")).toBe("button");
+    expect(host.querySelector('[data-desktop-knowledge-region="queue"]')?.textContent).toContain("Knowledge Jobs");
+    expect(host.querySelector('[data-desktop-knowledge-region="queue"]')?.textContent).toContain("Rebuild knowledge index");
+    expect(host.querySelector('[data-desktop-knowledge-region="queue"]')?.textContent).not.toContain("Desktop UX");
+    expect(host.querySelector('[data-desktop-knowledge-queue-action="pause"]')).toBeNull();
+    expect(host.querySelector('[data-desktop-knowledge-queue-action="cancel"]')).toBeNull();
     expect(host.querySelector('[data-desktop-knowledge-region="documents"]')?.textContent).toContain("Documents (2)");
+    expect(host.querySelector('[data-desktop-knowledge-region="documents"]')?.textContent).toContain("Search, inspect, and delete knowledge sources.");
     expect(host.querySelector('[data-desktop-knowledge-document-search]')?.getAttribute("placeholder")).toBe("Search documents...");
-    expect(host.querySelector('[data-desktop-knowledge-document-filter]')?.textContent).toContain("Filter");
+    expect(host.querySelector('[data-desktop-knowledge-document-filter]')).toBeNull();
+    expect(host.querySelector('[aria-label="Document actions"]')).toBeNull();
+    expect(host.querySelector('[data-desktop-knowledge-document-action="reindexDocument"]')).toBeNull();
     expect(host.querySelector('[data-desktop-knowledge-documents-table]')?.textContent).toContain("Name");
     expect(host.querySelector('[data-desktop-knowledge-documents-table]')?.textContent).toContain("Type");
     expect(host.querySelector('[data-desktop-knowledge-documents-table]')?.textContent).toContain("Size");
@@ -162,15 +163,22 @@ describe("knowledge pane Vue island", () => {
       "knowledge-document-detail",
     );
     expect(host.querySelector('[data-desktop-knowledge-region="documents"] .desktop-knowledge-document-detail')?.textContent).toContain("Document detail: Desktop UX");
+    expect(host.querySelector('[data-desktop-knowledge-region="query"] .desktop-knowledge-query')?.getAttribute("data-desktop-vue-island")).toBe(
+      "knowledge-query",
+    );
+    expect(host.querySelector('[data-desktop-knowledge-region="query"]')?.textContent).toContain("Knowledge Query");
+    expect(host.querySelector('[data-desktop-knowledge-query-input]')?.getAttribute("value")).toBe("desktop graph");
+    expect(host.querySelector('[data-desktop-knowledge-action="runQuery"]')?.textContent).toContain("Run Query");
+    expect(host.querySelector('[data-desktop-knowledge-query-result="doc-1:0"]')?.textContent).toContain("Desktop panes expose graph evidence.");
     expect(host.querySelector('[data-desktop-knowledge-region="graph"] .desktop-knowledge-graph')?.getAttribute("data-desktop-vue-island")).toBe(
       "knowledge-graph",
     );
     expect(host.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Extract Graph");
-    expect(host.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Build Graph");
-    expect(host.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Refresh Graph");
-    expect(host.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Fit View");
-    expect(host.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Layout");
-    expect(host.querySelector(".desktop-knowledge-graph-tools")?.textContent).toContain("Zoom in");
+    expect(host.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Rebuild Index");
+    expect(host.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).not.toContain("Refresh Graph");
+    expect(host.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).not.toContain("Fit View");
+    expect(host.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).not.toContain("Layout");
+    expect(host.querySelector(".desktop-knowledge-graph-tools")).toBeNull();
     expect(host.querySelector(".desktop-knowledge-graph-legend")?.textContent).toContain("Entity");
     expect(host.querySelector(".desktop-knowledge-graph-minimap")).not.toBeNull();
     expect(host.querySelector('[data-desktop-knowledge-graph-reference="Community:community-1"]')?.textContent).toContain("Desktop cluster");
@@ -184,19 +192,26 @@ describe("knowledge pane Vue island", () => {
     expect(host.querySelector('[data-desktop-knowledge-region="pipeline"] .desktop-knowledge-readiness')?.textContent).toContain("Graph Build");
     expect(host.querySelector('[data-desktop-knowledge-region="pipeline"] .desktop-knowledge-readiness')?.textContent).toContain("Complete");
     expect(host.querySelector('[data-desktop-knowledge-region="pipeline"] .desktop-knowledge-readiness')?.textContent).toContain("6 steps");
-    expect(host.querySelector('[data-desktop-knowledge-region="pipeline"] .desktop-module-work')?.getAttribute("data-desktop-vue-island")).toBe("module-work");
-    expect(host.querySelector('[data-desktop-module-work="knowledge:rebuild"]')?.textContent).toContain("Rebuild knowledge index");
+    expect(host.querySelector('[data-desktop-knowledge-region="pipeline"] .desktop-module-work')).toBeNull();
 
     host.querySelector<HTMLButtonElement>('[data-desktop-knowledge-action="refreshAll"]')?.click();
-    host.querySelector<HTMLButtonElement>('[data-desktop-knowledge-action="settings"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-desktop-knowledge-action="uploadDocument"]')?.click();
+    host.querySelector<HTMLInputElement>('[data-desktop-knowledge-query-input]')!.value = "updated graph query";
+    host.querySelector<HTMLInputElement>('[data-desktop-knowledge-query-input]')?.dispatchEvent(new Event("input"));
+    host.querySelector<HTMLButtonElement>('[data-desktop-knowledge-action="runQuery"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-desktop-knowledge-action="extractGraph"]')?.click();
-    host.querySelector<HTMLButtonElement>('[data-desktop-knowledge-action="refreshGraph"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-desktop-knowledge-action="rebuildIndex"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-desktop-knowledge-document-action="deleteDocument"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-desktop-module-work="knowledge:rebuild"]')?.click();
 
-    expect(actions).toEqual(["refreshAll", "settings", "uploadDocument", "extractGraph", "refreshGraph", "rebuildIndex", "deleteDocument"]);
+    expect(actions).toEqual([
+      { action: "refreshAll", query: undefined },
+      { action: "uploadDocument", query: undefined },
+      { action: "runQuery", query: "updated graph query" },
+      { action: "extractGraph", query: undefined },
+      { action: "rebuildIndex", query: undefined },
+      { action: "deleteDocument", query: undefined },
+    ]);
     expect(inspected).toEqual(["knowledge:rebuild"]);
 
     mounted.unmount();

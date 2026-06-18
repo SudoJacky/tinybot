@@ -103,7 +103,6 @@ import { mountKnowledgeDocumentsIsland } from "./native-vue/knowledgeDocumentsIs
 import { mountKnowledgeGraphIsland } from "./native-vue/knowledgeGraphIsland";
 import { mountKnowledgePaneIsland } from "./native-vue/knowledgePaneIsland";
 import { mountKnowledgeReadinessIsland } from "./native-vue/knowledgeReadinessIsland";
-import { mountKnowledgeReferenceRowIsland } from "./native-vue/knowledgeReferenceRowIsland";
 import { mountMainUtilitiesRegionIsland } from "./native-vue/mainUtilitiesRegionIsland";
 import { mountModuleWorkSectionIsland } from "./native-vue/moduleWorkSectionIsland";
 import { mountPanelIconPartIsland } from "./native-vue/panelIconPartIsland";
@@ -250,12 +249,13 @@ interface DesktopSettingsActionOptions {
   onSettingsAction?: (event: DesktopSettingsActionEvent) => void;
 }
 
-export type DesktopKnowledgeActionId = "refreshAll" | "settings" | "runQuery" | "refreshGraph" | "extractGraph" | "rebuildIndex" | "deleteDocument" | "uploadDocument";
+export type DesktopKnowledgeActionId = "refreshAll" | "runQuery" | "extractGraph" | "rebuildIndex" | "deleteDocument" | "uploadDocument";
 
 export interface DesktopKnowledgeActionEvent {
   action: DesktopKnowledgeActionId;
   pane: DesktopKnowledgePaneModel;
   documentId?: string;
+  queryDraft?: DesktopKnowledgePaneModel["query"]["draft"];
 }
 
 interface DesktopKnowledgeActionOptions {
@@ -3879,8 +3879,6 @@ function createKnowledgePane(
   toolbar.className = "desktop-knowledge-toolbar";
   toolbar.append(
     createKnowledgeButton("refreshAll", "Refresh All", true, "secondary"),
-    createKnowledgeButton("settings", "Settings", true, "secondary"),
-    createKnowledgeButton("uploadDocument", "Upload Documents", pane.actions.upload, "primary"),
   );
   header.append(titleBlock, toolbar);
   section.append(header);
@@ -3936,37 +3934,15 @@ function createKnowledgePane(
   const queue = targetDocument.createElement("section");
   queue.className = "desktop-knowledge-region desktop-knowledge-queue-region";
   queue.setAttribute("data-desktop-knowledge-region", "queue");
-  queue.setAttribute("aria-label", "Knowledge ingestion queue");
+  queue.setAttribute("aria-label", "Knowledge jobs");
   queue.append(createKnowledgeRegionHeader(
     targetDocument,
-    `Ingestion Queue${pane.documentRows.length ? ` (${Math.min(pane.documentRows.length, 2)})` : ""}`,
-    "Track files as they move through parsing and indexing.",
+    `Knowledge Jobs${workItems.length ? ` (${workItems.length})` : ""}`,
+    "Track active indexing, rebuild, upload, and graph extraction jobs.",
   ));
-  for (const [index, document] of pane.documentRows.slice(0, 2).entries()) {
-    const progress = document.status === "indexed" ? 100 : document.status === "indexing" ? 45 : 0;
-    const stage = document.status === "indexed" ? "Indexed" : document.status === "indexing" ? "Parsing" : "Queued";
-    const row = targetDocument.createElement("article");
-    row.className = "desktop-knowledge-queue-row";
-    row.append(
-      createText(targetDocument, "strong", document.title),
-      createText(targetDocument, "span", `${document.typeLabel || "DOC"} / ${document.sizeLabel || "-"} / ${stage}`),
-      createText(targetDocument, "span", progress ? `${progress}%` : "-", "desktop-knowledge-queue-percent"),
-    );
-    const pause = targetDocument.createElement("button");
-    pause.setAttribute("type", "button");
-    pause.setAttribute("data-desktop-knowledge-queue-action", "pause");
-    if (index > 0) pause.setAttribute("disabled", "true");
-    pause.textContent = "Pause";
-    const cancel = targetDocument.createElement("button");
-    cancel.setAttribute("type", "button");
-    cancel.setAttribute("data-desktop-knowledge-queue-action", "cancel");
-    cancel.textContent = "Cancel";
-    row.append(pause, cancel);
-    queue.append(row);
-  }
-  if (!pane.documentRows.length) {
-    queue.append(createText(targetDocument, "p", "No ingestion jobs running.", "desktop-knowledge-empty-note"));
-  }
+  queue.append(workItems.length
+    ? createModuleWorkSection(targetDocument, "Knowledge jobs", workItems)
+    : createText(targetDocument, "p", "No knowledge jobs running.", "desktop-knowledge-empty-note"));
   grid.append(queue);
 
   const documentsRegion = targetDocument.createElement("section");
@@ -3976,7 +3952,7 @@ function createKnowledgePane(
   documentsRegion.append(createKnowledgeRegionHeader(
     targetDocument,
     `Documents (${pane.documentRows.length})`,
-    "Search, filter, inspect, re-index, and delete knowledge sources.",
+    "Search, inspect, and delete knowledge sources.",
   ));
 
   const documents = targetDocument.createElement("section");
@@ -3987,11 +3963,7 @@ function createKnowledgePane(
   search.setAttribute("type", "search");
   search.setAttribute("placeholder", "Search documents...");
   search.setAttribute("data-desktop-knowledge-document-search", "");
-  const filter = targetDocument.createElement("button");
-  filter.setAttribute("type", "button");
-  filter.setAttribute("data-desktop-knowledge-document-filter", "");
-  filter.textContent = "Filter";
-  documentToolbar.append(search, filter);
+  documentToolbar.append(search);
   const table = targetDocument.createElement("table");
   table.className = "desktop-knowledge-documents-table";
   table.setAttribute("data-desktop-knowledge-documents-table", "");
@@ -4029,6 +4001,12 @@ function createKnowledgePane(
     row.append(actions);
     tbody.append(row);
   }
+  search.addEventListener("input", () => {
+    const query = search.value.trim().toLowerCase();
+    for (const row of Array.from(tbody.querySelectorAll<HTMLTableRowElement>("tr"))) {
+      row.hidden = Boolean(query) && !row.textContent?.toLowerCase().includes(query);
+    }
+  });
   table.append(thead, tbody);
   documents.append(documentToolbar, table);
   mountKnowledgeDocumentsVueIsland(documents, pane);
@@ -4050,6 +4028,70 @@ function createKnowledgePane(
   }
   grid.append(documentsRegion);
 
+  const queryRegion = targetDocument.createElement("section");
+  queryRegion.className = "desktop-knowledge-region desktop-knowledge-query-region";
+  queryRegion.setAttribute("data-desktop-knowledge-region", "query");
+  queryRegion.setAttribute("aria-label", "Knowledge query");
+  queryRegion.append(createKnowledgeRegionHeader(
+    targetDocument,
+    "Knowledge Query",
+    "Search the knowledge base and inspect retrieval context.",
+  ));
+  const querySurface = targetDocument.createElement("section");
+  querySurface.className = "desktop-knowledge-query";
+  const queryControls = targetDocument.createElement("div");
+  queryControls.className = "desktop-knowledge-query-controls";
+  const queryInput = targetDocument.createElement("input");
+  queryInput.setAttribute("aria-label", "Knowledge query");
+  queryInput.setAttribute("data-desktop-knowledge-query-input", "");
+  queryInput.setAttribute("placeholder", "Ask your knowledge base...");
+  queryInput.setAttribute("type", "search");
+  queryInput.value = pane.query.draft.query;
+  const modeSelect = targetDocument.createElement("select");
+  modeSelect.setAttribute("aria-label", "Knowledge query mode");
+  modeSelect.setAttribute("data-desktop-knowledge-query-mode", "");
+  for (const [value, label] of [["hybrid", "Hybrid"], ["local", "Local"], ["global", "Global"]]) {
+    const option = targetDocument.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    modeSelect.append(option);
+  }
+  modeSelect.value = pane.query.draft.mode;
+  const topKInput = targetDocument.createElement("input");
+  topKInput.setAttribute("aria-label", "Knowledge query top K");
+  topKInput.setAttribute("data-desktop-knowledge-query-top-k", "");
+  topKInput.setAttribute("min", "1");
+  topKInput.setAttribute("step", "1");
+  topKInput.setAttribute("type", "number");
+  topKInput.value = String(pane.query.draft.topK);
+  const runQueryButton = targetDocument.createElement("button");
+  runQueryButton.setAttribute("data-desktop-knowledge-action", "runQuery");
+  runQueryButton.setAttribute("type", "button");
+  runQueryButton.textContent = "Run Query";
+  runQueryButton.addEventListener("click", () => {
+    knowledgeActions.onKnowledgeAction?.({
+      action: "runQuery",
+      pane,
+      queryDraft: {
+        query: queryInput.value.trim(),
+        mode: modeSelect.value,
+        topK: Number(topKInput.value),
+      },
+    });
+  });
+  queryControls.append(queryInput, modeSelect, topKInput, runQueryButton);
+  querySurface.append(
+    createText(targetDocument, "h2", "Knowledge Query"),
+    queryControls,
+    createText(targetDocument, "p", `Mode: ${pane.query.draft.mode} / top ${pane.query.draft.topK}`),
+    createText(targetDocument, "p", `Results: ${pane.query.results.summary.count}`),
+  );
+  for (const result of pane.query.results.rows.slice(0, 4)) {
+    querySurface.append(createText(targetDocument, "p", `${result.docName}: ${result.content}`));
+  }
+  queryRegion.append(querySurface);
+  grid.append(queryRegion);
+
   const graph = targetDocument.createElement("section");
   graph.className = "desktop-knowledge-region desktop-knowledge-graph-region";
   graph.setAttribute("data-desktop-knowledge-region", "graph");
@@ -4057,34 +4099,17 @@ function createKnowledgePane(
   const graphHeader = createKnowledgeRegionHeader(
     targetDocument,
     "Knowledge Graph",
-    "Build and inspect entities, relations, communities, and evidence.",
+    "Explore entities and their relationships.",
   );
   const graphActions = targetDocument.createElement("div");
   graphActions.className = "desktop-knowledge-action-row";
   graphActions.append(
     createKnowledgeButton("extractGraph", "Extract Graph", pane.actions.rebuild && Boolean(pane.selectedDocument?.id), "primary"),
-    createKnowledgeButton("rebuildIndex", "Build Graph", pane.actions.rebuild, "secondary"),
-    createKnowledgeButton("refreshGraph", "Refresh Graph", pane.actions.refreshGraph, "secondary"),
+    createKnowledgeButton("rebuildIndex", "Rebuild Index", pane.actions.rebuild, "secondary"),
   );
-  for (const label of ["Fit View", "Layout"]) {
-    const button = targetDocument.createElement("button");
-    button.className = "desktop-knowledge-action-button desktop-knowledge-action-button-secondary";
-    button.setAttribute("type", "button");
-    button.textContent = label;
-    graphActions.append(button);
-  }
   graphHeader.append(graphActions);
   const graphSurface = targetDocument.createElement("section");
   graphSurface.className = "desktop-knowledge-graph";
-  const graphTools = targetDocument.createElement("div");
-  graphTools.className = "desktop-knowledge-graph-tools";
-  for (const label of ["Select", "Zoom in", "Zoom out", "Center", "Layers", "Filter"]) {
-    const button = targetDocument.createElement("button");
-    button.setAttribute("type", "button");
-    button.textContent = label;
-    graphTools.append(button);
-  }
-  graphSurface.append(graphTools);
   graphSurface.append(createText(targetDocument, "h2", `Graph: ${pane.graph.summary}`));
   appendKnowledgeReferenceRows(targetDocument, graphSurface, "Community", pane.graph.communities);
   appendKnowledgeReferenceRows(targetDocument, graphSurface, "Report", pane.graph.reports);
@@ -4111,7 +4136,7 @@ function createKnowledgePane(
   pipeline.append(createKnowledgeRegionHeader(
     targetDocument,
     "Indexing Pipeline",
-    "Track readiness and active knowledge jobs.",
+    "Track ingestion and indexing progress.",
   ));
   const readiness = targetDocument.createElement("section");
   readiness.className = "desktop-knowledge-readiness";
@@ -4127,9 +4152,6 @@ function createKnowledgePane(
   }
   mountKnowledgeReadinessVueIsland(readiness, pane);
   pipeline.append(readiness);
-  if (workItems.length) {
-    pipeline.append(createModuleWorkSection(targetDocument, "Knowledge jobs", workItems));
-  }
   grid.append(pipeline);
   section.append(grid);
 
@@ -5033,24 +5055,12 @@ function appendKnowledgeReferenceRows(
   rows: Array<{ title: string; meta: string; text: string }>,
 ): void {
   for (const row of rows.slice(0, 4)) {
-    const element = createText(targetDocument, "p", knowledgeReferenceRowText(label, row));
-    mountKnowledgeReferenceRowVueIsland(element, { label, text: row.text, title: row.title });
-    section.append(element);
+    section.append(createText(targetDocument, "p", knowledgeReferenceRowText(label, row)));
   }
 }
 
 function knowledgeReferenceRowText(label: string, row: { title: string; text: string }): string {
   return `${label}: ${row.title}${row.text ? ` - ${row.text}` : ""}`;
-}
-
-function mountKnowledgeReferenceRowVueIsland(
-  row: HTMLElement,
-  options: { label: string; text: string; title: string },
-): void {
-  if (!canMountVueIsland(row)) {
-    return;
-  }
-  mountKnowledgeReferenceRowIsland(row, options);
 }
 
 function createDesktopSkillEditor(
@@ -9245,8 +9255,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-knowledge-queue-row button,
     body.desktop-native-workbench .desktop-knowledge-documents-toolbar button,
-    body.desktop-native-workbench .desktop-knowledge-documents-table button,
-    body.desktop-native-workbench .desktop-knowledge-graph-tools button {
+    body.desktop-native-workbench .desktop-knowledge-documents-table button {
       min-height: 32px;
       border: 1px solid var(--border, #e6dfd8);
       border-radius: var(--radius-md, 8px);
@@ -9344,16 +9353,6 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       stroke: var(--accent, #cc785c);
       stroke-width: 1.5;
       opacity: 0.72;
-    }
-
-    body.desktop-native-workbench .desktop-knowledge-graph-tools {
-      position: absolute;
-      z-index: 2;
-      top: 14px;
-      left: 14px;
-      display: grid;
-      gap: 6px;
-      max-width: 86px;
     }
 
     body.desktop-native-workbench .desktop-knowledge-graph-legend,

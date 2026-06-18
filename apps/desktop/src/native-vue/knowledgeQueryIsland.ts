@@ -1,4 +1,4 @@
-import { createApp, defineComponent, h, type App } from "vue";
+import { createApp, defineComponent, h, ref, type App } from "vue";
 import { NCard, NConfigProvider, NEmpty, NList, NListItem, NSpace, NTag } from "naive-ui";
 import type {
   DesktopKnowledgePaneModel,
@@ -12,6 +12,7 @@ const KNOWLEDGE_QUERY_RESULT_LIMIT = 4;
 export interface KnowledgeQueryIslandOptions {
   draft: DesktopKnowledgePaneModel["query"]["draft"];
   results: DesktopKnowledgeQueryResultView;
+  onRunQuery?: (draft: DesktopKnowledgePaneModel["query"]["draft"]) => void;
 }
 
 export interface MountedKnowledgeQueryIsland {
@@ -38,10 +39,61 @@ function createKnowledgeQueryApp(options: KnowledgeQueryIslandOptions): App {
   return createApp(defineComponent({
     name: "KnowledgeQueryIsland",
     setup() {
+      const query = ref(options.draft.query);
+      const mode = ref(options.draft.mode);
+      const topK = ref(options.draft.topK);
+      const runQuery = () => {
+        options.onRunQuery?.({
+          query: query.value.trim(),
+          mode: mode.value,
+          topK: Number.isFinite(topK.value) && topK.value > 0 ? Math.trunc(topK.value) : 5,
+        });
+      };
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
         default: () => h(NCard, { size: "small", bordered: false }, {
           default: () => [
-            h("h2", `Query: ${options.draft.query || "empty"}`),
+            h("h2", "Knowledge Query"),
+            h("div", { class: "desktop-knowledge-query-controls" }, [
+              h("input", {
+                "aria-label": "Knowledge query",
+                "data-desktop-knowledge-query-input": "",
+                placeholder: "Ask your knowledge base...",
+                type: "search",
+                value: query.value,
+                onInput: (event: Event) => {
+                  query.value = (event.target as HTMLInputElement).value;
+                },
+              }),
+              h("select", {
+                "aria-label": "Knowledge query mode",
+                "data-desktop-knowledge-query-mode": "",
+                value: mode.value,
+                onChange: (event: Event) => {
+                  mode.value = (event.target as HTMLSelectElement).value;
+                },
+              }, [
+                h("option", { value: "hybrid" }, "Hybrid"),
+                h("option", { value: "local" }, "Local"),
+                h("option", { value: "global" }, "Global"),
+              ]),
+              h("input", {
+                "aria-label": "Knowledge query top K",
+                "data-desktop-knowledge-query-top-k": "",
+                min: "1",
+                step: "1",
+                type: "number",
+                value: String(topK.value),
+                onInput: (event: Event) => {
+                  topK.value = Number((event.target as HTMLInputElement).value);
+                },
+              }),
+              h("button", {
+                "data-desktop-knowledge-action": "runQuery",
+                disabled: !query.value.trim(),
+                type: "button",
+                onClick: runQuery,
+              }, "Run Query"),
+            ]),
             h("p", `Mode: ${options.draft.mode} / top ${options.draft.topK}`),
             h("p", `Results: ${options.results.summary.count}`),
             renderRetrievalPlan(options.results.summary.retrievalPlan),
