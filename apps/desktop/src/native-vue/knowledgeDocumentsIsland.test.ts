@@ -53,11 +53,12 @@ describe("knowledge documents Vue island", () => {
     expect(host.querySelector("[data-desktop-knowledge-document-search]")?.getAttribute("placeholder")).toBe("Search documents...");
     expect(host.querySelector("[data-desktop-knowledge-document-filter]")).toBeNull();
     expect(host.querySelector('[aria-label="Document actions"]')).toBeNull();
-    expect(host.querySelector("[data-desktop-knowledge-documents-table]")?.textContent).toContain("Name");
-    expect(host.querySelector("[data-desktop-knowledge-documents-table]")?.textContent).toContain("Actions");
-    expect(host.querySelector("[data-desktop-knowledge-documents-table-viewport]")).not.toBeNull();
-    expect(host.querySelector(".desktop-knowledge-documents-col-name")).not.toBeNull();
-    expect(host.querySelector(".desktop-knowledge-documents-cell-name")).not.toBeNull();
+    expect(host.querySelector("[data-desktop-knowledge-documents-table]")).toBeNull();
+    expect(host.querySelector("[data-desktop-knowledge-documents-table-viewport]")).toBeNull();
+    expect(host.querySelector("[data-desktop-knowledge-documents-list]")).not.toBeNull();
+    expect(host.querySelector(".desktop-knowledge-document-row")).not.toBeNull();
+    expect(host.querySelector(".desktop-knowledge-document-summary")).not.toBeNull();
+    expect(host.querySelector(".desktop-knowledge-document-attributes")).not.toBeNull();
     expect(host.querySelector(".desktop-knowledge-document-meta")).not.toBeNull();
     expect(host.querySelector('[data-desktop-knowledge-document-action="reindexDocument"]')).toBeNull();
     const first = host.querySelector<HTMLElement>('[data-desktop-entity-id="doc-1"]');

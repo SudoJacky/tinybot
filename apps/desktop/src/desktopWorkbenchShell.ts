@@ -3985,38 +3985,27 @@ function createKnowledgePane(
   search.setAttribute("placeholder", "Search documents...");
   search.setAttribute("data-desktop-knowledge-document-search", "");
   documentToolbar.append(search);
-  const table = targetDocument.createElement("table");
-  table.className = "desktop-knowledge-documents-table";
-  table.setAttribute("data-desktop-knowledge-documents-table", "");
-  const colgroup = targetDocument.createElement("colgroup");
-  for (const column of ["name", "type", "size", "status", "added", "actions"]) {
-    const col = targetDocument.createElement("col");
-    col.className = `desktop-knowledge-documents-col-${column}`;
-    colgroup.append(col);
-  }
-  const thead = targetDocument.createElement("thead");
-  const headerRow = targetDocument.createElement("tr");
-  for (const heading of ["Name", "Type", "Size", "Status", "Added", "Actions"]) {
-    headerRow.append(createText(targetDocument, "th", heading));
-  }
-  thead.append(headerRow);
-  const tbody = targetDocument.createElement("tbody");
+  const documentList = targetDocument.createElement("div");
+  documentList.className = "desktop-knowledge-documents-list";
+  documentList.setAttribute("data-desktop-knowledge-documents-list", "");
   for (const document of pane.documentRows) {
-    const row = targetDocument.createElement("tr");
+    const row = targetDocument.createElement("article");
+    row.className = "desktop-knowledge-document-row";
     setDesktopEntityHook(row, "knowledge", document.id || document.path);
-    const nameCell = createText(targetDocument, "td", document.title);
-    nameCell.className = "desktop-knowledge-documents-cell-name";
-    const typeCell = createText(targetDocument, "td", document.typeLabel || document.category || "DOC");
-    typeCell.className = "desktop-knowledge-documents-cell-type";
-    const sizeCell = createText(targetDocument, "td", document.sizeLabel || "-");
-    sizeCell.className = "desktop-knowledge-documents-cell-size";
-    const statusCell = createText(targetDocument, "td", document.status || "unknown");
-    statusCell.className = "desktop-knowledge-documents-cell-status";
-    const addedCell = createText(targetDocument, "td", document.addedLabel || "-");
-    addedCell.className = "desktop-knowledge-documents-cell-added";
-    row.append(nameCell, typeCell, sizeCell, statusCell, addedCell);
-    const actions = targetDocument.createElement("td");
-    actions.className = "desktop-knowledge-documents-cell-actions";
+    const summary = targetDocument.createElement("div");
+    summary.className = "desktop-knowledge-document-summary";
+    summary.append(
+      createText(targetDocument, "strong", document.title),
+      createText(targetDocument, "span", document.meta, "desktop-knowledge-document-meta"),
+    );
+    const attributes = targetDocument.createElement("div");
+    attributes.className = "desktop-knowledge-document-attributes";
+    const documentAttributes = [document.typeLabel || document.category || "DOC", document.sizeLabel, document.addedLabel]
+      .filter((value): value is string => Boolean(value));
+    for (const attribute of documentAttributes) {
+      attributes.append(createText(targetDocument, "span", attribute, "desktop-knowledge-document-attribute"));
+    }
+    attributes.append(createText(targetDocument, "span", document.status || "unknown", "desktop-knowledge-document-status"));
     const deleteButton = targetDocument.createElement("button");
     deleteButton.className = "desktop-knowledge-action-button desktop-knowledge-action-button-secondary";
     deleteButton.setAttribute("type", "button");
@@ -4029,22 +4018,16 @@ function createKnowledgePane(
     deleteButton.addEventListener("click", () => {
       knowledgeActions.onKnowledgeAction?.({ action: "deleteDocument", pane, documentId: document.id || document.path });
     });
-    actions.append(deleteButton);
-    row.append(actions);
-    tbody.append(row);
+    row.append(summary, attributes, deleteButton);
+    documentList.append(row);
   }
   search.addEventListener("input", () => {
     const query = search.value.trim().toLowerCase();
-    for (const row of Array.from(tbody.querySelectorAll<HTMLTableRowElement>("tr"))) {
+    for (const row of Array.from(documentList.querySelectorAll<HTMLElement>(".desktop-knowledge-document-row"))) {
       row.hidden = Boolean(query) && !row.textContent?.toLowerCase().includes(query);
     }
   });
-  table.append(colgroup, thead, tbody);
-  const tableViewport = targetDocument.createElement("div");
-  tableViewport.className = "desktop-knowledge-documents-table-viewport";
-  tableViewport.setAttribute("data-desktop-knowledge-documents-table-viewport", "");
-  tableViewport.append(table);
-  documents.append(documentToolbar, tableViewport);
+  documents.append(documentToolbar, documentList);
   mountKnowledgeDocumentsVueIsland(documents, pane);
   documentsRegion.append(documents);
 
@@ -4116,15 +4099,19 @@ function createKnowledgePane(
     });
   });
   queryControls.append(queryInput, modeSelect, topKInput, runQueryButton);
-  querySurface.append(
-    createText(targetDocument, "h2", "Knowledge Query"),
-    queryControls,
-    createText(targetDocument, "p", `Mode: ${pane.query.draft.mode} / top ${pane.query.draft.topK}`),
-    createText(targetDocument, "p", `Results: ${pane.query.results.summary.count}`),
+  const queryPanel = targetDocument.createElement("div");
+  queryPanel.className = "desktop-knowledge-query-panel";
+  const querySummary = targetDocument.createElement("p");
+  querySummary.className = "desktop-knowledge-query-summary";
+  querySummary.append(
+    createText(targetDocument, "span", `Mode: ${pane.query.draft.mode} / top ${pane.query.draft.topK}`),
+    createText(targetDocument, "span", `Results: ${pane.query.results.summary.count}`),
   );
+  queryPanel.append(queryControls, querySummary);
   for (const result of pane.query.results.rows.slice(0, 4)) {
-    querySurface.append(createText(targetDocument, "p", `${result.docName}: ${result.content}`));
+    queryPanel.append(createText(targetDocument, "p", `${result.docName}: ${result.content}`));
   }
+  querySurface.append(queryPanel);
   queryRegion.append(querySurface);
   sourceColumn.append(queryRegion);
 
@@ -9268,8 +9255,8 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-knowledge-overview {
       grid-area: overview;
       display: grid;
-      grid-template-columns: repeat(4, minmax(120px, 1fr));
-      gap: 12px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
     }
 
     body.desktop-native-workbench .desktop-knowledge-upload-region {
@@ -9327,7 +9314,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       min-width: 0;
       border: 1px solid var(--border, #e6dfd8);
       border-radius: var(--radius-md, 8px);
-      padding: 14px;
+      padding: 12px;
       background: var(--surface-card, #efe9de);
     }
 
@@ -9349,7 +9336,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       display: grid;
       gap: 8px;
       place-items: center;
-      min-height: 112px;
+      min-height: 92px;
       border: 1px dashed rgba(204, 120, 92, 0.45);
       border-radius: var(--radius-md, 8px);
       padding: 16px;
@@ -9423,7 +9410,8 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-knowledge-queue-row button,
     body.desktop-native-workbench .desktop-knowledge-documents-toolbar button,
-    body.desktop-native-workbench .desktop-knowledge-documents-table button {
+    body.desktop-native-workbench .desktop-knowledge-document-row button,
+    body.desktop-native-workbench .desktop-knowledge-query-controls button {
       min-height: 32px;
       border: 1px solid var(--border, #e6dfd8);
       border-radius: var(--radius-md, 8px);
@@ -9460,60 +9448,29 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       font: 600 12px/1.2 var(--font-sans, system-ui, sans-serif);
     }
 
-    body.desktop-native-workbench .desktop-knowledge-documents-table {
-      width: 100%;
+    body.desktop-native-workbench .desktop-knowledge-documents-list {
+      display: grid;
+      gap: 8px;
       min-width: 0;
-      border-collapse: collapse;
-      table-layout: fixed;
-      font: 600 12px/1.35 var(--font-sans, system-ui, sans-serif);
     }
 
-    body.desktop-native-workbench .desktop-knowledge-documents-table-viewport {
+    body.desktop-native-workbench .desktop-knowledge-document-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px 10px;
+      align-items: center;
       min-width: 0;
-      max-width: 100%;
-      overflow-x: auto;
-      overflow-y: hidden;
       border-top: 1px solid var(--border-subtle, #ebe6df);
+      padding-top: 10px;
     }
 
-    body.desktop-native-workbench .desktop-knowledge-documents-col-name {
-      width: 38%;
+    body.desktop-native-workbench .desktop-knowledge-document-summary {
+      display: grid;
+      gap: 2px;
+      min-width: 0;
     }
 
-    body.desktop-native-workbench .desktop-knowledge-documents-col-type,
-    body.desktop-native-workbench .desktop-knowledge-documents-col-size {
-      width: 10%;
-    }
-
-    body.desktop-native-workbench .desktop-knowledge-documents-col-status,
-    body.desktop-native-workbench .desktop-knowledge-documents-col-added {
-      width: 15%;
-    }
-
-    body.desktop-native-workbench .desktop-knowledge-documents-col-actions {
-      width: 76px;
-    }
-
-    body.desktop-native-workbench .desktop-knowledge-documents-table th,
-    body.desktop-native-workbench .desktop-knowledge-documents-table td {
-      max-width: 0;
-      overflow: hidden;
-      border-top: 1px solid var(--border-subtle, #ebe6df);
-      padding: 8px 6px;
-      color: var(--text-body, #3d3d3a);
-      text-align: left;
-      text-overflow: ellipsis;
-      vertical-align: top;
-      white-space: nowrap;
-    }
-
-    body.desktop-native-workbench .desktop-knowledge-documents-table th {
-      color: var(--text-muted, #6c6a64);
-      font-size: 11px;
-      text-transform: uppercase;
-    }
-
-    body.desktop-native-workbench .desktop-knowledge-documents-cell-name strong,
+    body.desktop-native-workbench .desktop-knowledge-document-summary strong,
     body.desktop-native-workbench .desktop-knowledge-document-meta {
       display: block;
       min-width: 0;
@@ -9523,8 +9480,64 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       white-space: nowrap;
     }
 
-    body.desktop-native-workbench .desktop-knowledge-documents-cell-actions button {
+    body.desktop-native-workbench .desktop-knowledge-document-attributes {
+      display: flex;
+      flex-wrap: wrap;
+      grid-column: 1 / -1;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-document-attribute,
+    body.desktop-native-workbench .desktop-knowledge-document-status {
+      display: inline-flex;
+      align-items: center;
+      min-height: 22px;
       max-width: 100%;
+      border: 1px solid var(--border-subtle, #ebe6df);
+      border-radius: var(--radius-full, 9999px);
+      padding: 0 8px;
+      color: var(--text-muted, #6c6a64);
+      font: 650 11px/1.2 var(--font-sans, system-ui, sans-serif);
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-document-row button {
+      max-width: 100%;
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-query-panel {
+      display: grid;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-query-controls {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(84px, auto) 64px auto;
+      gap: 8px;
+      align-items: center;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-query-controls input,
+    body.desktop-native-workbench .desktop-knowledge-query-controls select {
+      min-width: 0;
+      min-height: 34px;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: var(--radius-md, 8px);
+      padding: 0 10px;
+      background: var(--bg, #faf9f5);
+      color: var(--text, #141413);
+      font: 600 12px/1.2 var(--font-sans, system-ui, sans-serif);
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-query-summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 12px;
+      margin: 0;
+      color: var(--text-muted, #6c6a64);
+      font: 650 12px/1.4 var(--font-sans, system-ui, sans-serif);
     }
 
     body.desktop-native-workbench .desktop-knowledge-graph {

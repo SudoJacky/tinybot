@@ -3136,7 +3136,8 @@ describe("desktop workbench shell", () => {
     const documentsRegion = pane?.querySelector('[data-desktop-knowledge-region="documents"]');
     expect(documentsRegion?.textContent).toContain("Documents (1)");
     expect(documentsRegion?.querySelector("[data-desktop-knowledge-document-search]")?.getAttribute("placeholder")).toBe("Search documents...");
-    expect(documentsRegion?.querySelector("[data-desktop-knowledge-documents-table]")?.textContent).toContain("Actions");
+    expect(documentsRegion?.querySelector("[data-desktop-knowledge-documents-table]")).toBeNull();
+    expect(documentsRegion?.querySelector("[data-desktop-knowledge-documents-list]")?.textContent).toContain("Desktop UX");
     expect(documentsRegion?.querySelector('[data-desktop-knowledge-document-action="deleteDocument"]')?.textContent).toContain("Delete");
     expect(pane?.textContent).toContain("Knowledge enabled");
     expect(documentsRegion?.textContent).toContain("Desktop UX");

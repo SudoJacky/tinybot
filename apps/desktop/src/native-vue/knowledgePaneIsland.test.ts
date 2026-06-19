@@ -163,11 +163,11 @@ describe("knowledge pane Vue island", () => {
     expect(host.querySelector('[data-desktop-knowledge-document-filter]')).toBeNull();
     expect(host.querySelector('[aria-label="Document actions"]')).toBeNull();
     expect(host.querySelector('[data-desktop-knowledge-document-action="reindexDocument"]')).toBeNull();
-    expect(host.querySelector('[data-desktop-knowledge-documents-table]')?.textContent).toContain("Name");
-    expect(host.querySelector('[data-desktop-knowledge-documents-table]')?.textContent).toContain("Type");
-    expect(host.querySelector('[data-desktop-knowledge-documents-table]')?.textContent).toContain("Size");
-    expect(host.querySelector('[data-desktop-knowledge-documents-table]')?.textContent).toContain("Status");
-    expect(host.querySelector('[data-desktop-knowledge-documents-table]')?.textContent).toContain("Actions");
+    expect(host.querySelector('[data-desktop-knowledge-documents-table]')).toBeNull();
+    expect(host.querySelector('[data-desktop-knowledge-documents-list]')?.textContent).toContain("Desktop UX");
+    expect(host.querySelector('[data-desktop-knowledge-documents-list]')?.textContent).toContain("MD");
+    expect(host.querySelector('[data-desktop-knowledge-documents-list]')?.textContent).toContain("84 KB");
+    expect(host.querySelector('[data-desktop-knowledge-documents-list]')?.textContent).toContain("indexed");
     expect(host.querySelector('[data-desktop-knowledge-document-action="deleteDocument"]')?.textContent).toContain("Delete");
     expect(host.querySelector('[data-desktop-knowledge-region="documents"] .desktop-knowledge-documents')?.getAttribute("data-desktop-vue-island")).toBe(
       "knowledge-documents",
@@ -181,6 +181,8 @@ describe("knowledge pane Vue island", () => {
       "knowledge-query",
     );
     expect(host.querySelector('[data-desktop-knowledge-region="query"]')?.textContent).toContain("Knowledge Query");
+    expect(host.querySelector('[data-desktop-knowledge-region="query"] .desktop-knowledge-query-panel')).not.toBeNull();
+    expect(host.querySelector('[data-desktop-knowledge-region="query"] .desktop-knowledge-query-summary')).not.toBeNull();
     expect(host.querySelector('[data-desktop-knowledge-query-input]')?.getAttribute("value")).toBe("desktop graph");
     expect(host.querySelector('[data-desktop-knowledge-action="runQuery"]')?.textContent).toContain("Run Query");
     expect(host.querySelector('[data-desktop-knowledge-query-result="doc-1:0"]')?.textContent).toContain("Desktop panes expose graph evidence.");
