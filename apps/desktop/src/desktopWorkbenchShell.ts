@@ -7946,11 +7946,15 @@ function createDesktopBackendLogsPanel(targetDocument: Document, dialog: HTMLEle
 
 function formatDesktopBackendLogs(runtimeStatus: GatewayRuntimeStatus | null, gatewayHttp: string): string {
   const runtimeLogs = runtimeStatus?.logs ?? [];
+  const persistentLogTail = runtimeStatus?.log_tail ?? [];
   const workerDiagnostics = runtimeStatus?.worker_runtime?.diagnostics ?? [];
   return [
     `Gateway: ${runtimeStatus?.gateway_http || gatewayHttp || "unknown"}`,
-    "Source: bounded in-memory runtime buffers",
+    "Source: bounded in-memory runtime buffers + persistent log file tail",
     `Log file: ${runtimeStatus?.log_path || "not configured"}`,
+    "",
+    `Persistent log tail (${persistentLogTail.length})`,
+    persistentLogTail.length ? persistentLogTail.join("\n") : "No persistent backend log lines.",
     "",
     `Gateway runtime logs (${runtimeLogs.length})`,
     runtimeLogs.length ? runtimeLogs.join("\n") : "No recent gateway logs.",

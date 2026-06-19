@@ -997,6 +997,10 @@ describe("desktop workbench shell", () => {
         command: "tinybot gateway",
         repo_root: "D:/code/tinybot/tinybot",
         log_path: "C:/Users/me/AppData/Local/tinybot/logs/native-backend.log",
+        log_tail: [
+          "2026-06-19T12:00:00.000Z stderr worker.request.start method=webui.handle_request route=POST /v1/knowledge/graph/extract",
+          "2026-06-19T12:00:01.000Z stderr knowledge.graph.extract.progress percent=60",
+        ],
         logs: ["gateway ready", "knowledge upload accepted"],
         last_error: null,
         worker_runtime: {
@@ -1041,6 +1045,9 @@ describe("desktop workbench shell", () => {
     expect(backendLogsDialog?.getAttribute("aria-modal")).toBe("true");
     expect(backendLogsDialog?.textContent).toContain("Backend Logs");
     expect(backendLogsDialog?.textContent).toContain("Log file: C:/Users/me/AppData/Local/tinybot/logs/native-backend.log");
+    expect(backendLogsDialog?.textContent).toContain("Persistent log tail (2)");
+    expect(backendLogsDialog?.textContent).toContain("POST /v1/knowledge/graph/extract");
+    expect(backendLogsDialog?.textContent).toContain("knowledge.graph.extract.progress");
     expect(backendLogsDialog?.textContent).toContain("gateway ready");
     expect(backendLogsDialog?.textContent).toContain("[knowledge]");
     expect(backendLogsDialog?.textContent).toContain("RAG.md");

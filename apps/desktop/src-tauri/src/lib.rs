@@ -70,6 +70,7 @@ type SharedGateway = Arc<Mutex<GatewayRuntime>>;
 const WORKER_CRON_TIMER_MAX_POLL: Duration = Duration::from_secs(30);
 const WORKER_WEBUI_ROUTE_TIMEOUT: Duration = Duration::from_secs(10);
 const NATIVE_BACKEND_LOG_MAX_BYTES: u64 = 5 * 1024 * 1024;
+const NATIVE_BACKEND_LOG_TAIL_LINES: usize = 100;
 
 struct GatewayRuntime {
     worker: WorkerManager,
@@ -110,6 +111,7 @@ struct GatewayRuntimeStatus {
     port: u16,
     repo_root: String,
     log_path: String,
+    log_tail: Vec<String>,
     logs: Vec<String>,
     last_error: Option<String>,
     exit_policy: &'static str,
@@ -1294,6 +1296,10 @@ fn current_status(shared: &SharedGateway) -> GatewayRuntimeStatus {
         port: 18790,
         repo_root: repo_root().display().to_string(),
         log_path: runtime.persistent_log_path.display().to_string(),
+        log_tail: read_native_backend_log_tail(
+            &runtime.persistent_log_path,
+            NATIVE_BACKEND_LOG_TAIL_LINES,
+        ),
         logs: gateway_runtime_logs(&runtime.logs, &worker_status.diagnostics),
         last_error: runtime
             .last_error
@@ -3183,6 +3189,23 @@ fn gateway_runtime_logs(
         .collect()
 }
 
+fn read_native_backend_log_tail(path: &Path, max_lines: usize) -> Vec<String> {
+    if max_lines == 0 {
+        return Vec::new();
+    }
+    let Ok(contents) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let lines = contents
+        .lines()
+        .map(str::trim_end)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    let start = lines.len().saturating_sub(max_lines);
+    lines[start..].to_vec()
+}
+
 fn worker_manager_frontend_event(event: WorkerManagerEvent) -> (String, serde_json::Value) {
     match event {
         WorkerManagerEvent::Status(status) => (
@@ -4390,6 +4413,35 @@ mod tests {
     }
 
     #[test]
+    fn gateway_status_exposes_recent_persistent_backend_log_tail() {
+        let fixture = WorkspaceFixture::new();
+        let log_path = fixture.root.join("logs").join("native-backend.log");
+        std::fs::create_dir_all(log_path.parent().expect("log path should have parent"))
+            .expect("log directory should create");
+        std::fs::write(
+            &log_path,
+            "older line\nworker.request.start route=POST /v1/knowledge/graph/extract\nknowledge.graph.extract.progress percent=60\n",
+        )
+        .expect("persistent log should write");
+        let shared = Arc::new(Mutex::new(GatewayRuntime {
+            persistent_log_path: log_path,
+            ..GatewayRuntime::default()
+        }));
+
+        let status = current_status(&shared);
+
+        assert_eq!(status.log_tail.len(), 3);
+        assert!(status
+            .log_tail
+            .iter()
+            .any(|line| line.contains("POST /v1/knowledge/graph/extract")));
+        assert!(status
+            .log_tail
+            .iter()
+            .any(|line| line.contains("knowledge.graph.extract.progress")));
+    }
+
+    #[test]
     fn persistent_backend_log_rotates_when_size_limit_is_exceeded() {
         let fixture = WorkspaceFixture::new();
         let log_path = fixture.root.join("logs").join("native-backend.log");
@@ -4480,6 +4532,7 @@ mod tests {
             port: 18790,
             repo_root: "/repo".to_string(),
             log_path: "/logs/native-backend.log".to_string(),
+            log_tail: vec![],
             logs: vec![],
             last_error: None,
             exit_policy: "stop_on_exit",
