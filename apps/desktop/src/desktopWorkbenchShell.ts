@@ -4142,12 +4142,6 @@ function createKnowledgePane(
   for (const evidence of pane.graph.evidence.slice(0, 4)) {
     graphSurface.append(createText(targetDocument, "p", `Evidence: ${evidence.title} / ${evidence.docName}`));
   }
-  const legend = targetDocument.createElement("div");
-  legend.className = "desktop-knowledge-graph-legend";
-  legend.textContent = "Entity Edge";
-  const minimap = targetDocument.createElement("div");
-  minimap.className = "desktop-knowledge-graph-minimap";
-  graphSurface.append(legend, minimap);
   mountKnowledgeGraphVueIsland(graphSurface, pane);
   graph.append(graphHeader, graphSurface);
   inspectorColumn.append(graph);
@@ -9589,30 +9583,6 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       stroke: var(--accent, #cc785c);
       stroke-width: 1.5;
       opacity: 0.72;
-    }
-
-    body.desktop-native-workbench .desktop-knowledge-graph-legend,
-    body.desktop-native-workbench .desktop-knowledge-graph-minimap {
-      position: absolute;
-      right: 14px;
-      border: 1px solid var(--border, #e6dfd8);
-      border-radius: var(--radius-md, 8px);
-      background: rgba(250, 249, 245, 0.92);
-      color: var(--text-body, #3d3d3a);
-      font: 700 11px/1.2 var(--font-sans, system-ui, sans-serif);
-    }
-
-    body.desktop-native-workbench .desktop-knowledge-graph-legend {
-      bottom: 102px;
-      display: grid;
-      gap: 6px;
-      padding: 8px 10px;
-    }
-
-    body.desktop-native-workbench .desktop-knowledge-graph-minimap {
-      bottom: 14px;
-      width: 96px;
-      height: 72px;
     }
 
     body.desktop-native-workbench .desktop-knowledge-graph-references {

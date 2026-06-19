@@ -3147,8 +3147,8 @@ describe("desktop workbench shell", () => {
     expect(pane?.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Graph: 1 nodes / 0 edges / 0 evidence");
     expect(pane?.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Extract Graph");
     expect(pane?.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Rebuild Index");
-    expect(pane?.querySelector(".desktop-knowledge-graph-legend")?.textContent).toContain("Entity");
-    expect(pane?.querySelector(".desktop-knowledge-graph-minimap")).not.toBeNull();
+    expect(pane?.querySelector(".desktop-knowledge-graph-legend")).toBeNull();
+    expect(pane?.querySelector(".desktop-knowledge-graph-minimap")).toBeNull();
     expect(pane?.querySelector('[data-desktop-knowledge-region="pipeline"]')?.textContent).toContain("Graph Build");
     expect(pane?.querySelector('[data-desktop-knowledge-region="pipeline"]')?.textContent).toContain("6 steps");
     expect(pane?.textContent).toContain("Community: Desktop cluster");

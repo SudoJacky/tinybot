@@ -195,8 +195,8 @@ describe("knowledge pane Vue island", () => {
     expect(host.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).not.toContain("Fit View");
     expect(host.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).not.toContain("Layout");
     expect(host.querySelector(".desktop-knowledge-graph-tools")).toBeNull();
-    expect(host.querySelector(".desktop-knowledge-graph-legend")?.textContent).toContain("Entity");
-    expect(host.querySelector(".desktop-knowledge-graph-minimap")).not.toBeNull();
+    expect(host.querySelector(".desktop-knowledge-graph-legend")).toBeNull();
+    expect(host.querySelector(".desktop-knowledge-graph-minimap")).toBeNull();
     expect(host.querySelector('[data-desktop-knowledge-graph-reference="Community:community-1"]')?.textContent).toContain("Desktop cluster");
     expect(host.querySelector('[data-desktop-knowledge-region="pipeline"] .desktop-knowledge-readiness')?.getAttribute("data-desktop-vue-island")).toBe(
       "knowledge-readiness",

@@ -43,13 +43,6 @@ function createKnowledgeGraphApp(options: KnowledgeGraphIslandOptions): App {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
         default: () => h("div", { class: "desktop-knowledge-graph-workspace" }, [
           renderGraphCanvas(options.graph),
-          h("div", { class: "desktop-knowledge-graph-legend" }, [
-            h("span", [h("i", { class: "desktop-knowledge-legend-node" }), "Entity"]),
-            h("span", [h("i", { class: "desktop-knowledge-legend-edge" }), "Edge"]),
-          ]),
-          h("div", { class: "desktop-knowledge-graph-minimap", "aria-label": "Graph minimap" }, [
-            h("span"),
-          ]),
           h("div", {
             class: "desktop-knowledge-graph-references",
             "data-desktop-knowledge-graph-pane": "references",
