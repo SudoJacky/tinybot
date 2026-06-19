@@ -118,17 +118,27 @@ function createKnowledgePaneApp(options: KnowledgePaneIslandOptions): App {
             class: "desktop-knowledge-management-grid",
             "data-desktop-knowledge-layout": "source-left-graph-right",
           }, [
-            h("section", {
-              class: "desktop-knowledge-region desktop-knowledge-overview",
-              "data-desktop-knowledge-region": "overview",
-              "aria-label": "Knowledge base overview",
-            }, renderKnowledgeOverview(options.pane)),
-            renderKnowledgeUploadRegion(options, uploadStatus),
-            renderKnowledgeQueueRegion(options, work),
-            renderKnowledgeDocumentsRegion(options, documents, documentDetail),
-            renderKnowledgeQueryRegion(query),
-            renderKnowledgeGraphRegion(options, graph),
-            renderKnowledgePipelineRegion(readiness),
+            h("div", {
+              class: "desktop-knowledge-source-column",
+              "data-desktop-knowledge-column": "source",
+            }, [
+              h("section", {
+                class: "desktop-knowledge-region desktop-knowledge-overview",
+                "data-desktop-knowledge-region": "overview",
+                "aria-label": "Knowledge base overview",
+              }, renderKnowledgeOverview(options.pane)),
+              renderKnowledgeUploadRegion(options, uploadStatus),
+              renderKnowledgeQueueRegion(options, work),
+              renderKnowledgeDocumentsRegion(options, documents, documentDetail),
+              renderKnowledgeQueryRegion(query),
+              renderKnowledgePipelineRegion(readiness),
+            ]),
+            h("div", {
+              class: "desktop-knowledge-inspector-column",
+              "data-desktop-knowledge-column": "inspector",
+            }, [
+              renderKnowledgeGraphRegion(options, graph),
+            ]),
           ]),
         ]),
       });
