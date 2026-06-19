@@ -3900,6 +3900,13 @@ function createKnowledgePane(
   const grid = targetDocument.createElement("div");
   grid.className = "desktop-knowledge-management-grid";
   grid.setAttribute("data-desktop-knowledge-layout", "source-left-graph-right");
+  const sourceColumn = targetDocument.createElement("div");
+  sourceColumn.className = "desktop-knowledge-source-column";
+  sourceColumn.setAttribute("data-desktop-knowledge-column", "source");
+  const inspectorColumn = targetDocument.createElement("div");
+  inspectorColumn.className = "desktop-knowledge-inspector-column";
+  inspectorColumn.setAttribute("data-desktop-knowledge-column", "inspector");
+  grid.append(sourceColumn, inspectorColumn);
 
   const overview = targetDocument.createElement("section");
   overview.className = "desktop-knowledge-region desktop-knowledge-overview";
@@ -3922,7 +3929,7 @@ function createKnowledgePane(
     );
     overview.append(metric);
   }
-  grid.append(overview);
+  sourceColumn.append(overview);
 
   const uploadRegion = targetDocument.createElement("section");
   uploadRegion.className = "desktop-knowledge-region desktop-knowledge-upload-region";
@@ -3943,7 +3950,7 @@ function createKnowledgePane(
     createText(targetDocument, "small", "Max 200MB per file"),
   );
   uploadRegion.append(uploadHeader, dropZone, createKnowledgeUploadControl(targetDocument));
-  grid.append(uploadRegion);
+  sourceColumn.append(uploadRegion);
 
   const queue = targetDocument.createElement("section");
   queue.className = "desktop-knowledge-region desktop-knowledge-queue-region";
@@ -3957,7 +3964,7 @@ function createKnowledgePane(
   queue.append(workItems.length
     ? createModuleWorkSection(targetDocument, "Knowledge jobs", workItems)
     : createText(targetDocument, "p", "No knowledge jobs running.", "desktop-knowledge-empty-note"));
-  grid.append(queue);
+  sourceColumn.append(queue);
 
   const documentsRegion = targetDocument.createElement("section");
   documentsRegion.className = "desktop-knowledge-region desktop-knowledge-documents-region";
@@ -4040,7 +4047,7 @@ function createKnowledgePane(
     documentActions.append(createKnowledgeButton("deleteDocument", "Delete Document", pane.actions.deleteDocument, "secondary"));
     documentsRegion.append(detail, documentActions);
   }
-  grid.append(documentsRegion);
+  sourceColumn.append(documentsRegion);
 
   const queryRegion = targetDocument.createElement("section");
   queryRegion.className = "desktop-knowledge-region desktop-knowledge-query-region";
@@ -4104,7 +4111,7 @@ function createKnowledgePane(
     querySurface.append(createText(targetDocument, "p", `${result.docName}: ${result.content}`));
   }
   queryRegion.append(querySurface);
-  grid.append(queryRegion);
+  sourceColumn.append(queryRegion);
 
   const graph = targetDocument.createElement("section");
   graph.className = "desktop-knowledge-region desktop-knowledge-graph-region";
@@ -4141,7 +4148,7 @@ function createKnowledgePane(
   graphSurface.append(legend, minimap);
   mountKnowledgeGraphVueIsland(graphSurface, pane);
   graph.append(graphHeader, graphSurface);
-  grid.append(graph);
+  inspectorColumn.append(graph);
 
   const pipeline = targetDocument.createElement("section");
   pipeline.className = "desktop-knowledge-region desktop-knowledge-pipeline";
@@ -4166,7 +4173,7 @@ function createKnowledgePane(
   }
   mountKnowledgeReadinessVueIsland(readiness, pane);
   pipeline.append(readiness);
-  grid.append(pipeline);
+  sourceColumn.append(pipeline);
   section.append(grid);
 
   mountKnowledgePaneVueIsland(section, targetDocument, pane, knowledgeActions, workItems);
@@ -8375,6 +8382,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-module-work-row {
       min-width: 0;
       min-height: 34px;
+      max-width: 100%;
       border: 1px solid var(--border, #e6dfd8);
       border-radius: 6px;
       padding: 6px 8px;
@@ -8384,6 +8392,15 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       text-align: left;
       overflow-wrap: anywhere;
       cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-module-work-row .n-button__content {
+      display: block;
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     body.desktop-native-workbench .desktop-empty-session h1 {
@@ -9091,17 +9108,30 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-knowledge-management-grid {
       display: grid;
-      grid-template-columns: minmax(340px, 0.84fr) minmax(520px, 1.16fr);
-      grid-template-areas:
-        "overview overview"
-        "upload graph"
-        "queue graph"
-        "documents graph"
-        "documents pipeline";
+      grid-template-columns: minmax(420px, 1fr) clamp(500px, 42vw, 720px);
       gap: 14px;
       align-items: start;
       min-width: 0;
       width: 100%;
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-source-column,
+    body.desktop-native-workbench .desktop-knowledge-inspector-column {
+      display: grid;
+      align-content: start;
+      gap: 14px;
+      min-width: 0;
+      min-height: 0;
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-source-column > .desktop-knowledge-region,
+    body.desktop-native-workbench .desktop-knowledge-inspector-column > .desktop-knowledge-region {
+      grid-area: auto;
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-inspector-column {
+      position: sticky;
+      top: 14px;
     }
 
     body.desktop-native-workbench .desktop-knowledge-region {
@@ -9142,7 +9172,9 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-knowledge-graph-region {
       grid-area: graph;
       display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
       gap: 14px;
+      max-height: calc(100vh - 96px);
     }
 
     body.desktop-native-workbench .desktop-knowledge-pipeline {
@@ -9330,17 +9362,24 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       position: relative;
       display: grid;
       gap: 10px;
-      min-height: 320px;
+      min-height: 0;
       min-width: 0;
     }
 
     body.desktop-native-workbench .desktop-knowledge-graph-workspace {
       position: relative;
-      min-height: 440px;
+      display: grid;
+      grid-template-rows: minmax(280px, 0.92fr) minmax(180px, 1fr);
+      gap: 10px;
+      min-width: 0;
+      min-height: min(720px, calc(100vh - 176px));
+      max-height: calc(100vh - 176px);
     }
 
     body.desktop-native-workbench .desktop-knowledge-graph-canvas {
-      min-height: 360px;
+      min-width: 0;
+      min-height: 280px;
+      overflow: hidden;
       border: 1px solid var(--border-subtle, #ebe6df);
       border-radius: var(--radius-lg, 12px);
       background:
@@ -9350,7 +9389,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-knowledge-graph-canvas svg {
       width: 100%;
-      min-height: 360px;
+      min-height: 280px;
     }
 
     body.desktop-native-workbench .desktop-knowledge-graph-node circle {
@@ -9392,6 +9431,47 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       bottom: 14px;
       width: 96px;
       height: 72px;
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-graph-references {
+      min-width: 0;
+      min-height: 0;
+      overflow: auto;
+      border: 1px solid var(--border-subtle, #ebe6df);
+      border-radius: var(--radius-lg, 12px);
+      background: var(--bg, #faf9f5);
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-graph-references h2 {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      margin: 0;
+      border-bottom: 1px solid var(--border-subtle, #ebe6df);
+      padding: 8px 10px;
+      background: var(--bg, #faf9f5);
+      color: var(--text, #141413);
+      font: 750 12px/1.2 var(--font-sans, system-ui, sans-serif);
+      text-transform: uppercase;
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-graph-references .n-list {
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-graph-references .n-list-item {
+      min-width: 0;
+      padding: 8px 10px;
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-graph-references .n-space {
+      min-width: 0;
+      max-width: 100%;
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-graph-references .n-space > span:last-child {
+      min-width: 0;
+      overflow-wrap: anywhere;
     }
 
     body.desktop-native-workbench .desktop-knowledge-pipeline-workspace,
@@ -9459,13 +9539,18 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
       body.desktop-native-workbench .desktop-knowledge-management-grid {
         grid-template-columns: minmax(0, 1fr);
-        grid-template-areas:
-          "overview"
-          "upload"
-          "queue"
-          "documents"
-          "graph"
-          "pipeline";
+      }
+
+      body.desktop-native-workbench .desktop-knowledge-inspector-column {
+        position: static;
+      }
+
+      body.desktop-native-workbench .desktop-knowledge-graph-region {
+        max-height: none;
+      }
+
+      body.desktop-native-workbench .desktop-knowledge-graph-workspace {
+        max-height: none;
       }
 
       body.desktop-native-workbench .desktop-knowledge-overview {

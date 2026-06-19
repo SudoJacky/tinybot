@@ -106,14 +106,27 @@ describe("knowledge pane Vue island", () => {
     expect(host.querySelector(".desktop-knowledge-management-grid")?.getAttribute("data-desktop-knowledge-layout")).toBe(
       "source-left-graph-right",
     );
+    const sourceColumn = host.querySelector('[data-desktop-knowledge-column="source"]');
+    const inspectorColumn = host.querySelector('[data-desktop-knowledge-column="inspector"]');
+    expect(Array.from(sourceColumn?.children ?? [], (node) => node.getAttribute("data-desktop-knowledge-region"))).toEqual([
+      "overview",
+      "upload",
+      "queue",
+      "documents",
+      "query",
+      "pipeline",
+    ]);
+    expect(Array.from(inspectorColumn?.children ?? [], (node) => node.getAttribute("data-desktop-knowledge-region"))).toEqual([
+      "graph",
+    ]);
     expect(Array.from(host.querySelectorAll("[data-desktop-knowledge-region]"), (node) => node.getAttribute("data-desktop-knowledge-region"))).toEqual([
       "overview",
       "upload",
       "queue",
       "documents",
       "query",
-      "graph",
       "pipeline",
+      "graph",
     ]);
     expect(host.querySelector(".desktop-knowledge-title-block h2")?.textContent).toBe("Knowledge Base");
     expect(host.textContent).toContain("Manage your knowledge base, monitor ingestion, and explore the knowledge graph.");

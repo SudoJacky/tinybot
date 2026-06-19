@@ -43,6 +43,8 @@ describe("knowledge graph Vue island", () => {
 
     expect(host.getAttribute("data-desktop-vue-island")).toBe("knowledge-graph");
     expect(host.className).toContain("desktop-knowledge-graph");
+    expect(host.querySelector('[data-desktop-knowledge-graph-pane="canvas"]')).not.toBeNull();
+    expect(host.querySelector('[data-desktop-knowledge-graph-pane="references"]')).not.toBeNull();
     expect(host.querySelector("h2")?.textContent).toBe("Graph: 2 nodes / 1 edge / 5 evidence");
     expect(host.textContent).toContain("Community: Desktop cluster - Cluster summary");
     expect(host.textContent).toContain("Report: Desktop report - Report summary");

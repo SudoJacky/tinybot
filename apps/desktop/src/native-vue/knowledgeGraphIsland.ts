@@ -50,7 +50,10 @@ function createKnowledgeGraphApp(options: KnowledgeGraphIslandOptions): App {
           h("div", { class: "desktop-knowledge-graph-minimap", "aria-label": "Graph minimap" }, [
             h("span"),
           ]),
-          h("div", { class: "desktop-knowledge-graph-references" }, [
+          h("div", {
+            class: "desktop-knowledge-graph-references",
+            "data-desktop-knowledge-graph-pane": "references",
+          }, [
             h("h2", `Graph: ${options.graph.summary}`),
             renderReferenceGroup("Community", options.graph.communities),
             renderReferenceGroup("Report", options.graph.reports),
@@ -67,7 +70,10 @@ function createKnowledgeGraphApp(options: KnowledgeGraphIslandOptions): App {
 
 function renderGraphCanvas(graph: DesktopKnowledgePaneGraph) {
   if (!graph.view.nodes.length) {
-    return h("div", { class: "desktop-knowledge-graph-canvas desktop-knowledge-graph-empty" }, [
+    return h("div", {
+      class: "desktop-knowledge-graph-canvas desktop-knowledge-graph-empty",
+      "data-desktop-knowledge-graph-pane": "canvas",
+    }, [
       h("strong", "No graph built yet"),
       h("p", "Upload documents, then build the graph to inspect entities and relationships."),
     ]);
@@ -78,7 +84,10 @@ function renderGraphCanvas(graph: DesktopKnowledgePaneGraph) {
     .slice(0, 10)
     .map((edge) => ({ edge, source: nodePoints.get(edge.sourceId), target: nodePoints.get(edge.targetId) }))
     .filter((entry): entry is { edge: DesktopKnowledgeGraphEdge; source: GraphPoint; target: GraphPoint } => Boolean(entry.source && entry.target));
-  return h("div", { class: "desktop-knowledge-graph-canvas" }, [
+  return h("div", {
+    class: "desktop-knowledge-graph-canvas",
+    "data-desktop-knowledge-graph-pane": "canvas",
+  }, [
     h("svg", { viewBox: "0 0 640 360", role: "img", "aria-label": graph.summary }, [
       ...visibleEdges.map(({ edge, source, target }) => renderGraphEdge(edge, source, target)),
       ...visibleNodes.map((node, index) => renderGraphNode(node, index, visibleNodes.length)),

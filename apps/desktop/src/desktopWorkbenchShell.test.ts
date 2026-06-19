@@ -3042,14 +3042,20 @@ describe("desktop workbench shell", () => {
     expect(pane?.querySelector(".desktop-knowledge-management-grid")?.getAttribute("data-desktop-knowledge-layout")).toBe(
       "source-left-graph-right",
     );
+    const sourceColumn = pane?.querySelector('[data-desktop-knowledge-column="source"]');
+    const inspectorColumn = pane?.querySelector('[data-desktop-knowledge-column="inspector"]');
+    expect(sourceColumn?.querySelector('[data-desktop-knowledge-region="upload"]')?.textContent).toContain("Upload Documents");
+    expect(sourceColumn?.querySelector('[data-desktop-knowledge-region="queue"]')?.textContent).toContain("Knowledge Jobs");
+    expect(sourceColumn?.querySelector('[data-desktop-knowledge-region="documents"]')?.textContent).toContain("Documents (1)");
+    expect(inspectorColumn?.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Knowledge Graph");
     expect(pane?.querySelectorAll("[data-desktop-knowledge-region]").map((node) => node.getAttribute("data-desktop-knowledge-region"))).toEqual([
       "overview",
       "upload",
       "queue",
       "documents",
       "query",
-      "graph",
       "pipeline",
+      "graph",
     ]);
     expect(pane?.textContent).toContain("Knowledge Base");
     expect(pane?.textContent).toContain("Manage your knowledge base, monitor ingestion, and explore the knowledge graph.");
