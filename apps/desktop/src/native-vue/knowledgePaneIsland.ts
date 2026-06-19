@@ -9,6 +9,7 @@ import { mountKnowledgeGraphIsland } from "./knowledgeGraphIsland";
 import { mountKnowledgeQueryIsland } from "./knowledgeQueryIsland";
 import { mountKnowledgeReadinessIsland } from "./knowledgeReadinessIsland";
 import { mountModuleWorkSectionIsland } from "./moduleWorkSectionIsland";
+import { mountFileUploadStatusIsland } from "./fileUploadStatusIsland";
 
 export type KnowledgePaneActionId = "refreshAll" | "runQuery" | "extractGraph" | "rebuildIndex" | "deleteDocument" | "uploadDocument";
 
@@ -60,6 +61,7 @@ function createKnowledgePaneApp(options: KnowledgePaneIslandOptions): App {
       const documentDetail = ref<HTMLElement | null>(null);
       const query = ref<HTMLElement | null>(null);
       const graph = ref<HTMLElement | null>(null);
+      const uploadStatus = ref<HTMLElement | null>(null);
 
       onMounted(() => {
         if (options.workItems?.length) {
@@ -98,6 +100,9 @@ function createKnowledgePaneApp(options: KnowledgePaneIslandOptions): App {
         mountChild(mountedChildren, graph.value, (host) => mountKnowledgeGraphIsland(host, {
           graph: options.pane.graph,
         }));
+        mountChild(mountedChildren, uploadStatus.value, (host) => mountFileUploadStatusIsland(host, {
+          message: "No file operation running.",
+        }));
       });
 
       onBeforeUnmount(() => {
@@ -122,7 +127,7 @@ function createKnowledgePaneApp(options: KnowledgePaneIslandOptions): App {
                 "data-desktop-knowledge-region": "overview",
                 "aria-label": "Knowledge base overview",
               }, renderKnowledgeOverview(options.pane)),
-              renderKnowledgeUploadRegion(options),
+              renderKnowledgeUploadRegion(options, uploadStatus),
               options.workItems?.length ? renderKnowledgeQueueRegion(options, work) : null,
               renderKnowledgeDocumentsRegion(options, documents, documentDetail),
               renderKnowledgeQueryRegion(query),
@@ -153,7 +158,7 @@ function renderKnowledgeHeader(options: KnowledgePaneIslandOptions) {
   ]);
 }
 
-function renderKnowledgeUploadRegion(options: KnowledgePaneIslandOptions) {
+function renderKnowledgeUploadRegion(options: KnowledgePaneIslandOptions, uploadStatus: Ref<HTMLElement | null>) {
   return h("section", {
     class: "desktop-knowledge-region desktop-knowledge-upload-region",
     "data-desktop-knowledge-region": "upload",
@@ -175,6 +180,7 @@ function renderKnowledgeUploadRegion(options: KnowledgePaneIslandOptions) {
       h("small", "Max 200MB per file"),
     ]),
     renderKnowledgeUploadControl(),
+    h("p", { ref: uploadStatus }),
   ]);
 }
 
