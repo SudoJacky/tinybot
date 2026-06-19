@@ -3988,6 +3988,12 @@ function createKnowledgePane(
   const table = targetDocument.createElement("table");
   table.className = "desktop-knowledge-documents-table";
   table.setAttribute("data-desktop-knowledge-documents-table", "");
+  const colgroup = targetDocument.createElement("colgroup");
+  for (const column of ["name", "type", "size", "status", "added", "actions"]) {
+    const col = targetDocument.createElement("col");
+    col.className = `desktop-knowledge-documents-col-${column}`;
+    colgroup.append(col);
+  }
   const thead = targetDocument.createElement("thead");
   const headerRow = targetDocument.createElement("tr");
   for (const heading of ["Name", "Type", "Size", "Status", "Added", "Actions"]) {
@@ -3998,14 +4004,19 @@ function createKnowledgePane(
   for (const document of pane.documentRows) {
     const row = targetDocument.createElement("tr");
     setDesktopEntityHook(row, "knowledge", document.id || document.path);
-    row.append(
-      createText(targetDocument, "td", document.title),
-      createText(targetDocument, "td", document.typeLabel || document.category || "DOC"),
-      createText(targetDocument, "td", document.sizeLabel || "-"),
-      createText(targetDocument, "td", document.status || "unknown"),
-      createText(targetDocument, "td", document.addedLabel || "-"),
-    );
+    const nameCell = createText(targetDocument, "td", document.title);
+    nameCell.className = "desktop-knowledge-documents-cell-name";
+    const typeCell = createText(targetDocument, "td", document.typeLabel || document.category || "DOC");
+    typeCell.className = "desktop-knowledge-documents-cell-type";
+    const sizeCell = createText(targetDocument, "td", document.sizeLabel || "-");
+    sizeCell.className = "desktop-knowledge-documents-cell-size";
+    const statusCell = createText(targetDocument, "td", document.status || "unknown");
+    statusCell.className = "desktop-knowledge-documents-cell-status";
+    const addedCell = createText(targetDocument, "td", document.addedLabel || "-");
+    addedCell.className = "desktop-knowledge-documents-cell-added";
+    row.append(nameCell, typeCell, sizeCell, statusCell, addedCell);
     const actions = targetDocument.createElement("td");
+    actions.className = "desktop-knowledge-documents-cell-actions";
     const deleteButton = targetDocument.createElement("button");
     deleteButton.className = "desktop-knowledge-action-button desktop-knowledge-action-button-secondary";
     deleteButton.setAttribute("type", "button");
@@ -4028,8 +4039,12 @@ function createKnowledgePane(
       row.hidden = Boolean(query) && !row.textContent?.toLowerCase().includes(query);
     }
   });
-  table.append(thead, tbody);
-  documents.append(documentToolbar, table);
+  table.append(colgroup, thead, tbody);
+  const tableViewport = targetDocument.createElement("div");
+  tableViewport.className = "desktop-knowledge-documents-table-viewport";
+  tableViewport.setAttribute("data-desktop-knowledge-documents-table-viewport", "");
+  tableViewport.append(table);
+  documents.append(documentToolbar, tableViewport);
   mountKnowledgeDocumentsVueIsland(documents, pane);
   documentsRegion.append(documents);
 
@@ -9316,6 +9331,8 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-knowledge-documents {
       display: grid;
       gap: 10px;
+      min-width: 0;
+      overflow: hidden;
     }
 
     body.desktop-native-workbench .desktop-knowledge-documents-toolbar {
@@ -9339,23 +9356,69 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-knowledge-documents-table {
       width: 100%;
+      min-width: 0;
       border-collapse: collapse;
+      table-layout: fixed;
       font: 600 12px/1.35 var(--font-sans, system-ui, sans-serif);
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-documents-table-viewport {
+      min-width: 0;
+      max-width: 100%;
+      overflow-x: auto;
+      overflow-y: hidden;
+      border-top: 1px solid var(--border-subtle, #ebe6df);
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-documents-col-name {
+      width: 38%;
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-documents-col-type,
+    body.desktop-native-workbench .desktop-knowledge-documents-col-size {
+      width: 10%;
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-documents-col-status,
+    body.desktop-native-workbench .desktop-knowledge-documents-col-added {
+      width: 15%;
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-documents-col-actions {
+      width: 76px;
     }
 
     body.desktop-native-workbench .desktop-knowledge-documents-table th,
     body.desktop-native-workbench .desktop-knowledge-documents-table td {
+      max-width: 0;
+      overflow: hidden;
       border-top: 1px solid var(--border-subtle, #ebe6df);
       padding: 8px 6px;
       color: var(--text-body, #3d3d3a);
       text-align: left;
+      text-overflow: ellipsis;
       vertical-align: top;
+      white-space: nowrap;
     }
 
     body.desktop-native-workbench .desktop-knowledge-documents-table th {
       color: var(--text-muted, #6c6a64);
       font-size: 11px;
       text-transform: uppercase;
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-documents-cell-name strong,
+    body.desktop-native-workbench .desktop-knowledge-document-meta {
+      display: block;
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-documents-cell-actions button {
+      max-width: 100%;
     }
 
     body.desktop-native-workbench .desktop-knowledge-graph {
