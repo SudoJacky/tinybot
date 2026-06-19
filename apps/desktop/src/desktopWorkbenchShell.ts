@@ -407,6 +407,9 @@ const COWORK_GRAPH_NODE_LIMIT = 24;
 const COWORK_GRAPH_EDGE_LIMIT = 12;
 const COWORK_OBSERVABILITY_ROW_LIMIT = 24;
 const COWORK_TASK_FEED_LIMIT = 20;
+const DESKTOP_SIDEBAR_MIN_SIZE = 220;
+const DESKTOP_SIDEBAR_MAX_SIZE = 300;
+const DESKTOP_SIDEBAR_COLLAPSE_OVERSHOOT = DESKTOP_SIDEBAR_MIN_SIZE * 0.5;
 type DesktopPanelControlId = "sidebar" | "inspector" | "bottom";
 interface DesktopWorkbenchLiveState {
   runChainItems: DesktopRunChainItem[];
@@ -7415,7 +7418,89 @@ function createPanel(
   panel.style.setProperty("--region-size", `${state.size}px`);
   panel.append(content);
   mountWorkbenchPanelVueIsland(panel, region, state, content);
+  if (region === "sidebar") {
+    panel.append(createSidebarResizer(targetDocument, state.size));
+  }
   return panel;
+}
+
+function createSidebarResizer(targetDocument: Document, initialSize: number): HTMLElement {
+  const handle = targetDocument.createElement("div");
+  handle.className = "desktop-workbench-sidebar-resizer";
+  handle.setAttribute("data-desktop-sidebar-resizer", "");
+  handle.setAttribute("role", "separator");
+  handle.setAttribute("aria-label", "Resize session list");
+  handle.setAttribute("aria-orientation", "vertical");
+  handle.setAttribute("aria-valuemin", String(DESKTOP_SIDEBAR_MIN_SIZE));
+  handle.setAttribute("aria-valuemax", String(DESKTOP_SIDEBAR_MAX_SIZE));
+  handle.setAttribute("aria-valuenow", String(clampDesktopSidebarSize(initialSize)));
+  handle.setAttribute("tabindex", "0");
+
+  handle.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) {
+      return;
+    }
+    event.preventDefault();
+    handle.setAttribute("data-dragging", "true");
+    handle.setPointerCapture?.(event.pointerId);
+    const startX = event.clientX;
+    const startSize = currentDesktopSidebarSize(targetDocument);
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      moveEvent.preventDefault();
+      const requestedSize = startSize + moveEvent.clientX - startX;
+      if (requestedSize <= DESKTOP_SIDEBAR_MIN_SIZE - DESKTOP_SIDEBAR_COLLAPSE_OVERSHOOT) {
+        applyDesktopSidebarSize(targetDocument, DESKTOP_SIDEBAR_MIN_SIZE);
+        setDesktopPanelVisible(targetDocument, "sidebar", false);
+        return;
+      }
+      setDesktopPanelVisible(targetDocument, "sidebar", true);
+      applyDesktopSidebarSize(targetDocument, requestedSize);
+    };
+    const stopDrag = (upEvent: PointerEvent) => {
+      handle.removeAttribute("data-dragging");
+      handle.releasePointerCapture?.(upEvent.pointerId);
+      targetDocument.removeEventListener("pointermove", onPointerMove);
+      targetDocument.removeEventListener("pointerup", stopDrag);
+      targetDocument.removeEventListener("pointercancel", stopDrag);
+    };
+    targetDocument.addEventListener("pointermove", onPointerMove);
+    targetDocument.addEventListener("pointerup", stopDrag);
+    targetDocument.addEventListener("pointercancel", stopDrag);
+  });
+
+  handle.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+      return;
+    }
+    event.preventDefault();
+    const direction = event.key === "ArrowLeft" ? -1 : 1;
+    setDesktopPanelVisible(targetDocument, "sidebar", true);
+    applyDesktopSidebarSize(targetDocument, currentDesktopSidebarSize(targetDocument) + direction * 12);
+  });
+
+  return handle;
+}
+
+function currentDesktopSidebarSize(targetDocument: Document): number {
+  const shell = targetDocument.getElementById(SHELL_ID);
+  const panel = targetDocument.querySelector<HTMLElement>('[data-workbench-region="sidebar"]');
+  const rawSize = shell?.style.getPropertyValue("--desktop-sidebar-size") || panel?.style.getPropertyValue("--region-size") || "";
+  const parsed = Number.parseFloat(rawSize);
+  return clampDesktopSidebarSize(Number.isFinite(parsed) ? parsed : 260);
+}
+
+function applyDesktopSidebarSize(targetDocument: Document, requestedSize: number): void {
+  const nextSize = clampDesktopSidebarSize(requestedSize);
+  const shell = targetDocument.getElementById(SHELL_ID);
+  const panel = targetDocument.querySelector<HTMLElement>('[data-workbench-region="sidebar"]');
+  const handle = targetDocument.querySelector<HTMLElement>("[data-desktop-sidebar-resizer]");
+  shell?.style.setProperty("--desktop-sidebar-size", `${nextSize}px`);
+  panel?.style.setProperty("--region-size", `${nextSize}px`);
+  handle?.setAttribute("aria-valuenow", String(nextSize));
+}
+
+function clampDesktopSidebarSize(size: number): number {
+  return Math.min(DESKTOP_SIDEBAR_MAX_SIZE, Math.max(DESKTOP_SIDEBAR_MIN_SIZE, Math.round(size)));
 }
 
 function mountWorkbenchPanelVueIsland(
@@ -8332,8 +8417,41 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-workbench-sidebar {
+      position: relative;
       grid-column: 2;
       width: var(--region-size);
+    }
+
+    body.desktop-native-workbench .desktop-workbench-sidebar-resizer {
+      position: absolute;
+      top: 0;
+      right: -5px;
+      z-index: 8;
+      width: 10px;
+      height: 100%;
+      border: 0;
+      background: transparent;
+      cursor: col-resize;
+      touch-action: none;
+    }
+
+    body.desktop-native-workbench .desktop-workbench-sidebar-resizer::after {
+      position: absolute;
+      top: 24px;
+      right: 4px;
+      bottom: 24px;
+      width: 2px;
+      border-radius: var(--radius-full, 9999px);
+      background: transparent;
+      content: "";
+      transition: background-color 160ms ease, box-shadow 160ms ease;
+    }
+
+    body.desktop-native-workbench .desktop-workbench-sidebar-resizer:hover::after,
+    body.desktop-native-workbench .desktop-workbench-sidebar-resizer:focus-visible::after,
+    body.desktop-native-workbench .desktop-workbench-sidebar-resizer[data-dragging="true"]::after {
+      background: var(--accent, #cc785c);
+      box-shadow: 0 0 0 2px var(--accent-soft, rgba(204, 120, 92, 0.12));
     }
 
     body.desktop-native-workbench .desktop-workbench-inspector {

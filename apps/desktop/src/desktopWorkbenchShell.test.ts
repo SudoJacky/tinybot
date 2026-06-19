@@ -36,6 +36,7 @@ class FakeElement {
     setProperty: (name: string, value: string) => {
       this.style.values.set(name, value);
     },
+    getPropertyValue: (name: string) => this.style.values.get(name) ?? "",
   };
 
   constructor(public readonly tagName: string, private readonly ownerDocument?: FakeDocument) {}
@@ -77,6 +78,10 @@ class FakeElement {
     this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
   }
 
+  removeEventListener(type: string, listener: (event: unknown) => void): void {
+    this.listeners.set(type, (this.listeners.get(type) ?? []).filter((candidate) => candidate !== listener));
+  }
+
   dispatchEvent(event: { type: string } & Record<string, unknown>): boolean {
     for (const listener of this.listeners.get(event.type) ?? []) {
       listener(event);
@@ -93,6 +98,10 @@ class FakeElement {
       this.ownerDocument.activeElement = this;
     }
   }
+
+  setPointerCapture(): void {}
+
+  releasePointerCapture(): void {}
 
   getBoundingClientRect(): DOMRect {
     return {
@@ -173,6 +182,10 @@ class FakeDocument {
 
   addEventListener(type: string, listener: (event: unknown) => void): void {
     this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
+  }
+
+  removeEventListener(type: string, listener: (event: unknown) => void): void {
+    this.listeners.set(type, (this.listeners.get(type) ?? []).filter((candidate) => candidate !== listener));
   }
 
   dispatchEvent(event: { type: string } & Record<string, unknown>): boolean {
@@ -257,6 +270,54 @@ describe("desktop workbench shell", () => {
     const styleText = targetDocument.head.querySelector("#desktop-workbench-shell-style")?.textContent ?? "";
     expect(styleText).toContain(".desktop-workbench-shell {\n      height: 100vh;");
     expect(styleText).not.toContain("height: calc(100vh - var(--desktop-window-frame-height");
+  });
+
+  test("resizes the sidebar with a drag handle and collapses after overshooting the minimum", () => {
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      chat: {
+        sessions: [{ key: "WebSocket:chat-live", chatId: "chat-live", title: "Live session", createdAt: "", updatedAt: "" }],
+        activeSessionKey: "WebSocket:chat-live",
+        activeChatId: "chat-live",
+        messages: [],
+      },
+    });
+
+    const shell = targetDocument.getElementById("desktop-workbench-shell");
+    const sidebar = targetDocument.body.querySelector('[data-workbench-region="sidebar"]');
+    const handle = targetDocument.body.querySelector('[data-desktop-sidebar-resizer]');
+
+    expect(handle?.getAttribute("role")).toBe("separator");
+    expect(handle?.getAttribute("aria-orientation")).toBe("vertical");
+    expect(handle?.getAttribute("aria-valuemin")).toBe("220");
+    expect(handle?.getAttribute("aria-valuemax")).toBe("300");
+    expect(handle?.getAttribute("aria-valuenow")).toBe("260");
+
+    handle?.dispatchEvent({
+      type: "pointerdown",
+      button: 0,
+      clientX: 260,
+      preventDefault: () => {},
+      pointerId: 1,
+    });
+    targetDocument.dispatchEvent({ type: "pointermove", clientX: 230, preventDefault: () => {} });
+    expect(shell?.style.values.get("--desktop-sidebar-size")).toBe("230px");
+    expect(sidebar?.style.values.get("--region-size")).toBe("230px");
+    expect(handle?.getAttribute("aria-valuenow")).toBe("230");
+    expect(shell?.getAttribute("data-sidebar-visible")).toBe("true");
+
+    targetDocument.dispatchEvent({ type: "pointermove", clientX: 90, preventDefault: () => {} });
+    expect(shell?.style.values.get("--desktop-sidebar-size")).toBe("220px");
+    expect(sidebar?.style.values.get("--region-size")).toBe("220px");
+    expect(shell?.getAttribute("data-sidebar-visible")).toBe("false");
+    expect(sidebar?.getAttribute("data-visible")).toBe("false");
+    expect(handle?.getAttribute("aria-valuenow")).toBe("220");
+
+    targetDocument.dispatchEvent({ type: "pointerup", clientX: 90 });
   });
 
   test("renders dense empty-chat context instead of a browser-style blank page", () => {
