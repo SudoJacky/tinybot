@@ -3887,10 +3887,8 @@ function createKnowledgePane(
   const titleBlock = targetDocument.createElement("div");
   titleBlock.className = "desktop-knowledge-title-block";
   titleBlock.append(
-    createText(targetDocument, "p", "Knowledge Base", "desktop-knowledge-kicker"),
     createText(targetDocument, "h2", "Knowledge Base"),
     createText(targetDocument, "p", "Manage your knowledge base, monitor ingestion, and explore the knowledge graph."),
-    createText(targetDocument, "p", pane.status, "desktop-knowledge-status"),
   );
   const toolbar = targetDocument.createElement("div");
   toolbar.className = "desktop-knowledge-toolbar";
@@ -3920,7 +3918,6 @@ function createKnowledgePane(
     ["Readiness", `${pane.readiness.score}%`, `${pane.documentRows.reduce((total, row) => total + row.chunkCount, 0)} indexed chunks`],
     ["Graph Nodes", String(pane.graph.view.nodes.length), `${pane.graph.evidence.length} evidence`],
     ["Relations", String(pane.graph.view.edges.length), "Graph edges"],
-    ["Last Indexed", pane.lastIndexedLabel, "Knowledge freshness"],
   ];
   for (const [label, value, detail] of metrics) {
     const metric = targetDocument.createElement("article");
@@ -3955,19 +3952,19 @@ function createKnowledgePane(
   uploadRegion.append(uploadHeader, dropZone, createKnowledgeUploadControl(targetDocument));
   sourceColumn.append(uploadRegion);
 
-  const queue = targetDocument.createElement("section");
-  queue.className = "desktop-knowledge-region desktop-knowledge-queue-region";
-  queue.setAttribute("data-desktop-knowledge-region", "queue");
-  queue.setAttribute("aria-label", "Knowledge jobs");
-  queue.append(createKnowledgeRegionHeader(
-    targetDocument,
-    `Knowledge Jobs${workItems.length ? ` (${workItems.length})` : ""}`,
-    "Track active indexing, rebuild, upload, and graph extraction jobs.",
-  ));
-  queue.append(workItems.length
-    ? createModuleWorkSection(targetDocument, "Knowledge jobs", workItems)
-    : createText(targetDocument, "p", "No knowledge jobs running.", "desktop-knowledge-empty-note"));
-  sourceColumn.append(queue);
+  if (workItems.length) {
+    const queue = targetDocument.createElement("section");
+    queue.className = "desktop-knowledge-region desktop-knowledge-queue-region";
+    queue.setAttribute("data-desktop-knowledge-region", "queue");
+    queue.setAttribute("aria-label", "Knowledge jobs");
+    queue.append(createKnowledgeRegionHeader(
+      targetDocument,
+      `Knowledge Jobs (${workItems.length})`,
+      "Track active indexing, rebuild, upload, and graph extraction jobs.",
+    ));
+    queue.append(createModuleWorkSection(targetDocument, "Knowledge jobs", workItems));
+    sourceColumn.append(queue);
+  }
 
   const documentsRegion = targetDocument.createElement("section");
   documentsRegion.className = "desktop-knowledge-region desktop-knowledge-documents-region";
@@ -9120,7 +9117,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-knowledge-workbench {
       display: grid;
-      gap: 18px;
+      gap: 14px;
       min-width: 0;
     }
 
@@ -9132,8 +9129,8 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       min-width: 0;
       border: 1px solid var(--border, #e6dfd8);
       border-radius: var(--radius-lg, 12px);
-      padding: 22px 24px;
-      background: var(--surface-soft, #f5f0e8);
+      padding: 14px 16px;
+      background: var(--panel, #faf9f5);
     }
 
     body.desktop-native-workbench .desktop-knowledge-title-block {
@@ -9161,23 +9158,14 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-knowledge-title-block h2 {
-      font: 500 30px/1.08 var(--font-display, Georgia, serif);
+      font: 750 20px/1.15 var(--font-sans, system-ui, sans-serif);
     }
 
     body.desktop-native-workbench .desktop-knowledge-title-block p {
       margin: 0;
       max-width: 720px;
       color: var(--text-body, #3d3d3a);
-      font: 500 15px/1.45 var(--font-sans, system-ui, sans-serif);
-    }
-
-    body.desktop-native-workbench .desktop-knowledge-kicker {
-      color: var(--accent, #cc785c);
-      text-transform: uppercase;
-    }
-
-    body.desktop-native-workbench .desktop-knowledge-status {
-      color: var(--text-muted, #6c6a64);
+      font: 600 13px/1.35 var(--font-sans, system-ui, sans-serif);
     }
 
     body.desktop-native-workbench .desktop-knowledge-action-row {
@@ -9280,7 +9268,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-knowledge-overview {
       grid-area: overview;
       display: grid;
-      grid-template-columns: repeat(5, minmax(120px, 1fr));
+      grid-template-columns: repeat(4, minmax(120px, 1fr));
       gap: 12px;
     }
 

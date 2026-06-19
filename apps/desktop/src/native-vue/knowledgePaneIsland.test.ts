@@ -119,7 +119,8 @@ describe("knowledge pane Vue island", () => {
     expect(Array.from(inspectorColumn?.children ?? [], (node) => node.getAttribute("data-desktop-knowledge-region"))).toEqual([
       "graph",
     ]);
-    expect(Array.from(host.querySelectorAll("[data-desktop-knowledge-region]"), (node) => node.getAttribute("data-desktop-knowledge-region"))).toEqual([
+    const renderedRegions = Array.from(host.querySelectorAll("[data-desktop-knowledge-region]"), (node) => node.getAttribute("data-desktop-knowledge-region"));
+    expect(renderedRegions).toEqual([
       "overview",
       "upload",
       "queue",
@@ -129,24 +130,24 @@ describe("knowledge pane Vue island", () => {
       "graph",
     ]);
     expect(host.querySelector(".desktop-knowledge-title-block h2")?.textContent).toBe("Knowledge Base");
+    expect(host.querySelector(".desktop-knowledge-kicker")).toBeNull();
+    expect(host.querySelector(".desktop-knowledge-status")).toBeNull();
     expect(host.textContent).toContain("Manage your knowledge base, monitor ingestion, and explore the knowledge graph.");
-    expect(host.textContent).toContain("2 docs / readiness 100% / graph 2 nodes / 1 edge");
+    expect(host.textContent).not.toContain("2 docs / readiness 100% / graph 2 nodes / 1 edge");
 
     expect(host.querySelector('[data-desktop-knowledge-region="overview"]')?.textContent).toContain("Documents");
     expect(host.querySelector('[data-desktop-knowledge-region="overview"]')?.textContent).toContain("2");
     expect(host.querySelector('[data-desktop-knowledge-region="overview"]')?.textContent).toContain("Graph Nodes");
     expect(host.querySelector('[data-desktop-knowledge-region="overview"]')?.textContent).toContain("Relations");
-    expect(host.querySelector('[data-desktop-knowledge-region="overview"]')?.textContent).toContain("Last Indexed");
-    expect(host.querySelector('[data-desktop-knowledge-region="overview"]')?.textContent).toContain("2026-06-14 09:41");
+    expect(host.querySelector('[data-desktop-knowledge-region="overview"]')?.textContent).not.toContain("Last Indexed");
+    expect(host.querySelector('[data-desktop-knowledge-region="overview"]')?.textContent).not.toContain("2026-06-14 09:41");
     expect(host.querySelector('[data-desktop-knowledge-region="upload"] .desktop-knowledge-drop-zone')?.textContent).toContain("Drag & drop files here or click to browse");
     expect(host.querySelector('[data-desktop-knowledge-region="upload"] .desktop-knowledge-drop-zone')?.textContent).toContain("PDF, DOCX, MD, TXT, CSV, JSON");
     expect(host.querySelector('[data-desktop-knowledge-region="upload"] .desktop-knowledge-drop-zone')?.textContent).toContain("Max 200MB per file");
     expect(host.querySelector('[data-desktop-knowledge-region="upload"] .desktop-knowledge-drop-zone')?.getAttribute("data-desktop-drop-target")).toBe(
       "knowledge-document",
     );
-    expect(host.querySelector('[data-desktop-knowledge-region="upload"] #desktop-file-upload-status')?.textContent).toContain(
-      "No file operation running.",
-    );
+    expect(host.querySelector('[data-desktop-knowledge-region="upload"] #desktop-file-upload-status')).toBeNull();
     expect(host.querySelector('[data-desktop-knowledge-region="upload"] [data-desktop-knowledge-action="uploadDocument"]')?.textContent).toContain("Upload Documents");
     expect(host.querySelector('[data-desktop-knowledge-region="upload"] #desktop-knowledge-upload')?.getAttribute("data-desktop-file-upload")).toBe(
       "knowledge-document",

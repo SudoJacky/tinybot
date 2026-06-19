@@ -3106,25 +3106,26 @@ describe("desktop workbench shell", () => {
     const sourceColumn = pane?.querySelector('[data-desktop-knowledge-column="source"]');
     const inspectorColumn = pane?.querySelector('[data-desktop-knowledge-column="inspector"]');
     expect(sourceColumn?.querySelector('[data-desktop-knowledge-region="upload"]')?.textContent).toContain("Upload Documents");
-    expect(sourceColumn?.querySelector('[data-desktop-knowledge-region="queue"]')?.textContent).toContain("Knowledge Jobs");
+    expect(sourceColumn?.querySelector('[data-desktop-knowledge-region="queue"]')).toBeNull();
     expect(sourceColumn?.querySelector('[data-desktop-knowledge-region="documents"]')?.textContent).toContain("Documents (1)");
     expect(inspectorColumn?.querySelector('[data-desktop-knowledge-region="graph"]')?.textContent).toContain("Knowledge Graph");
     expect(pane?.querySelectorAll("[data-desktop-knowledge-region]").map((node) => node.getAttribute("data-desktop-knowledge-region"))).toEqual([
       "overview",
       "upload",
-      "queue",
       "documents",
       "query",
       "pipeline",
       "graph",
     ]);
     expect(pane?.textContent).toContain("Knowledge Base");
+    expect(pane?.querySelector(".desktop-knowledge-kicker")).toBeNull();
+    expect(pane?.querySelector(".desktop-knowledge-status")).toBeNull();
     expect(pane?.textContent).toContain("Manage your knowledge base, monitor ingestion, and explore the knowledge graph.");
-    expect(pane?.textContent).toContain("1 doc / readiness 100% / graph 1 nodes / 0 edges");
+    expect(pane?.textContent).not.toContain("1 doc / readiness 100% / graph 1 nodes / 0 edges");
     expect(pane?.querySelector('[data-desktop-knowledge-region="overview"]')?.textContent).toContain("Documents");
     expect(pane?.querySelector('[data-desktop-knowledge-region="overview"]')?.textContent).toContain("Graph Nodes");
-    expect(pane?.querySelector('[data-desktop-knowledge-region="overview"]')?.textContent).toContain("Last Indexed");
-    expect(pane?.querySelector('[data-desktop-knowledge-region="overview"]')?.textContent).toContain("2026-06-14 09:41");
+    expect(pane?.querySelector('[data-desktop-knowledge-region="overview"]')?.textContent).not.toContain("Last Indexed");
+    expect(pane?.querySelector('[data-desktop-knowledge-region="overview"]')?.textContent).not.toContain("2026-06-14 09:41");
     expect(targetDocument.body.querySelector(".desktop-file-actions")).toBeNull();
     expect(targetDocument.body.textContent).not.toContain("File imports");
     const uploadRegion = pane?.querySelector('[data-desktop-knowledge-region="upload"]');
@@ -3132,7 +3133,6 @@ describe("desktop workbench shell", () => {
     expect(uploadRegion?.textContent).toContain("Drag & drop files here or click to browse");
     expect(uploadRegion?.textContent).toContain("Max 200MB per file");
     expect(uploadRegion?.querySelector("#desktop-knowledge-upload")?.getAttribute("data-desktop-file-upload")).toBe("knowledge-document");
-    expect(pane?.querySelector('[data-desktop-knowledge-region="queue"]')?.textContent).toContain("Knowledge Jobs");
     const documentsRegion = pane?.querySelector('[data-desktop-knowledge-region="documents"]');
     expect(documentsRegion?.textContent).toContain("Documents (1)");
     expect(documentsRegion?.querySelector("[data-desktop-knowledge-document-search]")?.getAttribute("placeholder")).toBe("Search documents...");

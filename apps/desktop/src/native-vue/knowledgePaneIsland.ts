@@ -3,7 +3,6 @@ import { NConfigProvider } from "naive-ui";
 import type { DesktopTaskCenterItem } from "../desktopTaskCenter";
 import type { DesktopKnowledgePaneModel } from "../desktopKnowledgeTraceability";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
-import { mountFileUploadStatusIsland } from "./fileUploadStatusIsland";
 import { mountKnowledgeDocumentDetailIsland } from "./knowledgeDocumentDetailIsland";
 import { mountKnowledgeDocumentsIsland } from "./knowledgeDocumentsIsland";
 import { mountKnowledgeGraphIsland } from "./knowledgeGraphIsland";
@@ -57,7 +56,6 @@ function createKnowledgePaneApp(options: KnowledgePaneIslandOptions): App {
       const mountedChildren: Array<{ unmount: () => void }> = [];
       const work = ref<HTMLElement | null>(null);
       const readiness = ref<HTMLElement | null>(null);
-      const uploadStatus = ref<HTMLElement | null>(null);
       const documents = ref<HTMLElement | null>(null);
       const documentDetail = ref<HTMLElement | null>(null);
       const query = ref<HTMLElement | null>(null);
@@ -74,9 +72,6 @@ function createKnowledgePaneApp(options: KnowledgePaneIslandOptions): App {
         mountChild(mountedChildren, readiness.value, (host) => mountKnowledgeReadinessIsland(host, {
           readiness: options.pane.readiness,
           configHints: options.pane.configHints,
-        }));
-        mountChild(mountedChildren, uploadStatus.value, (host) => mountFileUploadStatusIsland(host, {
-          message: "No file operation running.",
         }));
         mountChild(mountedChildren, documents.value, (host) => mountKnowledgeDocumentsIsland(host, {
           documents: options.pane.documentRows,
@@ -127,8 +122,8 @@ function createKnowledgePaneApp(options: KnowledgePaneIslandOptions): App {
                 "data-desktop-knowledge-region": "overview",
                 "aria-label": "Knowledge base overview",
               }, renderKnowledgeOverview(options.pane)),
-              renderKnowledgeUploadRegion(options, uploadStatus),
-              renderKnowledgeQueueRegion(options, work),
+              renderKnowledgeUploadRegion(options),
+              options.workItems?.length ? renderKnowledgeQueueRegion(options, work) : null,
               renderKnowledgeDocumentsRegion(options, documents, documentDetail),
               renderKnowledgeQueryRegion(query),
               renderKnowledgePipelineRegion(readiness),
@@ -149,10 +144,8 @@ function createKnowledgePaneApp(options: KnowledgePaneIslandOptions): App {
 function renderKnowledgeHeader(options: KnowledgePaneIslandOptions) {
   return h("div", { class: "desktop-knowledge-header" }, [
     h("div", { class: "desktop-knowledge-title-block" }, [
-      h("p", { class: "desktop-knowledge-kicker" }, "Knowledge Base"),
       h("h2", "Knowledge Base"),
       h("p", "Manage your knowledge base, monitor ingestion, and explore the knowledge graph."),
-      h("p", { class: "desktop-knowledge-status" }, options.pane.status),
     ]),
     h("div", { class: "desktop-knowledge-toolbar" }, [
       renderKnowledgeActionButton(options, "refreshAll", "Refresh All", "secondary"),
@@ -160,7 +153,7 @@ function renderKnowledgeHeader(options: KnowledgePaneIslandOptions) {
   ]);
 }
 
-function renderKnowledgeUploadRegion(options: KnowledgePaneIslandOptions, uploadStatus: Ref<HTMLElement | null>) {
+function renderKnowledgeUploadRegion(options: KnowledgePaneIslandOptions) {
   return h("section", {
     class: "desktop-knowledge-region desktop-knowledge-upload-region",
     "data-desktop-knowledge-region": "upload",
@@ -181,7 +174,6 @@ function renderKnowledgeUploadRegion(options: KnowledgePaneIslandOptions, upload
       h("span", "PDF, DOCX, MD, TXT, CSV, JSON"),
       h("small", "Max 200MB per file"),
     ]),
-    h("p", { ref: uploadStatus }),
     renderKnowledgeUploadControl(),
   ]);
 }
@@ -299,7 +291,6 @@ function renderKnowledgeOverview(pane: DesktopKnowledgePaneModel) {
     renderKnowledgeMetric("Readiness", `${pane.readiness.score}%`, `${chunkCount} indexed chunks`),
     renderKnowledgeMetric("Graph Nodes", String(nodeCount), `${pane.graph.evidence.length} evidence`),
     renderKnowledgeMetric("Relations", String(edgeCount), "Graph edges"),
-    renderKnowledgeMetric("Last Indexed", pane.lastIndexedLabel, "Knowledge freshness"),
   ];
 }
 
