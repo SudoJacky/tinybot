@@ -52,12 +52,13 @@ describe("knowledge query Vue island", () => {
 
     expect(host.getAttribute("data-desktop-vue-island")).toBe("knowledge-query");
     expect(host.className).toContain("desktop-knowledge-query");
-    expect(host.querySelector("h2")?.textContent).toBe("Knowledge Query");
+    expect(host.querySelector("h2")).toBeNull();
+    expect(host.querySelector(".desktop-knowledge-query-panel")).not.toBeNull();
+    expect(host.querySelector(".desktop-knowledge-query-summary")?.textContent).toContain("Mode: hybrid");
+    expect(host.querySelector(".desktop-knowledge-query-summary")?.textContent).toContain("Results: 5");
     expect(host.querySelector<HTMLInputElement>("[data-desktop-knowledge-query-input]")?.value).toBe("desktop");
     expect(host.querySelector<HTMLSelectElement>("[data-desktop-knowledge-query-mode]")?.value).toBe("hybrid");
     expect(host.querySelector<HTMLInputElement>("[data-desktop-knowledge-query-top-k]")?.value).toBe("5");
-    expect(host.textContent).toContain("Mode: hybrid / top 5");
-    expect(host.textContent).toContain("Results: 5");
     expect(host.textContent).toContain("Doc 1: Knowledge result 1");
     expect(host.textContent).toContain("Doc 4: Knowledge result 4");
     expect(host.textContent).not.toContain("Doc 5: Knowledge result 5");

@@ -3,13 +3,13 @@ import { NConfigProvider } from "naive-ui";
 import type { DesktopTaskCenterItem } from "../desktopTaskCenter";
 import type { DesktopKnowledgePaneModel } from "../desktopKnowledgeTraceability";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
-import { mountFileUploadStatusIsland } from "./fileUploadStatusIsland";
 import { mountKnowledgeDocumentDetailIsland } from "./knowledgeDocumentDetailIsland";
 import { mountKnowledgeDocumentsIsland } from "./knowledgeDocumentsIsland";
 import { mountKnowledgeGraphIsland } from "./knowledgeGraphIsland";
 import { mountKnowledgeQueryIsland } from "./knowledgeQueryIsland";
 import { mountKnowledgeReadinessIsland } from "./knowledgeReadinessIsland";
 import { mountModuleWorkSectionIsland } from "./moduleWorkSectionIsland";
+import { mountFileUploadStatusIsland } from "./fileUploadStatusIsland";
 
 export type KnowledgePaneActionId = "refreshAll" | "runQuery" | "extractGraph" | "rebuildIndex" | "deleteDocument" | "uploadDocument";
 
@@ -57,11 +57,11 @@ function createKnowledgePaneApp(options: KnowledgePaneIslandOptions): App {
       const mountedChildren: Array<{ unmount: () => void }> = [];
       const work = ref<HTMLElement | null>(null);
       const readiness = ref<HTMLElement | null>(null);
-      const uploadStatus = ref<HTMLElement | null>(null);
       const documents = ref<HTMLElement | null>(null);
       const documentDetail = ref<HTMLElement | null>(null);
       const query = ref<HTMLElement | null>(null);
       const graph = ref<HTMLElement | null>(null);
+      const uploadStatus = ref<HTMLElement | null>(null);
 
       onMounted(() => {
         if (options.workItems?.length) {
@@ -74,9 +74,6 @@ function createKnowledgePaneApp(options: KnowledgePaneIslandOptions): App {
         mountChild(mountedChildren, readiness.value, (host) => mountKnowledgeReadinessIsland(host, {
           readiness: options.pane.readiness,
           configHints: options.pane.configHints,
-        }));
-        mountChild(mountedChildren, uploadStatus.value, (host) => mountFileUploadStatusIsland(host, {
-          message: "No file operation running.",
         }));
         mountChild(mountedChildren, documents.value, (host) => mountKnowledgeDocumentsIsland(host, {
           documents: options.pane.documentRows,
@@ -103,6 +100,9 @@ function createKnowledgePaneApp(options: KnowledgePaneIslandOptions): App {
         mountChild(mountedChildren, graph.value, (host) => mountKnowledgeGraphIsland(host, {
           graph: options.pane.graph,
         }));
+        mountChild(mountedChildren, uploadStatus.value, (host) => mountFileUploadStatusIsland(host, {
+          message: "No file operation running.",
+        }));
       });
 
       onBeforeUnmount(() => {
@@ -128,7 +128,7 @@ function createKnowledgePaneApp(options: KnowledgePaneIslandOptions): App {
                 "aria-label": "Knowledge base overview",
               }, renderKnowledgeOverview(options.pane)),
               renderKnowledgeUploadRegion(options, uploadStatus),
-              renderKnowledgeQueueRegion(options, work),
+              options.workItems?.length ? renderKnowledgeQueueRegion(options, work) : null,
               renderKnowledgeDocumentsRegion(options, documents, documentDetail),
               renderKnowledgeQueryRegion(query),
               renderKnowledgePipelineRegion(readiness),
@@ -149,10 +149,8 @@ function createKnowledgePaneApp(options: KnowledgePaneIslandOptions): App {
 function renderKnowledgeHeader(options: KnowledgePaneIslandOptions) {
   return h("div", { class: "desktop-knowledge-header" }, [
     h("div", { class: "desktop-knowledge-title-block" }, [
-      h("p", { class: "desktop-knowledge-kicker" }, "Knowledge Base"),
       h("h2", "Knowledge Base"),
       h("p", "Manage your knowledge base, monitor ingestion, and explore the knowledge graph."),
-      h("p", { class: "desktop-knowledge-status" }, options.pane.status),
     ]),
     h("div", { class: "desktop-knowledge-toolbar" }, [
       renderKnowledgeActionButton(options, "refreshAll", "Refresh All", "secondary"),
@@ -181,8 +179,8 @@ function renderKnowledgeUploadRegion(options: KnowledgePaneIslandOptions, upload
       h("span", "PDF, DOCX, MD, TXT, CSV, JSON"),
       h("small", "Max 200MB per file"),
     ]),
-    h("p", { ref: uploadStatus }),
     renderKnowledgeUploadControl(),
+    h("p", { ref: uploadStatus }),
   ]);
 }
 
@@ -299,7 +297,6 @@ function renderKnowledgeOverview(pane: DesktopKnowledgePaneModel) {
     renderKnowledgeMetric("Readiness", `${pane.readiness.score}%`, `${chunkCount} indexed chunks`),
     renderKnowledgeMetric("Graph Nodes", String(nodeCount), `${pane.graph.evidence.length} evidence`),
     renderKnowledgeMetric("Relations", String(edgeCount), "Graph edges"),
-    renderKnowledgeMetric("Last Indexed", pane.lastIndexedLabel, "Knowledge freshness"),
   ];
 }
 

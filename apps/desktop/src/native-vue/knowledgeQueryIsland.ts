@@ -1,5 +1,5 @@
 import { createApp, defineComponent, h, ref, type App } from "vue";
-import { NCard, NConfigProvider, NEmpty, NList, NListItem, NSpace, NTag } from "naive-ui";
+import { NConfigProvider, NEmpty, NList, NListItem, NSpace, NTag } from "naive-ui";
 import type {
   DesktopKnowledgePaneModel,
   DesktopKnowledgeQueryResultRow,
@@ -50,9 +50,7 @@ function createKnowledgeQueryApp(options: KnowledgeQueryIslandOptions): App {
         });
       };
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => h(NCard, { size: "small", bordered: false }, {
-          default: () => [
-            h("h2", "Knowledge Query"),
+        default: () => h("div", { class: "desktop-knowledge-query-panel" }, [
             h("div", { class: "desktop-knowledge-query-controls" }, [
               h("input", {
                 "aria-label": "Knowledge query",
@@ -94,8 +92,10 @@ function createKnowledgeQueryApp(options: KnowledgeQueryIslandOptions): App {
                 onClick: runQuery,
               }, "Run Query"),
             ]),
-            h("p", `Mode: ${options.draft.mode} / top ${options.draft.topK}`),
-            h("p", `Results: ${options.results.summary.count}`),
+            h("p", { class: "desktop-knowledge-query-summary" }, [
+              h("span", `Mode: ${options.draft.mode} / top ${options.draft.topK}`),
+              h("span", `Results: ${options.results.summary.count}`),
+            ]),
             renderRetrievalPlan(options.results.summary.retrievalPlan),
             options.results.rows.length
               ? renderResults(options.results.rows)
@@ -104,8 +104,7 @@ function createKnowledgeQueryApp(options: KnowledgeQueryIslandOptions): App {
                 description: "No knowledge query results.",
                 size: "small",
               }),
-          ],
-        }),
+          ]),
       });
     },
   }));

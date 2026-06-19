@@ -10,6 +10,7 @@ export type GatewayRuntimeStatus = {
   port?: number | string | null;
   repo_root: string;
   log_path?: string | null;
+  log_tail?: string[];
   logs: string[];
   last_error: string | null;
   exit_policy?: "stop_on_exit" | "keep_running" | string | null;
