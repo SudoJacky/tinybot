@@ -6,7 +6,7 @@ import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 import { mountRunChainInspectorIsland } from "./runChainInspectorIsland";
 import { mountRunChainOverviewIsland, type RunChainOverviewIslandAction } from "./runChainOverviewIsland";
 import { mountWorkLensIsland } from "./workLensIsland";
-import { NCard, NConfigProvider } from "naive-ui";
+import { NConfigProvider } from "naive-ui";
 
 export interface InspectorRegionWorkLensActionEvent {
   action: DesktopWorkLensActionId;
@@ -50,16 +50,19 @@ function createInspectorRegionApp(options: InspectorRegionIslandOptions): App {
     name: "InspectorRegionIsland",
     setup() {
       const mountedChildren: Array<{ unmount: () => void }> = [];
+      const hasOverview = options.runChainItems.length > 0 || Boolean(options.taskItems?.length);
       const overview = ref<HTMLElement | null>(null);
       const lens = ref<HTMLElement | null>(null);
       const inspector = ref<HTMLElement | null>(null);
 
       onMounted(() => {
-        mountChild(mountedChildren, overview.value, (host) => mountRunChainOverviewIsland(host, {
-          items: options.runChainItems,
-          taskItems: options.taskItems,
-          onAction: options.onRunChainAction,
-        }));
+        if (hasOverview) {
+          mountChild(mountedChildren, overview.value, (host) => mountRunChainOverviewIsland(host, {
+            items: options.runChainItems,
+            taskItems: options.taskItems,
+            onAction: options.onRunChainAction,
+          }));
+        }
         if (options.workLens) {
           mountChild(mountedChildren, lens.value, (host) => mountWorkLensIsland(host, {
             workLens: options.workLens!,
@@ -84,20 +87,14 @@ function createInspectorRegionApp(options: InspectorRegionIslandOptions): App {
       });
 
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => h(NCard, {
-          class: "desktop-inspector-content-card",
-          size: "small",
-          bordered: false,
-        }, {
-          default: () => [
-            h("section", { ref: overview }),
-            options.workLens
-              ? h("section", { ref: lens })
-              : options.runChainItems.length
-                ? h("section", { ref: inspector })
-                : null,
-          ],
-        }),
+        default: () => [
+          hasOverview ? h("section", { ref: overview }) : null,
+          options.workLens
+            ? h("section", { ref: lens })
+            : options.runChainItems.length
+              ? h("section", { ref: inspector })
+              : null,
+        ],
       });
     },
   }));
