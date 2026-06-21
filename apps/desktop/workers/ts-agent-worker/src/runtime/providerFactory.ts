@@ -5,7 +5,8 @@ import type { ModelProvider, ModelResponse } from "../model/provider.ts";
 import { OpenAIProvider, type OpenAIChatCompletionsClient } from "../model/openaiProvider.ts";
 import { UnconfiguredProvider } from "../model/unconfiguredProvider.ts";
 import type { ResolvedRuntimeProvider } from "../providers/providerRuntime.ts";
-import { DEFAULT_AGENT_MODEL } from "../config/defaults.ts";
+
+export const OPENAI_ENV_DEFAULT_MODEL = "gpt-4.1-mini";
 
 type OpenAIClientOptions = {
   apiKey: string;
@@ -109,7 +110,7 @@ export function modelProviderConfigFromEnv(env: Record<string, string | undefine
     return {};
   }
   const apiKey = env.OPENAI_API_KEY;
-  const model = env.TS_AGENT_OPENAI_MODEL ?? env.OPENAI_MODEL ?? DEFAULT_AGENT_MODEL;
+  const model = env.TS_AGENT_OPENAI_MODEL ?? env.OPENAI_MODEL ?? OPENAI_ENV_DEFAULT_MODEL;
   if (!apiKey) {
     return {};
   }

@@ -394,6 +394,33 @@ describe("NativeConfigBridge", () => {
     ]);
   });
 
+  test("legacy fallback uses OpenAI-compatible default when native model is empty", async () => {
+    const rpcClient = new FakeRpcClient({
+      "agents.defaults.provider": "openai",
+      "agents.defaults.model": null,
+      "providers.openai": {
+        api_base: "https://api.test/v1",
+        api_key: null,
+      },
+    });
+
+    const config = await modelProviderConfigFromNativeConfig(new NativeConfigBridge(rpcClient), {
+      OPENAI_API_KEY: "env-key",
+    });
+
+    expect(config).toEqual({
+      kind: "openai",
+      apiKey: "env-key",
+      baseURL: "https://api.test/v1",
+      model: "gpt-4.1-mini",
+    });
+    expect(rpcClient.requests.map((request) => request.params.path)).toEqual([
+      "agents.defaults.provider",
+      "agents.defaults.model",
+      "providers.openai",
+    ]);
+  });
+
   test("legacy fallback resolves native OpenAI secrets when provider is auto", async () => {
     const rpcClient = new FakeRpcClient(
       {
