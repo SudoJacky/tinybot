@@ -123,6 +123,33 @@ describe("desktop native workbench runtime", () => {
     expect(runtime.chat.composerState).toBe("idle");
   });
 
+  test("passes the configured native runtime model through gateway message frames", async () => {
+    const sentSocketMessages: unknown[] = [];
+    const runtime = createDesktopNativeWorkbenchRuntime({
+      api: {
+        listSessions: async () => ({
+          items: [{ key: "WebSocket:chat-live", chat_id: "chat-live", title: "Live gateway session" }],
+        }),
+        loadMessages: async () => ({ messages: [] }),
+      },
+      sendSocketMessage: (message) => {
+        sentSocketMessages.push(message);
+      },
+    });
+    await runtime.loadInitialChatState();
+    runtime.setRuntimeMetadata({ provider: "deepseek", model: "deepseek-v4-flash" });
+
+    runtime.submitComposerMessage("Use configured model", true);
+
+    expect(sentSocketMessages).toContainEqual({
+      type: "message",
+      chat_id: "chat-live",
+      content: "Use configured model",
+      use_persistent_rag: true,
+      model: "deepseek-v4-flash",
+    });
+  });
+
   test("keeps persistent RAG composer state independent from immediate sends", async () => {
     const sentSocketMessages: unknown[] = [];
     const runtime = createDesktopNativeWorkbenchRuntime({

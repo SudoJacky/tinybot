@@ -126,15 +126,15 @@ export function createDesktopNativeWorkbenchRuntime({
   restoreTsAgentCheckpoint,
   now,
 }: DesktopNativeWorkbenchRuntimeOptions): DesktopNativeWorkbenchRuntime {
+  let runtimeMetadata: NonNullable<DesktopNativeChatModel["runtime"]> = {};
   const chatController = createDesktopChatSessionController({
     api,
-    sendSocketMessage,
+    sendSocketMessage: (message) => sendSocketMessage(withRuntimeSocketMetadata(message)),
     now,
   });
   let chatStatus = "Loading sessions.";
   let usePersistentRag = true;
   let composerState: DesktopNativeChatModel["composerState"] = "idle";
-  let runtimeMetadata: NonNullable<DesktopNativeChatModel["runtime"]> = {};
   const agentUiState = createAgentUiEventState();
   const activeTsAgentRuns = new Map<string, string>();
   const activeTsAgentToolCallDeltas = new Map<string, {
@@ -866,6 +866,16 @@ export function createDesktopNativeWorkbenchRuntime({
       kind: event.kind,
       messageId: "messageId" in event ? event.messageId : "",
       text: "text" in event ? summarizeDebugText(event.text) : undefined,
+    };
+  }
+
+  function withRuntimeSocketMetadata(message: unknown): unknown {
+    if (!isRecord(message) || message.type !== "message" || typeof runtimeMetadata.model !== "string" || !runtimeMetadata.model.trim()) {
+      return message;
+    }
+    return {
+      ...message,
+      model: runtimeMetadata.model.trim(),
     };
   }
 }
