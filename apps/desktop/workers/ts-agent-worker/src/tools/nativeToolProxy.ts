@@ -8,6 +8,7 @@ import { NativeCronBridge } from "../cron/cronBridge.ts";
 import { createCronTool } from "../cron/cronTool.ts";
 import { formatKnowledgeQueryResults, normalizeKnowledgeQueryResults } from "../knowledge/knowledgeFormatting.ts";
 import type { ModelProvider } from "../model/provider.ts";
+import { resolveRuntimeModel, type RuntimeModel } from "../model/runtimeModel.ts";
 import { NativeTaskStoreBridge } from "../task/taskStoreBridge.ts";
 import type { TaskNotificationBridge, TaskProgressCardBridge } from "../task/taskNotificationBridge.ts";
 import { TaskPlanner } from "../task/taskPlanner.ts";
@@ -77,7 +78,7 @@ export function createNativeSpawnTools(
   rpcClient: NativeRpcClient,
   options: {
     provider: ModelProvider;
-    model?: string;
+    model?: RuntimeModel;
     maxConcurrent?: number;
     timeoutMs?: number;
     idGenerator?: () => string;
@@ -108,7 +109,7 @@ export function createNativeTaskTools(
   rpcClient: NativeRpcClient,
   options: {
     provider?: ModelProvider;
-    model?: string;
+    model?: RuntimeModel;
     workspace?: string;
     backgroundRegistry?: BackgroundRunRegistry;
     notifier?: TaskNotificationBridge;
@@ -145,7 +146,7 @@ async function runSpawnedSubagent(
   request: SubagentRunRequest,
   options: {
     provider: ModelProvider;
-    model?: string;
+    model?: RuntimeModel;
     tools: ToolRegistry;
     maxIterations?: number;
     toolResultBudget?: number;
@@ -161,7 +162,7 @@ async function runSpawnedSubagent(
     traceId: typeof request.metadata?.traceId === "string" ? request.metadata.traceId : undefined,
     sessionId: request.sessionKey,
     messages: spawnedSubagentMessages(request),
-    model: options.model ?? "default",
+    model: await resolveRuntimeModel(options.model),
     maxIterations: options.maxIterations ?? 15,
     stream: false,
     toolResultBudget: options.toolResultBudget,

@@ -236,6 +236,41 @@ describe("desktop native WebSocket bridge", () => {
     expect(events).toContainEqual({ event: "error", message: "session not found", chat_id: "missing" });
   });
 
+  test("passes message frame model overrides into native transport dispatch options", async () => {
+    const dispatched: unknown[] = [];
+    const nativeTransport: NativeTransportApi = {
+      gatewayFrame: vi.fn(),
+      websocketMessage: vi.fn(),
+      dispatchWebsocketMessage: vi.fn(async (request) => {
+        dispatched.push(request);
+        return { transport: { kind: "error", frames: [] } };
+      }),
+      dispatchChannelInbound: vi.fn(),
+      startChannels: vi.fn(),
+      channelStatus: vi.fn(),
+      stopChannels: vi.fn(),
+    };
+    const socket = createDesktopNativeWebSocket({
+      url: "/ws",
+      nativeTransport,
+    });
+
+    await flushMicrotasks();
+    socket.send(JSON.stringify({
+      type: "message",
+      chat_id: "chat-native",
+      content: "hello",
+      model: "deepseek-v4-flash",
+    }));
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(dispatched).toContainEqual(expect.objectContaining({
+      frame: expect.objectContaining({ model: "deepseek-v4-flash" }),
+      model: "deepseek-v4-flash",
+    }));
+  });
+
   test("projects TS worker tool progress into legacy WebUI message frames", async () => {
     const handlers = new Map<DesktopNativeWebSocketAgentEventName, (payload: unknown) => void>();
     const nativeTransport: NativeTransportApi = {

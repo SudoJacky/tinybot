@@ -1860,7 +1860,7 @@ fn cron_model_from_config(config_snapshot: &serde_json::Value) -> String {
         .pointer("/agents/defaults/model")
         .and_then(serde_json::Value::as_str)
         .filter(|model| !model.trim().is_empty())
-        .unwrap_or("gpt-5")
+        .unwrap_or("deepseek-reasoner")
         .to_string()
 }
 
@@ -3792,6 +3792,14 @@ mod tests {
                 "maxIterations": 4,
                 "stream": false
             })
+        );
+    }
+
+    #[test]
+    fn cron_model_from_config_defaults_to_python_agent_model() {
+        assert_eq!(
+            cron_model_from_config(&serde_json::json!({})),
+            "deepseek-reasoner"
         );
     }
 

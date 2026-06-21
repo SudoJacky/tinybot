@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import { OpenAIProvider } from "../model/openaiProvider";
 import { UnconfiguredProvider } from "../model/unconfiguredProvider";
-import { createModelProvider } from "./providerFactory";
+import { createModelProvider, modelProviderConfigFromEnv } from "./providerFactory";
 
 async function* chunks(values: unknown[]): AsyncIterable<unknown> {
   for (const value of values) {
@@ -11,6 +11,18 @@ async function* chunks(values: unknown[]): AsyncIterable<unknown> {
 }
 
 describe("createModelProvider", () => {
+  test("uses an OpenAI-compatible default for env-only OpenAI provider config", () => {
+    expect(modelProviderConfigFromEnv({
+      TS_AGENT_PROVIDER: "openai",
+      OPENAI_API_KEY: "env-key",
+    })).toEqual({
+      kind: "openai",
+      apiKey: "env-key",
+      baseURL: undefined,
+      model: "gpt-4.1-mini",
+    });
+  });
+
   test("returns an unconfigured provider when no provider kind is set", () => {
     const provider = createModelProvider({});
 

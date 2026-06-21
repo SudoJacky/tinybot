@@ -64,6 +64,28 @@ describe("HeartbeatRuntime", () => {
     expect(trimHeartbeatSession).toHaveBeenCalledWith(6);
   });
 
+  test("resolves the heartbeat model at execution time", async () => {
+    const runnerCalls: AgentRunSpec[] = [];
+    const runtime = new HeartbeatRuntime({
+      model: async () => "deepseek-v4-flash",
+      provider: new QueueProvider([heartbeatDecision("Review configured model.")]),
+      currentTime: () => "2026-06-13 10:00 CST",
+      readHeartbeatFile: async () => "- [ ] Review configured model.",
+      selectTarget: () => ({ channel: "feishu", chatId: "chat-1", external: true }),
+      runner: {
+        run: async (spec) => {
+          runnerCalls.push(spec);
+          return agentResult("Heartbeat handled.");
+        },
+      },
+      idGenerator: () => "heartbeat-run-configured",
+    });
+
+    await expect(runtime.triggerNow()).resolves.toMatchObject({ status: "executed" });
+
+    expect(runnerCalls[0]?.model).toBe("deepseek-v4-flash");
+  });
+
   test("notifies the current external target after evaluator approval", async () => {
     const notifyExternal = vi.fn();
     const runtime = new HeartbeatRuntime({

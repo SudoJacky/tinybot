@@ -1,6 +1,8 @@
 import {
   findCatalogEntry,
   inferProviderFromModel,
+  isCustomProvider,
+  isGatewayProvider,
   isLocalProvider,
   listCatalogEntries,
   type ApiMode,
@@ -9,6 +11,7 @@ import {
 } from "./providerCatalog.ts";
 import { selectProviderConfig, selectProviderRuntimeInput } from "../config/configSelectors.ts";
 import { parseTinybotConfig } from "../config/configSchema.ts";
+import { DEFAULT_AGENT_MODEL } from "../config/defaults.ts";
 import type { TinybotConfig } from "../config/configTypes.ts";
 
 export type TinybotPublicConfig = Record<string, unknown>;
@@ -52,9 +55,9 @@ export type ResolvedRuntimeProvider = {
 
 export async function resolveRuntimeProvider(input: ResolveRuntimeProviderInput): Promise<ResolvedRuntimeProvider> {
   const config = parseTinybotConfig(input.config);
-  const configuredModel = input.model?.trim() || stringAt(input.config, "agents.defaults.model");
+  const configuredModel = input.model?.trim() || config.agents.defaults.model;
   const runtimeInput = selectProviderRuntimeInput(config, configuredModel);
-  const selectedModel = configuredModel || "gpt-4.1-mini";
+  const selectedModel = configuredModel || DEFAULT_AGENT_MODEL;
   const requestedProfile = input.profileName?.trim();
   if (requestedProfile) {
     const profileConfig = config.providers.profiles[requestedProfile];
@@ -116,9 +119,10 @@ async function resolveEntry(
   }
   const providerConfig = explicitProviderConfig ?? selectProviderConfig(config, normalizedId);
   const secret = await configuredOrResolvedOrEnvKey(input, providerConfig, catalog, normalizedId, profileName);
+  const modelResolution = resolveModelForProvider(model, catalog, normalizedId);
   return {
     providerId: normalizedId,
-    model,
+    model: modelResolution.model,
     profileName,
     source,
     apiMode: catalog?.apiMode,
@@ -136,8 +140,36 @@ async function resolveEntry(
       supportsPromptCaching: false,
     },
     extraBody: recordValue(field(providerConfig, "extra_body", "extraBody")) ?? {},
-    warnings: [],
+    warnings: modelResolution.warning ? [modelResolution.warning] : [],
   };
+}
+
+function resolveModelForProvider(
+  model: string,
+  catalog: ProviderCatalogEntry | undefined,
+  providerId: string,
+): { model: string; warning?: string } {
+  const selectedModel = model.trim() || defaultModelForProvider(catalog);
+  const inferred = inferProviderFromModel(selectedModel);
+  if (
+    catalog &&
+    inferred &&
+    inferred.id !== catalog.id &&
+    !isCustomProvider(catalog) &&
+    !isLocalProvider(catalog) &&
+    !isGatewayProvider(catalog)
+  ) {
+    const fallback = defaultModelForProvider(catalog);
+    return {
+      model: fallback,
+      warning: `Model '${selectedModel}' appears to belong to provider '${inferred.id}', not '${providerId}'; using '${fallback}'.`,
+    };
+  }
+  return { model: selectedModel };
+}
+
+function defaultModelForProvider(catalog: ProviderCatalogEntry | undefined): string {
+  return catalog?.curatedModelIds[0] ?? DEFAULT_AGENT_MODEL;
 }
 
 async function hasUsableConfig(input: ResolveRuntimeProviderInput, config: TinybotConfig, catalog: ProviderCatalogEntry): Promise<boolean> {

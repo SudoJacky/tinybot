@@ -1,5 +1,6 @@
 import type { AgentRunner } from "../agent/agentRunner.ts";
 import type { AgentRunResult, AgentRunSpec } from "../agent/agentRunSpec.ts";
+import { resolveRuntimeModel, type RuntimeModel } from "../model/runtimeModel.ts";
 import { isJsonObject, type JsonObject } from "../protocol/messages.ts";
 import type { Tool, ToolDefinition } from "../tools/tool.ts";
 import type { ToolRegistry } from "../tools/toolRegistry.ts";
@@ -14,7 +15,7 @@ export type CoworkAgentRuntimeOptions = {
   store: CoworkServiceStore;
   runner: Pick<AgentRunner, "run">;
   tools?: ToolRegistry;
-  model: string;
+  model: RuntimeModel;
   now?: () => string;
   idGenerator?: CoworkIdGenerator;
 };
@@ -91,7 +92,7 @@ export class CoworkAgentRuntime {
   private readonly store: CoworkServiceStore;
   private readonly runner: Pick<AgentRunner, "run">;
   private readonly tools?: ToolRegistry;
-  private readonly model: string;
+  private readonly model: RuntimeModel;
   private readonly now: () => string;
   private readonly idGenerator: CoworkIdGenerator;
 
@@ -228,7 +229,7 @@ export class CoworkAgentRuntime {
     };
     let result: AgentRunResult;
     try {
-      result = await this.runner.run(this.agentRunSpec(session, agent, task, unread, request, internalToolRegistration?.definition, runEventHandler, streamEnabled));
+      result = await this.runner.run(await this.agentRunSpec(session, agent, task, unread, request, internalToolRegistration?.definition, runEventHandler, streamEnabled));
     } catch (error) {
       const message = errorMessage(error);
       const fresh = await this.store.readSnapshot(session.id, traceId) ?? session;
@@ -274,7 +275,7 @@ export class CoworkAgentRuntime {
     };
   }
 
-  private agentRunSpec(
+  private async agentRunSpec(
     session: CoworkSession,
     agent: CoworkAgent,
     task: CoworkTask | undefined,
@@ -283,12 +284,12 @@ export class CoworkAgentRuntime {
     internalToolDefinition?: ToolDefinition,
     emitEvent?: (event: CoworkStreamEventInput) => void,
     stream = false,
-  ): AgentRunSpec {
+  ): Promise<AgentRunSpec> {
     return {
       runId: `${request.runId ?? this.idGenerator("run")}:${agent.id}`,
       traceId: request.traceId,
       sessionId: session.id,
-      model: this.model,
+      model: await resolveRuntimeModel(this.model),
       maxIterations: 12,
       stream,
       failOnToolError: false,

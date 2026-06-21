@@ -10,7 +10,7 @@ import { probeOpenAICompatibleModels, type JsonFetcher } from "../providers/mode
 import { isLocalProvider, listCatalogEntries, type ProviderCatalogEntry } from "../providers/providerCatalog.ts";
 import { listProviderModels, validateModelForProvider } from "../providers/providerModels.ts";
 import { resolveRuntimeProvider, type ProviderSecretResolution, type TinybotPublicConfig } from "../providers/providerRuntime.ts";
-import { modelProviderConfigFromEnv, type ModelProviderConfig } from "./providerFactory.ts";
+import { modelProviderConfigFromEnv, OPENAI_ENV_DEFAULT_MODEL, type ModelProviderConfig } from "./providerFactory.ts";
 
 const CONFIG_TRACE_ID = "worker-config";
 
@@ -382,7 +382,7 @@ async function legacyModelProviderConfigFromNativeConfig(
       asString(await configBridge.get("agents.defaults.model")) ??
       env.TS_AGENT_OPENAI_MODEL ??
       env.OPENAI_MODEL ??
-      "gpt-4.1-mini";
+      OPENAI_ENV_DEFAULT_MODEL;
     const providerConfig = asObject(await configBridge.get("providers.openai"));
     const baseURL = asString(providerConfig?.api_base) ?? asString(providerConfig?.baseURL) ?? env.OPENAI_BASE_URL;
     return { kind: "openai", apiKey, baseURL, model };

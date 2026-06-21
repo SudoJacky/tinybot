@@ -657,6 +657,26 @@ describe("createNativeSpawnTools", () => {
       },
     ]);
   });
+
+  test("resolves spawned subagent model at execution time", async () => {
+    const rpc = new FakeRpcClient([]);
+    const provider = new QueueProvider([
+      { content: "configured model used", toolCalls: [], stopReason: "stop" },
+    ]);
+    const [spawnTool] = createNativeSpawnTools(rpc, {
+      provider,
+      model: async () => "deepseek-v4-flash",
+      idGenerator: () => "spawn-2",
+    });
+
+    await spawnTool.execute(
+      { task: "Use configured model", label: "Configured" },
+      { runId: "run-2", traceId: "trace-2", sessionId: "desktop:chat-2" },
+    );
+    await waitFor(() => provider.requests.length > 0);
+
+    expect(provider.requests[0]?.options?.model).toBe("deepseek-v4-flash");
+  });
 });
 
 describe("createNativeRagTools", () => {

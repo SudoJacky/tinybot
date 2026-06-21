@@ -85,13 +85,21 @@ describe("buildRunInputSpec", () => {
       model: undefined,
       maxIterations: undefined,
       stream: undefined,
+      contextWindow: undefined,
+      maxTokens: undefined,
+      temperature: undefined,
+      toolResultBudget: undefined,
       metadata: undefined,
     }), loaded());
 
     expect(result.spec).toMatchObject({
-      model: "gpt-4.1-mini",
-      maxIterations: 2,
+      model: "deepseek-reasoner",
+      maxIterations: 200,
       stream: false,
+      contextWindow: 65536,
+      maxTokens: 8192,
+      temperature: 0.1,
+      toolResultBudget: 16000,
     });
     expect(result.spec.metadata).toMatchObject({
       _contextInitialMessageCount: 4,
@@ -100,12 +108,37 @@ describe("buildRunInputSpec", () => {
 
   test("uses bridge run defaults when optional run_input fields are omitted", () => {
     const result = buildRunInputSpec("trace-1", input({
+      model: undefined,
+      maxIterations: undefined,
+      contextWindow: undefined,
+      maxTokens: undefined,
       providerRetryMode: undefined,
+      reasoningEffort: undefined,
+      temperature: undefined,
+      toolResultBudget: undefined,
     }), {
       ...loaded(),
-      runDefaults: { providerRetryMode: "persistent" },
+      runDefaults: {
+        model: "deepseek-v4-flash",
+        maxIterations: 12,
+        contextWindow: 48000,
+        maxTokens: 4096,
+        providerRetryMode: "persistent",
+        reasoningEffort: "high",
+        temperature: 0.3,
+        toolResultBudget: 9000,
+      },
     });
 
-    expect(result.spec.providerRetryMode).toBe("persistent");
+    expect(result.spec).toMatchObject({
+      model: "deepseek-v4-flash",
+      maxIterations: 12,
+      contextWindow: 48000,
+      maxTokens: 4096,
+      providerRetryMode: "persistent",
+      reasoningEffort: "high",
+      temperature: 0.3,
+      toolResultBudget: 9000,
+    });
   });
 });

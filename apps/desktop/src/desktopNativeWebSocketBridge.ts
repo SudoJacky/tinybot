@@ -144,12 +144,14 @@ class DesktopNativeWebSocket extends EventTarget {
 
   private async dispatchFrame(frame: Record<string, unknown>): Promise<void> {
     const sessionExists = await this.resolveAttachSessionExists(frame);
+    const model = stringValue(frame.model);
     const request: NativeTransportWebSocketDispatchRequest = {
       clientId: this.clientId,
       frame,
       ...(this.attachedChatId ? { attachedChatId: this.attachedChatId } : {}),
       ...(sessionExists !== undefined ? { sessionExists } : {}),
       ...(this.editablePaths ? { editablePaths: this.editablePaths } : {}),
+      ...(model ? { model } : {}),
     };
     try {
       this.applyDispatchResult(await this.nativeTransport.dispatchWebsocketMessage(request));

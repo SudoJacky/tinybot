@@ -296,6 +296,37 @@ describe("ProviderBackedDreamBridge", () => {
     });
   });
 
+  test("resolves provider-backed Dream model at execution time", async () => {
+    const { client } = sequenceRpcClient([
+      {
+        content: "Dream deferred 1 conversation evidence record(s) for provider-backed memory extraction.",
+        metadata: { deferred: true, pending_evidence: 1 },
+      },
+      {
+        kind: "conversation_evidence",
+        records: [{ id: "ev_1", content: "Remember configured model.", cursor: 1 }],
+        cursor_start: 1,
+        cursor_end: 1,
+        evidence_ids: ["ev_1"],
+      },
+      { changed: false, applied_notes: 0 },
+    ]);
+    const provider = new RecordingProvider({
+      content: JSON.stringify([]),
+      toolCalls: [],
+      stopReason: "stop",
+    });
+    const bridge = new ProviderBackedDreamBridge({
+      nativeBridge: new NativeDreamBridge(client),
+      provider,
+      model: async () => "deepseek-v4-flash",
+    });
+
+    await bridge.runDream({ traceId: "trace-dream-model", sessionId: "session-1" });
+
+    expect(provider.requests[0]?.options?.model).toBe("deepseek-v4-flash");
+  });
+
   test("accepts a single provider JSON operation object like Python Dream", async () => {
     const { client, calls } = sequenceRpcClient([
       {

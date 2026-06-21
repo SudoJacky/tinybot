@@ -109,7 +109,7 @@ export function installDesktopGatewayBridge(options: DesktopGatewayBridgeOptions
   }) as FetchLike;
 
   function DesktopGatewayWebSocket(url: string | URL, protocols?: string | string[]) {
-    if (nativeTransport && isGatewayWebSocketPath(url, pageOrigin)) {
+    if (nativeTransport && isNativeGatewayWebSocketTarget(url, pageOrigin, config)) {
       return createDesktopNativeWebSocket({
         url,
         protocols,
@@ -135,6 +135,26 @@ export function installDesktopGatewayBridge(options: DesktopGatewayBridgeOptions
       webSocketTarget.WebSocket = OriginalWebSocket;
     },
   };
+}
+
+function isNativeGatewayWebSocketTarget(
+  input: string | URL,
+  pageOrigin: string,
+  config: GatewayConfig,
+): boolean {
+  const sourceUrl = requestUrl(input, pageOrigin);
+  return Boolean(sourceUrl && (
+    (isSamePageEndpoint(sourceUrl, pageOrigin) && sourceUrl.pathname === "/ws")
+    || isConfiguredGatewayWebSocketUrl(sourceUrl, config)
+  ));
+}
+
+function isConfiguredGatewayWebSocketUrl(sourceUrl: URL, config: GatewayConfig): boolean {
+  const gatewayUrl = new URL(config.wsUrl);
+  return sourceUrl.protocol === gatewayUrl.protocol
+    && sourceUrl.hostname === gatewayUrl.hostname
+    && sourceUrl.port === gatewayUrl.port
+    && sourceUrl.pathname === gatewayUrl.pathname;
 }
 
 async function nativeWebuiFetchResponse(

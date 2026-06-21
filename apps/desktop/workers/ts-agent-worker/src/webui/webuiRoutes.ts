@@ -1,6 +1,7 @@
 import { isJsonObject, type JsonObject } from "../protocol/messages.ts";
 import type { ToolRegistry } from "../tools/toolRegistry.ts";
 import type { HeartbeatStatus } from "../heartbeat/heartbeatTypes.ts";
+import { DEFAULT_AGENT_MODEL } from "../config/defaults.ts";
 import type { McpRuntimeDiagnostics } from "../mcp/mcpRuntimeManager.ts";
 import { EMPTY_FINAL_RESPONSE_MESSAGE } from "../support/runtimeHelpers.ts";
 import {
@@ -881,7 +882,7 @@ function openAiModelsBody(config: Record<string, unknown>): Record<string, unkno
 function openAiConfiguredModel(config: Record<string, unknown>): string {
   const agents = isJsonObject(config.agents) ? config.agents : {};
   const defaults = isJsonObject(agents.defaults) ? agents.defaults : {};
-  return stringParam(defaults.model) ?? stringParam(agents.model) ?? "tinybot";
+  return stringParam(defaults.model) ?? stringParam(agents.model) ?? DEFAULT_AGENT_MODEL;
 }
 
 async function openAiChatCompletionsResponse(

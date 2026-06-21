@@ -4,6 +4,7 @@ import type { DreamCommandBridge } from "./agentWorker.ts";
 import type { DreamCommandRequest, DreamCommandResult, DreamLogCommandRequest, DreamRestoreCommandRequest } from "../command/commandTypes.ts";
 import type { AgentMessage } from "../agent/agentRunSpec.ts";
 import type { ModelProvider } from "../model/provider.ts";
+import { resolveRuntimeModel, type RuntimeModel } from "../model/runtimeModel.ts";
 
 export type DreamBatchKind = "conversation_evidence" | "legacy_history";
 
@@ -76,7 +77,7 @@ export class NativeDreamBridge implements DreamCommandBridge {
 export type ProviderBackedDreamBridgeOptions = {
   nativeBridge: NativeDreamBridge;
   provider: ModelProvider;
-  model: string;
+  model: RuntimeModel;
 };
 
 type DreamBatch = {
@@ -103,7 +104,7 @@ type ParsedDreamOperations = {
 export class ProviderBackedDreamBridge implements DreamCommandBridge {
   private readonly nativeBridge: NativeDreamBridge;
   private readonly provider: ModelProvider;
-  private readonly model: string;
+  private readonly model: RuntimeModel;
 
   constructor(options: ProviderBackedDreamBridgeOptions) {
     this.nativeBridge = options.nativeBridge;
@@ -122,7 +123,7 @@ export class ProviderBackedDreamBridge implements DreamCommandBridge {
       return nativeResult;
     }
 
-    const response = await this.provider.complete(dreamProviderMessages(batch), { model: this.model });
+    const response = await this.provider.complete(dreamProviderMessages(batch), { model: await resolveRuntimeModel(this.model) });
     const parsed = parseDreamOperations(response.content);
     if (!parsed) {
       return {

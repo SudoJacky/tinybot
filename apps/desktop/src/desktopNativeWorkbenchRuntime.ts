@@ -126,15 +126,15 @@ export function createDesktopNativeWorkbenchRuntime({
   restoreTsAgentCheckpoint,
   now,
 }: DesktopNativeWorkbenchRuntimeOptions): DesktopNativeWorkbenchRuntime {
+  let runtimeMetadata: NonNullable<DesktopNativeChatModel["runtime"]> = {};
   const chatController = createDesktopChatSessionController({
     api,
-    sendSocketMessage,
+    sendSocketMessage: (message) => sendSocketMessage(withRuntimeSocketMetadata(message)),
     now,
   });
   let chatStatus = "Loading sessions.";
   let usePersistentRag = true;
   let composerState: DesktopNativeChatModel["composerState"] = "idle";
-  let runtimeMetadata: NonNullable<DesktopNativeChatModel["runtime"]> = {};
   const agentUiState = createAgentUiEventState();
   const activeTsAgentRuns = new Map<string, string>();
   const activeTsAgentToolCallDeltas = new Map<string, {
@@ -868,6 +868,16 @@ export function createDesktopNativeWorkbenchRuntime({
       text: "text" in event ? summarizeDebugText(event.text) : undefined,
     };
   }
+
+  function withRuntimeSocketMetadata(message: unknown): unknown {
+    if (!isRecord(message) || message.type !== "message" || typeof runtimeMetadata.model !== "string" || !runtimeMetadata.model.trim()) {
+      return message;
+    }
+    return {
+      ...message,
+      model: runtimeMetadata.model.trim(),
+    };
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1080,7 +1090,7 @@ function buildDesktopTsAgentRunSpec({
     runId,
     sessionId,
     messages: messages.flatMap(desktopMessageToTsAgentMessages).filter(tsAgentMessageHasPayload),
-    model: typeof model === "string" && model.trim() ? model : "default",
+    model: typeof model === "string" && model.trim() ? model : "deepseek-reasoner",
     maxIterations: positiveIntegerValue(maxToolIterations) ?? 8,
     ...(temperatureValue !== null ? { temperature: temperatureValue } : {}),
     ...(maxTokensValue !== null ? { maxTokens: maxTokensValue } : {}),

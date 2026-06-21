@@ -73,7 +73,7 @@ describe("resolveRuntimeProvider", () => {
     expect(resolved.apiKey).toBe("zhipu-key");
   });
 
-  test("does not infer OpenAI from the synthetic fallback model before credential fallback", async () => {
+  test("infers the parsed Tinybot default model before credential fallback", async () => {
     const resolved = await resolveRuntimeProvider({
       config: {
         agents: { defaults: { provider: "auto" } },
@@ -82,10 +82,37 @@ describe("resolveRuntimeProvider", () => {
       env: { DASHSCOPE_API_KEY: "dashscope-key" },
     });
 
-    expect(resolved.providerId).toBe("dashscope");
-    expect(resolved.model).toBe("gpt-4.1-mini");
-    expect(resolved.source).toBe("credentials");
-    expect(resolved.apiKey).toBe("dashscope-key");
+    expect(resolved.providerId).toBe("deepseek");
+    expect(resolved.model).toBe("deepseek-reasoner");
+    expect(resolved.source).toBe("model");
+    expect(resolved.apiKey).toBeUndefined();
+    expect(resolved.warnings).toEqual([]);
+  });
+
+  test("uses parsed Tinybot agent defaults when the raw config omits a model", async () => {
+    const resolved = await resolveRuntimeProvider({
+      config: {},
+      env: {},
+    });
+
+    expect(resolved.model).toBe("deepseek-reasoner");
+    expect(resolved.source).toBe("model");
+    expect(resolved.providerId).toBe("deepseek");
+  });
+
+  test("uses the selected provider default when a stale model belongs to another provider", async () => {
+    const resolved = await resolveRuntimeProvider({
+      config: {
+        agents: { defaults: { provider: "deepseek", model: "gpt-4.1-mini" } },
+        providers: { deepseek: { api_key: "deepseek-key" } },
+      },
+      env: {},
+    });
+
+    expect(resolved.providerId).toBe("deepseek");
+    expect(resolved.model).toBe("deepseek-v4-pro");
+    expect(resolved.source).toBe("explicit");
+    expect(resolved.warnings).toContain("Model 'gpt-4.1-mini' appears to belong to provider 'openai', not 'deepseek'; using 'deepseek-v4-pro'.");
   });
 
   test("falls back to first provider with usable credentials in catalog order", async () => {
