@@ -1,8 +1,33 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import type { DesktopKnowledgeEvidenceRow, DesktopKnowledgePaneGraph } from "../desktopKnowledgeTraceability";
 import { buildKnowledgeGraph3dData, buildKnowledgeGraphSelection, mountKnowledgeGraphIsland } from "./knowledgeGraphIsland";
+
+vi.mock("3d-force-graph", () => {
+  class ForceGraph3DMock {
+    backgroundColor() { return this; }
+    showNavInfo() { return this; }
+    graphData() { return this; }
+    nodeLabel() { return this; }
+    nodeVal() { return this; }
+    nodeColor() { return this; }
+    linkLabel() { return this; }
+    linkColor() { return this; }
+    linkWidth() { return this; }
+    linkDirectionalParticles() { return this; }
+    linkDirectionalParticleSpeed() { return this; }
+    cooldownTicks() { return this; }
+    d3VelocityDecay() { return this; }
+    onNodeClick() { return this; }
+    onLinkClick() { return this; }
+    width() { return this; }
+    height() { return this; }
+    cameraPosition() { return this; }
+    _destructor() {}
+  }
+  return { default: ForceGraph3DMock };
+});
 
 function evidence(index: number): DesktopKnowledgeEvidenceRow {
   return {
@@ -36,6 +61,10 @@ const graph: DesktopKnowledgePaneGraph = {
 };
 
 describe("knowledge graph Vue island", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   test("renders graph references and limits evidence rows with existing copy", () => {
     const host = document.createElement("section");
 
@@ -64,6 +93,7 @@ describe("knowledge graph Vue island", () => {
   });
 
   test("renders an interactive 3D graph host instead of the legacy SVG graph", () => {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({} as CanvasRenderingContext2D);
     const host = document.createElement("section");
     const mounted = mountKnowledgeGraphIsland(host, {
       graph: graphWithEdges(),
@@ -75,6 +105,25 @@ describe("knowledge graph Vue island", () => {
     expect(canvas?.textContent).toContain("Drag to orbit");
     expect(canvas?.querySelector(".desktop-knowledge-graph-3d-host")).not.toBeNull();
     expect(canvas?.querySelector("svg")).toBeNull();
+
+    mounted.unmount();
+  });
+
+  test("renders a visible 2D fallback graph when WebGL is unavailable", () => {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+    const host = document.createElement("section");
+    const mounted = mountKnowledgeGraphIsland(host, {
+      graph: graphWithEdges(),
+    });
+
+    const canvas = host.querySelector('[data-desktop-knowledge-graph-pane="canvas"]');
+    expect(canvas?.getAttribute("data-desktop-knowledge-graph-mode")).toBe("2d-fallback");
+    expect(canvas?.getAttribute("role")).toBe("img");
+    expect(canvas?.textContent).toContain("WebGL unavailable");
+    expect(canvas?.querySelector("svg")).not.toBeNull();
+    expect(canvas?.querySelector('[data-desktop-knowledge-graph-node="source"]')).not.toBeNull();
+    expect(canvas?.querySelector('[data-desktop-knowledge-graph-edge="edge-source-target"]')).not.toBeNull();
+    expect(canvas?.querySelector(".desktop-knowledge-graph-3d-host")).toBeNull();
 
     mounted.unmount();
   });

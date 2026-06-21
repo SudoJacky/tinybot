@@ -55,8 +55,6 @@ export function installDesktopWindowFrame({
 
   const appMenu = createApplicationMenu(targetDocument);
 
-  const panelControls = createFramePanelControls(targetDocument);
-
   const controls = targetDocument.createElement("div");
   controls.className = "desktop-window-controls";
   controls.append(
@@ -65,7 +63,11 @@ export function installDesktopWindowFrame({
     createWindowButton(targetDocument, "maximize", "Maximize", () => currentWindow.toggleMaximize()),
   );
 
-  frame.append(appMenu, panelControls, controls);
+  frame.append(appMenu);
+  if (shouldRenderFramePanelControls(targetDocument)) {
+    frame.append(createFramePanelControls(targetDocument));
+  }
+  frame.append(controls);
   frame.addEventListener("pointerdown", () => {
     void currentWindow.startDragging().catch(logWindowFrameError);
   });
@@ -74,6 +76,11 @@ export function installDesktopWindowFrame({
   });
 
   targetDocument.body.prepend(frame);
+}
+
+function shouldRenderFramePanelControls(targetDocument: Document): boolean {
+  return targetDocument.documentElement.dataset.desktopWorkbenchMode === "native-workbench"
+    || Boolean(targetDocument.getElementById("desktop-workbench-shell"));
 }
 
 function createFramePanelControls(targetDocument: Document): HTMLElement {

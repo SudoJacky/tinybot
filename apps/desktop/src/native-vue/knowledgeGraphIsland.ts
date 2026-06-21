@@ -120,10 +120,14 @@ const KnowledgeGraph3dScene = defineComponent({
   setup(props, { emit }) {
     const host = ref<HTMLElement | null>(null);
     const selected = ref<string>("Drag to orbit, scroll to zoom, click a node to focus.");
+    const hasWebGl = ref(canRenderKnowledgeGraph3d());
     const graphInstance = shallowRef<KnowledgeGraph3dInstance | null>(null);
     let resizeObserver: ResizeObserver | null = null;
 
     onMounted(() => {
+      if (!hasWebGl.value) {
+        return;
+      }
       void mountKnowledgeGraph3dScene(host.value, props.graph, selected, (nodeId) => {
         selected.value = props.graph.view.nodes.find((node) => node.id === nodeId)?.label ?? selected.value;
         emit("selectNode", nodeId);
@@ -131,6 +135,9 @@ const KnowledgeGraph3dScene = defineComponent({
         graphInstance.value = instance;
       }, (observer) => {
         resizeObserver = observer;
+      }).catch((error) => {
+        console.warn("Tinybot knowledge graph 3D scene failed to mount", error);
+        hasWebGl.value = false;
       });
     });
 
@@ -140,7 +147,7 @@ const KnowledgeGraph3dScene = defineComponent({
       graphInstance.value = null;
     });
 
-    return () => h("div", {
+    return () => hasWebGl.value ? h("div", {
       class: "desktop-knowledge-graph-canvas",
       "data-desktop-knowledge-graph-pane": "canvas",
       "data-desktop-knowledge-graph-mode": "3d",
@@ -154,7 +161,10 @@ const KnowledgeGraph3dScene = defineComponent({
         "data-desktop-knowledge-graph-3d-host": "",
       }),
       h("div", { class: "desktop-knowledge-graph-3d-hint" }, selected.value),
-    ]);
+    ]) : renderKnowledgeGraph2dFallback(props.graph, props.selectedNodeId ?? "", (nodeId) => {
+      selected.value = props.graph.view.nodes.find((node) => node.id === nodeId)?.label ?? selected.value;
+      emit("selectNode", nodeId);
+    });
   },
 });
 
@@ -256,6 +266,104 @@ export function buildKnowledgeGraph3dData(graph: DesktopKnowledgePaneGraph): Kno
       evidenceCount: edge.evidenceCount,
     }));
   return { nodes, links };
+}
+
+function renderKnowledgeGraph2dFallback(
+  graph: DesktopKnowledgePaneGraph,
+  selectedNodeId: string,
+  selectNode: (nodeId: string) => void,
+) {
+  const graphData = buildKnowledgeGraph3dData(graph);
+  const points = new Map(graphData.nodes.map((node, index) => [node.id, knowledgeGraphFallbackPoint(index, graphData.nodes.length)]));
+  return h("div", {
+    class: "desktop-knowledge-graph-canvas desktop-knowledge-graph-fallback",
+    "data-desktop-knowledge-graph-pane": "canvas",
+    "data-desktop-knowledge-graph-mode": "2d-fallback",
+    "data-desktop-knowledge-selected-node": selectedNodeId,
+    role: "img",
+    "aria-label": `${graph.summary}. WebGL unavailable; showing a 2D fallback graph.`,
+  }, [
+    h("svg", {
+      viewBox: "0 0 640 320",
+      role: "presentation",
+      "aria-hidden": "true",
+    }, [
+      h("g", { class: "desktop-knowledge-graph-fallback-edges" }, graphData.links.map((link) => {
+        const sourceId = knowledgeGraph3dLinkNodeId(link.source);
+        const targetId = knowledgeGraph3dLinkNodeId(link.target);
+        const source = points.get(sourceId);
+        const target = points.get(targetId);
+        if (!source || !target) {
+          return null;
+        }
+        return h("g", {
+          class: "desktop-knowledge-graph-edge",
+          "data-desktop-knowledge-graph-edge": link.id,
+        }, [
+          h("line", {
+            x1: source.x,
+            y1: source.y,
+            x2: target.x,
+            y2: target.y,
+          }),
+          h("text", {
+            x: (source.x + target.x) / 2,
+            y: (source.y + target.y) / 2 - 8,
+          }, link.label),
+        ]);
+      })),
+      h("g", { class: "desktop-knowledge-graph-fallback-nodes" }, graphData.nodes.map((node) => {
+        const point = points.get(node.id) ?? { x: 320, y: 160 };
+        const isSelected = selectedNodeId === node.id;
+        return h("g", {
+          class: "desktop-knowledge-graph-node",
+          "data-desktop-knowledge-graph-node": node.id,
+          "data-selected": String(isSelected),
+          role: "button",
+          tabindex: "0",
+          "aria-label": `Select ${node.name}`,
+          onClick: () => selectNode(node.id),
+          onKeydown: (event: KeyboardEvent) => {
+            if (event.key !== "Enter" && event.key !== " ") {
+              return;
+            }
+            event.preventDefault();
+            selectNode(node.id);
+          },
+        }, [
+          h("circle", {
+            cx: point.x,
+            cy: point.y,
+            r: node.val + 8,
+          }),
+          h("text", {
+            x: point.x,
+            y: point.y + node.val + 24,
+          }, node.name),
+        ]);
+      })),
+    ]),
+    h("div", { class: "desktop-knowledge-graph-3d-hint" }, "WebGL unavailable; showing a 2D fallback."),
+  ]);
+}
+
+function knowledgeGraphFallbackPoint(index: number, total: number): { x: number; y: number } {
+  if (index === 0) {
+    return { x: 320, y: 160 };
+  }
+  const orbitIndex = index - 1;
+  const orbitTotal = Math.max(1, total - 1);
+  const angle = (orbitIndex / orbitTotal) * Math.PI * 2 - Math.PI / 2;
+  const radiusX = 210;
+  const radiusY = 96;
+  return {
+    x: 320 + Math.cos(angle) * radiusX,
+    y: 160 + Math.sin(angle) * radiusY,
+  };
+}
+
+function knowledgeGraph3dLinkNodeId(node: string | KnowledgeGraph3dNode): string {
+  return typeof node === "string" ? node : node.id;
 }
 
 export function buildKnowledgeGraphSelection(graph: DesktopKnowledgePaneGraph, selectedNodeId: string | null): KnowledgeGraphSelection {

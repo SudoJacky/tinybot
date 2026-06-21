@@ -9463,6 +9463,46 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       outline: none;
     }
 
+    body.desktop-native-workbench .desktop-knowledge-graph-fallback svg {
+      display: block;
+      width: 100%;
+      min-width: 0;
+      min-height: 280px;
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-graph-edge line {
+      stroke: rgba(217, 120, 87, 0.56);
+      stroke-width: 2;
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-graph-edge text,
+    body.desktop-native-workbench .desktop-knowledge-graph-node text {
+      fill: var(--text-muted, #6c6a64);
+      font: 650 12px/1 var(--font-sans, system-ui, sans-serif);
+      text-anchor: middle;
+      paint-order: stroke;
+      stroke: rgba(255, 253, 249, 0.86);
+      stroke-width: 4px;
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-graph-node {
+      cursor: pointer;
+      outline: none;
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-graph-node circle {
+      fill: #f2eadf;
+      stroke: var(--primary, #cc785c);
+      stroke-width: 2.5;
+      filter: drop-shadow(0 8px 14px rgba(75, 54, 38, 0.12));
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-graph-node[data-selected="true"] circle,
+    body.desktop-native-workbench .desktop-knowledge-graph-node:focus-visible circle {
+      fill: #fff7ef;
+      stroke-width: 4;
+    }
+
     body.desktop-native-workbench .desktop-knowledge-graph-3d-hint {
       position: absolute;
       left: 10px;

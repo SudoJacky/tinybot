@@ -148,6 +148,7 @@ function matchesSelector(element: FakeElement, selector: string): boolean {
 describe("desktop window frame", () => {
   test("installs a custom draggable frame with working window controls", () => {
     const targetDocument = new FakeDocument();
+    targetDocument.documentElement.dataset.desktopWorkbenchMode = "native-workbench";
     const currentWindow = {
       minimize: vi.fn(async () => {}),
       toggleMaximize: vi.fn(async () => {}),
@@ -552,6 +553,7 @@ describe("desktop window frame", () => {
     expect(frame?.textContent).not.toContain("Tinybot");
     expect(frame?.textContent).not.toContain("WebUI shell");
     expect(targetDocument.body.querySelector("#desktop-window-context")).toBeNull();
+    expect(targetDocument.body.querySelector(".desktop-frame-panel-controls")).toBeNull();
 
     targetDocument.documentElement.dataset.desktopWorkbenchMode = "native-workbench";
     installDesktopWindowFrame({
