@@ -13,6 +13,14 @@ import type {
   TinybotConfig,
 } from "./configTypes.ts";
 import { applyConfigMigrations } from "./configMigrations.ts";
+import {
+  DEFAULT_AGENT_CONTEXT_WINDOW_TOKENS,
+  DEFAULT_AGENT_MAX_TOKENS,
+  DEFAULT_AGENT_MAX_TOOL_ITERATIONS,
+  DEFAULT_AGENT_MAX_TOOL_RESULT_CHARS,
+  DEFAULT_AGENT_MODEL,
+  DEFAULT_AGENT_TEMPERATURE,
+} from "./defaults.ts";
 import { normalizeMcpServersConfig } from "../mcp/mcpConfig.ts";
 
 export class TinybotConfigValidationError extends Error {
@@ -87,15 +95,15 @@ function defaultDesktopConfig(): DesktopConfig {
 function defaultAgentDefaults(): AgentDefaultsConfig {
   return {
     workspace: "~/.tinybot/workspace",
-    model: "deepseek-reasoner",
+    model: DEFAULT_AGENT_MODEL,
     activeProfile: null,
     provider: "auto",
-    maxTokens: 8192,
-    contextWindowTokens: 65536,
+    maxTokens: DEFAULT_AGENT_MAX_TOKENS,
+    contextWindowTokens: DEFAULT_AGENT_CONTEXT_WINDOW_TOKENS,
     contextBlockLimit: null,
-    temperature: 0.1,
-    maxToolIterations: 200,
-    maxToolResultChars: 16000,
+    temperature: DEFAULT_AGENT_TEMPERATURE,
+    maxToolIterations: DEFAULT_AGENT_MAX_TOOL_ITERATIONS,
+    maxToolResultChars: DEFAULT_AGENT_MAX_TOOL_RESULT_CHARS,
     providerRetryMode: "standard",
     reasoningEffort: null,
     timezone: "UTC",

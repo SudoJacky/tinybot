@@ -137,6 +137,13 @@ export type AgentRunInput = {
 };
 
 export type AgentRunDefaults = {
+  model?: string;
+  maxIterations?: number;
+  contextWindow?: number;
+  toolResultBudget?: number;
+  temperature?: number;
+  maxTokens?: number;
+  reasoningEffort?: string;
   providerRetryMode?: "standard" | "persistent";
   enabledSkills?: string[];
 };

@@ -154,9 +154,44 @@ export class NativeContextBridge implements ContextBridge {
       const agents = asObject(snapshot?.agents);
       const defaults = asObject(agents?.defaults);
       const skills = asObject(snapshot?.skills);
+      const runDefaults: AgentRunDefaults = {};
+      const model = trimmedString(defaults?.model);
+      const maxIterations = positiveIntegerValue(defaults?.maxIterations ?? defaults?.maxToolIterations ?? defaults?.max_tool_iterations);
+      const contextWindow = positiveIntegerValue(defaults?.contextWindow ?? defaults?.contextWindowTokens ?? defaults?.context_window_tokens);
+      const maxTokens = positiveIntegerValue(defaults?.maxTokens ?? defaults?.max_tokens);
+      const toolResultBudget = positiveIntegerValue(defaults?.toolResultBudget ?? defaults?.maxToolResultChars ?? defaults?.max_tool_result_chars);
+      const temperature = numberValue(defaults?.temperature);
+      const reasoningEffort = trimmedString(defaults?.reasoningEffort ?? defaults?.reasoning_effort);
+      const providerRetryMode = providerRetryModeValue(defaults?.providerRetryMode ?? defaults?.provider_retry_mode);
+      if (model) {
+        runDefaults.model = model;
+      }
+      if (maxIterations !== undefined) {
+        runDefaults.maxIterations = maxIterations;
+      }
+      if (contextWindow !== undefined) {
+        runDefaults.contextWindow = contextWindow;
+      }
+      if (maxTokens !== undefined) {
+        runDefaults.maxTokens = maxTokens;
+      }
+      if (toolResultBudget !== undefined) {
+        runDefaults.toolResultBudget = toolResultBudget;
+      }
+      if (temperature !== undefined) {
+        runDefaults.temperature = temperature;
+      }
+      if (reasoningEffort) {
+        runDefaults.reasoningEffort = reasoningEffort;
+      }
+      if (providerRetryMode) {
+        runDefaults.providerRetryMode = providerRetryMode;
+      }
+      if (Array.isArray(skills?.enabled)) {
+        runDefaults.enabledSkills = normalizeStringArray(skills.enabled);
+      }
       return {
-        providerRetryMode: providerRetryModeValue(defaults?.providerRetryMode ?? defaults?.provider_retry_mode),
-        ...(Array.isArray(skills?.enabled) ? { enabledSkills: normalizeStringArray(skills.enabled) } : {}),
+        ...runDefaults,
       };
     } catch {
       return {};
@@ -429,6 +464,14 @@ function normalizeSkillEntries(value: unknown): SkillStoreEntry[] {
 
 function numberValue(value: unknown): number | undefined {
   return typeof value === "number" ? value : undefined;
+}
+
+function positiveIntegerValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+function trimmedString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 function providerRetryModeValue(value: unknown): AgentRunDefaults["providerRetryMode"] {

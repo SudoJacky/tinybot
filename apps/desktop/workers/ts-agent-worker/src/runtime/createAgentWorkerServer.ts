@@ -52,6 +52,7 @@ import {
   providerModelsFromNativeConfig,
   providerRuntimeFromNativeConfig,
 } from "./configBridge.ts";
+import { configuredDefaultModel } from "./configuredModel.ts";
 import { NativeContextBridge } from "./contextBridge.ts";
 import { NativeDreamBridge, ProviderBackedDreamBridge } from "./dreamBridge.ts";
 import { NativeKnowledgeBridge } from "./knowledgeBridge.ts";
@@ -86,10 +87,12 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     options.writeLine(JSON.stringify(event));
   };
   const configBridge = new NativeConfigBridge(rpcClient);
+  const env = options.env ?? process.env;
+  const defaultModel = () => configuredDefaultModel(configBridge, env);
   const lazyProvider = options.provider
     ? undefined
     : new LazyModelProvider(async () => {
-      const config = await modelProviderConfigFromNativeConfig(configBridge, options.env ?? process.env);
+      const config = await modelProviderConfigFromNativeConfig(configBridge, env);
       return (options.createModelProvider ?? createModelProvider)(config);
     });
   const provider = options.provider ?? lazyProvider;
@@ -105,7 +108,7 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     store: coworkStore,
     runner: new AgentRunner({ provider, tools: options.tools }),
     tools: options.tools,
-    model: options.env?.TINYBOT_MODEL ?? options.env?.OPENAI_MODEL ?? "default",
+    model: defaultModel,
   });
   const coworkScheduler = new CoworkScheduler({ store: coworkStore, agentRuntime: coworkAgentRuntime });
   const coworkPlanner = new CoworkTeamPlanner({
@@ -128,11 +131,12 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
       }),
       ...createNativeSpawnTools(rpcClient, {
         provider,
-        model: options.env?.TINYBOT_MODEL ?? options.env?.OPENAI_MODEL ?? "default",
+        model: defaultModel,
         backgroundRegistry,
       }),
       ...createNativeTaskTools(rpcClient, {
         provider,
+        model: defaultModel,
         backgroundRegistry,
         notifier: capabilities.includes("session.write")
           ? new NativeTaskNotificationBridge(rpcClient)
@@ -176,11 +180,11 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     bus: channelBus,
     configBridge,
     connectors: nativeChannelConnectors,
-    env: options.env ?? process.env,
+    env,
     writeLog: options.writeLog,
   });
   const heartbeatRuntime = new HeartbeatRuntime({
-    model: options.env?.TINYBOT_MODEL ?? options.env?.OPENAI_MODEL ?? "default",
+    model: defaultModel,
     provider,
     runner: new AgentRunner({ provider, tools: options.tools }),
     readHeartbeatFile: async () => (await workspaceBridge.readFile("HEARTBEAT.md", "trace-heartbeat-read"))?.content,
@@ -248,19 +252,19 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     },
     listProviderModels: (request) => providerModelsFromNativeConfig(
       configBridge,
-      options.env ?? process.env,
+      env,
       request,
       options.fetchProviderModelsJson,
     ),
-    listProviderCatalog: () => providerCatalogFromNativeConfig(configBridge, options.env ?? process.env),
-    resolveProviderRuntime: (request) => providerRuntimeFromNativeConfig(configBridge, options.env ?? process.env, request),
+    listProviderCatalog: () => providerCatalogFromNativeConfig(configBridge, env),
+    resolveProviderRuntime: (request) => providerRuntimeFromNativeConfig(configBridge, env, request),
     validateProviderModel: (request) => providerModelValidationResult(request),
-    skillsBridge: new NativeSkillsBridge(rpcClient, options.env ?? process.env),
+    skillsBridge: new NativeSkillsBridge(rpcClient, env),
     approvalBridge: new NativeApprovalBridge(rpcClient),
     dreamBridge: new ProviderBackedDreamBridge({
       nativeBridge: new NativeDreamBridge(rpcClient),
       provider,
-      model: options.env?.TINYBOT_MODEL ?? options.env?.OPENAI_MODEL ?? "default",
+      model: defaultModel,
     }),
     sessionBridge,
     userProfileBridge: sessionBridge,
@@ -289,7 +293,7 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     channelManager,
     channelBus,
     statusProvider: async () => {
-      const runtime = await providerRuntimeFromNativeConfig(configBridge, options.env ?? process.env, {});
+      const runtime = await providerRuntimeFromNativeConfig(configBridge, env, {});
       const providerId = stringValue(runtime.providerId);
       return {
         channelRunning: true,

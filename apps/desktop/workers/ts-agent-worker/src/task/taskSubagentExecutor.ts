@@ -3,13 +3,14 @@ import type { AgentMessage } from "../agent/agentRunSpec.ts";
 import type { BackgroundRunRegistry } from "../background/backgroundRegistryBridge.ts";
 import { SubagentRuntime, type SubagentRunRequest } from "../background/subagentRuntime.ts";
 import type { ModelProvider } from "../model/provider.ts";
+import { resolveRuntimeModel, type RuntimeModel } from "../model/runtimeModel.ts";
 import { ToolRegistry } from "../tools/toolRegistry.ts";
 import type { SpawnSubtaskRequest } from "./taskRuntime.ts";
 import type { TaskPlan } from "./taskTypes.ts";
 
 export interface TaskProviderSubagentExecutorOptions {
   provider: ModelProvider;
-  model?: string;
+  model?: RuntimeModel;
   maxConcurrent?: number;
   timeoutMs?: number;
   idGenerator?: () => string;
@@ -21,7 +22,7 @@ export interface TaskProviderSubagentExecutorOptions {
 
 export class TaskProviderSubagentExecutor {
   private readonly provider: ModelProvider;
-  private readonly model?: string;
+  private readonly model?: RuntimeModel;
   private readonly runtime: SubagentRuntime;
   private readonly runnerTools?: ToolRegistry;
   private readonly maxIterations: number;
@@ -67,7 +68,7 @@ export class TaskProviderSubagentExecutor {
       return this.runAgentSubagent(request);
     }
     try {
-      const response = await this.provider.complete(messagesFor(request), { model: this.model });
+      const response = await this.provider.complete(messagesFor(request), { model: await resolveRuntimeModel(this.model) });
       return {
         status: "completed",
         result: response.content || "Completed",
@@ -92,7 +93,7 @@ export class TaskProviderSubagentExecutor {
       traceId: typeof request.metadata?.traceId === "string" ? request.metadata.traceId : undefined,
       sessionId: request.sessionKey,
       messages: messagesFor(request),
-      model: this.model ?? "default",
+      model: await resolveRuntimeModel(this.model),
       maxIterations: this.maxIterations,
       stream: false,
       toolResultBudget: this.toolResultBudget,

@@ -1,5 +1,6 @@
 import type { AgentMessage } from "../agent/agentRunSpec.ts";
 import type { ModelProvider, ToolDefinition } from "../model/provider.ts";
+import { resolveRuntimeModel, type RuntimeModel } from "../model/runtimeModel.ts";
 import { normalizeTaskPlan, validateTaskDag } from "./taskDag.ts";
 import type { SubTaskInput, TaskPlan } from "./taskTypes.ts";
 
@@ -11,7 +12,7 @@ export interface TaskPlanContext {
 
 export interface TaskPlannerOptions {
   provider: ModelProvider;
-  model?: string;
+  model?: RuntimeModel;
   workspace?: string;
   planIdGenerator?: () => string;
   subtaskIdGenerator?: () => string;
@@ -21,7 +22,7 @@ export interface TaskPlannerOptions {
 
 export class TaskPlanner {
   private readonly provider: ModelProvider;
-  private readonly model?: string;
+  private readonly model?: RuntimeModel;
   private readonly workspace: string;
   private readonly planIdGenerator: () => string;
   private readonly subtaskIdGenerator: () => string;
@@ -41,7 +42,7 @@ export class TaskPlanner {
   async createPlan(request: string, context: TaskPlanContext, traceId: string): Promise<TaskPlan> {
     void traceId;
     const response = await this.provider.complete(this.messagesFor(request), {
-      model: this.model,
+      model: await resolveRuntimeModel(this.model),
       tools: [SUBMIT_PLAN_TOOL],
       toolChoice: { type: "function", function: { name: "submit_plan" } },
     });

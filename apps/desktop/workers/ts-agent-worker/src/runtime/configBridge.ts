@@ -3,6 +3,7 @@ import type { NativeRpcClient } from "../tools/nativeToolProxy.ts";
 import type { ModelResponse } from "../model/provider.ts";
 import { applyConfigPatch } from "../config/configPatch.ts";
 import { parseTinybotConfig } from "../config/configSchema.ts";
+import { DEFAULT_AGENT_MODEL } from "../config/defaults.ts";
 import type { JsonRecord } from "../config/configTypes.ts";
 import { createPublicConfigSnapshot } from "../config/configSnapshot.ts";
 import type { SecretMaskMode } from "../config/configMasking.ts";
@@ -382,7 +383,7 @@ async function legacyModelProviderConfigFromNativeConfig(
       asString(await configBridge.get("agents.defaults.model")) ??
       env.TS_AGENT_OPENAI_MODEL ??
       env.OPENAI_MODEL ??
-      "gpt-4.1-mini";
+      DEFAULT_AGENT_MODEL;
     const providerConfig = asObject(await configBridge.get("providers.openai"));
     const baseURL = asString(providerConfig?.api_base) ?? asString(providerConfig?.baseURL) ?? env.OPENAI_BASE_URL;
     return { kind: "openai", apiKey, baseURL, model };

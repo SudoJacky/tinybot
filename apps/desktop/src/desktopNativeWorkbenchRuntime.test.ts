@@ -218,7 +218,7 @@ describe("desktop native workbench runtime", () => {
     expect(runSpecs).toMatchObject([
       {
         sessionId: "WebSocket:chat-ts",
-        model: "default",
+        model: "deepseek-reasoner",
         stream: true,
         maxIterations: 8,
         metadata: {

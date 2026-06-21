@@ -1,6 +1,7 @@
 import type { AgentRunResult, AgentRunSpec } from "../agent/agentRunSpec.ts";
 import type { AgentRunner } from "../agent/agentRunner.ts";
 import type { ModelProvider } from "../model/provider.ts";
+import { resolveRuntimeModel, type RuntimeModel } from "../model/runtimeModel.ts";
 import { evaluateNotificationDecision } from "../support/evaluator.ts";
 import { decideHeartbeat } from "./heartbeatDecision.ts";
 import { HeartbeatService } from "./heartbeatService.ts";
@@ -18,7 +19,7 @@ export type HeartbeatRuntimeConfig = {
 };
 
 export type HeartbeatRuntimeOptions = {
-  model: string;
+  model: RuntimeModel;
   provider: ModelProvider;
   runner: Pick<AgentRunner, "run">;
   readHeartbeatFile: () => Promise<string | null | undefined> | string | null | undefined;
@@ -41,7 +42,7 @@ export type HeartbeatRuntimeOptions = {
 };
 
 export class HeartbeatRuntime {
-  private readonly model: string;
+  private readonly model: RuntimeModel;
   private readonly provider: ModelProvider;
   private readonly runner: Pick<AgentRunner, "run">;
   private readonly selectTarget: HeartbeatTargetSelector;
@@ -68,7 +69,7 @@ export class HeartbeatRuntime {
       readHeartbeatFile: options.readHeartbeatFile,
       decide: async ({ content }) => decideHeartbeat({
         provider: options.provider,
-        model: this.model,
+        model: await resolveRuntimeModel(this.model),
         content,
         currentTime: await options.currentTime(),
       }),
@@ -116,7 +117,7 @@ export class HeartbeatRuntime {
       traceId: `trace-${runId}`,
       sessionId: "heartbeat",
       messages: [{ role: "user", content: tasks }],
-      model: this.model,
+      model: await resolveRuntimeModel(this.model),
       maxIterations: this.maxIterations,
       stream: false,
       metadata: {
@@ -146,7 +147,7 @@ export class HeartbeatRuntime {
   private async evaluateResponse(response: string, taskContext: string): Promise<boolean> {
     return (await evaluateNotificationDecision({
       provider: this.provider,
-      model: this.model,
+      model: await resolveRuntimeModel(this.model),
       taskContext,
       response,
     })).shouldNotify;

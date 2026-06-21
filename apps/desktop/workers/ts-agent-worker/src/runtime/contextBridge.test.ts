@@ -89,10 +89,25 @@ describe("NativeContextBridge", () => {
     });
   });
 
-  test("loads provider retry mode from native config defaults for run input projection", async () => {
+  test("loads agent run defaults from native config for run input projection", async () => {
     const rpcClient = new FakeRpcClient({
       "runtime.now": { current_time: "fixed now" },
-      "config.snapshot_public": { value: { agents: { defaults: { provider_retry_mode: "persistent" } } } },
+      "config.snapshot_public": {
+        value: {
+          agents: {
+            defaults: {
+              model: "deepseek-v4-flash",
+              max_tool_iterations: 12,
+              context_window_tokens: 48000,
+              max_tokens: 4096,
+              max_tool_result_chars: 9000,
+              provider_retry_mode: "persistent",
+              reasoning_effort: "high",
+              temperature: 0.3,
+            },
+          },
+        },
+      },
       "session.get_history": { session_id: "session-1", messages: [] },
       "workspace.read_bootstrap_files": { files: [], missing: [] },
     });
@@ -107,8 +122,15 @@ describe("NativeContextBridge", () => {
       "workspace.read_bootstrap_files",
       "skills.list",
     ]);
-    expect((result as { runDefaults?: { providerRetryMode?: string } }).runDefaults).toEqual({
+    expect(result.runDefaults).toEqual({
+      model: "deepseek-v4-flash",
+      maxIterations: 12,
+      contextWindow: 48000,
+      maxTokens: 4096,
+      toolResultBudget: 9000,
       providerRetryMode: "persistent",
+      reasoningEffort: "high",
+      temperature: 0.3,
     });
   });
 

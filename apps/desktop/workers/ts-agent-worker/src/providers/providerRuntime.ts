@@ -11,6 +11,7 @@ import {
 } from "./providerCatalog.ts";
 import { selectProviderConfig, selectProviderRuntimeInput } from "../config/configSelectors.ts";
 import { parseTinybotConfig } from "../config/configSchema.ts";
+import { DEFAULT_AGENT_MODEL } from "../config/defaults.ts";
 import type { TinybotConfig } from "../config/configTypes.ts";
 
 export type TinybotPublicConfig = Record<string, unknown>;
@@ -54,9 +55,9 @@ export type ResolvedRuntimeProvider = {
 
 export async function resolveRuntimeProvider(input: ResolveRuntimeProviderInput): Promise<ResolvedRuntimeProvider> {
   const config = parseTinybotConfig(input.config);
-  const configuredModel = input.model?.trim() || stringAt(input.config, "agents.defaults.model");
+  const configuredModel = input.model?.trim() || config.agents.defaults.model;
   const runtimeInput = selectProviderRuntimeInput(config, configuredModel);
-  const selectedModel = configuredModel || "gpt-4.1-mini";
+  const selectedModel = configuredModel || DEFAULT_AGENT_MODEL;
   const requestedProfile = input.profileName?.trim();
   if (requestedProfile) {
     const profileConfig = config.providers.profiles[requestedProfile];
@@ -168,7 +169,7 @@ function resolveModelForProvider(
 }
 
 function defaultModelForProvider(catalog: ProviderCatalogEntry | undefined): string {
-  return catalog?.curatedModelIds[0] ?? "gpt-4.1-mini";
+  return catalog?.curatedModelIds[0] ?? DEFAULT_AGENT_MODEL;
 }
 
 async function hasUsableConfig(input: ResolveRuntimeProviderInput, config: TinybotConfig, catalog: ProviderCatalogEntry): Promise<boolean> {

@@ -1090,7 +1090,7 @@ function buildDesktopTsAgentRunSpec({
     runId,
     sessionId,
     messages: messages.flatMap(desktopMessageToTsAgentMessages).filter(tsAgentMessageHasPayload),
-    model: typeof model === "string" && model.trim() ? model : "default",
+    model: typeof model === "string" && model.trim() ? model : "deepseek-reasoner",
     maxIterations: positiveIntegerValue(maxToolIterations) ?? 8,
     ...(temperatureValue !== null ? { temperature: temperatureValue } : {}),
     ...(maxTokensValue !== null ? { maxTokens: maxTokensValue } : {}),
