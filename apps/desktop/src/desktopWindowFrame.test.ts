@@ -90,6 +90,7 @@ class FakeDocument {
   public head = new FakeHead();
   public documentElement = { dataset: {} as Record<string, string> };
   public dispatched: string[] = [];
+  public dispatchedEvents: Event[] = [];
   private listeners = new Map<string, Array<(event: Event) => void>>();
 
   createElement(tagName: string): FakeElement {
@@ -106,6 +107,7 @@ class FakeDocument {
 
   dispatchEvent(event: Event): boolean {
     this.dispatched.push(event.type);
+    this.dispatchedEvents.push(event);
     for (const listener of this.listeners.get(event.type) ?? []) {
       listener(event);
     }
@@ -128,6 +130,10 @@ function matchesSelector(element: FakeElement, selector: string): boolean {
   if (menuCommand) {
     return element.getAttribute("data-desktop-menu-command") === menuCommand[1];
   }
+  const panelControl = selector.match(/^\[data-desktop-panel-control="(.+)"\]$/);
+  if (panelControl) {
+    return element.getAttribute("data-desktop-panel-control") === panelControl[1];
+  }
   const runtimeCommand = selector.match(/^\[data-desktop-runtime-command="(.+)"\]$/);
   if (runtimeCommand) {
     return element.getAttribute("data-desktop-runtime-command") === runtimeCommand[1];
@@ -142,6 +148,7 @@ function matchesSelector(element: FakeElement, selector: string): boolean {
 describe("desktop window frame", () => {
   test("installs a custom draggable frame with working window controls", () => {
     const targetDocument = new FakeDocument();
+    targetDocument.documentElement.dataset.desktopWorkbenchMode = "native-workbench";
     const currentWindow = {
       minimize: vi.fn(async () => {}),
       toggleMaximize: vi.fn(async () => {}),
@@ -169,16 +176,48 @@ describe("desktop window frame", () => {
     expect(targetDocument.body.querySelector('[data-window-action="minimize"]')?.className).toContain("desktop-window-traffic-light");
     expect(targetDocument.body.querySelector('[data-window-action="maximize"]')?.className).toContain("desktop-window-traffic-light");
     expect(targetDocument.body.querySelector('[data-window-action="close"]')?.className).toContain("desktop-window-traffic-light");
+    expect(targetDocument.body.querySelector(".desktop-frame-panel-controls")).toBeTruthy();
+    expect(targetDocument.body.querySelector('[data-desktop-panel-control="sidebar"]')?.getAttribute("aria-label")).toBe("Collapse session list");
+    expect(targetDocument.body.querySelector('[data-desktop-panel-control="sidebar"]')?.getAttribute("aria-pressed")).toBe("true");
+    expect(targetDocument.body.querySelector('[data-desktop-panel-control="inspector"]')?.getAttribute("aria-label")).toBe("Open Activity inspector");
+    expect(targetDocument.body.querySelector('[data-desktop-panel-control="inspector"]')?.getAttribute("aria-pressed")).toBe("false");
 
     targetDocument.body.querySelector('[data-window-action="minimize"]')?.click();
     targetDocument.body.querySelector('[data-window-action="maximize"]')?.click();
     targetDocument.body.querySelector('[data-window-action="close"]')?.click();
+    targetDocument.body.querySelector('[data-desktop-panel-control="inspector"]')?.click();
     frame?.dispatch("pointerdown");
 
     expect(currentWindow.minimize).toHaveBeenCalledTimes(1);
     expect(currentWindow.toggleMaximize).toHaveBeenCalledTimes(1);
     expect(currentWindow.close).toHaveBeenCalledTimes(1);
     expect(currentWindow.startDragging).toHaveBeenCalledTimes(1);
+    const panelEvent = targetDocument.dispatchedEvents.find((event) => event.type === "tinybot:desktop-panel-toggle") as CustomEvent | undefined;
+    expect(panelEvent?.detail).toEqual({ panel: "inspector" });
+  });
+
+  test("initializes frame panel controls from the active workbench shell state", () => {
+    const targetDocument = new FakeDocument();
+    const shell = targetDocument.createElement("main");
+    shell.setAttribute("id", "desktop-workbench-shell");
+    shell.setAttribute("data-sidebar-visible", "false");
+    shell.setAttribute("data-inspector-visible", "true");
+    targetDocument.body.append(shell);
+
+    installDesktopWindowFrame({
+      targetDocument: targetDocument as unknown as Document,
+      currentWindow: {
+        minimize: vi.fn(async () => {}),
+        toggleMaximize: vi.fn(async () => {}),
+        close: vi.fn(async () => {}),
+        startDragging: vi.fn(async () => {}),
+      },
+    });
+
+    expect(targetDocument.body.querySelector('[data-desktop-panel-control="sidebar"]')?.getAttribute("aria-pressed")).toBe("false");
+    expect(targetDocument.body.querySelector('[data-desktop-panel-control="sidebar"]')?.getAttribute("aria-label")).toBe("Expand session list");
+    expect(targetDocument.body.querySelector('[data-desktop-panel-control="inspector"]')?.getAttribute("aria-pressed")).toBe("true");
+    expect(targetDocument.body.querySelector('[data-desktop-panel-control="inspector"]')?.getAttribute("aria-label")).toBe("Close Activity inspector");
   });
 
   test("maps runtime ownership to a compact desktop status view", () => {
@@ -514,6 +553,7 @@ describe("desktop window frame", () => {
     expect(frame?.textContent).not.toContain("Tinybot");
     expect(frame?.textContent).not.toContain("WebUI shell");
     expect(targetDocument.body.querySelector("#desktop-window-context")).toBeNull();
+    expect(targetDocument.body.querySelector(".desktop-frame-panel-controls")).toBeNull();
 
     targetDocument.documentElement.dataset.desktopWorkbenchMode = "native-workbench";
     installDesktopWindowFrame({

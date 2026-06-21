@@ -200,7 +200,7 @@ describe("desktop workbench shell Vue integration", () => {
     expect(popover?.querySelector(".desktop-chat-menu-popover-card")).toBeNull();
   });
 
-  test("renders chat header panel actions through the Vue shell island", () => {
+  test("keeps panel actions out of the Vue shell island", () => {
     document.body.replaceChildren();
     document.head.replaceChildren();
 
@@ -213,21 +213,13 @@ describe("desktop workbench shell Vue integration", () => {
     const shell = document.getElementById("desktop-workbench-shell");
     const titleRow = document.querySelector<HTMLElement>(".desktop-chat-title-row");
     const actions = document.querySelector<HTMLElement>(".desktop-chat-header-actions");
-    const sidebar = titleRow?.querySelector<HTMLButtonElement>('[data-desktop-panel-control="sidebar"]');
-    const inspector = actions?.querySelector<HTMLButtonElement>('[data-desktop-panel-control="inspector"]');
 
-    expect(actions?.getAttribute("data-desktop-vue-island")).toBe("chat-header-actions");
+    expect(document.querySelector(".desktop-global-panel-controls")).toBeNull();
+    expect(titleRow?.querySelector('[data-desktop-panel-control="sidebar"]')).toBeNull();
     expect(actions?.querySelector('[data-desktop-panel-control="sidebar"]')).toBeNull();
-    expect(titleRow?.children[0]?.getAttribute("data-desktop-panel-control")).toBe("sidebar");
-    expect(sidebar?.getAttribute("aria-label")).toBe("Collapse session list");
-    expect(sidebar?.getAttribute("aria-pressed")).toBe("true");
-    expect(inspector?.getAttribute("aria-label")).toBe("Open Activity inspector");
-    expect(inspector?.getAttribute("aria-pressed")).toBe("false");
+    expect(actions?.querySelector('[data-desktop-panel-control="inspector"]')).toBeNull();
+    expect(titleRow?.children[0]?.className).toBe("desktop-chat-title-group");
     expect(shell?.getAttribute("data-sidebar-visible")).toBe("true");
-
-    sidebar?.click();
-
-    expect(shell?.getAttribute("data-sidebar-visible")).toBe("false");
   });
 
   test("renders the chat workbench chrome through the Vue shell island", () => {

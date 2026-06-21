@@ -63,7 +63,11 @@ export function installDesktopWindowFrame({
     createWindowButton(targetDocument, "maximize", "Maximize", () => currentWindow.toggleMaximize()),
   );
 
-  frame.append(appMenu, controls);
+  frame.append(appMenu);
+  if (shouldRenderFramePanelControls(targetDocument)) {
+    frame.append(createFramePanelControls(targetDocument));
+  }
+  frame.append(controls);
   frame.addEventListener("pointerdown", () => {
     void currentWindow.startDragging().catch(logWindowFrameError);
   });
@@ -72,6 +76,82 @@ export function installDesktopWindowFrame({
   });
 
   targetDocument.body.prepend(frame);
+}
+
+function shouldRenderFramePanelControls(targetDocument: Document): boolean {
+  return targetDocument.documentElement.dataset.desktopWorkbenchMode === "native-workbench"
+    || Boolean(targetDocument.getElementById("desktop-workbench-shell"));
+}
+
+function createFramePanelControls(targetDocument: Document): HTMLElement {
+  const controls = targetDocument.createElement("div");
+  controls.className = "desktop-frame-panel-controls";
+  controls.setAttribute("aria-label", "Global workbench panel controls");
+  controls.append(
+    createFramePanelControl(targetDocument, "sidebar", framePanelVisible(targetDocument, "sidebar", true), "Collapse session list", "Expand session list"),
+    createFramePanelControl(targetDocument, "inspector", framePanelVisible(targetDocument, "inspector", false), "Close Activity inspector", "Open Activity inspector"),
+  );
+  return controls;
+}
+
+function framePanelVisible(targetDocument: Document, panel: "sidebar" | "inspector", fallback: boolean): boolean {
+  const shell = targetDocument.getElementById("desktop-workbench-shell");
+  const value = shell?.getAttribute(`data-${panel}-visible`);
+  return value === null || value === undefined ? fallback : value !== "false";
+}
+
+function createFramePanelControl(
+  targetDocument: Document,
+  panel: "sidebar" | "inspector",
+  visible: boolean,
+  pressedLabel: string,
+  unpressedLabel: string,
+): HTMLElement {
+  const button = targetDocument.createElement("button");
+  button.type = "button";
+  button.className = "desktop-frame-panel-control";
+  button.setAttribute("data-desktop-panel-control", panel);
+  button.setAttribute("data-desktop-panel-label-pressed", pressedLabel);
+  button.setAttribute("data-desktop-panel-label-unpressed", unpressedLabel);
+  button.setAttribute("aria-label", visible ? pressedLabel : unpressedLabel);
+  button.setAttribute("title", visible ? pressedLabel : unpressedLabel);
+  button.setAttribute("aria-pressed", String(visible));
+  button.append(createFramePanelIcon(targetDocument, panel));
+  button.addEventListener("pointerdown", (event) => event.stopPropagation());
+  button.addEventListener("dblclick", (event) => event.stopPropagation());
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    dispatchFramePanelToggle(targetDocument, panel);
+  });
+  return button;
+}
+
+function createFramePanelIcon(targetDocument: Document, panel: "sidebar" | "inspector"): HTMLElement {
+  const icon = targetDocument.createElement("span");
+  icon.className = "desktop-frame-panel-icon";
+  icon.setAttribute("data-panel-icon", panel === "sidebar" ? "collapse-left" : "collapse-right");
+  icon.setAttribute("aria-hidden", "true");
+  icon.append(
+    createFramePanelIconPart(targetDocument, "frame"),
+    createFramePanelIconPart(targetDocument, "rail"),
+  );
+  return icon;
+}
+
+function createFramePanelIconPart(targetDocument: Document, part: "frame" | "rail"): HTMLElement {
+  const node = targetDocument.createElement("span");
+  node.className = `desktop-frame-panel-icon-${part}`;
+  return node;
+}
+
+function dispatchFramePanelToggle(targetDocument: Document, panel: "sidebar" | "inspector"): void {
+  const CustomEventConstructor = targetDocument.defaultView?.CustomEvent
+    ?? (typeof CustomEvent !== "undefined" ? CustomEvent : null);
+  if (CustomEventConstructor) {
+    targetDocument.dispatchEvent(new CustomEventConstructor("tinybot:desktop-panel-toggle", { detail: { panel } }));
+    return;
+  }
+  targetDocument.dispatchEvent({ type: "tinybot:desktop-panel-toggle", detail: { panel } } as unknown as Event);
 }
 
 function syncDesktopWindowIcon(
@@ -450,6 +530,72 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
       justify-self: end;
       color: var(--text-muted, #6c6a64);
       font-size: 12px;
+    }
+
+    body.desktop-custom-frame .desktop-frame-panel-controls {
+      position: absolute;
+      top: 50%;
+      right: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 6px;
+      min-width: 0;
+      transform: translateY(-50%);
+    }
+
+    body.desktop-custom-frame .desktop-frame-panel-control {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 30px;
+      min-width: 30px;
+      height: 28px;
+      min-height: 28px;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: 6px;
+      padding: 0;
+      background: #ffffff;
+      color: #59544f;
+      cursor: default;
+    }
+
+    body.desktop-custom-frame .desktop-frame-panel-control:hover,
+    body.desktop-custom-frame .desktop-frame-panel-control:focus-visible {
+      background: #f2ede7;
+      outline: 0;
+    }
+
+    body.desktop-custom-frame .desktop-frame-panel-icon {
+      position: relative;
+      display: block;
+      width: 17px;
+      height: 17px;
+      color: currentColor;
+    }
+
+    body.desktop-custom-frame .desktop-frame-panel-icon-frame {
+      position: absolute;
+      inset: 2px;
+      border: 1.5px solid currentColor;
+      border-radius: 4px;
+    }
+
+    body.desktop-custom-frame .desktop-frame-panel-icon-rail {
+      position: absolute;
+      top: 5px;
+      bottom: 5px;
+      width: 3px;
+      border-radius: 2px;
+      background: currentColor;
+    }
+
+    body.desktop-custom-frame .desktop-frame-panel-icon[data-panel-icon="collapse-left"] .desktop-frame-panel-icon-rail {
+      left: 5px;
+    }
+
+    body.desktop-custom-frame .desktop-frame-panel-icon[data-panel-icon="collapse-right"] .desktop-frame-panel-icon-rail {
+      right: 5px;
     }
 
     body.desktop-custom-frame .desktop-window-controls {

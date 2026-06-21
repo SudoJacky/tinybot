@@ -1,8 +1,33 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import type { DesktopKnowledgeEvidenceRow, DesktopKnowledgePaneGraph } from "../desktopKnowledgeTraceability";
-import { mountKnowledgeGraphIsland } from "./knowledgeGraphIsland";
+import { buildKnowledgeGraph3dData, buildKnowledgeGraphSelection, mountKnowledgeGraphIsland } from "./knowledgeGraphIsland";
+
+vi.mock("3d-force-graph", () => {
+  class ForceGraph3DMock {
+    backgroundColor() { return this; }
+    showNavInfo() { return this; }
+    graphData() { return this; }
+    nodeLabel() { return this; }
+    nodeVal() { return this; }
+    nodeColor() { return this; }
+    linkLabel() { return this; }
+    linkColor() { return this; }
+    linkWidth() { return this; }
+    linkDirectionalParticles() { return this; }
+    linkDirectionalParticleSpeed() { return this; }
+    cooldownTicks() { return this; }
+    d3VelocityDecay() { return this; }
+    onNodeClick() { return this; }
+    onLinkClick() { return this; }
+    width() { return this; }
+    height() { return this; }
+    cameraPosition() { return this; }
+    _destructor() {}
+  }
+  return { default: ForceGraph3DMock };
+});
 
 function evidence(index: number): DesktopKnowledgeEvidenceRow {
   return {
@@ -36,6 +61,10 @@ const graph: DesktopKnowledgePaneGraph = {
 };
 
 describe("knowledge graph Vue island", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   test("renders graph references and limits evidence rows with existing copy", () => {
     const host = document.createElement("section");
 
@@ -63,40 +92,123 @@ describe("knowledge graph Vue island", () => {
     expect(host.textContent).toBe("");
   });
 
-  test("draws graph edges between their source and target nodes", () => {
+  test("renders an interactive 3D graph host instead of the legacy SVG graph", () => {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({} as CanvasRenderingContext2D);
     const host = document.createElement("section");
     const mounted = mountKnowledgeGraphIsland(host, {
-      graph: {
-        ...graph,
-        view: {
-          nodes: [
-            { id: "center", label: "Center", type: "entity", raw: {} },
-            { id: "source", label: "Source", type: "entity", raw: {} },
-            { id: "target", label: "Target", type: "entity", raw: {} },
-          ],
-          edges: [{
-            id: "edge-source-target",
-            title: "Source relates to Target",
-            sourceId: "source",
-            targetId: "target",
-            sourceLabel: "Source",
-            targetLabel: "Target",
-            predicate: "relates",
-            confidenceLabel: "",
-            evidenceCount: 1,
-            raw: {},
-          }],
-          evidenceRows: [],
-        },
-      },
+      graph: graphWithEdges(),
     });
 
-    const edge = host.querySelector('[data-desktop-knowledge-graph-edge="edge-source-target"]');
-    expect(edge?.getAttribute("x1")).toBe("320");
-    expect(edge?.getAttribute("y1")).toBe("65");
-    expect(edge?.getAttribute("x2")).toBe("320");
-    expect(edge?.getAttribute("y2")).toBe("295");
+    const canvas = host.querySelector('[data-desktop-knowledge-graph-pane="canvas"]');
+    expect(canvas?.getAttribute("data-desktop-knowledge-graph-mode")).toBe("3d");
+    expect(canvas?.getAttribute("role")).toBe("application");
+    expect(canvas?.textContent).toContain("Drag to orbit");
+    expect(canvas?.querySelector(".desktop-knowledge-graph-3d-host")).not.toBeNull();
+    expect(canvas?.querySelector("svg")).toBeNull();
 
     mounted.unmount();
   });
+
+  test("renders a visible 2D fallback graph when WebGL is unavailable", () => {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+    const host = document.createElement("section");
+    const mounted = mountKnowledgeGraphIsland(host, {
+      graph: graphWithEdges(),
+    });
+
+    const canvas = host.querySelector('[data-desktop-knowledge-graph-pane="canvas"]');
+    expect(canvas?.getAttribute("data-desktop-knowledge-graph-mode")).toBe("2d-fallback");
+    expect(canvas?.getAttribute("role")).toBe("img");
+    expect(canvas?.textContent).toContain("WebGL unavailable");
+    expect(canvas?.querySelector("svg")).not.toBeNull();
+    expect(canvas?.querySelector('[data-desktop-knowledge-graph-node="source"]')).not.toBeNull();
+    expect(canvas?.querySelector('[data-desktop-knowledge-graph-edge="edge-source-target"]')).not.toBeNull();
+    expect(canvas?.querySelector(".desktop-knowledge-graph-3d-host")).toBeNull();
+
+    mounted.unmount();
+  });
+
+  test("maps knowledge graph nodes and edges into 3D force graph data", () => {
+    const data = buildKnowledgeGraph3dData(graphWithEdges());
+
+    expect(data.nodes.map((node) => node.id)).toEqual(["center", "source", "target"]);
+    expect(data.nodes[0]).toMatchObject({
+      id: "center",
+      name: "Center",
+      type: "entity",
+      val: 8,
+    });
+    expect(data.links).toEqual([
+      {
+        id: "edge-source-target",
+        source: "source",
+        target: "target",
+        label: "relates",
+        title: "Source relates to Target",
+        evidenceCount: 1,
+      },
+    ]);
+  });
+
+  test("filters references and evidence to the selected graph node", () => {
+    const selection = buildKnowledgeGraphSelection(graphWithEdges(), "source");
+
+    expect(selection.node?.label).toBe("Source");
+    expect(selection.relations.map((row) => row.id)).toEqual(["edge-source-target"]);
+    expect(selection.evidence.map((row) => row.id)).toEqual(["evidence-source-target"]);
+    expect(selection.isFiltered).toBe(true);
+  });
+
+  test("shows an empty selection message when a selected node has no references", () => {
+    const selection = buildKnowledgeGraphSelection(graphWithEdges(), "center");
+
+    expect(selection.node?.label).toBe("Center");
+    expect(selection.relations).toEqual([]);
+    expect(selection.evidence).toEqual([]);
+    expect(selection.isFiltered).toBe(true);
+  });
 });
+
+function graphWithEdges(): DesktopKnowledgePaneGraph {
+  return {
+    ...graph,
+    view: {
+      nodes: [
+        { id: "center", label: "Center", type: "entity", raw: {} },
+        { id: "source", label: "Source", type: "entity", raw: {} },
+        { id: "target", label: "Target", type: "entity", raw: {} },
+      ],
+      edges: [{
+        id: "edge-source-target",
+        title: "Source relates to Target",
+        sourceId: "source",
+        targetId: "target",
+        sourceLabel: "Source",
+        targetLabel: "Target",
+        predicate: "relates",
+        confidenceLabel: "",
+        evidenceCount: 1,
+        raw: {},
+      }],
+      evidenceRows: [evidenceRowForEdge("evidence-source-target", "edge-source-target", "source", "target")],
+    },
+    relations: [{ id: "edge-source-target", title: "Source relates to Target", meta: "relation", text: "relates" }],
+    evidence: [evidenceRowForEdge("evidence-source-target", "edge-source-target", "source", "target")],
+  };
+}
+
+function evidenceRowForEdge(id: string, edgeId: string, sourceNodeId: string, targetNodeId: string): DesktopKnowledgeEvidenceRow {
+  return {
+    id,
+    edgeId,
+    sourceNodeId,
+    targetNodeId,
+    title: "Source relates to Target",
+    docName: "Graph.md",
+    location: "",
+    meta: "",
+    evidenceText: "Source relates to Target.",
+    confidenceLabel: "",
+    claimId: "",
+  };
+}

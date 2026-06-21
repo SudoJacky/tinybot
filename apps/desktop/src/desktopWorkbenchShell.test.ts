@@ -23,6 +23,7 @@ class FakeElement {
   public id = "";
   public className = "";
   public children: FakeElement[] = [];
+  public parentElement: FakeElement | null = null;
   public attributes = new Map<string, string>();
   public value = "";
   public checked = false;
@@ -71,6 +72,9 @@ class FakeElement {
   }
 
   append(...children: FakeElement[]): void {
+    for (const child of children) {
+      child.parentElement = this;
+    }
     this.children.push(...children);
   }
 
@@ -118,7 +122,21 @@ class FakeElement {
   }
 
   replaceChildren(...children: FakeElement[]): void {
+    for (const child of this.children) {
+      child.parentElement = null;
+    }
+    for (const child of children) {
+      child.parentElement = this;
+    }
     this.children = children;
+  }
+
+  remove(): void {
+    if (!this.parentElement) {
+      return;
+    }
+    this.parentElement.children = this.parentElement.children.filter((child) => child !== this);
+    this.parentElement = null;
   }
 
   querySelector(selector: string): FakeElement | null {
@@ -882,28 +900,11 @@ describe("desktop workbench shell", () => {
     expect(composerModel?.textContent).toContain("Tinybot Pro");
 
     const inspector = targetDocument.body.querySelector(".desktop-inspector-content");
-    const runTabs = targetDocument.body.querySelector(".desktop-run-chain-tabs");
-    const runCards = targetDocument.body.querySelector(".desktop-run-chain-cards");
     expect(inspector).toBeTruthy();
-    expect(runTabs).toBeTruthy();
-    expect(runCards).toBeTruthy();
-    expect(inspector?.textContent).toContain("Activity");
-    expect(inspector?.textContent).not.toContain("Run Chain");
-    expect(runTabs?.textContent).toBe("ContextFilesTasksApprovalsActivity");
-    expect(runCards?.textContent).toContain("Gateway");
-    targetDocument.body.querySelector('[data-desktop-run-chain-tab="files"]')?.click();
-    expect(runCards?.textContent).toContain("Files");
-    expect(targetDocument.body.querySelectorAll(".desktop-run-chain-new-item")).toHaveLength(0);
-    targetDocument.body.querySelector('[data-desktop-run-chain-tab="tasks"]')?.click();
-    const runNewItem = targetDocument.body.querySelector(".desktop-run-chain-new-item");
-    expect(runNewItem?.textContent).toContain("New Activity Item");
-    expect(runCards?.textContent).toContain("No chain items yet.");
-    targetDocument.body.querySelector('[data-desktop-run-chain-tab="approvals"]')?.click();
-    expect(runCards?.textContent).toContain("Approvals");
-    expect(runCards?.textContent).toContain("No pending approvals");
-    targetDocument.body.querySelector('[data-desktop-run-chain-tab="activity"]')?.click();
-    expect(runCards?.textContent).toContain("Activity Feed");
-    expect(runCards?.textContent).toContain("Gateway events, tool calls, and runtime logs appear here.");
+    expect(inspector?.textContent).not.toContain("Activity");
+    expect(inspector?.textContent).not.toContain("Gateway");
+    expect(targetDocument.body.querySelector(".desktop-run-chain-tabs")).toBeNull();
+    expect(targetDocument.body.querySelector(".desktop-run-chain-cards")).toBeNull();
   });
 
   test("renders explicit desktop navigation links for workbench, docs, gateway, and external routes", () => {
@@ -1201,7 +1202,7 @@ describe("desktop workbench shell", () => {
     expect(targetDocument.body.querySelector(".desktop-chat-header")?.textContent).not.toContain("New session");
   });
 
-  test("keeps chat header actions compact and owns sidebar and run-chain toggles there", () => {
+  test("keeps panel controls out of the workbench chrome and chat header", () => {
     const targetDocument = new FakeDocument();
 
     installDesktopWorkbenchShell({
@@ -1226,26 +1227,13 @@ describe("desktop workbench shell", () => {
     expect(header?.querySelector(".desktop-chat-menu")?.textContent).toBe("...");
     const titleRow = header?.querySelector(".desktop-chat-title-row");
     const headerActions = header?.querySelector(".desktop-chat-header-actions");
-    expect(titleRow?.children[0]?.getAttribute("data-desktop-panel-control")).toBe("sidebar");
-    expect(titleRow?.children[1]?.className).toBe("desktop-chat-title-group");
+    expect(titleRow?.children[0]?.className).toBe("desktop-chat-title-group");
+    expect(titleRow?.querySelector('[data-desktop-panel-control="sidebar"]')).toBeNull();
     expect(headerActions?.querySelector('[data-desktop-panel-control="sidebar"]')).toBeNull();
-    expect(headerActions?.querySelector('[data-desktop-panel-control="inspector"]')?.getAttribute("aria-label")).toBe("Open Activity inspector");
-    expect(header?.querySelector('[data-desktop-panel-control="sidebar"]')?.getAttribute("aria-label")).toBe("Collapse session list");
-    expect(header?.querySelector('[data-desktop-panel-control="inspector"]')?.getAttribute("aria-label")).toBe("Open Activity inspector");
-    expect(header?.querySelector('[data-desktop-panel-control="sidebar"]')?.textContent).toBe("");
-    expect(header?.querySelector('[data-desktop-panel-control="inspector"]')?.textContent).toBe("");
-    expect(
-      header?.querySelector('[data-desktop-panel-control="sidebar"]')?.querySelector(".desktop-chat-header-panel-icon")?.getAttribute("data-panel-icon"),
-    ).toBe("collapse-left");
-    expect(
-      header?.querySelector('[data-desktop-panel-control="inspector"]')?.querySelector(".desktop-chat-header-panel-icon")?.getAttribute("data-panel-icon"),
-    ).toBe("collapse-right");
+    expect(headerActions?.querySelector('[data-desktop-panel-control="inspector"]')).toBeNull();
+    expect(targetDocument.body.querySelector(".desktop-global-panel-controls")).toBeNull();
+    expect(targetDocument.body.querySelectorAll("[data-desktop-panel-control]")).toEqual([]);
     expect(targetDocument.body.querySelector("[data-desktop-inspector-restore]")).toBeNull();
-
-    header?.querySelector('[data-desktop-panel-control="sidebar"]')?.click();
-    expect(targetDocument.getElementById("desktop-workbench-shell")?.getAttribute("data-sidebar-visible")).toBe("false");
-    expect(targetDocument.body.querySelector('[data-workbench-region="sidebar"]')?.getAttribute("data-visible")).toBe("false");
-    expect(header?.querySelector('[data-desktop-panel-control="sidebar"]')?.getAttribute("aria-label")).toBe("Expand session list");
   });
 
   test("keeps the chat header focused on title actions and stop state", () => {
@@ -1364,8 +1352,9 @@ describe("desktop workbench shell", () => {
     expect(targetDocument.body.querySelector('[data-desktop-session-key]')?.querySelector(".desktop-sidebar-row-label")?.textContent).toBe(
       "Renamed session",
     );
-    expect(header?.querySelector('[data-desktop-panel-control="sidebar"]')?.textContent).toBe("");
-    expect(header?.querySelector('[data-desktop-panel-control="inspector"]')?.textContent).toBe("");
+    expect(header?.querySelector('[data-desktop-panel-control="sidebar"]')).toBeNull();
+    expect(header?.querySelector('[data-desktop-panel-control="inspector"]')).toBeNull();
+    expect(targetDocument.body.querySelector(".desktop-global-panel-controls")).toBeNull();
   });
 
   test("anchors the chat header menu popover inside the main work area", () => {
@@ -1424,7 +1413,7 @@ describe("desktop workbench shell", () => {
     expect(refreshedHeader?.querySelector('[data-desktop-chat-menu-action="pin"]')?.textContent).toBe("Unpin session");
   });
 
-  test("renders keyboard-operable panel controls with accessible labels", () => {
+  test("does not render duplicate panel controls inside the workbench shell", () => {
     const targetDocument = new FakeDocument();
 
     installDesktopWorkbenchShell({
@@ -1433,32 +1422,12 @@ describe("desktop workbench shell", () => {
       gatewayHttp: "http://127.0.0.1:18790",
     });
 
-    const controls = targetDocument.body.querySelectorAll(".desktop-chat-header-panel-button");
-    expect(controls.map((node) => node.getAttribute("data-desktop-panel-control"))).toEqual(["sidebar", "inspector"]);
-    expect(controls.map((node) => node.getAttribute("aria-label"))).toEqual([
-      "Collapse session list",
-      "Open Activity inspector",
-    ]);
-    expect(controls.map((node) => node.getAttribute("aria-pressed"))).toEqual(["true", "false"]);
-    expect(controls[0].querySelector(".desktop-chat-header-panel-icon")?.getAttribute("data-panel-icon")).toBe("collapse-left");
-
-    let prevented = false;
-    controls[1].dispatchEvent({
-      type: "keydown",
-      key: "Enter",
-      preventDefault: () => {
-        prevented = true;
-      },
-    });
-
-    expect(prevented).toBe(true);
-    expect(targetDocument.getElementById("desktop-workbench-shell")?.getAttribute("data-inspector-visible")).toBe("true");
-    expect(targetDocument.body.querySelector('[data-workbench-region="inspector"]')?.getAttribute("data-visible")).toBe("true");
-    expect(controls[1].getAttribute("aria-pressed")).toBe("true");
-    expect(targetDocument.body.querySelector("[data-desktop-route-status]")?.textContent).toContain("Activity inspector panel shown");
+    expect(targetDocument.body.querySelector(".desktop-global-panel-controls")).toBeNull();
+    expect(targetDocument.body.querySelector(".desktop-chat-header")?.querySelector("[data-desktop-panel-control]")).toBeNull();
+    expect(targetDocument.body.querySelectorAll("[data-desktop-panel-control]")).toEqual([]);
   });
 
-  test("makes the native Run Chain overview compact, switchable, and recoverable after close", () => {
+  test("toggles workbench panels from the desktop window frame event bridge", () => {
     const targetDocument = new FakeDocument();
 
     installDesktopWorkbenchShell({
@@ -1467,63 +1436,55 @@ describe("desktop workbench shell", () => {
       gatewayHttp: "http://127.0.0.1:18790",
     });
 
-    const overview = targetDocument.body.querySelector(".desktop-run-chain-overview");
-    const panel = overview?.querySelector(".desktop-run-chain-panel");
-    expect(overview?.querySelector(".desktop-run-chain-summary-strip")?.textContent).toContain("Gateway");
-    expect(overview?.querySelector(".desktop-run-chain-summary-strip")?.textContent).toContain("Idle");
-    expect(overview?.querySelector(".desktop-run-chain-summary-strip")?.textContent).toContain("0 items");
-    expect(overview?.querySelector('[data-desktop-run-chain-summary="gateway"]')?.getAttribute("aria-label")).toBe("Gateway: Connected");
-    expect(overview?.querySelector('[data-desktop-run-chain-summary="gateway"]')?.getAttribute("title")).toBe("Gateway: Connected");
-    expect(overview?.querySelector('[data-desktop-run-chain-summary="run"]')?.getAttribute("aria-label")).toBe("Run: Idle");
-    expect(overview?.querySelector('[data-desktop-run-chain-summary="gateway"]')?.className).toContain("desktop-run-chain-status-pill");
-    expect(overview?.querySelector('[data-desktop-run-chain-summary="gateway"]')?.getAttribute("data-status-tone")).toBe("connected");
-    expect(overview?.querySelector('[data-desktop-run-chain-summary="run"]')?.getAttribute("data-status-tone")).toBe("muted");
-    expect(overview?.querySelector(".desktop-run-chain-status-dot")).not.toBeNull();
-    expect(panel?.getAttribute("data-desktop-run-chain-panel")).toBe("context");
-    expect(panel?.textContent).toContain("Endpoint");
+    targetDocument.dispatchEvent({
+      type: "tinybot:desktop-panel-toggle",
+      detail: { panel: "inspector" },
+    });
 
-    overview?.querySelector('[data-desktop-run-chain-tab="files"]')?.click();
-    expect(overview?.querySelector('[data-desktop-run-chain-tab="files"]')?.getAttribute("aria-selected")).toBe("true");
-    expect(panel?.getAttribute("data-desktop-run-chain-panel")).toBe("files");
-    expect(panel?.textContent).toContain("Files");
-    expect(panel?.textContent).toContain("Open Files");
-
-    overview?.querySelector('[data-desktop-run-chain-tab="tasks"]')?.click();
-    expect(overview?.querySelector('[data-desktop-run-chain-tab="tasks"]')?.getAttribute("aria-selected")).toBe("true");
-    expect(panel?.getAttribute("data-desktop-run-chain-panel")).toBe("tasks");
-    expect(panel?.textContent).toContain("Tasks");
-    expect(panel?.textContent).toContain("Task center: Available");
-    expect(panel?.textContent).toContain("No chain items yet.");
-    expect(panel?.textContent).toContain("New Activity Item");
-    expect(panel?.querySelector(".desktop-run-chain-new-item")?.getAttribute("data-button-variant")).toBe("secondary");
-
-    overview?.querySelector('[data-desktop-run-chain-summary="gateway"]')?.click();
-    expect(overview?.querySelector('[data-desktop-run-chain-tab="context"]')?.getAttribute("aria-selected")).toBe("true");
-    expect(overview?.querySelector('[data-desktop-run-chain-tab="tasks"]')?.getAttribute("aria-selected")).toBe("false");
-    expect(panel?.getAttribute("data-desktop-run-chain-panel")).toBe("context");
-
-    overview?.querySelector('[data-desktop-run-chain-summary="items"]')?.click();
-    expect(overview?.querySelector('[data-desktop-run-chain-tab="context"]')?.getAttribute("aria-selected")).toBe("false");
-    expect(overview?.querySelector('[data-desktop-run-chain-tab="activity"]')?.getAttribute("aria-selected")).toBe("true");
-    expect(panel?.getAttribute("data-desktop-run-chain-panel")).toBe("activity");
-
-    const pin = overview?.querySelector('[data-desktop-run-chain-control="pin"]');
-    expect(pin?.getAttribute("data-button-variant")).toBe("ghost");
-    expect(pin?.getAttribute("aria-label")).toBe("Pin panel");
-    expect(overview?.querySelector('[data-desktop-run-chain-control="close"]')?.getAttribute("title")).toBe("Close panel");
-    expect(overview?.querySelector('[data-desktop-run-chain-action="Open Task Center"]')?.getAttribute("data-button-variant")).toBe("primary");
-    expect(pin?.getAttribute("aria-pressed")).toBe("false");
-    pin?.click();
-    expect(pin?.getAttribute("aria-pressed")).toBe("true");
-
-    overview?.querySelector('[data-desktop-run-chain-control="close"]')?.click();
-    const restore = targetDocument.body.querySelector("[data-desktop-inspector-restore]");
     expect(targetDocument.getElementById("desktop-workbench-shell")?.getAttribute("data-inspector-visible")).toBe("false");
-    expect(restore).toBeNull();
-    targetDocument.body.querySelector(".desktop-chat-header")?.querySelector('[data-desktop-panel-control="inspector"]')?.click();
-    expect(targetDocument.getElementById("desktop-workbench-shell")?.getAttribute("data-inspector-visible")).toBe("true");
-    expect(targetDocument.body.querySelector('[data-workbench-region="inspector"]')?.getAttribute("data-visible")).toBe("true");
-    expect(targetDocument.body.querySelectorAll('[data-desktop-panel-control="inspector"]').map((node) => node.getAttribute("aria-pressed"))).toContain("true");
+    expect(targetDocument.body.querySelector('[data-workbench-region="inspector"]')?.getAttribute("data-visible")).toBe("false");
+
+    targetDocument.dispatchEvent({
+      type: "tinybot:desktop-panel-toggle",
+      detail: { panel: "sidebar" },
+    });
+
+    expect(targetDocument.getElementById("desktop-workbench-shell")?.getAttribute("data-sidebar-visible")).toBe("false");
+    expect(targetDocument.body.querySelector('[data-workbench-region="sidebar"]')?.getAttribute("data-visible")).toBe("false");
+  });
+
+  test("omits the Activity overview when the inspector has no real content", () => {
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: {
+        ...createDefaultWorkbenchLayout(),
+        inspector: { visible: true, size: 360 },
+      },
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    expect(targetDocument.body.querySelector(".desktop-run-chain-overview")).toBeNull();
+    expect(targetDocument.body.querySelector(".desktop-inspector-content")?.textContent).toBe("");
+    expect(targetDocument.getElementById("desktop-workbench-shell")?.getAttribute("data-inspector-visible")).toBe("false");
+  });
+
+  test("styles the initial Activity inspector as a flush native sidebar", () => {
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const styleText = targetDocument.head.querySelector("#desktop-workbench-shell-style")?.textContent ?? "";
+    expect(styleText).toMatch(/\.desktop-workbench-inspector \{[\s\S]*?border-left: 1px solid var\(--border\);[\s\S]*?background: #fbfaf7;/);
+    expect(styleText).toMatch(/\.desktop-inspector-content \{[\s\S]*?grid-template-rows: minmax\(0, 1fr\);[\s\S]*?gap: 0;[\s\S]*?padding: 0;/);
+    expect(styleText).toMatch(/\.desktop-run-chain-overview \{[\s\S]*?height: 100%;[\s\S]*?padding: 14px 16px 12px;[\s\S]*?background: transparent;/);
+    expect(styleText).toMatch(/\.desktop-run-chain-panel-section \{[\s\S]*?border-radius: 6px;[\s\S]*?box-shadow: none;/);
+    expect(styleText).not.toContain("padding: 18px 20px;");
   });
 
   test("renders live approval queue in the native Run Chain overview", () => {
@@ -1573,11 +1534,8 @@ describe("desktop workbench shell", () => {
     });
 
     let overview = targetDocument.body.querySelector(".desktop-run-chain-overview");
-    let panel = overview?.querySelector(".desktop-run-chain-panel");
-    overview?.querySelector('[data-desktop-run-chain-tab="approvals"]')?.click();
-    expect(panel?.getAttribute("data-desktop-run-chain-panel")).toBe("approvals");
-    expect(panel?.textContent).toContain("Pending: 0");
-    expect(overview?.querySelector(".desktop-run-chain-summary-strip")?.textContent).toContain("0 approvals");
+    expect(overview).toBeNull();
+    expect(targetDocument.getElementById("desktop-workbench-shell")?.getAttribute("data-inspector-visible")).toBe("false");
 
     updateDesktopTaskCenterItems(targetDocument as unknown as Document, buildDesktopTaskCenterItems({
       approvals: [
@@ -1593,7 +1551,8 @@ describe("desktop workbench shell", () => {
     }));
 
     overview = targetDocument.body.querySelector(".desktop-run-chain-overview");
-    panel = overview?.querySelector(".desktop-run-chain-panel");
+    const panel = overview?.querySelector(".desktop-run-chain-panel");
+    overview?.querySelector('[data-desktop-run-chain-tab="approvals"]')?.click();
     expect(panel?.getAttribute("data-desktop-run-chain-panel")).toBe("approvals");
     expect(overview?.querySelector(".desktop-run-chain-summary-strip")?.textContent).toContain("1 approval");
     expect(panel?.textContent).toContain("Pending: 1");
@@ -1602,11 +1561,8 @@ describe("desktop workbench shell", () => {
     updateDesktopTaskCenterItems(targetDocument as unknown as Document, []);
 
     overview = targetDocument.body.querySelector(".desktop-run-chain-overview");
-    panel = overview?.querySelector(".desktop-run-chain-panel");
-    expect(panel?.getAttribute("data-desktop-run-chain-panel")).toBe("approvals");
-    expect(overview?.querySelector(".desktop-run-chain-summary-strip")?.textContent).toContain("0 approvals");
-    expect(panel?.textContent).toContain("Pending: 0");
-    expect(panel?.textContent).toContain("No pending approvals");
+    expect(overview).toBeNull();
+    expect(targetDocument.getElementById("desktop-workbench-shell")?.getAttribute("data-inspector-visible")).toBe("false");
   });
 
   test("renders a persistent run-chain inspector pane with selectable details", () => {
@@ -1659,7 +1615,6 @@ describe("desktop workbench shell", () => {
     targetDocument.body.querySelector('[data-desktop-run-chain-control="close"]')?.click();
     expect(targetDocument.getElementById("desktop-workbench-shell")?.getAttribute("data-inspector-visible")).toBe("false");
     expect(targetDocument.body.querySelector('[data-workbench-region="inspector"]')?.getAttribute("data-visible")).toBe("false");
-    expect(targetDocument.body.querySelector('[data-desktop-panel-control="inspector"]')?.getAttribute("aria-pressed")).toBe("false");
   });
 
   test("opens the run-chain inspector detail when a conversation tool activity is selected", () => {
