@@ -353,6 +353,69 @@ describe("desktop gateway bridge", () => {
     bridge.restore();
   });
 
+  test("routes configured gateway WebSocket URLs through the native TS transport shim", async () => {
+    const dispatched: unknown[] = [];
+    const target = {
+      location: { origin: pageOrigin },
+      fetch: vi.fn(),
+      WebSocket: class TestWebSocket {
+        static CONNECTING = 0;
+        static OPEN = 1;
+        static CLOSING = 2;
+        static CLOSED = 3;
+        constructor() {
+          throw new Error("real gateway websocket should not be opened");
+        }
+      } as unknown as typeof WebSocket,
+    } as unknown as typeof globalThis;
+    const bridge = installDesktopGatewayBridge({
+      config: DEFAULT_GATEWAY_CONFIG,
+      pageOrigin,
+      fetchTarget: target,
+      webSocketTarget: target,
+      nativeTransport: {
+        gatewayFrame: vi.fn(),
+        websocketMessage: vi.fn(),
+        dispatchWebsocketMessage: vi.fn(async (request) => {
+          dispatched.push(request);
+          return {
+            transport: {
+              kind: "message",
+              chatId: "chat-native",
+              sessionId: "websocket:chat-native",
+              frames: [{ event: "message", chat_id: "chat-native", text: "native absolute ws" }],
+            },
+          };
+        }),
+        dispatchChannelInbound: vi.fn(),
+        startChannels: vi.fn(),
+        channelStatus: vi.fn(),
+        stopChannels: vi.fn(),
+      },
+    });
+
+    const socket = new target.WebSocket(DEFAULT_GATEWAY_CONFIG.wsUrl);
+    const events: Array<Record<string, unknown>> = [];
+    socket.addEventListener("message", (event) => {
+      events.push(JSON.parse(String((event as MessageEvent).data)) as Record<string, unknown>);
+    });
+    await flushMicrotasks();
+
+    expect(socket.readyState).toBe(WebSocket.OPEN);
+    socket.send(JSON.stringify({ type: "message", chat_id: "chat-native", content: "hello" }));
+    await flushMicrotasks();
+
+    expect(events).toContainEqual({ event: "message", chat_id: "chat-native", text: "native absolute ws" });
+    expect(dispatched).toEqual([
+      expect.objectContaining({
+        clientId: expect.any(String),
+        frame: { type: "message", chat_id: "chat-native", content: "hello" },
+      }),
+    ]);
+
+    bridge.restore();
+  });
+
   test("passes native WebSocket attach session checks through the gateway bridge", async () => {
     const dispatched: unknown[] = [];
     const target = {
