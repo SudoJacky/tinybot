@@ -83,9 +83,25 @@ describe("resolveRuntimeProvider", () => {
     });
 
     expect(resolved.providerId).toBe("dashscope");
-    expect(resolved.model).toBe("gpt-4.1-mini");
+    expect(resolved.model).toBe("qwen-max");
     expect(resolved.source).toBe("credentials");
     expect(resolved.apiKey).toBe("dashscope-key");
+    expect(resolved.warnings).toContain("Model 'gpt-4.1-mini' appears to belong to provider 'openai', not 'dashscope'; using 'qwen-max'.");
+  });
+
+  test("uses the selected provider default when a stale model belongs to another provider", async () => {
+    const resolved = await resolveRuntimeProvider({
+      config: {
+        agents: { defaults: { provider: "deepseek", model: "gpt-4.1-mini" } },
+        providers: { deepseek: { api_key: "deepseek-key" } },
+      },
+      env: {},
+    });
+
+    expect(resolved.providerId).toBe("deepseek");
+    expect(resolved.model).toBe("deepseek-v4-pro");
+    expect(resolved.source).toBe("explicit");
+    expect(resolved.warnings).toContain("Model 'gpt-4.1-mini' appears to belong to provider 'openai', not 'deepseek'; using 'deepseek-v4-pro'.");
   });
 
   test("falls back to first provider with usable credentials in catalog order", async () => {

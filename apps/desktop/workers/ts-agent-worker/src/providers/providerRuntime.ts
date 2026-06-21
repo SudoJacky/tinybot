@@ -1,6 +1,8 @@
 import {
   findCatalogEntry,
   inferProviderFromModel,
+  isCustomProvider,
+  isGatewayProvider,
   isLocalProvider,
   listCatalogEntries,
   type ApiMode,
@@ -116,9 +118,10 @@ async function resolveEntry(
   }
   const providerConfig = explicitProviderConfig ?? selectProviderConfig(config, normalizedId);
   const secret = await configuredOrResolvedOrEnvKey(input, providerConfig, catalog, normalizedId, profileName);
+  const modelResolution = resolveModelForProvider(model, catalog, normalizedId);
   return {
     providerId: normalizedId,
-    model,
+    model: modelResolution.model,
     profileName,
     source,
     apiMode: catalog?.apiMode,
@@ -136,8 +139,36 @@ async function resolveEntry(
       supportsPromptCaching: false,
     },
     extraBody: recordValue(field(providerConfig, "extra_body", "extraBody")) ?? {},
-    warnings: [],
+    warnings: modelResolution.warning ? [modelResolution.warning] : [],
   };
+}
+
+function resolveModelForProvider(
+  model: string,
+  catalog: ProviderCatalogEntry | undefined,
+  providerId: string,
+): { model: string; warning?: string } {
+  const selectedModel = model.trim() || defaultModelForProvider(catalog);
+  const inferred = inferProviderFromModel(selectedModel);
+  if (
+    catalog &&
+    inferred &&
+    inferred.id !== catalog.id &&
+    !isCustomProvider(catalog) &&
+    !isLocalProvider(catalog) &&
+    !isGatewayProvider(catalog)
+  ) {
+    const fallback = defaultModelForProvider(catalog);
+    return {
+      model: fallback,
+      warning: `Model '${selectedModel}' appears to belong to provider '${inferred.id}', not '${providerId}'; using '${fallback}'.`,
+    };
+  }
+  return { model: selectedModel };
+}
+
+function defaultModelForProvider(catalog: ProviderCatalogEntry | undefined): string {
+  return catalog?.curatedModelIds[0] ?? "gpt-4.1-mini";
 }
 
 async function hasUsableConfig(input: ResolveRuntimeProviderInput, config: TinybotConfig, catalog: ProviderCatalogEntry): Promise<boolean> {
