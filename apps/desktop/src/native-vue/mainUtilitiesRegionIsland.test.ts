@@ -79,11 +79,13 @@ describe("main utilities region Vue island", () => {
     expect(host.querySelector(".desktop-help-pane")?.textContent).toContain("Help tour");
     expect(host.querySelector(".desktop-agent-ui-forms")?.textContent).toContain("Approve import");
     expect(host.querySelector(".desktop-workspace-files")?.textContent).toContain("Workspace files");
-    expect(host.querySelector(".desktop-settings-pane")?.textContent).toContain("Settings / Capability Center");
-    expect(host.querySelector(".desktop-settings-capability-map")?.getAttribute("data-desktop-settings-center")).toBe("capability-boundaries");
+    expect(host.querySelector(".desktop-settings-pane")?.textContent).toContain("Settings / General");
+    expect(host.querySelector(".desktop-settings-capability-map")).toBeNull();
 
     host.querySelector<HTMLButtonElement>('[data-desktop-help-action="page-help"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-agent-ui-form-action="cancel"]')?.click();
+    host.querySelector<HTMLAnchorElement>('[data-desktop-settings-nav="provider-models"]')?.click();
+    await nextTick();
     host.querySelector<HTMLButtonElement>('[data-desktop-settings-action="discoverModels"]')?.click();
 
     expect(helpActions).toEqual(["page-help"]);

@@ -68,52 +68,59 @@ describe("settings pane Vue island", () => {
     expect(host.className).toBe("desktop-workbench-section desktop-settings-pane");
     expect(host.getAttribute("data-desktop-vue-island")).toBe("settings-pane");
     expect(host.getAttribute("data-desktop-module-surface")).toBe("settings");
-    expect(host.getAttribute("data-settings-layout")).toBe("capability-center");
+    expect(host.getAttribute("data-settings-layout")).toBe("section-pages");
     expect(host.getAttribute("aria-label")).toBe("Settings and providers");
 
     expect(host.querySelector(".desktop-settings-sidebar")?.textContent).toContain("General");
-    expect(host.querySelector(".desktop-settings-breadcrumb")?.textContent).toContain("Settings / Capability Center");
-    expect(host.querySelector(".desktop-settings-capability-map")?.getAttribute("data-desktop-settings-center")).toBe("capability-boundaries");
-    expect(Array.from(
-      host.querySelectorAll("[data-desktop-settings-capability]"),
-      (node) => node.getAttribute("data-desktop-settings-capability"),
-    )).toEqual([
-      "provider-models",
-      "knowledge",
-      "tools-approvals",
-      "files-workspace",
-      "gateway-runtime",
-      "logs-diagnostics",
-    ]);
-    expect(host.querySelector('[data-desktop-settings-capability="provider-models"]')?.textContent).toContain("OpenAI");
-    expect(host.querySelector('[data-desktop-settings-capability="knowledge"]')?.textContent).toContain("Knowledge On");
-    expect(host.querySelector('[data-desktop-settings-capability="tools-approvals"]')?.textContent).toContain("Shell Off");
-    expect(host.querySelector('[data-desktop-settings-capability="gateway-runtime"]')?.textContent).toContain("Gateway");
+    expect(host.querySelector(".desktop-settings-breadcrumb")?.textContent).toContain("Settings / General");
+    expect(host.querySelector(".desktop-settings-capability-map")).toBeNull();
     expect(host.querySelector(".desktop-settings-default-llm-card")?.textContent).toContain("Default LLM");
-    expect(host.querySelector(".desktop-settings-provider-section")?.textContent).toContain("Providers");
-    expect(host.querySelector('[data-desktop-settings-provider-card="openai"]')?.textContent).toContain("OpenAI");
+    expect(host.querySelector(".desktop-settings-provider-section")).toBeNull();
     expect(host.querySelector(".desktop-settings-status-card")).toBeNull();
-    expect(host.querySelector('[data-desktop-settings-group="knowledge"]')?.textContent).toContain("Knowledge");
+    expect(Array.from(
+      host.querySelectorAll("[data-desktop-settings-group]"),
+      (node) => node.getAttribute("data-desktop-settings-group"),
+    )).toEqual(["general"]);
+    expect(host.querySelector('[data-desktop-settings-group="knowledge"]')).toBeNull();
     expect(host.querySelector('[data-desktop-settings-field="timezone"] .desktop-settings-field-meta')?.textContent).toContain("Required");
     expect(host.querySelector('[data-desktop-settings-field="timezone"] .desktop-settings-field-meta')?.textContent).toContain("Free text");
-    expect(host.querySelector('[data-desktop-settings-field="apiKey"] input')?.getAttribute("type")).toBe("password");
-    expect(host.querySelector<HTMLInputElement>('[data-desktop-settings-control="apiKey"]')?.value).toBe("********");
     expect(host.querySelector('[data-desktop-settings-group="general"] details.desktop-settings-advanced-fields summary')?.textContent).toContain("Advanced");
     expect(host.querySelector('[data-desktop-settings-field="temperature"]')?.closest("details")?.className).toContain("desktop-settings-advanced-fields");
-    expect(host.querySelector('[data-desktop-settings-field="sessionFiles"] output')?.textContent).toContain("Session file");
-    expect(host.querySelector('[data-desktop-settings-field="sessionFiles"] [data-desktop-settings-control="sessionFiles"]')).toBeNull();
+
+    const navProvider = host.querySelector<HTMLAnchorElement>('[data-desktop-settings-nav="provider-models"]');
+    navProvider?.click();
+    await nextTick();
+    expect(host.querySelector(".desktop-settings-breadcrumb")?.textContent).toContain("Settings / Provider & Models");
+    expect(host.querySelector(".desktop-settings-default-llm-card")).toBeNull();
+    expect(host.querySelector(".desktop-settings-provider-section")?.textContent).toContain("Providers");
+    expect(host.querySelector('[data-desktop-settings-provider-card="openai"]')?.textContent).toContain("OpenAI");
+    expect(host.querySelector('[data-desktop-settings-field="apiKey"] input')?.getAttribute("type")).toBe("password");
+    expect(host.querySelector<HTMLInputElement>('[data-desktop-settings-control="apiKey"]')?.value).toBe("********");
+
     const navFiles = host.querySelector<HTMLAnchorElement>('[data-desktop-settings-nav="files-workspace"]');
     navFiles?.click();
     await nextTick();
+    expect(host.querySelector(".desktop-settings-breadcrumb")?.textContent).toContain("Settings / Files & Workspace");
+    expect(Array.from(
+      host.querySelectorAll("[data-desktop-settings-group]"),
+      (node) => node.getAttribute("data-desktop-settings-group"),
+    )).toEqual(["files-workspace"]);
+    expect(host.querySelector('[data-desktop-settings-field="sessionFiles"] output')?.textContent).toContain("Session file");
+    expect(host.querySelector('[data-desktop-settings-field="sessionFiles"] [data-desktop-settings-control="sessionFiles"]')).toBeNull();
     expect(host.querySelector('[data-desktop-settings-nav="general"]')?.getAttribute("data-active")).toBeNull();
     const activeNavFiles = host.querySelector<HTMLAnchorElement>('[data-desktop-settings-nav="files-workspace"]');
     expect(activeNavFiles?.getAttribute("data-active")).toBe("true");
     expect(activeNavFiles?.getAttribute("aria-current")).toBe("page");
 
+    host.querySelector<HTMLAnchorElement>('[data-desktop-settings-nav="general"]')?.click();
+    await nextTick();
     const model = host.querySelector<HTMLSelectElement>('[data-desktop-settings-control="model"]');
     model!.value = "gpt-4.1-mini";
     model?.dispatchEvent(new Event("change", { bubbles: true }));
     host.querySelector<HTMLButtonElement>('[data-desktop-settings-action="save"]')?.click();
+
+    host.querySelector<HTMLAnchorElement>('[data-desktop-settings-nav="provider-models"]')?.click();
+    await nextTick();
     host.querySelector<HTMLButtonElement>('[data-desktop-settings-action="discoverModels"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-desktop-settings-provider-action="settings"]')?.click();
     const apiKey = host.querySelector<HTMLInputElement>('[data-desktop-settings-control="apiKey"]');
