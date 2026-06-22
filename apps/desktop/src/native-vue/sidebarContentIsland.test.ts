@@ -30,9 +30,6 @@ describe("sidebar content Vue island", () => {
         { href: "/workspace", id: "workspace", kind: "link", label: "Workspace" },
       ],
       resourceLabel: "Resources",
-      workspaceRows: [
-        { active: true, entityId: "tinybot", meta: "Active session", title: "tinybot" },
-      ],
     });
 
     expect(host.getAttribute("data-desktop-vue-island")).toBe("sidebar-content");
@@ -41,8 +38,8 @@ describe("sidebar content Vue island", () => {
     expect(host.querySelector(".desktop-sidebar-actions")?.getAttribute("data-desktop-vue-island")).toBe("sidebar-actions");
     expect(host.querySelector(".desktop-sidebar-primary-action")?.getAttribute("href")).toBe("/chat/new");
     expect(host.querySelector(".desktop-sidebar-search")?.getAttribute("type")).toBe("search");
-    expect(host.querySelector(".desktop-sidebar-list-section-workspaces")?.getAttribute("data-desktop-vue-island")).toBe("sidebar-workspace-list");
-    expect(host.querySelector(".desktop-workspace-list")?.textContent).toContain("tinybot");
+    expect(host.querySelector(".desktop-sidebar-list-section-workspaces")).toBeNull();
+    expect(host.querySelector(".desktop-workspace-list")).toBeNull();
     expect(host.querySelector(".desktop-sidebar-list-section-recent")?.getAttribute("data-desktop-vue-island")).toBe("sidebar-recent-chats");
     expect(host.querySelector("[data-desktop-session-key]")?.getAttribute("data-pinned")).toBe("true");
     expect(host.querySelector('[data-sidebar-item-id="workspace"]')?.closest(".desktop-workbench-section")?.getAttribute("data-desktop-vue-island")).toBe("shared-sidebar-links");

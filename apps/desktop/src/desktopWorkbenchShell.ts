@@ -112,7 +112,6 @@ import { mountSidebarContentIsland } from "./native-vue/sidebarContentIsland";
 import { mountSidebarRecentChatsIsland, type SidebarRecentChatRow } from "./native-vue/sidebarRecentChatsIsland";
 import { mountSidebarRowIsland } from "./native-vue/sidebarRowIsland";
 import { mountSidebarSectionHeadingIsland } from "./native-vue/sidebarSectionHeadingIsland";
-import { mountSidebarWorkspaceListIsland } from "./native-vue/sidebarWorkspaceListIsland";
 import { mountSettingsDefaultLlmIsland } from "./native-vue/settingsDefaultLlmIsland";
 import { mountSettingsGroupsIsland } from "./native-vue/settingsGroupsIsland";
 import { mountSettingsPaneIsland } from "./native-vue/settingsPaneIsland";
@@ -670,12 +669,6 @@ export function updateDesktopNativeChat(
 
   syncChatWorkbenchChrome(targetDocument, chat);
 
-  const workspaceList = targetDocument.querySelector<HTMLElement>(".desktop-workspace-list");
-  if (workspaceList) {
-    const next = createSidebarWorkspaceList(targetDocument, chat).querySelector<HTMLElement>(".desktop-workspace-list");
-    workspaceList.replaceChildren(...Array.from(next?.children ?? []));
-  }
-
   const recentChats = targetDocument.querySelector<HTMLElement>(".desktop-recent-chat-list");
   const recentChatsSection = targetDocument.querySelector<HTMLElement>(".desktop-sidebar-list-section-recent");
   if (recentChatsSection && canMountVueIsland(recentChatsSection)) {
@@ -921,7 +914,6 @@ function createSidebar(
   sidebar.className = "desktop-sidebar-content";
   sidebar.append(
     createSidebarActions(targetDocument),
-    createSidebarWorkspaceList(targetDocument, chat),
     createSidebarRecentChats(targetDocument, chat, chatActions),
   );
   if (chat) {
@@ -949,12 +941,6 @@ function mountSidebarContentVueIsland(
     recentChats,
     resourceItems: [],
     targetDocument,
-    workspaceRows: [{
-      active: true,
-      entityId: "tinybot",
-      meta: chat.activeSessionKey ? "Active session" : "Ready",
-      title: "tinybot",
-    }],
   });
 }
 
@@ -985,53 +971,6 @@ function mountSidebarActionsVueIsland(section: HTMLElement): void {
     return;
   }
   mountSidebarActionsIsland(section);
-}
-
-function createSidebarWorkspaceList(targetDocument: Document, chat: DesktopNativeChatModel | null): HTMLElement {
-  const section = targetDocument.createElement("section");
-  section.className = "desktop-sidebar-list-section desktop-sidebar-list-section-workspaces";
-  section.append(createSidebarSectionHeading(targetDocument, "Workspaces", "+"));
-
-  const list = targetDocument.createElement("div");
-  list.className = "desktop-workspace-list";
-  list.setAttribute("role", "list");
-  const rows = chat ? [["tinybot", chat.activeSessionKey ? "Active session" : "Ready", true]] as const : [
-    ["tinybot", "1m ago", true],
-    ["ai-rvc", "2h ago", false],
-    ["ai-light", "Yesterday", false],
-    ["ai-tv", "2d ago", false],
-    ["ai-fridge", "3d ago", false],
-    ["genie", "4d ago", false],
-    ["docs", "May 26", false],
-    ["archive", "May 20", false],
-  ] as const;
-  for (const [name, meta, active] of rows) {
-    list.append(createSidebarRow(targetDocument, name, meta, active, "folder", "workspace", name));
-  }
-
-  section.append(list);
-  mountSidebarWorkspaceListVueIsland(section, rows.map(([name, meta, active]) => ({
-    active,
-    entityId: name,
-    meta,
-    title: name,
-  })));
-  return section;
-}
-
-function mountSidebarWorkspaceListVueIsland(
-  section: HTMLElement,
-  rows: Array<{
-    active: boolean;
-    entityId: string;
-    meta: string;
-    title: string;
-  }>,
-): void {
-  if (!canMountVueIsland(section)) {
-    return;
-  }
-  mountSidebarWorkspaceListIsland(section, { rows });
 }
 
 function createSidebarRecentChats(

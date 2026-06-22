@@ -947,14 +947,15 @@ describe("desktop workbench shell", () => {
     const primaryAction = targetDocument.body.querySelector(".desktop-sidebar-primary-action");
     const sidebarSearch = targetDocument.body.querySelector(".desktop-sidebar-search");
     const workspaceList = targetDocument.body.querySelector(".desktop-workspace-list");
+    const workspaceSection = targetDocument.body.querySelector(".desktop-sidebar-list-section-workspaces");
     const recentChats = targetDocument.body.querySelector(".desktop-recent-chat-list");
     expect(primaryAction).toBeTruthy();
     expect(sidebarSearch).toBeTruthy();
-    expect(workspaceList).toBeTruthy();
+    expect(workspaceSection).toBeNull();
+    expect(workspaceList).toBeNull();
     expect(recentChats).toBeTruthy();
     expect(primaryAction?.textContent).toContain("New chat");
     expect(sidebarSearch?.getAttribute("placeholder")).toBe("Search");
-    expect(workspaceList?.textContent).toContain("tinybot");
     expect(recentChats?.textContent).toContain("Design native workbench");
     const sidebarStyle = targetDocument.head.querySelector("#desktop-workbench-shell-style")?.textContent ?? "";
     expect(sidebarStyle).toContain("flex-direction: column;");
@@ -1030,7 +1031,8 @@ describe("desktop workbench shell", () => {
       },
     });
 
-    expect(targetDocument.body.querySelector(".desktop-sidebar-list-section-workspaces")?.textContent).toContain("tinybot");
+    expect(targetDocument.body.querySelector(".desktop-sidebar-list-section-workspaces")).toBeNull();
+    expect(targetDocument.body.querySelector(".desktop-workspace-list")).toBeNull();
     expect(targetDocument.body.querySelector(".desktop-sidebar-list-section-recent")?.textContent).toContain("Live session");
     expect(targetDocument.body.querySelectorAll(".desktop-workbench-link")).toHaveLength(0);
     expect(targetDocument.body.querySelectorAll("[data-sidebar-command]")).toHaveLength(0);

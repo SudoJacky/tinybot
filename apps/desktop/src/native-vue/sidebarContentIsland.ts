@@ -4,7 +4,6 @@ import { mountSharedSidebarCommandsIsland, type SharedSidebarCommandItem } from 
 import { mountSharedSidebarLinksIsland, type SharedSidebarLinkItem } from "./sharedSidebarLinksIsland";
 import { mountSidebarActionsIsland } from "./sidebarActionsIsland";
 import { mountSidebarRecentChatsIsland, type SidebarRecentChatRow } from "./sidebarRecentChatsIsland";
-import { mountSidebarWorkspaceListIsland, type SidebarWorkspaceListRow } from "./sidebarWorkspaceListIsland";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 
 export interface SidebarContentIslandOptions {
@@ -14,7 +13,6 @@ export interface SidebarContentIslandOptions {
   resourceItems: SharedSidebarLinkItem[];
   resourceLabel?: string;
   targetDocument?: Document;
-  workspaceRows: SidebarWorkspaceListRow[];
 }
 
 type MountedSidebarContentOptions = SidebarContentIslandOptions & { targetDocument: Document };
@@ -48,16 +46,12 @@ function createSidebarContentApp(options: MountedSidebarContentOptions): App {
     setup() {
       const mountedChildren: Array<{ unmount: () => void }> = [];
       const actions = ref<HTMLElement | null>(null);
-      const workspaces = ref<HTMLElement | null>(null);
       const recent = ref<HTMLElement | null>(null);
       const links = ref<HTMLElement | null>(null);
       const commands = ref<HTMLElement | null>(null);
 
       onMounted(() => {
         mountChild(mountedChildren, actions.value, (host) => mountSidebarActionsIsland(host));
-        mountChild(mountedChildren, workspaces.value, (host) => mountSidebarWorkspaceListIsland(host, {
-          rows: options.workspaceRows,
-        }));
         mountChild(mountedChildren, recent.value, (host) => mountSidebarRecentChatsIsland(host, {
           rows: options.recentChats,
         }));
@@ -90,7 +84,6 @@ function createSidebarContentApp(options: MountedSidebarContentOptions): App {
         }, {
           default: () => [
             h("section", { ref: actions }),
-            h("section", { ref: workspaces }),
             h("section", { ref: recent }),
             options.resourceItems.length ? h("section", { ref: links }) : null,
             options.commandItems.length ? h("section", { ref: commands }) : null,
