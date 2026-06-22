@@ -511,10 +511,13 @@ describe("desktop workbench shell", () => {
       /body\.desktop-native-workbench \.desktop-sidebar-chat-row \.desktop-sidebar-row-main \{\s*grid-template-columns: minmax\(0, 1fr\);\s*\}/,
     );
     expect(styleText).toMatch(
-      /body\.desktop-native-workbench \.desktop-sidebar-delete-session \{[\s\S]*right: 10px;[\s\S]*width: 64px;/,
+      /body\.desktop-native-workbench \.desktop-sidebar-delete-session \{[\s\S]*display: inline-flex;[\s\S]*right: 10px;[\s\S]*width: 64px;[\s\S]*padding: 0 8px;[\s\S]*justify-content: flex-end;/,
     );
     expect(styleText).toMatch(
       /body\.desktop-native-workbench \.desktop-sidebar-row-meta \{[\s\S]*position: absolute;[\s\S]*right: 10px;[\s\S]*width: 64px;/,
+    );
+    expect(styleText).toMatch(
+      /body\.desktop-native-workbench \.desktop-sidebar-chat-row:hover \.desktop-sidebar-delete-session,\s*body\.desktop-native-workbench \.desktop-sidebar-chat-row:focus-within \.desktop-sidebar-delete-session,\s*body\.desktop-native-workbench \.desktop-sidebar-delete-session\[data-deleting="true"\] \{[\s\S]*background: #f2efec;/,
     );
   });
 

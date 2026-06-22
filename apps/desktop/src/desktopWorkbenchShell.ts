@@ -10440,13 +10440,17 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-sidebar-delete-session {
       position: absolute;
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-end;
       right: 10px;
       top: 50%;
       transform: translateY(-50%);
       width: 64px;
       min-height: 24px;
       border: 1px solid transparent;
-      border-radius: 5px;
+      border-radius: 999px;
+      padding: 0 8px;
       background: transparent;
       color: #8b5b4e;
       font: 600 11px/1 var(--font-sans);
@@ -10461,6 +10465,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       border-color: #f2c9c2;
       background: #fff0ee;
       color: #9f2f25;
+      justify-content: center;
       opacity: 1;
       pointer-events: auto;
     }
@@ -10480,6 +10485,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-sidebar-chat-row:hover .desktop-sidebar-delete-session,
     body.desktop-native-workbench .desktop-sidebar-chat-row:focus-within .desktop-sidebar-delete-session,
     body.desktop-native-workbench .desktop-sidebar-delete-session[data-deleting="true"] {
+      background: #f2efec;
       opacity: 1;
       pointer-events: auto;
     }
