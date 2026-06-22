@@ -305,6 +305,38 @@ describe("native chat state", () => {
     ]);
   });
 
+  test("does not append a completed message for a stream message with the same id", () => {
+    const state = createNativeChatState();
+    applyChatEvent(state, { kind: "attached", chatId: "chat-1", raw: {} });
+
+    applyChatEvent(state, {
+      kind: "message.delta",
+      chatId: "chat-1",
+      messageId: "m-stream",
+      text: "Streamed answer",
+      reasoning: false,
+      raw: {},
+    });
+    applyChatEvent(state, {
+      kind: "message.completed",
+      chatId: "chat-1",
+      messageId: "m-stream",
+      text: "Streamed answer",
+      raw: {
+        _memory_references: [{ note_id: "note_stream", content: "Stream memory" }],
+      },
+    });
+
+    expect(state.messages.get(sessionKeyForChat("chat-1"))).toMatchObject([
+      {
+        content: "Streamed answer",
+        messageId: "m-stream",
+        references: [{ kind: "memory", title: "note_stream", detail: "Stream memory" }],
+      },
+    ]);
+    expect(state.messages.get(sessionKeyForChat("chat-1"))).toHaveLength(1);
+  });
+
   test("clears responding state when a stream is interrupted or errors", () => {
     const state = createNativeChatState();
     applyChatEvent(state, { kind: "attached", chatId: "chat-1", raw: {} });

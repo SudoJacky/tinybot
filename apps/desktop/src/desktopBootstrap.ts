@@ -113,6 +113,7 @@ import { createDesktopNativeSkillsApi } from "./desktopNativeSkills";
 import { createDesktopNativeWebuiApi } from "./desktopNativeWebui";
 import { startDesktopNativeChannelRuntime } from "./desktopNativeChannelLifecycle";
 import { createDesktopNativeTransportApi } from "./desktopNativeTransport";
+import { toDesktopNativeTauriEventName } from "./desktopNativeTauriEvents";
 import { normalizeSessionsPayload } from "./nativeChat";
 import {
   flushGatewaySocketQueue,
@@ -263,7 +264,7 @@ async function bootDesktopWebUi(): Promise<void> {
       nativeTransport: gatewayClientOptions.nativeTransport,
       nativeWebui: gatewayClientOptions.nativeWebui,
       resolveNativeWebSocketSessionExists,
-      listenToNativeAgentEvent: (eventName, handler) => listen(eventName, (event) => {
+      listenToNativeAgentEvent: (eventName, handler) => listen(toDesktopNativeTauriEventName(eventName), (event) => {
         handler(event.payload);
       }),
     });
@@ -686,7 +687,7 @@ function installNativeTsAgentEventListeners(): void {
     "agent.done",
     "agent.error",
   ] as const) {
-    void listen(eventName, (event) => {
+    void listen(toDesktopNativeTauriEventName(eventName), (event) => {
       handleNativeTsAgentWorkerEvent(eventName, event.payload);
     });
   }
@@ -2416,10 +2417,10 @@ function installNativeRuntimeStatusEventRouting(): void {
     return;
   }
   nativeRuntimeStatusEventsInstalled = true;
-  void listen("diagnostics.log", () => {
+  void listen(toDesktopNativeTauriEventName("diagnostics.log"), () => {
     scheduleNativeRuntimeStatusRefresh("diagnostics.log");
   });
-  void listen("worker.status", () => {
+  void listen(toDesktopNativeTauriEventName("worker.status"), () => {
     scheduleNativeRuntimeStatusRefresh("worker.status");
   });
 }

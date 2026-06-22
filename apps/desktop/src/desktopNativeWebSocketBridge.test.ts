@@ -1,10 +1,11 @@
 import { describe, expect, test, vi } from "vitest";
-import { createDesktopNativeWebSocket, type DesktopNativeWebSocketAgentEventName } from "./desktopNativeWebSocketBridge";
+import { createDesktopNativeWebSocket } from "./desktopNativeWebSocketBridge";
 import type { NativeTransportApi } from "./desktopNativeTransport";
+import { toDesktopNativeTauriEventName } from "./desktopNativeTauriEvents";
 
 describe("desktop native WebSocket bridge", () => {
   test("projects TS worker stream events into legacy WebUI WebSocket frames", async () => {
-    const handlers = new Map<DesktopNativeWebSocketAgentEventName, (payload: unknown) => void>();
+    const handlers = new Map<string, (payload: unknown) => void>();
     const unlisteners: Array<() => void> = [];
     const dispatch = deferred<unknown>();
     const nativeTransport: NativeTransportApi = {
@@ -38,13 +39,13 @@ describe("desktop native WebSocket bridge", () => {
     await flushMicrotasks();
     await flushMicrotasks();
 
-    expect(handlers.get("agent.delta")).toBeDefined();
-    expect(handlers.get("agent.reasoning_delta")).toBeDefined();
-    expect(handlers.get("agent.done")).toBeDefined();
+    expect(handlers.get(toDesktopNativeTauriEventName("agent.delta"))).toBeDefined();
+    expect(handlers.get(toDesktopNativeTauriEventName("agent.reasoning_delta"))).toBeDefined();
+    expect(handlers.get(toDesktopNativeTauriEventName("agent.done"))).toBeDefined();
 
-    handlers.get("agent.delta")?.({ runId: "run-1", delta: "hello", messageId: "message-1" });
-    handlers.get("agent.reasoning_delta")?.({ run_id: "run-1", delta: "thinking", message_id: "message-1" });
-    handlers.get("agent.done")?.({
+    handlers.get(toDesktopNativeTauriEventName("agent.delta"))?.({ runId: "run-1", delta: "hello", messageId: "message-1" });
+    handlers.get(toDesktopNativeTauriEventName("agent.reasoning_delta"))?.({ run_id: "run-1", delta: "thinking", message_id: "message-1" });
+    handlers.get(toDesktopNativeTauriEventName("agent.done"))?.({
       runId: "run-1",
       stopReason: "final_response",
       _memory_references: [{ note_id: "note-1" }],
@@ -99,7 +100,7 @@ describe("desktop native WebSocket bridge", () => {
   });
 
   test("registers native message runs before dispatch completes so stream deltas render live", async () => {
-    const handlers = new Map<DesktopNativeWebSocketAgentEventName, (payload: unknown) => void>();
+    const handlers = new Map<string, (payload: unknown) => void>();
     const dispatched: unknown[] = [];
     const dispatch = deferred<unknown>();
     const nativeTransport: NativeTransportApi = {
@@ -134,7 +135,7 @@ describe("desktop native WebSocket bridge", () => {
     const runId = (dispatched[0] as { runId?: string } | undefined)?.runId;
     expect(runId).toMatch(/^websocket-chat-native-/);
 
-    handlers.get("agent.delta")?.({ runId, delta: "live", messageId: "message-live" });
+    handlers.get(toDesktopNativeTauriEventName("agent.delta"))?.({ runId, delta: "live", messageId: "message-live" });
     await flushMicrotasks();
 
     expect(events).toContainEqual({
@@ -159,6 +160,160 @@ describe("desktop native WebSocket bridge", () => {
       },
     });
     await flushMicrotasks();
+  });
+
+  test("does not emit final fallback content after a streamed run when dispatch result omits run id", async () => {
+    const handlers = new Map<string, (payload: unknown) => void>();
+    const dispatched: unknown[] = [];
+    const dispatch = deferred<unknown>();
+    const nativeTransport: NativeTransportApi = {
+      gatewayFrame: vi.fn(),
+      websocketMessage: vi.fn(),
+      dispatchWebsocketMessage: vi.fn(async (request) => {
+        dispatched.push(request);
+        return dispatch.promise;
+      }),
+      dispatchChannelInbound: vi.fn(),
+      startChannels: vi.fn(),
+      channelStatus: vi.fn(),
+      stopChannels: vi.fn(),
+    };
+    const socket = createDesktopNativeWebSocket({
+      url: "/ws",
+      nativeTransport,
+      listenToAgentEvent: (eventName, handler) => {
+        handlers.set(eventName, handler);
+      },
+    });
+    const events: Array<Record<string, unknown>> = [];
+    socket.addEventListener("message", (event) => {
+      events.push(JSON.parse(String((event as MessageEvent).data)) as Record<string, unknown>);
+    });
+
+    await flushMicrotasks();
+    socket.send(JSON.stringify({ type: "message", chat_id: "chat-native", content: "hello" }));
+    await flushMicrotasks();
+
+    const runId = (dispatched[0] as { runId?: string } | undefined)?.runId;
+    handlers.get(toDesktopNativeTauriEventName("agent.delta"))?.({ runId, delta: "live" });
+    dispatch.resolve({
+      transport: {
+        kind: "message",
+        chatId: "chat-native",
+        sessionId: "websocket:chat-native",
+        frames: [],
+      },
+      agent: {
+        finalContent: "live final",
+        stopReason: "final_response",
+      },
+    });
+    await flushMicrotasks();
+
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "delta",
+      chat_id: "chat-native",
+      text: "live",
+    }));
+    expect(events).not.toContainEqual(expect.objectContaining({
+      event: "message",
+      chat_id: "chat-native",
+      text: "live final",
+    }));
+  });
+
+  test("does not emit final fallback content after done completes a streamed run first", async () => {
+    const handlers = new Map<string, (payload: unknown) => void>();
+    const dispatched: unknown[] = [];
+    const dispatch = deferred<unknown>();
+    const nativeTransport: NativeTransportApi = {
+      gatewayFrame: vi.fn(),
+      websocketMessage: vi.fn(),
+      dispatchWebsocketMessage: vi.fn(async (request) => {
+        dispatched.push(request);
+        return dispatch.promise;
+      }),
+      dispatchChannelInbound: vi.fn(),
+      startChannels: vi.fn(),
+      channelStatus: vi.fn(),
+      stopChannels: vi.fn(),
+    };
+    const socket = createDesktopNativeWebSocket({
+      url: "/ws",
+      nativeTransport,
+      listenToAgentEvent: (eventName, handler) => {
+        handlers.set(eventName, handler);
+      },
+    });
+    const events: Array<Record<string, unknown>> = [];
+    socket.addEventListener("message", (event) => {
+      events.push(JSON.parse(String((event as MessageEvent).data)) as Record<string, unknown>);
+    });
+
+    await flushMicrotasks();
+    socket.send(JSON.stringify({ type: "message", chat_id: "chat-native", content: "hello" }));
+    await flushMicrotasks();
+
+    const runId = (dispatched[0] as { runId?: string } | undefined)?.runId;
+    handlers.get(toDesktopNativeTauriEventName("agent.delta"))?.({ runId, delta: "live" });
+    handlers.get(toDesktopNativeTauriEventName("agent.done"))?.({ runId, stopReason: "final_response" });
+    dispatch.resolve({
+      transport: {
+        kind: "message",
+        chatId: "chat-native",
+        sessionId: "websocket:chat-native",
+        frames: [],
+      },
+      agent: {
+        finalContent: "live final",
+        stopReason: "final_response",
+      },
+    });
+    await flushMicrotasks();
+
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "delta",
+      chat_id: "chat-native",
+      text: "live",
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "stream_end",
+      chat_id: "chat-native",
+    }));
+    expect(events).not.toContainEqual(expect.objectContaining({
+      event: "message",
+      chat_id: "chat-native",
+      text: "live final",
+    }));
+  });
+
+  test("waits for async native agent event listeners before opening the socket", async () => {
+    const listenerReady = deferred<() => void>();
+    const nativeTransport: NativeTransportApi = {
+      gatewayFrame: vi.fn(),
+      websocketMessage: vi.fn(),
+      dispatchWebsocketMessage: vi.fn(),
+      dispatchChannelInbound: vi.fn(),
+      startChannels: vi.fn(),
+      channelStatus: vi.fn(),
+      stopChannels: vi.fn(),
+    };
+    const socket = createDesktopNativeWebSocket({
+      url: "/ws",
+      nativeTransport,
+      listenToAgentEvent: () => listenerReady.promise,
+    });
+
+    await flushMicrotasks();
+
+    expect(socket.readyState).toBe(WebSocket.CONNECTING);
+    expect(() => socket.send(JSON.stringify({ type: "message", chat_id: "chat-native", content: "hello" }))).toThrow("WebSocket is not open");
+    expect(nativeTransport.dispatchWebsocketMessage).not.toHaveBeenCalled();
+
+    listenerReady.resolve(vi.fn());
+    await flushMicrotasks();
+
+    expect(socket.readyState).toBe(WebSocket.OPEN);
   });
 
   test("projects TS worker cowork events into legacy WebUI WebSocket frames", async () => {
@@ -335,7 +490,7 @@ describe("desktop native WebSocket bridge", () => {
   });
 
   test("projects TS worker tool progress into legacy WebUI message frames", async () => {
-    const handlers = new Map<DesktopNativeWebSocketAgentEventName, (payload: unknown) => void>();
+    const handlers = new Map<string, (payload: unknown) => void>();
     const nativeTransport: NativeTransportApi = {
       gatewayFrame: vi.fn(),
       websocketMessage: vi.fn(),
@@ -373,19 +528,19 @@ describe("desktop native WebSocket bridge", () => {
     await flushMicrotasks();
     await flushMicrotasks();
 
-    handlers.get("agent.tool_call.delta")?.({
+    handlers.get(toDesktopNativeTauriEventName("agent.tool_call.delta"))?.({
       runId: "run-2",
       index: 0,
       deltaText: "{\"path\":\"AGENTS.md\"}",
       toolCallId: "call-read",
       toolName: "read_file",
     });
-    handlers.get("agent.tool.start")?.({
+    handlers.get(toDesktopNativeTauriEventName("agent.tool.start"))?.({
       runId: "run-2",
       toolCallId: "call-read",
       toolName: "read_file",
     });
-    handlers.get("agent.tool.result")?.({
+    handlers.get(toDesktopNativeTauriEventName("agent.tool.result"))?.({
       runId: "run-2",
       toolCallId: "call-read",
       toolName: "read_file",
@@ -427,7 +582,7 @@ describe("desktop native WebSocket bridge", () => {
   });
 
   test("projects TS worker awaiting interaction events into legacy WebUI frames", async () => {
-    const handlers = new Map<DesktopNativeWebSocketAgentEventName, (payload: unknown) => void>();
+    const handlers = new Map<string, (payload: unknown) => void>();
     const nativeTransport: NativeTransportApi = {
       gatewayFrame: vi.fn(),
       websocketMessage: vi.fn(),
@@ -465,10 +620,10 @@ describe("desktop native WebSocket bridge", () => {
     await flushMicrotasks();
     await flushMicrotasks();
 
-    expect(handlers.get("agent.awaiting_form")).toBeDefined();
-    expect(handlers.get("agent.awaiting_approval")).toBeDefined();
+    expect(handlers.get(toDesktopNativeTauriEventName("agent.awaiting_form"))).toBeDefined();
+    expect(handlers.get(toDesktopNativeTauriEventName("agent.awaiting_approval"))).toBeDefined();
 
-    handlers.get("agent.awaiting_form")?.({
+    handlers.get(toDesktopNativeTauriEventName("agent.awaiting_form"))?.({
       runId: "run-3",
       formId: "travel-form",
       form: {
@@ -479,7 +634,7 @@ describe("desktop native WebSocket bridge", () => {
       },
       stopReason: "awaiting_form",
     });
-    handlers.get("agent.awaiting_approval")?.({
+    handlers.get(toDesktopNativeTauriEventName("agent.awaiting_approval"))?.({
       runId: "run-3",
       approvalId: "approval-1",
       stopReason: "awaiting_approval",
@@ -513,7 +668,7 @@ describe("desktop native WebSocket bridge", () => {
   });
 
   test("projects TS worker memory references and task progress into legacy WebUI message frames", async () => {
-    const handlers = new Map<DesktopNativeWebSocketAgentEventName, (payload: unknown) => void>();
+    const handlers = new Map<string, (payload: unknown) => void>();
     const nativeTransport: NativeTransportApi = {
       gatewayFrame: vi.fn(),
       websocketMessage: vi.fn(),
@@ -551,14 +706,14 @@ describe("desktop native WebSocket bridge", () => {
     await flushMicrotasks();
     await flushMicrotasks();
 
-    expect(handlers.get("agent.memory_reference")).toBeDefined();
-    expect(handlers.get("agent.task_progress")).toBeDefined();
+    expect(handlers.get(toDesktopNativeTauriEventName("agent.memory_reference"))).toBeDefined();
+    expect(handlers.get(toDesktopNativeTauriEventName("agent.task_progress"))).toBeDefined();
 
-    handlers.get("agent.memory_reference")?.({
+    handlers.get(toDesktopNativeTauriEventName("agent.memory_reference"))?.({
       runId: "run-4",
       references: [{ note_id: "note-1", content: "Remembered preference" }],
     });
-    handlers.get("agent.task_progress")?.({
+    handlers.get(toDesktopNativeTauriEventName("agent.task_progress"))?.({
       runId: "run-4",
       toolCallId: "task-call",
       toolName: "task",
@@ -589,7 +744,7 @@ describe("desktop native WebSocket bridge", () => {
   });
 
   test("projects TS worker browser frames into legacy WebUI browser frame events", async () => {
-    const handlers = new Map<DesktopNativeWebSocketAgentEventName, (payload: unknown) => void>();
+    const handlers = new Map<string, (payload: unknown) => void>();
     const nativeTransport: NativeTransportApi = {
       gatewayFrame: vi.fn(),
       websocketMessage: vi.fn(),
@@ -627,9 +782,9 @@ describe("desktop native WebSocket bridge", () => {
     await flushMicrotasks();
     await flushMicrotasks();
 
-    expect(handlers.get("agent.browser_frame")).toBeDefined();
+    expect(handlers.get(toDesktopNativeTauriEventName("agent.browser_frame"))).toBeDefined();
 
-    handlers.get("agent.browser_frame")?.({
+    handlers.get(toDesktopNativeTauriEventName("agent.browser_frame"))?.({
       runId: "run-5",
       imageUrl: "data:image/png;base64,abc",
       sourceCommand: "opencli browser state",
@@ -646,7 +801,7 @@ describe("desktop native WebSocket bridge", () => {
   });
 
   test("projects TS worker cancellation events into legacy WebUI interrupted frames", async () => {
-    const handlers = new Map<DesktopNativeWebSocketAgentEventName, (payload: unknown) => void>();
+    const handlers = new Map<string, (payload: unknown) => void>();
     const dispatch = deferred<unknown>();
     const nativeTransport: NativeTransportApi = {
       gatewayFrame: vi.fn(),
@@ -674,9 +829,9 @@ describe("desktop native WebSocket bridge", () => {
     await flushMicrotasks();
     await flushMicrotasks();
 
-    expect(handlers.get("agent.cancelled")).toBeDefined();
+    expect(handlers.get(toDesktopNativeTauriEventName("agent.cancelled"))).toBeDefined();
 
-    handlers.get("agent.cancelled")?.({ runId: "run-6", cancelled: true });
+    handlers.get(toDesktopNativeTauriEventName("agent.cancelled"))?.({ runId: "run-6", cancelled: true });
     dispatch.resolve({
       transport: {
         kind: "message",
@@ -711,6 +866,8 @@ describe("desktop native WebSocket bridge", () => {
 });
 
 async function flushMicrotasks(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
   await Promise.resolve();
   await Promise.resolve();
 }

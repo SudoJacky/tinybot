@@ -87,6 +87,7 @@ export type NativeWebuiRouteRequest = {
 export type NativeWebuiRouteResponse = {
   status: number;
   body?: unknown;
+  headers?: Record<string, unknown>;
 };
 
 export type NativeWebuiApi = {

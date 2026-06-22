@@ -701,17 +701,24 @@ fn worker_transport_websocket_message(
 }
 
 #[tauri::command]
-fn worker_transport_dispatch_websocket_message(
+async fn worker_transport_dispatch_websocket_message(
     input: WorkerTransportWebSocketDispatchInput,
     state: State<'_, SharedGateway>,
 ) -> Result<serde_json::Value, String> {
-    worker_transport_dispatch_websocket_message_with_options(
-        state.inner(),
-        input,
-        ts_agent_worker_workspace_root(),
-        experimental_worker_config_snapshot(),
-        Duration::from_secs(60),
-    )
+    let shared = state.inner().clone();
+    let workspace_root = ts_agent_worker_workspace_root();
+    let config_snapshot = experimental_worker_config_snapshot();
+    tauri::async_runtime::spawn_blocking(move || {
+        worker_transport_dispatch_websocket_message_with_options(
+            &shared,
+            input,
+            workspace_root,
+            config_snapshot,
+            Duration::from_secs(60),
+        )
+    })
+    .await
+    .map_err(|error| format!("worker transport websocket dispatch task failed: {error}"))?
 }
 
 #[tauri::command]
@@ -3220,18 +3227,22 @@ fn read_native_backend_log_tail(path: &Path, max_lines: usize) -> Vec<String> {
 fn worker_manager_frontend_event(event: WorkerManagerEvent) -> (String, serde_json::Value) {
     match event {
         WorkerManagerEvent::Status(status) => (
-            "worker.status".to_string(),
+            tauri_safe_event_name("worker.status"),
             serde_json::to_value(status).unwrap_or_else(|_| serde_json::json!({})),
         ),
         WorkerManagerEvent::Diagnostics(line) => (
-            "diagnostics.log".to_string(),
+            tauri_safe_event_name("diagnostics.log"),
             serde_json::to_value(line).unwrap_or_else(|_| serde_json::json!({})),
         ),
         WorkerManagerEvent::Protocol(event) => (
-            event.event,
+            tauri_safe_event_name(&event.event),
             serde_json::to_value(event.payload).unwrap_or_else(|_| serde_json::json!({})),
         ),
     }
+}
+
+fn tauri_safe_event_name(event_name: &str) -> String {
+    event_name.replace('.', ":")
 }
 
 fn emit_worker_manager_frontend_event<R: Runtime>(
@@ -4618,7 +4629,7 @@ mod tests {
                 last_error: None,
             }));
 
-        assert_eq!(event_name, "worker.status");
+        assert_eq!(event_name, "worker:status");
         assert_eq!(payload["state"], "running");
         assert_eq!(payload["label"], "tinybot-gateway");
         assert_eq!(payload["pid"], 1234);
@@ -4630,7 +4641,7 @@ mod tests {
             crate::worker_protocol::WorkerDiagnosticLine::new("stderr", "worker ready"),
         ));
 
-        assert_eq!(event_name, "diagnostics.log");
+        assert_eq!(event_name, "diagnostics:log");
         assert_eq!(payload["stream"], "stderr");
         assert_eq!(payload["line"], "worker ready");
     }
@@ -4646,7 +4657,7 @@ mod tests {
             },
         ));
 
-        assert_eq!(event_name, "agent.delta");
+        assert_eq!(event_name, "agent:delta");
         assert_eq!(payload["message"], "starting");
     }
 

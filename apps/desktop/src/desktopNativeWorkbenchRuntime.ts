@@ -360,6 +360,22 @@ export function createDesktopNativeWorkbenchRuntime({
       return;
     }
     const runId = stringValue(frame.runId ?? frame.run_id);
+    if (isNativeWebSocketRunId(runId)) {
+      return;
+    }
+    if (eventName === "agent.usage") {
+      setRuntimeMetadata({
+        tokenUsage: formatTsAgentTokenUsage(frame.usage, frame.contextWindowTokens ?? frame.context_window_tokens),
+      });
+      chatStatus = "TS agent usage updated.";
+      return;
+    }
+    if (eventName === "agent.checkpoint") {
+      const checkpoint = formatTsAgentCheckpoint(frame);
+      setRuntimeMetadata({ tsAgentCheckpoint: checkpoint });
+      chatStatus = `TS agent checkpoint: ${labelTsAgentCheckpointPhase(frame.phase)}.`;
+      return;
+    }
     const chatId = activeTsAgentRuns.get(runId) || chatController.state.activeChatId;
     if (!runId || !chatId) {
       return;
@@ -480,19 +496,6 @@ export function createDesktopNativeWorkbenchRuntime({
       deleteTsAgentToolCallDelta(runId, toolCallId);
       keepTsAgentRunResponding(chatId);
       composerState = "sending";
-      return;
-    }
-    if (eventName === "agent.usage") {
-      setRuntimeMetadata({
-        tokenUsage: formatTsAgentTokenUsage(frame.usage, frame.contextWindowTokens ?? frame.context_window_tokens),
-      });
-      chatStatus = "TS agent usage updated.";
-      return;
-    }
-    if (eventName === "agent.checkpoint") {
-      const checkpoint = formatTsAgentCheckpoint(frame);
-      setRuntimeMetadata({ tsAgentCheckpoint: checkpoint });
-      chatStatus = `TS agent checkpoint: ${labelTsAgentCheckpointPhase(frame.phase)}.`;
       return;
     }
     if (eventName === "agent.cancelled") {
@@ -890,6 +893,10 @@ function stringValue(value: unknown): string {
 
 function tsAgentToolCallDeltaKey(runId: string, index: number): string {
   return `${runId}:${index}`;
+}
+
+function isNativeWebSocketRunId(runId: string): boolean {
+  return runId.startsWith("websocket-") || runId.startsWith("openai-chat-");
 }
 
 function isAwaitingTsAgentStopReason(value: unknown): boolean {

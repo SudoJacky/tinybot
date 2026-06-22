@@ -178,6 +178,156 @@ describe("desktop gateway bridge", () => {
     bridge.restore();
   });
 
+  test("preserves native WebUI SSE responses for root WebUI fetches", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
+    const nativeWebui = {
+      routeResponse: vi.fn(async () => ({
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+        body: "data: {\"delta\":\"hel\"}\n\ndata: [DONE]\n\n",
+      })),
+    };
+    const target = {
+      location: { origin: pageOrigin },
+      fetch: fetchMock,
+      WebSocket: class TestWebSocket {} as unknown as typeof WebSocket,
+    } as unknown as typeof globalThis;
+    const bridge = installDesktopGatewayBridge({
+      config: DEFAULT_GATEWAY_CONFIG,
+      pageOrigin,
+      fetchTarget: target,
+      webSocketTarget: target,
+      nativeWebui,
+    });
+
+    const response = await target.fetch("/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ stream: true, messages: [{ role: "user", content: "hello" }] }),
+    });
+
+    expect(response.headers.get("Content-Type")).toBe("text/event-stream");
+    await expect(response.text()).resolves.toBe("data: {\"delta\":\"hel\"}\n\ndata: [DONE]\n\n");
+    expect(fetchMock).not.toHaveBeenCalled();
+    bridge.restore();
+  });
+
+  test("streams native OpenAI chat completion deltas before dispatch completes", async () => {
+    const dispatch = deferred<unknown>();
+    const handlers = new Map<string, (payload: unknown) => void>();
+    const nativeTransport = {
+      gatewayFrame: vi.fn(),
+      websocketMessage: vi.fn(),
+      dispatchWebsocketMessage: vi.fn(async () => dispatch),
+      dispatchChannelInbound: vi.fn(),
+      startChannels: vi.fn(),
+      channelStatus: vi.fn(),
+      stopChannels: vi.fn(),
+    };
+    const target = {
+      location: { origin: pageOrigin },
+      fetch: vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 })),
+      WebSocket: class TestWebSocket {} as unknown as typeof WebSocket,
+    } as unknown as typeof globalThis;
+    const bridge = installDesktopGatewayBridge({
+      config: DEFAULT_GATEWAY_CONFIG,
+      pageOrigin,
+      fetchTarget: target,
+      webSocketTarget: target,
+      nativeTransport,
+      listenToNativeAgentEvent: (eventName, handler) => {
+        handlers.set(eventName, handler);
+        return () => handlers.delete(eventName);
+      },
+    });
+
+    const response = await target.fetch("/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "test-model",
+        session_id: "chat-1",
+        stream: true,
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    });
+    const reader = response.body?.getReader();
+    expect(reader).toBeDefined();
+
+    const dispatchMock = nativeTransport.dispatchWebsocketMessage as unknown as {
+      mock: { calls: Array<[{ runId?: string }]> };
+    };
+    const dispatched = dispatchMock.mock.calls[0]?.[0];
+    const dispatchedRunId = dispatched?.runId;
+    expect(dispatchedRunId).toMatch(/^openai-chat-chat-1-/);
+    handlers.get("agent.delta")?.({ runId: dispatchedRunId, delta: "hel" });
+    const firstChunk = await reader?.read();
+
+    expect(response.headers.get("Content-Type")).toBe("text/event-stream");
+    expect(new TextDecoder().decode(firstChunk?.value)).toContain('"content":"hel"');
+    expect(dispatch.settled).toBe(false);
+
+    dispatch.resolve({
+      transport: { kind: "message", chatId: "chat-1", frames: [] },
+      agent: { runId: dispatchedRunId, finalContent: "hello", stopReason: "stop" },
+    });
+    await flushMicrotasks();
+    bridge.restore();
+  });
+
+  test("waits for native OpenAI stream listeners before dispatching", async () => {
+    const listenerReady = deferred<() => void>();
+    const handlers = new Map<string, (payload: unknown) => void>();
+    const nativeTransport = {
+      gatewayFrame: vi.fn(),
+      websocketMessage: vi.fn(),
+      dispatchWebsocketMessage: vi.fn(async () => ({
+        transport: { kind: "message", chatId: "chat-1", frames: [] },
+        agent: { finalContent: "hello", stopReason: "stop" },
+      })),
+      dispatchChannelInbound: vi.fn(),
+      startChannels: vi.fn(),
+      channelStatus: vi.fn(),
+      stopChannels: vi.fn(),
+    };
+    const target = {
+      location: { origin: pageOrigin },
+      fetch: vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 })),
+      WebSocket: class TestWebSocket {} as unknown as typeof WebSocket,
+    } as unknown as typeof globalThis;
+    const bridge = installDesktopGatewayBridge({
+      config: DEFAULT_GATEWAY_CONFIG,
+      pageOrigin,
+      fetchTarget: target,
+      webSocketTarget: target,
+      nativeTransport,
+      listenToNativeAgentEvent: (eventName, handler) => {
+        handlers.set(eventName, handler);
+        return listenerReady;
+      },
+    });
+
+    await target.fetch("/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "test-model",
+        session_id: "chat-1",
+        stream: true,
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    });
+    await flushMicrotasks();
+
+    expect(nativeTransport.dispatchWebsocketMessage).not.toHaveBeenCalled();
+
+    listenerReady.resolve(() => handlers.clear());
+    await flushMicrotasks();
+
+    expect(nativeTransport.dispatchWebsocketMessage).toHaveBeenCalledOnce();
+    bridge.restore();
+  });
+
   test("does not fallback to gateway HTTP for native Knowledge fetch failures", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
     const nativeWebui = {
@@ -470,4 +620,17 @@ describe("desktop gateway bridge", () => {
 async function flushMicrotasks(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
+}
+
+function deferred<T>(): Promise<T> & { resolve: (value: T) => void; settled: boolean } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((innerResolve) => {
+    resolve = innerResolve;
+  }) as Promise<T> & { resolve: (value: T) => void; settled: boolean };
+  promise.resolve = (value: T) => {
+    promise.settled = true;
+    resolve(value);
+  };
+  promise.settled = false;
+  return promise;
 }

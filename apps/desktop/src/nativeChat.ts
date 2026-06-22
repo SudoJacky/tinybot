@@ -222,6 +222,25 @@ export function applyChatEvent(state: NativeChatState, event: NormalizedGatewayE
     const toolMessage = nativeToolMessageFromEvent(event);
     const references = normalizeMessageReferences(event.raw);
     const bucket = ensureMessageBucket(state, sessionKey);
+    const existingMessage = event.messageId
+      ? bucket.find((message) => message.messageId === event.messageId && message.role === "assistant")
+      : undefined;
+    if (!toolMessage && existingMessage) {
+      if (!existingMessage.content && event.text) {
+        existingMessage.content = event.text;
+      }
+      if (references.length) {
+        existingMessage.references = [...(existingMessage.references ?? []), ...references];
+      }
+      state.respondingSessionKeys.delete(sessionKey);
+      state.error = "";
+      logDesktopNativeChatDebug("state.event.after", {
+        event: summarizeChatEvent(event),
+        state: summarizeNativeChatState(state),
+        targetSessionKey: sessionKey,
+      });
+      return;
+    }
     if (toolMessage && upsertToolActivityMessage(bucket, toolMessage)) {
       state.respondingSessionKeys.delete(sessionKey);
       state.error = "";

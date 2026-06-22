@@ -29,6 +29,60 @@ async function waitForExpectation(assertion: () => Promise<void> | void, timeout
 }
 
 describe("WebUI OpenAI-compatible routes", () => {
+  test("streams chat completions as OpenAI-compatible SSE chunks", async () => {
+    const configProvider: WebuiConfigProvider = {
+      getConfig: () => ({
+        agents: { defaults: { model: "test-model" } },
+        api: { timeout: 3 },
+      }),
+      patchConfig: () => ({}),
+    };
+    const openAiCompatProvider: WebuiOpenAiCompatProvider = {
+      completeChat: (request) => {
+        request.onContentDelta?.("hel");
+        request.onContentDelta?.("lo");
+        return "hello";
+      },
+    };
+
+    const response = await handleWebuiRouteRequest(
+      {
+        method: "POST",
+        path: "/v1/chat/completions",
+        body: {
+          model: "test-model",
+          session_id: "streamed",
+          stream: true,
+          messages: [{ role: "user", content: "hello" }],
+        },
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      configProvider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      openAiCompatProvider,
+      undefined,
+      undefined,
+      "trace-openai-stream",
+    );
+
+    expect(response.status).toBe(200);
+    expect(response).toMatchObject({
+      headers: { "Content-Type": "text/event-stream" },
+    });
+    expect(String(response.body)).toContain('"object":"chat.completion.chunk"');
+    expect(String(response.body)).toContain('"content":"hel"');
+    expect(String(response.body)).toContain('"content":"lo"');
+    expect(String(response.body)).toContain("data: [DONE]");
+  });
+
   test("retries empty chat completions once before returning the Python fallback", async () => {
     const completions: Array<{ content: string; sessionKey: string; traceId: string; timeoutSeconds: number }> = [];
     const configProvider: WebuiConfigProvider = {

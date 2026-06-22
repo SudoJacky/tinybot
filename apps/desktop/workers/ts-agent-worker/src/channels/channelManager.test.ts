@@ -310,7 +310,7 @@ describe("ChannelManager", () => {
     ]);
   });
 
-  test("coalesces consecutive stream deltas for the same channel and chat", async () => {
+  test("preserves consecutive stream deltas for the same channel and chat", async () => {
     const bus = new MessageBus();
     const websocket = adapter();
     const manager = new ChannelManager({ bus, channels: [websocket] });
@@ -319,12 +319,13 @@ describe("ChannelManager", () => {
     await bus.publishOutbound(outbound({ content: "lo", metadata: { _stream_delta: true, _stream_end: true } }));
     await bus.publishOutbound(outbound({ content: "separate", chatId: "chat-2", metadata: { _stream_delta: true } }));
 
-    await expect(manager.dispatchAvailable()).resolves.toBe(2);
-    expect(websocket.sendDelta).toHaveBeenNthCalledWith(1, "chat-1", "hello", {
+    await expect(manager.dispatchAvailable()).resolves.toBe(3);
+    expect(websocket.sendDelta).toHaveBeenNthCalledWith(1, "chat-1", "hel", { _stream_delta: true });
+    expect(websocket.sendDelta).toHaveBeenNthCalledWith(2, "chat-1", "lo", {
       _stream_delta: true,
       _stream_end: true,
     });
-    expect(websocket.sendDelta).toHaveBeenNthCalledWith(2, "chat-2", "separate", { _stream_delta: true });
+    expect(websocket.sendDelta).toHaveBeenNthCalledWith(3, "chat-2", "separate", { _stream_delta: true });
   });
 
   test("retries failed sends and records final failures without throwing", async () => {

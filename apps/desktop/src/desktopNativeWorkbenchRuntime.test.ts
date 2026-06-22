@@ -1012,6 +1012,44 @@ describe("desktop native workbench runtime", () => {
     expect(runtime.chat.status).toBe("gateway stream failed");
   });
 
+  test.each([
+    "websocket-chat-gateway-stream-run",
+    "openai-chat-chat-gateway-stream-run",
+  ])("ignores direct TS agent stream events for %s gateway runs", async (runId) => {
+    const runtime = createDesktopNativeWorkbenchRuntime({
+      api: {
+        listSessions: async () => ({
+          items: [{ key: "WebSocket:chat-gateway-stream", chat_id: "chat-gateway-stream", title: "Gateway stream" }],
+        }),
+        loadMessages: async () => ({ messages: [] }),
+      },
+      sendSocketMessage: () => undefined,
+    });
+    await runtime.loadInitialChatState();
+
+    await runtime.handleGatewayEvent({
+      kind: "message.delta",
+      chatId: "chat-gateway-stream",
+      messageId: runId,
+      text: "hello",
+      reasoning: false,
+      raw: {},
+    });
+    runtime.handleTsAgentWorkerEvent("agent.delta", {
+      runId,
+      delta: "hello",
+    });
+    runtime.handleTsAgentWorkerEvent("agent.done", {
+      runId,
+      stopReason: "final_response",
+    });
+
+    expect(runtime.chat.messages).toMatchObject([
+      { role: "assistant", content: "hello", messageId: runId },
+    ]);
+    expect(runtime.chat.messages).toHaveLength(1);
+  });
+
   test("exposes stream deltas when the active gateway session uses a bare key", async () => {
     const runtime = createDesktopNativeWorkbenchRuntime({
       api: {
