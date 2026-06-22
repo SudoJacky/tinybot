@@ -113,6 +113,9 @@ describe("settings pane Vue island", () => {
     expect(host.querySelector('[data-desktop-settings-provider-card="openai"]')?.textContent).toContain("OpenAI");
     expect(host.querySelector('[data-desktop-settings-field="apiKey"] input')?.getAttribute("type")).toBe("password");
     expect(host.querySelector<HTMLInputElement>('[data-desktop-settings-control="apiKey"]')?.value).toBe("********");
+    const providerSave = host.querySelector<HTMLButtonElement>('[data-desktop-settings-action="save"]');
+    expect(providerSave).not.toBeNull();
+    providerSave?.click();
 
     const navFiles = host.querySelector<HTMLAnchorElement>('[data-desktop-settings-nav="files-workspace"]');
     navFiles?.click();
@@ -145,6 +148,7 @@ describe("settings pane Vue island", () => {
     apiKey?.dispatchEvent(new Event("input", { bubbles: true }));
 
     expect(actions).toEqual([
+      "save",
       "edit:model:gpt-4.1-mini",
       "save",
       "discoverModels",

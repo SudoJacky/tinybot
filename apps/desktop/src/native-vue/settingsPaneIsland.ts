@@ -66,7 +66,7 @@ function createSettingsPaneApp(options: SettingsPaneIslandOptions): App {
         default: () => [
           renderSidebar(options.pane, activeGroupId.value, setActiveGroupId),
           h("div", { class: "desktop-settings-content" }, [
-            renderHeader(options.pane, activeGroupId.value),
+            renderHeader(options, activeGroupId.value),
             renderActiveSettingsSection(options, activeGroupId.value, providerSearch.value, (value) => {
               providerSearch.value = value;
             }),
@@ -78,15 +78,17 @@ function createSettingsPaneApp(options: SettingsPaneIslandOptions): App {
 }
 
 function renderHeader(
-  pane: DesktopSettingsPaneModel,
+  options: SettingsPaneIslandOptions,
   activeGroupId: DesktopSettingsPaneGroup["id"],
 ) {
+  const pane = options.pane;
   const activeGroup = getActiveSettingsGroup(pane, activeGroupId);
   return h("header", { class: "desktop-settings-header" }, [
     h("div", { class: "desktop-settings-breadcrumb" }, [
       h("h2", `Settings / ${activeGroup?.label ?? "General"}`),
       activeGroup ? h("p", { class: "desktop-settings-header-description" }, getSettingsGroupDescription(activeGroup.id)) : null,
     ]),
+    renderSaveButton(options),
   ]);
 }
 
@@ -174,7 +176,6 @@ function renderDefaultLlmCard(options: SettingsPaneIslandOptions) {
         h("div", { class: "desktop-settings-default-llm-form" }, [
           provider ? renderInlineField(options, provider, "Provider") : null,
           model ? renderInlineField(options, model, "Model") : null,
-          renderSaveButton(options),
         ]),
         h("p", { class: "desktop-settings-default-llm-copy" }, "Configure the global default LLM model. Individual agents can still choose a different model."),
       ],

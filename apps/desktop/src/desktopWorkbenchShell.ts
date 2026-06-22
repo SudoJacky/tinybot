@@ -5071,7 +5071,7 @@ function createSettingsActivePage(
   activeGroupId: DesktopSettingsPaneGroup["id"],
 ): HTMLElement[] {
   const activeGroup = getDesktopSettingsActiveGroup(pane, activeGroupId);
-  const nodes = [createSettingsPageHeader(targetDocument, activeGroup)];
+  const nodes = [createSettingsPageHeader(targetDocument, pane, settingsActions, activeGroup)];
   if (activeGroup?.id === "general") {
     nodes.push(createDefaultLlmSettingsCard(targetDocument, pane, settingsActions));
   }
@@ -5093,6 +5093,8 @@ function createSettingsActivePage(
 
 function createSettingsPageHeader(
   targetDocument: Document,
+  pane: DesktopSettingsPaneModel,
+  settingsActions: DesktopSettingsActionOptions,
   group: DesktopSettingsPaneGroup | null,
 ): HTMLElement {
   const header = targetDocument.createElement("header");
@@ -5105,8 +5107,37 @@ function createSettingsPageHeader(
     description.className = "desktop-settings-header-description";
     breadcrumb.append(description);
   }
-  header.append(breadcrumb);
+  header.append(breadcrumb, createSettingsSaveButton(targetDocument, pane, settingsActions));
   return header;
+}
+
+function createSettingsSaveButton(
+  targetDocument: Document,
+  pane: DesktopSettingsPaneModel,
+  settingsActions: DesktopSettingsActionOptions,
+): HTMLElement {
+  const save = targetDocument.createElement("button");
+  save.className = "desktop-settings-save-status-button";
+  save.setAttribute("type", "button");
+  save.setAttribute("data-desktop-settings-action", "save");
+  if (!pane.save.canSave) {
+    save.setAttribute("disabled", "true");
+  }
+  save.textContent = getDesktopSettingsSaveLabel(pane);
+  save.addEventListener("click", () => {
+    settingsActions.onSettingsAction?.({ action: "save", pane });
+  });
+  return save;
+}
+
+function getDesktopSettingsSaveLabel(pane: DesktopSettingsPaneModel): string {
+  if (pane.save.status === "saving") {
+    return "保存中";
+  }
+  if (pane.save.status === "saved" || !pane.dirty) {
+    return "已保存";
+  }
+  return "保存设置";
 }
 
 function createSettingsGroupSection(
@@ -5203,19 +5234,6 @@ function createDefaultLlmSettingsCard(
   if (model) {
     form.append(createSettingsControlField(targetDocument, pane, model, "模型", settingsActions));
   }
-
-  const save = targetDocument.createElement("button");
-  save.className = "desktop-settings-save-status-button";
-  save.setAttribute("type", "button");
-  save.setAttribute("data-desktop-settings-action", "save");
-  if (!pane.save.canSave) {
-    save.setAttribute("disabled", "true");
-  }
-  save.textContent = pane.save.status === "saving" ? "保存中" : pane.save.status === "saved" ? "已保存" : pane.dirty ? "保存设置" : "已保存";
-  save.addEventListener("click", () => {
-    settingsActions.onSettingsAction?.({ action: "save", pane });
-  });
-  form.append(save);
 
   const copy = createText(targetDocument, "p", "这里设置全局默认的 LLM 模型。你也可以在聊天页面为具体 Agent 单独选择使用的模型。");
   copy.className = "desktop-settings-default-llm-copy";

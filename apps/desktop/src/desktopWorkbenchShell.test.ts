@@ -2767,6 +2767,11 @@ describe("desktop workbench shell", () => {
       "deepseek",
       "ollama",
     ]);
+    const providerSave = pane?.querySelector('[data-desktop-settings-action="save"]');
+    expect(providerSave).not.toBeNull();
+    providerSave?.click();
+    expect(settingsActions).toEqual(["save"]);
+    settingsActions.length = 0;
     pane?.querySelector('[data-desktop-settings-nav="general"]')?.click();
     expect(pane?.querySelector('[data-desktop-settings-group="general"]')?.getAttribute("id")).toBe("desktop-settings-group-general");
     expect(pane?.textContent).toContain("Settings / General");
