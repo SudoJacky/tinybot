@@ -5,17 +5,43 @@ use crate::worker_protocol::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashSet;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 #[derive(Clone, Debug)]
 pub struct WorkerSessionRpc {
     sessions: Vec<SessionMetadata>,
     policy: CapabilityPolicy,
+    store_path: Option<PathBuf>,
 }
 
 impl WorkerSessionRpc {
     pub fn new(sessions: Vec<SessionMetadata>, policy: CapabilityPolicy) -> Self {
-        Self { sessions, policy }
+        Self {
+            sessions,
+            policy,
+            store_path: None,
+        }
+    }
+
+    pub fn new_persistent(
+        root: PathBuf,
+        sessions: Vec<SessionMetadata>,
+        policy: CapabilityPolicy,
+    ) -> Result<Self, WorkerProtocolError> {
+        let store_path = session_store_path(&root);
+        let sessions = match read_session_store(&store_path) {
+            Ok(Some(store)) => store.sessions,
+            Ok(None) | Err(_) => sessions,
+        };
+        Ok(Self {
+            sessions,
+            policy,
+            store_path: Some(store_path),
+        })
     }
 
     pub fn get_metadata(&self, session_id: &str) -> Result<SessionMetadata, WorkerProtocolError> {
@@ -95,11 +121,15 @@ impl WorkerSessionRpc {
     ) -> Result<SessionMetadata, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
         validate_session_id(session_id)?;
-        let session = self.session_mut_or_create(session_id);
-        ensure_extra_object(session);
-        session.extra["runtime_checkpoint"] = checkpoint;
-        session.updated_at = now_session_timestamp();
-        Ok(session.clone())
+        let session = {
+            let session = self.session_mut_or_create(session_id);
+            ensure_extra_object(session);
+            session.extra["runtime_checkpoint"] = checkpoint;
+            session.updated_at = now_session_timestamp();
+            session.clone()
+        };
+        self.persist_sessions()?;
+        Ok(session)
     }
 
     pub fn clear_checkpoint(
@@ -108,12 +138,16 @@ impl WorkerSessionRpc {
     ) -> Result<SessionMetadata, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
         validate_session_id(session_id)?;
-        let session = self.session_mut_or_create(session_id);
-        if let Some(extra) = session.extra.as_object_mut() {
-            extra.remove("runtime_checkpoint");
-        }
-        session.updated_at = now_session_timestamp();
-        Ok(session.clone())
+        let session = {
+            let session = self.session_mut_or_create(session_id);
+            if let Some(extra) = session.extra.as_object_mut() {
+                extra.remove("runtime_checkpoint");
+            }
+            session.updated_at = now_session_timestamp();
+            session.clone()
+        };
+        self.persist_sessions()?;
+        Ok(session)
     }
 
     pub fn clear_session(
@@ -122,31 +156,35 @@ impl WorkerSessionRpc {
     ) -> Result<ClearSessionResult, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
         validate_session_id(session_id)?;
-        let session = self.session_mut_or_create(session_id);
-        ensure_extra_object(session);
-        let messages_before = session
-            .extra
-            .get("messages")
-            .and_then(Value::as_array)
-            .map_or(0, Vec::len);
-        let checkpoint_cleared = session.extra.get("runtime_checkpoint").is_some();
-        if let Some(extra) = session.extra.as_object_mut() {
-            extra.insert("messages".to_string(), serde_json::json!([]));
-            extra.insert("last_consolidated".to_string(), serde_json::json!(0));
-            extra.insert("user_profile".to_string(), serde_json::json!({}));
-            extra.remove("temporary_files");
-            extra.remove("runtime_checkpoint");
-            extra.remove("last_context_metadata");
-            extra.remove("last_persisted_run_id");
-        }
-        session.updated_at = now_session_timestamp();
-        Ok(ClearSessionResult {
-            session_id: session.session_id.clone(),
-            messages_before,
-            messages_after: 0,
-            checkpoint_cleared,
-            session: session.clone(),
-        })
+        let result = {
+            let session = self.session_mut_or_create(session_id);
+            ensure_extra_object(session);
+            let messages_before = session
+                .extra
+                .get("messages")
+                .and_then(Value::as_array)
+                .map_or(0, Vec::len);
+            let checkpoint_cleared = session.extra.get("runtime_checkpoint").is_some();
+            if let Some(extra) = session.extra.as_object_mut() {
+                extra.insert("messages".to_string(), serde_json::json!([]));
+                extra.insert("last_consolidated".to_string(), serde_json::json!(0));
+                extra.insert("user_profile".to_string(), serde_json::json!({}));
+                extra.remove("temporary_files");
+                extra.remove("runtime_checkpoint");
+                extra.remove("last_context_metadata");
+                extra.remove("last_persisted_run_id");
+            }
+            session.updated_at = now_session_timestamp();
+            ClearSessionResult {
+                session_id: session.session_id.clone(),
+                messages_before,
+                messages_after: 0,
+                checkpoint_cleared,
+                session: session.clone(),
+            }
+        };
+        self.persist_sessions()?;
+        Ok(result)
     }
 
     pub fn delete_session(
@@ -165,6 +203,9 @@ impl WorkerSessionRpc {
         } else {
             false
         };
+        if deleted {
+            self.persist_sessions()?;
+        }
         Ok(DeleteSessionResult {
             session_id: session_id.to_string(),
             deleted,
@@ -178,13 +219,6 @@ impl WorkerSessionRpc {
     ) -> Result<SessionMetadata, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
         validate_session_id(session_id)?;
-        let Some(session) = self
-            .sessions
-            .iter_mut()
-            .find(|session| session.session_id == session_id)
-        else {
-            return Err(unknown_session_error(session_id));
-        };
         let Some(patch) = metadata.as_object() else {
             return Err(WorkerProtocolError::new(
                 WorkerProtocolErrorCode::InvalidProtocol,
@@ -194,21 +228,32 @@ impl WorkerSessionRpc {
                 WorkerProtocolErrorSource::RustCore,
             ));
         };
-        ensure_extra_object(session);
-        if !session.extra.get("metadata").is_some_and(Value::is_object) {
-            session.extra["metadata"] = serde_json::json!({});
-        }
-        if let Some(existing) = session
-            .extra
-            .get_mut("metadata")
-            .and_then(Value::as_object_mut)
-        {
-            for (key, value) in patch {
-                existing.insert(key.clone(), value.clone());
+        let session = {
+            let Some(session) = self
+                .sessions
+                .iter_mut()
+                .find(|session| session.session_id == session_id)
+            else {
+                return Err(unknown_session_error(session_id));
+            };
+            ensure_extra_object(session);
+            if !session.extra.get("metadata").is_some_and(Value::is_object) {
+                session.extra["metadata"] = serde_json::json!({});
             }
-        }
-        session.updated_at = now_session_timestamp();
-        Ok(session.clone())
+            if let Some(existing) = session
+                .extra
+                .get_mut("metadata")
+                .and_then(Value::as_object_mut)
+            {
+                for (key, value) in patch {
+                    existing.insert(key.clone(), value.clone());
+                }
+            }
+            session.updated_at = now_session_timestamp();
+            session.clone()
+        };
+        self.persist_sessions()?;
+        Ok(session)
     }
 
     pub fn patch_user_profile(
@@ -219,13 +264,6 @@ impl WorkerSessionRpc {
     ) -> Result<SessionMetadata, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
         validate_session_id(session_id)?;
-        let Some(session) = self
-            .sessions
-            .iter_mut()
-            .find(|session| session.session_id == session_id)
-        else {
-            return Err(unknown_session_error(session_id));
-        };
         if !user_profile.is_object() {
             return Err(WorkerProtocolError::new(
                 WorkerProtocolErrorCode::InvalidProtocol,
@@ -244,22 +282,33 @@ impl WorkerSessionRpc {
                 WorkerProtocolErrorSource::RustCore,
             ));
         };
-        ensure_extra_object(session);
-        session.extra["user_profile"] = user_profile;
-        if !session.extra.get("metadata").is_some_and(Value::is_object) {
-            session.extra["metadata"] = serde_json::json!({});
-        }
-        if let Some(existing) = session
-            .extra
-            .get_mut("metadata")
-            .and_then(Value::as_object_mut)
-        {
-            for (key, value) in metadata_patch {
-                existing.insert(key.clone(), value.clone());
+        let session = {
+            let Some(session) = self
+                .sessions
+                .iter_mut()
+                .find(|session| session.session_id == session_id)
+            else {
+                return Err(unknown_session_error(session_id));
+            };
+            ensure_extra_object(session);
+            session.extra["user_profile"] = user_profile;
+            if !session.extra.get("metadata").is_some_and(Value::is_object) {
+                session.extra["metadata"] = serde_json::json!({});
             }
-        }
-        session.updated_at = now_session_timestamp();
-        Ok(session.clone())
+            if let Some(existing) = session
+                .extra
+                .get_mut("metadata")
+                .and_then(Value::as_object_mut)
+            {
+                for (key, value) in metadata_patch {
+                    existing.insert(key.clone(), value.clone());
+                }
+            }
+            session.updated_at = now_session_timestamp();
+            session.clone()
+        };
+        self.persist_sessions()?;
+        Ok(session)
     }
 
     pub fn upload_temporary_file(
@@ -311,38 +360,42 @@ impl WorkerSessionRpc {
             ));
         }
 
-        let session = self.session_mut_or_create(session_id);
-        ensure_extra_object(session);
-        if !session
-            .extra
-            .get("temporary_files")
-            .is_some_and(Value::is_array)
-        {
-            session.extra["temporary_files"] = serde_json::json!([]);
-        }
-        let timestamp = now_session_timestamp();
-        let digest = stable_upload_digest(session_id, clean_name, &timestamp, content);
-        let chunk_count = temporary_chunk_count(content);
-        let document = serde_json::json!({
-            "id": format!("session_doc_{digest}"),
-            "name": clean_name,
-            "file_type": clean_file_type,
-            "content": content,
-            "created_at": timestamp,
-            "chunk_count": chunk_count,
-            "metadata": { "size_bytes": size_bytes },
-            "size_bytes": size_bytes,
-            "source": "session_upload",
-            "temporary": true,
-        });
-        if let Some(files) = session
-            .extra
-            .get_mut("temporary_files")
-            .and_then(Value::as_array_mut)
-        {
-            files.push(document.clone());
-        }
-        session.updated_at = timestamp;
+        let document = {
+            let session = self.session_mut_or_create(session_id);
+            ensure_extra_object(session);
+            if !session
+                .extra
+                .get("temporary_files")
+                .is_some_and(Value::is_array)
+            {
+                session.extra["temporary_files"] = serde_json::json!([]);
+            }
+            let timestamp = now_session_timestamp();
+            let digest = stable_upload_digest(session_id, clean_name, &timestamp, content);
+            let chunk_count = temporary_chunk_count(content);
+            let document = serde_json::json!({
+                "id": format!("session_doc_{digest}"),
+                "name": clean_name,
+                "file_type": clean_file_type,
+                "content": content,
+                "created_at": timestamp,
+                "chunk_count": chunk_count,
+                "metadata": { "size_bytes": size_bytes },
+                "size_bytes": size_bytes,
+                "source": "session_upload",
+                "temporary": true,
+            });
+            if let Some(files) = session
+                .extra
+                .get_mut("temporary_files")
+                .and_then(Value::as_array_mut)
+            {
+                files.push(document.clone());
+            }
+            session.updated_at = timestamp;
+            document
+        };
+        self.persist_sessions()?;
         Ok(document)
     }
 
@@ -372,22 +425,26 @@ impl WorkerSessionRpc {
     ) -> Result<Value, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
         validate_session_id(session_id)?;
-        let session = self.session_mut_or_create(session_id);
-        ensure_extra_object(session);
-        let cleared = session
-            .extra
-            .get("temporary_files")
-            .and_then(Value::as_array)
-            .map_or(0, Vec::len);
-        if let Some(extra) = session.extra.as_object_mut() {
-            extra.insert("temporary_files".to_string(), serde_json::json!([]));
-        }
-        session.updated_at = now_session_timestamp();
-        Ok(serde_json::json!({
-            "session_id": session_id,
-            "cleared": cleared,
-            "temporary_files": [],
-        }))
+        let result = {
+            let session = self.session_mut_or_create(session_id);
+            ensure_extra_object(session);
+            let cleared = session
+                .extra
+                .get("temporary_files")
+                .and_then(Value::as_array)
+                .map_or(0, Vec::len);
+            if let Some(extra) = session.extra.as_object_mut() {
+                extra.insert("temporary_files".to_string(), serde_json::json!([]));
+            }
+            session.updated_at = now_session_timestamp();
+            serde_json::json!({
+                "session_id": session_id,
+                "cleared": cleared,
+                "temporary_files": [],
+            })
+        };
+        self.persist_sessions()?;
+        Ok(result)
     }
 
     pub fn append_messages(
@@ -397,26 +454,30 @@ impl WorkerSessionRpc {
     ) -> Result<SessionMetadata, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
         validate_session_id(session_id)?;
-        let session = self.session_mut_or_create(session_id);
-        ensure_extra_object(session);
-        ensure_messages_array(session);
-        if let Some(existing) = session
-            .extra
-            .get_mut("messages")
-            .and_then(Value::as_array_mut)
-        {
-            let mut seen: HashSet<String> = existing.iter().map(session_message_key).collect();
-            for message in messages {
-                let key = session_message_key(&message);
-                if seen.contains(&key) {
-                    continue;
+        let session = {
+            let session = self.session_mut_or_create(session_id);
+            ensure_extra_object(session);
+            ensure_messages_array(session);
+            if let Some(existing) = session
+                .extra
+                .get_mut("messages")
+                .and_then(Value::as_array_mut)
+            {
+                let mut seen: HashSet<String> = existing.iter().map(session_message_key).collect();
+                for message in messages {
+                    let key = session_message_key(&message);
+                    if seen.contains(&key) {
+                        continue;
+                    }
+                    seen.insert(key);
+                    existing.push(message);
                 }
-                seen.insert(key);
-                existing.push(message);
             }
-        }
-        session.updated_at = now_session_timestamp();
-        Ok(session.clone())
+            session.updated_at = now_session_timestamp();
+            session.clone()
+        };
+        self.persist_sessions()?;
+        Ok(session)
     }
 
     pub fn upsert_task_progress(
@@ -437,42 +498,46 @@ impl WorkerSessionRpc {
                 WorkerProtocolErrorSource::RustCore,
             ));
         }
-        let session = self.session_mut_or_create(session_id);
-        ensure_extra_object(session);
-        ensure_messages_array(session);
-        let timestamp = now_session_timestamp();
-        let progress_message = serde_json::json!({
-            "role": "progress",
-            "content": content,
-            "timestamp": timestamp,
-            "_progress": true,
-            "_task_event": true,
-            "_task_progress": progress,
-            "_task_plan_id": plan_id,
-            "_tool_name": "task",
-        });
-        if let Some(existing) = session
-            .extra
-            .get_mut("messages")
-            .and_then(Value::as_array_mut)
-        {
-            if let Some(message) = existing.iter_mut().find(|message| {
-                message
-                    .get("_task_event")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false)
-                    && message
-                        .get("_task_plan_id")
-                        .and_then(Value::as_str)
-                        .is_some_and(|existing_plan_id| existing_plan_id == plan_id)
-            }) {
-                *message = progress_message;
-            } else {
-                existing.push(progress_message);
+        let session = {
+            let session = self.session_mut_or_create(session_id);
+            ensure_extra_object(session);
+            ensure_messages_array(session);
+            let timestamp = now_session_timestamp();
+            let progress_message = serde_json::json!({
+                "role": "progress",
+                "content": content,
+                "timestamp": timestamp,
+                "_progress": true,
+                "_task_event": true,
+                "_task_progress": progress,
+                "_task_plan_id": plan_id,
+                "_tool_name": "task",
+            });
+            if let Some(existing) = session
+                .extra
+                .get_mut("messages")
+                .and_then(Value::as_array_mut)
+            {
+                if let Some(message) = existing.iter_mut().find(|message| {
+                    message
+                        .get("_task_event")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+                        && message
+                            .get("_task_plan_id")
+                            .and_then(Value::as_str)
+                            .is_some_and(|existing_plan_id| existing_plan_id == plan_id)
+                }) {
+                    *message = progress_message;
+                } else {
+                    existing.push(progress_message);
+                }
             }
-        }
-        session.updated_at = now_session_timestamp();
-        Ok(session.clone())
+            session.updated_at = now_session_timestamp();
+            session.clone()
+        };
+        self.persist_sessions()?;
+        Ok(session)
     }
 
     pub fn persist_turn(
@@ -485,72 +550,76 @@ impl WorkerSessionRpc {
     ) -> Result<PersistTurnResult, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
         validate_session_id(session_id)?;
-        let session = self.session_mut_or_create(session_id);
-        ensure_extra_object(session);
-        ensure_messages_array(session);
-        let messages_before = session
-            .extra
-            .get("messages")
-            .and_then(Value::as_array)
-            .map_or(0, Vec::len);
-        let mut saved_message_count = 0;
-        let mut duplicate_message_count = 0;
-        let mut saved_messages = Vec::new();
-        if let Some(existing) = session
-            .extra
-            .get_mut("messages")
-            .and_then(Value::as_array_mut)
-        {
-            let mut seen: HashSet<String> = existing.iter().map(session_message_key).collect();
-            for message in messages {
-                let key = session_message_key(&message);
-                if seen.contains(&key) {
-                    duplicate_message_count += 1;
-                    continue;
+        let result = {
+            let session = self.session_mut_or_create(session_id);
+            ensure_extra_object(session);
+            ensure_messages_array(session);
+            let messages_before = session
+                .extra
+                .get("messages")
+                .and_then(Value::as_array)
+                .map_or(0, Vec::len);
+            let mut saved_message_count = 0;
+            let mut duplicate_message_count = 0;
+            let mut saved_messages = Vec::new();
+            if let Some(existing) = session
+                .extra
+                .get_mut("messages")
+                .and_then(Value::as_array_mut)
+            {
+                let mut seen: HashSet<String> = existing.iter().map(session_message_key).collect();
+                for message in messages {
+                    let key = session_message_key(&message);
+                    if seen.contains(&key) {
+                        duplicate_message_count += 1;
+                        continue;
+                    }
+                    seen.insert(key);
+                    saved_messages.push(message.clone());
+                    existing.push(message);
+                    saved_message_count += 1;
                 }
-                seen.insert(key);
-                saved_messages.push(message.clone());
-                existing.push(message);
-                saved_message_count += 1;
             }
-        }
-        let mut checkpoint_cleared = false;
-        if clear_checkpoint {
+            let mut checkpoint_cleared = false;
+            if clear_checkpoint {
+                if let Some(extra) = session.extra.as_object_mut() {
+                    checkpoint_cleared = extra.remove("runtime_checkpoint").is_some();
+                }
+            }
             if let Some(extra) = session.extra.as_object_mut() {
-                checkpoint_cleared = extra.remove("runtime_checkpoint").is_some();
-            }
-        }
-        if let Some(extra) = session.extra.as_object_mut() {
-            extra.insert(
-                "last_persisted_run_id".to_string(),
-                Value::String(run_id.to_string()),
-            );
-            match context_metadata {
-                Some(context_metadata) => {
-                    extra.insert("last_context_metadata".to_string(), context_metadata);
-                }
-                None => {
-                    extra.remove("last_context_metadata");
+                extra.insert(
+                    "last_persisted_run_id".to_string(),
+                    Value::String(run_id.to_string()),
+                );
+                match context_metadata {
+                    Some(context_metadata) => {
+                        extra.insert("last_context_metadata".to_string(), context_metadata);
+                    }
+                    None => {
+                        extra.remove("last_context_metadata");
+                    }
                 }
             }
-        }
-        let messages_after = session
-            .extra
-            .get("messages")
-            .and_then(Value::as_array)
-            .map_or(messages_before, Vec::len);
-        session.updated_at = now_session_timestamp();
-        Ok(PersistTurnResult {
-            session_id: session.session_id.clone(),
-            messages_before,
-            messages_after,
-            saved_message_count,
-            saved_messages,
-            checkpoint_cleared,
-            duplicate_message_count,
-            truncated_tool_result_count: 0,
-            omitted_side_effects: default_omitted_side_effects(),
-        })
+            let messages_after = session
+                .extra
+                .get("messages")
+                .and_then(Value::as_array)
+                .map_or(messages_before, Vec::len);
+            session.updated_at = now_session_timestamp();
+            PersistTurnResult {
+                session_id: session.session_id.clone(),
+                messages_before,
+                messages_after,
+                saved_message_count,
+                saved_messages,
+                checkpoint_cleared,
+                duplicate_message_count,
+                truncated_tool_result_count: 0,
+                omitted_side_effects: default_omitted_side_effects(),
+            }
+        };
+        self.persist_sessions()?;
+        Ok(result)
     }
 
     pub fn trim_session(
@@ -560,48 +629,52 @@ impl WorkerSessionRpc {
     ) -> Result<TrimSessionResult, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
         validate_session_id(session_id)?;
-        let session = self.session_mut_or_create(session_id);
-        ensure_extra_object(session);
-        ensure_messages_array(session);
-        let messages_before = session
-            .extra
-            .get("messages")
-            .and_then(Value::as_array)
-            .map_or(0, Vec::len);
-
-        let retained = if keep_recent_messages == 0 {
-            Vec::new()
-        } else {
-            session
+        let result = {
+            let session = self.session_mut_or_create(session_id);
+            ensure_extra_object(session);
+            ensure_messages_array(session);
+            let messages_before = session
                 .extra
                 .get("messages")
                 .and_then(Value::as_array)
-                .map(|messages| recent_legal_suffix(messages, keep_recent_messages))
-                .unwrap_or_default()
-        };
-        let messages_after = retained.len();
-        let dropped = messages_before.saturating_sub(messages_after);
-        let last_consolidated = session_last_consolidated(session).saturating_sub(dropped);
-        if let Some(extra) = session.extra.as_object_mut() {
-            extra.insert("messages".to_string(), Value::Array(retained));
-            extra.insert(
-                "last_consolidated".to_string(),
-                serde_json::json!(last_consolidated),
-            );
-            if keep_recent_messages == 0 {
-                extra.insert("user_profile".to_string(), serde_json::json!({}));
-                extra.remove("runtime_checkpoint");
-                extra.remove("last_context_metadata");
-                extra.remove("last_persisted_run_id");
+                .map_or(0, Vec::len);
+
+            let retained = if keep_recent_messages == 0 {
+                Vec::new()
+            } else {
+                session
+                    .extra
+                    .get("messages")
+                    .and_then(Value::as_array)
+                    .map(|messages| recent_legal_suffix(messages, keep_recent_messages))
+                    .unwrap_or_default()
+            };
+            let messages_after = retained.len();
+            let dropped = messages_before.saturating_sub(messages_after);
+            let last_consolidated = session_last_consolidated(session).saturating_sub(dropped);
+            if let Some(extra) = session.extra.as_object_mut() {
+                extra.insert("messages".to_string(), Value::Array(retained));
+                extra.insert(
+                    "last_consolidated".to_string(),
+                    serde_json::json!(last_consolidated),
+                );
+                if keep_recent_messages == 0 {
+                    extra.insert("user_profile".to_string(), serde_json::json!({}));
+                    extra.remove("runtime_checkpoint");
+                    extra.remove("last_context_metadata");
+                    extra.remove("last_persisted_run_id");
+                }
             }
-        }
-        session.updated_at = now_session_timestamp();
-        Ok(TrimSessionResult {
-            session_id: session.session_id.clone(),
-            messages_before,
-            messages_after,
-            session: session.clone(),
-        })
+            session.updated_at = now_session_timestamp();
+            TrimSessionResult {
+                session_id: session.session_id.clone(),
+                messages_before,
+                messages_after,
+                session: session.clone(),
+            }
+        };
+        self.persist_sessions()?;
+        Ok(result)
     }
 
     fn require(&self, capability: WorkerCapability) -> Result<(), WorkerProtocolError> {
@@ -638,6 +711,21 @@ impl WorkerSessionRpc {
             .last_mut()
             .expect("newly pushed session should be present")
     }
+
+    fn persist_sessions(&self) -> Result<(), WorkerProtocolError> {
+        let Some(store_path) = &self.store_path else {
+            return Ok(());
+        };
+        if let Some(parent) = store_path.parent() {
+            fs::create_dir_all(parent).map_err(session_io_error)?;
+        }
+        let store = SessionStore {
+            version: 1,
+            sessions: self.sessions.clone(),
+        };
+        let contents = serde_json::to_string_pretty(&store).map_err(session_serialization_error)?;
+        fs::write(store_path, format!("{contents}\n")).map_err(session_io_error)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
@@ -649,6 +737,14 @@ pub struct SessionMetadata {
     pub updated_at: String,
     #[serde(default)]
     pub extra: Value,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
+struct SessionStore {
+    #[serde(default = "default_session_store_version")]
+    version: usize,
+    #[serde(default)]
+    sessions: Vec<SessionMetadata>,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
@@ -718,6 +814,55 @@ fn unknown_session_error(session_id: &str) -> WorkerProtocolError {
         WorkerProtocolErrorCode::InvalidProtocol,
         "session metadata not found",
         serde_json::json!({ "session_id": session_id }),
+        false,
+        WorkerProtocolErrorSource::RustCore,
+    )
+}
+
+fn default_session_store_version() -> usize {
+    1
+}
+
+fn session_store_path(root: &Path) -> PathBuf {
+    root.join("sessions").join("store.json")
+}
+
+fn read_session_store(path: &Path) -> Result<Option<SessionStore>, WorkerProtocolError> {
+    let contents = match fs::read_to_string(path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(session_io_error(error)),
+    };
+    if contents.trim().is_empty() {
+        return Ok(None);
+    }
+    let store = serde_json::from_str(&contents).map_err(|error| {
+        WorkerProtocolError::new(
+            WorkerProtocolErrorCode::WorkerError,
+            format!("failed to parse session store: {error}"),
+            serde_json::json!({ "method": "session" }),
+            false,
+            WorkerProtocolErrorSource::RustCore,
+        )
+    })?;
+    Ok(Some(store))
+}
+
+fn session_io_error(error: std::io::Error) -> WorkerProtocolError {
+    WorkerProtocolError::new(
+        WorkerProtocolErrorCode::WorkerError,
+        format!("session store IO error: {error}"),
+        serde_json::json!({ "method": "session" }),
+        false,
+        WorkerProtocolErrorSource::RustCore,
+    )
+}
+
+fn session_serialization_error(error: serde_json::Error) -> WorkerProtocolError {
+    WorkerProtocolError::new(
+        WorkerProtocolErrorCode::WorkerError,
+        format!("failed to serialize session store: {error}"),
+        serde_json::json!({ "method": "session" }),
         false,
         WorkerProtocolErrorSource::RustCore,
     )
@@ -982,6 +1127,7 @@ mod tests {
     use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
     use crate::worker_protocol::{WorkerProtocolErrorCode, WorkerProtocolErrorSource};
     use serde_json::json;
+    use std::path::PathBuf;
 
     #[test]
     fn default_policy_denies_session_metadata_read() {
@@ -1048,6 +1194,47 @@ mod tests {
             .collect();
 
         assert_eq!(ids, vec!["session-2", "session-1"]);
+    }
+
+    #[test]
+    fn persistent_store_restores_sessions_after_worker_restarts() {
+        let root = temp_workspace_root("session-persistence");
+        let _cleanup = TempWorkspaceCleanup(root.clone());
+        let mut rpc = WorkerSessionRpc::new_persistent(root.clone(), vec![], write_policy())
+            .expect("persistent session rpc should initialize");
+
+        rpc.append_messages(
+            "websocket:chat-1",
+            vec![json!({ "role": "user", "content": "remember me" })],
+        )
+        .expect("message should append");
+
+        let store_path = root.join("sessions").join("store.json");
+        assert!(
+            store_path.exists(),
+            "persistent sessions should write under workspace sessions"
+        );
+
+        let restarted = WorkerSessionRpc::new_persistent(root, vec![], read_policy())
+            .expect("store should load");
+        let sessions = restarted
+            .list_metadata()
+            .expect("persisted session metadata should list");
+        assert_eq!(
+            sessions
+                .iter()
+                .map(|session| session.session_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["websocket:chat-1"]
+        );
+
+        let history = restarted
+            .get_history("websocket:chat-1", 10)
+            .expect("persisted history should load");
+        assert_eq!(
+            history.messages,
+            vec![json!({ "role": "user", "content": "remember me" })]
+        );
     }
 
     #[test]
@@ -2022,6 +2209,24 @@ mod tests {
 
     fn write_policy() -> CapabilityPolicy {
         CapabilityPolicy::new([WorkerCapability::SessionWrite])
+    }
+
+    fn temp_workspace_root(name: &str) -> PathBuf {
+        let nonce = now_session_timestamp().replace(':', "-");
+        let root = std::env::temp_dir().join(format!(
+            "tinybot-worker-session-{name}-{}-{nonce}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        root
+    }
+
+    struct TempWorkspaceCleanup(PathBuf);
+
+    impl Drop for TempWorkspaceCleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
     }
 
     fn session_fixture() -> SessionMetadata {

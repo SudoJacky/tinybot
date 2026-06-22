@@ -135,6 +135,38 @@ impl WorkerRpcRouter {
         }
     }
 
+    pub fn new_persistent_sessions(
+        workspace_root: PathBuf,
+        config_snapshot: Value,
+        sessions: Vec<SessionMetadata>,
+        diagnostic_capacity: usize,
+        policy: CapabilityPolicy,
+    ) -> Result<Self, crate::worker_protocol::WorkerProtocolError> {
+        Ok(Self {
+            workspace: WorkerWorkspaceRpc::new(workspace_root.clone(), policy.clone()),
+            config: WorkerConfigRpc::new(config_snapshot.clone(), policy.clone()),
+            secret: WorkerSecretRpc::new(config_snapshot.clone(), policy.clone()),
+            session: WorkerSessionRpc::new_persistent(
+                workspace_root.clone(),
+                sessions,
+                policy.clone(),
+            )?,
+            diagnostics: WorkerDiagnosticsRpc::new(diagnostic_capacity, policy.clone()),
+            shell: WorkerShellRpc::new(workspace_root.clone(), policy.clone()),
+            approval: WorkerApprovalRpc::new(policy.clone()),
+            form: WorkerFormRpc::new(policy.clone()),
+            memory: WorkerMemoryRpc::new(workspace_root.clone(), policy.clone()),
+            knowledge: WorkerKnowledgeRpc::new(workspace_root.clone(), policy.clone()),
+            task: WorkerTaskRpc::new(workspace_root.clone(), policy.clone()),
+            cron: WorkerCronRpc::new(workspace_root.clone(), policy.clone()),
+            background: WorkerBackgroundRpc::new(workspace_root.clone(), policy.clone()),
+            channel_connector: WorkerChannelConnectorRpc::new(policy.clone()),
+            mcp: WorkerMcpRpc::new(config_snapshot, policy),
+            runtime: WorkerRuntimeRpc::new(),
+            config_store: None,
+        })
+    }
+
     pub fn with_config_store(
         workspace_root: PathBuf,
         config_store: ConfigStore,

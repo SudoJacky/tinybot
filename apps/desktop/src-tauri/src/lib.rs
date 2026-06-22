@@ -2950,7 +2950,7 @@ fn experimental_worker_router(
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
 ) -> WorkerRpcRouter {
-    WorkerRpcRouter::new(
+    WorkerRpcRouter::new_persistent_sessions(
         workspace_root,
         config_snapshot,
         vec![],
@@ -2980,6 +2980,7 @@ fn experimental_worker_router(
             WorkerCapability::SessionWrite,
         ]),
     )
+    .expect("persistent session store should initialize")
     .with_builtin_skills_root(repo_root())
 }
 
@@ -3610,6 +3611,27 @@ mod tests {
                     .and_then(serde_json::Value::as_str)
                     .is_some_and(|path| path.starts_with("tinybot/skills/"))
         }));
+    }
+
+    #[test]
+    fn experimental_worker_router_ignores_corrupt_session_store() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("sessions/store.json", "{not valid json");
+        let mut router = experimental_worker_router(fixture.root.clone(), serde_json::json!({}));
+
+        let response = router.dispatch(&WorkerRequest::new(
+            "req-sessions",
+            "trace-sessions",
+            "session.list_metadata",
+            serde_json::json!({}),
+        ));
+
+        assert_eq!(response.error, None);
+        assert_eq!(
+            response.result,
+            Some(serde_json::json!([])),
+            "corrupt session stores should not block native worker startup"
+        );
     }
 
     #[test]
