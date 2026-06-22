@@ -10,6 +10,7 @@ import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 
 export interface SettingsPaneIslandOptions {
   pane: DesktopSettingsPaneModel;
+  initialActiveGroupId?: DesktopSettingsPaneGroup["id"];
   onSettingsAction?: (event: DesktopSettingsActionEvent) => void;
   promptProviderId?: () => string | null;
   onFocusSettingsControl?: (fieldId: string) => void;
@@ -39,7 +40,7 @@ export function mountSettingsPaneIsland(
   host.setAttribute("data-desktop-vue-island", "settings-pane");
   host.className = "desktop-workbench-section desktop-settings-pane";
   host.setAttribute("data-desktop-module-surface", "settings");
-  host.setAttribute("data-settings-layout", "capability-center");
+  host.setAttribute("data-settings-layout", "section-pages");
   host.setAttribute("aria-label", "Settings and providers");
 
   const app = createSettingsPaneApp(options);
@@ -57,7 +58,7 @@ function createSettingsPaneApp(options: SettingsPaneIslandOptions): App {
     name: "SettingsPaneIsland",
     setup() {
       const providerSearch = ref("");
-      const activeGroupId = ref(options.pane.groups[0]?.id ?? "general");
+      const activeGroupId = ref(getActiveSettingsGroup(options.pane, options.initialActiveGroupId)?.id ?? "general");
       const setActiveGroupId = (groupId: DesktopSettingsPaneGroup["id"]) => {
         activeGroupId.value = groupId;
       };
@@ -65,13 +66,10 @@ function createSettingsPaneApp(options: SettingsPaneIslandOptions): App {
         default: () => [
           renderSidebar(options.pane, activeGroupId.value, setActiveGroupId),
           h("div", { class: "desktop-settings-content" }, [
-            renderHeader(),
-            renderCapabilityMap(options.pane, setActiveGroupId),
-            renderDefaultLlmCard(options),
-            renderProviderManagement(options, providerSearch.value, (value) => {
+            renderHeader(options, activeGroupId.value),
+            renderActiveSettingsSection(options, activeGroupId.value, providerSearch.value, (value) => {
               providerSearch.value = value;
             }),
-            renderSettingsGroups(options),
           ]),
         ],
       });
@@ -79,32 +77,19 @@ function createSettingsPaneApp(options: SettingsPaneIslandOptions): App {
   }));
 }
 
-function renderHeader() {
+function renderHeader(
+  options: SettingsPaneIslandOptions,
+  activeGroupId: DesktopSettingsPaneGroup["id"],
+) {
+  const pane = options.pane;
+  const activeGroup = getActiveSettingsGroup(pane, activeGroupId);
   return h("header", { class: "desktop-settings-header" }, [
     h("div", { class: "desktop-settings-breadcrumb" }, [
-      h("h2", "Settings / Capability Center"),
+      h("h2", `Settings / ${activeGroup?.label ?? "General"}`),
+      activeGroup ? h("p", { class: "desktop-settings-header-description" }, getSettingsGroupDescription(activeGroup.id)) : null,
     ]),
+    renderSaveButton(options),
   ]);
-}
-
-function renderCapabilityMap(
-  pane: DesktopSettingsPaneModel,
-  setActiveGroupId: (groupId: DesktopSettingsPaneGroup["id"]) => void,
-) {
-  return h("section", {
-    class: "desktop-settings-capability-map",
-    "data-desktop-settings-center": "capability-boundaries",
-    "aria-label": "Capability boundaries",
-  }, capabilityCards(pane).map((card) => h("a", {
-    class: "desktop-settings-capability-card",
-    href: `#desktop-settings-group-${card.id}`,
-    "data-desktop-settings-capability": card.id,
-    onClick: (event: Event) => scrollToSettingsGroup(event, card.id, setActiveGroupId),
-  }, [
-    h("span", { class: "desktop-settings-capability-label" }, card.label),
-    h("strong", { class: "desktop-settings-capability-status" }, card.status),
-    h("span", { class: "desktop-settings-capability-detail" }, card.detail),
-  ])));
 }
 
 function renderSidebar(
@@ -143,14 +128,37 @@ function renderNavigation(
     }
     nodes.push(h("a", {
       class: "desktop-settings-nav-item",
-      href: `#desktop-settings-group-${group.id}`,
+      href: "#",
       "data-desktop-settings-nav": group.id,
       "data-active": group.id === activeGroupId ? "true" : undefined,
       "aria-current": group.id === activeGroupId ? "page" : undefined,
-      onClick: (event: Event) => scrollToSettingsGroup(event, group.id, setActiveGroupId),
+      onClick: (event: Event) => selectSettingsGroup(event, group.id, setActiveGroupId),
     }, getSettingsNavLabel(group.id)));
   });
   return nodes;
+}
+
+function renderActiveSettingsSection(
+  options: SettingsPaneIslandOptions,
+  activeGroupId: DesktopSettingsPaneGroup["id"],
+  providerSearch: string,
+  setProviderSearch: (value: string) => void,
+) {
+  const group = getActiveSettingsGroup(options.pane, activeGroupId);
+  const groupNode = group ? renderSettingsGroup(options, group) : null;
+  if (activeGroupId === "general") {
+    return [
+      renderDefaultLlmCard(options),
+      groupNode ? renderSingleSettingsGroup(groupNode) : null,
+    ];
+  }
+  if (activeGroupId === "provider-models") {
+    return [
+      renderProviderManagement(options, providerSearch, setProviderSearch),
+      groupNode ? renderSingleSettingsGroup(groupNode) : null,
+    ];
+  }
+  return groupNode ? renderSingleSettingsGroup(groupNode) : null;
 }
 
 function renderDefaultLlmCard(options: SettingsPaneIslandOptions) {
@@ -168,7 +176,6 @@ function renderDefaultLlmCard(options: SettingsPaneIslandOptions) {
         h("div", { class: "desktop-settings-default-llm-form" }, [
           provider ? renderInlineField(options, provider, "Provider") : null,
           model ? renderInlineField(options, model, "Model") : null,
-          renderSaveButton(options),
         ]),
         h("p", { class: "desktop-settings-default-llm-copy" }, "Configure the global default LLM model. Individual agents can still choose a different model."),
       ],
@@ -304,10 +311,8 @@ function renderProviderCard(
   });
 }
 
-function renderSettingsGroups(options: SettingsPaneIslandOptions) {
-  return h("div", { class: "desktop-settings-grid" }, options.pane.groups
-    .map((group) => renderSettingsGroup(options, group))
-    .filter(Boolean));
+function renderSingleSettingsGroup(groupNode: ReturnType<typeof renderSettingsGroup>) {
+  return h("div", { class: "desktop-settings-grid" }, [groupNode]);
 }
 
 function renderSettingsGroup(options: SettingsPaneIslandOptions, group: DesktopSettingsPaneGroup) {
@@ -555,17 +560,13 @@ function toggleProvider(options: SettingsPaneIslandOptions, provider: ProviderCa
   emitEdit(options, `providerEnabled:${provider.id}`, !provider.connected);
 }
 
-function scrollToSettingsGroup(
+function selectSettingsGroup(
   event: Event,
   groupId: DesktopSettingsPaneGroup["id"],
   setActiveGroupId?: (groupId: DesktopSettingsPaneGroup["id"]) => void,
 ): void {
   event.preventDefault();
   setActiveGroupId?.(groupId);
-  const link = event.currentTarget as HTMLElement | null;
-  const document = link?.ownerDocument;
-  const target = document?.getElementById(`desktop-settings-group-${groupId}`);
-  target?.scrollIntoView({ block: "start", behavior: "smooth" });
 }
 
 function providerInitials(label: string): string {
@@ -587,73 +588,11 @@ function shouldHideProviderCard(provider: ProviderCardModel, query: string): boo
   return !`${provider.id} ${provider.label} ${provider.statusLabel} ${provider.baseUrl} ${provider.apiKey} ${provider.models}`.toLowerCase().includes(normalizedQuery);
 }
 
-function capabilityCards(pane: DesktopSettingsPaneModel): Array<{
-  id: DesktopSettingsPaneGroup["id"];
-  label: string;
-  status: string;
-  detail: string;
-}> {
-  const selectedProvider = pane.providerEditor.selectedProvider;
-  const providerLabel = pane.providerCatalog.find((provider) => provider.id === selectedProvider)?.label || selectedProvider || "Auto";
-  const knowledgeEnabled = checkedSettingsField(pane, "knowledge", "enabled");
-  const webEnabled = checkedSettingsField(pane, "tools-approvals", "webEnable");
-  const shellEnabled = checkedSettingsField(pane, "tools-approvals", "execEnable");
-  const gatewayHost = settingsFieldValue(pane, "gateway-runtime", "host") || "localhost";
-  const gatewayPort = settingsFieldValue(pane, "gateway-runtime", "port") || "auto";
-  return [
-    {
-      id: "provider-models",
-      label: "Provider & Models",
-      status: providerLabel,
-      detail: pane.providerEditor.models.length ? pane.providerEditor.models.slice(0, 2).join(", ") : "Model catalog not loaded",
-    },
-    {
-      id: "knowledge",
-      label: "Knowledge",
-      status: knowledgeEnabled ? "Knowledge On" : "Knowledge Off",
-      detail: `${settingsFieldValue(pane, "knowledge", "retrievalMode") || "hybrid"} retrieval / top ${settingsFieldValue(pane, "knowledge", "maxChunks") || "auto"}`,
-    },
-    {
-      id: "tools-approvals",
-      label: "Tools & Approvals",
-      status: `Web ${webEnabled ? "On" : "Off"} / Shell ${shellEnabled ? "On" : "Off"}`,
-      detail: settingsFieldValue(pane, "tools-approvals", "mcpServers") === "Configured" ? "MCP configured" : "MCP allowlist empty",
-    },
-    {
-      id: "files-workspace",
-      label: "Files & Workspace",
-      status: "Three scopes",
-      detail: "Session files / Knowledge documents / Workspace files",
-    },
-    {
-      id: "gateway-runtime",
-      label: "Gateway & Runtime",
-      status: `Gateway ${gatewayHost}:${gatewayPort}`,
-      detail: checkedSettingsField(pane, "gateway-runtime", "heartbeat") ? "Heartbeat enabled" : "Heartbeat disabled",
-    },
-    {
-      id: "logs-diagnostics",
-      label: "Logs & Diagnostics",
-      status: pane.validationErrors.length ? `${pane.validationErrors.length} issues` : "Ready",
-      detail: pane.validationErrors.length ? pane.validationErrors.map((error) => error.field).join(", ") : "Diagnostics export and runtime logs",
-    },
-  ];
-}
-
-function settingsFieldValue(
+function getActiveSettingsGroup(
   pane: DesktopSettingsPaneModel,
-  groupId: DesktopSettingsPaneGroup["id"],
-  fieldId: string,
-): string {
-  return findPaneField(pane, groupId, fieldId)?.value ?? "";
-}
-
-function checkedSettingsField(
-  pane: DesktopSettingsPaneModel,
-  groupId: DesktopSettingsPaneGroup["id"],
-  fieldId: string,
-): boolean {
-  return findPaneField(pane, groupId, fieldId)?.checked === true;
+  activeGroupId?: DesktopSettingsPaneGroup["id"] | null,
+): DesktopSettingsPaneGroup | null {
+  return pane.groups.find((group) => group.id === activeGroupId) ?? pane.groups[0] ?? null;
 }
 
 function saveLabel(pane: DesktopSettingsPaneModel): string {

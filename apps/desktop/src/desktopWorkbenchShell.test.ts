@@ -2730,7 +2730,7 @@ describe("desktop workbench shell", () => {
 
     const pane = targetDocument.body.querySelector(".desktop-settings-pane");
     expect(pane?.getAttribute("aria-label")).toBe("Settings and providers");
-    expect(pane?.getAttribute("data-settings-layout")).toBe("capability-center");
+    expect(pane?.getAttribute("data-settings-layout")).toBe("section-pages");
     expect(pane?.querySelector(".desktop-settings-search")?.getAttribute("placeholder")).toBe("Search settings...");
     expect(pane?.querySelectorAll(".desktop-settings-nav-item").map((item) => item.textContent)).toEqual([
       "General",
@@ -2746,24 +2746,13 @@ describe("desktop workbench shell", () => {
       "Logs & Diagnostics",
     ]);
     expect(pane?.querySelector(".desktop-settings-nav-item")?.getAttribute("data-active")).toBe("true");
-    expect(pane?.querySelector(".desktop-settings-content")?.textContent).toContain("Settings / Capability Center");
-    expect(pane?.querySelector(".desktop-settings-capability-map")?.getAttribute("data-desktop-settings-center")).toBe("capability-boundaries");
-    expect(pane?.querySelectorAll("[data-desktop-settings-capability]").map((node) => node.getAttribute("data-desktop-settings-capability"))).toEqual([
-      "provider-models",
-      "knowledge",
-      "tools-approvals",
-      "files-workspace",
-      "gateway-runtime",
-      "logs-diagnostics",
-    ]);
-    expect(pane?.querySelector('[data-desktop-settings-capability="provider-models"]')?.textContent).toContain("OpenAI");
-    expect(pane?.querySelector('[data-desktop-settings-capability="knowledge"]')?.textContent).toContain("Knowledge On");
-    expect(pane?.querySelector('[data-desktop-settings-capability="tools-approvals"]')?.textContent).toContain("Shell Off");
-    expect(pane?.querySelector('[data-desktop-settings-capability="gateway-runtime"]')?.textContent).toContain("Gateway 0.0.0.0:18790");
+    expect(pane?.querySelector(".desktop-settings-content")?.textContent).toContain("Settings / General");
+    expect(pane?.querySelector(".desktop-settings-capability-map")).toBeNull();
     expect(pane?.querySelector(".desktop-settings-default-llm-card")?.textContent).toContain("默认 LLM");
     expect(pane?.querySelector(".desktop-settings-default-llm-card")?.textContent).toContain("提供商");
     expect(pane?.querySelector(".desktop-settings-default-llm-card")?.textContent).toContain("模型");
     expect(pane?.querySelector(".desktop-settings-default-llm-card")?.textContent).toContain("这里设置全局默认的 LLM 模型");
+    pane?.querySelector('[data-desktop-settings-nav="provider-models"]')?.click();
     expect(pane?.querySelector(".desktop-settings-provider-section")?.textContent).toContain("提供商");
     expect(pane?.querySelector(".desktop-settings-provider-search")?.getAttribute("placeholder")).toBe("搜索提供商...");
     expect(pane?.querySelector('[data-desktop-settings-action="addProvider"]')?.textContent).toBe("+ 添加提供商");
@@ -2778,9 +2767,15 @@ describe("desktop workbench shell", () => {
       "deepseek",
       "ollama",
     ]);
+    const providerSave = pane?.querySelector('[data-desktop-settings-action="save"]');
+    expect(providerSave).not.toBeNull();
+    providerSave?.click();
+    expect(settingsActions).toEqual(["save"]);
+    settingsActions.length = 0;
+    pane?.querySelector('[data-desktop-settings-nav="general"]')?.click();
     expect(pane?.querySelector('[data-desktop-settings-group="general"]')?.getAttribute("id")).toBe("desktop-settings-group-general");
-    expect(pane?.textContent).toContain("Settings / Capability Center");
-    expect(pane?.textContent).toContain("Model: ");
+    expect(pane?.textContent).toContain("Settings / General");
+    expect(pane?.querySelector('[data-desktop-settings-control="model"]')?.tagName).toBe("select");
     expect(pane?.querySelector(".desktop-settings-status-card")).toBeNull();
     expect(pane?.textContent).not.toContain("Save: HTTP 400");
     expect(pane?.textContent).not.toContain("Catalog: OpenAI (ready)");
@@ -2788,29 +2783,36 @@ describe("desktop workbench shell", () => {
     expect(pane?.textContent).not.toContain("Shortcut help");
     expect(pane?.querySelector('[data-desktop-settings-control="model"]')?.getAttribute("aria-invalid")).toBe("true");
     expect(pane?.querySelector('[data-desktop-settings-control="timezone"]')?.getAttribute("aria-invalid")).toBe("true");
-    expect(pane?.querySelector('[data-desktop-settings-control="enabled"]')?.checked).toBe(true);
-    expect(pane?.querySelector('[data-desktop-settings-control="mcpServers"]')?.tagName).toBe("textarea");
     expect(pane?.querySelector('[data-desktop-settings-action="save"]')?.getAttribute("disabled")).toBe("true");
-    expect(pane?.querySelector('[data-desktop-settings-action="discoverModels"]')?.textContent).toBe("Refresh models");
 
     const modelInput = pane?.querySelector('[data-desktop-settings-control="model"]');
     expect(modelInput?.tagName).toBe("select");
     modelInput!.value = "gpt-4.1";
     modelInput?.dispatchEvent({ type: "change", target: modelInput });
 
+    pane?.querySelector('[data-desktop-settings-nav="knowledge"]')?.click();
+    expect(pane?.querySelector('[data-desktop-settings-control="enabled"]')?.checked).toBe(true);
     const knowledgeToggle = pane?.querySelector('[data-desktop-settings-control="enabled"]');
     knowledgeToggle!.checked = false;
     knowledgeToggle?.dispatchEvent({ type: "change", target: knowledgeToggle });
 
+    pane?.querySelector('[data-desktop-settings-nav="tools-approvals"]')?.click();
+    expect(pane?.querySelector('[data-desktop-settings-control="mcpServers"]')?.tagName).toBe("textarea");
+
+    pane?.querySelector('[data-desktop-settings-nav="general"]')?.click();
     pane?.querySelector('[data-desktop-settings-action="save"]')?.click();
+    pane?.querySelector('[data-desktop-settings-nav="provider-models"]')?.click();
+    expect(pane?.querySelector('[data-desktop-settings-action="discoverModels"]')?.textContent).toBe("Refresh models");
     pane?.querySelector('[data-desktop-settings-action="discoverModels"]')?.click();
     expect(settingsActions).toEqual(["edit:model:gpt-4.1", "edit:enabled:false", "save", "discoverModels"]);
 
+    pane?.querySelector('[data-desktop-settings-nav="general"]')?.click();
     const defaultProviderSelect = pane?.querySelector('[data-desktop-settings-control="provider"]');
     defaultProviderSelect!.value = "deepseek";
     defaultProviderSelect?.dispatchEvent({ type: "change", target: defaultProviderSelect });
     expect(settingsActions[settingsActions.length - 1]).toBe("edit:provider:deepseek");
 
+    pane?.querySelector('[data-desktop-settings-nav="provider-models"]')?.click();
     const providerSearch = pane?.querySelector(".desktop-settings-provider-search");
     providerSearch!.value = "deep";
     providerSearch?.dispatchEvent({ type: "input", target: providerSearch });
@@ -2901,11 +2903,13 @@ describe("desktop workbench shell", () => {
       gatewayHttp: "http://127.0.0.1:18790",
       settingsPane: firstPane,
     });
+    targetDocument.body.querySelector('[data-desktop-settings-nav="provider-models"]')?.click();
     updateDesktopSettingsPane(targetDocument as unknown as Document, nextPane);
 
     const pane = targetDocument.body.querySelector(".desktop-settings-pane");
     expect(pane?.querySelector(".desktop-settings-status-card")).toBeNull();
-    expect(pane?.querySelector(".desktop-settings-default-llm-card")).not.toBeNull();
+    expect(pane?.querySelector('[data-desktop-settings-nav="provider-models"]')?.getAttribute("data-active")).toBe("true");
+    expect(pane?.querySelector(".desktop-settings-default-llm-card")).toBeNull();
     expect(pane?.querySelector('[data-desktop-settings-provider-card="openai"]')?.textContent).toContain("OpenAI");
   });
 

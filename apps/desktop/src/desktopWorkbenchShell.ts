@@ -534,7 +534,8 @@ export function updateDesktopSettingsPane(
   if (!pane) {
     return;
   }
-  const next = createSettingsProvidersPane(targetDocument, settingsPane, settingsActions);
+  const activeGroupId = getCurrentDesktopSettingsActiveGroupId(pane, settingsPane);
+  const next = createSettingsProvidersPane(targetDocument, settingsPane, settingsActions, activeGroupId);
   pane.replaceChildren(...Array.from(next.children));
 }
 
@@ -5039,71 +5040,142 @@ function createSettingsProvidersPane(
   targetDocument: Document,
   pane: DesktopSettingsPaneModel,
   settingsActions: DesktopSettingsActionOptions = {},
+  initialActiveGroupId?: DesktopSettingsPaneGroup["id"],
 ): HTMLElement {
   const section = targetDocument.createElement("section");
   section.className = "desktop-workbench-section desktop-settings-pane";
   section.setAttribute("data-desktop-module-surface", "settings");
-  section.setAttribute("data-settings-layout", "capability-center");
+  section.setAttribute("data-settings-layout", "section-pages");
   section.setAttribute("aria-label", "Settings and providers");
-
-  section.append(createSettingsSidebar(targetDocument, pane));
+  const activeGroupId = getDesktopSettingsActiveGroup(pane, initialActiveGroupId)?.id ?? "general";
 
   const content = targetDocument.createElement("div");
   content.className = "desktop-settings-content";
 
+  const renderActiveGroup = (groupId: DesktopSettingsPaneGroup["id"]) => {
+    setDesktopSettingsActiveNav(targetDocument, groupId);
+    content.replaceChildren(...createSettingsActivePage(targetDocument, pane, settingsActions, groupId));
+  };
+
+  section.append(createSettingsSidebar(targetDocument, pane, renderActiveGroup, activeGroupId));
+  renderActiveGroup(activeGroupId);
+  section.append(content);
+  mountSettingsPaneVueIsland(section, targetDocument, pane, settingsActions, activeGroupId);
+  return section;
+}
+
+function createSettingsActivePage(
+  targetDocument: Document,
+  pane: DesktopSettingsPaneModel,
+  settingsActions: DesktopSettingsActionOptions,
+  activeGroupId: DesktopSettingsPaneGroup["id"],
+): HTMLElement[] {
+  const activeGroup = getDesktopSettingsActiveGroup(pane, activeGroupId);
+  const nodes = [createSettingsPageHeader(targetDocument, pane, settingsActions, activeGroup)];
+  if (activeGroup?.id === "general") {
+    nodes.push(createDefaultLlmSettingsCard(targetDocument, pane, settingsActions));
+  }
+  if (activeGroup?.id === "provider-models") {
+    nodes.push(createProviderManagementSection(targetDocument, pane, settingsActions));
+  }
+  if (activeGroup) {
+    const grid = targetDocument.createElement("div");
+    grid.className = "desktop-settings-grid";
+    const groupSection = createSettingsGroupSection(targetDocument, pane, activeGroup, settingsActions);
+    if (groupSection) {
+      grid.append(groupSection);
+      mountSettingsGroupsVueIsland(grid, pane, settingsActions);
+      nodes.push(grid);
+    }
+  }
+  return nodes;
+}
+
+function createSettingsPageHeader(
+  targetDocument: Document,
+  pane: DesktopSettingsPaneModel,
+  settingsActions: DesktopSettingsActionOptions,
+  group: DesktopSettingsPaneGroup | null,
+): HTMLElement {
   const header = targetDocument.createElement("header");
   header.className = "desktop-settings-header";
   const breadcrumb = targetDocument.createElement("div");
   breadcrumb.className = "desktop-settings-breadcrumb";
-  breadcrumb.append(createText(targetDocument, "h2", "Settings / Capability Center"));
-  header.append(breadcrumb);
-  content.append(header);
-
-  content.append(createSettingsCapabilityMap(targetDocument, pane));
-  content.append(createDefaultLlmSettingsCard(targetDocument, pane, settingsActions));
-  content.append(createProviderManagementSection(targetDocument, pane, settingsActions));
-
-  const grid = targetDocument.createElement("div");
-  grid.className = "desktop-settings-grid";
-
-  for (const group of pane.groups) {
-    const fields = getSettingsGroupDisplayFields(group);
-    if (!fields.length) {
-      continue;
-    }
-    const groupSection = targetDocument.createElement("section");
-    groupSection.className = "desktop-settings-group";
-    groupSection.setAttribute("id", `desktop-settings-group-${group.id}`);
-    groupSection.setAttribute("data-desktop-settings-group", group.id);
-    groupSection.append(createText(targetDocument, "h2", group.label));
-    const description = getSettingsGroupDescription(group.id);
-    if (description) {
-      const copy = createText(targetDocument, "p", description);
-      copy.className = "desktop-settings-group-description";
-      groupSection.append(copy);
-    }
-    const primaryFields = fields.filter((field) => !field.advanced);
-    const advancedFields = fields.filter((field) => field.advanced);
-    for (const field of primaryFields) {
-      groupSection.append(createDesktopSettingsFieldRow(targetDocument, pane, group, field, settingsActions));
-    }
-    if (advancedFields.length) {
-      const details = targetDocument.createElement("details");
-      details.className = "desktop-settings-advanced-fields";
-      details.append(createText(targetDocument, "summary", "Advanced"));
-      for (const field of advancedFields) {
-        details.append(createDesktopSettingsFieldRow(targetDocument, pane, group, field, settingsActions));
-      }
-      groupSection.append(details);
-    }
-    grid.append(groupSection);
+  breadcrumb.append(createText(targetDocument, "h2", `Settings / ${group?.label ?? "General"}`));
+  if (group) {
+    const description = createText(targetDocument, "p", getSettingsGroupDescription(group.id));
+    description.className = "desktop-settings-header-description";
+    breadcrumb.append(description);
   }
+  header.append(breadcrumb, createSettingsSaveButton(targetDocument, pane, settingsActions));
+  return header;
+}
 
-  content.append(grid);
-  mountSettingsGroupsVueIsland(grid, pane, settingsActions);
-  section.append(content);
-  mountSettingsPaneVueIsland(section, targetDocument, pane, settingsActions);
-  return section;
+function createSettingsSaveButton(
+  targetDocument: Document,
+  pane: DesktopSettingsPaneModel,
+  settingsActions: DesktopSettingsActionOptions,
+): HTMLElement {
+  const save = targetDocument.createElement("button");
+  save.className = "desktop-settings-save-status-button";
+  save.setAttribute("type", "button");
+  save.setAttribute("data-desktop-settings-action", "save");
+  if (!pane.save.canSave) {
+    save.setAttribute("disabled", "true");
+  }
+  save.textContent = getDesktopSettingsSaveLabel(pane);
+  save.addEventListener("click", () => {
+    settingsActions.onSettingsAction?.({ action: "save", pane });
+  });
+  return save;
+}
+
+function getDesktopSettingsSaveLabel(pane: DesktopSettingsPaneModel): string {
+  if (pane.save.status === "saving") {
+    return "保存中";
+  }
+  if (pane.save.status === "saved" || !pane.dirty) {
+    return "已保存";
+  }
+  return "保存设置";
+}
+
+function createSettingsGroupSection(
+  targetDocument: Document,
+  pane: DesktopSettingsPaneModel,
+  group: DesktopSettingsPaneGroup,
+  settingsActions: DesktopSettingsActionOptions,
+): HTMLElement | null {
+  const fields = getSettingsGroupDisplayFields(group);
+  if (!fields.length) {
+    return null;
+  }
+  const groupSection = targetDocument.createElement("section");
+  groupSection.className = "desktop-settings-group";
+  groupSection.setAttribute("id", `desktop-settings-group-${group.id}`);
+  groupSection.setAttribute("data-desktop-settings-group", group.id);
+  groupSection.append(createText(targetDocument, "h2", group.label));
+  const description = getSettingsGroupDescription(group.id);
+  if (description) {
+    const copy = createText(targetDocument, "p", description);
+    copy.className = "desktop-settings-group-description";
+    groupSection.append(copy);
+  }
+  const primaryFields = fields.filter((field) => !field.advanced);
+  const advancedFields = fields.filter((field) => field.advanced);
+  for (const field of primaryFields) {
+    groupSection.append(createDesktopSettingsFieldRow(targetDocument, pane, group, field, settingsActions));
+  }
+  if (advancedFields.length) {
+    const details = targetDocument.createElement("details");
+    details.className = "desktop-settings-advanced-fields";
+    details.append(createText(targetDocument, "summary", "Advanced"));
+    for (const field of advancedFields) {
+      details.append(createDesktopSettingsFieldRow(targetDocument, pane, group, field, settingsActions));
+    }
+    groupSection.append(details);
+  }
+  return groupSection;
 }
 
 function mountSettingsPaneVueIsland(
@@ -5111,12 +5183,14 @@ function mountSettingsPaneVueIsland(
   targetDocument: Document,
   pane: DesktopSettingsPaneModel,
   settingsActions: DesktopSettingsActionOptions,
+  initialActiveGroupId: DesktopSettingsPaneGroup["id"],
 ): void {
   if (!canMountVueIsland(section)) {
     return;
   }
   mountSettingsPaneIsland(section, {
     pane,
+    initialActiveGroupId,
     onSettingsAction: settingsActions.onSettingsAction,
     promptProviderId: () => promptForSettingsProviderId(targetDocument),
     onFocusSettingsControl: (fieldId) => focusDesktopSettingsControl(targetDocument, fieldId),
@@ -5160,19 +5234,6 @@ function createDefaultLlmSettingsCard(
   if (model) {
     form.append(createSettingsControlField(targetDocument, pane, model, "模型", settingsActions));
   }
-
-  const save = targetDocument.createElement("button");
-  save.className = "desktop-settings-save-status-button";
-  save.setAttribute("type", "button");
-  save.setAttribute("data-desktop-settings-action", "save");
-  if (!pane.save.canSave) {
-    save.setAttribute("disabled", "true");
-  }
-  save.textContent = pane.save.status === "saving" ? "保存中" : pane.save.status === "saved" ? "已保存" : pane.dirty ? "保存设置" : "已保存";
-  save.addEventListener("click", () => {
-    settingsActions.onSettingsAction?.({ action: "save", pane });
-  });
-  form.append(save);
 
   const copy = createText(targetDocument, "p", "这里设置全局默认的 LLM 模型。你也可以在聊天页面为具体 Agent 单独选择使用的模型。");
   copy.className = "desktop-settings-default-llm-copy";
@@ -5528,104 +5589,6 @@ function getSettingsGroupDisplayFields(group: DesktopSettingsPaneGroup): Desktop
   return group.fields;
 }
 
-function createSettingsCapabilityMap(targetDocument: Document, pane: DesktopSettingsPaneModel): HTMLElement {
-  const section = targetDocument.createElement("section");
-  section.className = "desktop-settings-capability-map";
-  section.setAttribute("data-desktop-settings-center", "capability-boundaries");
-  section.setAttribute("aria-label", "Capability boundaries");
-  for (const card of getSettingsCapabilityCards(pane)) {
-    const link = targetDocument.createElement("a");
-    link.className = "desktop-settings-capability-card";
-    link.setAttribute("href", `#desktop-settings-group-${card.id}`);
-    link.setAttribute("data-desktop-settings-capability", card.id);
-    link.addEventListener("click", (event) => {
-      scrollToDesktopSettingsGroup(event, targetDocument, card.id);
-    });
-
-    const label = targetDocument.createElement("span");
-    label.className = "desktop-settings-capability-label";
-    label.textContent = card.label;
-    const status = targetDocument.createElement("strong");
-    status.className = "desktop-settings-capability-status";
-    status.textContent = card.status;
-    const detail = targetDocument.createElement("span");
-    detail.className = "desktop-settings-capability-detail";
-    detail.textContent = card.detail;
-    link.append(label, status, detail);
-    section.append(link);
-  }
-  return section;
-}
-
-function getSettingsCapabilityCards(pane: DesktopSettingsPaneModel): Array<{
-  id: DesktopSettingsPaneGroup["id"];
-  label: string;
-  status: string;
-  detail: string;
-}> {
-  const selectedProvider = pane.providerEditor.selectedProvider;
-  const providerLabel = pane.providerCatalog.find((provider) => provider.id === selectedProvider)?.label || selectedProvider || "Auto";
-  const knowledgeEnabled = isSettingsFieldChecked(pane, "knowledge", "enabled");
-  const webEnabled = isSettingsFieldChecked(pane, "tools-approvals", "webEnable");
-  const shellEnabled = isSettingsFieldChecked(pane, "tools-approvals", "execEnable");
-  const gatewayHost = getSettingsFieldValue(pane, "gateway-runtime", "host") || "localhost";
-  const gatewayPort = getSettingsFieldValue(pane, "gateway-runtime", "port") || "auto";
-  return [
-    {
-      id: "provider-models",
-      label: "Provider & Models",
-      status: providerLabel,
-      detail: pane.providerEditor.models.length ? pane.providerEditor.models.slice(0, 2).join(", ") : "Model catalog not loaded",
-    },
-    {
-      id: "knowledge",
-      label: "Knowledge",
-      status: knowledgeEnabled ? "Knowledge On" : "Knowledge Off",
-      detail: `${getSettingsFieldValue(pane, "knowledge", "retrievalMode") || "hybrid"} retrieval / top ${getSettingsFieldValue(pane, "knowledge", "maxChunks") || "auto"}`,
-    },
-    {
-      id: "tools-approvals",
-      label: "Tools & Approvals",
-      status: `Web ${webEnabled ? "On" : "Off"} / Shell ${shellEnabled ? "On" : "Off"}`,
-      detail: getSettingsFieldValue(pane, "tools-approvals", "mcpServers") === "Configured" ? "MCP configured" : "MCP allowlist empty",
-    },
-    {
-      id: "files-workspace",
-      label: "Files & Workspace",
-      status: "Three scopes",
-      detail: "Session files / Knowledge documents / Workspace files",
-    },
-    {
-      id: "gateway-runtime",
-      label: "Gateway & Runtime",
-      status: `Gateway ${gatewayHost}:${gatewayPort}`,
-      detail: isSettingsFieldChecked(pane, "gateway-runtime", "heartbeat") ? "Heartbeat enabled" : "Heartbeat disabled",
-    },
-    {
-      id: "logs-diagnostics",
-      label: "Logs & Diagnostics",
-      status: pane.validationErrors.length ? `${pane.validationErrors.length} issues` : "Ready",
-      detail: pane.validationErrors.length ? pane.validationErrors.map((error) => error.field).join(", ") : "Diagnostics export and runtime logs",
-    },
-  ];
-}
-
-function getSettingsFieldValue(
-  pane: DesktopSettingsPaneModel,
-  groupId: DesktopSettingsPaneGroup["id"],
-  fieldId: string,
-): string {
-  return findSettingsPaneField(pane, groupId, fieldId)?.value ?? "";
-}
-
-function isSettingsFieldChecked(
-  pane: DesktopSettingsPaneModel,
-  groupId: DesktopSettingsPaneGroup["id"],
-  fieldId: string,
-): boolean {
-  return findSettingsPaneField(pane, groupId, fieldId)?.checked === true;
-}
-
 function getProviderCards(pane: DesktopSettingsPaneModel): DesktopProviderCardModel[] {
   const selectedProvider = pane.providerEditor.selectedProvider || "provider";
   const catalog = pane.providerCatalog.length
@@ -5683,7 +5646,12 @@ function formatProviderStatus(status: string): string {
   }[status] ?? status;
 }
 
-function createSettingsSidebar(targetDocument: Document, pane: DesktopSettingsPaneModel): HTMLElement {
+function createSettingsSidebar(
+  targetDocument: Document,
+  pane: DesktopSettingsPaneModel,
+  onSelectGroup?: (groupId: DesktopSettingsPaneGroup["id"]) => void,
+  initialActiveGroupId: DesktopSettingsPaneGroup["id"] = pane.groups[0]?.id ?? "general",
+): HTMLElement {
   const sidebar = targetDocument.createElement("aside");
   sidebar.className = "desktop-settings-sidebar";
   sidebar.setAttribute("aria-label", "Settings navigation");
@@ -5711,12 +5679,12 @@ function createSettingsSidebar(targetDocument: Document, pane: DesktopSettingsPa
     }
     const item = targetDocument.createElement("a");
     item.className = "desktop-settings-nav-item";
-    item.setAttribute("href", `#desktop-settings-group-${group.id}`);
+    item.setAttribute("href", "#");
     item.setAttribute("data-desktop-settings-nav", group.id);
     item.addEventListener("click", (event) => {
-      scrollToDesktopSettingsGroup(event, targetDocument, group.id);
+      selectDesktopSettingsGroup(event, targetDocument, group.id, onSelectGroup);
     });
-    if (index === 0) {
+    if (group.id === initialActiveGroupId) {
       item.setAttribute("data-active", "true");
       item.setAttribute("aria-current", "page");
     }
@@ -5729,10 +5697,15 @@ function createSettingsSidebar(targetDocument: Document, pane: DesktopSettingsPa
   return sidebar;
 }
 
-function scrollToDesktopSettingsGroup(event: Event, targetDocument: Document, groupId: string): void {
-  event.preventDefault();
+function selectDesktopSettingsGroup(
+  event: Event,
+  targetDocument: Document,
+  groupId: DesktopSettingsPaneGroup["id"],
+  onSelectGroup?: (groupId: DesktopSettingsPaneGroup["id"]) => void,
+): void {
+  event.preventDefault?.();
   setDesktopSettingsActiveNav(targetDocument, groupId);
-  targetDocument.getElementById(`desktop-settings-group-${groupId}`)?.scrollIntoView({ block: "start", behavior: "smooth" });
+  onSelectGroup?.(groupId);
 }
 
 function setDesktopSettingsActiveNav(targetDocument: Document, groupId: string): void {
@@ -5746,6 +5719,23 @@ function setDesktopSettingsActiveNav(targetDocument: Document, groupId: string):
       item.removeAttribute("aria-current");
     }
   }
+}
+
+function getDesktopSettingsActiveGroup(
+  pane: DesktopSettingsPaneModel,
+  activeGroupId?: string | null,
+): DesktopSettingsPaneGroup | null {
+  return pane.groups.find((group) => group.id === activeGroupId) ?? pane.groups[0] ?? null;
+}
+
+function getCurrentDesktopSettingsActiveGroupId(
+  pane: HTMLElement,
+  nextSettingsPane: DesktopSettingsPaneModel,
+): DesktopSettingsPaneGroup["id"] {
+  const activeGroupId = Array.from(pane.querySelectorAll<HTMLElement>("[data-desktop-settings-nav]"))
+    .find((item) => item.getAttribute("data-active") === "true")
+    ?.getAttribute("data-desktop-settings-nav");
+  return getDesktopSettingsActiveGroup(nextSettingsPane, activeGroupId)?.id ?? nextSettingsPane.groups[0]?.id ?? "general";
 }
 
 function mountSettingsSidebarVueIsland(sidebar: HTMLElement, pane: DesktopSettingsPaneModel): void {
