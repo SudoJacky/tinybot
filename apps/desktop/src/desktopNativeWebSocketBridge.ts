@@ -1,4 +1,6 @@
 import type { NativeTransportApi, NativeTransportWebSocketDispatchRequest } from "./desktopNativeTransport";
+import { logDesktopNativeDebug, summarizeDebugText } from "./desktopNativeChatDebug";
+import { toDesktopNativeTauriEventName } from "./desktopNativeTauriEvents";
 
 export type DesktopNativeWebSocketOptions = {
   url: string | URL;
@@ -32,7 +34,7 @@ export type DesktopNativeWebSocketAgentEventName =
   | "agent.error";
 export type DesktopNativeWebSocketAgentEventHandler = (payload: unknown) => void;
 export type DesktopNativeWebSocketAgentEventListener = (
-  eventName: DesktopNativeWebSocketAgentEventName,
+  eventName: string,
   handler: DesktopNativeWebSocketAgentEventHandler,
 ) => Promise<() => void> | (() => void) | void;
 
@@ -101,6 +103,7 @@ class DesktopNativeWebSocket extends EventTarget {
   private readonly activeRuns = new Map<string, ActiveRun>();
   private readonly activeToolCallDeltas = new Map<string, ActiveToolCallDelta>();
   private readonly completedStreamedRunIds = new Set<string>();
+  private readonly completedStreamedRunIdsByChat = new Map<string, string>();
   private attachedChatId?: string;
 
   constructor(options: DesktopNativeWebSocketOptions) {
@@ -111,15 +114,17 @@ class DesktopNativeWebSocket extends EventTarget {
     this.editablePaths = options.editablePaths ?? ["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md", "HEARTBEAT.md", "memory/MEMORY.md"];
     this.resolveSessionExists = options.resolveSessionExists;
     this.listenToAgentEvent = options.listenToAgentEvent;
-    this.registerAgentEventListeners();
-    queueMicrotask(() => {
-      if (this.readyState !== DesktopNativeWebSocket.CONNECTING) {
-        return;
-      }
-      this.readyState = DesktopNativeWebSocket.OPEN;
-      this.emit("open", new Event("open"));
-      this.emitJson({ event: "ready", client_id: this.clientId });
-    });
+    void this.openWhenAgentEventListenersReady();
+  }
+
+  private async openWhenAgentEventListenersReady(): Promise<void> {
+    await this.registerAgentEventListeners();
+    if (this.readyState !== DesktopNativeWebSocket.CONNECTING) {
+      return;
+    }
+    this.readyState = DesktopNativeWebSocket.OPEN;
+    this.emit("open", new Event("open"));
+    this.emitJson({ event: "ready", client_id: this.clientId });
   }
 
   send(data: string | ArrayBufferLike | Blob | ArrayBufferView): void {
@@ -146,6 +151,12 @@ class DesktopNativeWebSocket extends EventTarget {
     const sessionExists = await this.resolveAttachSessionExists(frame);
     const model = stringValue(frame.model);
     const run = optimisticRunForFrame(frame);
+    logDesktopNativeDebug("nativeWebSocket.dispatchFrame", {
+      chatId: stringValue(frame.chat_id),
+      hasRun: Boolean(run),
+      model: model || "",
+      type: stringValue(frame.type),
+    });
     const request: NativeTransportWebSocketDispatchRequest = {
       clientId: this.clientId,
       frame,
@@ -201,9 +212,9 @@ class DesktopNativeWebSocket extends EventTarget {
         this.emitJson(frame);
       }
     }
-    const agent = isRecord(payload.agent) ? payload.agent : undefined;
-    const runId = stringValue(agent?.runId) || stringValue(agent?.run_id);
     const chatId = stringValue(transport.chatId) || stringValue(transport.chat_id);
+    const agent = isRecord(payload.agent) ? payload.agent : undefined;
+    const runId = stringValue(agent?.runId) || stringValue(agent?.run_id) || this.activeRunIdForChat(chatId);
     if (runId && chatId) {
       this.registerRun(runId, {
         chatId,
@@ -231,12 +242,26 @@ class DesktopNativeWebSocket extends EventTarget {
     }
   }
 
-  private registerAgentEventListeners(): void {
+  private activeRunIdForChat(chatId: string): string {
+    if (!chatId) {
+      return "";
+    }
+    for (const [runId, run] of this.activeRuns) {
+      if (run.chatId === chatId) {
+        return runId;
+      }
+    }
+    return this.completedStreamedRunIdsByChat.get(chatId) ?? "";
+  }
+
+  private async registerAgentEventListeners(): Promise<void> {
     if (!this.listenToAgentEvent) {
       return;
     }
+    const registrations: Array<Promise<void>> = [];
     for (const eventName of AGENT_EVENT_NAMES) {
-      const unlisten = this.listenToAgentEvent(eventName, (payload) => {
+      const tauriEventName = toDesktopNativeTauriEventName(eventName);
+      const unlisten = this.listenToAgentEvent(tauriEventName, (payload) => {
         this.handleAgentEvent(eventName, payload);
       });
       if (typeof unlisten === "function") {
@@ -244,15 +269,21 @@ class DesktopNativeWebSocket extends EventTarget {
         continue;
       }
       if (unlisten && typeof (unlisten as Promise<() => void>).then === "function") {
-        void (unlisten as Promise<() => void>).then((resolvedUnlisten) => {
+        registrations.push((unlisten as Promise<() => void>).then((resolvedUnlisten) => {
           if (this.readyState === DesktopNativeWebSocket.CLOSED) {
             resolvedUnlisten();
           } else {
             this.agentEventUnlisteners.push(resolvedUnlisten);
           }
-        });
+        }).catch((error) => {
+          logDesktopNativeDebug("nativeWebSocket.agentEvent.listener.failed", {
+            error: error instanceof Error ? error.message : String(error),
+            eventName,
+          });
+        }));
       }
     }
+    await Promise.all(registrations);
   }
 
   private unlistenAgentEvents(): void {
@@ -264,6 +295,7 @@ class DesktopNativeWebSocket extends EventTarget {
     this.activeRuns.clear();
     this.activeToolCallDeltas.clear();
     this.completedStreamedRunIds.clear();
+    this.completedStreamedRunIdsByChat.clear();
   }
 
   private registerRun(runId: string, run: ActiveRun): void {
@@ -289,6 +321,13 @@ class DesktopNativeWebSocket extends EventTarget {
       return;
     }
     const runId = stringValue(record.runId) || stringValue(record.run_id);
+    logDesktopNativeDebug("nativeWebSocket.agentEvent.received", {
+      activeRunCount: this.activeRuns.size,
+      eventName,
+      hasRun: runId ? this.activeRuns.has(runId) : false,
+      runId,
+      text: summarizeDebugText(stringValue(record.delta) || stringValue(record.text) || stringValue(record.content)),
+    });
     if (!runId) {
       return;
     }
@@ -296,6 +335,11 @@ class DesktopNativeWebSocket extends EventTarget {
       const events = this.pendingAgentEvents.get(runId) ?? [];
       events.push({ eventName, payload: record });
       this.pendingAgentEvents.set(runId, events);
+      logDesktopNativeDebug("nativeWebSocket.agentEvent.queued", {
+        eventName,
+        pendingCount: events.length,
+        runId,
+      });
       return;
     }
     this.projectAgentEvent(eventName, record, runId);
@@ -313,9 +357,21 @@ class DesktopNativeWebSocket extends EventTarget {
     if (eventName === "agent.delta" || eventName === "agent.reasoning_delta") {
       const text = stringValue(payload.delta) || stringValue(payload.text) || stringValue(payload.content);
       if (!text) {
+        logDesktopNativeDebug("nativeWebSocket.agentEvent.dropped", {
+          eventName,
+          reason: "empty delta",
+          runId,
+        });
         return;
       }
       run.streamed = true;
+      logDesktopNativeDebug("nativeWebSocket.agentEvent.projected", {
+        chatId: run.chatId,
+        eventName,
+        messageId: run.messageId,
+        runId,
+        text: summarizeDebugText(text),
+      });
       this.emitJson({
         event: "delta",
         chat_id: run.chatId,
@@ -422,6 +478,7 @@ class DesktopNativeWebSocket extends EventTarget {
       });
       this.activeRuns.delete(runId);
       this.completedStreamedRunIds.add(runId);
+      this.completedStreamedRunIdsByChat.set(run.chatId, runId);
       this.clearToolCallDeltas(runId);
       return;
     }
@@ -446,6 +503,7 @@ class DesktopNativeWebSocket extends EventTarget {
       });
       this.activeRuns.delete(runId);
       this.completedStreamedRunIds.add(runId);
+      this.completedStreamedRunIdsByChat.set(run.chatId, runId);
       this.clearToolCallDeltas(runId);
     }
   }

@@ -59,6 +59,7 @@ export type WebuiRouteRequest = {
 export type WebuiRouteResponse = {
   status: number;
   body: unknown;
+  headers?: Record<string, unknown>;
 };
 
 export type WebuiStatusSnapshot = {
@@ -924,6 +925,9 @@ async function openAiChatCompletionsResponse(
       model: parsed.model,
       timeoutSeconds: openAiRequestTimeoutSeconds(config),
     };
+    if (parsed.stream) {
+      return openAiStreamingChatCompletionResponse(completionRequest, openAiCompatProvider, traceId);
+    }
     let content = await openAiCompatProvider.completeChat(completionRequest, traceId);
     if (content.trim().length === 0) {
       content = await openAiCompatProvider.completeChat(completionRequest, traceId);
@@ -943,13 +947,10 @@ async function openAiChatCompletionsResponse(
 function parseOpenAiChatRequest(
   body: JsonObject,
   configuredModel: string,
-): { ok: true; content: string; sessionKey: string; model: string } | { ok: false; message: string } {
+): { ok: true; content: string; sessionKey: string; model: string; stream: boolean } | { ok: false; message: string } {
   const messages = Array.isArray(body.messages) ? body.messages : undefined;
   if (!messages || messages.length !== 1) {
     return { ok: false, message: "Only a single user message is supported" };
-  }
-  if (pythonTruthy(body.stream)) {
-    return { ok: false, message: "stream=true is not supported yet. Set stream=false or omit it." };
   }
   if (!isJsonObject(messages[0]) || messages[0].role !== "user") {
     return { ok: false, message: "Only a single user message is supported" };
@@ -965,6 +966,56 @@ function parseOpenAiChatRequest(
     content,
     sessionKey: sessionId ? `api:${sessionId}` : "api:default",
     model: configuredModel,
+    stream: pythonTruthy(body.stream),
+  };
+}
+
+async function openAiStreamingChatCompletionResponse(
+  completionRequest: WebuiOpenAiChatRequest,
+  openAiCompatProvider: WebuiOpenAiCompatProvider,
+  traceId: string,
+): Promise<WebuiRouteResponse> {
+  const chunks: string[] = [];
+  let emittedContent = "";
+  const content = await openAiCompatProvider.completeChat({
+    ...completionRequest,
+    onContentDelta: (delta) => {
+      emittedContent += delta;
+      chunks.push(openAiSseData(openAiChatCompletionChunk(completionRequest.model, { content: delta })));
+    },
+    onReasoningDelta: (delta) => {
+      chunks.push(openAiSseData(openAiChatCompletionChunk(completionRequest.model, { reasoning_content: delta })));
+    },
+  }, traceId);
+  if (!emittedContent && content) {
+    chunks.push(openAiSseData(openAiChatCompletionChunk(completionRequest.model, { content })));
+  }
+  chunks.push(openAiSseData({
+    ...openAiChatCompletionChunk(completionRequest.model, {}),
+    choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+  }));
+  chunks.push("data: [DONE]\n\n");
+  return {
+    status: 200,
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+    },
+    body: chunks.join(""),
+  };
+}
+
+function openAiSseData(value: Record<string, unknown>): string {
+  return `data: ${JSON.stringify(value)}\n\n`;
+}
+
+function openAiChatCompletionChunk(model: string, delta: Record<string, unknown>): Record<string, unknown> {
+  return {
+    id: `chatcmpl-${Math.random().toString(16).slice(2, 14).padEnd(12, "0")}`,
+    object: "chat.completion.chunk",
+    created: Math.floor(Date.now() / 1000),
+    model,
+    choices: [{ index: 0, delta, finish_reason: null }],
   };
 }
 

@@ -1,6 +1,7 @@
 import { DEFAULT_GATEWAY_CONFIG, resolveGatewayConfig, type GatewayConfig } from "./gatewayConfig";
 import {
   createDesktopNativeWebSocket,
+  type DesktopNativeWebSocketAgentEventName,
   type DesktopNativeWebSocketAgentEventListener,
 } from "./desktopNativeWebSocketBridge";
 import type { NativeTransportApi } from "./desktopNativeTransport";
@@ -99,6 +100,12 @@ export function installDesktopGatewayBridge(options: DesktopGatewayBridgeOptions
   const listenToNativeAgentEvent = options.listenToNativeAgentEvent;
 
   fetchTarget.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const nativeStreamingResponse = nativeTransport && listenToNativeAgentEvent
+      ? await nativeOpenAiStreamingFetchResponse(input, init, nativeTransport, listenToNativeAgentEvent, pageOrigin)
+      : undefined;
+    if (nativeStreamingResponse) {
+      return nativeStreamingResponse;
+    }
     const nativeResponse = nativeWebui
       ? await nativeWebuiFetchResponse(input, init, nativeWebui, pageOrigin)
       : undefined;
@@ -196,6 +203,150 @@ async function nativeWebuiFetchResponse(
     }
     return undefined;
   }
+}
+
+async function nativeOpenAiStreamingFetchResponse(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  nativeTransport: NativeTransportApi,
+  listenToAgentEvent: DesktopNativeWebSocketAgentEventListener,
+  pageOrigin: string,
+): Promise<Response | undefined> {
+  const sourceUrl = requestUrl(input, pageOrigin);
+  if (!sourceUrl || sourceUrl.origin !== pageOrigin || sourceUrl.pathname !== "/v1/chat/completions") {
+    return undefined;
+  }
+  const request = await nativeWebuiRouteRequestForUrl(sourceUrl, input, init);
+  if (!request || !isRecord(request.body) || request.body.stream !== true) {
+    return undefined;
+  }
+  const content = openAiUserMessageContent(request.body.messages);
+  if (!content) {
+    return undefined;
+  }
+  const chatId = stringValue(request.body.session_id) || "default";
+  const runId = `openai-chat-${sanitizeRunIdPart(chatId)}-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 8)}`;
+  const model = stringValue(request.body.model);
+  const encoder = new TextEncoder();
+  const unlisteners: Array<() => void> = [];
+  let closed = false;
+  let emittedContent = false;
+
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const enqueue = (text: string) => {
+        if (!closed) {
+          controller.enqueue(encoder.encode(text));
+        }
+      };
+      const close = () => {
+        if (!closed) {
+          closed = true;
+          controller.close();
+          while (unlisteners.length) {
+            unlisteners.pop()?.();
+          }
+        }
+      };
+      const listen = (eventName: DesktopNativeWebSocketAgentEventName, handler: (payload: Record<string, unknown>) => void) => {
+        const unlisten = listenToAgentEvent(eventName, (payload) => {
+          const record = isRecord(payload) ? payload : {};
+          if ((stringValue(record.runId) || stringValue(record.run_id)) === runId) {
+            handler(record);
+          }
+        });
+        if (typeof unlisten === "function") {
+          unlisteners.push(unlisten);
+        } else if (unlisten && typeof (unlisten as Promise<() => void>).then === "function") {
+          void (unlisten as Promise<() => void>).then((resolved) => {
+            if (closed) {
+              resolved();
+            } else {
+              unlisteners.push(resolved);
+            }
+          });
+        }
+      };
+
+      listen("agent.delta", (payload) => {
+        const delta = stringValue(payload.delta) || stringValue(payload.text) || stringValue(payload.content);
+        if (!delta) {
+          return;
+        }
+        emittedContent = true;
+        enqueue(openAiSseData(openAiChatCompletionChunk(model, { content: delta })));
+      });
+      listen("agent.reasoning_delta", (payload) => {
+        const delta = stringValue(payload.delta) || stringValue(payload.text) || stringValue(payload.content);
+        if (delta) {
+          enqueue(openAiSseData(openAiChatCompletionChunk(model, { reasoning_content: delta })));
+        }
+      });
+      listen("agent.done", () => {
+        enqueue(openAiSseData({
+          ...openAiChatCompletionChunk(model, {}),
+          choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+        }));
+        enqueue("data: [DONE]\n\n");
+        close();
+      });
+      listen("agent.error", (payload) => {
+        enqueue(openAiSseData({
+          error: { message: stringValue(payload.message) || "agent error" },
+        }));
+        enqueue("data: [DONE]\n\n");
+        close();
+      });
+
+      void nativeTransport.dispatchWebsocketMessage({
+        clientId: "openai-sse",
+        frame: { type: "message", chat_id: chatId, content },
+        attachedChatId: chatId,
+        sessionExists: true,
+        model,
+        runId,
+        stream: true,
+      }).then((result) => {
+        if (closed) {
+          return;
+        }
+        const agent = isRecord(result) && isRecord(result.agent) ? result.agent : {};
+        const finalContent = stringValue(agent.finalContent) || stringValue(agent.final_content);
+        if (!emittedContent && finalContent) {
+          enqueue(openAiSseData(openAiChatCompletionChunk(model, { content: finalContent })));
+        }
+        enqueue(openAiSseData({
+          ...openAiChatCompletionChunk(model, {}),
+          choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+        }));
+        enqueue("data: [DONE]\n\n");
+        close();
+      }).catch((error) => {
+        if (closed) {
+          return;
+        }
+        enqueue(openAiSseData({
+          error: { message: error instanceof Error ? error.message : String(error) },
+        }));
+        enqueue("data: [DONE]\n\n");
+        close();
+      });
+    },
+    cancel() {
+      closed = true;
+      while (unlisteners.length) {
+        unlisteners.pop()?.();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+    },
+  });
 }
 
 async function nativeWebuiRouteRequestForUrl(
@@ -300,13 +451,69 @@ function headersRecord(headers: HeadersInit | undefined): Record<string, unknown
 
 function webuiFetchResponse(response: NativeWebuiRouteResponse): Response {
   const status = response.status;
+  const responseHeaders = headersRecordFromUnknown(response.headers);
+  const contentType = headerValue(responseHeaders, "content-type");
   const body = status === 204 || status === 205 || status === 304
     ? null
-    : JSON.stringify(response.body ?? null);
+    : contentType?.toLowerCase().includes("text/event-stream") && typeof response.body === "string"
+      ? response.body
+      : JSON.stringify(response.body ?? null);
   return new Response(body, {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: responseHeaders ?? { "Content-Type": "application/json" },
   });
+}
+
+function headersRecordFromUnknown(headers: Record<string, unknown> | undefined): Record<string, string> | undefined {
+  if (!headers) {
+    return undefined;
+  }
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(headers)) {
+    if (value !== undefined) {
+      result[key] = String(value);
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function headerValue(headers: Record<string, string> | undefined, name: string): string | undefined {
+  return Object.entries(headers ?? {}).find(([key]) => key.toLowerCase() === name.toLowerCase())?.[1];
+}
+
+function openAiUserMessageContent(messages: unknown): string {
+  if (!Array.isArray(messages) || messages.length !== 1 || !isRecord(messages[0]) || messages[0].role !== "user") {
+    return "";
+  }
+  const content = messages[0].content;
+  if (typeof content === "string") {
+    return content;
+  }
+  if (!Array.isArray(content)) {
+    return "";
+  }
+  return content
+    .map((part) => isRecord(part) && part.type === "text" ? stringValue(part.text) : "")
+    .filter(Boolean)
+    .join(" ");
+}
+
+function openAiSseData(value: Record<string, unknown>): string {
+  return `data: ${JSON.stringify(value)}\n\n`;
+}
+
+function openAiChatCompletionChunk(model: string, delta: Record<string, unknown>): Record<string, unknown> {
+  return {
+    id: `chatcmpl-${Math.random().toString(16).slice(2, 14).padEnd(12, "0")}`,
+    object: "chat.completion.chunk",
+    created: Math.floor(Date.now() / 1000),
+    model,
+    choices: [{ index: 0, delta, finish_reason: null }],
+  };
+}
+
+function sanitizeRunIdPart(value: string): string {
+  return value.replace(/[^A-Za-z0-9_.:-]/g, "-") || "default";
 }
 
 function requestUrl(input: RequestInfo | URL, pageOrigin: string): URL | null {
@@ -318,4 +525,12 @@ function requestUrl(input: RequestInfo | URL, pageOrigin: string): URL | null {
   } catch {
     return null;
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
 }

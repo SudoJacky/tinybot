@@ -35,7 +35,11 @@ function normalizeWebuiRouteResponse(value: unknown): NativeWebuiRouteResponse {
   if (!isRecord(value) || typeof value.status !== "number") {
     return { status: 200, body: value };
   }
-  return { status: value.status, body: value.body };
+  return {
+    status: value.status,
+    body: value.body,
+    headers: isRecord(value.headers) ? value.headers : undefined,
+  };
 }
 
 function unwrapWebuiRouteResponse(response: NativeWebuiRouteResponse): unknown {
