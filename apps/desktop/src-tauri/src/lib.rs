@@ -3614,6 +3614,27 @@ mod tests {
     }
 
     #[test]
+    fn experimental_worker_router_ignores_corrupt_session_store() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("sessions/store.json", "{not valid json");
+        let mut router = experimental_worker_router(fixture.root.clone(), serde_json::json!({}));
+
+        let response = router.dispatch(&WorkerRequest::new(
+            "req-sessions",
+            "trace-sessions",
+            "session.list_metadata",
+            serde_json::json!({}),
+        ));
+
+        assert_eq!(response.error, None);
+        assert_eq!(
+            response.result,
+            Some(serde_json::json!([])),
+            "corrupt session stores should not block native worker startup"
+        );
+    }
+
+    #[test]
     fn experimental_worker_config_snapshot_loads_real_tinybot_config() {
         let fixture = WorkspaceFixture::new();
         fixture.write("config.json", r#"{

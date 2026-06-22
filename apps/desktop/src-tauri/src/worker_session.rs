@@ -33,9 +33,10 @@ impl WorkerSessionRpc {
         policy: CapabilityPolicy,
     ) -> Result<Self, WorkerProtocolError> {
         let store_path = session_store_path(&root);
-        let sessions = read_session_store(&store_path)?
-            .map(|store| store.sessions)
-            .unwrap_or(sessions);
+        let sessions = match read_session_store(&store_path) {
+            Ok(Some(store)) => store.sessions,
+            Ok(None) | Err(_) => sessions,
+        };
         Ok(Self {
             sessions,
             policy,
