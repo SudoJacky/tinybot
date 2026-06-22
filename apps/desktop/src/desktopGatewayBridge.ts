@@ -229,6 +229,7 @@ async function nativeOpenAiStreamingFetchResponse(
   const model = stringValue(request.body.model);
   const encoder = new TextEncoder();
   const unlisteners: Array<() => void> = [];
+  const listenerReadyPromises: Array<Promise<void>> = [];
   let closed = false;
   let emittedContent = false;
 
@@ -258,13 +259,13 @@ async function nativeOpenAiStreamingFetchResponse(
         if (typeof unlisten === "function") {
           unlisteners.push(unlisten);
         } else if (unlisten && typeof (unlisten as Promise<() => void>).then === "function") {
-          void (unlisten as Promise<() => void>).then((resolved) => {
+          listenerReadyPromises.push((unlisten as Promise<() => void>).then((resolved) => {
             if (closed) {
               resolved();
             } else {
               unlisteners.push(resolved);
             }
-          });
+          }));
         }
       };
 
@@ -298,16 +299,21 @@ async function nativeOpenAiStreamingFetchResponse(
         close();
       });
 
-      void nativeTransport.dispatchWebsocketMessage({
-        clientId: "openai-sse",
-        frame: { type: "message", chat_id: chatId, content },
-        attachedChatId: chatId,
-        sessionExists: true,
-        model,
-        runId,
-        stream: true,
-      }).then((result) => {
+      void Promise.all(listenerReadyPromises).then(() => {
         if (closed) {
+          return undefined;
+        }
+        return nativeTransport.dispatchWebsocketMessage({
+          clientId: "openai-sse",
+          frame: { type: "message", chat_id: chatId, content },
+          attachedChatId: chatId,
+          sessionExists: true,
+          model,
+          runId,
+          stream: true,
+        });
+      }).then((result) => {
+        if (closed || !result) {
           return;
         }
         const agent = isRecord(result) && isRecord(result.agent) ? result.agent : {};

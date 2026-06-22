@@ -896,7 +896,7 @@ function tsAgentToolCallDeltaKey(runId: string, index: number): string {
 }
 
 function isNativeWebSocketRunId(runId: string): boolean {
-  return runId.startsWith("websocket-");
+  return runId.startsWith("websocket-") || runId.startsWith("openai-chat-");
 }
 
 function isAwaitingTsAgentStopReason(value: unknown): boolean {

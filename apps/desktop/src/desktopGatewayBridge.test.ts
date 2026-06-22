@@ -275,6 +275,59 @@ describe("desktop gateway bridge", () => {
     bridge.restore();
   });
 
+  test("waits for native OpenAI stream listeners before dispatching", async () => {
+    const listenerReady = deferred<() => void>();
+    const handlers = new Map<string, (payload: unknown) => void>();
+    const nativeTransport = {
+      gatewayFrame: vi.fn(),
+      websocketMessage: vi.fn(),
+      dispatchWebsocketMessage: vi.fn(async () => ({
+        transport: { kind: "message", chatId: "chat-1", frames: [] },
+        agent: { finalContent: "hello", stopReason: "stop" },
+      })),
+      dispatchChannelInbound: vi.fn(),
+      startChannels: vi.fn(),
+      channelStatus: vi.fn(),
+      stopChannels: vi.fn(),
+    };
+    const target = {
+      location: { origin: pageOrigin },
+      fetch: vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 })),
+      WebSocket: class TestWebSocket {} as unknown as typeof WebSocket,
+    } as unknown as typeof globalThis;
+    const bridge = installDesktopGatewayBridge({
+      config: DEFAULT_GATEWAY_CONFIG,
+      pageOrigin,
+      fetchTarget: target,
+      webSocketTarget: target,
+      nativeTransport,
+      listenToNativeAgentEvent: (eventName, handler) => {
+        handlers.set(eventName, handler);
+        return listenerReady;
+      },
+    });
+
+    await target.fetch("/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "test-model",
+        session_id: "chat-1",
+        stream: true,
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    });
+    await flushMicrotasks();
+
+    expect(nativeTransport.dispatchWebsocketMessage).not.toHaveBeenCalled();
+
+    listenerReady.resolve(() => handlers.clear());
+    await flushMicrotasks();
+
+    expect(nativeTransport.dispatchWebsocketMessage).toHaveBeenCalledOnce();
+    bridge.restore();
+  });
+
   test("does not fallback to gateway HTTP for native Knowledge fetch failures", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
     const nativeWebui = {

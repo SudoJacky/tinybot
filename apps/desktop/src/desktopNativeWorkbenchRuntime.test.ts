@@ -1012,7 +1012,10 @@ describe("desktop native workbench runtime", () => {
     expect(runtime.chat.status).toBe("gateway stream failed");
   });
 
-  test("ignores direct TS agent stream events for gateway websocket runs", async () => {
+  test.each([
+    "websocket-chat-gateway-stream-run",
+    "openai-chat-chat-gateway-stream-run",
+  ])("ignores direct TS agent stream events for %s gateway runs", async (runId) => {
     const runtime = createDesktopNativeWorkbenchRuntime({
       api: {
         listSessions: async () => ({
@@ -1027,22 +1030,22 @@ describe("desktop native workbench runtime", () => {
     await runtime.handleGatewayEvent({
       kind: "message.delta",
       chatId: "chat-gateway-stream",
-      messageId: "websocket-chat-gateway-stream-run",
+      messageId: runId,
       text: "hello",
       reasoning: false,
       raw: {},
     });
     runtime.handleTsAgentWorkerEvent("agent.delta", {
-      runId: "websocket-chat-gateway-stream-run",
+      runId,
       delta: "hello",
     });
     runtime.handleTsAgentWorkerEvent("agent.done", {
-      runId: "websocket-chat-gateway-stream-run",
+      runId,
       stopReason: "final_response",
     });
 
     expect(runtime.chat.messages).toMatchObject([
-      { role: "assistant", content: "hello", messageId: "websocket-chat-gateway-stream-run" },
+      { role: "assistant", content: "hello", messageId: runId },
     ]);
     expect(runtime.chat.messages).toHaveLength(1);
   });
