@@ -215,9 +215,6 @@ export class ChannelManager {
         });
         continue;
       }
-      if (message.metadata._stream_delta && !message.metadata._stream_end) {
-        message = this.coalesceStreamDeltas(message);
-      }
       const channel = this.channels.get(message.channel);
       if (!channel) {
         this.dispatchDiagnostics.push({
@@ -247,32 +244,6 @@ export class ChannelManager {
 
   private nextOutbound(): OutboundMessage | null {
     return this.pendingOutbound.shift() ?? this.bus.tryConsumeOutbound();
-  }
-
-  private coalesceStreamDeltas(first: OutboundMessage): OutboundMessage {
-    const targetChannel = first.channel;
-    const targetChat = first.chatId;
-    let content = first.content;
-    const metadata = { ...first.metadata };
-
-    while (!metadata._stream_end) {
-      const next = this.bus.tryConsumeOutbound();
-      if (next === null) {
-        break;
-      }
-      const sameTarget = next.channel === targetChannel && next.chatId === targetChat;
-      const isDelta = Boolean(next.metadata._stream_delta);
-      if (!sameTarget || !isDelta) {
-        this.pendingOutbound.push(next);
-        break;
-      }
-      content += next.content;
-      if (next.metadata._stream_end) {
-        metadata._stream_end = true;
-      }
-    }
-
-    return { ...first, content, metadata };
   }
 
   private async sendOnce(channel: ChannelAdapter, message: OutboundMessage): Promise<void> {
