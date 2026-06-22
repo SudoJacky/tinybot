@@ -214,6 +214,7 @@ interface DesktopNativeChatActionOptions {
   onDeleteSession?: (event: DesktopNativeChatDeleteSessionEvent) => unknown | Promise<unknown>;
   onPinSession?: (event: DesktopNativeChatPinSessionEvent) => void;
   onRenameSession?: (event: DesktopNativeChatRenameSessionEvent) => void;
+  onSelectModel?: () => void;
   onPersistentRagChange?: (enabled: boolean) => void;
 }
 
@@ -2861,7 +2862,7 @@ function createNativeComposerSurface(
   runtime.setAttribute("data-desktop-composer-region", "runtime-status");
   runtime.setAttribute("aria-label", "Runtime status");
   runtime.append(
-    createComposerModelControl(targetDocument, chat),
+    createComposerModelControl(targetDocument, chat, chatActions),
     createPersistentRagToggle(targetDocument, chat, chatActions),
     createTokenUsageOrb(targetDocument, chat?.runtime?.tokenUsage || "-"),
   );
@@ -2912,6 +2913,7 @@ function mountComposerSurfaceVueIsland(
     tokenUsage: chat?.runtime?.tokenUsage || "-",
     usePersistentRag: chat?.usePersistentRag !== false,
     onAttach: () => chatActions.onAttachSessionFile?.(),
+    onModelSelect: () => chatActions.onSelectModel?.(),
     onPersistentRagChange: (enabled) => chatActions.onPersistentRagChange?.(enabled),
     onSend: (event) => chatActions.onComposerSubmit?.(event),
   });
@@ -2982,6 +2984,7 @@ function mountComposerRuntimeVueIsland(
     model: chat?.runtime?.model || null,
     persistentRag: chat?.usePersistentRag !== false,
     tokenUsage: chat?.runtime?.tokenUsage || "-",
+    onModelSelect: () => chatActions.onSelectModel?.(),
     onPersistentRagChange: (enabled) => chatActions.onPersistentRagChange?.(enabled),
   });
 }
@@ -3058,21 +3061,36 @@ function parseSessionTimestampMs(value: string): number | null {
   return Number.isNaN(timestamp) ? null : timestamp;
 }
 
-function createComposerModelControl(targetDocument: Document, chat: DesktopNativeChatModel | null = null): HTMLElement {
+function createComposerModelControl(
+  targetDocument: Document,
+  chat: DesktopNativeChatModel | null = null,
+  chatActions: DesktopNativeChatActionOptions = {},
+): HTMLElement {
   const button = targetDocument.createElement("button");
   button.type = "button";
   button.className = "desktop-native-composer-model";
+  button.setAttribute("data-desktop-composer-action", "model-select");
   button.setAttribute("aria-label", "Select model");
   button.textContent = chat?.runtime?.model || "Tinybot Pro";
-  mountComposerModelControlVueIsland(button, chat?.runtime?.model || null);
+  mountComposerModelControlVueIsland(button, chat?.runtime?.model || null, chatActions);
   return button;
 }
 
-function mountComposerModelControlVueIsland(button: HTMLElement, model: string | null): void {
+function mountComposerModelControlVueIsland(
+  button: HTMLElement,
+  model: string | null,
+  chatActions: DesktopNativeChatActionOptions,
+): void {
   if (!canMountVueIsland(button)) {
+    button.addEventListener("click", () => {
+      chatActions.onSelectModel?.();
+    });
     return;
   }
-  mountComposerModelControlIsland(button, { model });
+  mountComposerModelControlIsland(button, {
+    model,
+    onModelSelect: () => chatActions.onSelectModel?.(),
+  });
 }
 
 function createPersistentRagToggle(

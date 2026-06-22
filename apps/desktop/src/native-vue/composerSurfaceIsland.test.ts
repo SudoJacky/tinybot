@@ -9,6 +9,7 @@ describe("composer surface Vue island", () => {
     const host = document.createElement("form");
     const sends: unknown[] = [];
     const attaches: string[] = [];
+    const modelSelections: string[] = [];
     const rags: boolean[] = [];
 
     const mounted = mountComposerSurfaceIsland(host, {
@@ -19,6 +20,7 @@ describe("composer surface Vue island", () => {
       tokenUsage: "42%",
       usePersistentRag: false,
       onAttach: () => attaches.push("attach"),
+      onModelSelect: () => modelSelections.push("model"),
       onPersistentRagChange: (enabled) => rags.push(enabled),
       onSend: (event) => sends.push(event),
     });
@@ -55,6 +57,7 @@ describe("composer surface Vue island", () => {
     expect(host.querySelector(".desktop-native-token-orb")?.getAttribute("data-token-usage")).toBe("42");
 
     host.querySelector<HTMLButtonElement>('[data-desktop-composer-action="attach"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-composer-action="model-select"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-desktop-composer-action="rag-toggle"]')?.click();
     input!.value = "Run live composer";
     input!.dispatchEvent(new Event("input", { bubbles: true }));
@@ -63,6 +66,7 @@ describe("composer surface Vue island", () => {
     send?.click();
 
     expect(attaches).toEqual(["attach"]);
+    expect(modelSelections).toEqual(["model"]);
     expect(rags).toEqual([true]);
     expect(sends).toEqual([{ content: "Run live composer", usePersistentRag: false }]);
 

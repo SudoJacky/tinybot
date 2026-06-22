@@ -278,7 +278,8 @@ async function bootDesktopWebUi(): Promise<void> {
         sessionCount: nativeChatRuntime.chat.sessions.length,
       });
       startupTrace.start("initialPaneModels");
-      const settingsPane = buildInitialNativeSettingsPane();
+      const settingsPane = await loadNativeSettingsPane();
+      nativeChatRuntime.setRuntimeMetadata(nativeRuntimeMetadataFromSettings());
       const knowledgePane = buildInitialNativeKnowledgePane();
       const toolsSkillsPane = buildInitialNativeToolsSkillsPane();
       const coworkPane = buildInitialNativeCoworkPane();
@@ -393,19 +394,6 @@ async function bootDesktopWebUi(): Promise<void> {
       true,
     );
   }
-}
-
-function buildInitialNativeSettingsPane(): DesktopSettingsPaneModel {
-  const state = buildDesktopSettingsFormState({});
-  nativeSettingsConfig = {};
-  nativeSettingsState = state;
-  nativeSettingsLastSavedState = state;
-  nativeSettingsProviderCatalog = [];
-  return buildDesktopSettingsPaneModel(state, {
-    lastSavedState: state,
-    providerCatalog: [],
-    saveStatus: "idle",
-  });
 }
 
 function buildInitialNativeKnowledgePane(): DesktopKnowledgePaneModel {
@@ -751,14 +739,18 @@ function syncNativeRuntimeMetadata(): void {
   if (!nativeWorkbenchRuntime) {
     return;
   }
-  nativeWorkbenchRuntime.setRuntimeMetadata({
+  nativeWorkbenchRuntime.setRuntimeMetadata(nativeRuntimeMetadataFromSettings());
+  updateDesktopNativeChat(document, nativeWorkbenchRuntime.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
+}
+
+function nativeRuntimeMetadataFromSettings(): NonNullable<DesktopNativeWorkbenchRuntime["chat"]["runtime"]> {
+  return {
     provider: nativeSettingsState?.agent.provider || undefined,
     model: nativeSettingsState?.agent.model || undefined,
     contextWindowTokens: nativeSettingsState?.agent.contextWindowTokens ?? undefined,
     maxToolIterations: nativeSettingsState?.agent.maxToolIterations ?? undefined,
     gatewayHttp: gatewayConfig.httpBaseUrl,
-  });
-  updateDesktopNativeChat(document, nativeWorkbenchRuntime.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
+  };
 }
 
 async function handleNativeChatGatewayEvent(event: NormalizedGatewayEvent): Promise<void> {
@@ -805,6 +797,9 @@ function nativeChatActions() {
     onAttachSessionFile: () => {
       document.getElementById("desktop-session-file-upload")?.click();
     },
+    onSelectModel: () => {
+      void selectNativeComposerModel();
+    },
     onNewChat: () => {
       if (!nativeWorkbenchRuntime) {
         return;
@@ -833,6 +828,70 @@ function nativeChatActions() {
       updateDesktopNativeChat(document, nativeWorkbenchRuntime.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
     },
   };
+}
+
+async function selectNativeComposerModel(): Promise<void> {
+  if (!nativeWorkbenchRuntime) {
+    return;
+  }
+  if (!nativeSettingsState) {
+    await loadNativeSettingsPane();
+  }
+  if (!nativeSettingsState) {
+    return;
+  }
+  const currentModel = nativeSettingsState.agent.model || nativeWorkbenchRuntime.chat.runtime?.model || "";
+  const modelOptions = nativeComposerModelOptions(nativeSettingsState);
+  const selectedModel = promptNativeComposerModel(document, modelOptions, currentModel);
+  if (!selectedModel || selectedModel === currentModel) {
+    return;
+  }
+  nativeSettingsState = applyDesktopSettingsFieldEdit(nativeSettingsState, "model", selectedModel);
+  syncNativeRuntimeMetadata();
+  await saveNativeSettingsPane();
+}
+
+function nativeComposerModelOptions(state: DesktopSettingsFormState): string[] {
+  const providerId = state.agent.provider && state.agent.provider !== "auto"
+    ? state.agent.provider
+    : state.providerEditor.selectedProvider;
+  const provider = state.providerSummaries.find((summary) => summary.id === providerId);
+  const rawModels = provider?.modelsText || state.providerEditor.modelsText;
+  const models = rawModels
+    .split(/\r?\n|,/)
+    .map((model) => model.trim())
+    .filter(Boolean);
+  if (state.agent.model && !models.includes(state.agent.model)) {
+    models.unshift(state.agent.model);
+  }
+  return Array.from(new Set(models));
+}
+
+function promptNativeComposerModel(
+  targetDocument: Document,
+  models: string[],
+  currentModel: string,
+): string | null {
+  const prompt = targetDocument.defaultView?.prompt;
+  if (typeof prompt !== "function") {
+    return null;
+  }
+  if (!models.length) {
+    return prompt("Model", currentModel || "")?.trim() || null;
+  }
+  const message = [
+    "Select model by number or enter a model id:",
+    ...models.map((model, index) => `${index + 1}. ${model}${model === currentModel ? " (current)" : ""}`),
+  ].join("\n");
+  const value = prompt(message, currentModel || models[0])?.trim();
+  if (!value) {
+    return null;
+  }
+  const index = Number(value);
+  if (Number.isInteger(index) && index >= 1 && index <= models.length) {
+    return models[index - 1];
+  }
+  return value;
 }
 
 function summarizeNativeGatewayEvent(event: NormalizedGatewayEvent): Record<string, unknown> {

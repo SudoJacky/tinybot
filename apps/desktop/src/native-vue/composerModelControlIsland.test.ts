@@ -6,9 +6,11 @@ import { mountComposerModelControlIsland } from "./composerModelControlIsland";
 describe("composer model control Vue island", () => {
   test("renders the desktop composer model selector host", () => {
     const host = document.createElement("button");
+    const selections: string[] = [];
 
     const mounted = mountComposerModelControlIsland(host, {
       model: "deepseek-chat",
+      onModelSelect: () => selections.push("model"),
     });
 
     expect(host.getAttribute("data-desktop-vue-island")).toBe("composer-model-control");
@@ -16,6 +18,9 @@ describe("composer model control Vue island", () => {
     expect(host.getAttribute("type")).toBe("button");
     expect(host.getAttribute("aria-label")).toBe("Select model");
     expect(host.textContent).toContain("deepseek-chat");
+
+    host.click();
+    expect(selections).toEqual(["model"]);
 
     mounted.unmount();
     expect(host.textContent).toBe("");

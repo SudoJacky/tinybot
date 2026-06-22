@@ -4,6 +4,7 @@ import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 
 export interface ComposerModelControlIslandOptions {
   model?: string | null;
+  onModelSelect?: () => void;
 }
 
 export interface MountedComposerModelControlIsland {
@@ -18,6 +19,8 @@ export function mountComposerModelControlIsland(
   host.setAttribute("type", "button");
   host.className = "desktop-native-composer-model";
   host.setAttribute("aria-label", "Select model");
+  host.setAttribute("data-desktop-composer-action", "model-select");
+  host.addEventListener("click", () => options.onModelSelect?.());
   const app = createComposerModelControlApp(options);
   app.mount(host);
   return {

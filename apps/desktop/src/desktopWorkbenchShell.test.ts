@@ -497,6 +497,32 @@ describe("desktop workbench shell", () => {
     expect(labels).toEqual(["30分", "5小时", "3天", "2周", "2月"]);
   });
 
+  test("renders the configured composer model and routes model selection", () => {
+    const targetDocument = new FakeDocument();
+    const selections: string[] = [];
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      chat: {
+        sessions: [],
+        activeSessionKey: "",
+        activeChatId: "",
+        messages: [],
+        runtime: { model: "deepseek-reasoner" },
+      },
+      chatActions: {
+        onSelectModel: () => selections.push("model"),
+      },
+    });
+
+    const model = targetDocument.body.querySelector('[data-desktop-composer-action="model-select"]') as HTMLButtonElement | null;
+    expect(model?.textContent).toContain("deepseek-reasoner");
+    model?.click();
+    expect(selections).toEqual(["model"]);
+  });
+
   test("overlays recent chat timestamps and delete actions in the same right slot", () => {
     const targetDocument = new FakeDocument();
 

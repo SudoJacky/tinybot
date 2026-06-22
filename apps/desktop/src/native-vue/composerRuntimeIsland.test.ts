@@ -6,12 +6,14 @@ import { mountComposerRuntimeIsland } from "./composerRuntimeIsland";
 describe("composer runtime Vue island", () => {
   test("renders runtime affordances and dispatches RAG toggles", () => {
     const host = document.createElement("div");
+    const modelSelections: string[] = [];
     const toggles: boolean[] = [];
 
     const mounted = mountComposerRuntimeIsland(host, {
       model: "deepseek-chat",
       persistentRag: false,
       tokenUsage: "42%",
+      onModelSelect: () => modelSelections.push("model"),
       onPersistentRagChange: (enabled) => toggles.push(enabled),
     });
 
@@ -32,7 +34,9 @@ describe("composer runtime Vue island", () => {
     expect(token?.getAttribute("data-token-usage")).toBe("42");
     expect(token?.style.getPropertyValue("--token-usage-fill")).toBe("42%");
 
+    host.querySelector<HTMLButtonElement>('[data-desktop-composer-action="model-select"]')?.click();
     rag?.click();
+    expect(modelSelections).toEqual(["model"]);
     expect(toggles).toEqual([true]);
 
     mounted.unmount();

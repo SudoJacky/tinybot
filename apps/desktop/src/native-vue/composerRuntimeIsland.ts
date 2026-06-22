@@ -6,6 +6,7 @@ export interface ComposerRuntimeIslandOptions {
   model?: string | null;
   persistentRag: boolean;
   tokenUsage: string;
+  onModelSelect?: () => void;
   onPersistentRagChange?: (enabled: boolean) => void;
 }
 
@@ -59,18 +60,20 @@ export function renderComposerRuntimeSurface(options: ComposerRuntimeIslandOptio
 
 export function renderComposerRuntimeContent(options: ComposerRuntimeIslandOptions) {
   return [
-    renderModelControl(options.model),
+    renderModelControl(options),
     renderPersistentRagToggle(options),
     renderTokenUsageOrb(options.tokenUsage),
   ];
 }
 
-function renderModelControl(model?: string | null) {
+function renderModelControl(options: ComposerRuntimeIslandOptions) {
   return h("button", {
     type: "button",
     class: "desktop-native-composer-model",
+    "data-desktop-composer-action": "model-select",
     "aria-label": "Select model",
-  }, h(NText, { strong: true }, { default: () => model || "Tinybot Pro" }));
+    onClick: () => options.onModelSelect?.(),
+  }, h(NText, { strong: true }, { default: () => options.model || "Tinybot Pro" }));
 }
 
 function renderPersistentRagToggle(options: ComposerRuntimeIslandOptions) {

@@ -19,6 +19,7 @@ export interface ComposerSurfaceIslandOptions {
   tokenUsage: string;
   usePersistentRag: boolean;
   onAttach?: () => void;
+  onModelSelect?: () => void;
   onPersistentRagChange?: (enabled: boolean) => void;
   onSend?: (event: ComposerSurfaceSubmitEvent) => void;
 }
@@ -151,6 +152,7 @@ function createComposerSurfaceApp(state: Ref<ComposerSurfaceIslandOptions>): App
             model: state.value.model,
             persistentRag: state.value.usePersistentRag,
             tokenUsage: state.value.tokenUsage,
+            onModelSelect: state.value.onModelSelect,
             onPersistentRagChange: state.value.onPersistentRagChange,
           }),
           h("button", {
