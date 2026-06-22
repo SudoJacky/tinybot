@@ -10442,15 +10442,15 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       position: absolute;
       display: inline-flex;
       align-items: center;
-      justify-content: flex-end;
+      justify-content: center;
       right: 10px;
       top: 50%;
       transform: translateY(-50%);
-      width: 64px;
+      width: 24px;
       min-height: 24px;
       border: 1px solid transparent;
       border-radius: 999px;
-      padding: 0 8px;
+      padding: 0;
       background: transparent;
       color: #8b5b4e;
       font: 600 11px/1 var(--font-sans);

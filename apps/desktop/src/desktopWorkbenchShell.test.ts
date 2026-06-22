@@ -510,9 +510,18 @@ describe("desktop workbench shell", () => {
     expect(styleText).toMatch(
       /body\.desktop-native-workbench \.desktop-sidebar-chat-row \.desktop-sidebar-row-main \{\s*grid-template-columns: minmax\(0, 1fr\);\s*\}/,
     );
-    expect(styleText).toMatch(
-      /body\.desktop-native-workbench \.desktop-sidebar-delete-session \{[\s\S]*display: inline-flex;[\s\S]*right: 10px;[\s\S]*width: 64px;[\s\S]*padding: 0 8px;[\s\S]*justify-content: flex-end;/,
-    );
+    const deleteRule = styleText.match(
+      /body\.desktop-native-workbench \.desktop-sidebar-delete-session \{(?<rule>[\s\S]*?)\n    \}/,
+    )?.groups?.rule ?? "";
+    const confirmRule = styleText.match(
+      /body\.desktop-native-workbench \.desktop-sidebar-delete-session\[data-confirming="true"\] \{(?<rule>[\s\S]*?)\n    \}/,
+    )?.groups?.rule ?? "";
+    expect(deleteRule).toContain("display: inline-flex;");
+    expect(deleteRule).toContain("right: 10px;");
+    expect(deleteRule).toContain("width: 24px;");
+    expect(deleteRule).toContain("padding: 0;");
+    expect(deleteRule).toContain("justify-content: center;");
+    expect(confirmRule).toContain("width: 64px;");
     expect(styleText).toMatch(
       /body\.desktop-native-workbench \.desktop-sidebar-row-meta \{[\s\S]*position: absolute;[\s\S]*right: 10px;[\s\S]*width: 64px;/,
     );
