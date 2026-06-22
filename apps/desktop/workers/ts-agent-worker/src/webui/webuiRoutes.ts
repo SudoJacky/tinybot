@@ -713,7 +713,8 @@ export async function handleWebuiRouteRequest(
     if (!sessionProvider?.getSessionMessages) {
       return { status: 503, body: { error: "session manager not available" } };
     }
-    const session = await sessionProvider.getSessionMessages(sessionMessagesKey, traceId);
+    const sessionKey = normalizeWebuiSessionKey(sessionMessagesKey, sessionProvider);
+    const session = await sessionProvider.getSessionMessages(sessionKey, traceId);
     if (!session) {
       return { status: 404, body: { error: "session not found" } };
     }
@@ -724,7 +725,10 @@ export async function handleWebuiRouteRequest(
     if (!sessionProvider?.getSessionProfile) {
       return { status: 503, body: { error: "session manager not available" } };
     }
-    const session = await sessionProvider.getSessionProfile(sessionProfileKey, traceId);
+    const session = await sessionProvider.getSessionProfile(
+      normalizeWebuiSessionKey(sessionProfileKey, sessionProvider),
+      traceId,
+    );
     if (!session) {
       return { status: 404, body: { error: "session not found" } };
     }
@@ -739,7 +743,11 @@ export async function handleWebuiRouteRequest(
       return { status: 400, body: { error: "invalid json body" } };
     }
     const metadata = isJsonObject(request.body.metadata) ? request.body.metadata : {};
-    const session = await sessionProvider.patchSessionMetadata(patchSessionKey, metadata, traceId);
+    const session = await sessionProvider.patchSessionMetadata(
+      normalizeWebuiSessionKey(patchSessionKey, sessionProvider),
+      metadata,
+      traceId,
+    );
     if (!session) {
       return { status: 404, body: { error: "session not found" } };
     }
@@ -747,18 +755,19 @@ export async function handleWebuiRouteRequest(
   }
   const temporaryFilesKey = temporaryFilesPathKey(method, path);
   if (temporaryFilesKey !== undefined) {
+    const sessionKey = normalizeWebuiSessionKey(temporaryFilesKey, sessionProvider);
     if (method === "POST") {
-      return webuiTemporaryFileUploadResponse(temporaryFilesKey, request.body, sessionProvider, traceId);
+      return webuiTemporaryFileUploadResponse(sessionKey, request.body, sessionProvider, traceId);
     }
     if (method === "DELETE") {
-      return webuiTemporaryFilesClearResponse(temporaryFilesKey, sessionProvider, traceId);
+      return webuiTemporaryFilesClearResponse(sessionKey, sessionProvider, traceId);
     }
     if (!sessionProvider?.listTemporaryFiles) {
       return { status: 200, body: { items: [] } };
     }
     return {
       status: 200,
-      body: webuiTemporaryFilesBody(await sessionProvider.listTemporaryFiles(temporaryFilesKey, traceId)),
+      body: webuiTemporaryFilesBody(await sessionProvider.listTemporaryFiles(sessionKey, traceId)),
     };
   }
   const clearSessionKey = clearSessionPathKey(method, path);
@@ -768,7 +777,10 @@ export async function handleWebuiRouteRequest(
     }
     return {
       status: 200,
-      body: webuiClearSessionBody(await sessionProvider.clearSession(clearSessionKey, traceId)),
+      body: webuiClearSessionBody(await sessionProvider.clearSession(
+        normalizeWebuiSessionKey(clearSessionKey, sessionProvider),
+        traceId,
+      )),
     };
   }
   const deleteSessionKey = deleteSessionPathKey(method, path);
@@ -3299,6 +3311,22 @@ function webuiPatchSessionBody(session: WebuiPatchSessionResult): Record<string,
     metadata: session.metadata,
     updated_at: session.updatedAt,
   };
+}
+
+function normalizeWebuiSessionKey(
+  sessionId: string,
+  sessionProvider: WebuiSessionProvider | undefined,
+): string {
+  const channelName = sessionProvider?.channelName ?? "websocket";
+  const separator = sessionId.indexOf(":");
+  if (separator <= 0) {
+    return sessionId;
+  }
+  const prefix = sessionId.slice(0, separator);
+  if (prefix.toLowerCase() !== channelName.toLowerCase()) {
+    return sessionId;
+  }
+  return `${channelName}:${sessionId.slice(separator + 1)}`;
 }
 
 function webuiTemporaryFilesBody(session: WebuiSessionTemporaryFiles): Record<string, unknown> {

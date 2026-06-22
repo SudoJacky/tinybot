@@ -1354,6 +1354,52 @@ describe("WebUI knowledge graph extraction routes", () => {
 });
 
 describe("WebUI route temporary files", () => {
+  test("normalizes WebSocket session keys to the provider channel casing for messages", async () => {
+    const requestedSessionIds: string[] = [];
+    const sessionProvider: WebuiSessionProvider = {
+      channelName: "websocket",
+      listSessions: () => [],
+      getSessionMessages: (sessionId) => {
+        requestedSessionIds.push(sessionId);
+        return sessionId === "websocket:chat-1"
+          ? {
+              sessionId,
+              messages: [{ role: "user", content: "Hello", timestamp: "2026-06-22T03:50:00.000Z" }],
+            }
+          : null;
+      },
+    };
+
+    const response = await handleWebuiRouteRequest(
+      {
+        method: "GET",
+        path: "/api/sessions/WebSocket%3Achat-1/messages",
+      },
+      undefined,
+      undefined,
+      sessionProvider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "trace-uppercase-websocket",
+    );
+
+    expect(response.status).toBe(200);
+    expect(requestedSessionIds).toEqual(["websocket:chat-1"]);
+    expect(response.body).toEqual({
+      key: "websocket:chat-1",
+      messages: [{ role: "user", content: "Hello", timestamp: "2026-06-22T03:50:00.000Z" }],
+    });
+  });
+
   test("restores task progress cards when session history only has the internal notification", async () => {
     const progressRequests: Array<{ planId: string; traceId: string }> = [];
     const sessionProvider: WebuiSessionProvider = {
