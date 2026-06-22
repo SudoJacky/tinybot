@@ -145,6 +145,7 @@ class DesktopNativeWebSocket extends EventTarget {
   private async dispatchFrame(frame: Record<string, unknown>): Promise<void> {
     const sessionExists = await this.resolveAttachSessionExists(frame);
     const model = stringValue(frame.model);
+    const run = optimisticRunForFrame(frame);
     const request: NativeTransportWebSocketDispatchRequest = {
       clientId: this.clientId,
       frame,
@@ -152,10 +153,17 @@ class DesktopNativeWebSocket extends EventTarget {
       ...(sessionExists !== undefined ? { sessionExists } : {}),
       ...(this.editablePaths ? { editablePaths: this.editablePaths } : {}),
       ...(model ? { model } : {}),
+      ...(run ? { runId: run.runId } : {}),
     };
+    if (run) {
+      this.registerRun(run.runId, run);
+    }
     try {
       this.applyDispatchResult(await this.nativeTransport.dispatchWebsocketMessage(request));
     } catch (error) {
+      if (run) {
+        this.activeRuns.delete(run.runId);
+      }
       this.emitJson({ event: "error", message: error instanceof Error ? error.message : String(error) });
     }
   }
@@ -560,6 +568,24 @@ function createClientId(): string {
   return Math.random().toString(16).slice(2, 14).padEnd(12, "0");
 }
 
+function optimisticRunForFrame(frame: Record<string, unknown>): (ActiveRun & { runId: string }) | null {
+  if (stringValue(frame.type) !== "message") {
+    return null;
+  }
+  const chatId = stringValue(frame.chat_id) || stringValue(frame.chatId);
+  if (!chatId) {
+    return null;
+  }
+  const runId = `websocket-${sanitizeRunIdPart(chatId)}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  return {
+    runId,
+    chatId,
+    sessionId: `websocket:${chatId}`,
+    messageId: runId,
+    streamed: false,
+  };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -590,6 +616,10 @@ function numberValue(value: unknown): number | null {
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
+}
+
+function sanitizeRunIdPart(value: string): string {
+  return value.replace(/[^A-Za-z0-9_.:-]/g, "-") || "chat";
 }
 
 function referenceMetadata(payload: Record<string, unknown>): Record<string, unknown> {

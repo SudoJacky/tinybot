@@ -22,6 +22,7 @@ export type NativeTransportWebSocketMessageRequest = {
 export type NativeTransportWebSocketDispatchRequest = NativeTransportWebSocketMessageRequest & {
   model?: string;
   maxIterations?: number;
+  runId?: string;
   stream?: boolean;
 };
 
