@@ -15,11 +15,12 @@ export interface ComposerSurfaceIslandOptions {
   activeSessionKey?: string | null;
   composerState: ComposerSurfaceState;
   model?: string | null;
+  modelOptions?: string[];
   responding: boolean;
   tokenUsage: string;
   usePersistentRag: boolean;
   onAttach?: () => void;
-  onModelSelect?: () => void;
+  onModelSelect?: (model: string) => void;
   onPersistentRagChange?: (enabled: boolean) => void;
   onSend?: (event: ComposerSurfaceSubmitEvent) => void;
 }
@@ -150,6 +151,7 @@ function createComposerSurfaceApp(state: Ref<ComposerSurfaceIslandOptions>): App
           }, h(NText, { strong: true }, { default: () => "+" })),
           renderComposerRuntimeSurface({
             model: state.value.model,
+            modelOptions: state.value.modelOptions,
             persistentRag: state.value.usePersistentRag,
             tokenUsage: state.value.tokenUsage,
             onModelSelect: state.value.onModelSelect,

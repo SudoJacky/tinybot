@@ -747,6 +747,7 @@ function nativeRuntimeMetadataFromSettings(): NonNullable<DesktopNativeWorkbench
   return {
     provider: nativeSettingsState?.agent.provider || undefined,
     model: nativeSettingsState?.agent.model || undefined,
+    modelOptions: nativeSettingsState ? nativeComposerModelOptions(nativeSettingsState) : undefined,
     contextWindowTokens: nativeSettingsState?.agent.contextWindowTokens ?? undefined,
     maxToolIterations: nativeSettingsState?.agent.maxToolIterations ?? undefined,
     gatewayHttp: gatewayConfig.httpBaseUrl,
@@ -797,8 +798,8 @@ function nativeChatActions() {
     onAttachSessionFile: () => {
       document.getElementById("desktop-session-file-upload")?.click();
     },
-    onSelectModel: () => {
-      void selectNativeComposerModel();
+    onSelectModel: (model: string) => {
+      void selectNativeComposerModel(model);
     },
     onNewChat: () => {
       if (!nativeWorkbenchRuntime) {
@@ -830,7 +831,7 @@ function nativeChatActions() {
   };
 }
 
-async function selectNativeComposerModel(): Promise<void> {
+async function selectNativeComposerModel(selectedModel: string): Promise<void> {
   if (!nativeWorkbenchRuntime) {
     return;
   }
@@ -840,13 +841,15 @@ async function selectNativeComposerModel(): Promise<void> {
   if (!nativeSettingsState) {
     return;
   }
-  const currentModel = nativeSettingsState.agent.model || nativeWorkbenchRuntime.chat.runtime?.model || "";
-  const modelOptions = nativeComposerModelOptions(nativeSettingsState);
-  const selectedModel = promptNativeComposerModel(document, modelOptions, currentModel);
-  if (!selectedModel || selectedModel === currentModel) {
+  const nextModel = selectedModel.trim();
+  if (!nextModel) {
     return;
   }
-  nativeSettingsState = applyDesktopSettingsFieldEdit(nativeSettingsState, "model", selectedModel);
+  const currentModel = nativeSettingsState.agent.model || nativeWorkbenchRuntime.chat.runtime?.model || "";
+  if (nextModel === currentModel) {
+    return;
+  }
+  nativeSettingsState = applyDesktopSettingsFieldEdit(nativeSettingsState, "model", nextModel);
   syncNativeRuntimeMetadata();
   await saveNativeSettingsPane();
 }
@@ -865,33 +868,6 @@ function nativeComposerModelOptions(state: DesktopSettingsFormState): string[] {
     models.unshift(state.agent.model);
   }
   return Array.from(new Set(models));
-}
-
-function promptNativeComposerModel(
-  targetDocument: Document,
-  models: string[],
-  currentModel: string,
-): string | null {
-  const prompt = targetDocument.defaultView?.prompt;
-  if (typeof prompt !== "function") {
-    return null;
-  }
-  if (!models.length) {
-    return prompt("Model", currentModel || "")?.trim() || null;
-  }
-  const message = [
-    "Select model by number or enter a model id:",
-    ...models.map((model, index) => `${index + 1}. ${model}${model === currentModel ? " (current)" : ""}`),
-  ].join("\n");
-  const value = prompt(message, currentModel || models[0])?.trim();
-  if (!value) {
-    return null;
-  }
-  const index = Number(value);
-  if (Number.isInteger(index) && index >= 1 && index <= models.length) {
-    return models[index - 1];
-  }
-  return value;
 }
 
 function summarizeNativeGatewayEvent(event: NormalizedGatewayEvent): Record<string, unknown> {

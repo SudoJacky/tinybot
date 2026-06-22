@@ -510,17 +510,19 @@ describe("desktop workbench shell", () => {
         activeSessionKey: "",
         activeChatId: "",
         messages: [],
-        runtime: { model: "deepseek-reasoner" },
+        runtime: { model: "deepseek-reasoner", modelOptions: ["deepseek-chat", "deepseek-reasoner"] },
       },
       chatActions: {
-        onSelectModel: () => selections.push("model"),
+        onSelectModel: (model) => selections.push(model),
       },
     });
 
     const model = targetDocument.body.querySelector('[data-desktop-composer-action="model-select"]') as HTMLButtonElement | null;
     expect(model?.textContent).toContain("deepseek-reasoner");
     model?.click();
-    expect(selections).toEqual(["model"]);
+    expect(model?.querySelector('[role="listbox"]')?.textContent).toContain("deepseek-chat");
+    (model?.querySelector('[data-desktop-composer-model-option="deepseek-chat"]') as HTMLButtonElement | null)?.click();
+    expect(selections).toEqual(["deepseek-chat"]);
   });
 
   test("overlays recent chat timestamps and delete actions in the same right slot", () => {
