@@ -10,6 +10,7 @@ import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 
 export interface SettingsPaneIslandOptions {
   pane: DesktopSettingsPaneModel;
+  initialActiveGroupId?: DesktopSettingsPaneGroup["id"];
   onSettingsAction?: (event: DesktopSettingsActionEvent) => void;
   promptProviderId?: () => string | null;
   onFocusSettingsControl?: (fieldId: string) => void;
@@ -57,7 +58,7 @@ function createSettingsPaneApp(options: SettingsPaneIslandOptions): App {
     name: "SettingsPaneIsland",
     setup() {
       const providerSearch = ref("");
-      const activeGroupId = ref(options.pane.groups[0]?.id ?? "general");
+      const activeGroupId = ref(getActiveSettingsGroup(options.pane, options.initialActiveGroupId)?.id ?? "general");
       const setActiveGroupId = (groupId: DesktopSettingsPaneGroup["id"]) => {
         activeGroupId.value = groupId;
       };
@@ -588,7 +589,7 @@ function shouldHideProviderCard(provider: ProviderCardModel, query: string): boo
 
 function getActiveSettingsGroup(
   pane: DesktopSettingsPaneModel,
-  activeGroupId: DesktopSettingsPaneGroup["id"],
+  activeGroupId?: DesktopSettingsPaneGroup["id"] | null,
 ): DesktopSettingsPaneGroup | null {
   return pane.groups.find((group) => group.id === activeGroupId) ?? pane.groups[0] ?? null;
 }

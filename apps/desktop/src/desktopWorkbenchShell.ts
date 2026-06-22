@@ -534,7 +534,8 @@ export function updateDesktopSettingsPane(
   if (!pane) {
     return;
   }
-  const next = createSettingsProvidersPane(targetDocument, settingsPane, settingsActions);
+  const activeGroupId = getCurrentDesktopSettingsActiveGroupId(pane, settingsPane);
+  const next = createSettingsProvidersPane(targetDocument, settingsPane, settingsActions, activeGroupId);
   pane.replaceChildren(...Array.from(next.children));
 }
 
@@ -5039,12 +5040,14 @@ function createSettingsProvidersPane(
   targetDocument: Document,
   pane: DesktopSettingsPaneModel,
   settingsActions: DesktopSettingsActionOptions = {},
+  initialActiveGroupId?: DesktopSettingsPaneGroup["id"],
 ): HTMLElement {
   const section = targetDocument.createElement("section");
   section.className = "desktop-workbench-section desktop-settings-pane";
   section.setAttribute("data-desktop-module-surface", "settings");
   section.setAttribute("data-settings-layout", "section-pages");
   section.setAttribute("aria-label", "Settings and providers");
+  const activeGroupId = getDesktopSettingsActiveGroup(pane, initialActiveGroupId)?.id ?? "general";
 
   const content = targetDocument.createElement("div");
   content.className = "desktop-settings-content";
@@ -5054,10 +5057,10 @@ function createSettingsProvidersPane(
     content.replaceChildren(...createSettingsActivePage(targetDocument, pane, settingsActions, groupId));
   };
 
-  section.append(createSettingsSidebar(targetDocument, pane, renderActiveGroup));
-  renderActiveGroup(pane.groups[0]?.id ?? "general");
+  section.append(createSettingsSidebar(targetDocument, pane, renderActiveGroup, activeGroupId));
+  renderActiveGroup(activeGroupId);
   section.append(content);
-  mountSettingsPaneVueIsland(section, targetDocument, pane, settingsActions);
+  mountSettingsPaneVueIsland(section, targetDocument, pane, settingsActions, activeGroupId);
   return section;
 }
 
@@ -5149,12 +5152,14 @@ function mountSettingsPaneVueIsland(
   targetDocument: Document,
   pane: DesktopSettingsPaneModel,
   settingsActions: DesktopSettingsActionOptions,
+  initialActiveGroupId: DesktopSettingsPaneGroup["id"],
 ): void {
   if (!canMountVueIsland(section)) {
     return;
   }
   mountSettingsPaneIsland(section, {
     pane,
+    initialActiveGroupId,
     onSettingsAction: settingsActions.onSettingsAction,
     promptProviderId: () => promptForSettingsProviderId(targetDocument),
     onFocusSettingsControl: (fieldId) => focusDesktopSettingsControl(targetDocument, fieldId),
@@ -5627,6 +5632,7 @@ function createSettingsSidebar(
   targetDocument: Document,
   pane: DesktopSettingsPaneModel,
   onSelectGroup?: (groupId: DesktopSettingsPaneGroup["id"]) => void,
+  initialActiveGroupId: DesktopSettingsPaneGroup["id"] = pane.groups[0]?.id ?? "general",
 ): HTMLElement {
   const sidebar = targetDocument.createElement("aside");
   sidebar.className = "desktop-settings-sidebar";
@@ -5660,7 +5666,7 @@ function createSettingsSidebar(
     item.addEventListener("click", (event) => {
       selectDesktopSettingsGroup(event, targetDocument, group.id, onSelectGroup);
     });
-    if (index === 0) {
+    if (group.id === initialActiveGroupId) {
       item.setAttribute("data-active", "true");
       item.setAttribute("aria-current", "page");
     }
@@ -5699,9 +5705,19 @@ function setDesktopSettingsActiveNav(targetDocument: Document, groupId: string):
 
 function getDesktopSettingsActiveGroup(
   pane: DesktopSettingsPaneModel,
-  activeGroupId: DesktopSettingsPaneGroup["id"],
+  activeGroupId?: string | null,
 ): DesktopSettingsPaneGroup | null {
   return pane.groups.find((group) => group.id === activeGroupId) ?? pane.groups[0] ?? null;
+}
+
+function getCurrentDesktopSettingsActiveGroupId(
+  pane: HTMLElement,
+  nextSettingsPane: DesktopSettingsPaneModel,
+): DesktopSettingsPaneGroup["id"] {
+  const activeGroupId = Array.from(pane.querySelectorAll<HTMLElement>("[data-desktop-settings-nav]"))
+    .find((item) => item.getAttribute("data-active") === "true")
+    ?.getAttribute("data-desktop-settings-nav");
+  return getDesktopSettingsActiveGroup(nextSettingsPane, activeGroupId)?.id ?? nextSettingsPane.groups[0]?.id ?? "general";
 }
 
 function mountSettingsSidebarVueIsland(sidebar: HTMLElement, pane: DesktopSettingsPaneModel): void {

@@ -2898,12 +2898,13 @@ describe("desktop workbench shell", () => {
       gatewayHttp: "http://127.0.0.1:18790",
       settingsPane: firstPane,
     });
+    targetDocument.body.querySelector('[data-desktop-settings-nav="provider-models"]')?.click();
     updateDesktopSettingsPane(targetDocument as unknown as Document, nextPane);
 
     const pane = targetDocument.body.querySelector(".desktop-settings-pane");
     expect(pane?.querySelector(".desktop-settings-status-card")).toBeNull();
-    expect(pane?.querySelector(".desktop-settings-default-llm-card")).not.toBeNull();
-    pane?.querySelector('[data-desktop-settings-nav="provider-models"]')?.click();
+    expect(pane?.querySelector('[data-desktop-settings-nav="provider-models"]')?.getAttribute("data-active")).toBe("true");
+    expect(pane?.querySelector(".desktop-settings-default-llm-card")).toBeNull();
     expect(pane?.querySelector('[data-desktop-settings-provider-card="openai"]')?.textContent).toContain("OpenAI");
   });
 

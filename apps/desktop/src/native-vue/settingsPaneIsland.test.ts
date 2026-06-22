@@ -47,6 +47,23 @@ const pane = buildDesktopSettingsPaneModel(draftState, {
 });
 
 describe("settings pane Vue island", () => {
+  test("renders the provided initial settings section", async () => {
+    const host = document.createElement("section");
+
+    const mounted = mountSettingsPaneIsland(host, {
+      pane,
+      initialActiveGroupId: "provider-models",
+    });
+    await nextTick();
+
+    expect(host.querySelector(".desktop-settings-breadcrumb")?.textContent).toContain("Settings / Provider & Models");
+    expect(host.querySelector('[data-desktop-settings-nav="provider-models"]')?.getAttribute("data-active")).toBe("true");
+    expect(host.querySelector(".desktop-settings-provider-section")).not.toBeNull();
+    expect(host.querySelector(".desktop-settings-default-llm-card")).toBeNull();
+
+    mounted.unmount();
+  });
+
   test("renders settings shell and forwards settings actions", async () => {
     const host = document.createElement("section");
     const focused: string[] = [];
