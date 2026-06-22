@@ -788,7 +788,10 @@ export async function handleWebuiRouteRequest(
     if (!sessionProvider?.deleteSession) {
       return { status: 503, body: { error: "session manager not available" } };
     }
-    const result = await sessionProvider.deleteSession(deleteSessionKey, traceId);
+    const result = await sessionProvider.deleteSession(
+      normalizeWebuiSessionKey(deleteSessionKey, sessionProvider),
+      traceId,
+    );
     if (!result.deleted) {
       return { status: 404, body: { error: "session not found" } };
     }
