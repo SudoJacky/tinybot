@@ -497,6 +497,27 @@ describe("desktop workbench shell", () => {
     expect(labels).toEqual(["30分", "5小时", "3天", "2周", "2月"]);
   });
 
+  test("overlays recent chat timestamps and delete actions in the same right slot", () => {
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const styleText = targetDocument.head.querySelector("#desktop-workbench-shell-style")?.textContent ?? "";
+    expect(styleText).toMatch(
+      /body\.desktop-native-workbench \.desktop-sidebar-chat-row \.desktop-sidebar-row-main \{\s*grid-template-columns: minmax\(0, 1fr\);\s*\}/,
+    );
+    expect(styleText).toMatch(
+      /body\.desktop-native-workbench \.desktop-sidebar-delete-session \{[\s\S]*right: 10px;[\s\S]*width: 64px;/,
+    );
+    expect(styleText).toMatch(
+      /body\.desktop-native-workbench \.desktop-sidebar-row-meta \{[\s\S]*position: absolute;[\s\S]*right: 10px;[\s\S]*width: 64px;/,
+    );
+  });
+
   test("updates native chat regions without reinstalling the whole workbench", () => {
     const targetDocument = new FakeDocument();
 

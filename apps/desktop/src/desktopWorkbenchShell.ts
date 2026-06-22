@@ -10417,12 +10417,12 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       min-width: 0;
       min-height: 34px;
       border: 0;
-      padding: 0 34px 0 10px;
+      padding: 0 82px 0 10px;
       background: transparent;
     }
 
     body.desktop-native-workbench .desktop-sidebar-chat-row .desktop-sidebar-row-main {
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 1fr);
     }
 
     body.desktop-native-workbench .desktop-sidebar-row-title {
@@ -10440,10 +10440,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-sidebar-delete-session {
       position: absolute;
-      right: 5px;
+      right: 10px;
       top: 50%;
       transform: translateY(-50%);
-      width: 24px;
+      width: 64px;
       min-height: 24px;
       border: 1px solid transparent;
       border-radius: 5px;
@@ -10516,9 +10516,15 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-sidebar-row-meta {
+      position: absolute;
+      right: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 64px;
       color: #77736f;
       font-size: 12px;
       font-weight: 400;
+      pointer-events: none;
       text-align: right;
       transition: opacity 120ms ease;
     }
