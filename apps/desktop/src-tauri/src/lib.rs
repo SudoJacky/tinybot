@@ -227,6 +227,8 @@ struct WorkerTransportWebSocketDispatchInput {
     #[serde(default)]
     max_iterations: Option<u32>,
     #[serde(default)]
+    run_id: Option<String>,
+    #[serde(default)]
     stream: Option<bool>,
 }
 
@@ -248,6 +250,7 @@ struct WorkerChannelLoginInput {
 struct WorkerTransportWebSocketDispatchOptions {
     model: Option<String>,
     max_iterations: Option<u32>,
+    run_id: Option<String>,
     stream: Option<bool>,
 }
 
@@ -2328,6 +2331,7 @@ fn worker_transport_dispatch_websocket_message_with_options(
     let dispatch_options = WorkerTransportWebSocketDispatchOptions {
         model: input.model,
         max_iterations: input.max_iterations,
+        run_id: input.run_id,
         stream: input.stream,
     };
     let Some(run_request) = build_worker_transport_websocket_run_input_request(
@@ -2379,11 +2383,18 @@ fn build_worker_transport_websocket_run_input_request(
         .unwrap_or_default();
     metadata.insert("_wants_stream".to_string(), serde_json::Value::Bool(true));
 
-    let mut input = serde_json::json!({
-        "runId": format!(
+    let run_id = options.run_id.unwrap_or_else(|| {
+        format!(
             "websocket-{}-{request_id}",
-            sanitize_worker_run_id_part(if chat_id.is_empty() { session_id } else { chat_id })
-        ),
+            sanitize_worker_run_id_part(if chat_id.is_empty() {
+                session_id
+            } else {
+                chat_id
+            })
+        )
+    });
+    let mut input = serde_json::json!({
+        "runId": run_id,
         "sessionId": session_id,
         "input": {
             "role": "user",
@@ -4184,6 +4195,7 @@ mod tests {
                 model: Some("gpt-5".to_string()),
                 max_iterations: Some(6),
                 stream: None,
+                ..WorkerTransportWebSocketDispatchOptions::default()
             },
         )
         .expect("message mapper result should build a run request");
@@ -4217,6 +4229,39 @@ mod tests {
             WorkerTransportWebSocketDispatchOptions::default(),
         )
         .is_none());
+    }
+
+    #[test]
+    fn worker_transport_websocket_dispatch_uses_preallocated_run_id_for_streaming() {
+        let mapper_result = serde_json::json!({
+            "kind": "message",
+            "chatId": "chat-1",
+            "sessionId": "websocket:chat-1",
+            "frames": [],
+            "inbound": {
+                "channel": "websocket",
+                "sender_id": "client-1",
+                "chat_id": "chat-1",
+                "content": "hello",
+                "metadata": {},
+                "session_key": "websocket:chat-1"
+            }
+        });
+
+        let request = build_worker_transport_websocket_run_input_request(
+            42,
+            &mapper_result,
+            WorkerTransportWebSocketDispatchOptions {
+                run_id: Some("websocket-chat-1-preallocated".to_string()),
+                ..WorkerTransportWebSocketDispatchOptions::default()
+            },
+        )
+        .expect("message mapper result should build a run request");
+
+        assert_eq!(
+            request.params["input"]["runId"],
+            serde_json::Value::String("websocket-chat-1-preallocated".to_string())
+        );
     }
 
     #[test]

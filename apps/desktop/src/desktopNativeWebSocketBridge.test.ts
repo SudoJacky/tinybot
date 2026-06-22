@@ -98,6 +98,69 @@ describe("desktop native WebSocket bridge", () => {
     expect(unlisteners.every((unlisten) => vi.mocked(unlisten).mock.calls.length === 1)).toBe(true);
   });
 
+  test("registers native message runs before dispatch completes so stream deltas render live", async () => {
+    const handlers = new Map<DesktopNativeWebSocketAgentEventName, (payload: unknown) => void>();
+    const dispatched: unknown[] = [];
+    const dispatch = deferred<unknown>();
+    const nativeTransport: NativeTransportApi = {
+      gatewayFrame: vi.fn(),
+      websocketMessage: vi.fn(),
+      dispatchWebsocketMessage: vi.fn(async (request) => {
+        dispatched.push(request);
+        return dispatch.promise;
+      }),
+      dispatchChannelInbound: vi.fn(),
+      startChannels: vi.fn(),
+      channelStatus: vi.fn(),
+      stopChannels: vi.fn(),
+    };
+    const socket = createDesktopNativeWebSocket({
+      url: "/ws",
+      nativeTransport,
+      listenToAgentEvent: (eventName, handler) => {
+        handlers.set(eventName, handler);
+      },
+    });
+    const events: Array<Record<string, unknown>> = [];
+    socket.addEventListener("message", (event) => {
+      events.push(JSON.parse(String((event as MessageEvent).data)) as Record<string, unknown>);
+    });
+
+    await flushMicrotasks();
+    socket.send(JSON.stringify({ type: "message", chat_id: "chat-native", content: "hello" }));
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    const runId = (dispatched[0] as { runId?: string } | undefined)?.runId;
+    expect(runId).toMatch(/^websocket-chat-native-/);
+
+    handlers.get("agent.delta")?.({ runId, delta: "live", messageId: "message-live" });
+    await flushMicrotasks();
+
+    expect(events).toContainEqual({
+      event: "delta",
+      chat_id: "chat-native",
+      message_id: "message-live",
+      text: "live",
+      is_reasoning: false,
+    });
+
+    dispatch.resolve({
+      transport: {
+        kind: "message",
+        chatId: "chat-native",
+        sessionId: "websocket:chat-native",
+        frames: [],
+      },
+      agent: {
+        runId,
+        finalContent: "live final",
+        stopReason: "final_response",
+      },
+    });
+    await flushMicrotasks();
+  });
+
   test("projects TS worker cowork events into legacy WebUI WebSocket frames", async () => {
     const handlers = new Map<string, (payload: unknown) => void>();
     const nativeTransport: NativeTransportApi = {

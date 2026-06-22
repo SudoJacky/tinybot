@@ -170,6 +170,44 @@ describe("desktop chat session controller", () => {
     ]);
   });
 
+  test("keeps a new chat in recent sessions when the gateway list has not persisted it yet", async () => {
+    const sent: unknown[] = [];
+    const controller = createDesktopChatSessionController({
+      api: {
+        listSessions: vi.fn(async () => ({ items: [] })),
+        loadMessages: vi.fn(async () => ({ messages: [] })),
+      },
+      sendSocketMessage: (message) => sent.push(message),
+      now: () => "2026-06-22T05:30:00.000Z",
+    });
+
+    expect(controller.submitMessage("  live question  ")).toEqual({
+      status: "creating",
+      pendingContent: "live question",
+    });
+
+    await expect(controller.handleGatewayEvent({ kind: "chat.created", chatId: "chat-live", raw: {} })).resolves.toEqual({
+      pendingMessageSent: true,
+      loadedMessagesForChatId: "",
+      reloadedSessions: true,
+    });
+
+    expect(controller.state.sessions).toMatchObject([
+      {
+        key: sessionKeyForChat("chat-live"),
+        chatId: "chat-live",
+        title: "live question",
+      },
+    ]);
+    expect(controller.state.messages.get(sessionKeyForChat("chat-live"))).toMatchObject([
+      { role: "user", content: "live question" },
+    ]);
+    expect(sent).toEqual([
+      { type: "new_chat" },
+      { type: "message", chat_id: "chat-live", content: "live question", use_persistent_rag: true },
+    ]);
+  });
+
   test("sends active chat messages, interrupt requests, and attached message loads through existing gateway shapes", async () => {
     const sent: unknown[] = [];
     const controller = createDesktopChatSessionController({

@@ -228,6 +228,9 @@ export function createDesktopChatSessionController({
 
     if (event.kind === "chat.created") {
       await loadSessions();
+      if (!state.sessions.some((session) => session.chatId === event.chatId)) {
+        activateSession(state, sessionKeyForChat(event.chatId), event.chatId);
+      }
       result.reloadedSessions = true;
       if (pendingMessage) {
         const { content, usePersistentRag } = pendingMessage;
