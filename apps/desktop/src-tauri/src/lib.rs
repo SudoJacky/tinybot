@@ -2950,7 +2950,7 @@ fn experimental_worker_router(
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
 ) -> WorkerRpcRouter {
-    WorkerRpcRouter::new(
+    WorkerRpcRouter::new_persistent_sessions(
         workspace_root,
         config_snapshot,
         vec![],
@@ -2980,6 +2980,7 @@ fn experimental_worker_router(
             WorkerCapability::SessionWrite,
         ]),
     )
+    .expect("persistent session store should initialize")
     .with_builtin_skills_root(repo_root())
 }
 
