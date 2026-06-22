@@ -1110,7 +1110,7 @@ function recentChatRowModel(
     routeId,
     sessionKey: session.key,
     title,
-    updatedLabel: session.updatedAt ? `Updated ${formatCompactTime(session.updatedAt)}` : session.chatId,
+    updatedLabel: formatSessionRelativeTime(session.updatedAt || session.createdAt) || session.chatId,
   };
 }
 
@@ -1179,7 +1179,7 @@ function createRecentChatRow(
 
   const title = session.title || "New session";
   const href = `/chat/${encodeURIComponent(routeId)}`;
-  const updatedLabel = session.updatedAt ? `Updated ${formatCompactTime(session.updatedAt)}` : session.chatId;
+  const updatedLabel = formatSessionRelativeTime(session.updatedAt || session.createdAt) || session.chatId;
 
   const link = targetDocument.createElement("a");
   link.className = "desktop-sidebar-row desktop-sidebar-row-main";
@@ -1215,12 +1215,12 @@ function createRecentChatRow(
       confirmDelete = true;
       deleteButton.setAttribute("aria-label", `Confirm delete chat ${title}`);
       deleteButton.setAttribute("data-confirming", "true");
-      deleteButton.textContent = "Confirm";
+      deleteButton.textContent = "确认";
       return;
     }
     deleteButton.setAttribute("disabled", "");
     deleteButton.setAttribute("data-deleting", "true");
-    deleteButton.textContent = "Deleting";
+    deleteButton.textContent = "删除中";
     chatActions.onDeleteSession?.({
       sessionKey: session.key,
       chatId: session.chatId,
@@ -3078,6 +3078,45 @@ function formatCompactTime(value: string): string {
   }
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleTimeString();
+}
+
+function formatSessionRelativeTime(value: string): string {
+  const timestamp = parseSessionTimestampMs(value);
+  if (timestamp === null) {
+    return "";
+  }
+  const elapsedMs = Math.max(0, Date.now() - timestamp);
+  const minuteMs = 60_000;
+  const hourMs = 60 * minuteMs;
+  const dayMs = 24 * hourMs;
+  const weekMs = 7 * dayMs;
+  const monthMs = 30 * dayMs;
+  if (elapsedMs < hourMs) {
+    return `${Math.max(1, Math.floor(elapsedMs / minuteMs))}分`;
+  }
+  if (elapsedMs < dayMs) {
+    return `${Math.max(1, Math.floor(elapsedMs / hourMs))}小时`;
+  }
+  if (elapsedMs < weekMs) {
+    return `${Math.max(1, Math.floor(elapsedMs / dayMs))}天`;
+  }
+  if (elapsedMs < monthMs) {
+    return `${Math.max(1, Math.floor(elapsedMs / weekMs))}周`;
+  }
+  return `${Math.max(1, Math.floor(elapsedMs / monthMs))}月`;
+}
+
+function parseSessionTimestampMs(value: string): number | null {
+  if (!value) {
+    return null;
+  }
+  const unixMs = value.match(/^unix-ms:(\d+)$/);
+  if (unixMs) {
+    const timestamp = Number(unixMs[1]);
+    return Number.isFinite(timestamp) ? timestamp : null;
+  }
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? null : timestamp;
 }
 
 function createComposerModelControl(targetDocument: Document, chat: DesktopNativeChatModel | null = null): HTMLElement {
@@ -10362,7 +10401,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-sidebar-chat-row {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 1fr);
       align-items: center;
       gap: 6px;
       min-width: 0;
@@ -10370,6 +10409,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       border: 1px solid transparent;
       border-radius: 7px;
       padding: 0 5px 0 0;
+      position: relative;
       transition: background-color 120ms ease, border-color 120ms ease;
     }
 
@@ -10377,8 +10417,12 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       min-width: 0;
       min-height: 34px;
       border: 0;
-      padding: 0 4px 0 10px;
+      padding: 0 34px 0 10px;
       background: transparent;
+    }
+
+    body.desktop-native-workbench .desktop-sidebar-chat-row .desktop-sidebar-row-main {
+      grid-template-columns: minmax(0, 1fr) auto;
     }
 
     body.desktop-native-workbench .desktop-sidebar-row-title {
@@ -10395,6 +10439,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-sidebar-delete-session {
+      position: absolute;
+      right: 5px;
+      top: 50%;
+      transform: translateY(-50%);
       width: 24px;
       min-height: 24px;
       border: 1px solid transparent;
@@ -10403,15 +10451,37 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       color: #8b5b4e;
       font: 600 11px/1 var(--font-sans);
       cursor: pointer;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 120ms ease, background-color 120ms ease, border-color 120ms ease, color 120ms ease;
     }
 
     body.desktop-native-workbench .desktop-sidebar-delete-session[data-confirming="true"] {
       width: 64px;
+      border-color: #f2c9c2;
+      background: #fff0ee;
+      color: #9f2f25;
+      opacity: 1;
+      pointer-events: auto;
     }
 
     body.desktop-native-workbench .desktop-sidebar-chat-row:hover {
       border-color: #eee4dd;
       background: #fffdfb;
+    }
+
+    body.desktop-native-workbench .desktop-sidebar-chat-row:hover .desktop-sidebar-row-meta,
+    body.desktop-native-workbench .desktop-sidebar-chat-row:focus-within .desktop-sidebar-row-meta,
+    body.desktop-native-workbench .desktop-sidebar-chat-row:has(.desktop-sidebar-delete-session[data-confirming="true"]) .desktop-sidebar-row-meta,
+    body.desktop-native-workbench .desktop-sidebar-chat-row:has(.desktop-sidebar-delete-session[data-deleting="true"]) .desktop-sidebar-row-meta {
+      opacity: 0;
+    }
+
+    body.desktop-native-workbench .desktop-sidebar-chat-row:hover .desktop-sidebar-delete-session,
+    body.desktop-native-workbench .desktop-sidebar-chat-row:focus-within .desktop-sidebar-delete-session,
+    body.desktop-native-workbench .desktop-sidebar-delete-session[data-deleting="true"] {
+      opacity: 1;
+      pointer-events: auto;
     }
 
     body.desktop-native-workbench .desktop-sidebar-delete-session:hover,
@@ -10449,6 +10519,8 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       color: #77736f;
       font-size: 12px;
       font-weight: 400;
+      text-align: right;
+      transition: opacity 120ms ease;
     }
 
     body.desktop-native-workbench .desktop-workbench-main {

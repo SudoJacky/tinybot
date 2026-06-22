@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { buildDesktopCoworkCockpitView, buildDesktopCoworkSessionRows } from "./desktopCowork";
 import { buildDesktopKnowledgePaneModel } from "./desktopKnowledgeTraceability";
 import { buildDesktopRunChainItems } from "./desktopRunChainInspector";
@@ -255,6 +255,10 @@ function findEntityRow(root: FakeElement | null | undefined, module: string, ent
 }
 
 describe("desktop workbench shell", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   test("renders persistent desktop regions from layout state", () => {
     const targetDocument = new FakeDocument();
 
@@ -448,12 +452,49 @@ describe("desktop workbench shell", () => {
     deleteButton?.click();
     expect(deletedSessions).toEqual([]);
     expect(deleteButton?.getAttribute("aria-label")).toBe("Confirm delete chat Live gateway session");
-    expect(deleteButton?.textContent).toBe("Confirm");
+    expect(deleteButton?.textContent).toBe("确认");
     deleteButton?.click();
     expect(deleteButton?.getAttribute("data-deleting")).toBe("true");
     expect(deleteButton?.getAttribute("disabled")).toBe("");
-    expect(deleteButton?.textContent).toBe("Deleting");
+    expect(deleteButton?.textContent).toBe("删除中");
     expect(deletedSessions).toEqual(["WebSocket:chat-live"]);
+  });
+
+  test("renders recent chat timestamps as single relative units", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-22T12:00:00.000Z"));
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      chat: {
+        sessions: [
+          {
+            key: "WebSocket:chat-min",
+            chatId: "chat-min",
+            title: "Minute",
+            createdAt: "",
+            updatedAt: `unix-ms:${new Date("2026-06-22T11:30:00.000Z").getTime()}`,
+          },
+          { key: "WebSocket:chat-hour", chatId: "chat-hour", title: "Hour", createdAt: "", updatedAt: "2026-06-22T07:00:00.000Z" },
+          { key: "WebSocket:chat-day", chatId: "chat-day", title: "Day", createdAt: "", updatedAt: "2026-06-19T12:00:00.000Z" },
+          { key: "WebSocket:chat-week", chatId: "chat-week", title: "Week", createdAt: "", updatedAt: "2026-06-07T12:00:00.000Z" },
+          { key: "WebSocket:chat-month", chatId: "chat-month", title: "Month", createdAt: "", updatedAt: "2026-04-13T12:00:00.000Z" },
+        ],
+        activeSessionKey: "WebSocket:chat-min",
+        activeChatId: "chat-min",
+        messages: [],
+      },
+    });
+
+    const labels = targetDocument.body
+      .querySelector(".desktop-recent-chat-list")
+      ?.querySelectorAll(".desktop-sidebar-row-meta")
+      .map((node) => node.textContent);
+
+    expect(labels).toEqual(["30分", "5小时", "3天", "2周", "2月"]);
   });
 
   test("updates native chat regions without reinstalling the whole workbench", () => {

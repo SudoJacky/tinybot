@@ -16,7 +16,7 @@ describe("recent chat row Vue island", () => {
       routeId: "chat-1",
       sessionKey: "WebSocket:chat-1",
       title: "Session one",
-      updatedLabel: "Updated 2m ago",
+      updatedLabel: "2分",
     });
 
     expect(host.getAttribute("data-desktop-vue-island")).toBe("recent-chat-row");
@@ -34,7 +34,7 @@ describe("recent chat row Vue island", () => {
     expect(link?.getAttribute("data-desktop-entity-module")).toBe("chat");
     expect(link?.getAttribute("data-desktop-entity-id")).toBe("chat-1");
     expect(link?.querySelector(".desktop-sidebar-row-label")?.textContent).toBe("Session one");
-    expect(link?.querySelector(".desktop-sidebar-row-meta")?.textContent).toBe("Updated 2m ago");
+    expect(link?.querySelector(".desktop-sidebar-row-meta")?.textContent).toBe("2分");
     expect(link?.querySelector("[data-desktop-session-pin-icon]")?.textContent).toBe("📌");
 
     const deleteButton = host.querySelector<HTMLButtonElement>("[data-desktop-chat-delete]");
@@ -63,7 +63,7 @@ describe("recent chat row Vue island", () => {
         { kind: "knowledge", label: "Knowledge On" },
       ],
       title: "Session one",
-      updatedLabel: "Updated 2m ago",
+      updatedLabel: "2分",
     });
 
     expect(host.querySelector(".desktop-sidebar-row-status")).toBeNull();
@@ -95,13 +95,13 @@ describe("recent chat row Vue island", () => {
     expect(deletes).toEqual([]);
     expect(deleteButton?.getAttribute("aria-label")).toBe("Confirm delete chat Session two");
     expect(deleteButton?.getAttribute("data-confirming")).toBe("true");
-    expect(deleteButton?.textContent).toBe("Confirm");
+    expect(deleteButton?.textContent).toBe("确认");
 
     deleteButton?.click();
     await nextTick();
     expect(deletes).toEqual([{ chatId: "chat-2", sessionKey: "WebSocket:chat-2", title: "Session two" }]);
     expect(deleteButton?.getAttribute("disabled")).toBe("");
     expect(deleteButton?.getAttribute("data-deleting")).toBe("true");
-    expect(deleteButton?.textContent).toBe("Deleting");
+    expect(deleteButton?.textContent).toBe("删除中");
   });
 });
