@@ -89,7 +89,10 @@ mod tests {
             .append("stderr", "worker warning")
             .expect("diagnostic should append");
 
-        assert_eq!(appended, WorkerDiagnosticLine::new("stderr", "worker warning"));
+        assert_eq!(
+            appended,
+            WorkerDiagnosticLine::new("stderr", "worker warning")
+        );
         assert_eq!(
             rpc.lines(),
             vec![WorkerDiagnosticLine::new("stderr", "worker warning")]

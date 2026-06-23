@@ -51,14 +51,18 @@ impl WorkerCommandSpec {
 #[serde(rename_all = "snake_case")]
 pub enum WorkerManagerState {
     Stopped,
+    Starting,
     Running,
+    Stopping,
     Failed,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum WorkerHealth {
     Stopped,
+    Starting,
     Running,
+    Stopping,
     Exited,
     Failed,
 }
@@ -107,6 +111,7 @@ impl fmt::Debug for WorkerManager {
 
 #[derive(Debug)]
 struct WorkerManagerInner {
+    lifecycle: WorkerProcessLifecycle,
     child: Option<Child>,
     label: Option<String>,
     pid: Option<u32>,
@@ -116,10 +121,20 @@ struct WorkerManagerInner {
     stdio_connection: Option<WorkerConnection<ChildStdin>>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum WorkerProcessLifecycle {
+    Stopped,
+    Starting,
+    Running,
+    Stopping,
+    Failed,
+}
+
 impl WorkerManager {
     pub fn new(diagnostic_capacity: usize) -> Self {
         Self {
             inner: Arc::new(Mutex::new(WorkerManagerInner {
+                lifecycle: WorkerProcessLifecycle::Stopped,
                 child: None,
                 label: None,
                 pid: None,
@@ -148,10 +163,20 @@ impl WorkerManager {
     pub fn start(&self, spec: WorkerCommandSpec) -> Result<(), WorkerManagerError> {
         {
             let mut inner = lock_inner(&self.inner);
-            if refresh_child_status(&mut inner)? == WorkerHealth::Running {
+            if matches!(
+                refresh_child_status(&mut inner)?,
+                WorkerHealth::Running | WorkerHealth::Starting | WorkerHealth::Stopping
+            ) {
                 return Err(WorkerManagerError::AlreadyRunning);
             }
+            inner.lifecycle = WorkerProcessLifecycle::Starting;
+            inner.label = Some(spec.label.clone());
+            inner.pid = None;
+            inner.started_at_unix_ms = None;
+            inner.last_error = None;
+            inner.stdio_connection = None;
         }
+        self.emit_status();
 
         let mut command = Command::new(&spec.program);
         command
@@ -163,15 +188,30 @@ impl WorkerManager {
         #[cfg(target_os = "windows")]
         command.creation_flags(0x08000000);
 
-        let mut child = command
-            .spawn()
-            .map_err(|error| WorkerManagerError::SpawnFailed(error.to_string()))?;
+        let mut child = match command.spawn() {
+            Ok(child) => child,
+            Err(error) => {
+                let message = format!("failed to spawn worker: {error}");
+                let mut inner = lock_inner(&self.inner);
+                inner.lifecycle = WorkerProcessLifecycle::Failed;
+                inner.child = None;
+                inner.label = Some(spec.label);
+                inner.pid = None;
+                inner.started_at_unix_ms = None;
+                inner.last_error = Some(message.clone());
+                inner.stdio_connection = None;
+                drop(inner);
+                self.emit_status();
+                return Err(WorkerManagerError::SpawnFailed(error.to_string()));
+            }
+        };
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
         let pid = child.id();
 
         {
             let mut inner = lock_inner(&self.inner);
+            inner.lifecycle = WorkerProcessLifecycle::Running;
             inner.child = Some(child);
             inner.label = Some(spec.label);
             inner.pid = Some(pid);
@@ -208,10 +248,20 @@ impl WorkerManager {
     ) -> Result<(), WorkerManagerError> {
         {
             let mut inner = lock_inner(&self.inner);
-            if refresh_child_status(&mut inner)? == WorkerHealth::Running {
+            if matches!(
+                refresh_child_status(&mut inner)?,
+                WorkerHealth::Running | WorkerHealth::Starting | WorkerHealth::Stopping
+            ) {
                 return Err(WorkerManagerError::AlreadyRunning);
             }
+            inner.lifecycle = WorkerProcessLifecycle::Starting;
+            inner.label = Some(spec.label.clone());
+            inner.pid = None;
+            inner.started_at_unix_ms = None;
+            inner.last_error = None;
+            inner.stdio_connection = None;
         }
+        self.emit_status();
 
         let mut command = Command::new(&spec.program);
         command
@@ -224,9 +274,23 @@ impl WorkerManager {
         #[cfg(target_os = "windows")]
         command.creation_flags(0x08000000);
 
-        let mut child = command
-            .spawn()
-            .map_err(|error| WorkerManagerError::SpawnFailed(error.to_string()))?;
+        let mut child = match command.spawn() {
+            Ok(child) => child,
+            Err(error) => {
+                let message = format!("failed to spawn worker: {error}");
+                let mut inner = lock_inner(&self.inner);
+                inner.lifecycle = WorkerProcessLifecycle::Failed;
+                inner.child = None;
+                inner.label = Some(spec.label);
+                inner.pid = None;
+                inner.started_at_unix_ms = None;
+                inner.last_error = Some(message.clone());
+                inner.stdio_connection = None;
+                drop(inner);
+                self.emit_status();
+                return Err(WorkerManagerError::SpawnFailed(error.to_string()));
+            }
+        };
         let stdin = child.stdin.take();
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
@@ -234,6 +298,7 @@ impl WorkerManager {
 
         {
             let mut inner = lock_inner(&self.inner);
+            inner.lifecycle = WorkerProcessLifecycle::Running;
             inner.child = Some(child);
             inner.label = Some(spec.label);
             inner.pid = Some(pid);
@@ -305,16 +370,27 @@ impl WorkerManager {
     pub fn stop(&self) -> Result<(), WorkerManagerError> {
         let child = {
             let mut inner = lock_inner(&self.inner);
+            if !matches!(inner.lifecycle, WorkerProcessLifecycle::Stopped) {
+                inner.lifecycle = WorkerProcessLifecycle::Stopping;
+            }
             inner.child.take()
         };
+        self.emit_status();
 
         if let Some(mut child) = child {
-            terminate_child_process_tree(&mut child)
-                .map_err(|error| WorkerManagerError::StopFailed(error.to_string()))?;
+            if let Err(error) = terminate_child_process_tree(&mut child) {
+                let mut inner = lock_inner(&self.inner);
+                inner.lifecycle = WorkerProcessLifecycle::Failed;
+                inner.last_error = Some(format!("failed to stop worker: {error}"));
+                drop(inner);
+                self.emit_status();
+                return Err(WorkerManagerError::StopFailed(error.to_string()));
+            }
             let _ = child.wait();
         }
 
         let mut inner = lock_inner(&self.inner);
+        inner.lifecycle = WorkerProcessLifecycle::Stopped;
         inner.pid = None;
         inner.label = None;
         inner.started_at_unix_ms = None;
@@ -349,7 +425,9 @@ impl WorkerManager {
         let health = refresh_child_status(&mut inner).unwrap_or(WorkerHealth::Failed);
         WorkerManagerStatus {
             state: match health {
+                WorkerHealth::Starting => WorkerManagerState::Starting,
                 WorkerHealth::Running => WorkerManagerState::Running,
+                WorkerHealth::Stopping => WorkerManagerState::Stopping,
                 WorkerHealth::Failed => WorkerManagerState::Failed,
                 WorkerHealth::Stopped | WorkerHealth::Exited => WorkerManagerState::Stopped,
             },
@@ -369,14 +447,36 @@ impl WorkerManager {
 fn refresh_child_status(
     inner: &mut WorkerManagerInner,
 ) -> Result<WorkerHealth, WorkerManagerError> {
+    match inner.lifecycle {
+        WorkerProcessLifecycle::Starting if inner.child.is_none() => {
+            return Ok(WorkerHealth::Starting);
+        }
+        WorkerProcessLifecycle::Stopping if inner.child.is_none() => {
+            return Ok(WorkerHealth::Stopping);
+        }
+        WorkerProcessLifecycle::Failed if inner.child.is_none() => {
+            return Ok(WorkerHealth::Failed);
+        }
+        WorkerProcessLifecycle::Stopped if inner.child.is_none() => {
+            return Ok(WorkerHealth::Stopped);
+        }
+        _ => {}
+    }
+
     let Some(child) = inner.child.as_mut() else {
+        inner.lifecycle = WorkerProcessLifecycle::Stopped;
         return Ok(WorkerHealth::Stopped);
     };
 
     match child.try_wait() {
-        Ok(None) => Ok(WorkerHealth::Running),
+        Ok(None) => Ok(match inner.lifecycle {
+            WorkerProcessLifecycle::Starting => WorkerHealth::Starting,
+            WorkerProcessLifecycle::Stopping => WorkerHealth::Stopping,
+            _ => WorkerHealth::Running,
+        }),
         Ok(Some(status)) => {
             inner.last_error = Some(format!("worker exited with {status}"));
+            inner.lifecycle = WorkerProcessLifecycle::Stopped;
             inner.child = None;
             inner.pid = None;
             inner.started_at_unix_ms = None;
@@ -386,6 +486,7 @@ fn refresh_child_status(
         Err(error) => {
             let message = format!("failed to inspect worker process: {error}");
             inner.last_error = Some(message.clone());
+            inner.lifecycle = WorkerProcessLifecycle::Failed;
             inner.child = None;
             inner.pid = None;
             inner.started_at_unix_ms = None;
@@ -574,6 +675,87 @@ mod tests {
         assert!(status.pid.is_some());
 
         manager.stop().expect("worker should stop");
+    }
+
+    #[test]
+    fn manager_records_failed_state_when_startup_fails() {
+        let manager = WorkerManager::new(20);
+        let error = manager
+            .start(
+                WorkerCommandSpec::new(
+                    "definitely-not-a-real-tinybot-worker",
+                    std::iter::empty::<&str>(),
+                    PathBuf::from("."),
+                )
+                .with_label("missing-worker"),
+            )
+            .expect_err("missing worker executable should fail startup");
+        let status = manager.status();
+
+        assert!(matches!(error, WorkerManagerError::SpawnFailed(_)));
+        assert_eq!(status.state, WorkerManagerState::Failed);
+        assert_eq!(status.label.as_deref(), Some("missing-worker"));
+        assert!(status.pid.is_none());
+        assert!(status
+            .last_error
+            .as_deref()
+            .is_some_and(|message| message.contains("failed to spawn worker")));
+    }
+
+    #[test]
+    fn manager_concurrent_stdio_start_spawns_only_one_worker() {
+        let fixture = WorkspaceFixture::new();
+        let manager = WorkerManager::new(20);
+        let mut handles = Vec::new();
+
+        for _ in 0..8 {
+            let manager = manager.clone();
+            let workspace_root = fixture.root.clone();
+            handles.push(std::thread::spawn(move || {
+                let router = WorkerRpcRouter::new(
+                    workspace_root,
+                    json!({}),
+                    vec![],
+                    20,
+                    CapabilityPolicy::default(),
+                );
+                manager.start_stdio_rpc(test_stdio_event_worker_spec(), router)
+            }));
+        }
+
+        let mut started = 0;
+        let mut already_running = 0;
+        for handle in handles {
+            match handle.join().expect("start thread should not panic") {
+                Ok(()) => started += 1,
+                Err(WorkerManagerError::AlreadyRunning) => already_running += 1,
+                Err(error) => panic!("unexpected start error: {error:?}"),
+            }
+        }
+
+        assert_eq!(started, 1);
+        assert_eq!(already_running, 7);
+        assert_eq!(manager.status().state, WorkerManagerState::Running);
+        manager.stop().expect("worker should stop");
+    }
+
+    #[test]
+    fn manager_stop_clears_starting_state_without_process() {
+        let manager = WorkerManager::new(20);
+        {
+            let mut inner = lock_inner(&manager.inner);
+            inner.lifecycle = WorkerProcessLifecycle::Starting;
+            inner.label = Some("starting-worker".to_string());
+            inner.started_at_unix_ms = Some(42);
+        }
+
+        manager.stop().expect("stop while starting should succeed");
+        let status = manager.status();
+
+        assert_eq!(status.state, WorkerManagerState::Stopped);
+        assert!(status.label.is_none());
+        assert!(status.pid.is_none());
+        assert!(status.started_at_unix_ms.is_none());
     }
 
     #[test]

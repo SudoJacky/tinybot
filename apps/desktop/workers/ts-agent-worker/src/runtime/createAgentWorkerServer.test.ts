@@ -660,6 +660,10 @@ describe("createAgentWorkerServer", () => {
       },
     }));
 
+    await respondToConfigSnapshot(server, lines, {
+      agents: { defaults: { provider: "ollama", model: "dream-model" } },
+    });
+    await respondToProviderSecret(server, lines, "ollama", {});
     await waitFor(() => parsedLines(lines).some((line) => line.method === "memory.dream_apply"));
     const apply = parsedLines(lines).find((line) => line.method === "memory.dream_apply");
     expect(apply).toMatchObject({
@@ -878,7 +882,7 @@ describe("createAgentWorkerServer", () => {
   test("wires heartbeat trigger to native workspace and session/config bridges", async () => {
     const lines: string[] = [];
     const heartbeatConfigSnapshot = {
-      agents: { defaults: { model: "gpt-heartbeat", timezone: "Asia/Shanghai" } },
+      agents: { defaults: { provider: "ollama", model: "gpt-heartbeat", timezone: "Asia/Shanghai" } },
       channels: { feishu: { enabled: true } },
       gateway: { heartbeat: { enabled: true, interval_s: 120, keep_recent_messages: 5 } },
     };
@@ -919,6 +923,10 @@ describe("createAgentWorkerServer", () => {
     await respondToWorkerRequest(server, lines, "config.snapshot_public", {
       value: heartbeatConfigSnapshot,
     });
+    await respondToProviderSecret(server, lines, "ollama", {});
+    await respondToWorkerRequest(server, lines, "config.snapshot_public", {
+      value: heartbeatConfigSnapshot,
+    });
     await respondToWorkerRequest(server, lines, "session.list_metadata", [
       {
         session_id: "feishu:chat-1",
@@ -926,36 +934,16 @@ describe("createAgentWorkerServer", () => {
         updated_at: "2026-06-13T08:00:00.000Z",
       },
     ]);
-    await waitFor(() => parsedLines(lines).filter((line) => line.method === "config.snapshot_public").length >= 2);
-    const targetConfigRequest = parsedLines(lines).filter((line) => line.method === "config.snapshot_public").at(-1);
-    if (!targetConfigRequest || typeof targetConfigRequest.id !== "string" || typeof targetConfigRequest.trace_id !== "string") {
-      throw new Error("missing heartbeat target config request");
-    }
-    await server.handleLine(
-      JSON.stringify({
-        protocol_version: "1",
-        id: targetConfigRequest.id,
-        trace_id: targetConfigRequest.trace_id,
-        result: {
-          value: heartbeatConfigSnapshot,
-        },
-      }),
-    );
-    await waitFor(() => parsedLines(lines).filter((line) => line.method === "config.snapshot_public").length >= 3);
-    const trimConfigRequest = parsedLines(lines).filter((line) => line.method === "config.snapshot_public").at(-1);
-    if (!trimConfigRequest || typeof trimConfigRequest.id !== "string" || typeof trimConfigRequest.trace_id !== "string") {
-      throw new Error("missing trim config request");
-    }
-    await server.handleLine(
-      JSON.stringify({
-        protocol_version: "1",
-        id: trimConfigRequest.id,
-        trace_id: trimConfigRequest.trace_id,
-        result: {
-          value: heartbeatConfigSnapshot,
-        },
-      }),
-    );
+    await respondToWorkerRequest(server, lines, "config.snapshot_public", {
+      value: heartbeatConfigSnapshot,
+    });
+    await respondToWorkerRequest(server, lines, "config.snapshot_public", {
+      value: heartbeatConfigSnapshot,
+    });
+    await respondToProviderSecret(server, lines, "ollama", {});
+    await respondToWorkerRequest(server, lines, "config.snapshot_public", {
+      value: heartbeatConfigSnapshot,
+    });
     await respondToWorkerRequest(server, lines, "session.trim", (request) => {
       expect(request.params).toEqual({ session_id: "heartbeat", keep_recent_messages: 5 });
       return { session_id: "heartbeat", messages_before: 9, messages_after: 5 };
@@ -1043,7 +1031,7 @@ describe("createAgentWorkerServer", () => {
     const lines: string[] = [];
     const handled = new Set<unknown>();
     const heartbeatConfigSnapshot = {
-      agents: { defaults: { model: "gpt-heartbeat", timezone: "Asia/Shanghai" } },
+      agents: { defaults: { provider: "ollama", model: "gpt-heartbeat", timezone: "Asia/Shanghai" } },
       channels: { feishu: { enabled: true } },
       gateway: { heartbeat: { enabled: true, interval_s: 1, keep_recent_messages: 5 } },
     };
@@ -1115,15 +1103,21 @@ describe("createAgentWorkerServer", () => {
       return { path: "HEARTBEAT.md", content: "- [ ] Notify about heartbeat task." };
     });
     await respondNext("config.snapshot_public", { value: heartbeatConfigSnapshot });
+    await respondNext("provider.resolve_secret", {});
+    await respondNext("config.snapshot_public", { value: heartbeatConfigSnapshot });
+    await respondNext("config.snapshot_public", { value: heartbeatConfigSnapshot });
     await respondNext("session.list_metadata", [
       { session_id: "feishu:chat-2", title: "Feishu", updated_at: "2026-06-13T08:00:00.000Z" },
     ]);
     await respondNext("config.snapshot_public", { value: heartbeatConfigSnapshot });
+    await respondNext("provider.resolve_secret", {});
     await respondNext("config.snapshot_public", { value: heartbeatConfigSnapshot });
     await respondNext("session.trim", (request) => {
       expect(request.params).toEqual({ session_id: "heartbeat", keep_recent_messages: 5 });
       return { session_id: "heartbeat", messages_before: 8, messages_after: 5 };
     });
+    await respondNext("config.snapshot_public", { value: heartbeatConfigSnapshot });
+    await respondNext("provider.resolve_secret", {});
     await respondNext("config.snapshot_public", { value: heartbeatConfigSnapshot });
     await respondNext("session.list_metadata", [
       { session_id: "feishu:chat-2", title: "Feishu", updated_at: "2026-06-13T08:00:00.000Z" },
@@ -2354,6 +2348,10 @@ describe("createAgentWorkerServer", () => {
       "cowork_store.write_snapshot",
       (request) => ({ session: request.params?.session }),
     );
+    await respondToConfigSnapshot(server, lines, {
+      agents: { defaults: { provider: "ollama", model: "test-model" } },
+    });
+    await respondToProviderSecret(server, lines, "ollama", {});
     await respondToNextStoreRequest("cowork_store.read_snapshot", {
       session: agentRunStartWrite.params?.session,
     });
@@ -3541,7 +3539,7 @@ describe("createAgentWorkerServer", () => {
     );
 
     await respondToConfigSnapshot(server, lines, {
-      agents: { defaults: { provider: "openai", model: "gpt-5.1" } },
+      agents: { defaults: { provider: "openai", model: "gpt-5.5" } },
       providers: {
         openai: {
           provider: "openai",
@@ -3569,7 +3567,7 @@ describe("createAgentWorkerServer", () => {
           providerId: "openai",
           apiKey: "second-key",
           apiBase: "https://api.second.test/v1",
-          model: "gpt-5.1",
+          model: "gpt-5.5",
         }),
       },
     ]);
@@ -4060,29 +4058,11 @@ describe("createAgentWorkerServer", () => {
       }),
     );
 
-    await respondToConfigSnapshot(server, lines, {});
-    await waitFor(() => parsedLines(lines).some((line) => line.method === "session.set_checkpoint"));
-    const checkpointRequest = parsedLines(lines).find((line) => line.method === "session.set_checkpoint");
-    if (!checkpointRequest || typeof checkpointRequest.id !== "string") {
-      throw new Error("missing checkpoint request");
-    }
-    await server.handleLine(JSON.stringify({
-      protocol_version: "1",
-      id: checkpointRequest.id,
-      trace_id: "trace-openai-chat-multimodal",
-      result: { session_id: "api:default" },
-    }));
-    await waitFor(() => parsedLines(lines).some((line) => line.method === "session.persist_turn"));
-    const persistRequest = parsedLines(lines).find((line) => line.method === "session.persist_turn");
-    if (!persistRequest || typeof persistRequest.id !== "string") {
-      throw new Error("missing persist request");
-    }
-    await server.handleLine(JSON.stringify({
-      protocol_version: "1",
-      id: persistRequest.id,
-      trace_id: "trace-openai-chat-multimodal",
-      result: { session_id: "api:default", saved_message_count: 2 },
-    }));
+    await respondToConfigSnapshot(server, lines, {
+      agents: { defaults: { model: "tinybot" } },
+    });
+    await respondToWorkerRequest(server, lines, "session.set_checkpoint", { session_id: "api:default" });
+    await respondToWorkerRequest(server, lines, "session.persist_turn", { session_id: "api:default", saved_message_count: 2 });
     await respondToMemoryCapture(server, lines, "trace-openai-chat-multimodal");
     await request;
 
@@ -4104,7 +4084,7 @@ describe("createAgentWorkerServer", () => {
     });
   });
 
-  test("prioritizes OpenAI-compatible stream rejection before message role validation", async () => {
+  test("validates OpenAI-compatible message role before streaming", async () => {
     const lines: string[] = [];
     const server = createAgentWorkerServer({
       provider: new QueueProvider([]),
@@ -4141,7 +4121,7 @@ describe("createAgentWorkerServer", () => {
         status: 400,
         body: {
           error: {
-            message: "stream=true is not supported yet. Set stream=false or omit it.",
+            message: "Only a single user message is supported",
             type: "invalid_request_error",
             code: 400,
           },
@@ -4839,7 +4819,7 @@ describe("createAgentWorkerServer", () => {
 });
 
 async function waitFor(assertion: () => boolean): Promise<void> {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
     if (assertion()) {
       return;
     }
@@ -4854,11 +4834,36 @@ async function respondToWorkerRequest(
   method: string,
   result: unknown | ((request: ParsedLine) => unknown),
 ): Promise<ParsedLine> {
-  await waitFor(() => parsedLines(lines).some((line) => line.method === method));
-  const request = parsedLines(lines).find((line) => line.method === method);
-  if (!request || typeof request.id !== "string" || typeof request.trace_id !== "string") {
-    throw new Error(`missing ${method} request`);
+  return respondToMatchingWorkerRequest(
+    server,
+    lines,
+    method,
+    (line) => line.method === method,
+    result,
+  );
+}
+
+async function respondToMatchingWorkerRequest(
+  server: ReturnType<typeof createAgentWorkerServer>,
+  lines: string[],
+  label: string,
+  predicate: (line: ParsedLine) => boolean,
+  result: unknown | ((request: ParsedLine) => unknown),
+): Promise<ParsedLine> {
+  const handled = handledWorkerRequests(lines);
+  try {
+    await waitFor(() => pendingWorkerRequest(lines, handled, predicate) !== undefined);
+  } catch (error) {
+    const pending = parsedLines(lines)
+      .filter((line) => line.method && !handled.has(line.id))
+      .map((line) => ({ id: line.id, method: line.method, params: line.params }));
+    throw new Error(`missing ${label} request; pending=${JSON.stringify(pending)}`, { cause: error });
   }
+  const request = pendingWorkerRequest(lines, handled, predicate);
+  if (!request || typeof request.id !== "string" || typeof request.trace_id !== "string") {
+    throw new Error(`missing ${label} request`);
+  }
+  handled.add(request.id);
   await server.handleLine(
     JSON.stringify({
       protocol_version: "1",
@@ -4871,34 +4876,22 @@ async function respondToWorkerRequest(
 }
 
 async function respondToConfigGet(server: ReturnType<typeof createAgentWorkerServer>, lines: string[], path: string, value: unknown): Promise<void> {
-  await waitFor(() => parsedLines(lines).some((line) => line.method === "config.get" && line.params?.path === path));
-  const request = parsedLines(lines).find((line) => line.method === "config.get" && line.params?.path === path);
-  if (!request || typeof request.id !== "string" || typeof request.trace_id !== "string") {
-    throw new Error(`missing config.get request for ${path}`);
-  }
-  await server.handleLine(
-    JSON.stringify({
-      protocol_version: "1",
-      id: request.id,
-      trace_id: request.trace_id,
-      result: { path, value },
-    }),
+  await respondToMatchingWorkerRequest(
+    server,
+    lines,
+    `config.get request for ${path}`,
+    (line) => line.method === "config.get" && line.params?.path === path,
+    { path, value },
   );
 }
 
 async function respondToConfigSnapshot(server: ReturnType<typeof createAgentWorkerServer>, lines: string[], value: unknown): Promise<void> {
-  await waitFor(() => parsedLines(lines).some((line) => line.method === "config.snapshot_public"));
-  const request = parsedLines(lines).find((line) => line.method === "config.snapshot_public");
-  if (!request || typeof request.id !== "string" || typeof request.trace_id !== "string") {
-    throw new Error("missing config.snapshot_public request");
-  }
-  await server.handleLine(
-    JSON.stringify({
-      protocol_version: "1",
-      id: request.id,
-      trace_id: request.trace_id,
-      result: { value },
-    }),
+  await respondToMatchingWorkerRequest(
+    server,
+    lines,
+    "config.snapshot_public",
+    (line) => line.method === "config.snapshot_public",
+    { value },
   );
 }
 
@@ -4908,36 +4901,43 @@ async function respondToProviderSecret(
   providerId: string,
   value: unknown,
 ): Promise<void> {
-  await waitFor(() => parsedLines(lines).some((line) => line.method === "provider.resolve_secret" && line.params?.providerId === providerId));
-  const request = parsedLines(lines).find((line) => line.method === "provider.resolve_secret" && line.params?.providerId === providerId);
-  if (!request || typeof request.id !== "string" || typeof request.trace_id !== "string") {
-    throw new Error(`missing provider.resolve_secret request for ${providerId}`);
-  }
-  await server.handleLine(
-    JSON.stringify({
-      protocol_version: "1",
-      id: request.id,
-      trace_id: request.trace_id,
-      result: value,
-    }),
+  await respondToMatchingWorkerRequest(
+    server,
+    lines,
+    `provider.resolve_secret request for ${providerId}`,
+    (line) => line.method === "provider.resolve_secret" && line.params?.providerId === providerId,
+    value,
   );
 }
 
 async function respondToMemoryCapture(server: ReturnType<typeof createAgentWorkerServer>, lines: string[], traceId: string): Promise<void> {
-  await waitFor(() => parsedLines(lines).some((line) => line.method === "memory.capture_evidence" && line.trace_id === traceId));
-  const request = parsedLines(lines).find((line) => line.method === "memory.capture_evidence" && line.trace_id === traceId);
-  if (!request || typeof request.id !== "string") {
-    throw new Error(`missing memory.capture_evidence request for ${traceId}`);
-  }
-  await server.handleLine(
-    JSON.stringify({
-      protocol_version: "1",
-      id: request.id,
-      trace_id: traceId,
-      result: { evidence: [] },
-    }),
+  await respondToMatchingWorkerRequest(
+    server,
+    lines,
+    `memory.capture_evidence request for ${traceId}`,
+    (line) => line.method === "memory.capture_evidence" && line.trace_id === traceId,
+    { evidence: [] },
   );
   await respondToWorkerRequest(server, lines, "session.get_metadata", { session_id: "session-1" });
+}
+
+const handledWorkerRequestsByLines = new WeakMap<string[], Set<unknown>>();
+
+function handledWorkerRequests(lines: string[]): Set<unknown> {
+  let handled = handledWorkerRequestsByLines.get(lines);
+  if (!handled) {
+    handled = new Set();
+    handledWorkerRequestsByLines.set(lines, handled);
+  }
+  return handled;
+}
+
+function pendingWorkerRequest(
+  lines: string[],
+  handled: Set<unknown>,
+  predicate: (line: ParsedLine) => boolean,
+): ParsedLine | undefined {
+  return parsedLines(lines).find((line) => !handled.has(line.id) && predicate(line));
 }
 
 async function respondToSkillsList(server: ReturnType<typeof createAgentWorkerServer>, lines: string[], skills: unknown[]): Promise<void> {

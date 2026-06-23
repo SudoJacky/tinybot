@@ -249,3 +249,83 @@ fn background_io_error(error: std::io::Error) -> WorkerProtocolError {
         WorkerProtocolErrorSource::RustCore,
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::{
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    #[test]
+    fn list_runs_reads_existing_background_registry_fixture() {
+        let root = temp_workspace_root("existing-background-store");
+        let _cleanup = TempWorkspaceCleanup(root.clone());
+        let store_path = root.join("background").join("registry.json");
+        std::fs::create_dir_all(store_path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &store_path,
+            serde_json::to_string_pretty(&json!({
+                "version": 1,
+                "runs": [
+                    {
+                        "id": "run-existing",
+                        "kind": "task",
+                        "source": "task",
+                        "status": "running",
+                        "label": "Existing task run",
+                        "sessionKey": "desktop:session-1",
+                        "planId": "plan-existing",
+                        "subtaskId": "step-1",
+                        "cronJobId": null,
+                        "startedAtMs": 1710000000000i64,
+                        "updatedAtMs": 1710000005000i64,
+                        "completedAtMs": null,
+                        "result": null,
+                        "error": null,
+                        "metadata": { "source": "pre-storage-refactor" }
+                    }
+                ]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let rpc = WorkerBackgroundRpc::new(
+            root,
+            CapabilityPolicy::new([WorkerCapability::BackgroundRead]),
+        );
+
+        let result = rpc
+            .list_runs()
+            .expect("existing background registry should load");
+
+        assert_eq!(result.runs.len(), 1);
+        let run = &result.runs[0];
+        assert_eq!(run.id, "run-existing");
+        assert_eq!(run.status, BackgroundRunStatus::Running);
+        assert_eq!(run.metadata["source"], "pre-storage-refactor");
+    }
+
+    fn temp_workspace_root(name: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default();
+        let root = std::env::temp_dir().join(format!(
+            "tinybot-worker-background-{name}-{}-{nonce}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        root
+    }
+
+    struct TempWorkspaceCleanup(PathBuf);
+
+    impl Drop for TempWorkspaceCleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+}

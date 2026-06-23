@@ -30,8 +30,9 @@ impl WorkerConfigRpc {
         if segments.iter().any(|segment| is_sensitive_key(segment)) {
             return Err(sensitive_config_error(path));
         }
-        let value = get_config_value(&self.snapshot, &segments)
-            .map(redact_sensitive_value)
+        let public_snapshot = public_config_snapshot(&self.snapshot);
+        let value = get_config_value(&public_snapshot, &segments)
+            .cloned()
             .unwrap_or(Value::Null);
         Ok(ConfigGetResult {
             path: segments.join("."),
@@ -42,7 +43,7 @@ impl WorkerConfigRpc {
     pub fn snapshot_public(&self) -> Result<ConfigSnapshotPublicResult, WorkerProtocolError> {
         self.require(WorkerCapability::ConfigRead)?;
         Ok(ConfigSnapshotPublicResult {
-            value: redact_sensitive_value(&self.snapshot),
+            value: public_config_snapshot(&self.snapshot),
         })
     }
 
@@ -54,7 +55,7 @@ impl WorkerConfigRpc {
         if !result.ok {
             return Ok(ConfigPatchApplyResult {
                 ok: false,
-                config: redact_sensitive_value(&self.snapshot),
+                config: public_config_snapshot(&self.snapshot),
                 updated_fields: Vec::new(),
                 side_effects: ConfigPatchSideEffects::default(),
                 error: result.error,
@@ -63,7 +64,7 @@ impl WorkerConfigRpc {
         if !result.config.is_object() {
             return Ok(ConfigPatchApplyResult {
                 ok: false,
-                config: redact_sensitive_value(&self.snapshot),
+                config: public_config_snapshot(&self.snapshot),
                 updated_fields: Vec::new(),
                 side_effects: ConfigPatchSideEffects::default(),
                 error: Some(
@@ -75,7 +76,7 @@ impl WorkerConfigRpc {
         self.snapshot = result.config;
         Ok(ConfigPatchApplyResult {
             ok: true,
-            config: redact_sensitive_value(&self.snapshot),
+            config: public_config_snapshot(&self.snapshot),
             updated_fields: result.updated_fields,
             side_effects: result.side_effects,
             error: None,
@@ -94,7 +95,7 @@ impl WorkerConfigRpc {
         self.snapshot = store.snapshot().clone();
         Ok(ConfigPatchApplyResult {
             ok: result.ok,
-            config: redact_sensitive_value(&result.config),
+            config: public_config_snapshot(&result.config),
             updated_fields: result.updated_fields,
             side_effects: result.side_effects,
             error: result.error,
@@ -145,20 +146,108 @@ fn get_config_value<'a>(snapshot: &'a Value, segments: &[String]) -> Option<&'a 
     Some(current)
 }
 
-fn redact_sensitive_value(value: &Value) -> Value {
+fn public_config_snapshot(snapshot: &Value) -> Value {
+    let mut root = serde_json::Map::new();
+    if let Some(defaults) = snapshot
+        .get("agents")
+        .and_then(|agents| agents.get("defaults"))
+        .and_then(Value::as_object)
+    {
+        let public_defaults = public_object_from_keys(
+            defaults,
+            &[
+                "model",
+                "provider",
+                "workspace",
+                "temperature",
+                "max_tokens",
+                "maxTokens",
+            ],
+        );
+        if !public_defaults.is_empty() {
+            root.insert(
+                "agents".to_string(),
+                serde_json::json!({ "defaults": public_defaults }),
+            );
+        }
+    }
+    if let Some(providers) = snapshot.get("providers").and_then(Value::as_object) {
+        let mut public_providers = serde_json::Map::new();
+        for (provider_id, provider_config) in providers {
+            if provider_id == "profiles" {
+                if let Some(profiles) = provider_config.as_object() {
+                    let mut public_profiles = serde_json::Map::new();
+                    for (profile_name, profile_config) in profiles {
+                        if let Some(profile) = public_provider_config(profile_config) {
+                            public_profiles.insert(profile_name.clone(), profile);
+                        }
+                    }
+                    if !public_profiles.is_empty() {
+                        public_providers
+                            .insert("profiles".to_string(), Value::Object(public_profiles));
+                    }
+                }
+                continue;
+            }
+            if let Some(provider) = public_provider_config(provider_config) {
+                public_providers.insert(provider_id.clone(), provider);
+            }
+        }
+        if !public_providers.is_empty() {
+            root.insert("providers".to_string(), Value::Object(public_providers));
+        }
+    }
+    Value::Object(root)
+}
+
+fn public_provider_config(value: &Value) -> Option<Value> {
+    let config = value.as_object()?;
+    let public = public_object_from_keys(
+        config,
+        &[
+            "provider",
+            "model",
+            "api_base",
+            "apiBase",
+            "base_url",
+            "baseUrl",
+            "default_model",
+            "defaultModel",
+            "responses",
+        ],
+    );
+    if public.is_empty() {
+        None
+    } else {
+        Some(Value::Object(public))
+    }
+}
+
+fn public_object_from_keys(
+    source: &serde_json::Map<String, Value>,
+    keys: &[&str],
+) -> serde_json::Map<String, Value> {
+    keys.iter()
+        .filter_map(|key| {
+            source
+                .get(*key)
+                .filter(|_| !is_sensitive_key(key))
+                .map(|value| ((*key).to_string(), omit_sensitive_descendants(value)))
+        })
+        .collect()
+}
+
+fn omit_sensitive_descendants(value: &Value) -> Value {
     match value {
         Value::Object(map) => Value::Object(
             map.iter()
-                .map(|(key, value)| {
-                    if is_sensitive_key(key) {
-                        (key.clone(), Value::Null)
-                    } else {
-                        (key.clone(), redact_sensitive_value(value))
-                    }
-                })
+                .filter(|(key, _)| !is_sensitive_key(key))
+                .map(|(key, value)| (key.clone(), omit_sensitive_descendants(value)))
                 .collect(),
         ),
-        Value::Array(values) => Value::Array(values.iter().map(redact_sensitive_value).collect()),
+        Value::Array(values) => {
+            Value::Array(values.iter().map(omit_sensitive_descendants).collect())
+        }
         other => other.clone(),
     }
 }
@@ -171,8 +260,22 @@ fn is_sensitive_key(key: &str) -> bool {
         .to_ascii_lowercase();
     matches!(
         key.as_str(),
-        "apikey" | "token" | "secret" | "password" | "credentials"
-    )
+        "apikey"
+            | "token"
+            | "secret"
+            | "password"
+            | "credentials"
+            | "credential"
+            | "accesstoken"
+            | "refreshtoken"
+            | "clientsecret"
+            | "privatekey"
+    ) || key.ends_with("token")
+        || key.ends_with("secret")
+        || key.ends_with("password")
+        || key.ends_with("credential")
+        || key.ends_with("credentials")
+        || key.ends_with("privatekey")
 }
 
 fn invalid_config_path(path: &str) -> WorkerProtocolError {
@@ -269,35 +372,125 @@ mod tests {
     }
 
     #[test]
-    fn config_get_redacts_sensitive_descendants_from_objects() {
+    fn config_get_rejects_common_sensitive_field_names() {
+        let rpc = WorkerConfigRpc::new(config_fixture(), read_policy());
+
+        for path in [
+            "providers.openai.access_token",
+            "providers.openai.refreshToken",
+            "providers.openai.client_secret",
+            "providers.openai.privateKey",
+            "providers.openai.password",
+            "providers.openai.credentials",
+        ] {
+            let error = match rpc.get(path) {
+                Ok(_) => panic!("{path} should be protected"),
+                Err(error) => error,
+            };
+            assert_eq!(error.code, WorkerProtocolErrorCode::CapabilityDenied);
+            assert_eq!(error.details["path"], path);
+        }
+    }
+
+    #[test]
+    fn config_get_omits_sensitive_descendants_from_public_objects() {
         let rpc = WorkerConfigRpc::new(config_fixture(), read_policy());
 
         let result = rpc
             .get("providers.openai")
-            .expect("public parent object should read with redaction");
+            .expect("public parent object should read from public projection");
 
         assert_eq!(result.value["provider"], "openai");
-        assert_eq!(result.value["api_key"], serde_json::Value::Null);
-        assert_eq!(result.value["apiKey"], serde_json::Value::Null);
+        let provider = result
+            .value
+            .as_object()
+            .expect("provider config should be an object");
+        assert!(!provider.contains_key("api_key"));
+        assert!(!provider.contains_key("apiKey"));
     }
 
     #[test]
-    fn config_snapshot_public_redacts_sensitive_descendants() {
+    fn config_snapshot_public_omits_sensitive_descendants() {
         let rpc = WorkerConfigRpc::new(config_fixture(), read_policy());
 
         let result = rpc
             .snapshot_public()
-            .expect("public snapshot should read with redaction");
+            .expect("public snapshot should read public projection");
 
         assert_eq!(result.value["providers"]["openai"]["provider"], "openai");
+        let provider = result.value["providers"]["openai"]
+            .as_object()
+            .expect("provider config should be an object");
+        assert!(!provider.contains_key("api_key"));
+        assert!(!provider.contains_key("apiKey"));
+    }
+
+    #[test]
+    fn config_snapshot_public_uses_explicit_public_contract() {
+        let rpc = WorkerConfigRpc::new(config_fixture(), read_policy());
+
+        let result = rpc
+            .snapshot_public()
+            .expect("public snapshot should read with explicit public fields");
+
+        assert_eq!(result.value["agents"]["defaults"]["model"], "gpt-5");
+        assert_eq!(result.value["agents"]["defaults"]["provider"], "openai");
         assert_eq!(
-            result.value["providers"]["openai"]["api_key"],
-            serde_json::Value::Null
+            result.value["providers"]["openai"]["api_base"],
+            "https://api.openai.com/v1"
         );
+        let provider = result.value["providers"]["openai"]
+            .as_object()
+            .expect("provider public config should be an object");
+        for key in [
+            "api_key",
+            "apiKey",
+            "access_token",
+            "refreshToken",
+            "client_secret",
+            "privateKey",
+            "password",
+            "credentials",
+        ] {
+            assert!(
+                !provider.contains_key(key),
+                "{key} should not be part of the public config contract"
+            );
+        }
+    }
+
+    #[test]
+    fn config_snapshot_public_keeps_allowlisted_provider_fixture_data_without_nested_secrets() {
+        let rpc = WorkerConfigRpc::new(
+            json!({
+                "providers": {
+                    "fixture": {
+                        "provider": "fixture",
+                        "responses": [
+                            {
+                                "content": "fixture response",
+                                "apiKey": "nested-secret"
+                            }
+                        ]
+                    }
+                }
+            }),
+            read_policy(),
+        );
+
+        let result = rpc
+            .snapshot_public()
+            .expect("public snapshot should include allowlisted fixture data");
+
         assert_eq!(
-            result.value["providers"]["openai"]["apiKey"],
-            serde_json::Value::Null
+            result.value["providers"]["fixture"]["responses"][0]["content"],
+            "fixture response"
         );
+        assert!(result.value["providers"]["fixture"]["responses"][0]
+            .as_object()
+            .unwrap()
+            .get("apiKey")
+            .is_none());
     }
 
     #[test]
@@ -334,10 +527,12 @@ mod tests {
         assert_eq!(result.updated_fields, vec!["agents.defaults.model"]);
         assert_eq!(result.side_effects.applied, vec!["providerRuntimeChanged"]);
         assert_eq!(result.config["agents"]["defaults"]["model"], "gpt-5.1");
-        assert_eq!(
-            result.config["providers"]["openai"]["apiKey"],
-            serde_json::Value::Null
-        );
+        assert!(result
+            .config
+            .get("providers")
+            .and_then(|providers| providers.get("openai"))
+            .and_then(|provider| provider.get("apiKey"))
+            .is_none());
         assert_eq!(
             rpc.get("agents.defaults.model")
                 .expect("updated config should be readable")
@@ -359,10 +554,12 @@ mod tests {
 
         assert!(result.ok);
         assert_eq!(result.config["agents"]["defaults"]["model"], "gpt-5.1");
-        assert_eq!(
-            result.config["providers"]["openai"]["apiKey"],
-            serde_json::Value::Null
-        );
+        assert!(result
+            .config
+            .get("providers")
+            .and_then(|providers| providers.get("openai"))
+            .and_then(|provider| provider.get("apiKey"))
+            .is_none());
         assert_eq!(
             serde_json::from_str::<serde_json::Value>(
                 &std::fs::read_to_string(config_path).expect("patched config should save")
@@ -426,6 +623,12 @@ mod tests {
                     "provider": "openai",
                     "api_key": "sk-secret",
                     "apiKey": "sk-camel-secret",
+                    "access_token": "access-secret",
+                    "refreshToken": "refresh-secret",
+                    "client_secret": "client-secret",
+                    "privateKey": "private-secret",
+                    "password": "password-secret",
+                    "credentials": { "token": "nested-secret" },
                     "api_base": "https://api.openai.com/v1"
                 }
             }

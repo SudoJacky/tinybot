@@ -1183,7 +1183,11 @@ describe("AgentWorker", () => {
   });
 
   test("serves non-stream OpenAI-compatible chat completions through TS worker RPC", async () => {
-    const provider = new QueueProvider([{ content: "TS answer", toolCalls: [], stopReason: "stop" }]);
+    const provider = new QueueProvider([
+      { content: "TS answer", toolCalls: [], stopReason: "stop" },
+      { content: "TS stream answer", toolCalls: [], stopReason: "stop" },
+      { content: "TS string stream answer", toolCalls: [], stopReason: "stop" },
+    ]);
     const worker = new AgentWorker({
       provider,
       tools: new ToolRegistry(),
@@ -1297,14 +1301,9 @@ describe("AgentWorker", () => {
       },
     }))).resolves.toMatchObject({
       result: {
-        status: 400,
-        body: {
-          error: {
-            message: "stream=true is not supported yet. Set stream=false or omit it.",
-            type: "invalid_request_error",
-            code: 400,
-          },
-        },
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+        body: expect.stringContaining("TS stream answer"),
       },
     });
     await expect(worker.handleRequest(webuiRequest("webui.handle_request", {
@@ -1316,14 +1315,9 @@ describe("AgentWorker", () => {
       },
     }))).resolves.toMatchObject({
       result: {
-        status: 400,
-        body: {
-          error: {
-            message: "stream=true is not supported yet. Set stream=false or omit it.",
-            type: "invalid_request_error",
-            code: 400,
-          },
-        },
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+        body: expect.stringContaining("TS string stream answer"),
       },
     });
     await expect(worker.handleRequest(webuiRequest("webui.handle_request", {

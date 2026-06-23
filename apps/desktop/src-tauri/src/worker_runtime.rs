@@ -89,7 +89,10 @@ mod tests {
         let status = WorkerRuntimeStatus::startup_failed("worker executable missing");
 
         assert_eq!(status.state, WorkerRuntimeState::Failed);
-        assert_eq!(status.last_error.as_deref(), Some("worker executable missing"));
+        assert_eq!(
+            status.last_error.as_deref(),
+            Some("worker executable missing")
+        );
         assert!(status
             .recovery_hint
             .as_deref()

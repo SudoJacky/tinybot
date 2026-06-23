@@ -1,52 +1,77 @@
 use serde::{Deserialize, Serialize};
 use std::{
     collections::VecDeque,
-    io::{BufRead, BufReader, Read, Write},
-    net::{SocketAddr, TcpStream},
     path::{Path, PathBuf},
-    process::Command,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
-    },
+    sync::{atomic::AtomicBool, Arc, Mutex},
     thread,
     time::Duration,
 };
-use tauri::{
-    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
-    Emitter, Manager, Runtime, State, WindowEvent,
-};
+use tauri::{Emitter, Manager, Runtime, State, WindowEvent};
 
 pub mod config_store;
+pub mod desktop_cron;
+pub mod desktop_files;
+pub mod desktop_gateway;
+pub mod desktop_heartbeat;
+pub mod desktop_logging;
+pub mod desktop_menu;
 pub mod worker_background;
 pub mod worker_capability;
+pub mod worker_client;
 pub mod worker_config;
 pub mod worker_connection;
 pub mod worker_cron;
 pub mod worker_diagnostics;
 pub mod worker_knowledge;
 pub mod worker_manager;
+pub mod worker_memory;
 pub mod worker_protocol;
+pub mod worker_request_id;
 pub mod worker_rpc;
 pub mod worker_runtime;
 pub mod worker_secret;
 pub mod worker_session;
 pub mod worker_shell;
 pub mod worker_stdio;
+pub mod worker_storage;
 pub mod worker_task;
 pub mod worker_workspace;
 
 use crate::config_store::{ConfigPatchApplyResult, ConfigPatchBridgeResult, ConfigStore};
+use crate::desktop_cron::{
+    build_worker_cron_run_due_request, cron_model_from_config, start_worker_cron_timer,
+    stop_worker_cron_timer, worker_cron_dispatch_due, worker_cron_dispatch_due_with_options,
+    worker_cron_next_wake_delay_with_options,
+};
+use crate::desktop_files::{
+    allowed_workspace_file_path, mime_type_for_path, pick_upload_file, reveal_workspace_file,
+    reveal_workspace_file_path_from_config_path, save_export_file, upload_file_from_path,
+    write_export_file,
+};
+use crate::desktop_gateway::{
+    classify_bootstrap_response, current_status, gateway_exit_policy_preference_path,
+    gateway_status, load_gateway_exit_policy, native_backend_log_path, persist_gateway_exit_policy,
+    set_gateway_keep_running, start_gateway, stop_gateway, stop_owned_gateway,
+    GatewayRuntimeStatus,
+};
+use crate::desktop_heartbeat::{
+    build_worker_heartbeat_lifecycle_request, start_worker_heartbeat_runtime_with_options,
+    stop_worker_heartbeat_runtime_with_options,
+};
+use crate::desktop_logging::append_native_backend_log_line;
+use crate::desktop_menu::{
+    desktop_menu_item_descriptors, install_desktop_application_menu, is_desktop_menu_command,
+    DesktopMenuCommandPayload,
+};
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
+use crate::worker_client::WorkerClient;
 use crate::worker_manager::{
     WorkerCommandSpec, WorkerManager, WorkerManagerEvent, WorkerManagerState, WorkerManagerStatus,
 };
 use crate::worker_protocol::WorkerRequest;
+use crate::worker_request_id::{next_worker_request_correlation, WorkerRequestCorrelation};
 use crate::worker_rpc::WorkerRpcRouter;
 use crate::worker_runtime::WorkerRuntimeStatus;
-
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
 
 #[derive(Serialize)]
 struct DesktopStatus {
@@ -98,27 +123,6 @@ impl Default for GatewayRuntime {
             cron_timer_stop: Arc::new(AtomicBool::new(false)),
         }
     }
-}
-
-#[derive(Serialize)]
-struct GatewayRuntimeStatus {
-    state: String,
-    owner: String,
-    http_ok: bool,
-    gateway_http: &'static str,
-    gateway_ws: &'static str,
-    command: &'static str,
-    port: u16,
-    repo_root: String,
-    log_path: String,
-    log_tail: Vec<String>,
-    logs: Vec<String>,
-    last_error: Option<String>,
-    exit_policy: &'static str,
-    bootstrap_status: String,
-    response_class: Option<String>,
-    recovery_hint: Option<String>,
-    worker_runtime: WorkerRuntimeStatus,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -285,225 +289,6 @@ struct WorkerResumeAgentApprovalInput {
     approved: bool,
     #[serde(default)]
     scope: Option<String>,
-}
-
-#[derive(Deserialize, Serialize)]
-struct GatewayExitPolicyPreference {
-    keep_running: bool,
-}
-
-#[derive(Clone, Debug)]
-enum GatewayBootstrapProbe {
-    Ready,
-    Offline(String),
-    Incompatible { detail: String },
-    BootstrapError { status: u16, detail: String },
-}
-
-impl GatewayBootstrapProbe {
-    fn is_ready(&self) -> bool {
-        matches!(self, Self::Ready)
-    }
-
-    fn is_conflict_or_error(&self) -> bool {
-        matches!(
-            self,
-            Self::Incompatible { .. } | Self::BootstrapError { .. }
-        )
-    }
-
-    fn bootstrap_status(&self) -> String {
-        match self {
-            Self::Ready => "ready",
-            Self::Offline(_) => "offline",
-            Self::Incompatible { .. } => "incompatible",
-            Self::BootstrapError { .. } => "bootstrap_error",
-        }
-        .to_string()
-    }
-
-    fn response_class(&self) -> Option<String> {
-        match self {
-            Self::Ready => Some("tinybot-bootstrap".to_string()),
-            Self::Offline(_) => Some("unreachable".to_string()),
-            Self::Incompatible { .. } => Some("incompatible-bootstrap".to_string()),
-            Self::BootstrapError { status, .. } => Some(format!("HTTP {status}")),
-        }
-    }
-
-    fn last_error(&self) -> Option<String> {
-        match self {
-            Self::Ready => None,
-            Self::Offline(error) => Some(error.clone()),
-            Self::Incompatible { detail } | Self::BootstrapError { detail, .. } => {
-                Some(detail.clone())
-            }
-        }
-    }
-
-    fn recovery_hint(&self) -> Option<String> {
-        match self {
-            Self::Incompatible { .. } => Some(
-                "Port 18790 is reachable, but /webui/bootstrap is not a Tinybot gateway. Stop the conflicting process on port 18790, then retry Tinybot gateway startup."
-                    .to_string(),
-            ),
-            Self::BootstrapError { .. } => Some(
-                "The process on port 18790 returned a bootstrap error. Check whether it is Tinybot, then retry or restart the gateway."
-                    .to_string(),
-            ),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Deserialize)]
-struct UploadFilePickerOptions {
-    title: Option<String>,
-    filters: Option<Vec<UploadFilePickerFilter>>,
-}
-
-#[derive(Deserialize)]
-struct UploadFilePickerFilter {
-    name: String,
-    extensions: Vec<String>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ExportFileOptions {
-    title: Option<String>,
-    default_path: Option<String>,
-    filters: Option<Vec<UploadFilePickerFilter>>,
-    contents: String,
-}
-
-#[derive(Serialize)]
-struct PickedUploadFile {
-    name: String,
-    path: String,
-    mime_type: String,
-    size_bytes: u64,
-    bytes: Vec<u8>,
-}
-
-#[derive(Serialize)]
-struct SavedExportFile {
-    path: String,
-}
-
-#[derive(Clone, Copy)]
-struct DesktopMenuItemDescriptor {
-    id: &'static str,
-    label: &'static str,
-    accelerator: Option<&'static str>,
-    enabled: bool,
-    checked: bool,
-}
-
-#[derive(Clone, Serialize)]
-struct DesktopMenuCommandPayload {
-    id: String,
-}
-
-const ALLOWED_WORKSPACE_FILES: &[&str] = &[
-    "AGENTS.md",
-    "SOUL.md",
-    "USER.md",
-    "TOOLS.md",
-    "HEARTBEAT.md",
-    "memory/MEMORY.md",
-];
-
-const DESKTOP_MENU_ITEM_DESCRIPTORS: &[DesktopMenuItemDescriptor] = &[
-    DesktopMenuItemDescriptor {
-        id: "new-chat",
-        label: "New Chat",
-        accelerator: Some("Ctrl+N"),
-        enabled: true,
-        checked: false,
-    },
-    DesktopMenuItemDescriptor {
-        id: "stop-generation",
-        label: "Stop Generation",
-        accelerator: Some("Ctrl+."),
-        enabled: false,
-        checked: false,
-    },
-    DesktopMenuItemDescriptor {
-        id: "search-sessions",
-        label: "Search Sessions",
-        accelerator: Some("Ctrl+F"),
-        enabled: true,
-        checked: false,
-    },
-    DesktopMenuItemDescriptor {
-        id: "open-settings",
-        label: "Settings",
-        accelerator: Some("Ctrl+,"),
-        enabled: true,
-        checked: false,
-    },
-    DesktopMenuItemDescriptor {
-        id: "open-docs",
-        label: "Documentation",
-        accelerator: Some("F1"),
-        enabled: true,
-        checked: false,
-    },
-    DesktopMenuItemDescriptor {
-        id: "open-shortcut-help",
-        label: "Shortcut Help",
-        accelerator: Some("Ctrl+/"),
-        enabled: true,
-        checked: false,
-    },
-    DesktopMenuItemDescriptor {
-        id: "open-page-help",
-        label: "Page Help",
-        accelerator: Some("Ctrl+Shift+/"),
-        enabled: true,
-        checked: false,
-    },
-    DesktopMenuItemDescriptor {
-        id: "open-backend-logs",
-        label: "Backend Logs",
-        accelerator: None,
-        enabled: true,
-        checked: false,
-    },
-    DesktopMenuItemDescriptor {
-        id: "toggle-theme",
-        label: "Toggle Theme",
-        accelerator: Some("Ctrl+Shift+T"),
-        enabled: true,
-        checked: false,
-    },
-    DesktopMenuItemDescriptor {
-        id: "toggle-sidebar",
-        label: "Toggle Sidebar",
-        accelerator: Some("Ctrl+B"),
-        enabled: true,
-        checked: true,
-    },
-    DesktopMenuItemDescriptor {
-        id: "open-command-palette",
-        label: "Command Palette",
-        accelerator: Some("Ctrl+Shift+P"),
-        enabled: true,
-        checked: false,
-    },
-    DesktopMenuItemDescriptor {
-        id: "refresh-gateway-status",
-        label: "Gateway Status",
-        accelerator: Some("Ctrl+Shift+G"),
-        enabled: true,
-        checked: false,
-    },
-];
-
-#[tauri::command]
-fn gateway_status(state: State<'_, SharedGateway>) -> GatewayRuntimeStatus {
-    current_status(state.inner())
 }
 
 #[tauri::command]
@@ -837,17 +622,6 @@ fn worker_resume_agent_approval(
 }
 
 #[tauri::command]
-fn worker_cron_dispatch_due(state: State<'_, SharedGateway>) -> Result<serde_json::Value, String> {
-    worker_cron_dispatch_due_with_options(
-        state.inner(),
-        ts_agent_worker_workspace_root(),
-        experimental_worker_config_snapshot(),
-        now_unix_ms() as i64,
-        Duration::from_secs(120),
-    )
-}
-
-#[tauri::command]
 fn apply_config_patch_result(
     result: ConfigPatchBridgeResult,
 ) -> Result<ConfigPatchApplyResult, String> {
@@ -856,385 +630,6 @@ fn apply_config_patch_result(
         experimental_worker_config_snapshot(),
         result,
     )
-}
-
-#[tauri::command]
-fn start_gateway(state: State<'_, SharedGateway>) -> Result<GatewayRuntimeStatus, String> {
-    let repo_root = repo_root();
-    let worker = {
-        let runtime = lock_runtime(state.inner());
-        runtime.experimental_worker.clone()
-    };
-    match ensure_ts_agent_worker_running(
-        &worker,
-        ts_agent_worker_workspace_root(),
-        experimental_worker_config_snapshot(),
-    ) {
-        Ok(()) => {
-            let mut runtime = lock_runtime(state.inner());
-            runtime.last_error = None;
-            append_log(
-                &mut runtime,
-                "started native TS backend with `node workers/ts-agent-worker/src/index.ts`",
-            );
-        }
-        Err(error) if error.contains("AlreadyRunning") => {
-            push_log(
-                state.inner(),
-                "native TS backend worker is already running",
-            );
-        }
-        Err(error) => {
-            let message = format!("failed to start native TS backend: {error}");
-            let mut runtime = lock_runtime(state.inner());
-            runtime.last_error = Some(message.clone());
-            return Err(message);
-        }
-    }
-
-    {
-        let mut runtime = lock_runtime(state.inner());
-        append_log(
-            &mut runtime,
-            &format!("native TS backend cwd: {}", repo_root.display()),
-        );
-    }
-
-    Ok(current_status(state.inner()))
-}
-
-#[tauri::command]
-fn stop_gateway(state: State<'_, SharedGateway>) -> Result<GatewayRuntimeStatus, String> {
-    stop_owned_gateway(state.inner(), true)?;
-    Ok(current_status(state.inner()))
-}
-
-#[tauri::command]
-fn set_gateway_keep_running(
-    keep_running: bool,
-    state: State<'_, SharedGateway>,
-) -> Result<GatewayRuntimeStatus, String> {
-    persist_gateway_exit_policy(&gateway_exit_policy_preference_path(), keep_running)?;
-    {
-        let mut runtime = lock_runtime(state.inner());
-        runtime.keep_background = keep_running;
-        append_log(
-            &mut runtime,
-            if keep_running {
-                "configured native TS backend to keep running after desktop exits"
-            } else {
-                "configured native TS backend to stop when desktop exits"
-            },
-        );
-    }
-    Ok(current_status(state.inner()))
-}
-
-#[tauri::command]
-fn pick_upload_file(options: UploadFilePickerOptions) -> Result<Option<PickedUploadFile>, String> {
-    let mut dialog = rfd::FileDialog::new();
-    if let Some(title) = options.title {
-        dialog = dialog.set_title(&title);
-    }
-    for filter in options.filters.unwrap_or_default() {
-        let extensions: Vec<&str> = filter.extensions.iter().map(String::as_str).collect();
-        dialog = dialog.add_filter(&filter.name, &extensions);
-    }
-    let Some(path) = dialog.pick_file() else {
-        return Ok(None);
-    };
-    upload_file_from_path(&path).map(Some)
-}
-
-#[tauri::command]
-fn reveal_workspace_file(path: String) -> Result<(), String> {
-    let target_path = reveal_workspace_file_path(&path)?;
-    reveal_file_in_folder(&target_path)
-}
-
-#[tauri::command]
-fn save_export_file(options: ExportFileOptions) -> Result<Option<SavedExportFile>, String> {
-    let mut dialog = rfd::FileDialog::new();
-    if let Some(title) = options.title {
-        dialog = dialog.set_title(&title);
-    }
-    if let Some(default_path) = options.default_path {
-        dialog = dialog.set_file_name(safe_export_file_name(&default_path));
-    }
-    for filter in options.filters.unwrap_or_default() {
-        let extensions: Vec<&str> = filter.extensions.iter().map(String::as_str).collect();
-        dialog = dialog.add_filter(&filter.name, &extensions);
-    }
-    let Some(path) = dialog.save_file() else {
-        return Ok(None);
-    };
-    write_export_file(&path, &options.contents)?;
-    Ok(Some(SavedExportFile {
-        path: path.display().to_string(),
-    }))
-}
-
-fn desktop_menu_item_descriptors() -> &'static [DesktopMenuItemDescriptor] {
-    DESKTOP_MENU_ITEM_DESCRIPTORS
-}
-
-fn install_desktop_application_menu<R: Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
-    let menu = build_desktop_application_menu(app.app_handle())?;
-    app.set_menu(menu)?;
-    Ok(())
-}
-
-fn build_desktop_application_menu<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<Menu<R>> {
-    let new_chat = menu_item(app, "new-chat")?;
-    let stop_generation = menu_item(app, "stop-generation")?;
-    let search_sessions = menu_item(app, "search-sessions")?;
-    let open_settings = menu_item(app, "open-settings")?;
-    let open_docs = menu_item(app, "open-docs")?;
-    let toggle_theme = check_menu_item(app, "toggle-theme")?;
-    let toggle_sidebar = check_menu_item(app, "toggle-sidebar")?;
-    let open_command_palette = menu_item(app, "open-command-palette")?;
-    let refresh_gateway_status = menu_item(app, "refresh-gateway-status")?;
-
-    let file_menu = Submenu::with_items(
-        app,
-        "File",
-        true,
-        &[
-            &new_chat,
-            &stop_generation,
-            &PredefinedMenuItem::separator(app)?,
-            &open_command_palette,
-        ],
-    )?;
-    let navigate_menu = Submenu::with_items(
-        app,
-        "Navigate",
-        true,
-        &[
-            &search_sessions,
-            &open_settings,
-            &open_docs,
-            &refresh_gateway_status,
-        ],
-    )?;
-    let view_menu = Submenu::with_items(app, "View", true, &[&toggle_theme, &toggle_sidebar])?;
-
-    Menu::with_items(app, &[&file_menu, &navigate_menu, &view_menu])
-}
-
-fn menu_item<R: Runtime>(
-    app: &tauri::AppHandle<R>,
-    id: &'static str,
-) -> tauri::Result<MenuItem<R>> {
-    let descriptor = desktop_menu_descriptor(id);
-    MenuItem::with_id(
-        app,
-        descriptor.id,
-        descriptor.label,
-        descriptor.enabled,
-        descriptor.accelerator,
-    )
-}
-
-fn check_menu_item<R: Runtime>(
-    app: &tauri::AppHandle<R>,
-    id: &'static str,
-) -> tauri::Result<CheckMenuItem<R>> {
-    let descriptor = desktop_menu_descriptor(id);
-    CheckMenuItem::with_id(
-        app,
-        descriptor.id,
-        descriptor.label,
-        descriptor.enabled,
-        descriptor.checked,
-        descriptor.accelerator,
-    )
-}
-
-fn desktop_menu_descriptor(id: &str) -> DesktopMenuItemDescriptor {
-    desktop_menu_item_descriptors()
-        .iter()
-        .copied()
-        .find(|item| item.id == id)
-        .expect("desktop menu descriptor should exist")
-}
-
-fn is_desktop_menu_command(id: &str) -> bool {
-    desktop_menu_item_descriptors()
-        .iter()
-        .any(|item| item.id == id)
-}
-
-fn upload_file_from_path(path: &Path) -> Result<PickedUploadFile, String> {
-    let bytes =
-        std::fs::read(path).map_err(|error| format!("failed to read selected file: {error}"))?;
-    let metadata = std::fs::metadata(path)
-        .map_err(|error| format!("failed to inspect selected file: {error}"))?;
-    Ok(PickedUploadFile {
-        name: path
-            .file_name()
-            .and_then(|value| value.to_str())
-            .unwrap_or("upload")
-            .to_string(),
-        path: path.display().to_string(),
-        mime_type: mime_type_for_path(path).to_string(),
-        size_bytes: metadata.len(),
-        bytes,
-    })
-}
-
-fn mime_type_for_path(path: &Path) -> &'static str {
-    match path
-        .extension()
-        .and_then(|value| value.to_str())
-        .unwrap_or_default()
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "csv" => "text/csv",
-        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "json" => "application/json",
-        "markdown" | "md" => "text/markdown",
-        "pdf" => "application/pdf",
-        "txt" => "text/plain",
-        "jpeg" | "jpg" => "image/jpeg",
-        "png" => "image/png",
-        _ => "application/octet-stream",
-    }
-}
-
-fn allowed_workspace_file_path(repo_root: &Path, requested_path: &str) -> Result<PathBuf, String> {
-    let normalized = normalize_workspace_file_path(requested_path)
-        .ok_or_else(|| "workspace file is not revealable".to_string())?;
-    if !ALLOWED_WORKSPACE_FILES
-        .iter()
-        .any(|allowed| *allowed == normalized)
-    {
-        return Err("workspace file is not revealable".to_string());
-    }
-    Ok(repo_root.join(normalized))
-}
-
-fn reveal_workspace_file_path(requested_path: &str) -> Result<PathBuf, String> {
-    reveal_workspace_file_path_from_config_path(&default_tinybot_config_path(), requested_path)
-}
-
-fn reveal_workspace_file_path_from_config_path(
-    config_path: &Path,
-    requested_path: &str,
-) -> Result<PathBuf, String> {
-    let root = resolve_ts_agent_worker_workspace_root_from_config_path(config_path);
-    allowed_workspace_file_path(&root, requested_path)
-}
-
-fn normalize_workspace_file_path(requested_path: &str) -> Option<String> {
-    let normalized = requested_path.replace('\\', "/");
-    let normalized = normalized.trim_matches('/');
-    if normalized.is_empty()
-        || normalized.contains('\0')
-        || normalized
-            .split('/')
-            .any(|part| part.is_empty() || part == "." || part == "..")
-    {
-        return None;
-    }
-    Some(normalized.to_string())
-}
-
-fn reveal_file_in_folder(path: &Path) -> Result<(), String> {
-    let parent = if path.is_dir() {
-        path
-    } else {
-        path.parent()
-            .ok_or_else(|| "workspace file has no containing folder".to_string())?
-    };
-
-    #[cfg(target_os = "windows")]
-    {
-        let mut command = Command::new("explorer");
-        if path.exists() {
-            command.arg(format!("/select,{}", path.display()));
-        } else {
-            command.arg(parent);
-        }
-        command.creation_flags(0x08000000);
-        return spawn_reveal_command(command);
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        let mut command = Command::new("open");
-        if path.exists() {
-            command.args(["-R", &path.display().to_string()]);
-        } else {
-            command.arg(parent);
-        }
-        return spawn_reveal_command(command);
-    }
-
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        let mut command = Command::new("xdg-open");
-        command.arg(parent);
-        return spawn_reveal_command(command);
-    }
-
-    #[allow(unreachable_code)]
-    Err("revealing workspace files is not supported on this platform".to_string())
-}
-
-fn spawn_reveal_command(mut command: Command) -> Result<(), String> {
-    command
-        .spawn()
-        .map(|_| ())
-        .map_err(|error| format!("failed to reveal workspace file: {error}"))
-}
-
-fn write_export_file(path: &Path, contents: &str) -> Result<(), String> {
-    std::fs::write(path, contents).map_err(|error| format!("failed to write export file: {error}"))
-}
-
-fn gateway_exit_policy_preference_path() -> PathBuf {
-    let base = std::env::var_os("LOCALAPPDATA")
-        .or_else(|| std::env::var_os("APPDATA"))
-        .or_else(|| std::env::var_os("XDG_CONFIG_HOME"))
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
-        .unwrap_or_else(std::env::temp_dir);
-    base.join("Tinybot")
-        .join("Desktop")
-        .join("gateway-exit-policy.json")
-}
-
-fn native_backend_log_path() -> PathBuf {
-    let base = std::env::var_os("LOCALAPPDATA")
-        .or_else(|| std::env::var_os("APPDATA"))
-        .or_else(|| std::env::var_os("XDG_STATE_HOME"))
-        .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local").join("state"))
-        })
-        .unwrap_or_else(std::env::temp_dir);
-    base.join("tinybot").join("logs").join("native-backend.log")
-}
-
-fn load_gateway_exit_policy(path: &Path) -> bool {
-    std::fs::read_to_string(path)
-        .ok()
-        .and_then(|contents| serde_json::from_str::<GatewayExitPolicyPreference>(&contents).ok())
-        .map(|preference| preference.keep_running)
-        .unwrap_or(false)
-}
-
-fn persist_gateway_exit_policy(path: &Path, keep_running: bool) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|error| format!("failed to create gateway preference directory: {error}"))?;
-    }
-    let contents = serde_json::to_string_pretty(&GatewayExitPolicyPreference { keep_running })
-        .map_err(|error| format!("failed to encode gateway preference: {error}"))?;
-    std::fs::write(path, contents)
-        .map_err(|error| format!("failed to persist gateway preference: {error}"))
 }
 
 fn default_tinybot_config_path() -> PathBuf {
@@ -1264,163 +659,6 @@ fn apply_config_patch_result_to_path(
         .map_err(|error| format!("failed to apply native config patch: {error}"))
 }
 
-fn safe_export_file_name(default_path: &str) -> String {
-    default_path
-        .replace(['\\', '/', ':', '*', '?', '"', '<', '>', '|'], "-")
-        .trim()
-        .trim_matches('-')
-        .to_string()
-}
-
-fn current_status(shared: &SharedGateway) -> GatewayRuntimeStatus {
-    let probe = gateway_bootstrap_probe();
-    let http_ok = probe.is_ready();
-    let runtime = lock_runtime(shared);
-    let worker_status = runtime.experimental_worker.status();
-
-    let owner = if worker_status.state == WorkerManagerState::Running {
-        "shell"
-    } else {
-        "none"
-    };
-    let state = if worker_status.state == WorkerManagerState::Running {
-        "running"
-    } else if worker_status.state == WorkerManagerState::Failed || probe.is_conflict_or_error() {
-        "failed"
-    } else {
-        "offline"
-    };
-    let exit_policy = if runtime.keep_background {
-        "keep_running"
-    } else {
-        "stop_on_exit"
-    };
-
-    GatewayRuntimeStatus {
-        state: state.to_string(),
-        owner: owner.to_string(),
-        http_ok,
-        gateway_http: "http://127.0.0.1:18790",
-        gateway_ws: "ws://127.0.0.1:18790/ws",
-        command: "node workers/ts-agent-worker/src/index.ts",
-        port: 18790,
-        repo_root: repo_root().display().to_string(),
-        log_path: runtime.persistent_log_path.display().to_string(),
-        log_tail: read_native_backend_log_tail(
-            &runtime.persistent_log_path,
-            NATIVE_BACKEND_LOG_TAIL_LINES,
-        ),
-        logs: gateway_runtime_logs(&runtime.logs, &worker_status.diagnostics),
-        last_error: runtime
-            .last_error
-            .clone()
-            .or_else(|| worker_status.last_error.clone())
-            .or_else(|| probe.last_error()),
-        exit_policy,
-        bootstrap_status: probe.bootstrap_status(),
-        response_class: probe.response_class(),
-        recovery_hint: probe.recovery_hint(),
-        worker_runtime: gateway_worker_runtime_status(http_ok, &worker_status),
-    }
-}
-
-fn gateway_worker_runtime_status(
-    gateway_available: bool,
-    worker_status: &WorkerManagerStatus,
-) -> WorkerRuntimeStatus {
-    match worker_status.state {
-        WorkerManagerState::Running => WorkerRuntimeStatus::running(
-            crate::worker_protocol::WorkerTransportMode::Stdio,
-            worker_status.diagnostics.clone(),
-        ),
-        WorkerManagerState::Failed => WorkerRuntimeStatus::startup_failed(
-            worker_status
-                .last_error
-                .clone()
-                .unwrap_or_else(|| "worker manager failed".to_string()),
-        ),
-        WorkerManagerState::Stopped => {
-            WorkerRuntimeStatus::compatibility_fallback(gateway_available)
-        }
-    }
-}
-
-fn gateway_bootstrap_probe() -> GatewayBootstrapProbe {
-    let addr: SocketAddr = match "127.0.0.1:18790".parse() {
-        Ok(addr) => addr,
-        Err(error) => return GatewayBootstrapProbe::Offline(error.to_string()),
-    };
-    let mut stream = match TcpStream::connect_timeout(&addr, Duration::from_millis(700)) {
-        Ok(stream) => stream,
-        Err(error) => return GatewayBootstrapProbe::Offline(error.to_string()),
-    };
-    let _ = stream.set_read_timeout(Some(Duration::from_millis(700)));
-    let _ = stream.set_write_timeout(Some(Duration::from_millis(700)));
-    if stream
-        .write_all(b"GET /webui/bootstrap HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
-        .is_err()
-    {
-        return GatewayBootstrapProbe::Offline("failed to write bootstrap request".to_string());
-    }
-    let mut first_line = String::new();
-    let mut reader = BufReader::new(stream);
-    if reader.read_line(&mut first_line).is_err() {
-        return GatewayBootstrapProbe::Offline("failed to read bootstrap response".to_string());
-    }
-    let mut rest = String::new();
-    let _ = reader.read_to_string(&mut rest);
-    let status = first_line
-        .split_whitespace()
-        .nth(1)
-        .and_then(|code| code.parse::<u16>().ok());
-    classify_bootstrap_response(status, &rest)
-}
-
-fn classify_bootstrap_response(status: Option<u16>, response: &str) -> GatewayBootstrapProbe {
-    let Some(status) = status else {
-        return GatewayBootstrapProbe::Offline(
-            "bootstrap response missing HTTP status".to_string(),
-        );
-    };
-    let body = http_response_body(response);
-    if !(200..300).contains(&status) {
-        return GatewayBootstrapProbe::BootstrapError {
-            status,
-            detail: if body.trim().is_empty() {
-                format!("bootstrap returned HTTP {status}")
-            } else {
-                format!("bootstrap returned HTTP {status}: {}", body.trim())
-            },
-        };
-    }
-    let payload: serde_json::Value = match serde_json::from_str(body.trim()) {
-        Ok(payload) => payload,
-        Err(error) => {
-            return GatewayBootstrapProbe::Incompatible {
-                detail: format!("bootstrap response is not valid JSON: {error}"),
-            };
-        }
-    };
-    if payload
-        .get("token")
-        .and_then(|value| value.as_str())
-        .is_some_and(|token| !token.is_empty())
-    {
-        return GatewayBootstrapProbe::Ready;
-    }
-    GatewayBootstrapProbe::Incompatible {
-        detail: "bootstrap response missing token".to_string(),
-    }
-}
-
-fn http_response_body(response: &str) -> &str {
-    response
-        .split_once("\r\n\r\n")
-        .map(|(_, body)| body)
-        .or_else(|| response.split_once("\n\n").map(|(_, body)| body))
-        .unwrap_or(response)
-}
-
 fn worker_echo_agent_with_options(
     shared: &SharedGateway,
     input: String,
@@ -1428,30 +666,17 @@ fn worker_echo_agent_with_options(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<WorkerAgentEchoResult, String> {
-    let worker = {
-        let runtime = lock_runtime(shared);
-        runtime.experimental_worker.clone()
-    };
+    let client = WorkerClient::experimental(shared);
+    client.ensure_experimental_fixture_running(workspace_root, config_snapshot)?;
 
-    ensure_experimental_fixture_worker_running(&worker, workspace_root, config_snapshot)?;
-
-    let request_id = now_unix_ms();
+    let request_id = next_worker_request_correlation();
     let request = WorkerRequest::new(
-        format!("agent-echo-{request_id}"),
-        format!("trace-agent-echo-{request_id}"),
+        request_id.id("agent-echo"),
+        request_id.trace_id("agent-echo"),
         "agent.echo",
         serde_json::json!({ "input": input }),
     );
-    let response = worker
-        .send_stdio_request(&request, timeout)
-        .map_err(|error| format!("worker echo request failed: {}", error.message))?;
-
-    if let Some(error) = response.error {
-        return Err(format!("worker echo returned error: {}", error.message));
-    }
-    let result = response
-        .result
-        .ok_or_else(|| "worker echo response missing result".to_string())?;
+    let result = client.call(&request, timeout, "worker echo")?;
     serde_json::from_value(result)
         .map_err(|error| format!("worker echo response shape is invalid: {error}"))
 }
@@ -1463,33 +688,20 @@ fn worker_run_agent_with_options(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let worker = {
-        let runtime = lock_runtime(shared);
-        runtime.experimental_worker.clone()
-    };
+    let client = WorkerClient::experimental(shared);
+    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
 
-    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot)?;
-
-    let request = build_worker_run_agent_request(now_unix_ms(), spec);
-    let response = worker
-        .send_stdio_request(&request, timeout)
-        .map_err(|error| format!("worker agent run request failed: {}", error.message))?;
-
-    if let Some(error) = response.error {
-        return Err(format!(
-            "worker agent run returned error: {}",
-            error.message
-        ));
-    }
-    response
-        .result
-        .ok_or_else(|| "worker agent run response missing result".to_string())
+    let request = build_worker_run_agent_request(next_worker_request_correlation(), spec);
+    client.call(&request, timeout, "worker agent run")
 }
 
-fn build_worker_run_agent_request(request_id: u128, spec: serde_json::Value) -> WorkerRequest {
+fn build_worker_run_agent_request(
+    request_id: WorkerRequestCorrelation,
+    spec: serde_json::Value,
+) -> WorkerRequest {
     WorkerRequest::new(
-        format!("agent-run-{request_id}"),
-        format!("trace-agent-run-{request_id}"),
+        request_id.id("agent-run"),
+        request_id.trace_id("agent-run"),
         "agent.run",
         serde_json::json!({ "spec": spec }),
     )
@@ -1502,376 +714,23 @@ fn worker_run_agent_input_with_options(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let worker = {
-        let runtime = lock_runtime(shared);
-        runtime.experimental_worker.clone()
-    };
+    let client = WorkerClient::experimental(shared);
+    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
 
-    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot)?;
-
-    let request = build_worker_run_agent_input_request(now_unix_ms(), input);
-    let response = worker
-        .send_stdio_request(&request, timeout)
-        .map_err(|error| format!("worker agent run input request failed: {}", error.message))?;
-
-    if let Some(error) = response.error {
-        return Err(format!(
-            "worker agent run input returned error: {}",
-            error.message
-        ));
-    }
-    response
-        .result
-        .ok_or_else(|| "worker agent run input response missing result".to_string())
+    let request = build_worker_run_agent_input_request(next_worker_request_correlation(), input);
+    client.call(&request, timeout, "worker agent run input")
 }
 
 fn build_worker_run_agent_input_request(
-    request_id: u128,
+    request_id: WorkerRequestCorrelation,
     input: serde_json::Value,
 ) -> WorkerRequest {
     WorkerRequest::new(
-        format!("agent-run-input-{request_id}"),
-        format!("trace-agent-run-input-{request_id}"),
+        request_id.id("agent-run-input"),
+        request_id.trace_id("agent-run-input"),
         "agent.run_input",
         serde_json::json!({ "input": input }),
     )
-}
-
-fn worker_cron_dispatch_due_with_options(
-    shared: &SharedGateway,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-    now_ms: i64,
-    timeout: Duration,
-) -> Result<serde_json::Value, String> {
-    let Some(_dispatch_guard) = CronDispatchGuard::begin(shared) else {
-        return Ok(serde_json::json!({
-            "dispatched": 0,
-            "records": [],
-            "recorded": { "updated": [], "deleted": [], "missing": [] },
-            "skipped": "already_running"
-        }));
-    };
-
-    let mut router = experimental_worker_router(workspace_root.clone(), config_snapshot.clone());
-    let due_response = router.dispatch(&WorkerRequest::new(
-        format!("cron-due-{now_ms}"),
-        format!("trace-cron-due-{now_ms}"),
-        "cron.job.due",
-        serde_json::json!({ "now_ms": now_ms }),
-    ));
-    if let Some(error) = due_response.error {
-        return Err(format!("native cron due returned error: {}", error.message));
-    }
-    let jobs = due_response
-        .result
-        .as_ref()
-        .and_then(|result| result.get("jobs"))
-        .cloned()
-        .unwrap_or_else(|| serde_json::json!([]));
-    let dispatched = jobs.as_array().map_or(0, Vec::len);
-    if dispatched == 0 {
-        return Ok(serde_json::json!({
-            "dispatched": 0,
-            "records": [],
-            "recorded": { "updated": [], "deleted": [], "missing": [] }
-        }));
-    }
-
-    let worker = {
-        let runtime = lock_runtime(shared);
-        runtime.experimental_worker.clone()
-    };
-    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot.clone())?;
-
-    let request = build_worker_cron_run_due_request(
-        now_unix_ms(),
-        jobs,
-        cron_model_from_config(&config_snapshot),
-    );
-    let response = worker
-        .send_stdio_request(&request, timeout)
-        .map_err(|error| format!("worker cron due request failed: {}", error.message))?;
-    if let Some(error) = response.error {
-        return Err(format!("worker cron due returned error: {}", error.message));
-    }
-    let result = response
-        .result
-        .ok_or_else(|| "worker cron due response missing result".to_string())?;
-    let records = result
-        .get("records")
-        .cloned()
-        .unwrap_or_else(|| serde_json::json!([]));
-
-    let record_response = router.dispatch(&WorkerRequest::new(
-        format!("cron-record-{now_ms}"),
-        format!("trace-cron-record-{now_ms}"),
-        "cron.job.record_runs",
-        serde_json::json!({ "now_ms": now_ms, "records": records.clone() }),
-    ));
-    if let Some(error) = record_response.error {
-        return Err(format!(
-            "native cron record_runs returned error: {}",
-            error.message
-        ));
-    }
-    let recorded = record_response
-        .result
-        .ok_or_else(|| "native cron record_runs response missing result".to_string())?;
-
-    Ok(serde_json::json!({
-        "dispatched": dispatched,
-        "records": records,
-        "recorded": recorded
-    }))
-}
-
-fn worker_cron_next_wake_delay_with_options(
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-    now_ms: i64,
-    max_poll: Duration,
-) -> Result<Duration, String> {
-    let mut router = experimental_worker_router(workspace_root, config_snapshot);
-    let response = router.dispatch(&WorkerRequest::new(
-        format!("cron-next-wake-{now_ms}"),
-        format!("trace-cron-next-wake-{now_ms}"),
-        "cron.job.list",
-        serde_json::json!({}),
-    ));
-    if let Some(error) = response.error {
-        return Err(format!(
-            "native cron list returned error: {}",
-            error.message
-        ));
-    }
-    let jobs = response
-        .result
-        .as_ref()
-        .and_then(|result| result.get("jobs"))
-        .and_then(serde_json::Value::as_array);
-    let Some(next_run_at_ms) = jobs.and_then(|jobs| {
-        jobs.iter()
-            .filter(|job| {
-                job.get("enabled")
-                    .and_then(serde_json::Value::as_bool)
-                    .unwrap_or(true)
-            })
-            .filter_map(|job| {
-                job.pointer("/state/nextRunAtMs")
-                    .and_then(serde_json::Value::as_i64)
-            })
-            .min()
-    }) else {
-        return Ok(max_poll);
-    };
-    if next_run_at_ms <= now_ms {
-        return Ok(Duration::ZERO);
-    }
-    Ok(Duration::from_millis((next_run_at_ms - now_ms) as u64).min(max_poll))
-}
-
-fn start_worker_heartbeat_runtime_with_options(
-    shared: &SharedGateway,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-    timeout: Duration,
-) -> Result<serde_json::Value, String> {
-    send_worker_heartbeat_lifecycle_request(
-        shared,
-        workspace_root,
-        config_snapshot,
-        build_worker_heartbeat_lifecycle_request(now_unix_ms(), "start"),
-        timeout,
-    )
-}
-
-fn stop_worker_heartbeat_runtime_with_options(
-    shared: &SharedGateway,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-    timeout: Duration,
-) -> Result<serde_json::Value, String> {
-    send_worker_heartbeat_lifecycle_request(
-        shared,
-        workspace_root,
-        config_snapshot,
-        build_worker_heartbeat_lifecycle_request(now_unix_ms(), "stop"),
-        timeout,
-    )
-}
-
-fn send_worker_heartbeat_lifecycle_request(
-    shared: &SharedGateway,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-    request: WorkerRequest,
-    timeout: Duration,
-) -> Result<serde_json::Value, String> {
-    let worker = {
-        let runtime = lock_runtime(shared);
-        runtime.experimental_worker.clone()
-    };
-    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot)?;
-    let method = request.method.clone();
-    let response = worker
-        .send_stdio_request(&request, timeout)
-        .map_err(|error| format!("worker {method} request failed: {}", error.message))?;
-    if let Some(error) = response.error {
-        return Err(format!("worker {method} returned error: {}", error.message));
-    }
-    response
-        .result
-        .ok_or_else(|| format!("worker {method} response missing result"))
-}
-
-fn build_worker_heartbeat_lifecycle_request(request_id: u128, action: &str) -> WorkerRequest {
-    WorkerRequest::new(
-        format!("heartbeat-{action}-{request_id}"),
-        format!("trace-heartbeat-{action}-{request_id}"),
-        format!("heartbeat.{action}"),
-        serde_json::json!({}),
-    )
-}
-
-struct CronDispatchGuard {
-    running: Arc<AtomicBool>,
-}
-
-impl CronDispatchGuard {
-    fn begin(shared: &SharedGateway) -> Option<Self> {
-        let running = {
-            let runtime = lock_runtime(shared);
-            runtime.cron_dispatch_running.clone()
-        };
-        running
-            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-            .ok()?;
-        Some(Self { running })
-    }
-}
-
-impl Drop for CronDispatchGuard {
-    fn drop(&mut self) {
-        self.running.store(false, Ordering::SeqCst);
-    }
-}
-
-fn start_worker_cron_timer(shared: &SharedGateway) -> bool {
-    let (started, stop) = {
-        let runtime = lock_runtime(shared);
-        (
-            runtime.cron_timer_started.clone(),
-            runtime.cron_timer_stop.clone(),
-        )
-    };
-    if started
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
-        return false;
-    }
-    stop.store(false, Ordering::SeqCst);
-    let timer_shared = shared.clone();
-    let log_shared = shared.clone();
-    let builder = thread::Builder::new().name("tinybot-cron-timer".to_string());
-    match builder.spawn(move || worker_cron_timer_loop(timer_shared, stop, started)) {
-        Ok(_handle) => true,
-        Err(error) => {
-            log_shared
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .cron_timer_started
-                .store(false, Ordering::SeqCst);
-            push_log(
-                &log_shared,
-                &format!("failed to start native cron timer: {error}"),
-            );
-            false
-        }
-    }
-}
-
-fn stop_worker_cron_timer(shared: &SharedGateway) {
-    let stop = {
-        let runtime = lock_runtime(shared);
-        runtime.cron_timer_stop.clone()
-    };
-    stop.store(true, Ordering::SeqCst);
-}
-
-fn worker_cron_timer_loop(shared: SharedGateway, stop: Arc<AtomicBool>, started: Arc<AtomicBool>) {
-    while !stop.load(Ordering::SeqCst) {
-        let delay = worker_cron_next_wake_delay_with_options(
-            ts_agent_worker_workspace_root(),
-            experimental_worker_config_snapshot(),
-            now_unix_ms() as i64,
-            WORKER_CRON_TIMER_MAX_POLL,
-        )
-        .unwrap_or(WORKER_CRON_TIMER_MAX_POLL);
-        if sleep_cron_timer_or_stopped(delay, &stop) {
-            break;
-        }
-        match worker_cron_dispatch_due_with_options(
-            &shared,
-            ts_agent_worker_workspace_root(),
-            experimental_worker_config_snapshot(),
-            now_unix_ms() as i64,
-            Duration::from_secs(120),
-        ) {
-            Ok(result)
-                if result.get("dispatched").and_then(serde_json::Value::as_u64) != Some(0) =>
-            {
-                push_log(
-                    &shared,
-                    &format!("native cron dispatched due jobs: {result}"),
-                );
-            }
-            Ok(_) => {}
-            Err(error) => push_log(&shared, &format!("native cron dispatch failed: {error}")),
-        }
-    }
-    started.store(false, Ordering::SeqCst);
-}
-
-fn sleep_cron_timer_or_stopped(delay: Duration, stop: &AtomicBool) -> bool {
-    let mut remaining = delay;
-    while !remaining.is_zero() {
-        if stop.load(Ordering::SeqCst) {
-            return true;
-        }
-        let chunk = remaining.min(Duration::from_millis(250));
-        thread::sleep(chunk);
-        remaining = remaining.saturating_sub(chunk);
-    }
-    stop.load(Ordering::SeqCst)
-}
-
-fn build_worker_cron_run_due_request(
-    request_id: u128,
-    jobs: serde_json::Value,
-    model: String,
-) -> WorkerRequest {
-    WorkerRequest::new(
-        format!("cron-run-due-{request_id}"),
-        format!("trace-cron-run-due-{request_id}"),
-        "cron.run_due",
-        serde_json::json!({
-            "jobs": jobs,
-            "model": model,
-            "maxIterations": 4,
-            "stream": false
-        }),
-    )
-}
-
-fn cron_model_from_config(config_snapshot: &serde_json::Value) -> String {
-    config_snapshot
-        .pointer("/agents/defaults/model")
-        .and_then(serde_json::Value::as_str)
-        .filter(|model| !model.trim().is_empty())
-        .unwrap_or("deepseek-reasoner")
-        .to_string()
 }
 
 fn worker_skills_list_with_options(
@@ -1880,33 +739,17 @@ fn worker_skills_list_with_options(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let worker = {
-        let runtime = lock_runtime(shared);
-        runtime.experimental_worker.clone()
-    };
+    let client = WorkerClient::experimental(shared);
+    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
 
-    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot)?;
-
-    let request = build_worker_skills_list_request(now_unix_ms());
-    let response = worker
-        .send_stdio_request(&request, timeout)
-        .map_err(|error| format!("worker skills list request failed: {}", error.message))?;
-
-    if let Some(error) = response.error {
-        return Err(format!(
-            "worker skills list returned error: {}",
-            error.message
-        ));
-    }
-    response
-        .result
-        .ok_or_else(|| "worker skills list response missing result".to_string())
+    let request = build_worker_skills_list_request(next_worker_request_correlation());
+    client.call(&request, timeout, "worker skills list")
 }
 
-fn build_worker_skills_list_request(request_id: u128) -> WorkerRequest {
+fn build_worker_skills_list_request(request_id: WorkerRequestCorrelation) -> WorkerRequest {
     WorkerRequest::new(
-        format!("skills-list-{request_id}"),
-        format!("trace-skills-list-{request_id}"),
+        request_id.id("skills-list"),
+        request_id.trace_id("skills-list"),
         "skills.webui_list",
         serde_json::json!({}),
     )
@@ -1919,33 +762,20 @@ fn worker_skills_detail_with_options(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let worker = {
-        let runtime = lock_runtime(shared);
-        runtime.experimental_worker.clone()
-    };
+    let client = WorkerClient::experimental(shared);
+    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
 
-    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot)?;
-
-    let request = build_worker_skills_detail_request(now_unix_ms(), name);
-    let response = worker
-        .send_stdio_request(&request, timeout)
-        .map_err(|error| format!("worker skills detail request failed: {}", error.message))?;
-
-    if let Some(error) = response.error {
-        return Err(format!(
-            "worker skills detail returned error: {}",
-            error.message
-        ));
-    }
-    response
-        .result
-        .ok_or_else(|| "worker skills detail response missing result".to_string())
+    let request = build_worker_skills_detail_request(next_worker_request_correlation(), name);
+    client.call(&request, timeout, "worker skills detail")
 }
 
-fn build_worker_skills_detail_request(request_id: u128, name: String) -> WorkerRequest {
+fn build_worker_skills_detail_request(
+    request_id: WorkerRequestCorrelation,
+    name: String,
+) -> WorkerRequest {
     WorkerRequest::new(
-        format!("skills-detail-{request_id}"),
-        format!("trace-skills-detail-{request_id}"),
+        request_id.id("skills-detail"),
+        request_id.trace_id("skills-detail"),
         "skills.webui_detail",
         serde_json::json!({ "name": name }),
     )
@@ -1962,16 +792,19 @@ fn worker_skills_create_with_options(
         shared,
         workspace_root,
         config_snapshot,
-        build_worker_skills_create_request(now_unix_ms(), body),
+        build_worker_skills_create_request(next_worker_request_correlation(), body),
         timeout,
         "create",
     )
 }
 
-fn build_worker_skills_create_request(request_id: u128, body: serde_json::Value) -> WorkerRequest {
+fn build_worker_skills_create_request(
+    request_id: WorkerRequestCorrelation,
+    body: serde_json::Value,
+) -> WorkerRequest {
     WorkerRequest::new(
-        format!("skills-create-{request_id}"),
-        format!("trace-skills-create-{request_id}"),
+        request_id.id("skills-create"),
+        request_id.trace_id("skills-create"),
         "skills.webui_create",
         serde_json::json!({ "body": body }),
     )
@@ -1989,20 +822,20 @@ fn worker_skills_update_with_options(
         shared,
         workspace_root,
         config_snapshot,
-        build_worker_skills_update_request(now_unix_ms(), name, body),
+        build_worker_skills_update_request(next_worker_request_correlation(), name, body),
         timeout,
         "update",
     )
 }
 
 fn build_worker_skills_update_request(
-    request_id: u128,
+    request_id: WorkerRequestCorrelation,
     name: String,
     body: serde_json::Value,
 ) -> WorkerRequest {
     WorkerRequest::new(
-        format!("skills-update-{request_id}"),
-        format!("trace-skills-update-{request_id}"),
+        request_id.id("skills-update"),
+        request_id.trace_id("skills-update"),
         "skills.webui_update",
         serde_json::json!({ "name": name, "body": body }),
     )
@@ -2019,16 +852,19 @@ fn worker_skills_delete_with_options(
         shared,
         workspace_root,
         config_snapshot,
-        build_worker_skills_delete_request(now_unix_ms(), name),
+        build_worker_skills_delete_request(next_worker_request_correlation(), name),
         timeout,
         "delete",
     )
 }
 
-fn build_worker_skills_delete_request(request_id: u128, name: String) -> WorkerRequest {
+fn build_worker_skills_delete_request(
+    request_id: WorkerRequestCorrelation,
+    name: String,
+) -> WorkerRequest {
     WorkerRequest::new(
-        format!("skills-delete-{request_id}"),
-        format!("trace-skills-delete-{request_id}"),
+        request_id.id("skills-delete"),
+        request_id.trace_id("skills-delete"),
         "skills.webui_delete",
         serde_json::json!({ "name": name }),
     )
@@ -2045,16 +881,19 @@ fn worker_skills_validate_with_options(
         shared,
         workspace_root,
         config_snapshot,
-        build_worker_skills_validate_request(now_unix_ms(), name),
+        build_worker_skills_validate_request(next_worker_request_correlation(), name),
         timeout,
         "validate",
     )
 }
 
-fn build_worker_skills_validate_request(request_id: u128, name: String) -> WorkerRequest {
+fn build_worker_skills_validate_request(
+    request_id: WorkerRequestCorrelation,
+    name: String,
+) -> WorkerRequest {
     WorkerRequest::new(
-        format!("skills-validate-{request_id}"),
-        format!("trace-skills-validate-{request_id}"),
+        request_id.id("skills-validate"),
+        request_id.trace_id("skills-validate"),
         "skills.webui_validate",
         serde_json::json!({ "name": name }),
     )
@@ -2067,31 +906,15 @@ fn worker_cowork_route_with_options(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let worker = {
-        let runtime = lock_runtime(shared);
-        runtime.experimental_worker.clone()
-    };
+    let client = WorkerClient::experimental(shared);
+    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
 
-    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot)?;
-
-    let request = build_worker_cowork_route_request(now_unix_ms(), input);
-    let response = worker
-        .send_stdio_request(&request, timeout)
-        .map_err(|error| format!("worker cowork route request failed: {}", error.message))?;
-
-    if let Some(error) = response.error {
-        return Err(format!(
-            "worker cowork route returned error: {}",
-            error.message
-        ));
-    }
-    response
-        .result
-        .ok_or_else(|| "worker cowork route response missing result".to_string())
+    let request = build_worker_cowork_route_request(next_worker_request_correlation(), input);
+    client.call(&request, timeout, "worker cowork route")
 }
 
 fn build_worker_cowork_route_request(
-    request_id: u128,
+    request_id: WorkerRequestCorrelation,
     input: WorkerCoworkRouteInput,
 ) -> WorkerRequest {
     let mut params = serde_json::json!({
@@ -2105,8 +928,8 @@ fn build_worker_cowork_route_request(
         params["query"] = query;
     }
     WorkerRequest::new(
-        format!("cowork-route-{request_id}"),
-        format!("trace-cowork-route-{request_id}"),
+        request_id.id("cowork-route"),
+        request_id.trace_id("cowork-route"),
         "cowork.route_request",
         params,
     )
@@ -2119,27 +942,11 @@ fn worker_webui_route_with_options(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let worker = {
-        let runtime = lock_runtime(shared);
-        runtime.experimental_worker.clone()
-    };
+    let client = WorkerClient::experimental(shared);
+    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
 
-    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot)?;
-
-    let request = build_worker_webui_route_request(now_unix_ms(), input);
-    let response = worker
-        .send_stdio_request(&request, timeout)
-        .map_err(|error| format!("worker webui route request failed: {}", error.message))?;
-
-    if let Some(error) = response.error {
-        return Err(format!(
-            "worker webui route returned error: {}",
-            error.message
-        ));
-    }
-    response
-        .result
-        .ok_or_else(|| "worker webui route response missing result".to_string())
+    let request = build_worker_webui_route_request(next_worker_request_correlation(), input);
+    client.call(&request, timeout, "worker webui route")
 }
 
 fn worker_webui_route_timeout(input: &WorkerWebuiRouteInput) -> Duration {
@@ -2148,7 +955,7 @@ fn worker_webui_route_timeout(input: &WorkerWebuiRouteInput) -> Duration {
 }
 
 fn build_worker_webui_route_request(
-    request_id: u128,
+    request_id: WorkerRequestCorrelation,
     input: WorkerWebuiRouteInput,
 ) -> WorkerRequest {
     let mut params = serde_json::json!({
@@ -2162,8 +969,8 @@ fn build_worker_webui_route_request(
         params["headers"] = headers;
     }
     WorkerRequest::new(
-        format!("webui-route-{request_id}"),
-        format!("trace-webui-route-{request_id}"),
+        request_id.id("webui-route"),
+        request_id.trace_id("webui-route"),
         "webui.handle_request",
         params,
     )
@@ -2176,36 +983,16 @@ fn worker_transport_gateway_frame_with_options(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let worker = {
-        let runtime = lock_runtime(shared);
-        runtime.experimental_worker.clone()
-    };
+    let client = WorkerClient::experimental(shared);
+    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
 
-    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot)?;
-
-    let request = build_worker_transport_gateway_frame_request(now_unix_ms(), input);
-    let response = worker
-        .send_stdio_request(&request, timeout)
-        .map_err(|error| {
-            format!(
-                "worker transport gateway frame request failed: {}",
-                error.message
-            )
-        })?;
-
-    if let Some(error) = response.error {
-        return Err(format!(
-            "worker transport gateway frame returned error: {}",
-            error.message
-        ));
-    }
-    response
-        .result
-        .ok_or_else(|| "worker transport gateway frame response missing result".to_string())
+    let request =
+        build_worker_transport_gateway_frame_request(next_worker_request_correlation(), input);
+    client.call(&request, timeout, "worker transport gateway frame")
 }
 
 fn build_worker_transport_gateway_frame_request(
-    request_id: u128,
+    request_id: WorkerRequestCorrelation,
     input: WorkerTransportGatewayFrameInput,
 ) -> WorkerRequest {
     let mut params = serde_json::json!({
@@ -2225,8 +1012,8 @@ fn build_worker_transport_gateway_frame_request(
         params["metadata"] = metadata;
     }
     WorkerRequest::new(
-        format!("transport-gateway-frame-{request_id}"),
-        format!("trace-transport-gateway-frame-{request_id}"),
+        request_id.id("transport-gateway-frame"),
+        request_id.trace_id("transport-gateway-frame"),
         "transport.gateway_frame",
         params,
     )
@@ -2239,36 +1026,16 @@ fn worker_transport_websocket_message_with_options(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let worker = {
-        let runtime = lock_runtime(shared);
-        runtime.experimental_worker.clone()
-    };
+    let client = WorkerClient::experimental(shared);
+    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
 
-    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot)?;
-
-    let request = build_worker_transport_websocket_message_request(now_unix_ms(), input);
-    let response = worker
-        .send_stdio_request(&request, timeout)
-        .map_err(|error| {
-            format!(
-                "worker transport websocket message request failed: {}",
-                error.message
-            )
-        })?;
-
-    if let Some(error) = response.error {
-        return Err(format!(
-            "worker transport websocket message returned error: {}",
-            error.message
-        ));
-    }
-    response
-        .result
-        .ok_or_else(|| "worker transport websocket message response missing result".to_string())
+    let request =
+        build_worker_transport_websocket_message_request(next_worker_request_correlation(), input);
+    client.call(&request, timeout, "worker transport websocket message")
 }
 
 fn build_worker_transport_websocket_message_request(
-    request_id: u128,
+    request_id: WorkerRequestCorrelation,
     input: WorkerTransportWebSocketMessageInput,
 ) -> WorkerRequest {
     let mut params = serde_json::json!({
@@ -2285,8 +1052,8 @@ fn build_worker_transport_websocket_message_request(
         params["editablePaths"] = serde_json::json!(editable_paths);
     }
     WorkerRequest::new(
-        format!("transport-websocket-message-{request_id}"),
-        format!("trace-transport-websocket-message-{request_id}"),
+        request_id.id("transport-websocket-message"),
+        request_id.trace_id("transport-websocket-message"),
         "transport.websocket_message",
         params,
     )
@@ -2299,15 +1066,11 @@ fn worker_transport_dispatch_websocket_message_with_options(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let worker = {
-        let runtime = lock_runtime(shared);
-        runtime.experimental_worker.clone()
-    };
-
-    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot)?;
+    let client = WorkerClient::experimental(shared);
+    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
 
     let transport_request = build_worker_transport_websocket_message_request(
-        now_unix_ms(),
+        next_worker_request_correlation(),
         WorkerTransportWebSocketMessageInput {
             client_id: input.client_id,
             frame: input.frame,
@@ -2316,24 +1079,11 @@ fn worker_transport_dispatch_websocket_message_with_options(
             editable_paths: input.editable_paths,
         },
     );
-    let transport_response = worker
-        .send_stdio_request(&transport_request, timeout)
-        .map_err(|error| {
-            format!(
-                "worker transport websocket dispatch mapper request failed: {}",
-                error.message
-            )
-        })?;
-
-    if let Some(error) = transport_response.error {
-        return Err(format!(
-            "worker transport websocket dispatch mapper returned error: {}",
-            error.message
-        ));
-    }
-    let transport_result = transport_response.result.ok_or_else(|| {
-        "worker transport websocket dispatch mapper response missing result".to_string()
-    })?;
+    let transport_result = client.call(
+        &transport_request,
+        timeout,
+        "worker transport websocket dispatch mapper",
+    )?;
 
     let dispatch_options = WorkerTransportWebSocketDispatchOptions {
         model: input.model,
@@ -2342,30 +1092,18 @@ fn worker_transport_dispatch_websocket_message_with_options(
         stream: input.stream,
     };
     let Some(run_request) = build_worker_transport_websocket_run_input_request(
-        now_unix_ms(),
+        next_worker_request_correlation(),
         &transport_result,
         dispatch_options,
     ) else {
         return Ok(serde_json::json!({ "transport": transport_result }));
     };
 
-    let agent_response = worker
-        .send_stdio_request(&run_request, timeout)
-        .map_err(|error| {
-            format!(
-                "worker transport websocket dispatch agent request failed: {}",
-                error.message
-            )
-        })?;
-    if let Some(error) = agent_response.error {
-        return Err(format!(
-            "worker transport websocket dispatch agent returned error: {}",
-            error.message
-        ));
-    }
-    let agent_result = agent_response.result.ok_or_else(|| {
-        "worker transport websocket dispatch agent response missing result".to_string()
-    })?;
+    let agent_result = client.call(
+        &run_request,
+        timeout,
+        "worker transport websocket dispatch agent",
+    )?;
 
     Ok(serde_json::json!({
         "transport": transport_result,
@@ -2374,7 +1112,7 @@ fn worker_transport_dispatch_websocket_message_with_options(
 }
 
 fn build_worker_transport_websocket_run_input_request(
-    request_id: u128,
+    request_id: WorkerRequestCorrelation,
     transport_result: &serde_json::Value,
     options: WorkerTransportWebSocketDispatchOptions,
 ) -> Option<WorkerRequest> {
@@ -2392,12 +1130,13 @@ fn build_worker_transport_websocket_run_input_request(
 
     let run_id = options.run_id.unwrap_or_else(|| {
         format!(
-            "websocket-{}-{request_id}",
+            "websocket-{}-{}",
             sanitize_worker_run_id_part(if chat_id.is_empty() {
                 session_id
             } else {
                 chat_id
-            })
+            }),
+            request_id.suffix()
         )
     });
     let mut input = serde_json::json!({
@@ -2420,8 +1159,8 @@ fn build_worker_transport_websocket_run_input_request(
     }
 
     Some(WorkerRequest::new(
-        format!("transport-websocket-run-input-{request_id}"),
-        format!("trace-transport-websocket-run-input-{request_id}"),
+        request_id.id("transport-websocket-run-input"),
+        request_id.trace_id("transport-websocket-run-input"),
         "agent.run_input",
         serde_json::json!({ "input": input }),
     ))
@@ -2434,41 +1173,21 @@ fn worker_channel_dispatch_inbound_with_options(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let worker = {
-        let runtime = lock_runtime(shared);
-        runtime.experimental_worker.clone()
-    };
+    let client = WorkerClient::experimental(shared);
+    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
 
-    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot)?;
-
-    let request = build_worker_channel_dispatch_inbound_request(now_unix_ms(), input);
-    let response = worker
-        .send_stdio_request(&request, timeout)
-        .map_err(|error| {
-            format!(
-                "worker channel dispatch inbound request failed: {}",
-                error.message
-            )
-        })?;
-
-    if let Some(error) = response.error {
-        return Err(format!(
-            "worker channel dispatch inbound returned error: {}",
-            error.message
-        ));
-    }
-    response
-        .result
-        .ok_or_else(|| "worker channel dispatch inbound response missing result".to_string())
+    let request =
+        build_worker_channel_dispatch_inbound_request(next_worker_request_correlation(), input);
+    client.call(&request, timeout, "worker channel dispatch inbound")
 }
 
 fn build_worker_channel_dispatch_inbound_request(
-    request_id: u128,
+    request_id: WorkerRequestCorrelation,
     input: WorkerChannelDispatchInboundInput,
 ) -> WorkerRequest {
     WorkerRequest::new(
-        format!("channel-dispatch-inbound-{request_id}"),
-        format!("trace-channel-dispatch-inbound-{request_id}"),
+        request_id.id("channel-dispatch-inbound"),
+        request_id.trace_id("channel-dispatch-inbound"),
         "channel.dispatch_inbound",
         serde_json::json!({ "message": input.message }),
     )
@@ -2484,7 +1203,7 @@ fn worker_channel_start_with_options(
         shared,
         workspace_root,
         config_snapshot,
-        build_worker_channel_start_request(now_unix_ms()),
+        build_worker_channel_start_request(next_worker_request_correlation()),
         timeout,
         "start",
     )
@@ -2500,7 +1219,7 @@ fn worker_channel_status_with_options(
         shared,
         workspace_root,
         config_snapshot,
-        build_worker_channel_status_request(now_unix_ms()),
+        build_worker_channel_status_request(next_worker_request_correlation()),
         timeout,
         "status",
     )
@@ -2516,7 +1235,7 @@ fn worker_channel_stop_with_options(
         shared,
         workspace_root,
         config_snapshot,
-        build_worker_channel_stop_request(now_unix_ms()),
+        build_worker_channel_stop_request(next_worker_request_correlation()),
         timeout,
         "stop",
     )
@@ -2534,7 +1253,7 @@ fn worker_channel_login_with_options(
         shared,
         workspace_root,
         config_snapshot,
-        build_worker_channel_login_request(now_unix_ms(), channel, force),
+        build_worker_channel_login_request(next_worker_request_correlation(), channel, force),
         timeout,
         "login",
     )
@@ -2548,63 +1267,46 @@ fn send_channel_lifecycle_worker_request(
     timeout: Duration,
     action: &str,
 ) -> Result<serde_json::Value, String> {
-    let worker = {
-        let runtime = lock_runtime(shared);
-        runtime.experimental_worker.clone()
-    };
-
-    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot)?;
-
-    let response = worker
-        .send_stdio_request(&request, timeout)
-        .map_err(|error| format!("worker channel {action} request failed: {}", error.message))?;
-
-    if let Some(error) = response.error {
-        return Err(format!(
-            "worker channel {action} returned error: {}",
-            error.message
-        ));
-    }
-    response
-        .result
-        .ok_or_else(|| format!("worker channel {action} response missing result"))
+    let client = WorkerClient::experimental(shared);
+    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
+    client.call(&request, timeout, &format!("worker channel {action}"))
 }
 
-fn build_worker_channel_start_request(request_id: u128) -> WorkerRequest {
+fn build_worker_channel_start_request(request_id: WorkerRequestCorrelation) -> WorkerRequest {
     WorkerRequest::new(
-        format!("channel-start-{request_id}"),
-        format!("trace-channel-start-{request_id}"),
+        request_id.id("channel-start"),
+        request_id.trace_id("channel-start"),
         "channel.start",
         serde_json::json!({}),
     )
 }
 
-fn build_worker_channel_status_request(request_id: u128) -> WorkerRequest {
+fn build_worker_channel_status_request(request_id: WorkerRequestCorrelation) -> WorkerRequest {
     WorkerRequest::new(
-        format!("channel-status-{request_id}"),
-        format!("trace-channel-status-{request_id}"),
+        request_id.id("channel-status"),
+        request_id.trace_id("channel-status"),
         "channel.status",
         serde_json::json!({}),
     )
 }
 
-fn build_worker_channel_stop_request(request_id: u128) -> WorkerRequest {
+fn build_worker_channel_stop_request(request_id: WorkerRequestCorrelation) -> WorkerRequest {
     WorkerRequest::new(
-        format!("channel-stop-{request_id}"),
-        format!("trace-channel-stop-{request_id}"),
+        request_id.id("channel-stop"),
+        request_id.trace_id("channel-stop"),
         "channel.stop",
         serde_json::json!({}),
     )
 }
 
 fn build_worker_channel_login_request(
-    request_id: u128,
+    request_id: WorkerRequestCorrelation,
     channel: String,
     force: bool,
 ) -> WorkerRequest {
     WorkerRequest::new(
-        format!("channel-login-{request_id}"),
-        format!("trace-channel-login-{request_id}"),
+        request_id.id("channel-login"),
+        request_id.trace_id("channel-login"),
         "channel.login",
         serde_json::json!({
             "channel": channel,
@@ -2646,26 +1348,9 @@ fn send_skills_worker_request(
     timeout: Duration,
     action: &str,
 ) -> Result<serde_json::Value, String> {
-    let worker = {
-        let runtime = lock_runtime(shared);
-        runtime.experimental_worker.clone()
-    };
-
-    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot)?;
-
-    let response = worker
-        .send_stdio_request(&request, timeout)
-        .map_err(|error| format!("worker skills {action} request failed: {}", error.message))?;
-
-    if let Some(error) = response.error {
-        return Err(format!(
-            "worker skills {action} returned error: {}",
-            error.message
-        ));
-    }
-    response
-        .result
-        .ok_or_else(|| format!("worker skills {action} response missing result"))
+    let client = WorkerClient::experimental(shared);
+    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
+    client.call(&request, timeout, &format!("worker skills {action}"))
 }
 
 fn worker_cancel_agent_with_options(
@@ -2673,34 +1358,20 @@ fn worker_cancel_agent_with_options(
     run_id: String,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let worker = {
-        let runtime = lock_runtime(shared);
-        runtime.experimental_worker.clone()
-    };
-    if worker.status().state != WorkerManagerState::Running {
-        return Err("TS agent worker is not running".to_string());
-    }
+    let client = WorkerClient::experimental(shared);
+    client.require_running()?;
 
-    let request = build_worker_cancel_agent_request(now_unix_ms(), run_id);
-    let response = worker
-        .send_stdio_request(&request, timeout)
-        .map_err(|error| format!("worker agent cancel request failed: {}", error.message))?;
-
-    if let Some(error) = response.error {
-        return Err(format!(
-            "worker agent cancel returned error: {}",
-            error.message
-        ));
-    }
-    response
-        .result
-        .ok_or_else(|| "worker agent cancel response missing result".to_string())
+    let request = build_worker_cancel_agent_request(next_worker_request_correlation(), run_id);
+    client.call(&request, timeout, "worker agent cancel")
 }
 
-fn build_worker_cancel_agent_request(request_id: u128, run_id: String) -> WorkerRequest {
+fn build_worker_cancel_agent_request(
+    request_id: WorkerRequestCorrelation,
+    run_id: String,
+) -> WorkerRequest {
     WorkerRequest::new(
-        format!("agent-cancel-{request_id}"),
-        format!("trace-agent-cancel-{request_id}"),
+        request_id.id("agent-cancel"),
+        request_id.trace_id("agent-cancel"),
         "agent.cancel",
         serde_json::json!({ "runId": run_id }),
     )
@@ -2713,41 +1384,23 @@ fn worker_restore_agent_checkpoint_with_options(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let worker = {
-        let runtime = lock_runtime(shared);
-        runtime.experimental_worker.clone()
-    };
+    let client = WorkerClient::experimental(shared);
+    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
 
-    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot)?;
-
-    let request = build_worker_restore_agent_checkpoint_request(now_unix_ms(), session_id);
-    let response = worker
-        .send_stdio_request(&request, timeout)
-        .map_err(|error| {
-            format!(
-                "worker agent checkpoint restore request failed: {}",
-                error.message
-            )
-        })?;
-
-    if let Some(error) = response.error {
-        return Err(format!(
-            "worker agent checkpoint restore returned error: {}",
-            error.message
-        ));
-    }
-    response
-        .result
-        .ok_or_else(|| "worker agent checkpoint restore response missing result".to_string())
+    let request = build_worker_restore_agent_checkpoint_request(
+        next_worker_request_correlation(),
+        session_id,
+    );
+    client.call(&request, timeout, "worker agent checkpoint restore")
 }
 
 fn build_worker_restore_agent_checkpoint_request(
-    request_id: u128,
+    request_id: WorkerRequestCorrelation,
     session_id: String,
 ) -> WorkerRequest {
     WorkerRequest::new(
-        format!("agent-restore-checkpoint-{request_id}"),
-        format!("trace-agent-restore-checkpoint-{request_id}"),
+        request_id.id("agent-restore-checkpoint"),
+        request_id.trace_id("agent-restore-checkpoint"),
         "agent.restore_checkpoint",
         serde_json::json!({ "sessionId": session_id }),
     )
@@ -2763,37 +1416,21 @@ fn worker_submit_agent_form_with_options(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let worker = {
-        let runtime = lock_runtime(shared);
-        runtime.experimental_worker.clone()
-    };
+    let client = WorkerClient::experimental(shared);
+    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
 
-    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot)?;
-
-    let request =
-        build_worker_submit_agent_form_request(now_unix_ms(), session_id, form_id, values, action);
-    let response = worker
-        .send_stdio_request(&request, timeout)
-        .map_err(|error| {
-            format!(
-                "worker agent form submission request failed: {}",
-                error.message
-            )
-        })?;
-
-    if let Some(error) = response.error {
-        return Err(format!(
-            "worker agent form submission returned error: {}",
-            error.message
-        ));
-    }
-    response
-        .result
-        .ok_or_else(|| "worker agent form submission response missing result".to_string())
+    let request = build_worker_submit_agent_form_request(
+        next_worker_request_correlation(),
+        session_id,
+        form_id,
+        values,
+        action,
+    );
+    client.call(&request, timeout, "worker agent form submission")
 }
 
 fn build_worker_submit_agent_form_request(
-    request_id: u128,
+    request_id: WorkerRequestCorrelation,
     session_id: String,
     form_id: String,
     values: serde_json::Value,
@@ -2808,8 +1445,8 @@ fn build_worker_submit_agent_form_request(
         params["action"] = serde_json::Value::String(action);
     }
     WorkerRequest::new(
-        format!("agent-submit-form-{request_id}"),
-        format!("trace-agent-submit-form-{request_id}"),
+        request_id.id("agent-submit-form"),
+        request_id.trace_id("agent-submit-form"),
         "agent.submit_form",
         params,
     )
@@ -2825,42 +1462,21 @@ fn worker_resume_agent_approval_with_options(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let worker = {
-        let runtime = lock_runtime(shared);
-        runtime.experimental_worker.clone()
-    };
-
-    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot)?;
+    let client = WorkerClient::experimental(shared);
+    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
 
     let request = build_worker_resume_agent_approval_request(
-        now_unix_ms(),
+        next_worker_request_correlation(),
         session_id,
         approval_id,
         approved,
         scope,
     );
-    let response = worker
-        .send_stdio_request(&request, timeout)
-        .map_err(|error| {
-            format!(
-                "worker agent approval resume request failed: {}",
-                error.message
-            )
-        })?;
-
-    if let Some(error) = response.error {
-        return Err(format!(
-            "worker agent approval resume returned error: {}",
-            error.message
-        ));
-    }
-    response
-        .result
-        .ok_or_else(|| "worker agent approval resume response missing result".to_string())
+    client.call(&request, timeout, "worker agent approval resume")
 }
 
 fn build_worker_resume_agent_approval_request(
-    request_id: u128,
+    request_id: WorkerRequestCorrelation,
     session_id: String,
     approval_id: String,
     approved: bool,
@@ -2875,8 +1491,8 @@ fn build_worker_resume_agent_approval_request(
         params["scope"] = serde_json::Value::String(scope);
     }
     WorkerRequest::new(
-        format!("agent-resume-approval-{request_id}"),
-        format!("trace-agent-resume-approval-{request_id}"),
+        request_id.id("agent-resume-approval"),
+        request_id.trace_id("agent-resume-approval"),
         "agent.resume_approval",
         params,
     )
@@ -3084,33 +1700,6 @@ fn experimental_worker_config_snapshot() -> serde_json::Value {
     experimental_worker_config_snapshot_from_path(&default_tinybot_config_path())
 }
 
-fn stop_owned_gateway(shared: &SharedGateway, explicit: bool) -> Result<(), String> {
-    let (worker, experimental_worker) = {
-        let runtime = lock_runtime(shared);
-        if !explicit && runtime.keep_background {
-            let worker = runtime.worker.clone();
-            drop(runtime);
-            let _ = worker.stop();
-            push_log(shared, "leaving native TS backend running in background");
-            return Ok(());
-        }
-        (runtime.worker.clone(), runtime.experimental_worker.clone())
-    };
-
-    let was_running = experimental_worker.status().state == WorkerManagerState::Running;
-    worker
-        .stop()
-        .map_err(|error| format!("failed to stop gateway: {error:?}"))?;
-    experimental_worker
-        .stop()
-        .map_err(|error| format!("failed to stop experimental worker: {error:?}"))?;
-    if was_running {
-        let mut runtime = lock_runtime(shared);
-        append_log(&mut runtime, "stopped native TS backend");
-    }
-    Ok(())
-}
-
 fn now_unix_ms() -> u128 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -3149,80 +1738,6 @@ fn record_worker_manager_event_for_logs(shared: &SharedGateway, event: &WorkerMa
         &line.stream,
         &line.line,
     );
-}
-
-fn append_native_backend_log_line(
-    path: &Path,
-    max_bytes: u64,
-    stream: &str,
-    line: &str,
-) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|error| format!("failed to create native backend log directory: {error}"))?;
-    }
-    rotate_native_backend_log_if_needed(path, max_bytes)
-        .map_err(|error| format!("failed to rotate native backend log: {error}"))?;
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .map_err(|error| format!("failed to open native backend log: {error}"))?;
-    writeln!(file, "{} {} {}", now_unix_ms(), stream, line)
-        .map_err(|error| format!("failed to write native backend log: {error}"))
-}
-
-fn rotate_native_backend_log_if_needed(path: &Path, max_bytes: u64) -> std::io::Result<()> {
-    if max_bytes == 0
-        || std::fs::metadata(path)
-            .map(|metadata| metadata.len())
-            .unwrap_or(0)
-            < max_bytes
-    {
-        return Ok(());
-    }
-    let rotated = native_backend_rotated_log_path(path);
-    let _ = std::fs::remove_file(&rotated);
-    std::fs::rename(path, rotated)
-}
-
-fn native_backend_rotated_log_path(path: &Path) -> PathBuf {
-    let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
-        return path.with_extension("1");
-    };
-    path.with_file_name(format!("{file_name}.1"))
-}
-
-fn gateway_runtime_logs(
-    runtime_logs: &VecDeque<String>,
-    diagnostics: &[crate::worker_protocol::WorkerDiagnosticLine],
-) -> Vec<String> {
-    runtime_logs
-        .iter()
-        .cloned()
-        .chain(
-            diagnostics
-                .iter()
-                .map(|line| format!("{}: {}", line.stream, line.line)),
-        )
-        .collect()
-}
-
-fn read_native_backend_log_tail(path: &Path, max_lines: usize) -> Vec<String> {
-    if max_lines == 0 {
-        return Vec::new();
-    }
-    let Ok(contents) = std::fs::read_to_string(path) else {
-        return Vec::new();
-    };
-    let lines = contents
-        .lines()
-        .map(str::trim_end)
-        .filter(|line| !line.is_empty())
-        .map(str::to_string)
-        .collect::<Vec<_>>();
-    let start = lines.len().saturating_sub(max_lines);
-    lines[start..].to_vec()
 }
 
 fn worker_manager_frontend_event(event: WorkerManagerEvent) -> (String, serde_json::Value) {
@@ -3380,6 +1895,10 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_request_correlation(suffix: &str) -> WorkerRequestCorrelation {
+        WorkerRequestCorrelation::from_suffix(suffix)
+    }
 
     #[test]
     fn close_shutdown_stops_native_ts_backend_child() {
@@ -3584,7 +2103,7 @@ mod tests {
                 &fixture.root.join("config.json"),
                 "AGENTS.md"
             )
-                .expect("allowed workspace file should resolve"),
+            .expect("allowed workspace file should resolve"),
             workspace_root.join("AGENTS.md")
         );
     }
@@ -3637,7 +2156,9 @@ mod tests {
     #[test]
     fn experimental_worker_config_snapshot_loads_real_tinybot_config() {
         let fixture = WorkspaceFixture::new();
-        fixture.write("config.json", r#"{
+        fixture.write(
+            "config.json",
+            r#"{
           "agents": {
             "defaults": {
               "provider": "deepseek",
@@ -3648,7 +2169,8 @@ mod tests {
             "semanticLlmTimeout": 30.0,
             "semanticLlmMaxTokens": 1200
           }
-        }"#);
+        }"#,
+        );
         let config_path = fixture.root.join("config.json");
 
         let snapshot = experimental_worker_config_snapshot_from_path(&config_path);
@@ -3662,7 +2184,9 @@ mod tests {
     fn experimental_worker_config_defaults_to_auto_provider_without_config_file() {
         let fixture = WorkspaceFixture::new();
         assert_eq!(
-            experimental_worker_config_snapshot_from_path(&fixture.root.join("missing-config.json")),
+            experimental_worker_config_snapshot_from_path(
+                &fixture.root.join("missing-config.json")
+            ),
             serde_json::json!({
                 "agents": {
                     "defaults": {
@@ -3676,7 +2200,22 @@ mod tests {
     #[test]
     fn experimental_worker_router_allows_registered_ts_agent_native_tools() {
         let fixture = WorkspaceFixture::new();
-        fixture.write("memory/notes.jsonl", "Use uv for Python commands.");
+        fixture.write(
+            "memory/notes.jsonl",
+            &format!(
+                "{}\n",
+                serde_json::json!({
+                    "id": "note-uv-python",
+                    "scope": "user",
+                    "type": "preference",
+                    "status": "active",
+                    "content": "Use uv for Python commands.",
+                    "priority": 0.8,
+                    "confidence": 0.9,
+                    "sources": []
+                })
+            ),
+        );
         let mut router = experimental_worker_router(
             fixture.root.clone(),
             serde_json::json!({
@@ -3780,12 +2319,32 @@ mod tests {
             "stream": true
         });
 
-        let request = build_worker_run_agent_request(42, agent_spec.clone());
+        let request =
+            build_worker_run_agent_request(test_request_correlation("42"), agent_spec.clone());
 
         assert_eq!(request.id, "agent-run-42");
         assert_eq!(request.trace_id, "trace-agent-run-42");
         assert_eq!(request.method, "agent.run");
         assert_eq!(request.params, serde_json::json!({ "spec": agent_spec }));
+    }
+
+    #[test]
+    fn worker_run_agent_requests_use_unique_rust_owned_correlation_keys() {
+        let generator = crate::worker_request_id::WorkerRequestIdGenerator::with_run_prefix("test");
+        let first_spec = serde_json::json!({ "runId": "run-1" });
+        let second_spec = serde_json::json!({ "runId": "run-2" });
+
+        let first = build_worker_run_agent_request(generator.next(), first_spec.clone());
+        let second = build_worker_run_agent_request(generator.next(), second_spec.clone());
+
+        assert_ne!(first.id, second.id);
+        assert_ne!(first.trace_id, second.trace_id);
+        assert!(first.id.starts_with("agent-run-test-"));
+        assert!(first.trace_id.starts_with("trace-agent-run-test-"));
+        assert_eq!(first.method, "agent.run");
+        assert_eq!(second.method, "agent.run");
+        assert_eq!(first.params, serde_json::json!({ "spec": first_spec }));
+        assert_eq!(second.params, serde_json::json!({ "spec": second_spec }));
     }
 
     #[test]
@@ -3799,7 +2358,10 @@ mod tests {
             "stream": true
         });
 
-        let request = build_worker_run_agent_input_request(42, agent_input.clone());
+        let request = build_worker_run_agent_input_request(
+            test_request_correlation("42"),
+            agent_input.clone(),
+        );
 
         assert_eq!(request.id, "agent-run-input-42");
         assert_eq!(request.trace_id, "trace-agent-run-input-42");
@@ -3823,7 +2385,11 @@ mod tests {
             }
         ]);
 
-        let request = build_worker_cron_run_due_request(42, jobs.clone(), "gpt-5".to_string());
+        let request = build_worker_cron_run_due_request(
+            test_request_correlation("42"),
+            jobs.clone(),
+            "gpt-5".to_string(),
+        );
 
         assert_eq!(request.id, "cron-run-due-42");
         assert_eq!(request.trace_id, "trace-cron-run-due-42");
@@ -3849,13 +2415,14 @@ mod tests {
 
     #[test]
     fn worker_heartbeat_lifecycle_requests_target_ts_worker_methods() {
-        let start = build_worker_heartbeat_lifecycle_request(42, "start");
+        let start =
+            build_worker_heartbeat_lifecycle_request(test_request_correlation("42"), "start");
         assert_eq!(start.id, "heartbeat-start-42");
         assert_eq!(start.trace_id, "trace-heartbeat-start-42");
         assert_eq!(start.method, "heartbeat.start");
         assert_eq!(start.params, serde_json::json!({}));
 
-        let stop = build_worker_heartbeat_lifecycle_request(43, "stop");
+        let stop = build_worker_heartbeat_lifecycle_request(test_request_correlation("43"), "stop");
         assert_eq!(stop.id, "heartbeat-stop-43");
         assert_eq!(stop.trace_id, "trace-heartbeat-stop-43");
         assert_eq!(stop.method, "heartbeat.stop");
@@ -4004,18 +2571,28 @@ mod tests {
 
     #[test]
     fn worker_skills_requests_target_ts_webui_skill_methods() {
-        let list_request = build_worker_skills_list_request(42);
-        let detail_request = build_worker_skills_detail_request(43, "planner/phase".to_string());
-        let create_request =
-            build_worker_skills_create_request(44, serde_json::json!({ "name": "planner" }));
+        let list_request = build_worker_skills_list_request(test_request_correlation("42"));
+        let detail_request = build_worker_skills_detail_request(
+            test_request_correlation("43"),
+            "planner/phase".to_string(),
+        );
+        let create_request = build_worker_skills_create_request(
+            test_request_correlation("44"),
+            serde_json::json!({ "name": "planner" }),
+        );
         let update_request = build_worker_skills_update_request(
-            45,
+            test_request_correlation("45"),
             "planner/phase".to_string(),
             serde_json::json!({ "content": "Updated" }),
         );
-        let delete_request = build_worker_skills_delete_request(46, "planner/phase".to_string());
-        let validate_request =
-            build_worker_skills_validate_request(47, "planner/phase".to_string());
+        let delete_request = build_worker_skills_delete_request(
+            test_request_correlation("46"),
+            "planner/phase".to_string(),
+        );
+        let validate_request = build_worker_skills_validate_request(
+            test_request_correlation("47"),
+            "planner/phase".to_string(),
+        );
 
         assert_eq!(list_request.id, "skills-list-42");
         assert_eq!(list_request.trace_id, "trace-skills-list-42");
@@ -4061,7 +2638,7 @@ mod tests {
     #[test]
     fn worker_cowork_route_request_targets_ts_route_bridge() {
         let request = build_worker_cowork_route_request(
-            42,
+            test_request_correlation("42"),
             WorkerCoworkRouteInput {
                 method: "POST".to_string(),
                 path: "/api/cowork/sessions/cw_1/tasks/task_1/retry".to_string(),
@@ -4087,7 +2664,7 @@ mod tests {
     #[test]
     fn worker_webui_route_request_targets_ts_route_bridge() {
         let request = build_worker_webui_route_request(
-            42,
+            test_request_correlation("42"),
             WorkerWebuiRouteInput {
                 method: "GET".to_string(),
                 path: "/api/status".to_string(),
@@ -4134,7 +2711,7 @@ mod tests {
     #[test]
     fn worker_transport_gateway_frame_request_targets_ts_transport_mapper() {
         let request = build_worker_transport_gateway_frame_request(
-            42,
+            test_request_correlation("42"),
             WorkerTransportGatewayFrameInput {
                 kind: "message".to_string(),
                 chat_id: "chat-1".to_string(),
@@ -4170,7 +2747,7 @@ mod tests {
     #[test]
     fn worker_transport_websocket_message_request_targets_ts_inbound_mapper() {
         let request = build_worker_transport_websocket_message_request(
-            42,
+            test_request_correlation("42"),
             WorkerTransportWebSocketMessageInput {
                 client_id: "client-1".to_string(),
                 frame: serde_json::json!({
@@ -4222,7 +2799,7 @@ mod tests {
         });
 
         let request = build_worker_transport_websocket_run_input_request(
-            42,
+            test_request_correlation("42"),
             &mapper_result,
             WorkerTransportWebSocketDispatchOptions {
                 model: Some("gpt-5".to_string()),
@@ -4257,7 +2834,7 @@ mod tests {
         );
 
         assert!(build_worker_transport_websocket_run_input_request(
-            43,
+            test_request_correlation("43"),
             &serde_json::json!({ "kind": "ping", "frames": [{ "event": "pong" }] }),
             WorkerTransportWebSocketDispatchOptions::default(),
         )
@@ -4282,7 +2859,7 @@ mod tests {
         });
 
         let request = build_worker_transport_websocket_run_input_request(
-            42,
+            test_request_correlation("42"),
             &mapper_result,
             WorkerTransportWebSocketDispatchOptions {
                 run_id: Some("websocket-chat-1-preallocated".to_string()),
@@ -4300,7 +2877,7 @@ mod tests {
     #[test]
     fn worker_channel_dispatch_inbound_request_targets_ts_channel_runtime() {
         let request = build_worker_channel_dispatch_inbound_request(
-            42,
+            test_request_correlation("42"),
             WorkerChannelDispatchInboundInput {
                 message: serde_json::json!({
                     "channel": "feishu",
@@ -4337,10 +2914,14 @@ mod tests {
 
     #[test]
     fn worker_channel_lifecycle_requests_target_ts_channel_manager() {
-        let start_request = build_worker_channel_start_request(42);
-        let status_request = build_worker_channel_status_request(43);
-        let stop_request = build_worker_channel_stop_request(44);
-        let login_request = build_worker_channel_login_request(45, "feishu".to_string(), true);
+        let start_request = build_worker_channel_start_request(test_request_correlation("42"));
+        let status_request = build_worker_channel_status_request(test_request_correlation("43"));
+        let stop_request = build_worker_channel_stop_request(test_request_correlation("44"));
+        let login_request = build_worker_channel_login_request(
+            test_request_correlation("45"),
+            "feishu".to_string(),
+            true,
+        );
 
         assert_eq!(start_request.id, "channel-start-42");
         assert_eq!(start_request.trace_id, "trace-channel-start-42");
@@ -4368,7 +2949,8 @@ mod tests {
 
     #[test]
     fn worker_cancel_agent_request_wraps_run_id_for_ts_worker() {
-        let request = build_worker_cancel_agent_request(42, "run-1".to_string());
+        let request =
+            build_worker_cancel_agent_request(test_request_correlation("42"), "run-1".to_string());
 
         assert_eq!(request.id, "agent-cancel-42");
         assert_eq!(request.trace_id, "trace-agent-cancel-42");
@@ -4378,8 +2960,10 @@ mod tests {
 
     #[test]
     fn worker_restore_agent_checkpoint_request_wraps_session_id_for_ts_worker() {
-        let request =
-            build_worker_restore_agent_checkpoint_request(42, "WebSocket:chat-1".to_string());
+        let request = build_worker_restore_agent_checkpoint_request(
+            test_request_correlation("42"),
+            "WebSocket:chat-1".to_string(),
+        );
 
         assert_eq!(request.id, "agent-restore-checkpoint-42");
         assert_eq!(request.trace_id, "trace-agent-restore-checkpoint-42");
@@ -4393,7 +2977,7 @@ mod tests {
     #[test]
     fn worker_submit_agent_form_request_wraps_form_submission_for_ts_worker() {
         let request = build_worker_submit_agent_form_request(
-            42,
+            test_request_correlation("42"),
             "WebSocket:chat-1".to_string(),
             "travel_plan".to_string(),
             serde_json::json!({ "destination": "Paris" }),
@@ -4417,7 +3001,7 @@ mod tests {
     #[test]
     fn worker_resume_agent_approval_request_wraps_approval_for_ts_worker() {
         let request = build_worker_resume_agent_approval_request(
-            42,
+            test_request_correlation("42"),
             "WebSocket:chat-1".to_string(),
             "approval-1".to_string(),
             true,
@@ -4932,10 +3516,7 @@ mod tests {
         {
             crate::worker_manager::WorkerCommandSpec::new(
                 "cmd",
-                [
-                    "/C",
-                    &format!("echo {message} & ping -n 3 127.0.0.1 > NUL"),
-                ],
+                ["/C", &format!("echo {message} & ping -n 3 127.0.0.1 > NUL")],
                 PathBuf::from("."),
             )
             .with_label(label)

@@ -2,9 +2,12 @@ use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_protocol::{
     WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource,
 };
+use crate::worker_storage::{
+    read_json_store, write_json_pretty_atomic, AtomicWriteOptions, WorkerStorageError,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{fs, path::PathBuf};
+use std::path::PathBuf;
 
 #[derive(Clone, Debug)]
 pub struct WorkerTaskRpc {
@@ -107,38 +110,12 @@ impl WorkerTaskRpc {
     }
 
     fn read_store(&self) -> Result<TaskStoreResult, WorkerProtocolError> {
-        let path = self.store_path();
-        let contents = match fs::read_to_string(&path) {
-            Ok(contents) => contents,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(TaskStoreResult::default());
-            }
-            Err(error) => return Err(task_io_error(error)),
-        };
-        if contents.trim().is_empty() {
-            return Ok(TaskStoreResult::default());
-        }
-        let store: TaskStoreResult = serde_json::from_str(&contents).map_err(|error| {
-            invalid_task_request(format!("failed to parse task store: {error}"))
-        })?;
-        Ok(store)
+        read_json_store(&self.store_path()).map_err(task_storage_error)
     }
 
     fn write_store(&self, store: &TaskStoreResult) -> Result<(), WorkerProtocolError> {
-        let path = self.store_path();
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(task_io_error)?;
-        }
-        let contents = serde_json::to_string_pretty(store).map_err(|error| {
-            WorkerProtocolError::new(
-                WorkerProtocolErrorCode::WorkerError,
-                format!("failed to serialize task store: {error}"),
-                serde_json::json!({ "method": "task" }),
-                false,
-                WorkerProtocolErrorSource::RustCore,
-            )
-        })?;
-        fs::write(path, format!("{contents}\n")).map_err(task_io_error)
+        write_json_pretty_atomic(&self.store_path(), store, AtomicWriteOptions::default())
+            .map_err(task_storage_error)
     }
 }
 
@@ -223,12 +200,84 @@ fn invalid_task_request(message: impl Into<String>) -> WorkerProtocolError {
     )
 }
 
-fn task_io_error(error: std::io::Error) -> WorkerProtocolError {
+fn task_storage_error(error: WorkerStorageError) -> WorkerProtocolError {
+    let code = if error.is_parse_error() {
+        WorkerProtocolErrorCode::InvalidProtocol
+    } else {
+        WorkerProtocolErrorCode::WorkerError
+    };
     WorkerProtocolError::new(
-        WorkerProtocolErrorCode::WorkerError,
-        format!("task store filesystem error: {error}"),
+        code,
+        format!("task store error: {error}"),
         serde_json::json!({ "method": "task" }),
         false,
         WorkerProtocolErrorSource::RustCore,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::{
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    #[test]
+    fn load_store_reads_existing_task_store_fixture() {
+        let root = temp_workspace_root("existing-task-store");
+        let _cleanup = TempWorkspaceCleanup(root.clone());
+        let store_path = root.join("plans").join("store.json");
+        std::fs::create_dir_all(store_path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &store_path,
+            serde_json::to_string_pretty(&json!({
+                "version": 1,
+                "plans": [
+                    {
+                        "id": "plan-existing",
+                        "title": "Existing migration plan",
+                        "status": "active",
+                        "subtasks": [
+                            { "id": "step-1", "title": "Keep fixture readable", "status": "pending" }
+                        ],
+                        "metadata": { "source": "pre-storage-refactor" }
+                    }
+                ]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let rpc = WorkerTaskRpc::new(root, CapabilityPolicy::new([WorkerCapability::TaskRead]));
+
+        let store = rpc.load_store().expect("existing task store should load");
+
+        assert_eq!(store.version, 1);
+        assert_eq!(store.plans.len(), 1);
+        assert_eq!(store.plans[0]["id"], "plan-existing");
+        assert_eq!(store.plans[0]["metadata"]["source"], "pre-storage-refactor");
+    }
+
+    fn temp_workspace_root(name: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default();
+        let root = std::env::temp_dir().join(format!(
+            "tinybot-worker-task-{name}-{}-{nonce}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        root
+    }
+
+    struct TempWorkspaceCleanup(PathBuf);
+
+    impl Drop for TempWorkspaceCleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
 }

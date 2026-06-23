@@ -2,8 +2,10 @@ use crate::worker_protocol::{
     validate_protocol_version, WorkerEvent, WorkerProtocolError, WorkerProtocolErrorCode,
     WorkerProtocolErrorSource, WorkerRequest, WorkerResponse,
 };
+#[cfg(test)]
 use crate::worker_rpc::WorkerRpcRouter;
 use serde_json::Value;
+#[cfg(test)]
 use std::io::{BufRead, Write};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -14,11 +16,13 @@ pub enum WorkerInboundMessage {
 }
 
 #[derive(Debug)]
+#[cfg(test)]
 pub struct WorkerStdioTransport<R, W> {
     reader: R,
     writer: W,
 }
 
+#[cfg(test)]
 impl<R, W> WorkerStdioTransport<R, W>
 where
     R: BufRead,
@@ -226,7 +230,12 @@ fn invalid_protocol_error(message: impl Into<String>, details: Value) -> WorkerP
     )
 }
 
-fn worker_error(message: impl Into<String>, details: Value, retryable: bool) -> WorkerProtocolError {
+#[cfg(test)]
+fn worker_error(
+    message: impl Into<String>,
+    details: Value,
+    retryable: bool,
+) -> WorkerProtocolError {
     WorkerProtocolError::new(
         WorkerProtocolErrorCode::WorkerError,
         message,
@@ -239,11 +248,11 @@ fn worker_error(message: impl Into<String>, details: Value, retryable: bool) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::worker_protocol::{
-        WorkerProtocolErrorCode, WorkerProtocolErrorSource, WorkerRequest,
-        WorkerTransportMode, WORKER_PROTOCOL_VERSION,
-    };
     use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
+    use crate::worker_protocol::{
+        WorkerProtocolErrorCode, WorkerProtocolErrorSource, WorkerRequest, WorkerTransportMode,
+        WORKER_PROTOCOL_VERSION,
+    };
     use crate::worker_rpc::WorkerRpcRouter;
     use serde_json::json;
     use std::io::Cursor;
@@ -483,7 +492,10 @@ mod tests {
     fn transport_returns_none_at_eof() {
         let mut transport = WorkerStdioTransport::new(Cursor::new(Vec::<u8>::new()), Vec::new());
 
-        assert_eq!(transport.read_message().expect("eof should not error"), None);
+        assert_eq!(
+            transport.read_message().expect("eof should not error"),
+            None
+        );
     }
 
     #[test]
@@ -498,14 +510,18 @@ mod tests {
             .read_message()
             .expect_err("old protocol should be rejected");
 
-        assert_eq!(error.code, WorkerProtocolErrorCode::IncompatibleProtocolVersion);
+        assert_eq!(
+            error.code,
+            WorkerProtocolErrorCode::IncompatibleProtocolVersion
+        );
         assert_eq!(error.source, WorkerProtocolErrorSource::RustCore);
         assert_eq!(error.details["expected"], WORKER_PROTOCOL_VERSION);
     }
 
     #[test]
     fn transport_rejects_non_json_line_as_invalid_protocol() {
-        let mut transport = WorkerStdioTransport::new(Cursor::new(b"not-json\n".to_vec()), Vec::new());
+        let mut transport =
+            WorkerStdioTransport::new(Cursor::new(b"not-json\n".to_vec()), Vec::new());
 
         let error = transport
             .read_message()
@@ -535,7 +551,9 @@ mod tests {
         }
 
         fn write(&self, relative_path: &str, contents: &str) {
-            let path = self.root.join(relative_path.replace('/', std::path::MAIN_SEPARATOR_STR));
+            let path = self
+                .root
+                .join(relative_path.replace('/', std::path::MAIN_SEPARATOR_STR));
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent).expect("fixture parent should create");
             }
