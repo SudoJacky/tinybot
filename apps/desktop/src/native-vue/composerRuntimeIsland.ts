@@ -1,11 +1,13 @@
-import { createApp, defineComponent, h, type App } from "vue";
+import { createApp, defineComponent, h, ref, type App, type PropType, type Ref } from "vue";
 import { NConfigProvider, NText } from "naive-ui";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 
 export interface ComposerRuntimeIslandOptions {
   model?: string | null;
+  modelOptions?: string[];
   persistentRag: boolean;
   tokenUsage: string;
+  onModelSelect?: (model: string) => void;
   onPersistentRagChange?: (enabled: boolean) => void;
 }
 
@@ -41,7 +43,7 @@ function createComposerRuntimeApp(options: ComposerRuntimeIslandOptions): App {
     name: "ComposerRuntimeIsland",
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => renderComposerRuntimeContent(options),
+        default: () => h(ComposerRuntimeContent, { options }),
       });
     },
   }));
@@ -54,23 +56,68 @@ export function renderComposerRuntimeSurface(options: ComposerRuntimeIslandOptio
     "data-desktop-vue-island": "composer-runtime",
     "data-desktop-composer-region": "runtime-status",
     "aria-label": "Runtime status",
-  }, renderComposerRuntimeContent(options));
+  }, h(ComposerRuntimeContent, { options }));
 }
 
-export function renderComposerRuntimeContent(options: ComposerRuntimeIslandOptions) {
+const ComposerRuntimeContent = defineComponent({
+  name: "ComposerRuntimeContent",
+  props: {
+    options: {
+      type: Object as PropType<ComposerRuntimeIslandOptions>,
+      required: true,
+    },
+  },
+  setup(props) {
+    const modelMenuOpen = ref(false);
+    return () => renderComposerRuntimeContent(props.options, modelMenuOpen);
+  },
+});
+
+export function renderComposerRuntimeContent(options: ComposerRuntimeIslandOptions, modelMenuOpen: Ref<boolean>) {
   return [
-    renderModelControl(options.model),
+    renderModelControl(options, modelMenuOpen),
     renderPersistentRagToggle(options),
     renderTokenUsageOrb(options.tokenUsage),
   ];
 }
 
-function renderModelControl(model?: string | null) {
+function renderModelControl(options: ComposerRuntimeIslandOptions, modelMenuOpen: Ref<boolean>) {
+  const currentModel = options.model || "Tinybot Pro";
+  const modelOptions = normalizeComposerModelOptions(currentModel, options.modelOptions);
   return h("button", {
     type: "button",
     class: "desktop-native-composer-model",
+    "data-desktop-composer-action": "model-select",
     "aria-label": "Select model",
-  }, h(NText, { strong: true }, { default: () => model || "Tinybot Pro" }));
+    onClick: () => {
+      modelMenuOpen.value = !modelMenuOpen.value;
+    },
+  }, [
+    h("span", { class: "desktop-native-composer-model-label" }, h(NText, { strong: true }, { default: () => currentModel })),
+    modelMenuOpen.value ? h("span", {
+      class: "desktop-native-composer-model-menu",
+      role: "listbox",
+      "aria-label": "Model",
+      onClick: (event: MouseEvent) => event.stopPropagation(),
+    }, [
+      h("span", { class: "desktop-native-composer-model-menu-title" }, "Model"),
+      ...modelOptions.map((model) => h("span", {
+        key: model,
+        class: "desktop-native-composer-model-option",
+        role: "option",
+        "aria-selected": String(model === currentModel),
+        "data-desktop-composer-model-option": model,
+        onClick: (event: MouseEvent) => {
+          event.stopPropagation();
+          modelMenuOpen.value = false;
+          options.onModelSelect?.(model);
+        },
+      }, [
+        h("span", { class: "desktop-native-composer-model-option-label" }, model),
+        model === currentModel ? renderModelCheckIcon() : null,
+      ])),
+    ]) : null,
+  ]);
 }
 
 function renderPersistentRagToggle(options: ComposerRuntimeIslandOptions) {
@@ -108,4 +155,30 @@ function parseTokenUsagePercent(tokenUsage: string): number {
     return 0;
   }
   return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function normalizeComposerModelOptions(currentModel: string, modelOptions: string[] | undefined): string[] {
+  const options = (modelOptions ?? [])
+    .map((model) => model.trim())
+    .filter(Boolean);
+  if (currentModel && !options.includes(currentModel)) {
+    options.unshift(currentModel);
+  }
+  return Array.from(new Set(options));
+}
+
+function renderModelCheckIcon() {
+  return h("svg", {
+    class: "desktop-native-composer-model-check",
+    "aria-hidden": "true",
+    viewBox: "0 0 20 20",
+    focusable: "false",
+  }, h("path", {
+    d: "M16.5 5.5 8.25 13.75 4 9.5",
+    fill: "none",
+    stroke: "currentColor",
+    "stroke-width": "2",
+    "stroke-linecap": "round",
+    "stroke-linejoin": "round",
+  }));
 }

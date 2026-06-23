@@ -112,7 +112,6 @@ import { mountSidebarContentIsland } from "./native-vue/sidebarContentIsland";
 import { mountSidebarRecentChatsIsland, type SidebarRecentChatRow } from "./native-vue/sidebarRecentChatsIsland";
 import { mountSidebarRowIsland } from "./native-vue/sidebarRowIsland";
 import { mountSidebarSectionHeadingIsland } from "./native-vue/sidebarSectionHeadingIsland";
-import { mountSidebarWorkspaceListIsland } from "./native-vue/sidebarWorkspaceListIsland";
 import { mountSettingsDefaultLlmIsland } from "./native-vue/settingsDefaultLlmIsland";
 import { mountSettingsGroupsIsland } from "./native-vue/settingsGroupsIsland";
 import { mountSettingsPaneIsland } from "./native-vue/settingsPaneIsland";
@@ -215,6 +214,7 @@ interface DesktopNativeChatActionOptions {
   onDeleteSession?: (event: DesktopNativeChatDeleteSessionEvent) => unknown | Promise<unknown>;
   onPinSession?: (event: DesktopNativeChatPinSessionEvent) => void;
   onRenameSession?: (event: DesktopNativeChatRenameSessionEvent) => void;
+  onSelectModel?: (model: string) => void;
   onPersistentRagChange?: (enabled: boolean) => void;
 }
 
@@ -383,6 +383,7 @@ export interface DesktopNativeChatModel {
   runtime?: {
     provider?: string;
     model?: string;
+    modelOptions?: string[];
     temperature?: number | null;
     maxTokens?: number | null;
     reasoningEffort?: string | null;
@@ -670,12 +671,6 @@ export function updateDesktopNativeChat(
 
   syncChatWorkbenchChrome(targetDocument, chat);
 
-  const workspaceList = targetDocument.querySelector<HTMLElement>(".desktop-workspace-list");
-  if (workspaceList) {
-    const next = createSidebarWorkspaceList(targetDocument, chat).querySelector<HTMLElement>(".desktop-workspace-list");
-    workspaceList.replaceChildren(...Array.from(next?.children ?? []));
-  }
-
   const recentChats = targetDocument.querySelector<HTMLElement>(".desktop-recent-chat-list");
   const recentChatsSection = targetDocument.querySelector<HTMLElement>(".desktop-sidebar-list-section-recent");
   if (recentChatsSection && canMountVueIsland(recentChatsSection)) {
@@ -921,7 +916,6 @@ function createSidebar(
   sidebar.className = "desktop-sidebar-content";
   sidebar.append(
     createSidebarActions(targetDocument),
-    createSidebarWorkspaceList(targetDocument, chat),
     createSidebarRecentChats(targetDocument, chat, chatActions),
   );
   if (chat) {
@@ -949,12 +943,6 @@ function mountSidebarContentVueIsland(
     recentChats,
     resourceItems: [],
     targetDocument,
-    workspaceRows: [{
-      active: true,
-      entityId: "tinybot",
-      meta: chat.activeSessionKey ? "Active session" : "Ready",
-      title: "tinybot",
-    }],
   });
 }
 
@@ -985,53 +973,6 @@ function mountSidebarActionsVueIsland(section: HTMLElement): void {
     return;
   }
   mountSidebarActionsIsland(section);
-}
-
-function createSidebarWorkspaceList(targetDocument: Document, chat: DesktopNativeChatModel | null): HTMLElement {
-  const section = targetDocument.createElement("section");
-  section.className = "desktop-sidebar-list-section desktop-sidebar-list-section-workspaces";
-  section.append(createSidebarSectionHeading(targetDocument, "Workspaces", "+"));
-
-  const list = targetDocument.createElement("div");
-  list.className = "desktop-workspace-list";
-  list.setAttribute("role", "list");
-  const rows = chat ? [["tinybot", chat.activeSessionKey ? "Active session" : "Ready", true]] as const : [
-    ["tinybot", "1m ago", true],
-    ["ai-rvc", "2h ago", false],
-    ["ai-light", "Yesterday", false],
-    ["ai-tv", "2d ago", false],
-    ["ai-fridge", "3d ago", false],
-    ["genie", "4d ago", false],
-    ["docs", "May 26", false],
-    ["archive", "May 20", false],
-  ] as const;
-  for (const [name, meta, active] of rows) {
-    list.append(createSidebarRow(targetDocument, name, meta, active, "folder", "workspace", name));
-  }
-
-  section.append(list);
-  mountSidebarWorkspaceListVueIsland(section, rows.map(([name, meta, active]) => ({
-    active,
-    entityId: name,
-    meta,
-    title: name,
-  })));
-  return section;
-}
-
-function mountSidebarWorkspaceListVueIsland(
-  section: HTMLElement,
-  rows: Array<{
-    active: boolean;
-    entityId: string;
-    meta: string;
-    title: string;
-  }>,
-): void {
-  if (!canMountVueIsland(section)) {
-    return;
-  }
-  mountSidebarWorkspaceListIsland(section, { rows });
 }
 
 function createSidebarRecentChats(
@@ -1110,7 +1051,7 @@ function recentChatRowModel(
     routeId,
     sessionKey: session.key,
     title,
-    updatedLabel: session.updatedAt ? `Updated ${formatCompactTime(session.updatedAt)}` : session.chatId,
+    updatedLabel: formatSessionRelativeTime(session.updatedAt || session.createdAt) || session.chatId,
   };
 }
 
@@ -1179,7 +1120,7 @@ function createRecentChatRow(
 
   const title = session.title || "New session";
   const href = `/chat/${encodeURIComponent(routeId)}`;
-  const updatedLabel = session.updatedAt ? `Updated ${formatCompactTime(session.updatedAt)}` : session.chatId;
+  const updatedLabel = formatSessionRelativeTime(session.updatedAt || session.createdAt) || session.chatId;
 
   const link = targetDocument.createElement("a");
   link.className = "desktop-sidebar-row desktop-sidebar-row-main";
@@ -1215,12 +1156,12 @@ function createRecentChatRow(
       confirmDelete = true;
       deleteButton.setAttribute("aria-label", `Confirm delete chat ${title}`);
       deleteButton.setAttribute("data-confirming", "true");
-      deleteButton.textContent = "Confirm";
+      deleteButton.textContent = "确认";
       return;
     }
     deleteButton.setAttribute("disabled", "");
     deleteButton.setAttribute("data-deleting", "true");
-    deleteButton.textContent = "Deleting";
+    deleteButton.textContent = "删除中";
     chatActions.onDeleteSession?.({
       sessionKey: session.key,
       chatId: session.chatId,
@@ -2922,7 +2863,7 @@ function createNativeComposerSurface(
   runtime.setAttribute("data-desktop-composer-region", "runtime-status");
   runtime.setAttribute("aria-label", "Runtime status");
   runtime.append(
-    createComposerModelControl(targetDocument, chat),
+    createComposerModelControl(targetDocument, chat, chatActions),
     createPersistentRagToggle(targetDocument, chat, chatActions),
     createTokenUsageOrb(targetDocument, chat?.runtime?.tokenUsage || "-"),
   );
@@ -2969,10 +2910,12 @@ function mountComposerSurfaceVueIsland(
     activeSessionKey: chat?.activeSessionKey || null,
     composerState: nativeComposerState(chat),
     model: chat?.runtime?.model || null,
+    modelOptions: chat?.runtime?.modelOptions || [],
     responding: chat?.responding === true,
     tokenUsage: chat?.runtime?.tokenUsage || "-",
     usePersistentRag: chat?.usePersistentRag !== false,
     onAttach: () => chatActions.onAttachSessionFile?.(),
+    onModelSelect: (model) => chatActions.onSelectModel?.(model),
     onPersistentRagChange: (enabled) => chatActions.onPersistentRagChange?.(enabled),
     onSend: (event) => chatActions.onComposerSubmit?.(event),
   });
@@ -3041,8 +2984,10 @@ function mountComposerRuntimeVueIsland(
   }
   mountComposerRuntimeIsland(runtime, {
     model: chat?.runtime?.model || null,
+    modelOptions: chat?.runtime?.modelOptions || [],
     persistentRag: chat?.usePersistentRag !== false,
     tokenUsage: chat?.runtime?.tokenUsage || "-",
+    onModelSelect: (model) => chatActions.onSelectModel?.(model),
     onPersistentRagChange: (enabled) => chatActions.onPersistentRagChange?.(enabled),
   });
 }
@@ -3080,21 +3025,169 @@ function formatCompactTime(value: string): string {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleTimeString();
 }
 
-function createComposerModelControl(targetDocument: Document, chat: DesktopNativeChatModel | null = null): HTMLElement {
+function formatSessionRelativeTime(value: string): string {
+  const timestamp = parseSessionTimestampMs(value);
+  if (timestamp === null) {
+    return "";
+  }
+  const elapsedMs = Math.max(0, Date.now() - timestamp);
+  const minuteMs = 60_000;
+  const hourMs = 60 * minuteMs;
+  const dayMs = 24 * hourMs;
+  const weekMs = 7 * dayMs;
+  const monthMs = 30 * dayMs;
+  if (elapsedMs < hourMs) {
+    return `${Math.max(1, Math.floor(elapsedMs / minuteMs))}分`;
+  }
+  if (elapsedMs < dayMs) {
+    return `${Math.max(1, Math.floor(elapsedMs / hourMs))}小时`;
+  }
+  if (elapsedMs < weekMs) {
+    return `${Math.max(1, Math.floor(elapsedMs / dayMs))}天`;
+  }
+  if (elapsedMs < monthMs) {
+    return `${Math.max(1, Math.floor(elapsedMs / weekMs))}周`;
+  }
+  return `${Math.max(1, Math.floor(elapsedMs / monthMs))}月`;
+}
+
+function parseSessionTimestampMs(value: string): number | null {
+  if (!value) {
+    return null;
+  }
+  const unixMs = value.match(/^unix-ms:(\d+)$/);
+  if (unixMs) {
+    const timestamp = Number(unixMs[1]);
+    return Number.isFinite(timestamp) ? timestamp : null;
+  }
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? null : timestamp;
+}
+
+function createComposerModelControl(
+  targetDocument: Document,
+  chat: DesktopNativeChatModel | null = null,
+  chatActions: DesktopNativeChatActionOptions = {},
+): HTMLElement {
   const button = targetDocument.createElement("button");
+  const currentModel = chat?.runtime?.model || "Tinybot Pro";
+  const modelOptions = normalizeComposerModelOptions(currentModel, chat?.runtime?.modelOptions);
   button.type = "button";
   button.className = "desktop-native-composer-model";
+  button.setAttribute("data-desktop-composer-action", "model-select");
   button.setAttribute("aria-label", "Select model");
-  button.textContent = chat?.runtime?.model || "Tinybot Pro";
-  mountComposerModelControlVueIsland(button, chat?.runtime?.model || null);
+  button.textContent = currentModel;
+  mountComposerModelControlVueIsland(button, chat?.runtime?.model || null, modelOptions, chatActions);
   return button;
 }
 
-function mountComposerModelControlVueIsland(button: HTMLElement, model: string | null): void {
+function mountComposerModelControlVueIsland(
+  button: HTMLElement,
+  model: string | null,
+  modelOptions: string[],
+  chatActions: DesktopNativeChatActionOptions,
+): void {
   if (!canMountVueIsland(button)) {
+    installFallbackComposerModelMenu(button, model || "Tinybot Pro", modelOptions, chatActions);
     return;
   }
-  mountComposerModelControlIsland(button, { model });
+  mountComposerModelControlIsland(button, {
+    model,
+    modelOptions,
+    onModelSelect: (selectedModel) => chatActions.onSelectModel?.(selectedModel),
+  });
+}
+
+function installFallbackComposerModelMenu(
+  button: HTMLElement,
+  currentModel: string,
+  modelOptions: string[],
+  chatActions: DesktopNativeChatActionOptions,
+): void {
+  const targetDocument = button.ownerDocument;
+  const label = targetDocument.createElement("span");
+  label.className = "desktop-native-composer-model-label";
+  label.textContent = currentModel;
+  button.textContent = "";
+  button.replaceChildren(label);
+  button.addEventListener("click", () => {
+    const existingMenu = button.querySelector('[role="listbox"]');
+    if (existingMenu) {
+      existingMenu.remove();
+      return;
+    }
+    button.append(createFallbackComposerModelMenu(targetDocument, currentModel, modelOptions, chatActions));
+  });
+}
+
+function createFallbackComposerModelMenu(
+  targetDocument: Document,
+  currentModel: string,
+  modelOptions: string[],
+  chatActions: DesktopNativeChatActionOptions,
+): HTMLElement {
+  const menu = targetDocument.createElement("span");
+  menu.className = "desktop-native-composer-model-menu";
+  menu.setAttribute("role", "listbox");
+  menu.setAttribute("aria-label", "Model");
+  menu.addEventListener("click", (event) => {
+    (event as { stopPropagation?: () => void }).stopPropagation?.();
+  });
+
+  const title = targetDocument.createElement("span");
+  title.className = "desktop-native-composer-model-menu-title";
+  title.textContent = "Model";
+  menu.append(title);
+
+  for (const optionModel of normalizeComposerModelOptions(currentModel, modelOptions)) {
+    const option = targetDocument.createElement("span");
+    option.className = "desktop-native-composer-model-option";
+    option.setAttribute("role", "option");
+    option.setAttribute("aria-selected", String(optionModel === currentModel));
+    option.setAttribute("data-desktop-composer-model-option", optionModel);
+
+    const optionLabel = targetDocument.createElement("span");
+    optionLabel.className = "desktop-native-composer-model-option-label";
+    optionLabel.textContent = optionModel;
+    option.append(optionLabel);
+    if (optionModel === currentModel) {
+      option.append(createComposerModelCheckIcon(targetDocument));
+    }
+    option.addEventListener("click", (event) => {
+      (event as { stopPropagation?: () => void }).stopPropagation?.();
+      menu.remove();
+      chatActions.onSelectModel?.(optionModel);
+    });
+    menu.append(option);
+  }
+  return menu;
+}
+
+function normalizeComposerModelOptions(currentModel: string, modelOptions: string[] | undefined): string[] {
+  const options = (modelOptions ?? [])
+    .map((option) => option.trim())
+    .filter(Boolean);
+  if (currentModel && !options.includes(currentModel)) {
+    options.unshift(currentModel);
+  }
+  return Array.from(new Set(options));
+}
+
+function createComposerModelCheckIcon(targetDocument: Document): SVGElement {
+  const icon = targetDocument.createElement("svg") as unknown as SVGElement;
+  icon.setAttribute("class", "desktop-native-composer-model-check");
+  icon.setAttribute("aria-hidden", "true");
+  icon.setAttribute("viewBox", "0 0 20 20");
+  icon.setAttribute("focusable", "false");
+  const path = targetDocument.createElement("path") as unknown as SVGPathElement;
+  path.setAttribute("d", "M16.5 5.5 8.25 13.75 4 9.5");
+  path.setAttribute("fill", "none");
+  path.setAttribute("stroke", "currentColor");
+  path.setAttribute("stroke-width", "2");
+  path.setAttribute("stroke-linecap", "round");
+  path.setAttribute("stroke-linejoin", "round");
+  icon.append(path);
+  return icon;
 }
 
 function createPersistentRagToggle(
@@ -10362,7 +10455,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-sidebar-chat-row {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 1fr);
       align-items: center;
       gap: 6px;
       min-width: 0;
@@ -10370,6 +10463,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       border: 1px solid transparent;
       border-radius: 7px;
       padding: 0 5px 0 0;
+      position: relative;
       transition: background-color 120ms ease, border-color 120ms ease;
     }
 
@@ -10377,8 +10471,12 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       min-width: 0;
       min-height: 34px;
       border: 0;
-      padding: 0 4px 0 10px;
+      padding: 0 82px 0 10px;
       background: transparent;
+    }
+
+    body.desktop-native-workbench .desktop-sidebar-chat-row .desktop-sidebar-row-main {
+      grid-template-columns: minmax(0, 1fr);
     }
 
     body.desktop-native-workbench .desktop-sidebar-row-title {
@@ -10395,23 +10493,55 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-sidebar-delete-session {
+      position: absolute;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      right: 10px;
+      top: 50%;
+      transform: translateY(-50%);
       width: 24px;
       min-height: 24px;
       border: 1px solid transparent;
-      border-radius: 5px;
+      border-radius: 999px;
+      padding: 0;
       background: transparent;
       color: #8b5b4e;
       font: 600 11px/1 var(--font-sans);
       cursor: pointer;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 120ms ease, background-color 120ms ease, border-color 120ms ease, color 120ms ease;
     }
 
     body.desktop-native-workbench .desktop-sidebar-delete-session[data-confirming="true"] {
       width: 64px;
+      border-color: #f2c9c2;
+      background: #fff0ee;
+      color: #9f2f25;
+      justify-content: center;
+      opacity: 1;
+      pointer-events: auto;
     }
 
     body.desktop-native-workbench .desktop-sidebar-chat-row:hover {
       border-color: #eee4dd;
       background: #fffdfb;
+    }
+
+    body.desktop-native-workbench .desktop-sidebar-chat-row:hover .desktop-sidebar-row-meta,
+    body.desktop-native-workbench .desktop-sidebar-chat-row:focus-within .desktop-sidebar-row-meta,
+    body.desktop-native-workbench .desktop-sidebar-chat-row:has(.desktop-sidebar-delete-session[data-confirming="true"]) .desktop-sidebar-row-meta,
+    body.desktop-native-workbench .desktop-sidebar-chat-row:has(.desktop-sidebar-delete-session[data-deleting="true"]) .desktop-sidebar-row-meta {
+      opacity: 0;
+    }
+
+    body.desktop-native-workbench .desktop-sidebar-chat-row:hover .desktop-sidebar-delete-session,
+    body.desktop-native-workbench .desktop-sidebar-chat-row:focus-within .desktop-sidebar-delete-session,
+    body.desktop-native-workbench .desktop-sidebar-delete-session[data-deleting="true"] {
+      background: #f2efec;
+      opacity: 1;
+      pointer-events: auto;
     }
 
     body.desktop-native-workbench .desktop-sidebar-delete-session:hover,
@@ -10446,9 +10576,17 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-sidebar-row-meta {
+      position: absolute;
+      right: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 64px;
       color: #77736f;
       font-size: 12px;
       font-weight: 400;
+      pointer-events: none;
+      text-align: right;
+      transition: opacity 120ms ease;
     }
 
     body.desktop-native-workbench .desktop-workbench-main {
@@ -12128,6 +12266,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-native-composer-model {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       min-height: 34px;
       border: 0;
       border-radius: 999px;
@@ -12137,6 +12279,58 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       font: 600 12px/1.2 var(--font-sans);
       box-shadow: none;
       cursor: pointer;
+      white-space: nowrap;
+    }
+
+    body.desktop-native-workbench .desktop-native-composer-model-menu {
+      position: absolute;
+      right: 0;
+      bottom: calc(100% + 10px);
+      z-index: 40;
+      display: flex;
+      min-width: 220px;
+      max-width: min(320px, 70vw);
+      padding: 8px;
+      flex-direction: column;
+      gap: 2px;
+      border: 1px solid #ded8d0;
+      border-radius: 16px;
+      background: #ffffff;
+      color: #262522;
+      box-shadow: 0 18px 38px rgba(53, 45, 34, 0.16);
+      text-align: left;
+    }
+
+    body.desktop-native-workbench .desktop-native-composer-model-menu-title {
+      padding: 4px 10px 6px;
+      color: #77736f;
+      font: 500 12px/1.2 var(--font-sans);
+    }
+
+    body.desktop-native-workbench .desktop-native-composer-model-option {
+      display: flex;
+      min-height: 34px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      border-radius: 10px;
+      padding: 0 10px;
+      color: #262522;
+      font: 500 14px/1.2 var(--font-sans);
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-native-composer-model-option:hover,
+    body.desktop-native-workbench .desktop-native-composer-model-option:focus-visible {
+      background: #f5f1ec;
+      outline: 0;
+    }
+
+    body.desktop-native-workbench .desktop-native-composer-model-check {
+      width: 18px;
+      height: 18px;
+      flex: 0 0 auto;
+      color: #5f5a55;
     }
 
     body.desktop-native-workbench .desktop-native-composer-model:hover,
@@ -13949,6 +14143,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-header-panel-button,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-menu,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-menu-popover,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-model-menu,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-native-token-orb {
       background: var(--panel-strong);
@@ -13958,6 +14153,15 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-menu-action {
+      color: var(--text);
+    }
+
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-model-menu-title {
+      color: var(--text-muted);
+    }
+
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-model-option,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-model-check {
       color: var(--text);
     }
 
@@ -13973,6 +14177,8 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-menu:focus-visible,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-menu-action:hover,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-menu-action:focus-visible,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-model-option:hover,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-model-option:focus-visible,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-header-panel-button:hover,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-header-panel-button:focus-visible,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-model:hover,

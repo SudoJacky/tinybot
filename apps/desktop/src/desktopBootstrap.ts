@@ -278,7 +278,8 @@ async function bootDesktopWebUi(): Promise<void> {
         sessionCount: nativeChatRuntime.chat.sessions.length,
       });
       startupTrace.start("initialPaneModels");
-      const settingsPane = buildInitialNativeSettingsPane();
+      const settingsPane = await loadNativeSettingsPane();
+      nativeChatRuntime.setRuntimeMetadata(nativeRuntimeMetadataFromSettings());
       const knowledgePane = buildInitialNativeKnowledgePane();
       const toolsSkillsPane = buildInitialNativeToolsSkillsPane();
       const coworkPane = buildInitialNativeCoworkPane();
@@ -393,19 +394,6 @@ async function bootDesktopWebUi(): Promise<void> {
       true,
     );
   }
-}
-
-function buildInitialNativeSettingsPane(): DesktopSettingsPaneModel {
-  const state = buildDesktopSettingsFormState({});
-  nativeSettingsConfig = {};
-  nativeSettingsState = state;
-  nativeSettingsLastSavedState = state;
-  nativeSettingsProviderCatalog = [];
-  return buildDesktopSettingsPaneModel(state, {
-    lastSavedState: state,
-    providerCatalog: [],
-    saveStatus: "idle",
-  });
 }
 
 function buildInitialNativeKnowledgePane(): DesktopKnowledgePaneModel {
@@ -751,14 +739,19 @@ function syncNativeRuntimeMetadata(): void {
   if (!nativeWorkbenchRuntime) {
     return;
   }
-  nativeWorkbenchRuntime.setRuntimeMetadata({
+  nativeWorkbenchRuntime.setRuntimeMetadata(nativeRuntimeMetadataFromSettings());
+  updateDesktopNativeChat(document, nativeWorkbenchRuntime.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
+}
+
+function nativeRuntimeMetadataFromSettings(): NonNullable<DesktopNativeWorkbenchRuntime["chat"]["runtime"]> {
+  return {
     provider: nativeSettingsState?.agent.provider || undefined,
     model: nativeSettingsState?.agent.model || undefined,
+    modelOptions: nativeSettingsState ? nativeComposerModelOptions(nativeSettingsState) : undefined,
     contextWindowTokens: nativeSettingsState?.agent.contextWindowTokens ?? undefined,
     maxToolIterations: nativeSettingsState?.agent.maxToolIterations ?? undefined,
     gatewayHttp: gatewayConfig.httpBaseUrl,
-  });
-  updateDesktopNativeChat(document, nativeWorkbenchRuntime.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
+  };
 }
 
 async function handleNativeChatGatewayEvent(event: NormalizedGatewayEvent): Promise<void> {
@@ -805,6 +798,9 @@ function nativeChatActions() {
     onAttachSessionFile: () => {
       document.getElementById("desktop-session-file-upload")?.click();
     },
+    onSelectModel: (model: string) => {
+      void selectNativeComposerModel(model);
+    },
     onNewChat: () => {
       if (!nativeWorkbenchRuntime) {
         return;
@@ -833,6 +829,45 @@ function nativeChatActions() {
       updateDesktopNativeChat(document, nativeWorkbenchRuntime.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
     },
   };
+}
+
+async function selectNativeComposerModel(selectedModel: string): Promise<void> {
+  if (!nativeWorkbenchRuntime) {
+    return;
+  }
+  if (!nativeSettingsState) {
+    await loadNativeSettingsPane();
+  }
+  if (!nativeSettingsState) {
+    return;
+  }
+  const nextModel = selectedModel.trim();
+  if (!nextModel) {
+    return;
+  }
+  const currentModel = nativeSettingsState.agent.model || nativeWorkbenchRuntime.chat.runtime?.model || "";
+  if (nextModel === currentModel) {
+    return;
+  }
+  nativeSettingsState = applyDesktopSettingsFieldEdit(nativeSettingsState, "model", nextModel);
+  syncNativeRuntimeMetadata();
+  await saveNativeSettingsPane();
+}
+
+function nativeComposerModelOptions(state: DesktopSettingsFormState): string[] {
+  const providerId = state.agent.provider && state.agent.provider !== "auto"
+    ? state.agent.provider
+    : state.providerEditor.selectedProvider;
+  const provider = state.providerSummaries.find((summary) => summary.id === providerId);
+  const rawModels = provider?.modelsText || state.providerEditor.modelsText;
+  const models = rawModels
+    .split(/\r?\n|,/)
+    .map((model) => model.trim())
+    .filter(Boolean);
+  if (state.agent.model && !models.includes(state.agent.model)) {
+    models.unshift(state.agent.model);
+  }
+  return Array.from(new Set(models));
 }
 
 function summarizeNativeGatewayEvent(event: NormalizedGatewayEvent): Record<string, unknown> {

@@ -9,16 +9,19 @@ describe("composer surface Vue island", () => {
     const host = document.createElement("form");
     const sends: unknown[] = [];
     const attaches: string[] = [];
+    const modelSelections: string[] = [];
     const rags: boolean[] = [];
 
     const mounted = mountComposerSurfaceIsland(host, {
       activeSessionKey: "WebSocket:chat-live",
       composerState: "idle",
       model: "deepseek-chat",
+      modelOptions: ["deepseek-chat", "deepseek-reasoner"],
       responding: false,
       tokenUsage: "42%",
       usePersistentRag: false,
       onAttach: () => attaches.push("attach"),
+      onModelSelect: (model) => modelSelections.push(model),
       onPersistentRagChange: (enabled) => rags.push(enabled),
       onSend: (event) => sends.push(event),
     });
@@ -55,6 +58,10 @@ describe("composer surface Vue island", () => {
     expect(host.querySelector(".desktop-native-token-orb")?.getAttribute("data-token-usage")).toBe("42");
 
     host.querySelector<HTMLButtonElement>('[data-desktop-composer-action="attach"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-composer-action="model-select"]')?.click();
+    await nextTick();
+    expect(host.querySelector('[role="listbox"]')?.textContent).toContain("deepseek-reasoner");
+    host.querySelector<HTMLButtonElement>('[data-desktop-composer-model-option="deepseek-reasoner"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-desktop-composer-action="rag-toggle"]')?.click();
     input!.value = "Run live composer";
     input!.dispatchEvent(new Event("input", { bubbles: true }));
@@ -63,6 +70,7 @@ describe("composer surface Vue island", () => {
     send?.click();
 
     expect(attaches).toEqual(["attach"]);
+    expect(modelSelections).toEqual(["deepseek-reasoner"]);
     expect(rags).toEqual([true]);
     expect(sends).toEqual([{ content: "Run live composer", usePersistentRag: false }]);
 

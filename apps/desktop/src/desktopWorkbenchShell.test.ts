@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { buildDesktopCoworkCockpitView, buildDesktopCoworkSessionRows } from "./desktopCowork";
 import { buildDesktopKnowledgePaneModel } from "./desktopKnowledgeTraceability";
 import { buildDesktopRunChainItems } from "./desktopRunChainInspector";
@@ -255,6 +255,10 @@ function findEntityRow(root: FakeElement | null | undefined, module: string, ent
 }
 
 describe("desktop workbench shell", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   test("renders persistent desktop regions from layout state", () => {
     const targetDocument = new FakeDocument();
 
@@ -448,12 +452,110 @@ describe("desktop workbench shell", () => {
     deleteButton?.click();
     expect(deletedSessions).toEqual([]);
     expect(deleteButton?.getAttribute("aria-label")).toBe("Confirm delete chat Live gateway session");
-    expect(deleteButton?.textContent).toBe("Confirm");
+    expect(deleteButton?.textContent).toBe("确认");
     deleteButton?.click();
     expect(deleteButton?.getAttribute("data-deleting")).toBe("true");
     expect(deleteButton?.getAttribute("disabled")).toBe("");
-    expect(deleteButton?.textContent).toBe("Deleting");
+    expect(deleteButton?.textContent).toBe("删除中");
     expect(deletedSessions).toEqual(["WebSocket:chat-live"]);
+  });
+
+  test("renders recent chat timestamps as single relative units", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-22T12:00:00.000Z"));
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      chat: {
+        sessions: [
+          {
+            key: "WebSocket:chat-min",
+            chatId: "chat-min",
+            title: "Minute",
+            createdAt: "",
+            updatedAt: `unix-ms:${new Date("2026-06-22T11:30:00.000Z").getTime()}`,
+          },
+          { key: "WebSocket:chat-hour", chatId: "chat-hour", title: "Hour", createdAt: "", updatedAt: "2026-06-22T07:00:00.000Z" },
+          { key: "WebSocket:chat-day", chatId: "chat-day", title: "Day", createdAt: "", updatedAt: "2026-06-19T12:00:00.000Z" },
+          { key: "WebSocket:chat-week", chatId: "chat-week", title: "Week", createdAt: "", updatedAt: "2026-06-07T12:00:00.000Z" },
+          { key: "WebSocket:chat-month", chatId: "chat-month", title: "Month", createdAt: "", updatedAt: "2026-04-13T12:00:00.000Z" },
+        ],
+        activeSessionKey: "WebSocket:chat-min",
+        activeChatId: "chat-min",
+        messages: [],
+      },
+    });
+
+    const labels = targetDocument.body
+      .querySelector(".desktop-recent-chat-list")
+      ?.querySelectorAll(".desktop-sidebar-row-meta")
+      .map((node) => node.textContent);
+
+    expect(labels).toEqual(["30分", "5小时", "3天", "2周", "2月"]);
+  });
+
+  test("renders the configured composer model and routes model selection", () => {
+    const targetDocument = new FakeDocument();
+    const selections: string[] = [];
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      chat: {
+        sessions: [],
+        activeSessionKey: "",
+        activeChatId: "",
+        messages: [],
+        runtime: { model: "deepseek-reasoner", modelOptions: ["deepseek-chat", "deepseek-reasoner"] },
+      },
+      chatActions: {
+        onSelectModel: (model) => selections.push(model),
+      },
+    });
+
+    const model = targetDocument.body.querySelector('[data-desktop-composer-action="model-select"]') as HTMLButtonElement | null;
+    expect(model?.textContent).toContain("deepseek-reasoner");
+    model?.click();
+    expect(model?.querySelector('[role="listbox"]')?.textContent).toContain("deepseek-chat");
+    (model?.querySelector('[data-desktop-composer-model-option="deepseek-chat"]') as HTMLButtonElement | null)?.click();
+    expect(selections).toEqual(["deepseek-chat"]);
+  });
+
+  test("overlays recent chat timestamps and delete actions in the same right slot", () => {
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const styleText = targetDocument.head.querySelector("#desktop-workbench-shell-style")?.textContent ?? "";
+    expect(styleText).toMatch(
+      /body\.desktop-native-workbench \.desktop-sidebar-chat-row \.desktop-sidebar-row-main \{\s*grid-template-columns: minmax\(0, 1fr\);\s*\}/,
+    );
+    const deleteRule = styleText.match(
+      /body\.desktop-native-workbench \.desktop-sidebar-delete-session \{(?<rule>[\s\S]*?)\n    \}/,
+    )?.groups?.rule ?? "";
+    const confirmRule = styleText.match(
+      /body\.desktop-native-workbench \.desktop-sidebar-delete-session\[data-confirming="true"\] \{(?<rule>[\s\S]*?)\n    \}/,
+    )?.groups?.rule ?? "";
+    expect(deleteRule).toContain("display: inline-flex;");
+    expect(deleteRule).toContain("right: 10px;");
+    expect(deleteRule).toContain("width: 24px;");
+    expect(deleteRule).toContain("padding: 0;");
+    expect(deleteRule).toContain("justify-content: center;");
+    expect(confirmRule).toContain("width: 64px;");
+    expect(styleText).toMatch(
+      /body\.desktop-native-workbench \.desktop-sidebar-row-meta \{[\s\S]*position: absolute;[\s\S]*right: 10px;[\s\S]*width: 64px;/,
+    );
+    expect(styleText).toMatch(
+      /body\.desktop-native-workbench \.desktop-sidebar-chat-row:hover \.desktop-sidebar-delete-session,\s*body\.desktop-native-workbench \.desktop-sidebar-chat-row:focus-within \.desktop-sidebar-delete-session,\s*body\.desktop-native-workbench \.desktop-sidebar-delete-session\[data-deleting="true"\] \{[\s\S]*background: #f2efec;/,
+    );
   });
 
   test("updates native chat regions without reinstalling the whole workbench", () => {
@@ -873,14 +975,15 @@ describe("desktop workbench shell", () => {
     const primaryAction = targetDocument.body.querySelector(".desktop-sidebar-primary-action");
     const sidebarSearch = targetDocument.body.querySelector(".desktop-sidebar-search");
     const workspaceList = targetDocument.body.querySelector(".desktop-workspace-list");
+    const workspaceSection = targetDocument.body.querySelector(".desktop-sidebar-list-section-workspaces");
     const recentChats = targetDocument.body.querySelector(".desktop-recent-chat-list");
     expect(primaryAction).toBeTruthy();
     expect(sidebarSearch).toBeTruthy();
-    expect(workspaceList).toBeTruthy();
+    expect(workspaceSection).toBeNull();
+    expect(workspaceList).toBeNull();
     expect(recentChats).toBeTruthy();
     expect(primaryAction?.textContent).toContain("New chat");
     expect(sidebarSearch?.getAttribute("placeholder")).toBe("Search");
-    expect(workspaceList?.textContent).toContain("tinybot");
     expect(recentChats?.textContent).toContain("Design native workbench");
     const sidebarStyle = targetDocument.head.querySelector("#desktop-workbench-shell-style")?.textContent ?? "";
     expect(sidebarStyle).toContain("flex-direction: column;");
@@ -956,7 +1059,8 @@ describe("desktop workbench shell", () => {
       },
     });
 
-    expect(targetDocument.body.querySelector(".desktop-sidebar-list-section-workspaces")?.textContent).toContain("tinybot");
+    expect(targetDocument.body.querySelector(".desktop-sidebar-list-section-workspaces")).toBeNull();
+    expect(targetDocument.body.querySelector(".desktop-workspace-list")).toBeNull();
     expect(targetDocument.body.querySelector(".desktop-sidebar-list-section-recent")?.textContent).toContain("Live session");
     expect(targetDocument.body.querySelectorAll(".desktop-workbench-link")).toHaveLength(0);
     expect(targetDocument.body.querySelectorAll("[data-sidebar-command]")).toHaveLength(0);

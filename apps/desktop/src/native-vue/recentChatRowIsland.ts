@@ -107,7 +107,7 @@ function createRecentChatRowApp(options: RecentChatRowIslandOptions): App {
             disabled: deleting.value ? "" : null,
             onClick: onDeleteClick,
             type: "button",
-          }, deleting.value ? "Deleting" : confirming.value ? "Confirm" : "x"),
+          }, deleting.value ? "删除中" : confirming.value ? "确认" : "x"),
         ],
       });
     },

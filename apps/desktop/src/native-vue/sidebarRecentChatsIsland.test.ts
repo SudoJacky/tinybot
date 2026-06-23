@@ -59,6 +59,9 @@ describe("sidebar recent chats Vue island", () => {
     const deleteButton = rows[1]?.querySelector<HTMLButtonElement>("[data-desktop-chat-delete]");
     deleteButton?.click();
     await nextTick();
+    expect(deletes).toEqual([]);
+    expect(deleteButton?.getAttribute("data-confirming")).toBe("true");
+    expect(deleteButton?.textContent).toBe("确认");
     deleteButton?.click();
     await nextTick();
 
