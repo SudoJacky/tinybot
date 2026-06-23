@@ -114,7 +114,7 @@ import { mountSidebarRowIsland } from "./native-vue/sidebarRowIsland";
 import { mountSidebarSectionHeadingIsland } from "./native-vue/sidebarSectionHeadingIsland";
 import { mountSettingsDefaultLlmIsland } from "./native-vue/settingsDefaultLlmIsland";
 import { mountSettingsGroupsIsland } from "./native-vue/settingsGroupsIsland";
-import { mountSettingsPaneIsland } from "./native-vue/settingsPaneIsland";
+import { mountOrUpdateSettingsPaneIsland, mountSettingsPaneIsland } from "./native-vue/settingsPaneIsland";
 import { mountSettingsProviderDetailIsland } from "./native-vue/settingsProviderDetailIsland";
 import { mountSettingsProviderManagementIsland } from "./native-vue/settingsProviderManagementIsland";
 import { mountSettingsSidebarIsland } from "./native-vue/settingsSidebarIsland";
@@ -536,6 +536,16 @@ export function updateDesktopSettingsPane(
     return;
   }
   const activeGroupId = getCurrentDesktopSettingsActiveGroupId(pane, settingsPane);
+  if (canMountVueIsland(pane) && pane.getAttribute("data-desktop-vue-island") === "settings-pane") {
+    mountOrUpdateSettingsPaneIsland(pane, {
+      pane: settingsPane,
+      initialActiveGroupId: activeGroupId,
+      onSettingsAction: settingsActions.onSettingsAction,
+      promptProviderId: () => promptForSettingsProviderId(targetDocument),
+      onFocusSettingsControl: (fieldId) => focusDesktopSettingsControl(targetDocument, fieldId),
+    });
+    return;
+  }
   const next = createSettingsProvidersPane(targetDocument, settingsPane, settingsActions, activeGroupId);
   pane.replaceChildren(...Array.from(next.children));
 }

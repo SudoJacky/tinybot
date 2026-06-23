@@ -1,4 +1,4 @@
-import { createApp, defineComponent, h, ref, type App } from "vue";
+import { createApp, defineComponent, h, ref, type App, type Ref } from "vue";
 import { NButton, NCard, NConfigProvider, NSpace, NTag } from "naive-ui";
 import type {
   DesktopSettingsPaneField,
@@ -17,6 +17,7 @@ export interface SettingsPaneIslandOptions {
 }
 
 export interface MountedSettingsPaneIsland {
+  update: (options: SettingsPaneIslandOptions) => void;
   unmount: () => void;
 }
 
@@ -33,45 +34,88 @@ interface ProviderCardModel {
   models: string;
 }
 
+const mountedSettingsPanes = new WeakMap<HTMLElement, MountedSettingsPaneIsland>();
+
+export function mountOrUpdateSettingsPaneIsland(
+  host: HTMLElement,
+  options: SettingsPaneIslandOptions,
+): MountedSettingsPaneIsland {
+  const mounted = mountedSettingsPanes.get(host);
+  if (mounted) {
+    mounted.update(options);
+    return mounted;
+  }
+  return mountSettingsPaneIsland(host, options);
+}
+
 export function mountSettingsPaneIsland(
   host: HTMLElement,
   options: SettingsPaneIslandOptions,
 ): MountedSettingsPaneIsland {
+  const mounted = mountedSettingsPanes.get(host);
+  if (mounted) {
+    mounted.update(options);
+    return mounted;
+  }
+  applySettingsPaneHost(host);
+  const state = ref(options) as Ref<SettingsPaneIslandOptions>;
+  const app = createSettingsPaneApp(state);
+  app.mount(host);
+  const nextMounted = {
+    update: (nextOptions: SettingsPaneIslandOptions) => {
+      applySettingsPaneHost(host);
+      state.value = nextOptions;
+    },
+    unmount: () => {
+      mountedSettingsPanes.delete(host);
+      app.unmount();
+      host.replaceChildren();
+    },
+  };
+  mountedSettingsPanes.set(host, nextMounted);
+  return nextMounted;
+}
+
+function applySettingsPaneHost(host: HTMLElement): void {
   host.setAttribute("data-desktop-vue-island", "settings-pane");
   host.className = "desktop-workbench-section desktop-settings-pane";
   host.setAttribute("data-desktop-module-surface", "settings");
   host.setAttribute("data-settings-layout", "section-pages");
   host.setAttribute("aria-label", "Settings and providers");
-
-  const app = createSettingsPaneApp(options);
-  app.mount(host);
-  return {
-    unmount: () => {
-      app.unmount();
-      host.replaceChildren();
-    },
-  };
 }
 
-function createSettingsPaneApp(options: SettingsPaneIslandOptions): App {
+function createSettingsPaneApp(state: Ref<SettingsPaneIslandOptions>): App {
   return createApp(defineComponent({
     name: "SettingsPaneIsland",
     setup() {
       const providerSearch = ref("");
-      const activeGroupId = ref(getActiveSettingsGroup(options.pane, options.initialActiveGroupId)?.id ?? "general");
+      const activeGroupId = ref(getActiveSettingsGroup(state.value.pane, state.value.initialActiveGroupId)?.id ?? "general");
       const setActiveGroupId = (groupId: DesktopSettingsPaneGroup["id"]) => {
         activeGroupId.value = groupId;
       };
+      const currentActiveGroupId = (options: SettingsPaneIslandOptions) => {
+        const activeGroup = getActiveSettingsGroup(options.pane, activeGroupId.value);
+        if (activeGroup) {
+          activeGroupId.value = activeGroup.id;
+          return activeGroup.id;
+        }
+        activeGroupId.value = "general";
+        return activeGroupId.value;
+      };
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => [
-          renderSidebar(options.pane, activeGroupId.value, setActiveGroupId),
-          h("div", { class: "desktop-settings-content" }, [
-            renderHeader(options, activeGroupId.value),
-            renderActiveSettingsSection(options, activeGroupId.value, providerSearch.value, (value) => {
-              providerSearch.value = value;
-            }),
-          ]),
-        ],
+        default: () => {
+          const options = state.value;
+          const selectedGroupId = currentActiveGroupId(options);
+          return [
+            renderSidebar(options.pane, selectedGroupId, setActiveGroupId),
+            h("div", { class: "desktop-settings-content" }, [
+              renderHeader(options, selectedGroupId),
+              renderActiveSettingsSection(options, selectedGroupId, providerSearch.value, (value) => {
+                providerSearch.value = value;
+              }),
+            ]),
+          ];
+        },
       });
     },
   }));
