@@ -2,8 +2,19 @@
 
 import { describe, expect, test } from "vitest";
 import { nextTick } from "vue";
+import {
+  applyDesktopSettingsFieldEdit,
+  buildDesktopSettingsFormState,
+  buildDesktopSettingsPaneModel,
+} from "./desktopSettingsProviders";
 import { createDefaultWorkbenchLayout } from "./desktopWorkbenchLayout";
-import { installDesktopWorkbenchShell, updateDesktopNativeChat, type DesktopNativeChatModel } from "./desktopWorkbenchShell";
+import {
+  installDesktopWorkbenchShell,
+  updateDesktopNativeChat,
+  updateDesktopSettingsPane,
+  type DesktopNativeChatModel,
+  type DesktopSettingsActionEvent,
+} from "./desktopWorkbenchShell";
 
 function setScrollMetrics(element: HTMLElement, metrics: { scrollHeight: number; clientHeight: number }): void {
   Object.defineProperty(element, "scrollHeight", { configurable: true, value: metrics.scrollHeight });
@@ -52,6 +63,68 @@ describe("desktop workbench shell Vue integration", () => {
     expect(rail?.querySelector('[data-desktop-module-target="chat"]')?.getAttribute("aria-current")).toBe("page");
     expect(rail?.querySelector('[data-desktop-module-target="files"]')?.textContent).toBe("Files");
     expect(rail?.querySelector('[data-desktop-module-target="settings"]')?.getAttribute("href")).toBe("/settings");
+  });
+
+  test("keeps focused settings text inputs mounted when edits refresh the pane", async () => {
+    document.body.replaceChildren();
+    document.head.replaceChildren();
+
+    const providerCatalog = [{ id: "deepseek", displayName: "DeepSeek", status: "ready" }];
+    let settingsState = buildDesktopSettingsFormState({
+      agents: {
+        defaults: {
+          active_profile: "work",
+          model: "deepseek-v4-pro",
+          provider: "deepseek",
+          timezone: "Asia/",
+        },
+      },
+      providers: {
+        profiles: {
+          work: {
+            provider: "deepseek",
+            api_base: "https://api.deepseek.com/v1",
+            api_key: "sk-live",
+            models: ["deepseek-v4-pro"],
+          },
+        },
+      },
+    }, providerCatalog);
+    const savedState = settingsState;
+    const buildPane = () => buildDesktopSettingsPaneModel(settingsState, {
+      lastSavedState: savedState,
+      providerCatalog,
+    });
+    const handleSettingsAction = (event: DesktopSettingsActionEvent) => {
+      if (event.action !== "edit") {
+        return;
+      }
+      settingsState = applyDesktopSettingsFieldEdit(settingsState, event.fieldId, event.value);
+      updateDesktopSettingsPane(document, buildPane(), {
+        onSettingsAction: handleSettingsAction,
+      });
+    };
+
+    installDesktopWorkbenchShell({
+      targetDocument: document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      settingsPane: buildPane(),
+      settingsActions: {
+        onSettingsAction: handleSettingsAction,
+      },
+    });
+    await nextTick();
+
+    const timezone = document.querySelector<HTMLInputElement>('[data-desktop-settings-control="timezone"]');
+    timezone?.focus();
+    timezone!.value = "Asia/S";
+    timezone?.dispatchEvent(new Event("input", { bubbles: true }));
+    await nextTick();
+
+    expect(document.querySelector('[data-desktop-settings-control="timezone"]')).toBe(timezone);
+    expect(document.activeElement).toBe(timezone);
+    expect(timezone?.value).toBe("Asia/S");
   });
 
   test("renders the command palette through the Vue shell island", () => {
