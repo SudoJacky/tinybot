@@ -509,4 +509,43 @@ describe("settings pane Vue island", () => {
 
     mounted.unmount();
   });
+
+  test("uses a guided provider setup flow instead of prompt creation", async () => {
+    const host = document.createElement("section");
+    const actions: string[] = [];
+    const mounted = mountSettingsPaneIsland(host, {
+      pane,
+      initialActiveGroupId: "provider-models",
+      promptProviderId: () => {
+        throw new Error("prompt should not be used");
+      },
+      onSettingsAction: (event: DesktopSettingsActionEvent) => {
+        if (event.action === "edit") {
+          actions.push(`${event.action}:${event.fieldId}:${String(event.value)}`);
+        }
+      },
+    });
+    await nextTick();
+
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-action="addProvider"]')?.click();
+    await nextTick();
+    const providerId = host.querySelector<HTMLInputElement>('[data-desktop-settings-control="newProviderId"]');
+    expect(providerId?.getAttribute("aria-describedby")).toBe("desktop-settings-provider-setup-guidance");
+    expect(host.querySelector("[data-desktop-settings-provider-setup]")?.textContent).toContain("Add provider");
+    expect(host.querySelector("#desktop-settings-provider-setup-guidance")?.textContent).toContain("API key");
+
+    providerId!.value = "openai";
+    providerId?.dispatchEvent(new Event("input", { bubbles: true }));
+    await nextTick();
+    expect(host.querySelector("[data-desktop-settings-provider-setup-error]")?.textContent).toContain("already exists");
+
+    providerId!.value = "localai";
+    providerId?.dispatchEvent(new Event("input", { bubbles: true }));
+    await nextTick();
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-provider-setup-action="create"]')?.click();
+
+    expect(actions).toEqual(["edit:selectedProvider:localai"]);
+
+    mounted.unmount();
+  });
 });

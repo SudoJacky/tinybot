@@ -44,6 +44,13 @@ interface SettingsSearchResult {
   advanced: boolean;
 }
 
+interface ProviderSetupState {
+  open: boolean;
+  providerId: string;
+  setOpen: (value: boolean) => void;
+  setProviderId: (value: string) => void;
+}
+
 const mountedSettingsPanes = new WeakMap<HTMLElement, MountedSettingsPaneIsland>();
 
 export function mountOrUpdateSettingsPaneIsland(
@@ -99,6 +106,8 @@ function createSettingsPaneApp(state: Ref<SettingsPaneIslandOptions>, host: HTML
     name: "SettingsPaneIsland",
     setup() {
       const providerSearch = ref("");
+      const providerSetupOpen = ref(false);
+      const newProviderId = ref("");
       const settingsSearch = ref("");
       const highlightedFieldId = ref("");
       const activeGroupId = ref(getActiveSettingsGroup(state.value.pane, state.value.initialActiveGroupId)?.id ?? "general");
@@ -144,9 +153,25 @@ function createSettingsPaneApp(state: Ref<SettingsPaneIslandOptions>, host: HTML
             h("div", { class: "desktop-settings-content" }, [
               renderHeader(options, selectedGroupId),
               renderSaveAlert(options),
-              renderActiveSettingsSection(options, selectedGroupId, highlightedFieldId.value, providerSearch.value, (value) => {
+              renderActiveSettingsSection(
+                options,
+                selectedGroupId,
+                highlightedFieldId.value,
+                providerSearch.value,
+                (value) => {
                 providerSearch.value = value;
-              }),
+                },
+                {
+                  open: providerSetupOpen.value,
+                  providerId: newProviderId.value,
+                  setOpen: (value) => {
+                    providerSetupOpen.value = value;
+                  },
+                  setProviderId: (value) => {
+                    newProviderId.value = value;
+                  },
+                },
+              ),
             ]),
           ];
         },
@@ -396,6 +421,7 @@ function renderActiveSettingsSection(
   highlightedFieldId: string,
   providerSearch: string,
   setProviderSearch: (value: string) => void,
+  providerSetup: ProviderSetupState,
 ) {
   const group = getActiveSettingsGroup(options.pane, activeGroupId);
   const groupNode = group ? renderSettingsGroup(options, group, highlightedFieldId) : null;
@@ -407,7 +433,7 @@ function renderActiveSettingsSection(
   }
   if (activeGroupId === "provider-models") {
     return [
-      renderProviderManagement(options, providerSearch, setProviderSearch),
+      renderProviderManagement(options, providerSearch, setProviderSearch, providerSetup),
       groupNode ? renderSingleSettingsGroup(groupNode) : null,
     ];
   }
@@ -444,6 +470,7 @@ function renderProviderManagement(
   options: SettingsPaneIslandOptions,
   searchQuery: string,
   updateSearchQuery: (value: string) => void,
+  providerSetup: ProviderSetupState,
 ) {
   const cards = getProviderCards(options.pane).filter((provider) => !shouldHideProviderCard(provider, searchQuery));
   return h("section", {
@@ -476,16 +503,74 @@ function renderProviderManagement(
           size: "small",
           "data-desktop-settings-action": "addProvider",
           onClick: () => {
-            const providerId = options.promptProviderId?.()?.trim() ?? "";
-            if (providerId) {
-              emitEdit(options, "selectedProvider", providerId);
-              options.onFocusSettingsControl?.("selectedProvider");
-            }
+            providerSetup.setOpen(true);
           },
         }, { default: () => "+ Add provider" }),
       ]),
     ]),
+    providerSetup.open ? renderProviderSetup(options, providerSetup) : null,
     h("div", { class: "desktop-settings-provider-grid" }, cards.map((provider) => renderProviderCard(options, provider))),
+  ]);
+}
+
+function renderProviderSetup(
+  options: SettingsPaneIslandOptions,
+  providerSetup: ProviderSetupState,
+) {
+  const providerId = providerSetup.providerId.trim();
+  const duplicate = providerId
+    ? options.pane.providerCatalog.some((provider) => provider.id.toLowerCase() === providerId.toLowerCase())
+    : false;
+  const canCreate = Boolean(providerId) && !duplicate;
+  return h("div", {
+    class: "desktop-settings-provider-setup",
+    "data-desktop-settings-provider-setup": "",
+  }, [
+    h("h3", "Add provider"),
+    h("label", { class: "desktop-settings-inline-field" }, [
+      h("span", "Provider ID"),
+      h("input", {
+        id: "desktop-settings-new-provider-id",
+        "data-desktop-settings-control": "newProviderId",
+        value: providerSetup.providerId,
+        placeholder: "provider-id",
+        "aria-describedby": "desktop-settings-provider-setup-guidance",
+        onInput: (event: Event) => providerSetup.setProviderId(String((event.target as HTMLInputElement | null)?.value ?? "")),
+      }),
+    ]),
+    h("p", {
+      id: "desktop-settings-provider-setup-guidance",
+      class: "desktop-settings-provider-setup-guidance",
+    }, "Create a provider profile, then add API key and endpoint details below."),
+    duplicate ? h("p", {
+      class: "desktop-settings-provider-setup-error",
+      "data-desktop-settings-provider-setup-error": "",
+      role: "alert",
+    }, "Provider already exists.") : null,
+    h("div", { class: "desktop-settings-provider-setup-actions" }, [
+      h("button", {
+        type: "button",
+        "data-desktop-settings-provider-setup-action": "create",
+        disabled: !canCreate,
+        onClick: () => {
+          if (!canCreate) {
+            return;
+          }
+          emitEdit(options, "selectedProvider", providerId);
+          options.onFocusSettingsControl?.("selectedProvider");
+          providerSetup.setOpen(false);
+          providerSetup.setProviderId("");
+        },
+      }, "Create provider"),
+      h("button", {
+        type: "button",
+        "data-desktop-settings-provider-setup-action": "cancel",
+        onClick: () => {
+          providerSetup.setOpen(false);
+          providerSetup.setProviderId("");
+        },
+      }, "Cancel"),
+    ]),
   ]);
 }
 
