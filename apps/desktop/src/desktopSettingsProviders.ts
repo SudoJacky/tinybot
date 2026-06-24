@@ -278,9 +278,9 @@ const DESKTOP_SETTINGS_GROUP_METADATA: Record<DesktopSettingsPaneGroupId, Deskto
     navigationMode: "section",
   },
   "tools-approvals": {
-    label: "Tools & Approvals",
-    description: "Browser, command execution, approval policy, and MCP server access.",
-    aliases: ["tools", "mcp", "approvals", "security"],
+    label: "Tools & MCP",
+    description: "Tool toggles and MCP server access. Approval controls are not exposed here yet.",
+    aliases: ["tools", "mcp", "security"],
     i18nKey: "settings.groups.tools-approvals",
     navigationArea: "core",
     navigationMode: "section",

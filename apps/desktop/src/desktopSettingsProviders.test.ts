@@ -340,7 +340,7 @@ describe("desktop settings and provider helpers", () => {
       ["general", "General"],
       ["provider-models", "Provider & Models"],
       ["knowledge", "Knowledge"],
-      ["tools-approvals", "Tools & Approvals"],
+      ["tools-approvals", "Tools & MCP"],
       ["files-workspace", "Files & Workspace"],
       ["memory-experience", "Memory & Experience"],
       ["skills", "Skills"],
@@ -836,6 +836,10 @@ describe("desktop settings and provider helpers", () => {
     expect(fields["tools-approvals.mcpServers"]).toMatchObject({
       validationField: "mcpServers",
       i18nKey: "settings.fields.tools-approvals.mcpServers",
+    });
+    expect(groups["tools-approvals"]).toMatchObject({
+      label: "Tools & MCP",
+      description: "Tool toggles and MCP server access. Approval controls are not exposed here yet.",
     });
   });
 
