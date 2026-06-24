@@ -219,19 +219,16 @@ describe("desktop workbench shell static Vue imports", () => {
     expect(source).not.toContain('void import("./native-vue/workLensIsland")');
   });
 
-  test("statically imports the settings sub-islands", () => {
+  test("statically imports only the unified settings pane island from the shell", () => {
     const source = readFileSync(resolve(__dirname, "desktopWorkbenchShell.ts"), "utf8");
 
-    expect(source).toContain('import { mountSettingsDefaultLlmIsland } from "./native-vue/settingsDefaultLlmIsland";');
-    expect(source).not.toContain('void import("./native-vue/settingsDefaultLlmIsland")');
-    expect(source).toContain('import { mountSettingsGroupsIsland } from "./native-vue/settingsGroupsIsland";');
-    expect(source).not.toContain('void import("./native-vue/settingsGroupsIsland")');
-    expect(source).toContain('import { mountSettingsProviderDetailIsland } from "./native-vue/settingsProviderDetailIsland";');
-    expect(source).not.toContain('void import("./native-vue/settingsProviderDetailIsland")');
-    expect(source).toContain('import { mountSettingsProviderManagementIsland } from "./native-vue/settingsProviderManagementIsland";');
-    expect(source).not.toContain('void import("./native-vue/settingsProviderManagementIsland")');
-    expect(source).toContain('import { mountSettingsSidebarIsland } from "./native-vue/settingsSidebarIsland";');
-    expect(source).not.toContain('void import("./native-vue/settingsSidebarIsland")');
+    expect(source).toContain('import { mountOrUpdateSettingsPaneIsland } from "./native-vue/settingsPaneIsland";');
+    expect(source).toContain('import { mountSettingsPaneIsland } from "./native-vue/settingsPaneIsland";');
+    expect(source).not.toContain('import { mountSettingsDefaultLlmIsland } from "./native-vue/settingsDefaultLlmIsland";');
+    expect(source).not.toContain('import { mountSettingsGroupsIsland } from "./native-vue/settingsGroupsIsland";');
+    expect(source).not.toContain('import { mountSettingsProviderDetailIsland } from "./native-vue/settingsProviderDetailIsland";');
+    expect(source).not.toContain('import { mountSettingsProviderManagementIsland } from "./native-vue/settingsProviderManagementIsland";');
+    expect(source).not.toContain('import { mountSettingsSidebarIsland } from "./native-vue/settingsSidebarIsland";');
     expect(source).not.toContain('import { mountSettingsStatusIsland } from "./native-vue/settingsStatusIsland";');
     expect(source).not.toContain('import { mountSettingsStatusItemIsland } from "./native-vue/settingsStatusItemIsland";');
   });

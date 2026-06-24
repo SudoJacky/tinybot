@@ -112,13 +112,8 @@ import { mountSidebarContentIsland } from "./native-vue/sidebarContentIsland";
 import { mountSidebarRecentChatsIsland, type SidebarRecentChatRow } from "./native-vue/sidebarRecentChatsIsland";
 import { mountSidebarRowIsland } from "./native-vue/sidebarRowIsland";
 import { mountSidebarSectionHeadingIsland } from "./native-vue/sidebarSectionHeadingIsland";
-import { mountSettingsDefaultLlmIsland } from "./native-vue/settingsDefaultLlmIsland";
-import { mountSettingsGroupsIsland } from "./native-vue/settingsGroupsIsland";
 import { mountOrUpdateSettingsPaneIsland } from "./native-vue/settingsPaneIsland";
 import { mountSettingsPaneIsland } from "./native-vue/settingsPaneIsland";
-import { mountSettingsProviderDetailIsland } from "./native-vue/settingsProviderDetailIsland";
-import { mountSettingsProviderManagementIsland } from "./native-vue/settingsProviderManagementIsland";
-import { mountSettingsSidebarIsland } from "./native-vue/settingsSidebarIsland";
 import { mountOrUpdateSessionFileListIsland } from "./native-vue/sessionFileListIsland";
 import { mountSessionUploadCardIsland } from "./native-vue/sessionUploadCardIsland";
 import { mountShortcutHelpDialogIsland } from "./native-vue/shortcutHelpDialogIsland";
@@ -5192,7 +5187,6 @@ function createSettingsActivePage(
     const groupSection = createSettingsGroupSection(targetDocument, pane, activeGroup, settingsActions);
     if (groupSection) {
       grid.append(groupSection);
-      mountSettingsGroupsVueIsland(grid, pane, settingsActions);
       nodes.push(grid);
     }
   }
@@ -5305,20 +5299,6 @@ function mountSettingsPaneVueIsland(
   });
 }
 
-function mountSettingsGroupsVueIsland(
-  grid: HTMLElement,
-  pane: DesktopSettingsPaneModel,
-  settingsActions: DesktopSettingsActionOptions,
-): void {
-  if (!canMountVueIsland(grid)) {
-    return;
-  }
-  mountSettingsGroupsIsland(grid, {
-    pane,
-    onSettingsAction: settingsActions.onSettingsAction,
-  });
-}
-
 function createDefaultLlmSettingsCard(
   targetDocument: Document,
   pane: DesktopSettingsPaneModel,
@@ -5347,22 +5327,7 @@ function createDefaultLlmSettingsCard(
   copy.className = "desktop-settings-default-llm-copy";
 
   card.append(heading, form, copy);
-  mountSettingsDefaultLlmVueIsland(card, pane, settingsActions);
   return card;
-}
-
-function mountSettingsDefaultLlmVueIsland(
-  card: HTMLElement,
-  pane: DesktopSettingsPaneModel,
-  settingsActions: DesktopSettingsActionOptions,
-): void {
-  if (!canMountVueIsland(card)) {
-    return;
-  }
-  mountSettingsDefaultLlmIsland(card, {
-    pane,
-    onSettingsAction: settingsActions.onSettingsAction,
-  });
 }
 
 function createProviderManagementSection(
@@ -5424,25 +5389,7 @@ function createProviderManagementSection(
   });
 
   section.append(header, cards);
-  mountSettingsProviderManagementVueIsland(section, targetDocument, pane, settingsActions);
   return section;
-}
-
-function mountSettingsProviderManagementVueIsland(
-  section: HTMLElement,
-  targetDocument: Document,
-  pane: DesktopSettingsPaneModel,
-  settingsActions: DesktopSettingsActionOptions,
-): void {
-  if (!canMountVueIsland(section)) {
-    return;
-  }
-  mountSettingsProviderManagementIsland(section, {
-    pane,
-    onSettingsAction: settingsActions.onSettingsAction,
-    promptProviderId: () => promptForSettingsProviderId(targetDocument),
-    onFocusSettingsControl: (fieldId) => focusDesktopSettingsControl(targetDocument, fieldId),
-  });
 }
 
 function createSettingsControlField(
@@ -5608,15 +5555,7 @@ function createSettingsProviderDetail(targetDocument: Document, label: string, v
   const text = createText(targetDocument, "span", `${label}: ${value}`);
   text.className = "desktop-settings-provider-detail-text";
   row.append(createText(targetDocument, "span", `${label}: `), input, text);
-  mountSettingsProviderDetailVueIsland(row, label, value);
   return row;
-}
-
-function mountSettingsProviderDetailVueIsland(row: HTMLElement, label: string, value: string): void {
-  if (!canMountVueIsland(row)) {
-    return;
-  }
-  mountSettingsProviderDetailIsland(row, { label, value });
 }
 
 function filterSettingsProviderCards(cards: HTMLElement, query: string): void {
@@ -5801,7 +5740,6 @@ function createSettingsSidebar(
   });
 
   sidebar.append(nav);
-  mountSettingsSidebarVueIsland(sidebar, pane);
   return sidebar;
 }
 
@@ -5844,13 +5782,6 @@ function getCurrentDesktopSettingsActiveGroupId(
     .find((item) => item.getAttribute("data-active") === "true")
     ?.getAttribute("data-desktop-settings-nav");
   return getDesktopSettingsActiveGroup(nextSettingsPane, activeGroupId)?.id ?? nextSettingsPane.groups[0]?.id ?? "general";
-}
-
-function mountSettingsSidebarVueIsland(sidebar: HTMLElement, pane: DesktopSettingsPaneModel): void {
-  if (!canMountVueIsland(sidebar)) {
-    return;
-  }
-  mountSettingsSidebarIsland(sidebar, { groups: pane.groups });
 }
 
 function getSettingsNavLabel(groupId: DesktopSettingsPaneModel["groups"][number]["id"]): string {
