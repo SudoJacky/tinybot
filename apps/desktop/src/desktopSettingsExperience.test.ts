@@ -34,6 +34,24 @@ describe("desktop settings experience stylesheet", () => {
     expect(desktopSettingsCss).toContain("grid-template-columns: 1fr");
   });
 
+  test("styles the redesigned settings task pages and quality layers", () => {
+    expect(desktopSettingsCss).toContain(".desktop-settings-task-page");
+    expect(desktopSettingsCss).toContain(".desktop-settings-provider-page");
+    expect(desktopSettingsCss).toContain(".desktop-settings-provider-detail-panel");
+    expect(desktopSettingsCss).toContain(".desktop-settings-knowledge-stages");
+    expect(desktopSettingsCss).toContain(".desktop-settings-quality-layer-grid");
+    expect(desktopSettingsCss).toContain(".desktop-settings-segmented-control");
+    expect(desktopSettingsCss).toContain(".desktop-settings-quality-preset");
+  });
+
+  test("keeps redesigned settings pages from forcing horizontal scrolling", () => {
+    expect(desktopSettingsCss).toContain("overflow-x: hidden");
+    expect(desktopSettingsCss).toContain(".desktop-settings-task-card .desktop-settings-field");
+    expect(desktopSettingsCss).toContain("grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr))");
+    expect(desktopSettingsCss).toContain("width: 100%");
+    expect(desktopSettingsCss).toContain("min-width: 0");
+  });
+
   test("uses shared desktop design tokens instead of a light-theme-only palette", () => {
     for (const token of ["--bg", "--panel", "--border", "--text", "--text-muted", "--accent", "--accent-soft"]) {
       expect(desktopSettingsCss).toContain(`var(${token})`);

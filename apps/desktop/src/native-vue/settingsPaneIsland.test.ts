@@ -47,6 +47,199 @@ const pane = buildDesktopSettingsPaneModel(draftState, {
 });
 
 describe("settings pane Vue island", () => {
+  test("renders redesigned General, Provider, and Knowledge task pages", async () => {
+    const host = document.createElement("section");
+    const actions: string[] = [];
+
+    const mounted = mountSettingsPaneIsland(host, {
+      pane,
+      onSettingsAction: (event: DesktopSettingsActionEvent) => {
+        if (event.action === "edit") {
+          actions.push(`${event.action}:${event.fieldId}:${String(event.value)}`);
+          return;
+        }
+        actions.push(event.action);
+      },
+    });
+    await nextTick();
+
+    expect(host.querySelector(".desktop-settings-breadcrumb h2")?.textContent).toBe("General");
+    expect(host.querySelector(".desktop-settings-default-ai-section")?.textContent).toContain("Default AI");
+    expect(host.querySelector(".desktop-settings-default-ai-section")?.textContent).toContain("OpenAI / gpt-4.1");
+    expect(host.querySelector(".desktop-settings-profile-locale-section")?.textContent).toContain("Profile & locale");
+    expect(host.querySelector(".desktop-settings-profile-locale-section")?.textContent).toContain("Timezone");
+    expect(host.querySelector(".desktop-settings-response-defaults-section")?.textContent).toContain("Response defaults");
+    expect(host.querySelector(".desktop-settings-response-defaults-section")?.textContent).toContain("tokens");
+    expect(host.querySelector('[data-desktop-settings-group="general"]')).toBeNull();
+
+    host.querySelector<HTMLAnchorElement>('[data-desktop-settings-nav="provider-models"]')?.click();
+    await nextTick();
+
+    expect(host.querySelector(".desktop-settings-breadcrumb h2")?.textContent).toBe("Provider & Models");
+    expect(host.querySelector("[data-desktop-settings-provider-summary=\"total\"]")?.textContent).toContain("1 provider");
+    expect(host.querySelector("[data-desktop-settings-provider-summary=\"ready\"]")?.textContent).toContain("1 ready");
+    expect(host.querySelector("[data-desktop-settings-provider-summary=\"models\"]")?.textContent).toContain("2 models");
+    expect(host.querySelector('[data-desktop-settings-provider-card="openai"]')?.getAttribute("data-selected")).toBe("true");
+    expect(host.querySelector(".desktop-settings-provider-detail-panel")?.textContent).toContain("Edit OpenAI");
+    expect(host.querySelector(".desktop-settings-provider-detail-panel")?.textContent).toContain("Connection");
+    expect(host.querySelector(".desktop-settings-provider-detail-panel")?.textContent).toContain("Model catalog");
+    expect(host.querySelector(".desktop-settings-provider-detail-panel [data-desktop-settings-control=\"apiKey\"]")?.getAttribute("type")).toBe("password");
+    expect(host.querySelector('[data-desktop-settings-group="provider-models"]')).toBeNull();
+
+    host.querySelector<HTMLAnchorElement>('[data-desktop-settings-nav="knowledge"]')?.click();
+    await nextTick();
+
+    expect(host.querySelector(".desktop-settings-breadcrumb h2")?.textContent).toBe("Knowledge");
+    expect(host.querySelector("[data-desktop-settings-knowledge-enabled]")?.textContent).toContain("Knowledge enabled");
+    expect(host.querySelector("[data-desktop-settings-knowledge-action=\"openDocuments\"]")?.textContent).toContain("Open documents");
+    expect(Array.from(
+      host.querySelectorAll("[data-desktop-settings-knowledge-stage]"),
+      (node) => node.getAttribute("data-desktop-settings-knowledge-stage"),
+    )).toEqual(["documents", "chunking", "embeddings", "retrieval", "rerank", "graph"]);
+    expect(host.querySelector("[data-desktop-settings-retrieval-mode=\"hybrid\"]")?.getAttribute("aria-pressed")).toBe("true");
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-quality-preset="deep"]')?.click();
+    expect(actions).toContain("edit:rerankEnabled:true");
+    expect(actions).toContain("edit:graphExtractionEnabled:true");
+    expect(host.querySelector('[data-desktop-settings-group="knowledge"]')).toBeNull();
+
+    mounted.unmount();
+  });
+
+  test("filters and selects provider cards while preserving selected detail state", async () => {
+    const host = document.createElement("section");
+    const actions: string[] = [];
+    const multiProviderCatalog = [
+      { id: "openai", displayName: "OpenAI", status: "ready", models: ["gpt-4.1", "gpt-4.1-mini"] },
+      { id: "anthropic", displayName: "Anthropic", status: "not_configured", models: ["claude-3-5-sonnet"] },
+    ];
+    const state = buildDesktopSettingsFormState({
+      agents: { defaults: { provider: "openai", model: "gpt-4.1", active_profile: "work" } },
+      providers: {
+        profiles: {
+          work: {
+            provider: "openai",
+            api_key: "sk-live",
+            api_base: "https://api.openai.com/v1",
+            models: ["gpt-4.1", "gpt-4.1-mini"],
+          },
+        },
+      },
+    }, multiProviderCatalog);
+    const multiPane = buildDesktopSettingsPaneModel(state, {
+      lastSavedState: state,
+      providerCatalog: multiProviderCatalog,
+    });
+
+    const mounted = mountSettingsPaneIsland(host, {
+      pane: multiPane,
+      initialActiveGroupId: "provider-models",
+      onSettingsAction: (event: DesktopSettingsActionEvent) => {
+        if (event.action === "edit") {
+          actions.push(`${event.fieldId}:${String(event.value)}`);
+        }
+      },
+    });
+    await nextTick();
+
+    expect(host.querySelector("[data-desktop-settings-provider-summary=\"total\"]")?.textContent).toContain("2 providers");
+    expect(host.querySelector('[data-desktop-settings-provider-card="openai"]')?.getAttribute("data-selected")).toBe("true");
+    expect(host.querySelector(".desktop-settings-provider-detail-panel")?.textContent).toContain("Edit OpenAI");
+
+    const search = host.querySelector<HTMLInputElement>(".desktop-settings-provider-search");
+    search!.value = "Anthropic";
+    search?.dispatchEvent(new Event("input", { bubbles: true }));
+    await nextTick();
+    expect(host.querySelector('[data-desktop-settings-provider-card="openai"]')).toBeNull();
+    expect(host.querySelector('[data-desktop-settings-provider-card="anthropic"]')?.textContent).toContain("Anthropic");
+
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-provider-card="anthropic"] [data-desktop-settings-provider-action="settings"]')?.click();
+    expect(actions).toContain("selectedProvider:anthropic");
+    expect(host.querySelector(".desktop-settings-provider-detail-panel")?.textContent).toContain("Edit OpenAI");
+
+    mounted.unmount();
+  });
+
+  test("keeps Knowledge disabled fields visible and maps presets before manual overrides", async () => {
+    const host = document.createElement("section");
+    const actions: string[] = [];
+    const disabledState = buildDesktopSettingsFormState({
+      knowledge: {
+        enabled: false,
+        auto_retrieve: true,
+        retrieval_mode: "dense",
+        max_chunks: 4,
+        rerank_enabled: true,
+        graph_extraction_enabled: true,
+      },
+    }, providerCatalog);
+    const disabledPane = buildDesktopSettingsPaneModel(disabledState, {
+      lastSavedState: disabledState,
+      providerCatalog,
+    });
+
+    const mounted = mountSettingsPaneIsland(host, {
+      pane: disabledPane,
+      initialActiveGroupId: "knowledge",
+      onSettingsAction: (event: DesktopSettingsActionEvent) => {
+        if (event.action === "edit") {
+          actions.push(`${event.fieldId}:${String(event.value)}`);
+        }
+      },
+    });
+    await nextTick();
+
+    expect(host.querySelector(".desktop-settings-knowledge-page")?.getAttribute("data-knowledge-disabled")).toBe("true");
+    expect(host.querySelector("[data-desktop-settings-knowledge-stage=\"retrieval\"]")?.getAttribute("data-state")).toBe("disabled");
+    expect(host.querySelector("[data-desktop-settings-knowledge-stage=\"rerank\"]")?.textContent).toContain("Enabled");
+    expect(host.querySelector<HTMLInputElement>('[data-desktop-settings-control="maxChunks"]')?.disabled).toBe(true);
+
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-quality-preset="fast"]')?.click();
+    expect(actions).toEqual([
+      "maxChunks:3",
+      "retrievalMode:sparse",
+      "rerankEnabled:false",
+      "graphExtractionEnabled:false",
+    ]);
+
+    mounted.unmount();
+
+    const enabledHost = document.createElement("section");
+    const enabledActions: string[] = [];
+    const enabledState = buildDesktopSettingsFormState({
+      knowledge: {
+        enabled: true,
+        retrieval_mode: "sparse",
+        max_chunks: 3,
+      },
+    }, providerCatalog);
+    const enabledPane = buildDesktopSettingsPaneModel(enabledState, {
+      lastSavedState: enabledState,
+      providerCatalog,
+    });
+    const enabledMounted = mountSettingsPaneIsland(enabledHost, {
+      pane: enabledPane,
+      initialActiveGroupId: "knowledge",
+      onSettingsAction: (event: DesktopSettingsActionEvent) => {
+        if (event.action === "edit") {
+          enabledActions.push(`${event.fieldId}:${String(event.value)}`);
+        }
+      },
+    });
+    await nextTick();
+
+    enabledHost.querySelector<HTMLButtonElement>('[data-desktop-settings-quality-preset="deep"]')?.click();
+    enabledHost.querySelector<HTMLButtonElement>('[data-desktop-settings-retrieval-mode="sparse"]')?.click();
+    expect(enabledActions).toEqual([
+      "maxChunks:8",
+      "retrievalMode:hybrid",
+      "rerankEnabled:true",
+      "graphExtractionEnabled:true",
+      "retrievalMode:sparse",
+    ]);
+
+    enabledMounted.unmount();
+  });
+
   test("renders the provided initial settings section", async () => {
     const host = document.createElement("section");
 
@@ -56,7 +249,7 @@ describe("settings pane Vue island", () => {
     });
     await nextTick();
 
-    expect(host.querySelector(".desktop-settings-breadcrumb")?.textContent).toContain("Settings / Provider & Models");
+    expect(host.querySelector(".desktop-settings-breadcrumb h2")?.textContent).toBe("Provider & Models");
     expect(host.querySelector('[data-desktop-settings-nav="provider-models"]')?.getAttribute("data-active")).toBe("true");
     expect(host.querySelector(".desktop-settings-provider-section")).not.toBeNull();
     expect(host.querySelector(".desktop-settings-default-llm-card")).toBeNull();
@@ -93,11 +286,11 @@ describe("settings pane Vue island", () => {
     expect(host.getAttribute("aria-label")).toBe("Settings and providers");
 
     expect(host.querySelector(".desktop-settings-sidebar")?.textContent).toContain("General");
-    expect(host.querySelector(".desktop-settings-breadcrumb")?.textContent).toContain("Settings / General");
+    expect(host.querySelector(".desktop-settings-breadcrumb h2")?.textContent).toBe("General");
     expect(host.querySelector(".desktop-settings-capability-map")).toBeNull();
-    expect(host.querySelector(".desktop-settings-default-llm-card")?.textContent).toContain("Default LLM");
+    expect(host.querySelector(".desktop-settings-default-ai-section")?.textContent).toContain("Default AI");
     expect(host.querySelector(".desktop-settings-provider-section")).toBeNull();
-    expect(host.querySelector(".desktop-settings-status-card")).toBeNull();
+    expect(host.querySelector(".desktop-settings-resolved-route-card")?.textContent).toContain("Resolved route");
     expect(Array.from(
       host.querySelectorAll(".desktop-settings-nav-heading"),
       (node) => node.textContent,
@@ -125,19 +318,19 @@ describe("settings pane Vue island", () => {
     expect(Array.from(
       host.querySelectorAll("[data-desktop-settings-group]"),
       (node) => node.getAttribute("data-desktop-settings-group"),
-    )).toEqual(["general"]);
+    )).toEqual([]);
     expect(host.querySelector('[data-desktop-settings-group="knowledge"]')).toBeNull();
     expect(host.querySelector('[data-desktop-settings-field="timezone"] .desktop-settings-field-meta')?.textContent).toContain("Required");
     expect(host.querySelector('[data-desktop-settings-field="timezone"] .desktop-settings-field-meta')?.textContent).toContain("Free text");
-    expect(host.querySelector('[data-desktop-settings-group="general"] details.desktop-settings-advanced-fields summary')?.textContent).toContain("Advanced");
-    expect(host.querySelector('[data-desktop-settings-field="temperature"]')?.closest("details")?.className).toContain("desktop-settings-advanced-fields");
+    expect(host.querySelector(".desktop-settings-response-defaults-section")?.textContent).toContain("Response defaults");
+    expect(host.querySelector('[data-desktop-settings-field="temperature"]')?.closest(".desktop-settings-response-defaults-section")).not.toBeNull();
 
     const navProvider = host.querySelector<HTMLAnchorElement>('[data-desktop-settings-nav="provider-models"]');
     navProvider?.click();
     await nextTick();
-    expect(host.querySelector(".desktop-settings-breadcrumb")?.textContent).toContain("Settings / Provider & Models");
+    expect(host.querySelector(".desktop-settings-breadcrumb h2")?.textContent).toBe("Provider & Models");
     expect(host.querySelector(".desktop-settings-default-llm-card")).toBeNull();
-    expect(host.querySelector(".desktop-settings-provider-section")?.textContent).toContain("Providers");
+    expect(host.querySelector(".desktop-settings-provider-section")?.textContent).toContain("Connected providers");
     expect(host.querySelector('[data-desktop-settings-provider-card="openai"]')?.textContent).toContain("OpenAI");
     expect(host.querySelector('[data-desktop-settings-provider-card="openai"]')?.textContent).toContain("2 models");
     expect(host.querySelector('[data-desktop-settings-provider-card="openai"]')?.textContent).toContain("Configured profile");
@@ -153,7 +346,7 @@ describe("settings pane Vue island", () => {
     const navFiles = host.querySelector<HTMLAnchorElement>('[data-desktop-settings-nav="files-workspace"]');
     navFiles?.click();
     await nextTick();
-    expect(host.querySelector(".desktop-settings-breadcrumb")?.textContent).toContain("Settings / Files & Workspace");
+    expect(host.querySelector(".desktop-settings-breadcrumb h2")?.textContent).toBe("Files & Workspace");
     expect(Array.from(
       host.querySelectorAll("[data-desktop-settings-group]"),
       (node) => node.getAttribute("data-desktop-settings-group"),
@@ -253,8 +446,8 @@ describe("settings pane Vue island", () => {
     });
     await nextTick();
 
-    expect(host.querySelector(".desktop-settings-default-llm-card")?.textContent).toContain("Model-owned provider label");
-    expect(host.querySelector(".desktop-settings-default-llm-card")?.textContent).toContain("Model-owned default model label");
+    expect(host.querySelector(".desktop-settings-default-ai-section")?.textContent).toContain("Model-owned provider label");
+    expect(host.querySelector(".desktop-settings-default-ai-section")?.textContent).toContain("Model-owned default model label");
     expect(host.querySelector(".desktop-settings-header-description")?.textContent).toContain("Model-owned group description");
     expect(host.querySelector('[data-desktop-settings-field="timezone"] .desktop-settings-field-description')?.textContent).toContain("Model-owned timezone description");
     expect(host.querySelector('[data-desktop-settings-status="save"]')?.textContent).toContain("Model-owned dirty state");
@@ -448,7 +641,7 @@ describe("settings pane Vue island", () => {
     await nextTick();
 
     const workspace = host.querySelector<HTMLInputElement>('[data-desktop-settings-control="workspace"]');
-    expect(host.querySelector(".desktop-settings-breadcrumb")?.textContent).toContain("Settings / Files & Workspace");
+    expect(host.querySelector(".desktop-settings-breadcrumb h2")?.textContent).toBe("Files & Workspace");
     expect(document.activeElement).toBe(workspace);
     expect(host.querySelector('[data-desktop-settings-field="workspace"]')?.getAttribute("data-highlighted")).toBe("true");
 
@@ -457,7 +650,7 @@ describe("settings pane Vue island", () => {
     await nextTick();
     host.querySelector<HTMLButtonElement>('[data-desktop-settings-search-result="general.temperature"]')?.click();
     await nextTick();
-    expect(host.querySelector('[data-desktop-settings-group="general"] details.desktop-settings-advanced-fields')?.hasAttribute("open")).toBe(true);
+    expect(host.querySelector(".desktop-settings-response-defaults-section")?.textContent).toContain("Temperature");
     expect(document.activeElement).toBe(host.querySelector('[data-desktop-settings-control="temperature"]'));
 
     search!.value = "sk-live";

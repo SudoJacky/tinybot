@@ -190,7 +190,7 @@ function renderHeader(
   const activeGroup = getActiveSettingsGroup(pane, activeGroupId);
   return h("header", { class: "desktop-settings-header" }, [
     h("div", { class: "desktop-settings-breadcrumb" }, [
-      h("h2", `Settings / ${activeGroup?.label ?? "General"}`),
+      h("h2", activeGroup?.label ?? "General"),
       activeGroup ? h("p", { class: "desktop-settings-header-description" }, getSettingsGroupDescription(activeGroup)) : null,
     ]),
     h("div", { class: "desktop-settings-save-region" }, [
@@ -426,45 +426,339 @@ function renderActiveSettingsSection(
   providerSetup: ProviderSetupState,
 ) {
   const group = getActiveSettingsGroup(options.pane, activeGroupId);
-  const groupNode = group ? renderSettingsGroup(options, group, highlightedFieldId) : null;
   if (activeGroupId === "general") {
-    return [
-      renderDefaultLlmCard(options),
-      groupNode ? renderSingleSettingsGroup(groupNode) : null,
-    ];
+    return group ? renderGeneralSettingsPage(options, group, highlightedFieldId) : null;
   }
   if (activeGroupId === "provider-models") {
-    return [
-      renderProviderManagement(options, providerSearch, setProviderSearch, providerSetup),
-      groupNode ? renderSingleSettingsGroup(groupNode) : null,
-    ];
+    return group ? renderProviderModelsPage(options, group, highlightedFieldId, providerSearch, setProviderSearch, providerSetup) : null;
   }
+  if (activeGroupId === "knowledge") {
+    return group ? renderKnowledgeSettingsPage(options, group, highlightedFieldId) : null;
+  }
+  const groupNode = group ? renderSettingsGroup(options, group, highlightedFieldId) : null;
   return groupNode ? renderSingleSettingsGroup(groupNode) : null;
 }
 
-function renderDefaultLlmCard(options: SettingsPaneIslandOptions) {
-  const provider = findPaneField(options.pane, "general", "provider");
-  const model = findPaneField(options.pane, "general", "model");
-  return h("section", {
-    class: "desktop-settings-default-llm-card",
-    "aria-label": "Default LLM settings",
+function renderGeneralSettingsPage(
+  options: SettingsPaneIslandOptions,
+  group: DesktopSettingsPaneGroup,
+  highlightedFieldId: string,
+) {
+  const field = (fieldId: string) => findPaneField(options.pane, "general", fieldId);
+  const provider = field("provider");
+  const model = field("model");
+  const activeProfile = field("activeProfile");
+  const timezone = field("timezone");
+  const temperature = field("temperature");
+  const maxTokens = field("maxTokens");
+  const contextWindowTokens = field("contextWindowTokens");
+  const reasoningEffort = field("reasoningEffort");
+  const maxToolIterations = field("maxToolIterations");
+  return h("div", {
+    class: "desktop-settings-task-page desktop-settings-general-page",
+    "data-desktop-settings-task-page": "general",
   }, [
-    h(NCard, { size: "small", bordered: false }, {
-      default: () => [
-        h("div", { class: "desktop-settings-card-heading" }, [
-          h("h2", "Default LLM"),
-        ]),
-        h("div", { class: "desktop-settings-default-llm-form" }, [
+    h("section", {
+      class: "desktop-settings-task-card desktop-settings-default-ai-section",
+      "data-desktop-settings-page-section": "default-ai",
+    }, [
+      renderSectionHeading("Default AI", "Choose the provider and model used when a task has no explicit override.", "Auto routing"),
+      h("div", { class: "desktop-settings-default-ai-layout" }, [
+        h("div", { class: "desktop-settings-field-pair" }, [
           provider ? renderInlineField(options, provider) : null,
           model ? renderInlineField(options, model) : null,
         ]),
-        options.pane.defaultRouting?.mode === "auto" ? h("p", {
-          class: "desktop-settings-auto-resolution",
-          "data-desktop-settings-auto-resolution": "",
-        }, options.pane.defaultRouting.message) : null,
-        h("p", { class: "desktop-settings-default-llm-copy" }, "Configure the global default LLM model. Individual agents can still choose a different model."),
-      ],
-    }),
+        renderResolvedRouteCard(options),
+      ]),
+      h("p", { class: "desktop-settings-supporting-copy" }, "Agents can still override this default per task."),
+    ]),
+    h("section", {
+      class: "desktop-settings-task-card desktop-settings-profile-locale-section",
+      "data-desktop-settings-page-section": "profile-locale",
+    }, [
+      renderSectionHeading("Profile & locale", "Identity and time settings used throughout the desktop app."),
+      h("div", { class: "desktop-settings-field-pair" }, [
+        activeProfile ? renderSettingsField(options, group, activeProfile, highlightedFieldId) : null,
+        timezone ? renderSettingsField(options, group, timezone, highlightedFieldId) : null,
+        renderTimezoneStatusCard(timezone),
+      ]),
+    ]),
+    h("section", {
+      class: "desktop-settings-task-card desktop-settings-response-defaults-section",
+      "data-desktop-settings-page-section": "response-defaults",
+    }, [
+      renderSectionHeading("Response defaults", "Balanced defaults for quality, speed, and context usage."),
+      h("div", { class: "desktop-settings-response-grid" }, [
+        temperature ? renderSettingsField(options, group, temperature, highlightedFieldId) : null,
+        maxTokens ? renderSettingsField(options, group, maxTokens, highlightedFieldId) : null,
+        contextWindowTokens ? renderSettingsField(options, group, contextWindowTokens, highlightedFieldId) : null,
+        reasoningEffort ? renderSettingsField(options, group, reasoningEffort, highlightedFieldId) : null,
+        maxToolIterations ? renderSettingsField(options, group, maxToolIterations, highlightedFieldId) : null,
+        h("aside", {
+          class: "desktop-settings-status-card desktop-settings-recommendation-card",
+          "data-desktop-settings-response-baseline": "",
+        }, [
+          h("strong", "Recommended baseline"),
+          h("span", "Good for everyday desktop work."),
+        ]),
+      ]),
+      h("details", { class: "desktop-settings-advanced-fields desktop-settings-response-advanced" }, [
+        h("summary", "Advanced defaults"),
+        h("p", "These values use the same saved settings fields and remain fully editable above."),
+      ]),
+    ]),
+  ]);
+}
+
+function renderResolvedRouteCard(options: SettingsPaneIslandOptions) {
+  const routing = options.pane.defaultRouting;
+  const provider = routing?.providerLabel || findPaneField(options.pane, "general", "provider")?.inputValue || "Auto";
+  const model = routing?.model || findPaneField(options.pane, "general", "model")?.inputValue || "Not configured";
+  const modelCount = getDefaultLlmModelOptions(options.pane).length;
+  return h("aside", {
+    class: "desktop-settings-status-card desktop-settings-resolved-route-card",
+    "data-desktop-settings-auto-resolution": "",
+  }, [
+    h("span", { class: "desktop-settings-eyebrow" }, "Resolved route"),
+    h("strong", `${provider} / ${model}`),
+    h("span", { class: "desktop-settings-status-line" }, routing?.message || `${modelCount} ${modelCount === 1 ? "model" : "models"} available`),
+  ]);
+}
+
+function renderSectionHeading(title: string, description: string, badge?: string) {
+  return h("header", { class: "desktop-settings-section-heading" }, [
+    h("div", [
+      h("h2", title),
+      h("p", description),
+    ]),
+    badge ? h("span", { class: "desktop-settings-section-badge" }, badge) : null,
+  ]);
+}
+
+function renderTimezoneStatusCard(timezone: DesktopSettingsPaneField | null) {
+  if (!timezone) {
+    return null;
+  }
+  const valid = timezone.state !== "invalid";
+  return h("aside", {
+    class: "desktop-settings-status-card desktop-settings-timezone-status",
+    "data-desktop-settings-timezone-status": valid ? "valid" : "invalid",
+  }, [
+    h("strong", valid ? "Timezone is valid" : "Timezone needs attention"),
+    h("span", "Used for reminders, schedules, and time display."),
+  ]);
+}
+
+function renderKnowledgeSettingsPage(
+  options: SettingsPaneIslandOptions,
+  group: DesktopSettingsPaneGroup,
+  highlightedFieldId: string,
+) {
+  const field = (fieldId: string) => findPaneField(options.pane, "knowledge", fieldId);
+  const enabled = field("enabled");
+  const autoRetrieve = field("autoRetrieve");
+  const retrievalMode = field("retrievalMode");
+  const maxChunks = field("maxChunks");
+  const chunkSize = field("chunkSize");
+  const chunkOverlap = field("chunkOverlap");
+  const rerankEnabled = field("rerankEnabled");
+  const rerankTopN = field("rerankTopN");
+  const rerankModel = field("rerankModel");
+  const rerankApiBase = field("rerankApiBase");
+  const graphExtractionEnabled = field("graphExtractionEnabled");
+  const graphExtractionModel = field("graphExtractionModel");
+  const graphExtractionMaxTokens = field("graphExtractionMaxTokens");
+  const graphExtractionMaxJobTokens = field("graphExtractionMaxJobTokens");
+  const graphExtractionConcurrency = field("graphExtractionConcurrency");
+  const disabled = enabled?.checked === false;
+  return h("div", {
+    class: "desktop-settings-task-page desktop-settings-knowledge-page",
+    "data-desktop-settings-task-page": "knowledge",
+    "data-knowledge-disabled": disabled ? "true" : undefined,
+  }, [
+    h("div", { class: "desktop-settings-knowledge-toolbar" }, [
+      h("label", {
+        class: "desktop-settings-knowledge-enabled",
+        "data-desktop-settings-knowledge-enabled": "",
+      }, [
+        h("span", "Knowledge enabled"),
+        enabled ? renderSettingsControl(options, enabled) : null,
+      ]),
+      h(NButton, {
+        size: "small",
+        "data-desktop-settings-knowledge-action": "openDocuments",
+        onClick: () => options.onSettingsAction?.({ action: "openKnowledgeDocuments", pane: options.pane }),
+      }, { default: () => "Open documents" }),
+    ]),
+    h("section", {
+      class: "desktop-settings-task-card desktop-settings-knowledge-pipeline",
+      "data-desktop-settings-page-section": "knowledge-pipeline",
+    }, [
+      renderSectionHeading("Knowledge pipeline", "Retrieval is available. Advanced enrichment remains optional.", disabled ? "Disabled" : "Ready"),
+      h("ol", { class: "desktop-settings-knowledge-stages" }, getKnowledgePipelineStages(group).map((stage) => h("li", {
+        "data-desktop-settings-knowledge-stage": stage.id,
+        "data-state": stage.state,
+      }, [
+        h("span", { class: "desktop-settings-knowledge-stage-marker" }, stage.index),
+        h("strong", stage.label),
+        h("small", stage.detail),
+      ]))),
+    ]),
+    h("div", { class: "desktop-settings-knowledge-core-layout" }, [
+      h("section", {
+        class: "desktop-settings-task-card desktop-settings-retrieval-defaults",
+        "data-desktop-settings-page-section": "retrieval-defaults",
+      }, [
+        renderSectionHeading("Retrieval defaults", "The settings used when a chat requests knowledge."),
+        autoRetrieve ? renderSettingsField(options, group, autoRetrieve, highlightedFieldId) : null,
+        retrievalMode ? renderRetrievalModeControl(options, retrievalMode) : null,
+        maxChunks ? renderSettingsField(options, group, maxChunks, highlightedFieldId) : null,
+        h("p", { class: "desktop-settings-recommendation-note" }, "Hybrid is recommended for mixed docs and exact terms."),
+      ]),
+      h("section", {
+        class: "desktop-settings-task-card desktop-settings-quality-presets",
+        "data-desktop-settings-page-section": "quality-presets",
+      }, [
+        renderSectionHeading("Quality preset", "A shortcut mapped to existing settings."),
+        ...renderKnowledgePresetButtons(options),
+        h("p", { class: "desktop-settings-supporting-copy" }, "Presets only change visible fields; every value remains editable."),
+      ]),
+    ]),
+    h("section", {
+      class: "desktop-settings-task-card desktop-settings-quality-layers",
+      "data-desktop-settings-page-section": "quality-layers",
+    }, [
+      renderSectionHeading("Indexing & quality layers", "Tune source preparation and optional quality improvements."),
+      h("div", { class: "desktop-settings-quality-layer-grid" }, [
+        h("article", { class: "desktop-settings-quality-layer", "data-desktop-settings-quality-layer": "chunking" }, [
+          h("h3", "Chunking"),
+          chunkSize ? renderSettingsField(options, group, chunkSize, highlightedFieldId) : null,
+          chunkOverlap ? renderSettingsField(options, group, chunkOverlap, highlightedFieldId) : null,
+        ]),
+        h("article", { class: "desktop-settings-quality-layer", "data-desktop-settings-quality-layer": "reranking" }, [
+          h("h3", "Reranking"),
+          rerankEnabled ? renderSettingsField(options, group, rerankEnabled, highlightedFieldId) : null,
+          rerankTopN ? renderSettingsField(options, group, rerankTopN, highlightedFieldId) : null,
+          rerankModel ? renderSettingsField(options, group, rerankModel, highlightedFieldId) : null,
+          rerankApiBase ? renderSettingsField(options, group, rerankApiBase, highlightedFieldId) : null,
+        ]),
+        h("article", { class: "desktop-settings-quality-layer", "data-desktop-settings-quality-layer": "graph" }, [
+          h("h3", "Knowledge graph"),
+          graphExtractionEnabled ? renderSettingsField(options, group, graphExtractionEnabled, highlightedFieldId) : null,
+          graphExtractionModel ? renderSettingsField(options, group, graphExtractionModel, highlightedFieldId) : null,
+          graphExtractionMaxTokens ? renderSettingsField(options, group, graphExtractionMaxTokens, highlightedFieldId) : null,
+          graphExtractionMaxJobTokens ? renderSettingsField(options, group, graphExtractionMaxJobTokens, highlightedFieldId) : null,
+          graphExtractionConcurrency ? renderSettingsField(options, group, graphExtractionConcurrency, highlightedFieldId) : null,
+        ]),
+      ]),
+      h("details", { class: "desktop-settings-advanced-fields desktop-settings-knowledge-advanced" }, [
+        h("summary", "Advanced knowledge settings"),
+        h("p", "Advanced graph and reranking fields remain editable in the quality layer cards."),
+      ]),
+    ]),
+  ]);
+}
+
+function renderRetrievalModeControl(
+  options: SettingsPaneIslandOptions,
+  field: DesktopSettingsPaneField,
+) {
+  const modes = [
+    { value: "sparse", label: "Keyword" },
+    { value: "dense", label: "Semantic" },
+    { value: "hybrid", label: "Hybrid" },
+  ];
+  return h("div", {
+    class: "desktop-settings-segmented-control",
+    role: "group",
+    "aria-label": field.label,
+  }, modes.map((mode) => h("button", {
+    type: "button",
+    "data-desktop-settings-retrieval-mode": mode.value,
+    "aria-pressed": field.inputValue === mode.value ? "true" : "false",
+    disabled: field.disabled ? true : undefined,
+    onClick: () => emitEdit(options, field.id, mode.value),
+  }, mode.label)));
+}
+
+function renderKnowledgePresetButtons(options: SettingsPaneIslandOptions) {
+  const presets = [
+    { id: "fast", label: "Fast", detail: "No rerank - no graph" },
+    { id: "balanced", label: "Balanced", detail: "Hybrid - 5 chunks" },
+    { id: "deep", label: "Deep", detail: "Rerank - graph" },
+  ];
+  return presets.map((preset) => h("button", {
+    type: "button",
+    class: "desktop-settings-quality-preset",
+    "data-desktop-settings-quality-preset": preset.id,
+    onClick: () => applyKnowledgePreset(options, preset.id),
+  }, [
+    h("strong", preset.label),
+    h("span", preset.detail),
+  ]));
+}
+
+function applyKnowledgePreset(options: SettingsPaneIslandOptions, presetId: string): void {
+  const patches: Record<string, string | boolean> = presetId === "fast"
+    ? {
+        maxChunks: "3",
+        retrievalMode: "sparse",
+        rerankEnabled: false,
+        graphExtractionEnabled: false,
+      }
+    : presetId === "deep"
+      ? {
+          maxChunks: "8",
+          retrievalMode: "hybrid",
+          rerankEnabled: true,
+          graphExtractionEnabled: true,
+        }
+      : {
+          maxChunks: "5",
+          retrievalMode: "hybrid",
+          rerankEnabled: false,
+          graphExtractionEnabled: false,
+        };
+  for (const [fieldId, value] of Object.entries(patches)) {
+    emitEdit(options, fieldId, value);
+  }
+}
+
+function getKnowledgePipelineStages(group: DesktopSettingsPaneGroup): Array<{
+  id: string;
+  label: string;
+  detail: string;
+  state: "ready" | "optional" | "disabled";
+  index: string;
+}> {
+  const field = (fieldId: string) => group.fields.find((candidate) => candidate.id === fieldId);
+  const enabled = field("enabled")?.checked !== false;
+  const rerank = field("rerankEnabled")?.checked === true;
+  const graph = field("graphExtractionEnabled")?.checked === true;
+  return [
+    { id: "documents", label: "Documents", detail: "Available", state: enabled ? "ready" : "disabled", index: "1" },
+    { id: "chunking", label: "Chunking", detail: "Configured", state: enabled ? "ready" : "disabled", index: "2" },
+    { id: "embeddings", label: "Embeddings", detail: "Configured", state: enabled ? "ready" : "disabled", index: "3" },
+    { id: "retrieval", label: "Retrieval", detail: "Available", state: enabled ? "ready" : "disabled", index: "4" },
+    { id: "rerank", label: "Rerank", detail: rerank ? "Enabled" : "Optional", state: !enabled ? "disabled" : rerank ? "ready" : "optional", index: "5" },
+    { id: "graph", label: "Graph", detail: graph ? "Enabled" : "Optional", state: !enabled ? "disabled" : graph ? "ready" : "optional", index: "6" },
+  ];
+}
+
+function renderProviderModelsPage(
+  options: SettingsPaneIslandOptions,
+  group: DesktopSettingsPaneGroup,
+  highlightedFieldId: string,
+  searchQuery: string,
+  updateSearchQuery: (value: string) => void,
+  providerSetup: ProviderSetupState,
+) {
+  return h("div", {
+    class: "desktop-settings-task-page desktop-settings-provider-page",
+    "data-desktop-settings-task-page": "provider-models",
+  }, [
+    renderProviderManagement(options, searchQuery, updateSearchQuery, providerSetup),
+    renderProviderDetailPanel(options, group, highlightedFieldId),
   ]);
 }
 
@@ -475,12 +769,18 @@ function renderProviderManagement(
   providerSetup: ProviderSetupState,
 ) {
   const cards = getProviderCards(options.pane).filter((provider) => !shouldHideProviderCard(provider, searchQuery));
+  const allCards = getProviderCards(options.pane);
+  const readyCount = allCards.filter((provider) => provider.connected || /ready|connected/i.test(provider.statusLabel)).length;
+  const modelCount = options.pane.providerCatalog.reduce((total, provider) => total + (provider.models?.length ?? 0), 0);
   return h("section", {
     class: "desktop-settings-provider-section",
     "aria-label": "Provider management",
   }, [
     h("header", { class: "desktop-settings-provider-header" }, [
-      h("h2", "Providers"),
+      h("div", [
+        h("h2", "Connected providers"),
+        h("p", { class: "desktop-settings-group-description" }, "Select a card to edit its connection and models."),
+      ]),
       h("div", { class: "desktop-settings-provider-tools" }, [
         h("input", {
           class: "desktop-settings-provider-search",
@@ -490,6 +790,18 @@ function renderProviderManagement(
           "aria-label": "Search providers",
           onInput: (event: Event) => updateSearchQuery(String((event.target as HTMLInputElement | null)?.value ?? "")),
         }),
+        h("span", {
+          class: "desktop-settings-provider-summary",
+          "data-desktop-settings-provider-summary": "total",
+        }, `${allCards.length} ${allCards.length === 1 ? "provider" : "providers"}`),
+        h("span", {
+          class: "desktop-settings-provider-summary",
+          "data-desktop-settings-provider-summary": "ready",
+        }, `${readyCount} ready`),
+        h("span", {
+          class: "desktop-settings-provider-summary",
+          "data-desktop-settings-provider-summary": "models",
+        }, `${modelCount} ${modelCount === 1 ? "model" : "models"}`),
         h(NButton, {
           class: "desktop-settings-provider-icon-button",
           type: "default",
@@ -512,6 +824,63 @@ function renderProviderManagement(
     ]),
     providerSetup.open ? renderProviderSetup(options, providerSetup) : null,
     h("div", { class: "desktop-settings-provider-grid" }, cards.map((provider) => renderProviderCard(options, provider))),
+  ]);
+}
+
+function renderProviderDetailPanel(
+  options: SettingsPaneIslandOptions,
+  group: DesktopSettingsPaneGroup,
+  highlightedFieldId: string,
+) {
+  const selected = getProviderCards(options.pane).find((provider) => provider.id === options.pane.providerEditor.selectedProvider)
+    ?? getProviderCards(options.pane)[0];
+  const profileId = findPaneField(options.pane, "provider-models", "profileId");
+  const apiKey = findPaneField(options.pane, "provider-models", "apiKey");
+  const apiBase = findPaneField(options.pane, "provider-models", "apiBase");
+  const models = findPaneField(options.pane, "provider-models", "models");
+  return h("aside", {
+    class: "desktop-settings-task-card desktop-settings-provider-detail-panel",
+    "data-desktop-settings-provider-detail": selected?.id ?? "",
+  }, [
+    h("header", { class: "desktop-settings-provider-detail-header" }, [
+      h("div", [
+        h("h2", `Edit ${selected?.label ?? options.pane.providerEditor.selectedProvider}`),
+        h("p", { class: "desktop-settings-group-description" }, "Changes apply to the selected profile."),
+      ]),
+      h(NTag, { size: "small", round: true, type: selected?.statusTone ?? "default" }, { default: () => selected?.statusLabel ?? "Unknown" }),
+    ]),
+    h("section", {
+      class: "desktop-settings-provider-detail-section",
+      "data-desktop-settings-provider-detail-section": "connection",
+    }, [
+      h("h3", "Connection"),
+      profileId ? renderSettingsField(options, group, profileId, highlightedFieldId) : null,
+      apiKey ? renderSettingsField(options, group, apiKey, highlightedFieldId) : null,
+      apiBase ? renderSettingsField(options, group, apiBase, highlightedFieldId) : null,
+      h("div", { class: "desktop-settings-status-card" }, [
+        h("strong", selected?.connected ? "Connection healthy" : "Connection needs attention"),
+        h("span", selected?.baseUrl ?? "No endpoint configured"),
+      ]),
+    ]),
+    h("section", {
+      class: "desktop-settings-provider-detail-section",
+      "data-desktop-settings-provider-detail-section": "models",
+    }, [
+      h("h3", "Model catalog"),
+      models ? renderSettingsField(options, group, models, highlightedFieldId) : null,
+      h("div", { class: "desktop-settings-provider-model-list" }, options.pane.providerEditor.models.map((model) => h("span", {
+        "data-desktop-settings-provider-model": model,
+      }, model))),
+      h(NButton, {
+        size: "small",
+        "data-desktop-settings-provider-action": "testConnection",
+        onClick: () => options.onSettingsAction?.({
+          action: "testProviderConnection",
+          pane: options.pane,
+          providerId: options.pane.providerEditor.selectedProvider,
+        }),
+      }, { default: () => "Test connection" }),
+    ]),
   ]);
 }
 
@@ -583,6 +952,7 @@ function renderProviderCard(
   return h(NCard, {
     class: "desktop-settings-provider-card",
     "data-desktop-settings-provider-card": provider.id,
+    "data-selected": provider.badge ? "true" : undefined,
     size: "small",
     bordered: false,
   }, {

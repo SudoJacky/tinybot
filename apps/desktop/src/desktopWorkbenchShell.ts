@@ -5186,10 +5186,16 @@ function createSettingsActivePage(
   const activeGroup = getDesktopSettingsActiveGroup(pane, activeGroupId);
   const nodes = [createSettingsPageHeader(targetDocument, pane, settingsActions, activeGroup)];
   if (activeGroup?.id === "general") {
-    nodes.push(createDefaultLlmSettingsCard(targetDocument, pane, settingsActions));
+    nodes.push(createGeneralSettingsPage(targetDocument, pane, activeGroup, settingsActions));
+    return nodes;
   }
   if (activeGroup?.id === "provider-models") {
-    nodes.push(createProviderManagementSection(targetDocument, pane, settingsActions));
+    nodes.push(createProviderModelsSettingsPage(targetDocument, pane, activeGroup, settingsActions));
+    return nodes;
+  }
+  if (activeGroup?.id === "knowledge") {
+    nodes.push(createKnowledgeSettingsPage(targetDocument, pane, activeGroup, settingsActions));
+    return nodes;
   }
   if (activeGroup) {
     const grid = targetDocument.createElement("div");
@@ -5213,7 +5219,7 @@ function createSettingsPageHeader(
   header.className = "desktop-settings-header";
   const breadcrumb = targetDocument.createElement("div");
   breadcrumb.className = "desktop-settings-breadcrumb";
-  breadcrumb.append(createText(targetDocument, "h2", `Settings / ${group?.label ?? "General"}`));
+  breadcrumb.append(createText(targetDocument, "h2", group?.label ?? "General"));
   if (group) {
     const description = createText(targetDocument, "p", getSettingsGroupDescription(group.id));
     description.className = "desktop-settings-header-description";
@@ -5309,35 +5315,201 @@ function mountSettingsPaneVueIsland(
   });
 }
 
-function createDefaultLlmSettingsCard(
+function createSettingsSectionHeading(
+  targetDocument: Document,
+  title: string,
+  description: string,
+  badge?: string,
+): HTMLElement {
+  const header = targetDocument.createElement("header");
+  header.className = "desktop-settings-section-heading";
+  const copy = targetDocument.createElement("div");
+  copy.append(createText(targetDocument, "h2", title), createText(targetDocument, "p", description));
+  header.append(copy);
+  if (badge) {
+    const tag = createText(targetDocument, "span", badge);
+    tag.className = "desktop-settings-section-badge";
+    header.append(tag);
+  }
+  return header;
+}
+
+function createGeneralSettingsPage(
   targetDocument: Document,
   pane: DesktopSettingsPaneModel,
+  group: DesktopSettingsPaneGroup,
   settingsActions: DesktopSettingsActionOptions,
 ): HTMLElement {
-  const card = targetDocument.createElement("section");
-  card.className = "desktop-settings-default-llm-card";
-  card.setAttribute("aria-label", "Default LLM settings");
+  const page = targetDocument.createElement("div");
+  page.className = "desktop-settings-task-page desktop-settings-general-page";
+  page.setAttribute("data-desktop-settings-task-page", "general");
 
-  const heading = targetDocument.createElement("div");
-  heading.className = "desktop-settings-card-heading";
-  heading.append(createText(targetDocument, "h2", "默认 LLM"));
-
-  const form = targetDocument.createElement("div");
-  form.className = "desktop-settings-default-llm-form";
+  const defaultAi = targetDocument.createElement("section");
+  defaultAi.className = "desktop-settings-task-card desktop-settings-default-ai-section";
+  defaultAi.setAttribute("data-desktop-settings-page-section", "default-ai");
+  defaultAi.append(createSettingsSectionHeading(targetDocument, "Default AI", "Choose the provider and model used when a task has no explicit override.", "Auto routing"));
+  const defaultLayout = targetDocument.createElement("div");
+  defaultLayout.className = "desktop-settings-default-ai-layout";
+  const fields = targetDocument.createElement("div");
+  fields.className = "desktop-settings-field-pair";
   const provider = findSettingsPaneField(pane, "general", "provider");
   const model = findSettingsPaneField(pane, "general", "model");
-  if (provider) {
-    form.append(createSettingsControlField(targetDocument, pane, provider, "提供商", settingsActions));
+  if (provider) fields.append(createSettingsControlField(targetDocument, pane, provider, provider.label, settingsActions));
+  if (model) fields.append(createSettingsControlField(targetDocument, pane, model, model.label, settingsActions));
+  const resolved = targetDocument.createElement("aside");
+  resolved.className = "desktop-settings-status-card desktop-settings-resolved-route-card";
+  resolved.setAttribute("data-desktop-settings-auto-resolution", "");
+  resolved.append(
+    createText(targetDocument, "span", "Resolved route"),
+    createText(targetDocument, "strong", `${pane.defaultRouting?.providerLabel ?? provider?.inputValue ?? "Auto"} / ${pane.defaultRouting?.model ?? model?.inputValue ?? "Not configured"}`),
+  );
+  defaultLayout.append(fields, resolved);
+  defaultAi.append(defaultLayout, createText(targetDocument, "p", "Agents can still override this default per task."));
+
+  const profileLocale = targetDocument.createElement("section");
+  profileLocale.className = "desktop-settings-task-card desktop-settings-profile-locale-section";
+  profileLocale.setAttribute("data-desktop-settings-page-section", "profile-locale");
+  profileLocale.append(createSettingsSectionHeading(targetDocument, "Profile & locale", "Identity and time settings used throughout the desktop app."));
+  const localeFields = targetDocument.createElement("div");
+  localeFields.className = "desktop-settings-field-pair";
+  for (const id of ["activeProfile", "timezone"]) {
+    const field = findSettingsPaneField(pane, "general", id);
+    if (field) localeFields.append(createDesktopSettingsFieldRow(targetDocument, pane, group, field, settingsActions));
   }
-  if (model) {
-    form.append(createSettingsControlField(targetDocument, pane, model, "模型", settingsActions));
+  const timezoneStatus = targetDocument.createElement("aside");
+  timezoneStatus.className = "desktop-settings-status-card desktop-settings-timezone-status";
+  timezoneStatus.append(createText(targetDocument, "strong", "Timezone is valid"), createText(targetDocument, "span", "Used for reminders and schedules."));
+  localeFields.append(timezoneStatus);
+  profileLocale.append(localeFields);
+
+  const responseDefaults = targetDocument.createElement("section");
+  responseDefaults.className = "desktop-settings-task-card desktop-settings-response-defaults-section";
+  responseDefaults.setAttribute("data-desktop-settings-page-section", "response-defaults");
+  responseDefaults.append(createSettingsSectionHeading(targetDocument, "Response defaults", "Balanced defaults for quality, speed, and context usage."));
+  const responseGrid = targetDocument.createElement("div");
+  responseGrid.className = "desktop-settings-response-grid";
+  for (const id of ["temperature", "maxTokens", "contextWindowTokens", "reasoningEffort", "maxToolIterations"]) {
+    const field = findSettingsPaneField(pane, "general", id);
+    if (field) responseGrid.append(createDesktopSettingsFieldRow(targetDocument, pane, group, field, settingsActions));
+  }
+  responseGrid.append(createText(targetDocument, "aside", "Recommended baseline: Good for everyday desktop work."));
+  responseDefaults.append(responseGrid);
+
+  page.append(defaultAi, profileLocale, responseDefaults);
+  return page;
+}
+
+function createProviderModelsSettingsPage(
+  targetDocument: Document,
+  pane: DesktopSettingsPaneModel,
+  group: DesktopSettingsPaneGroup,
+  settingsActions: DesktopSettingsActionOptions,
+): HTMLElement {
+  const page = targetDocument.createElement("div");
+  page.className = "desktop-settings-task-page desktop-settings-provider-page";
+  page.setAttribute("data-desktop-settings-task-page", "provider-models");
+  page.append(createProviderManagementSection(targetDocument, pane, settingsActions));
+
+  const selected = getProviderCards(pane).find((provider) => provider.id === pane.providerEditor.selectedProvider) ?? getProviderCards(pane)[0];
+  const detail = targetDocument.createElement("aside");
+  detail.className = "desktop-settings-task-card desktop-settings-provider-detail-panel";
+  detail.setAttribute("data-desktop-settings-provider-detail", selected?.id ?? "");
+  detail.append(createSettingsSectionHeading(targetDocument, `Edit ${selected?.label ?? pane.providerEditor.selectedProvider}`, "Changes apply to the selected profile.", selected?.statusLabel));
+
+  const connection = targetDocument.createElement("section");
+  connection.className = "desktop-settings-provider-detail-section";
+  connection.setAttribute("data-desktop-settings-provider-detail-section", "connection");
+  connection.append(createText(targetDocument, "h3", "Connection"));
+  for (const id of ["profileId", "apiKey", "apiBase"]) {
+    const field = findSettingsPaneField(pane, "provider-models", id);
+    if (field) connection.append(createDesktopSettingsFieldRow(targetDocument, pane, group, field, settingsActions));
   }
 
-  const copy = createText(targetDocument, "p", "这里设置全局默认的 LLM 模型。你也可以在聊天页面为具体 Agent 单独选择使用的模型。");
-  copy.className = "desktop-settings-default-llm-copy";
+  const models = targetDocument.createElement("section");
+  models.className = "desktop-settings-provider-detail-section";
+  models.setAttribute("data-desktop-settings-provider-detail-section", "models");
+  models.append(createText(targetDocument, "h3", "Model catalog"));
+  const modelField = findSettingsPaneField(pane, "provider-models", "models");
+  if (modelField) models.append(createDesktopSettingsFieldRow(targetDocument, pane, group, modelField, settingsActions));
+  detail.append(connection, models);
 
-  card.append(heading, form, copy);
-  return card;
+  page.append(detail);
+  return page;
+}
+
+function createKnowledgeSettingsPage(
+  targetDocument: Document,
+  pane: DesktopSettingsPaneModel,
+  group: DesktopSettingsPaneGroup,
+  settingsActions: DesktopSettingsActionOptions,
+): HTMLElement {
+  const page = targetDocument.createElement("div");
+  page.className = "desktop-settings-task-page desktop-settings-knowledge-page";
+  page.setAttribute("data-desktop-settings-task-page", "knowledge");
+
+  const toolbar = targetDocument.createElement("div");
+  toolbar.className = "desktop-settings-knowledge-toolbar";
+  const enabled = findSettingsPaneField(pane, "knowledge", "enabled");
+  const enabledLabel = targetDocument.createElement("label");
+  enabledLabel.className = "desktop-settings-knowledge-enabled";
+  enabledLabel.setAttribute("data-desktop-settings-knowledge-enabled", "");
+  enabledLabel.append(createText(targetDocument, "span", "Knowledge enabled"));
+  if (enabled) enabledLabel.append(createDesktopSettingsControl(targetDocument, pane, enabled, settingsActions));
+  const openDocuments = createText(targetDocument, "button", "Open documents");
+  openDocuments.setAttribute("type", "button");
+  openDocuments.setAttribute("data-desktop-settings-knowledge-action", "openDocuments");
+  openDocuments.addEventListener("click", () => settingsActions.onSettingsAction?.({ action: "openKnowledgeDocuments", pane }));
+  toolbar.append(enabledLabel, openDocuments);
+
+  const pipeline = targetDocument.createElement("section");
+  pipeline.className = "desktop-settings-task-card desktop-settings-knowledge-pipeline";
+  pipeline.setAttribute("data-desktop-settings-page-section", "knowledge-pipeline");
+  pipeline.append(createSettingsSectionHeading(targetDocument, "Knowledge pipeline", "Retrieval is available. Advanced enrichment remains optional.", "Ready"));
+  const stages = targetDocument.createElement("ol");
+  stages.className = "desktop-settings-knowledge-stages";
+  for (const stage of ["documents", "chunking", "embeddings", "retrieval", "rerank", "graph"]) {
+    const item = createText(targetDocument, "li", stage);
+    item.setAttribute("data-desktop-settings-knowledge-stage", stage);
+    stages.append(item);
+  }
+  pipeline.append(stages);
+
+  const retrieval = targetDocument.createElement("section");
+  retrieval.className = "desktop-settings-task-card desktop-settings-retrieval-defaults";
+  retrieval.setAttribute("data-desktop-settings-page-section", "retrieval-defaults");
+  retrieval.append(createSettingsSectionHeading(targetDocument, "Retrieval defaults", "The settings used when a chat requests knowledge."));
+  for (const id of ["autoRetrieve", "retrievalMode", "maxChunks"]) {
+    const field = findSettingsPaneField(pane, "knowledge", id);
+    if (field) retrieval.append(createDesktopSettingsFieldRow(targetDocument, pane, group, field, settingsActions));
+  }
+
+  const presets = targetDocument.createElement("section");
+  presets.className = "desktop-settings-task-card desktop-settings-quality-presets";
+  presets.setAttribute("data-desktop-settings-page-section", "quality-presets");
+  presets.append(createSettingsSectionHeading(targetDocument, "Quality preset", "A shortcut mapped to existing settings."));
+  for (const preset of ["fast", "balanced", "deep"]) {
+    const button = createText(targetDocument, "button", preset);
+    button.setAttribute("type", "button");
+    button.setAttribute("data-desktop-settings-quality-preset", preset);
+    button.addEventListener("click", () => {
+      const deep = preset === "deep";
+      settingsActions.onSettingsAction?.({ action: "edit", pane, fieldId: "rerankEnabled", value: deep });
+      settingsActions.onSettingsAction?.({ action: "edit", pane, fieldId: "graphExtractionEnabled", value: deep });
+    });
+    presets.append(button);
+  }
+
+  const layers = targetDocument.createElement("section");
+  layers.className = "desktop-settings-task-card desktop-settings-quality-layers";
+  layers.setAttribute("data-desktop-settings-page-section", "quality-layers");
+  layers.append(createSettingsSectionHeading(targetDocument, "Indexing & quality layers", "Tune source preparation and optional quality improvements."));
+  for (const id of ["chunkSize", "chunkOverlap", "rerankEnabled", "rerankTopN", "graphExtractionEnabled", "graphExtractionModel"]) {
+    const field = findSettingsPaneField(pane, "knowledge", id);
+    if (field) layers.append(createDesktopSettingsFieldRow(targetDocument, pane, group, field, settingsActions));
+  }
+
+  page.append(toolbar, pipeline, retrieval, presets, layers);
+  return page;
 }
 
 function createProviderManagementSection(
@@ -5351,15 +5523,21 @@ function createProviderManagementSection(
 
   const header = targetDocument.createElement("header");
   header.className = "desktop-settings-provider-header";
-  header.append(createText(targetDocument, "h2", "提供商"));
+  const title = targetDocument.createElement("div");
+  title.append(
+    createText(targetDocument, "h2", "Connected providers"),
+    createText(targetDocument, "p", "Select a card to edit its connection and models."),
+  );
+  title.querySelector("p")?.classList.add("desktop-settings-group-description");
 
   const tools = targetDocument.createElement("div");
   tools.className = "desktop-settings-provider-tools";
   const search = targetDocument.createElement("input");
   search.className = "desktop-settings-provider-search";
   search.setAttribute("type", "search");
-  search.setAttribute("placeholder", "搜索提供商...");
+  search.setAttribute("placeholder", "Search providers...");
   search.setAttribute("aria-label", "Search providers");
+  tools.append(search);
 
   const refresh = targetDocument.createElement("button");
   refresh.className = "desktop-settings-provider-icon-button";
@@ -5374,6 +5552,20 @@ function createProviderManagementSection(
     settingsActions.onSettingsAction?.({ action: "discoverModels", pane });
   });
 
+  const allProviders = getProviderCards(pane);
+  const readyCount = allProviders.filter((provider) => provider.connected || /ready|connected/i.test(provider.statusLabel)).length;
+  const modelCount = pane.providerCatalog.reduce((total, provider) => total + (provider.models?.length ?? 0), 0);
+  for (const [summary, label] of [
+    ["total", `${allProviders.length} ${allProviders.length === 1 ? "provider" : "providers"}`],
+    ["ready", `${readyCount} ready`],
+    ["models", `${modelCount} ${modelCount === 1 ? "model" : "models"}`],
+  ] as const) {
+    const chip = createText(targetDocument, "span", label);
+    chip.className = "desktop-settings-provider-summary";
+    chip.setAttribute("data-desktop-settings-provider-summary", summary);
+    tools.append(chip);
+  }
+
   const add = targetDocument.createElement("button");
   add.className = "desktop-settings-provider-add";
   add.setAttribute("type", "button");
@@ -5385,9 +5577,9 @@ function createProviderManagementSection(
       focusDesktopSettingsControl(targetDocument, "selectedProvider");
     }
   });
-  add.textContent = "+ 添加提供商";
-  tools.append(search, refresh, add);
-  header.append(tools);
+  add.textContent = "+ Add provider";
+  tools.append(refresh, add);
+  header.append(title, tools);
 
   const cards = targetDocument.createElement("div");
   cards.className = "desktop-settings-provider-grid";
@@ -5474,6 +5666,9 @@ function createProviderManagementCard(
   const card = targetDocument.createElement("article");
   card.className = "desktop-settings-provider-card";
   card.setAttribute("data-desktop-settings-provider-card", provider.id);
+  if (provider.badge) {
+    card.setAttribute("data-selected", "true");
+  }
 
   const header = targetDocument.createElement("header");
   header.className = "desktop-settings-provider-card-header";
