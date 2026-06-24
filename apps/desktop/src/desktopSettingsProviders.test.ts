@@ -742,6 +742,29 @@ describe("desktop settings and provider helpers", () => {
     expect(fields["memory-experience.memory"]).toMatchObject({ control: "readonly", requirement: "readonly", configurationMode: "readonly" });
   });
 
+  test("disables dependent Knowledge controls when parent features are off", () => {
+    const state = buildDesktopSettingsFormState({
+      agents: { defaults: { model: "deepseek-chat" } },
+      knowledge: {
+        enabled: false,
+        rerank_enabled: false,
+        graph_extraction_enabled: false,
+      },
+    });
+
+    const pane = buildDesktopSettingsPaneModel(state);
+    const fields = Object.fromEntries(pane.groups.flatMap((group) => group.fields.map((field) => [`${group.id}.${field.id}`, field])));
+
+    expect(fields["knowledge.enabled"]).toMatchObject({ disabled: false });
+    expect(fields["knowledge.autoRetrieve"]).toMatchObject({ disabled: true });
+    expect(fields["knowledge.retrievalMode"]).toMatchObject({ disabled: true });
+    expect(fields["knowledge.maxChunks"]).toMatchObject({ disabled: true });
+    expect(fields["knowledge.rerankModel"]).toMatchObject({ disabled: true });
+    expect(fields["knowledge.rerankApiBase"]).toMatchObject({ disabled: true });
+    expect(fields["knowledge.graphAutoExtract"]).toMatchObject({ disabled: true });
+    expect(fields["knowledge.graphExtractionModel"]).toMatchObject({ disabled: true });
+  });
+
   test("adds shared settings metadata to groups and fields", () => {
     const state = buildDesktopSettingsFormState({
       agents: {

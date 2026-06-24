@@ -220,6 +220,7 @@ export interface DesktopSettingsPaneField {
   options?: DesktopSettingsPaneFieldOption[];
   requirement: DesktopSettingsPaneFieldRequirement;
   configurationMode: DesktopSettingsPaneFieldConfigurationMode;
+  disabled?: boolean;
   advanced?: boolean;
   placeholder?: string;
   min?: number;
@@ -1859,6 +1860,7 @@ function buildDesktopSettingsPaneGroups(
       inputValue?: string;
       requirement?: DesktopSettingsPaneFieldRequirement;
       configurationMode?: DesktopSettingsPaneFieldConfigurationMode;
+      disabled?: boolean;
       advanced?: boolean;
       placeholder?: string;
       min?: number;
@@ -1877,6 +1879,7 @@ function buildDesktopSettingsPaneGroups(
     options: config.options,
     requirement: config.requirement ?? fieldRequirementForControl(config.control ?? "text"),
     configurationMode: config.configurationMode ?? fieldModeForControl(config.control ?? "text"),
+    disabled: config.disabled ?? false,
     advanced: config.advanced,
     placeholder: config.placeholder,
     min: config.min,
@@ -1884,6 +1887,9 @@ function buildDesktopSettingsPaneGroups(
     step: config.step,
   });
   const secretField = buildDesktopSecretField(state.providerEditor.apiKey);
+  const knowledgeDisabled = !state.knowledge.enabled;
+  const rerankDisabled = knowledgeDisabled || !state.knowledge.rerankEnabled;
+  const graphExtractionDisabled = knowledgeDisabled || !state.knowledge.graphExtractionEnabled;
   return enrichDesktopSettingsPaneGroups([
     {
       id: "general",
@@ -1993,21 +1999,24 @@ function buildDesktopSettingsPaneGroups(
       id: "knowledge",
       label: "Knowledge",
       fields: [
-        field("enabled", "Enabled", state.knowledge.enabled, { control: "checkbox" }),
-        field("autoRetrieve", "Auto retrieve", state.knowledge.autoRetrieve, { control: "checkbox" }),
+        field("enabled", "Enabled", state.knowledge.enabled, { control: "checkbox", disabled: false }),
+        field("autoRetrieve", "Auto retrieve", state.knowledge.autoRetrieve, { control: "checkbox", disabled: knowledgeDisabled }),
         field("retrievalMode", "Retrieval mode", state.knowledge.retrievalMode, {
           control: "select",
           options: fixedOptions(["dense", "sparse", "hybrid"]),
+          disabled: knowledgeDisabled,
         }),
         field("maxChunks", "Max chunks", state.knowledge.maxChunks, {
           control: "number",
           configurationMode: "numeric",
+          disabled: knowledgeDisabled,
           min: 1,
           step: 1,
         }),
         field("chunkSize", "Chunk size", state.knowledge.chunkSize, {
           control: "number",
           configurationMode: "numeric",
+          disabled: knowledgeDisabled,
           advanced: true,
           min: 1,
           step: 1,
@@ -2015,34 +2024,39 @@ function buildDesktopSettingsPaneGroups(
         field("chunkOverlap", "Chunk overlap", state.knowledge.chunkOverlap, {
           control: "number",
           configurationMode: "numeric",
+          disabled: knowledgeDisabled,
           advanced: true,
           min: 0,
           step: 1,
         }),
-        field("rerankEnabled", "Rerank", state.knowledge.rerankEnabled, { control: "checkbox", advanced: true }),
-        field("rerankModel", "Rerank model", state.knowledge.rerankModel, { advanced: true }),
+        field("rerankEnabled", "Rerank", state.knowledge.rerankEnabled, { control: "checkbox", disabled: knowledgeDisabled, advanced: true }),
+        field("rerankModel", "Rerank model", state.knowledge.rerankModel, { disabled: rerankDisabled, advanced: true }),
         field("rerankApiBase", "Rerank API base", state.knowledge.rerankApiBase, {
           validationField: "rerankApiBase",
           requirement: "optional",
           configurationMode: "url",
+          disabled: rerankDisabled,
           advanced: true,
         }),
         field("rerankTopN", "Rerank top N", state.knowledge.rerankTopN, {
           control: "number",
           configurationMode: "numeric",
+          disabled: rerankDisabled,
           advanced: true,
           min: 0,
           step: 1,
         }),
-        field("graphExtractionEnabled", "Graph extraction", state.knowledge.graphExtractionEnabled, { control: "checkbox" }),
-        field("graphAutoExtract", "Auto extract graph", state.knowledge.graphAutoExtract, { control: "checkbox", advanced: true }),
+        field("graphExtractionEnabled", "Graph extraction", state.knowledge.graphExtractionEnabled, { control: "checkbox", disabled: knowledgeDisabled }),
+        field("graphAutoExtract", "Auto extract graph", state.knowledge.graphAutoExtract, { control: "checkbox", disabled: graphExtractionDisabled, advanced: true }),
         field("graphExtractionModel", "Graph extraction model", state.knowledge.graphExtractionModel, {
+          disabled: graphExtractionDisabled,
           advanced: true,
           placeholder: "defaults to semantic/chat model",
         }),
         field("graphExtractionMaxTokens", "Graph extraction max tokens", state.knowledge.graphExtractionMaxTokens, {
           control: "number",
           configurationMode: "numeric",
+          disabled: graphExtractionDisabled,
           advanced: true,
           min: 1,
           step: 1,
@@ -2050,6 +2064,7 @@ function buildDesktopSettingsPaneGroups(
         field("graphExtractionMaxJobTokens", "Graph extraction max job tokens", state.knowledge.graphExtractionMaxJobTokens, {
           control: "number",
           configurationMode: "numeric",
+          disabled: graphExtractionDisabled,
           advanced: true,
           min: 0,
           step: 1,
@@ -2057,6 +2072,7 @@ function buildDesktopSettingsPaneGroups(
         field("graphExtractionConcurrency", "Graph extraction concurrency", state.knowledge.graphExtractionConcurrency, {
           control: "number",
           configurationMode: "numeric",
+          disabled: graphExtractionDisabled,
           advanced: true,
           min: 1,
           step: 1,

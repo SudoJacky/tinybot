@@ -801,6 +801,7 @@ function renderSettingsControl(options: SettingsPaneIslandOptions, field: Deskto
     min: field.min,
     max: field.max,
     step: field.step,
+    disabled: field.disabled ? true : undefined,
   };
   if (field.control === "checkbox") {
     return h("input", {
