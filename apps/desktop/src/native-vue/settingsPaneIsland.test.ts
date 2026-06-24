@@ -159,4 +159,45 @@ describe("settings pane Vue island", () => {
     mounted.unmount();
     expect(host.textContent).toBe("");
   });
+
+  test("renders visible save failure and field validation errors accessibly", async () => {
+    const host = document.createElement("section");
+    const invalidState = buildDesktopSettingsFormState({
+      agents: { defaults: { model: "", provider: "openai", active_profile: "work", timezone: "Shanghai" } },
+      providers: {
+        profiles: {
+          work: {
+            provider: "openai",
+            api_key: "sk-live",
+            api_base: "https://api.openai.com/v1",
+            models: ["gpt-4.1-mini"],
+          },
+        },
+      },
+    }, providerCatalog);
+    const invalidPane = buildDesktopSettingsPaneModel(invalidState, {
+      lastSavedState: savedState,
+      providerCatalog,
+      saveStatus: "failed",
+      saveError: "HTTP 400",
+    });
+
+    const mounted = mountSettingsPaneIsland(host, {
+      pane: invalidPane,
+    });
+    await nextTick();
+
+    const status = host.querySelector('[data-desktop-settings-status="save"]');
+    expect(status?.getAttribute("aria-live")).toBe("polite");
+    expect(status?.textContent).toContain("HTTP 400");
+    expect(host.querySelector('[data-desktop-settings-alert="save"]')?.textContent).toContain("HTTP 400");
+
+    const timezone = host.querySelector<HTMLInputElement>('[data-desktop-settings-control="timezone"]');
+    const describedBy = timezone?.getAttribute("aria-describedby");
+    expect(timezone?.getAttribute("aria-invalid")).toBe("true");
+    expect(describedBy).toContain("desktop-settings-timezone-error");
+    expect(host.querySelector("#desktop-settings-timezone-error")?.textContent).toContain("Invalid timezone");
+
+    mounted.unmount();
+  });
 });

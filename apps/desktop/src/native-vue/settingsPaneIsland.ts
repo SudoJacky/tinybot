@@ -110,6 +110,7 @@ function createSettingsPaneApp(state: Ref<SettingsPaneIslandOptions>): App {
             renderSidebar(options.pane, selectedGroupId, setActiveGroupId),
             h("div", { class: "desktop-settings-content" }, [
               renderHeader(options, selectedGroupId),
+              renderSaveAlert(options.pane),
               renderActiveSettingsSection(options, selectedGroupId, providerSearch.value, (value) => {
                 providerSearch.value = value;
               }),
@@ -132,7 +133,32 @@ function renderHeader(
       h("h2", `Settings / ${activeGroup?.label ?? "General"}`),
       activeGroup ? h("p", { class: "desktop-settings-header-description" }, getSettingsGroupDescription(activeGroup.id)) : null,
     ]),
-    renderSaveButton(options),
+    h("div", { class: "desktop-settings-save-region" }, [
+      renderSaveStatus(pane),
+      renderSaveButton(options),
+    ]),
+  ]);
+}
+
+function renderSaveStatus(pane: DesktopSettingsPaneModel) {
+  return h("p", {
+    class: "desktop-settings-save-status",
+    "data-desktop-settings-status": "save",
+    "aria-live": "polite",
+  }, pane.save.message);
+}
+
+function renderSaveAlert(pane: DesktopSettingsPaneModel) {
+  if (pane.save.status !== "failed") {
+    return null;
+  }
+  return h("div", {
+    class: "desktop-settings-error-banner",
+    role: "alert",
+    "data-desktop-settings-alert": "save",
+  }, [
+    h("strong", "Settings save failed"),
+    h("p", pane.save.message),
   ]);
 }
 
@@ -401,6 +427,7 @@ function renderSettingsField(
       renderSettingsFieldMeta(field),
     ]),
     renderSettingsControl(options, field),
+    renderSettingsFieldError(options.pane, field),
   ]);
 }
 
@@ -428,6 +455,7 @@ function renderModelSelect(options: SettingsPaneIslandOptions, field: DesktopSet
     "data-desktop-settings-control": field.id,
     "data-state": field.state,
     "aria-invalid": field.state === "invalid" ? "true" : undefined,
+    "aria-describedby": getSettingsFieldErrorId(options.pane, field),
     value: field.inputValue,
     onChange: (event: Event) => emitEdit(options, field.id, String((event.target as HTMLSelectElement | null)?.value ?? "")),
   }, values.map((value) => h("option", {
@@ -448,6 +476,7 @@ function renderSettingsControl(options: SettingsPaneIslandOptions, field: Deskto
     "data-desktop-settings-control": field.id,
     "data-state": field.state,
     "aria-invalid": field.state === "invalid" ? "true" : undefined,
+    "aria-describedby": getSettingsFieldErrorId(options.pane, field),
     placeholder: field.placeholder,
     min: field.min,
     max: field.max,
@@ -485,6 +514,44 @@ function renderSettingsControl(options: SettingsPaneIslandOptions, field: Deskto
     value: field.inputValue,
     onInput: (event: Event) => emitEdit(options, field.id, String((event.target as HTMLInputElement | null)?.value ?? "")),
   });
+}
+
+function renderSettingsFieldError(pane: DesktopSettingsPaneModel, field: DesktopSettingsPaneField) {
+  const message = getSettingsFieldErrorMessage(pane, field);
+  if (!message) {
+    return null;
+  }
+  return h("p", {
+    id: `desktop-settings-${field.id}-error`,
+    class: "desktop-settings-field-error",
+    "data-desktop-settings-error": field.id,
+  }, message);
+}
+
+function getSettingsFieldErrorId(pane: DesktopSettingsPaneModel, field: DesktopSettingsPaneField): string | undefined {
+  return getSettingsFieldErrorMessage(pane, field) ? `desktop-settings-${field.id}-error` : undefined;
+}
+
+function getSettingsFieldErrorMessage(pane: DesktopSettingsPaneModel, field: DesktopSettingsPaneField): string {
+  const validationField = settingsValidationFieldForControl(field.id);
+  const error = pane.validationErrors.find((validationError) => validationError.field === validationField);
+  if (!error) {
+    return "";
+  }
+  return {
+    modelEmpty: "Model is required.",
+    timezoneError: "Invalid timezone.",
+    portRange: "Port must be between 1 and 65535.",
+    jsonObjectError: "Must be a JSON object.",
+    urlError: "Must be a valid URL.",
+  }[error.errorKey] ?? "Invalid setting.";
+}
+
+function settingsValidationFieldForControl(fieldId: string): string {
+  return {
+    port: "gatewayPort",
+    apiBase: "providerApiBase",
+  }[fieldId] ?? fieldId;
 }
 
 function renderSettingsFieldMeta(field: DesktopSettingsPaneField) {

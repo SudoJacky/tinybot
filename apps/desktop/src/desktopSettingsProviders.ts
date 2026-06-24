@@ -100,6 +100,7 @@ export interface DesktopSettingsFormState {
   };
   providerEditor: DesktopSettingsProviderEditorState;
   providerSummaries: DesktopSettingsProviderSummary[];
+  providerEditorDirty?: boolean;
 }
 
 export type DesktopSettingsValidationField =
@@ -439,10 +440,10 @@ export function createDesktopSettingsPatch(
   providerCatalog: DesktopProviderCatalogItem[] = [],
 ): UnknownRecord {
   const providerIds = providerCatalog.map((provider) => stringValue(provider.id)).filter(Boolean);
-  const providerName = providerIds.includes(state.providerEditor.selectedProvider)
-    ? state.providerEditor.selectedProvider
-    : state.providerEditor.selectedProvider || "deepseek";
-  const profileId = stringOrNull(state.providerEditor.profileId) || state.agent.activeProfile;
+  const providerDraft = getDesktopSettingsPersistedProviderDraft(state, providerIds);
+  const providerName = providerDraft.providerName;
+  const profileId = providerDraft.profileId;
+  const providerEditor = providerDraft.editor;
   const existingProfiles = { ...getDesktopProviderProfiles(asRecord(asRecord(existingConfig).providers)) };
   const providers: UnknownRecord = {};
 
@@ -452,18 +453,18 @@ export function createDesktopSettingsPatch(
       [profileId]: {
         provider: providerName,
         enabled: state.providerSummaries.find((provider) => provider.id === providerName)?.enabled,
-        api_key: state.providerEditor.apiKey || "",
-        api_base: state.providerEditor.apiBase,
-        models: parseDesktopProviderModelList(state.providerEditor.modelsText),
-        supports_model_discovery: state.providerEditor.supportsModelDiscovery,
+        api_key: providerEditor.apiKey || "",
+        api_base: providerEditor.apiBase,
+        models: parseDesktopProviderModelList(providerEditor.modelsText),
+        supports_model_discovery: providerEditor.supportsModelDiscovery,
       },
     };
   }
 
   providers[providerName] = {
     enabled: state.providerSummaries.find((provider) => provider.id === providerName)?.enabled,
-    api_key: state.providerEditor.apiKey || "",
-    api_base: state.providerEditor.apiBase,
+    api_key: providerEditor.apiKey || "",
+    api_base: providerEditor.apiBase,
   };
 
   for (const provider of state.providerSummaries) {
@@ -579,7 +580,7 @@ export function validateDesktopSettingsForm(state: DesktopSettingsFormState): De
   if (!state.agent.model?.trim()) {
     errors.push({ field: "model", errorKey: "modelEmpty" });
   }
-  if (state.agent.timezone && !validateDesktopTimezone(state.agent.timezone)) {
+  if (!validateDesktopTimezone(state.agent.timezone || "")) {
     errors.push({ field: "timezone", errorKey: "timezoneError" });
   }
   if (state.gateway.port !== null && !validateDesktopPortRange(state.gateway.port)) {
@@ -620,7 +621,7 @@ export function buildDesktopSettingsPaneModel(
     validationErrors,
     save: {
       status: saveStatus,
-      message: saveStatus === "failed" ? options.saveError || "Save failed" : formatDesktopSettingsSaveMessage(saveStatus, dirty),
+      message: saveStatus === "failed" ? options.saveError || "Save failed" : formatDesktopSettingsSaveMessage(saveStatus, dirty, validationErrors.length),
       canSave: dirty && validationErrors.length === 0 && saveStatus !== "saving",
     },
     groups: buildDesktopSettingsPaneGroups(state, validationErrors, providerSummaries),
@@ -677,6 +678,7 @@ export function applyDesktopProviderModels(
     };
   }
   nextState.providerEditor.modelsText = models.join("\n");
+  nextState.providerEditorDirty = true;
   syncDesktopProviderSummaryFromEditor(nextState);
   if (!nextState.agent.model && models[0]) {
     nextState.agent.model = models[0];
@@ -734,22 +736,27 @@ export function applyDesktopSettingsFieldEdit(
       break;
     case "selectedProvider":
       selectDesktopProviderEditor(nextState, stringOrNullInput(text) || "deepseek");
+      nextState.providerEditorDirty = false;
       break;
     case "profileId":
       nextState.providerEditor.profileId = text.trim();
       nextState.agent.activeProfile = stringOrNullInput(text);
+      nextState.providerEditorDirty = true;
       syncDesktopProviderSummaryFromEditor(nextState);
       break;
     case "apiKey":
       nextState.providerEditor.apiKey = resolveDesktopSecretValue(text, nextState.providerEditor.apiKey);
+      nextState.providerEditorDirty = true;
       syncDesktopProviderSummaryFromEditor(nextState);
       break;
     case "apiBase":
       nextState.providerEditor.apiBase = stringOrNullInput(text);
+      nextState.providerEditorDirty = true;
       syncDesktopProviderSummaryFromEditor(nextState);
       break;
     case "models":
       nextState.providerEditor.modelsText = text;
+      nextState.providerEditorDirty = true;
       syncDesktopProviderSummaryFromEditor(nextState);
       break;
     case "enabled":
@@ -906,15 +913,19 @@ export function findDesktopProfileIdForProvider(providers: unknown, providerName
 }
 
 export function validateDesktopTimezone(value: string): boolean {
-  if (!value) {
+  const timezone = value.trim();
+  if (!timezone) {
     return false;
   }
-  const parts = value.split("/");
-  if (parts.length < 2) {
+  if (["UTC", "GMT"].includes(timezone)) {
+    return true;
+  }
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: timezone });
+    return true;
+  } catch {
     return false;
   }
-  const validPrefixes = ["Africa", "America", "Asia", "Atlantic", "Australia", "Europe", "Indian", "Pacific", "UTC", "GMT"];
-  return validPrefixes.includes(parts[0]) || parts[0] === "Etc";
 }
 
 export function validateDesktopUrl(value: string): boolean {
@@ -966,6 +977,43 @@ function cloneSettingsState(state: DesktopSettingsFormState): DesktopSettingsFor
     channels: { ...state.channels },
     providerEditor: { ...state.providerEditor },
     providerSummaries: (state.providerSummaries ?? []).map((provider) => ({ ...provider })),
+    providerEditorDirty: state.providerEditorDirty,
+  };
+}
+
+function getDesktopSettingsPersistedProviderDraft(
+  state: DesktopSettingsFormState,
+  providerIds: string[],
+): { providerName: string; profileId: string | null; editor: DesktopSettingsProviderEditorState } {
+  if (state.providerEditorDirty !== false) {
+    const providerName = providerIds.includes(state.providerEditor.selectedProvider)
+      ? state.providerEditor.selectedProvider
+      : state.providerEditor.selectedProvider || "deepseek";
+    return {
+      providerName,
+      profileId: stringOrNull(state.providerEditor.profileId) || state.agent.activeProfile,
+      editor: state.providerEditor,
+    };
+  }
+
+  const profileId = state.agent.activeProfile;
+  const defaultProvider = state.agent.provider && state.agent.provider !== "auto" ? state.agent.provider : null;
+  const summary = state.providerSummaries.find((provider) => (
+    (profileId && provider.profileId === profileId)
+    || (defaultProvider && provider.id === defaultProvider)
+  ));
+  const providerName = defaultProvider || summary?.id || state.providerEditor.selectedProvider || "deepseek";
+  return {
+    providerName,
+    profileId: profileId || summary?.profileId || providerName,
+    editor: {
+      selectedProvider: providerName,
+      profileId: profileId || summary?.profileId || providerName,
+      apiKey: summary?.apiKey || "",
+      apiBase: summary?.apiBase ?? null,
+      modelsText: summary?.modelsText || "",
+      supportsModelDiscovery: summary?.supportsModelDiscovery ?? true,
+    },
   };
 }
 
@@ -1057,6 +1105,9 @@ function syncDesktopProviderSummaryFromEditor(state: DesktopSettingsFormState): 
 function setDesktopProviderEnabled(state: DesktopSettingsFormState, providerId: string, enabled: boolean): void {
   const normalizedProviderId = providerId.trim();
   if (!normalizedProviderId) {
+    return;
+  }
+  if (!enabled && state.agent.provider && state.agent.provider !== "auto" && state.agent.provider === normalizedProviderId) {
     return;
   }
   let summary = state.providerSummaries.find((provider) => provider.id === normalizedProviderId);
@@ -1487,12 +1538,15 @@ function buildDesktopSettingsPaneGroups(
   ];
 }
 
-function formatDesktopSettingsSaveMessage(status: DesktopSettingsSaveStatus, dirty: boolean): string {
+function formatDesktopSettingsSaveMessage(status: DesktopSettingsSaveStatus, dirty: boolean, validationErrorCount = 0): string {
   if (status === "saving") {
     return "Saving settings";
   }
   if (status === "saved") {
     return "Settings saved";
+  }
+  if (validationErrorCount > 0) {
+    return `${validationErrorCount} ${validationErrorCount === 1 ? "setting needs" : "settings need"} attention`;
   }
   return dirty ? "Unsaved changes" : "No changes";
 }
