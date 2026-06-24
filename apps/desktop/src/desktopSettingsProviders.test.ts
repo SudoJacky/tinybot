@@ -525,6 +525,33 @@ describe("desktop settings and provider helpers", () => {
     expect(buildDesktopSettingsPaneModel(sameProviderApiBase, { lastSavedState: savedState, providerCatalog }).dirty).toBe(false);
   });
 
+  test("uses the loaded server snapshot when touched patches are generated without an explicit config", () => {
+    const providerCatalog = [{ id: "openai", displayName: "OpenAI", status: "ready" }];
+    const existingConfig = {
+      agents: { defaults: { model: "gpt-4.1-mini", provider: "openai", active_profile: "work", timezone: "UTC" } },
+      providers: {
+        profiles: {
+          work: {
+            provider: "openai",
+            api_key: "sk-live",
+            api_base: "https://api.openai.com/v1",
+          },
+        },
+        openai: {
+          api_key: "sk-live",
+          api_base: "https://api.openai.com/v1",
+        },
+      },
+    };
+    const state = buildDesktopSettingsFormState(existingConfig, providerCatalog);
+
+    expect(createDesktopSettingsPatch(applyDesktopSettingsFieldEdit(state, "timezone", "UTC"))).toEqual({});
+    expect(createDesktopSettingsPatch(applyDesktopSettingsFieldEdit(state, "timezone", "Asia/Shanghai"))).toEqual({
+      agents: { defaults: { timezone: "Asia/Shanghai" } },
+    });
+    expect(createDesktopSettingsPatch(applyDesktopSettingsFieldEdit(state, "apiBase", "https://api.openai.com/v1"))).toEqual({});
+  });
+
   test("classifies settings fields by requirement, input mode, and advanced visibility", () => {
     const state = buildDesktopSettingsFormState({
       agents: {

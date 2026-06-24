@@ -102,6 +102,7 @@ export interface DesktopSettingsFormState {
   providerSummaries: DesktopSettingsProviderSummary[];
   providerEditorDirty?: boolean;
   touchedPaths?: string[];
+  serverSnapshot?: unknown;
 }
 
 export type DesktopSettingsValidationField =
@@ -340,6 +341,7 @@ export function buildDesktopSettingsFormState(
       supportsModelDiscovery: pick(providerProfile, "supportsModelDiscovery", "supports_model_discovery") !== false,
     },
     providerSummaries,
+    serverSnapshot: cloneDesktopSettingsSnapshot(config),
   };
 }
 
@@ -437,13 +439,14 @@ export function buildDesktopProviderSummaries(
 
 export function createDesktopSettingsPatch(
   state: DesktopSettingsFormState,
-  existingConfig: unknown = {},
+  existingConfig?: unknown,
   providerCatalog: DesktopProviderCatalogItem[] = [],
 ): UnknownRecord {
+  const comparisonConfig = existingConfig === undefined ? state.serverSnapshot ?? {} : existingConfig;
   if (state.touchedPaths?.length) {
-    return createDesktopSettingsTouchedPatch(state, existingConfig);
+    return createDesktopSettingsTouchedPatch(state, comparisonConfig);
   }
-  return createDesktopSettingsFullPatch(state, existingConfig, providerCatalog);
+  return createDesktopSettingsFullPatch(state, comparisonConfig, providerCatalog);
 }
 
 function createDesktopSettingsFullPatch(
@@ -1240,6 +1243,7 @@ function cloneSettingsState(state: DesktopSettingsFormState): DesktopSettingsFor
     providerSummaries: (state.providerSummaries ?? []).map((provider) => ({ ...provider })),
     providerEditorDirty: state.providerEditorDirty,
     touchedPaths: state.touchedPaths ? [...state.touchedPaths] : undefined,
+    serverSnapshot: cloneDesktopSettingsSnapshot(state.serverSnapshot),
   };
 }
 
@@ -1879,6 +1883,17 @@ function asRecord(value: unknown): UnknownRecord {
 
 function isRecordValue(value: unknown): value is UnknownRecord {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function cloneDesktopSettingsSnapshot(value: unknown): unknown {
+  if (value === undefined || value === null) {
+    return value;
+  }
+  try {
+    return JSON.parse(JSON.stringify(value)) as unknown;
+  } catch {
+    return value;
+  }
 }
 
 function stringValue(value: unknown): string {
