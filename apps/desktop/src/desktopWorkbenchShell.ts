@@ -847,25 +847,55 @@ function createWorkbenchShell(
   const inspectorState = hasInspectorContent(inspectorContent)
     ? layout.inspector
     : { ...layout.inspector, visible: false };
+  const activeModule = getDesktopActiveWorkbenchModule(targetDocument, settingsPane, knowledgePane, toolsSkillsPane, coworkPane);
+  const sidebarState = activeModule === "chat"
+    ? layout.sidebar
+    : { ...layout.sidebar, visible: false };
   const shell = targetDocument.createElement("main");
   shell.id = SHELL_ID;
   shell.className = "desktop-workbench-shell";
-  shell.setAttribute("data-sidebar-visible", String(layout.sidebar.visible));
+  shell.setAttribute("data-sidebar-visible", String(sidebarState.visible));
   shell.setAttribute("data-inspector-visible", String(inspectorState.visible));
   shell.setAttribute("data-bottom-visible", String(layout.bottom.visible));
-  shell.style.setProperty("--desktop-sidebar-size", `${layout.sidebar.size}px`);
+  shell.style.setProperty("--desktop-sidebar-size", `${sidebarState.size}px`);
   shell.style.setProperty("--desktop-inspector-size", `${inspectorState.size}px`);
   shell.style.setProperty("--desktop-bottom-size", `${layout.bottom.size}px`);
 
   shell.append(
     createActivityRail(targetDocument),
-    createPanel(targetDocument, "sidebar", layout.sidebar, createSidebar(targetDocument, chat, chatActions)),
+    createPanel(targetDocument, "sidebar", sidebarState, createSidebar(targetDocument, chat, chatActions)),
     createMainRegion(targetDocument, gatewayHttp, layout, chat, chatActions, agentUiForms, agentUiActions, taskCenterItems, settingsPane, settingsActions, knowledgePane, knowledgeActions, toolsSkillsPane, toolsSkillsActions, coworkPane, coworkActions, workLens, workLensActions),
     createPanel(targetDocument, "inspector", inspectorState, inspectorContent),
     createPanel(targetDocument, "bottom", layout.bottom, createBottomRegion(targetDocument, runtimeStatus, gatewayHttp, taskCenterItems, taskActions, gatewayActions)),
   );
 
   return shell;
+}
+
+function getDesktopActiveWorkbenchModule(
+  targetDocument: Document,
+  settingsPane: DesktopSettingsPaneModel | null,
+  knowledgePane: DesktopKnowledgePaneModel | null,
+  toolsSkillsPane: DesktopToolsSkillsPaneModel | null,
+  coworkPane: DesktopCoworkPaneModel | null,
+): string {
+  const routeModule = targetDocument.documentElement?.getAttribute("data-desktop-active-workbench-module")?.trim();
+  if (routeModule) {
+    return routeModule;
+  }
+  if (settingsPane) {
+    return "settings";
+  }
+  if (knowledgePane) {
+    return "knowledge";
+  }
+  if (toolsSkillsPane) {
+    return "tools";
+  }
+  if (coworkPane) {
+    return "cowork";
+  }
+  return "chat";
 }
 
 function createActivityRail(targetDocument: Document): HTMLElement {

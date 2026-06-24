@@ -25,6 +25,7 @@ class FakeElement {
   public children: FakeElement[] = [];
   public parentElement: FakeElement | null = null;
   public attributes = new Map<string, string>();
+  public dataset: Record<string, string> = {};
   public value = "";
   public checked = false;
   public disabled = false;
@@ -186,10 +187,12 @@ class FakeHead extends FakeElement {
 class FakeDocument {
   public body: FakeBody;
   public head: FakeHead;
+  public documentElement: FakeElement;
   public activeElement: FakeElement | null = null;
   public listeners = new Map<string, ((event: unknown) => void)[]>();
 
   constructor() {
+    this.documentElement = new FakeElement("html", this);
     this.body = new FakeBody(this);
     this.head = new FakeHead(this);
   }
@@ -2850,16 +2853,16 @@ describe("desktop workbench shell", () => {
       "Logs & Diagnostics",
     ]);
     expect(pane?.querySelector(".desktop-settings-nav-item")?.getAttribute("data-active")).toBe("true");
-    expect(pane?.querySelector(".desktop-settings-content")?.textContent).toContain("Settings / General");
+    expect(pane?.querySelector(".desktop-settings-content")?.textContent).toContain("General");
     expect(pane?.querySelector(".desktop-settings-capability-map")).toBeNull();
-    expect(pane?.querySelector(".desktop-settings-default-llm-card")?.textContent).toContain("默认 LLM");
-    expect(pane?.querySelector(".desktop-settings-default-llm-card")?.textContent).toContain("提供商");
-    expect(pane?.querySelector(".desktop-settings-default-llm-card")?.textContent).toContain("模型");
-    expect(pane?.querySelector(".desktop-settings-default-llm-card")?.textContent).toContain("这里设置全局默认的 LLM 模型");
+    expect(pane?.querySelector(".desktop-settings-default-ai-section")?.textContent).toContain("Default AI");
+    expect(pane?.querySelector(".desktop-settings-default-ai-section")?.textContent).toContain("Provider");
+    expect(pane?.querySelector(".desktop-settings-default-ai-section")?.textContent).toContain("Model");
+    expect(pane?.querySelector(".desktop-settings-default-ai-section")?.textContent).toContain("Resolved route");
     pane?.querySelector('[data-desktop-settings-nav="provider-models"]')?.click();
-    expect(pane?.querySelector(".desktop-settings-provider-section")?.textContent).toContain("提供商");
-    expect(pane?.querySelector(".desktop-settings-provider-search")?.getAttribute("placeholder")).toBe("搜索提供商...");
-    expect(pane?.querySelector('[data-desktop-settings-action="addProvider"]')?.textContent).toBe("+ 添加提供商");
+    expect(pane?.querySelector(".desktop-settings-provider-section")?.textContent).toContain("Connected providers");
+    expect(pane?.querySelector(".desktop-settings-provider-search")?.getAttribute("placeholder")).toBe("Search providers...");
+    expect(pane?.querySelector('[data-desktop-settings-action="addProvider"]')?.textContent).toBe("+ Add provider");
     expect(pane?.querySelector(".desktop-settings-provider-card")?.textContent).toContain("OpenAI");
     expect(pane?.querySelector(".desktop-settings-provider-card")?.textContent).toContain("Base URL: https://api.openai.com/v1");
     expect(pane?.querySelector(".desktop-settings-provider-card")?.textContent).toContain("API Key: ********");
@@ -2877,10 +2880,10 @@ describe("desktop workbench shell", () => {
     expect(settingsActions).toEqual(["save"]);
     settingsActions.length = 0;
     pane?.querySelector('[data-desktop-settings-nav="general"]')?.click();
-    expect(pane?.querySelector('[data-desktop-settings-group="general"]')?.getAttribute("id")).toBe("desktop-settings-group-general");
-    expect(pane?.textContent).toContain("Settings / General");
+    expect(pane?.querySelector('[data-desktop-settings-group="general"]')).toBeNull();
+    expect(pane?.textContent).toContain("General");
     expect(pane?.querySelector('[data-desktop-settings-control="model"]')?.tagName).toBe("select");
-    expect(pane?.querySelector(".desktop-settings-status-card")).toBeNull();
+    expect(pane?.querySelector(".desktop-settings-resolved-route-card")?.textContent).toContain("Resolved route");
     expect(pane?.textContent).not.toContain("Save: HTTP 400");
     expect(pane?.textContent).not.toContain("Catalog: OpenAI (ready)");
     expect(pane?.textContent).not.toContain("Open docs");
@@ -3882,6 +3885,37 @@ describe("desktop workbench shell", () => {
     expect(styleText).toContain(
       'body.desktop-native-workbench .desktop-workbench-shell[data-sidebar-visible="false"][data-inspector-visible="false"] {\n      grid-template-columns: 92px 0 minmax(0, 1fr) 0;',
     );
+  });
+
+  test("hides the secondary chat sidebar outside the chat module by default", () => {
+    const chatDocument = new FakeDocument();
+    chatDocument.documentElement.setAttribute("data-desktop-active-workbench-module", "chat");
+
+    installDesktopWorkbenchShell({
+      targetDocument: chatDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    expect(chatDocument.getElementById("desktop-workbench-shell")?.getAttribute("data-sidebar-visible")).toBe("true");
+    expect(chatDocument.body.querySelector('[data-workbench-region="sidebar"]')?.getAttribute("data-visible")).toBe("true");
+
+    const settingsDocument = new FakeDocument();
+    settingsDocument.documentElement.setAttribute("data-desktop-active-workbench-module", "settings");
+    const settingsState = buildDesktopSettingsFormState({
+      agents: { defaults: { provider: "deepseek", model: "deepseek-v4-flash" } },
+    });
+
+    installDesktopWorkbenchShell({
+      targetDocument: settingsDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      settingsPane: buildDesktopSettingsPaneModel(settingsState, { lastSavedState: settingsState }),
+    });
+
+    expect(settingsDocument.getElementById("desktop-workbench-shell")?.getAttribute("data-sidebar-visible")).toBe("false");
+    expect(settingsDocument.body.querySelector('[data-workbench-region="sidebar"]')?.getAttribute("data-visible")).toBe("false");
+    expect(settingsDocument.body.querySelector(".desktop-settings-pane")).not.toBeNull();
   });
 
   test("collapses secondary panes at the minimum desktop width", () => {
