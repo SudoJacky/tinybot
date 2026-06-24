@@ -692,6 +692,7 @@ function renderSettingsGroup(
       h("h2", group.label),
       h("p", { class: "desktop-settings-group-description" }, getSettingsGroupDescription(group)),
       renderFilesWorkspaceActions(options, group),
+      renderChannelsSummary(options, group),
       renderMcpServerList(group),
       ...primaryFields.map((field) => renderSettingsField(options, group, field, highlightedFieldId)),
       advancedFields.length ? h("details", {
@@ -744,6 +745,34 @@ function renderFilesWorkspaceActions(
       "data-desktop-settings-file-action": "openKnowledgeDocuments",
       onClick: () => emit("openKnowledgeDocuments"),
     }, "Knowledge documents"),
+  ]);
+}
+
+function renderChannelsSummary(
+  options: SettingsPaneIslandOptions,
+  group: DesktopSettingsPaneGroup,
+) {
+  if (group.id !== "channels") {
+    return null;
+  }
+  return h("div", {
+    class: "desktop-settings-channels-summary",
+    "aria-label": "Channels behavior",
+  }, [
+    h("p", {
+      "data-desktop-settings-channels-scope": "",
+    }, "Global defaults apply to desktop channel behavior unless an integration provides its own override."),
+    h("p", {
+      "data-desktop-settings-channels-retry": "",
+    }, "Max retries are additional attempts after the first delivery attempt."),
+    h("p", {
+      "data-desktop-settings-channels-empty": "",
+    }, "No integration-specific overrides are configured yet."),
+    h("button", {
+      type: "button",
+      "data-desktop-settings-channel-action": "setupIntegrations",
+      onClick: () => options.onSettingsAction?.({ action: "setupChannelIntegrations", pane: options.pane }),
+    }, "Set up integrations"),
   ]);
 }
 

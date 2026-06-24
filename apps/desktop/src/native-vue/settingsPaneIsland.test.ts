@@ -639,4 +639,26 @@ describe("settings pane Vue island", () => {
 
     mounted.unmount();
   });
+
+  test("clarifies Channels scope, retry semantics, and setup routes", async () => {
+    const host = document.createElement("section");
+    const actions: string[] = [];
+    const mounted = mountSettingsPaneIsland(host, {
+      pane,
+      initialActiveGroupId: "channels",
+      onSettingsAction: (event: DesktopSettingsActionEvent) => {
+        actions.push(event.action);
+      },
+    });
+    await nextTick();
+
+    expect(host.querySelector("[data-desktop-settings-channels-scope]")?.textContent).toContain("Global defaults");
+    expect(host.querySelector("[data-desktop-settings-channels-retry]")?.textContent).toContain("Max retries are additional attempts");
+    expect(host.querySelector("[data-desktop-settings-channels-empty]")?.textContent).toContain("No integration-specific overrides");
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-channel-action="setupIntegrations"]')?.click();
+
+    expect(actions).toEqual(["setupChannelIntegrations"]);
+
+    mounted.unmount();
+  });
 });

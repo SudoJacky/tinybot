@@ -2108,6 +2108,10 @@ async function handleNativeSettingsAction(event: DesktopSettingsActionEvent): Pr
     logDesktopNativeDebug("settings.files.action.requested", { action: event.action });
     return;
   }
+  if (event.action === "setupChannelIntegrations") {
+    logDesktopNativeDebug("settings.channels.action.requested", { action: event.action });
+    return;
+  }
   if (!nativeSettingsState) {
     logDesktopNativeDebug("settings.action.skipped", { action: event.action, reason: "state unavailable" });
     return;

@@ -224,11 +224,11 @@ interface DesktopAgentUiFormActionOptions {
   onAgentUiFormAction?: (event: DesktopAgentUiFormActionEvent) => void;
 }
 
-export type DesktopSettingsActionId = "save" | "discoverModels" | "retryLoad" | "copyDiagnostics" | "restartGateway" | "reloadWorkspace" | "reset" | "testProviderConnection" | "chooseWorkspace" | "openWorkspace" | "openSessionFiles" | "openKnowledgeDocuments" | "edit";
+export type DesktopSettingsActionId = "save" | "discoverModels" | "retryLoad" | "copyDiagnostics" | "restartGateway" | "reloadWorkspace" | "reset" | "testProviderConnection" | "chooseWorkspace" | "openWorkspace" | "openSessionFiles" | "openKnowledgeDocuments" | "setupChannelIntegrations" | "edit";
 
 export type DesktopSettingsActionEvent =
   | {
-      action: "save" | "discoverModels" | "retryLoad" | "copyDiagnostics" | "restartGateway" | "reloadWorkspace" | "reset" | "chooseWorkspace" | "openWorkspace" | "openSessionFiles" | "openKnowledgeDocuments";
+      action: "save" | "discoverModels" | "retryLoad" | "copyDiagnostics" | "restartGateway" | "reloadWorkspace" | "reset" | "chooseWorkspace" | "openWorkspace" | "openSessionFiles" | "openKnowledgeDocuments" | "setupChannelIntegrations";
       pane: DesktopSettingsPaneModel;
     }
   | {
