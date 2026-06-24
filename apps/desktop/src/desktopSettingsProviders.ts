@@ -151,6 +151,15 @@ export interface DesktopSecretField {
 }
 
 export type DesktopSettingsSaveStatus = "idle" | "saving" | "saved" | "failed";
+export type DesktopSettingsSaveTransport = "native" | "gateway-fallback";
+export interface DesktopSettingsPaneSaveDetails {
+  transport: DesktopSettingsSaveTransport;
+  updatedFields: string[];
+  applied: string[];
+  restartRequired: string[];
+  reloadRequired: string[];
+  warnings: string[];
+}
 export type DesktopSettingsPaneFieldControl = "text" | "number" | "checkbox" | "textarea" | "select" | "password" | "readonly";
 export type DesktopSettingsPaneFieldRequirement = "required" | "optional" | "readonly";
 export type DesktopSettingsPaneFieldConfigurationMode =
@@ -212,6 +221,12 @@ export interface DesktopSettingsPaneModel {
     status: DesktopSettingsSaveStatus;
     message: string;
     canSave: boolean;
+    transport?: DesktopSettingsSaveTransport;
+    updatedFields?: string[];
+    applied?: string[];
+    restartRequired?: string[];
+    reloadRequired?: string[];
+    warnings?: string[];
   };
   groups: DesktopSettingsPaneGroup[];
   providerCatalog: Array<{
@@ -856,6 +871,7 @@ export function buildDesktopSettingsPaneModel(
     providerCatalog?: DesktopProviderCatalogItem[];
     saveStatus?: DesktopSettingsSaveStatus;
     saveError?: string | null;
+    saveDetails?: DesktopSettingsPaneSaveDetails | null;
   } = {},
 ): DesktopSettingsPaneModel {
   const validationErrors = validateDesktopSettingsForm(state);
@@ -864,13 +880,20 @@ export function buildDesktopSettingsPaneModel(
     ? desktopSettingsStateDirty(state, options.lastSavedState)
     : false;
   const saveStatus = options.saveStatus ?? "idle";
+  const saveDetails = normalizeDesktopSettingsSaveDetails(options.saveDetails);
   return {
     dirty,
     validationErrors,
     save: {
       status: saveStatus,
-      message: saveStatus === "failed" ? options.saveError || "Save failed" : formatDesktopSettingsSaveMessage(saveStatus, dirty, validationErrors.length),
+      message: saveStatus === "failed" ? options.saveError || "Save failed" : formatDesktopSettingsSaveMessage(saveStatus, dirty, validationErrors.length, saveDetails),
       canSave: dirty && validationErrors.length === 0 && saveStatus !== "saving",
+      transport: saveDetails?.transport,
+      updatedFields: saveDetails?.updatedFields,
+      applied: saveDetails?.applied,
+      restartRequired: saveDetails?.restartRequired,
+      reloadRequired: saveDetails?.reloadRequired,
+      warnings: saveDetails?.warnings,
     },
     groups: buildDesktopSettingsPaneGroups(state, validationErrors, providerSummaries),
     providerCatalog: providerSummaries.map((provider) => ({
@@ -1894,11 +1917,38 @@ function buildDesktopSettingsPaneGroups(
   ];
 }
 
-function formatDesktopSettingsSaveMessage(status: DesktopSettingsSaveStatus, dirty: boolean, validationErrorCount = 0): string {
+function normalizeDesktopSettingsSaveDetails(
+  details: DesktopSettingsPaneSaveDetails | null | undefined,
+): DesktopSettingsPaneSaveDetails | null {
+  if (!details) {
+    return null;
+  }
+  return {
+    transport: details.transport,
+    updatedFields: [...details.updatedFields],
+    applied: [...details.applied],
+    restartRequired: [...details.restartRequired],
+    reloadRequired: [...details.reloadRequired],
+    warnings: [...details.warnings],
+  };
+}
+
+function formatDesktopSettingsSaveMessage(
+  status: DesktopSettingsSaveStatus,
+  dirty: boolean,
+  validationErrorCount = 0,
+  saveDetails: DesktopSettingsPaneSaveDetails | null = null,
+): string {
   if (status === "saving") {
     return "Saving settings";
   }
   if (status === "saved") {
+    if (saveDetails?.transport === "gateway-fallback") {
+      return "Settings saved through gateway fallback";
+    }
+    if (saveDetails?.warnings.length) {
+      return "Settings saved with warnings";
+    }
     return "Settings saved";
   }
   if (validationErrorCount > 0) {

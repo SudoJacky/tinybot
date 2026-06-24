@@ -39,7 +39,7 @@ import {
   type DesktopNativeStartupTrace,
 } from "./desktopNativeChatDebug";
 import { applyNativeConfigPatch } from "./desktopNativeConfigPatch";
-import { saveDesktopSettingsConfig } from "./desktopSettingsSave";
+import { saveDesktopSettingsConfig, type DesktopSettingsSaveResult } from "./desktopSettingsSave";
 import { buildDesktopTsAgentFormSubmissionInput } from "./desktopTsAgentFormActions";
 import { installDesktopNavigation } from "./desktopNavigation";
 import { applyDesktopWorkbenchRouteState } from "./desktopEntityFocus";
@@ -60,6 +60,7 @@ import {
   reconcileDesktopSettingsSavedState,
   type DesktopSettingsFormState,
   type DesktopSettingsPaneModel,
+  type DesktopSettingsPaneSaveDetails,
 } from "./desktopSettingsProviders";
 import { bindStartupRetry, setStartupState } from "./desktopStartupView";
 import { buildDesktopTaskCenterItems, type DesktopTaskSourceOperation } from "./desktopTaskCenter";
@@ -2165,7 +2166,7 @@ async function saveNativeSettingsPane(): Promise<void> {
     syncTsCoworkRuntimeRollout(nativeSettingsConfig);
     nativeSettingsState = reconciled.state;
     nativeSettingsLastSavedState = nativeSettingsState;
-    updateNativeSettingsPane("saved");
+    updateNativeSettingsPane("saved", undefined, buildNativeSettingsPaneSaveDetails(saveResult));
     logDesktopNativeDebug("settings.save.complete", {
       transport: saveResult.transport,
       updatedFields: saveResult.updatedFields,
@@ -2239,6 +2240,7 @@ function syncTsCoworkRuntimeRollout(config: unknown): void {
 function updateNativeSettingsPane(
   saveStatus: "idle" | "saving" | "saved" | "failed",
   saveError?: string,
+  saveDetails?: DesktopSettingsPaneSaveDetails | null,
 ): void {
   if (!nativeSettingsState) {
     return;
@@ -2248,12 +2250,24 @@ function updateNativeSettingsPane(
     providerCatalog: nativeSettingsProviderCatalog,
     saveStatus,
     saveError,
+    saveDetails,
   }), {
     onSettingsAction: (event) => {
       void handleNativeSettingsAction(event);
     },
   });
   syncNativeRuntimeMetadata();
+}
+
+function buildNativeSettingsPaneSaveDetails(saveResult: DesktopSettingsSaveResult): DesktopSettingsPaneSaveDetails {
+  return {
+    transport: saveResult.transport,
+    updatedFields: saveResult.updatedFields,
+    applied: saveResult.applied,
+    restartRequired: saveResult.restartRequired,
+    reloadRequired: saveResult.reloadRequired,
+    warnings: saveResult.warnings,
+  };
 }
 
 function installNativeCommandPalette(): void {

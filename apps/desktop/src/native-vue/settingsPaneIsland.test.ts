@@ -227,4 +227,41 @@ describe("settings pane Vue island", () => {
 
     mounted.unmount();
   });
+
+  test("renders native save warnings and gateway fallback status", async () => {
+    const host = document.createElement("section");
+    const fallbackPane = buildDesktopSettingsPaneModel(savedState, {
+      lastSavedState: savedState,
+      providerCatalog,
+      saveStatus: "saved",
+      saveDetails: {
+        transport: "gateway-fallback",
+        updatedFields: ["agents.defaults.model"],
+        applied: ["agents.defaults.model"],
+        restartRequired: [],
+        reloadRequired: [],
+        warnings: ["Native patch failed; gateway fallback applied."],
+      },
+    });
+
+    const mounted = mountSettingsPaneIsland(host, {
+      pane: fallbackPane,
+    });
+    await nextTick();
+
+    const status = host.querySelector('[data-desktop-settings-status="save"]');
+    expect(status?.getAttribute("aria-live")).toBe("polite");
+    expect(status?.textContent).toContain("Settings saved through gateway fallback");
+    expect(host.querySelector("[data-desktop-settings-save-details]")?.textContent).toContain("Saved through gateway fallback");
+    expect(host.querySelector("[data-desktop-settings-save-details]")?.textContent).toContain("Native patch failed; gateway fallback applied.");
+    expect(Array.from(
+      host.querySelectorAll("[data-desktop-settings-save-detail]"),
+      (node) => node.textContent,
+    )).toEqual([
+      "Saved through gateway fallback",
+      "Native patch failed; gateway fallback applied.",
+    ]);
+
+    mounted.unmount();
+  });
 });

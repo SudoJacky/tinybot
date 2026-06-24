@@ -141,11 +141,32 @@ function renderHeader(
 }
 
 function renderSaveStatus(pane: DesktopSettingsPaneModel) {
-  return h("p", {
+  const saveDetails = renderSaveDetails(pane);
+  return h("div", {
     class: "desktop-settings-save-status",
     "data-desktop-settings-status": "save",
     "aria-live": "polite",
-  }, pane.save.message);
+  }, [
+    h("p", pane.save.message),
+    saveDetails,
+  ]);
+}
+
+function renderSaveDetails(pane: DesktopSettingsPaneModel) {
+  const details: string[] = [];
+  if (pane.save.transport === "gateway-fallback") {
+    details.push("Saved through gateway fallback");
+  }
+  details.push(...(pane.save.warnings ?? []));
+  if (details.length === 0) {
+    return null;
+  }
+  return h("ul", {
+    class: "desktop-settings-save-details",
+    "data-desktop-settings-save-details": "",
+  }, details.map((detail) => h("li", {
+    "data-desktop-settings-save-detail": "",
+  }, detail)));
 }
 
 function renderSaveAlert(options: SettingsPaneIslandOptions) {

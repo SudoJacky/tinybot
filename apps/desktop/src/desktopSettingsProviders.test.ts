@@ -895,4 +895,39 @@ describe("desktop settings and provider helpers", () => {
       openai: { enabled: false },
     });
   });
+
+  test("preserves save warnings and gateway fallback details in the pane model", () => {
+    const state = buildDesktopSettingsFormState({
+      agents: { defaults: { model: "gpt-4.1-mini", provider: "openai", active_profile: "work", timezone: "UTC" } },
+      providers: {
+        profiles: {
+          work: {
+            provider: "openai",
+            api_key: "sk-live",
+            models: ["gpt-4.1-mini"],
+          },
+        },
+      },
+    }, [{ id: "openai", displayName: "OpenAI", status: "ready" }]);
+
+    const pane = buildDesktopSettingsPaneModel(state, {
+      lastSavedState: state,
+      providerCatalog: [{ id: "openai", displayName: "OpenAI", status: "ready" }],
+      saveStatus: "saved",
+      saveDetails: {
+        transport: "gateway-fallback",
+        updatedFields: ["agents.defaults.model"],
+        applied: ["agents.defaults.model"],
+        restartRequired: [],
+        reloadRequired: [],
+        warnings: ["Native patch failed; gateway fallback applied."],
+      },
+    });
+
+    expect(pane.save.message).toBe("Settings saved through gateway fallback");
+    expect(pane.save.transport).toBe("gateway-fallback");
+    expect(pane.save.updatedFields).toEqual(["agents.defaults.model"]);
+    expect(pane.save.applied).toEqual(["agents.defaults.model"]);
+    expect(pane.save.warnings).toEqual(["Native patch failed; gateway fallback applied."]);
+  });
 });
