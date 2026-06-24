@@ -212,6 +212,10 @@ function nativeApprovalContextParams(context: ToolContext): JsonObject {
   return params;
 }
 
+function normalizeApprovalPath(path: string): string {
+  return path.replace(/\\/g, "/").toLowerCase();
+}
+
 function createReadFileTool(rpcClient: NativeRpcClient): Tool {
   return {
     name: "read_file",
@@ -361,6 +365,8 @@ function createEditFileTool(rpcClient: NativeRpcClient): Tool {
       await rpcClient.request(traceId, "workspace.write_file", {
         path,
         contents: edit.content,
+        approval_fingerprint: `edit_file:${normalizeApprovalPath(path)}`,
+        approval_session_fingerprint: `edit_file:${normalizeApprovalPath(path)}`,
         ...nativeApprovalContextParams(context),
       });
       return { content: `Edited ${path}.` };

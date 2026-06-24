@@ -84,6 +84,7 @@ describe("NativeSkillsBridge", () => {
         traceId: "trace-override",
         method: "workspace.write_file",
         params: {
+          internal_operation: true,
           path: "skills/planner/SKILL.md",
           contents: [
             "---",
@@ -126,6 +127,7 @@ describe("NativeSkillsBridge", () => {
         traceId: "trace-coerce",
         method: "workspace.write_file",
         params: {
+          internal_operation: true,
           path: "skills/404/SKILL.md",
           contents: [
             "---",
@@ -168,7 +170,7 @@ describe("NativeSkillsBridge", () => {
       {
         traceId: "trace-content-cleanup",
         method: "workspace.delete_file",
-        params: { path: "skills/review-work", recursive: true },
+        params: { path: "skills/review-work", recursive: true, internal_operation: true },
       },
     ]);
   });
@@ -234,7 +236,7 @@ describe("NativeSkillsBridge", () => {
       {
         traceId: "trace-delete-failed",
         method: "workspace.delete_file",
-        params: { path: "skills/review-work", recursive: true },
+        params: { path: "skills/review-work", recursive: true, internal_operation: true },
       },
     ]);
   });
@@ -292,6 +294,7 @@ describe("NativeSkillsBridge", () => {
         traceId: "trace-update-legacy",
         method: "workspace.write_file",
         params: {
+          internal_operation: true,
           path: "skills/planner/SKILL.md",
           contents: "---\nname: planner\ndescription: 123\nalways: true\n---\nLegacy body",
         },
@@ -329,6 +332,7 @@ describe("NativeSkillsBridge", () => {
         traceId: "trace-update-malformed-frontmatter",
         method: "workspace.write_file",
         params: {
+          internal_operation: true,
           path: "skills/planner/SKILL.md",
           contents: [
             "---",
@@ -457,6 +461,7 @@ describe("NativeSkillsBridge", () => {
         traceId: "trace-cleanup",
         method: "workspace.write_file",
         params: {
+          internal_operation: true,
           path: "skills/review-work/SKILL.md",
           contents: [
             "---",
@@ -478,7 +483,7 @@ describe("NativeSkillsBridge", () => {
       {
         traceId: "trace-cleanup",
         method: "workspace.delete_file",
-        params: { path: "skills/review-work", recursive: true },
+        params: { path: "skills/review-work", recursive: true, internal_operation: true },
       },
     ]);
   });
@@ -510,6 +515,7 @@ describe("NativeSkillsBridge", () => {
         traceId: "trace-write-cleanup",
         method: "workspace.write_file",
         params: {
+          internal_operation: true,
           path: "skills/review-work/SKILL.md",
           contents: [
             "---",
@@ -526,7 +532,7 @@ describe("NativeSkillsBridge", () => {
       {
         traceId: "trace-write-cleanup",
         method: "workspace.delete_file",
-        params: { path: "skills/review-work", recursive: true },
+        params: { path: "skills/review-work", recursive: true, internal_operation: true },
       },
     ]);
   });
@@ -604,6 +610,7 @@ describe("NativeSkillsBridge", () => {
         traceId: "trace-1",
         method: "workspace.write_file",
         params: {
+          internal_operation: true,
           path: "skills/review-work/SKILL.md",
           contents: [
             "---",
@@ -642,6 +649,7 @@ describe("NativeSkillsBridge", () => {
         traceId: "trace-2",
         method: "workspace.write_file",
         params: {
+          internal_operation: true,
           path: "skills/planner/SKILL.md",
           contents: "---\nname: planner\ndescription: Updated plan\nalways: true\n---\nUpdated body",
         },
@@ -660,7 +668,7 @@ describe("NativeSkillsBridge", () => {
       {
         traceId: "trace-4",
         method: "workspace.delete_file",
-        params: { path: "skills/planner", recursive: true },
+        params: { path: "skills/planner", recursive: true, internal_operation: true },
       },
     ]);
   });

@@ -201,12 +201,16 @@ impl WorkerRpcRouter {
             }
             "workspace.write_file" => {
                 let params: WriteFileParams = parse_params(request)?;
-                self.approval
-                    .require_sensitive_operation(workspace_write_approval(
-                        &params.path,
-                        params.session_id.clone(),
-                        params.run_id.clone(),
-                    ))?;
+                if !params.internal_operation.unwrap_or(false) {
+                    self.approval
+                        .require_sensitive_operation(workspace_write_approval(
+                            &params.path,
+                            params.session_id.clone(),
+                            params.run_id.clone(),
+                            params.approval_fingerprint.clone(),
+                            params.approval_session_fingerprint.clone(),
+                        ))?;
+                }
                 serde_json::to_value(self.workspace.write_file_with_expected(
                     &params.path,
                     &params.contents,
@@ -230,12 +234,14 @@ impl WorkerRpcRouter {
             }
             "workspace.delete_file" => {
                 let params: DeleteFileParams = parse_params(request)?;
-                self.approval
-                    .require_sensitive_operation(workspace_delete_approval(
-                        &params.path,
-                        params.session_id.clone(),
-                        params.run_id.clone(),
-                    ))?;
+                if !params.internal_operation.unwrap_or(false) {
+                    self.approval
+                        .require_sensitive_operation(workspace_delete_approval(
+                            &params.path,
+                            params.session_id.clone(),
+                            params.run_id.clone(),
+                        ))?;
+                }
                 serde_json::to_value(
                     self.workspace
                         .delete_file(&params.path, params.recursive.unwrap_or(false))?,
@@ -670,6 +676,8 @@ struct DeleteFileParams {
     path: String,
     #[serde(default)]
     recursive: Option<bool>,
+    #[serde(default, alias = "internalOperation")]
+    internal_operation: Option<bool>,
     #[serde(default, alias = "sessionId")]
     session_id: Option<String>,
     #[serde(default, alias = "runId")]
@@ -687,10 +695,20 @@ struct WriteFileParams {
     contents: String,
     #[serde(default, alias = "expectedUpdatedAt")]
     expected_updated_at: Option<String>,
+    #[serde(default, alias = "internalOperation")]
+    internal_operation: Option<bool>,
     #[serde(default, alias = "sessionId")]
     session_id: Option<String>,
     #[serde(default, alias = "runId")]
     run_id: Option<String>,
+    #[serde(default, alias = "approvalFingerprint")]
+    approval_fingerprint: Option<String>,
+    #[serde(
+        default,
+        alias = "approvalSessionFingerprint",
+        alias = "sessionFingerprint"
+    )]
+    approval_session_fingerprint: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -6309,6 +6327,50 @@ mod tests {
             crate::worker_protocol::WorkerProtocolErrorCode::CapabilityDenied
         );
         assert_eq!(fixture.read("notes/today.md"), "hello");
+    }
+
+    #[test]
+    fn workspace_write_allows_trusted_internal_operations_without_approval() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::FsWorkspaceWrite]),
+        );
+
+        let denied = router.dispatch(&WorkerRequest::new(
+            "req-write-denied",
+            "trace-1",
+            "workspace.write_file",
+            json!({
+                "path": "notes/today.md",
+                "contents": "agent write",
+                "session_id": "session-1"
+            }),
+        ));
+        assert_eq!(
+            denied
+                .error
+                .expect("agent write should require approval")
+                .code,
+            crate::worker_protocol::WorkerProtocolErrorCode::CapabilityDenied
+        );
+        assert!(!fixture.root.join("notes").join("today.md").exists());
+
+        let allowed = router.dispatch(&WorkerRequest::new(
+            "req-write-internal",
+            "trace-2",
+            "workspace.write_file",
+            json!({
+                "path": "notes/today.md",
+                "contents": "webui write",
+                "internal_operation": true
+            }),
+        ));
+        assert!(allowed.error.is_none());
+        assert_eq!(fixture.read("notes/today.md"), "webui write");
     }
 
     #[test]

@@ -143,7 +143,14 @@ describe("createNativeWriteTools", () => {
       {
         traceId: "trace-1",
         method: "workspace.write_file",
-        params: { path: "notes/today.md", contents: "hello desktop", run_id: "run-1", session_id: "session-1" },
+        params: {
+          path: "notes/today.md",
+          contents: "hello desktop",
+          approval_fingerprint: "edit_file:notes/today.md",
+          approval_session_fingerprint: "edit_file:notes/today.md",
+          run_id: "run-1",
+          session_id: "session-1",
+        },
       },
     ]);
   });

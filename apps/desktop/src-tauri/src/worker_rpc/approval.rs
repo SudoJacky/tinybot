@@ -18,6 +18,7 @@ pub(super) struct WorkerApprovalRpc {
     pending: HashMap<String, ApprovalRecord>,
     approved_once: Vec<ApprovalGrant>,
     approved_session: Vec<ApprovalGrant>,
+    approved_current_run: Vec<ApprovalRunGrant>,
     denied: Vec<Value>,
 }
 
@@ -28,6 +29,7 @@ impl WorkerApprovalRpc {
             pending: HashMap::new(),
             approved_once: Vec::new(),
             approved_session: Vec::new(),
+            approved_current_run: Vec::new(),
             denied: Vec::new(),
         }
     }
@@ -58,6 +60,8 @@ impl WorkerApprovalRpc {
         self.require(WorkerCapability::ApprovalRequest)?;
         let record = ApprovalRecord::from_params(params);
         if self.consume_once_approval(&record) {
+            self.approved_current_run
+                .push(ApprovalRunGrant::from_record(&record));
             return Ok(approval_allowed_result(&record, "once"));
         }
         if self.has_session_approval(&record) {
@@ -158,10 +162,26 @@ impl WorkerApprovalRpc {
         requirement: SensitiveOperationApproval,
     ) -> Result<(), WorkerProtocolError> {
         let record = requirement.to_record();
-        if self.consume_once_approval(&record) || self.has_session_approval(&record) {
+        if self.consume_current_run_approval(&record)
+            || self.consume_once_approval(&record)
+            || self.has_session_approval(&record)
+        {
             return Ok(());
         }
         Err(approval_required_error(&requirement))
+    }
+
+    fn consume_current_run_approval(&mut self, record: &ApprovalRecord) -> bool {
+        let grant = ApprovalRunGrant::from_record(record);
+        let Some(index) = self
+            .approved_current_run
+            .iter()
+            .position(|item| item == &grant)
+        else {
+            return false;
+        };
+        self.approved_current_run.remove(index);
+        true
     }
 
     fn consume_once_approval(&mut self, record: &ApprovalRecord) -> bool {
@@ -232,8 +252,11 @@ pub(super) fn workspace_write_approval(
     path: &str,
     session_id: Option<String>,
     run_id: Option<String>,
+    fingerprint: Option<String>,
+    session_fingerprint: Option<String>,
 ) -> SensitiveOperationApproval {
     let normalized_path = normalize_approval_path(path);
+    let default_fingerprint = format!("write_file:{normalized_path}");
     SensitiveOperationApproval {
         method: "workspace.write_file",
         run_id: run_id.unwrap_or_else(|| "workspace.write_file".to_string()),
@@ -246,8 +269,8 @@ pub(super) fn workspace_write_approval(
         risk: "medium",
         reason: "Workspace file writes are approval-sensitive security operations.",
         summary: format!("write_file path=\"{path}\""),
-        fingerprint: format!("write_file:{normalized_path}"),
-        session_fingerprint: format!("write_file:{normalized_path}"),
+        fingerprint: fingerprint.unwrap_or_else(|| default_fingerprint.clone()),
+        session_fingerprint: session_fingerprint.unwrap_or(default_fingerprint),
     }
 }
 
@@ -378,6 +401,23 @@ fn normalize_approval_command(command: &str) -> String {
 struct ApprovalGrant {
     session_id: Option<String>,
     fingerprint: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ApprovalRunGrant {
+    run_id: String,
+    session_id: Option<String>,
+    fingerprint: String,
+}
+
+impl ApprovalRunGrant {
+    fn from_record(record: &ApprovalRecord) -> Self {
+        Self {
+            run_id: record.run_id.clone(),
+            session_id: record.session_id.clone(),
+            fingerprint: record.fingerprint.clone(),
+        }
+    }
 }
 
 impl ApprovalGrant {
@@ -912,6 +952,8 @@ mod tests {
             "notes/today.md",
             Some("session-1".to_string()),
             Some("run-write".to_string()),
+            None,
+            None,
         );
         let error = approval
             .require_sensitive_operation(requirement.clone())
@@ -950,5 +992,89 @@ mod tests {
         approval
             .require_sensitive_operation(requirement)
             .expect("matching once approval should be consumed");
+    }
+
+    #[test]
+    fn sensitive_operation_accepts_current_run_after_once_request_allows() {
+        let mut approval = approval_rpc();
+        let operation = json!({
+            "toolName": "write_file",
+            "arguments": { "path": "notes/today.md" }
+        });
+        let request_response = approval
+            .request_from_request(&approval_request(
+                "req-request",
+                "run-1",
+                "session-1",
+                operation,
+                "write_file:notes/today.md",
+                "write_file:notes/today.md",
+            ))
+            .unwrap();
+        let approval_id = request_response["approvalId"].as_str().unwrap().to_string();
+        approval
+            .resolve_from_request(&WorkerRequest::new(
+                "req-resolve",
+                "trace-1",
+                "approval.resolve",
+                json!({
+                    "session_id": "session-1",
+                    "approval_id": approval_id,
+                    "approved": true,
+                    "scope": "once"
+                }),
+            ))
+            .unwrap();
+
+        let allowed = approval
+            .request_from_request(&approval_request(
+                "req-allowed",
+                "run-1",
+                "session-1",
+                json!({
+                    "toolName": "write_file",
+                    "arguments": { "path": "notes/today.md" }
+                }),
+                "write_file:notes/today.md",
+                "write_file:notes/today.md",
+            ))
+            .unwrap();
+        assert_eq!(allowed["decision"], "allow");
+        assert_eq!(allowed["scope"], "once");
+
+        approval
+            .require_sensitive_operation(workspace_write_approval(
+                "notes/today.md",
+                Some("session-1".to_string()),
+                Some("run-1".to_string()),
+                None,
+                None,
+            ))
+            .expect("same-run native operation should use the consumed once approval");
+
+        approval
+            .require_sensitive_operation(workspace_write_approval(
+                "notes/today.md",
+                Some("session-1".to_string()),
+                Some("run-1".to_string()),
+                None,
+                None,
+            ))
+            .expect_err("same-run once bridge should be consumed");
+    }
+
+    #[test]
+    fn workspace_write_approval_accepts_original_tool_fingerprints() {
+        let requirement = workspace_write_approval(
+            "notes/today.md",
+            Some("session-1".to_string()),
+            Some("run-1".to_string()),
+            Some("edit_file:notes/today.md".to_string()),
+            Some("edit_file:notes/today.md".to_string()),
+        );
+        let record = requirement.to_record();
+
+        assert_eq!(record.fingerprint, "edit_file:notes/today.md");
+        assert_eq!(record.session_fingerprint, "edit_file:notes/today.md");
     }
 }
