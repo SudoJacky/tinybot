@@ -5,12 +5,14 @@ const desktopSettingsCss = readFileSync(
   new URL("../../../webui/assets/styles/components/desktop-settings.css", import.meta.url),
   "utf8",
 );
+const desktopIndexHtml = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const mainCss = readFileSync(new URL("../../../webui/assets/styles/main.css", import.meta.url), "utf8");
 const nativeSettingsScope = "html[data-desktop-active-workbench-module=\"settings\"] body.desktop-native-workbench";
 
 describe("desktop settings experience stylesheet", () => {
-  test("loads after the shared WebUI theme and stays scoped to the native settings route", () => {
-    expect(mainCss.trimEnd().endsWith("@import './components/desktop-settings.css';")).toBe(true);
+  test("loads from the native shell and stays out of the browser WebUI bundle", () => {
+    expect(desktopIndexHtml).toContain('href="/assets/styles/components/desktop-settings.css"');
+    expect(mainCss).not.toContain("desktop-settings.css");
     expect(desktopSettingsCss).toContain(nativeSettingsScope);
     expect(desktopSettingsCss).not.toMatch(/^body\s*\{/m);
   });
