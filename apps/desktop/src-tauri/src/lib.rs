@@ -39,34 +39,25 @@ pub mod worker_workspace;
 
 use crate::config_store::{ConfigPatchApplyResult, ConfigPatchBridgeResult, ConfigStore};
 use crate::desktop_cron::{
-    build_worker_cron_run_due_request, cron_model_from_config, start_worker_cron_timer,
-    stop_worker_cron_timer, worker_cron_dispatch_due, worker_cron_dispatch_due_with_options,
-    worker_cron_next_wake_delay_with_options,
+    start_worker_cron_timer, stop_worker_cron_timer, worker_cron_dispatch_due,
 };
-use crate::desktop_files::{
-    allowed_workspace_file_path, mime_type_for_path, pick_upload_file, reveal_workspace_file,
-    reveal_workspace_file_path_from_config_path, save_export_file, upload_file_from_path,
-    write_export_file,
-};
+use crate::desktop_files::{pick_upload_file, reveal_workspace_file, save_export_file};
 use crate::desktop_gateway::{
-    classify_bootstrap_response, current_status, gateway_exit_policy_preference_path,
-    gateway_status, load_gateway_exit_policy, native_backend_log_path, persist_gateway_exit_policy,
-    set_gateway_keep_running, start_gateway, stop_gateway, stop_owned_gateway,
-    GatewayRuntimeStatus,
+    gateway_exit_policy_preference_path, gateway_status, load_gateway_exit_policy,
+    native_backend_log_path, set_gateway_keep_running, start_gateway, stop_gateway,
+    stop_owned_gateway,
 };
 use crate::desktop_heartbeat::{
-    build_worker_heartbeat_lifecycle_request, start_worker_heartbeat_runtime_with_options,
-    stop_worker_heartbeat_runtime_with_options,
+    start_worker_heartbeat_runtime_with_options, stop_worker_heartbeat_runtime_with_options,
 };
 use crate::desktop_logging::append_native_backend_log_line;
 use crate::desktop_menu::{
-    desktop_menu_item_descriptors, install_desktop_application_menu, is_desktop_menu_command,
-    DesktopMenuCommandPayload,
+    install_desktop_application_menu, is_desktop_menu_command, DesktopMenuCommandPayload,
 };
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_client::WorkerClient;
 use crate::worker_manager::{
-    WorkerCommandSpec, WorkerManager, WorkerManagerEvent, WorkerManagerState, WorkerManagerStatus,
+    WorkerCommandSpec, WorkerManager, WorkerManagerEvent, WorkerManagerState,
 };
 use crate::worker_protocol::WorkerRequest;
 use crate::worker_request_id::{next_worker_request_correlation, WorkerRequestCorrelation};
@@ -1895,6 +1886,21 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::desktop_cron::{
+        build_worker_cron_run_due_request, cron_model_from_config,
+        worker_cron_dispatch_due_with_options, worker_cron_next_wake_delay_with_options,
+    };
+    use crate::desktop_files::{
+        allowed_workspace_file_path, mime_type_for_path,
+        reveal_workspace_file_path_from_config_path, upload_file_from_path, write_export_file,
+    };
+    use crate::desktop_gateway::{
+        classify_bootstrap_response, current_status, persist_gateway_exit_policy,
+        GatewayRuntimeStatus,
+    };
+    use crate::desktop_heartbeat::build_worker_heartbeat_lifecycle_request;
+    use crate::desktop_menu::desktop_menu_item_descriptors;
+    use crate::worker_manager::WorkerManagerStatus;
 
     fn test_request_correlation(suffix: &str) -> WorkerRequestCorrelation {
         WorkerRequestCorrelation::from_suffix(suffix)
