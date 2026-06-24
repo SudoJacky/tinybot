@@ -691,6 +691,7 @@ function renderSettingsGroup(
     default: () => [
       h("h2", group.label),
       h("p", { class: "desktop-settings-group-description" }, getSettingsGroupDescription(group)),
+      renderFilesWorkspaceActions(options, group),
       renderMcpServerList(group),
       ...primaryFields.map((field) => renderSettingsField(options, group, field, highlightedFieldId)),
       advancedFields.length ? h("details", {
@@ -702,6 +703,48 @@ function renderSettingsGroup(
       ]) : null,
     ],
   });
+}
+
+function renderFilesWorkspaceActions(
+  options: SettingsPaneIslandOptions,
+  group: DesktopSettingsPaneGroup,
+) {
+  if (group.id !== "files-workspace") {
+    return null;
+  }
+  const workspace = group.fields.find((field) => field.id === "workspace");
+  const emit = (action: "chooseWorkspace" | "openWorkspace" | "openSessionFiles" | "openKnowledgeDocuments") => {
+    options.onSettingsAction?.({ action, pane: options.pane });
+  };
+  return h("div", {
+    class: "desktop-settings-files-actions",
+    "aria-label": "Files and workspace actions",
+  }, [
+    h("p", {
+      class: "desktop-settings-workspace-permission",
+      "data-desktop-settings-workspace-permission": "",
+    }, `Permission: ${workspace?.value ? "Configured workspace" : "No workspace selected"}`),
+    h("button", {
+      type: "button",
+      "data-desktop-settings-file-action": "chooseWorkspace",
+      onClick: () => emit("chooseWorkspace"),
+    }, "Choose workspace"),
+    h("button", {
+      type: "button",
+      "data-desktop-settings-file-action": "openWorkspace",
+      onClick: () => emit("openWorkspace"),
+    }, "Open workspace"),
+    h("button", {
+      type: "button",
+      "data-desktop-settings-file-action": "openSessionFiles",
+      onClick: () => emit("openSessionFiles"),
+    }, "Session files"),
+    h("button", {
+      type: "button",
+      "data-desktop-settings-file-action": "openKnowledgeDocuments",
+      onClick: () => emit("openKnowledgeDocuments"),
+    }, "Knowledge documents"),
+  ]);
 }
 
 function renderMcpServerList(group: DesktopSettingsPaneGroup) {

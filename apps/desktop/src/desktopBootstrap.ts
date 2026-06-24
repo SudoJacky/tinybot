@@ -2104,6 +2104,10 @@ async function handleNativeSettingsAction(event: DesktopSettingsActionEvent): Pr
     logDesktopNativeDebug("settings.provider.test.requested", { providerId: event.providerId });
     return;
   }
+  if (["chooseWorkspace", "openWorkspace", "openSessionFiles", "openKnowledgeDocuments"].includes(event.action)) {
+    logDesktopNativeDebug("settings.files.action.requested", { action: event.action });
+    return;
+  }
   if (!nativeSettingsState) {
     logDesktopNativeDebug("settings.action.skipped", { action: event.action, reason: "state unavailable" });
     return;

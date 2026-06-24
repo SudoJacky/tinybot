@@ -611,4 +611,32 @@ describe("settings pane Vue island", () => {
 
     mounted.unmount();
   });
+
+  test("renders Files and Storage workspace actions", async () => {
+    const host = document.createElement("section");
+    const actions: string[] = [];
+    const mounted = mountSettingsPaneIsland(host, {
+      pane,
+      initialActiveGroupId: "files-workspace",
+      onSettingsAction: (event: DesktopSettingsActionEvent) => {
+        actions.push(event.action);
+      },
+    });
+    await nextTick();
+
+    expect(host.querySelector("[data-desktop-settings-workspace-permission]")?.textContent).toContain("Permission");
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-file-action="chooseWorkspace"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-file-action="openWorkspace"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-file-action="openSessionFiles"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-file-action="openKnowledgeDocuments"]')?.click();
+
+    expect(actions).toEqual([
+      "chooseWorkspace",
+      "openWorkspace",
+      "openSessionFiles",
+      "openKnowledgeDocuments",
+    ]);
+
+    mounted.unmount();
+  });
 });
