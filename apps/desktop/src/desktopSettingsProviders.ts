@@ -227,6 +227,7 @@ export interface DesktopSettingsPaneModel {
     restartRequired?: string[];
     reloadRequired?: string[];
     warnings?: string[];
+    diagnostics?: string;
   };
   groups: DesktopSettingsPaneGroup[];
   providerCatalog: Array<{
@@ -881,20 +882,24 @@ export function buildDesktopSettingsPaneModel(
     : false;
   const saveDetails = normalizeDesktopSettingsSaveDetails(options.saveDetails);
   const saveStatus = resolveDesktopSettingsSaveStatus(options.saveStatus ?? "idle", saveDetails);
+  const save: DesktopSettingsPaneModel["save"] = {
+    status: saveStatus,
+    message: saveStatus === "failed" ? options.saveError || "Save failed" : formatDesktopSettingsSaveMessage(saveStatus, dirty, validationErrors.length, saveDetails),
+    canSave: dirty && validationErrors.length === 0 && saveStatus !== "saving",
+  };
+  if (saveDetails) {
+    save.transport = saveDetails.transport;
+    save.updatedFields = saveDetails.updatedFields;
+    save.applied = saveDetails.applied;
+    save.restartRequired = saveDetails.restartRequired;
+    save.reloadRequired = saveDetails.reloadRequired;
+    save.warnings = saveDetails.warnings;
+    save.diagnostics = formatDesktopSettingsSaveDiagnostics(saveStatus, saveDetails);
+  }
   return {
     dirty,
     validationErrors,
-    save: {
-      status: saveStatus,
-      message: saveStatus === "failed" ? options.saveError || "Save failed" : formatDesktopSettingsSaveMessage(saveStatus, dirty, validationErrors.length, saveDetails),
-      canSave: dirty && validationErrors.length === 0 && saveStatus !== "saving",
-      transport: saveDetails?.transport,
-      updatedFields: saveDetails?.updatedFields,
-      applied: saveDetails?.applied,
-      restartRequired: saveDetails?.restartRequired,
-      reloadRequired: saveDetails?.reloadRequired,
-      warnings: saveDetails?.warnings,
-    },
+    save,
     groups: buildDesktopSettingsPaneGroups(state, validationErrors, providerSummaries),
     providerCatalog: providerSummaries.map((provider) => ({
       id: provider.id,
@@ -1977,6 +1982,27 @@ function formatDesktopSettingsSaveMessage(
     return `${validationErrorCount} ${validationErrorCount === 1 ? "setting needs" : "settings need"} attention`;
   }
   return dirty ? "Unsaved changes" : "No changes";
+}
+
+function formatDesktopSettingsSaveDiagnostics(
+  status: DesktopSettingsSaveStatus,
+  saveDetails: DesktopSettingsPaneSaveDetails | null,
+): string {
+  const rows = [`Status: ${status}`];
+  if (!saveDetails) {
+    return rows.join("\n");
+  }
+  rows.push(`Transport: ${saveDetails.transport}`);
+  rows.push(`Updated fields: ${formatDiagnosticList(saveDetails.updatedFields)}`);
+  rows.push(`Applied: ${formatDiagnosticList(saveDetails.applied)}`);
+  rows.push(`Restart required: ${formatDiagnosticList(saveDetails.restartRequired)}`);
+  rows.push(`Reload required: ${formatDiagnosticList(saveDetails.reloadRequired)}`);
+  rows.push(`Warnings: ${formatDiagnosticList(saveDetails.warnings)}`);
+  return rows.join("\n");
+}
+
+function formatDiagnosticList(values: string[]): string {
+  return values.length ? values.join(", ") : "none";
 }
 
 function formatDesktopSettingsFieldValue(value: unknown): string {

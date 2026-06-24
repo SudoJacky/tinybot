@@ -2083,7 +2083,7 @@ async function handleNativeSettingsAction(event: DesktopSettingsActionEvent): Pr
     return;
   }
   if (event.action === "copyDiagnostics") {
-    await copyNativeSettingsDiagnostics(event.pane.save.message);
+    await copyNativeSettingsDiagnostics(event.pane.save.diagnostics || event.pane.save.message);
     return;
   }
   if (event.action === "restartGateway") {

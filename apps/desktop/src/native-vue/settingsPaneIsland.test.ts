@@ -230,6 +230,7 @@ describe("settings pane Vue island", () => {
 
   test("renders native save warnings and gateway fallback status", async () => {
     const host = document.createElement("section");
+    const actions: string[] = [];
     const fallbackPane = buildDesktopSettingsPaneModel(savedState, {
       lastSavedState: savedState,
       providerCatalog,
@@ -246,6 +247,9 @@ describe("settings pane Vue island", () => {
 
     const mounted = mountSettingsPaneIsland(host, {
       pane: fallbackPane,
+      onSettingsAction: (event: DesktopSettingsActionEvent) => {
+        actions.push(event.action);
+      },
     });
     await nextTick();
 
@@ -260,7 +264,10 @@ describe("settings pane Vue island", () => {
     )).toEqual([
       "Saved through gateway fallback",
       "Native patch failed; gateway fallback applied.",
+      "Copy diagnostics",
     ]);
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-action="copyDiagnostics"]')?.click();
+    expect(actions).toEqual(["copyDiagnostics"]);
 
     mounted.unmount();
   });

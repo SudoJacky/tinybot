@@ -977,4 +977,38 @@ describe("desktop settings and provider helpers", () => {
     expect(reloadPane.save.status).toBe("reload-required");
     expect(reloadPane.save.message).toBe("Settings saved. Workspace reload required");
   });
+
+  test("builds copyable save diagnostics for fallback and warning results", () => {
+    const state = buildDesktopSettingsFormState({
+      agents: { defaults: { model: "gpt-4.1-mini", provider: "openai", active_profile: "work", timezone: "UTC" } },
+      providers: {
+        profiles: {
+          work: {
+            provider: "openai",
+            api_key: "sk-live",
+            models: ["gpt-4.1-mini"],
+          },
+        },
+      },
+    }, [{ id: "openai", displayName: "OpenAI", status: "ready" }]);
+
+    const pane = buildDesktopSettingsPaneModel(state, {
+      lastSavedState: state,
+      providerCatalog: [{ id: "openai", displayName: "OpenAI", status: "ready" }],
+      saveStatus: "saved",
+      saveDetails: {
+        transport: "gateway-fallback",
+        updatedFields: ["agents.defaults.model"],
+        applied: [],
+        restartRequired: [],
+        reloadRequired: [],
+        warnings: ["Saved through gateway fallback after native config patch failed: boom"],
+      },
+    });
+
+    expect(pane.save.diagnostics).toContain("Status: saved");
+    expect(pane.save.diagnostics).toContain("Transport: gateway-fallback");
+    expect(pane.save.diagnostics).toContain("Updated fields: agents.defaults.model");
+    expect(pane.save.diagnostics).toContain("Warnings: Saved through gateway fallback after native config patch failed: boom");
+  });
 });

@@ -157,8 +157,9 @@ function renderSaveDetails(options: SettingsPaneIslandOptions) {
   const pane = options.pane;
   const details: Array<{
     text: string;
-    action?: "restartGateway" | "reloadWorkspace";
+    action?: "restartGateway" | "reloadWorkspace" | "copyDiagnostics";
     label?: string;
+    buttonOnly?: boolean;
   }> = [];
   if (pane.save.restartRequired?.length) {
     details.push({
@@ -178,6 +179,14 @@ function renderSaveDetails(options: SettingsPaneIslandOptions) {
     details.push({ text: "Saved through gateway fallback" });
   }
   details.push(...(pane.save.warnings ?? []).map((warning) => ({ text: warning })));
+  if (pane.save.transport === "gateway-fallback" || pane.save.warnings?.length) {
+    details.push({
+      text: "",
+      action: "copyDiagnostics",
+      label: "Copy diagnostics",
+      buttonOnly: true,
+    });
+  }
   if (details.length === 0) {
     return null;
   }
@@ -189,7 +198,7 @@ function renderSaveDetails(options: SettingsPaneIslandOptions) {
     return h("li", {
       "data-desktop-settings-save-detail": "",
     }, [
-      h("span", detail.text),
+      detail.buttonOnly ? null : h("span", detail.text),
       action ? h("button", {
         type: "button",
         "data-desktop-settings-action": action,
