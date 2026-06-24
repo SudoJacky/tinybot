@@ -694,6 +694,7 @@ function renderSettingsGroup(
       renderFilesWorkspaceActions(options, group),
       renderChannelsSummary(options, group),
       renderRuntimeSummary(options, group),
+      renderDiagnosticsActionPage(options, group),
       renderMcpServerList(group),
       ...primaryFields.map((field) => renderSettingsField(options, group, field, highlightedFieldId)),
       advancedFields.length ? h("details", {
@@ -774,6 +775,68 @@ function renderChannelsSummary(
       "data-desktop-settings-channel-action": "setupIntegrations",
       onClick: () => options.onSettingsAction?.({ action: "setupChannelIntegrations", pane: options.pane }),
     }, "Set up integrations"),
+  ]);
+}
+
+function renderDiagnosticsActionPage(
+  options: SettingsPaneIslandOptions,
+  group: DesktopSettingsPaneGroup,
+) {
+  if (group.id !== "logs-diagnostics" || !options.pane.diagnostics) {
+    return null;
+  }
+  const diagnostics = options.pane.diagnostics;
+  const emit = (
+    action: "openDiagnosticsLogs" | "copyDiagnostics" | "exportDiagnosticsBundle" | "clearDiagnosticsLogs" | "resetLocalUiState",
+  ) => {
+    options.onSettingsAction?.({ action, pane: options.pane });
+  };
+  const actionButtons = [
+    { action: "openDiagnosticsLogs" as const, key: "openLogs", label: "Open logs" },
+    { action: "copyDiagnostics" as const, key: "copyRuntimeSummary", label: "Copy runtime summary" },
+    { action: "exportDiagnosticsBundle" as const, key: "exportDiagnosticsBundle", label: "Export redacted diagnostics" },
+    { action: "clearDiagnosticsLogs" as const, key: "clearLogs", label: "Clear logs" },
+    { action: "resetLocalUiState" as const, key: "resetLocalUiState", label: "Reset local UI" },
+  ];
+  return h("div", {
+    class: "desktop-settings-diagnostics-actions",
+    "aria-label": "Diagnostics actions",
+  }, [
+    h("p", {
+      "data-desktop-settings-diagnostics-runtime-summary": "",
+    }, diagnostics.runtimeSummary),
+    h("p", {
+      "data-desktop-settings-diagnostics-gateway-ownership": "",
+    }, diagnostics.gatewayOwnership),
+    h("p", {
+      "data-desktop-settings-diagnostics-version": "",
+    }, diagnostics.version),
+    h("p", {
+      "data-desktop-settings-diagnostics-config-path": "",
+    }, diagnostics.activeConfigPath),
+    h("p", {
+      "data-desktop-settings-diagnostics-config-error": "",
+    }, diagnostics.lastConfigError),
+    h("label", { class: "desktop-settings-inline-field" }, [
+      h("span", "Log level"),
+      h("select", {
+        "data-desktop-settings-diagnostics-log-level": "",
+        value: diagnostics.logLevel,
+        onChange: (event: Event) => options.onSettingsAction?.({
+          action: "setDiagnosticsLogLevel",
+          pane: options.pane,
+          logLevel: String((event.target as HTMLSelectElement | null)?.value ?? "info"),
+        }),
+      }, ["error", "info", "debug"].map((level) => h("option", {
+        value: level,
+        selected: diagnostics.logLevel === level ? "true" : undefined,
+      }, level))),
+    ]),
+    h("div", { class: "desktop-settings-diagnostics-action-list" }, actionButtons.map((item) => h("button", {
+      type: "button",
+      "data-desktop-settings-diagnostics-action": item.key,
+      onClick: () => emit(item.action),
+    }, item.label))),
   ]);
 }
 

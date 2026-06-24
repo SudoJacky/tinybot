@@ -710,4 +710,48 @@ describe("settings pane Vue island", () => {
 
     mounted.unmount();
   });
+
+  test("turns Diagnostics into an action page with runtime metadata", async () => {
+    const host = document.createElement("section");
+    const actions: string[] = [];
+    const mounted = mountSettingsPaneIsland(host, {
+      pane,
+      initialActiveGroupId: "logs-diagnostics",
+      onSettingsAction: (event: DesktopSettingsActionEvent) => {
+        actions.push(event.action);
+      },
+    });
+    await nextTick();
+
+    expect(host.querySelector("[data-desktop-settings-diagnostics-runtime-summary]")?.textContent).toContain("Runtime summary");
+    expect(host.querySelector("[data-desktop-settings-diagnostics-gateway-ownership]")?.textContent).toContain("Gateway ownership");
+    expect(host.querySelector("[data-desktop-settings-diagnostics-version]")?.textContent).toContain("Version");
+    expect(host.querySelector("[data-desktop-settings-diagnostics-config-path]")?.textContent).toContain("Active config path");
+    expect(host.querySelector("[data-desktop-settings-diagnostics-config-error]")?.textContent).toContain("Last config error");
+    expect(Array.from(
+      host.querySelectorAll("[data-desktop-settings-diagnostics-action]"),
+      (node) => node.textContent,
+    )).toEqual(["Open logs", "Copy runtime summary", "Export redacted diagnostics", "Clear logs", "Reset local UI"]);
+
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-diagnostics-action="openLogs"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-diagnostics-action="copyRuntimeSummary"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-diagnostics-action="exportDiagnosticsBundle"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-diagnostics-action="clearLogs"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-diagnostics-action="resetLocalUiState"]')?.click();
+    const logLevel = host.querySelector<HTMLSelectElement>("[data-desktop-settings-diagnostics-log-level]");
+    expect(logLevel?.value).toBe("info");
+    logLevel!.value = "debug";
+    logLevel?.dispatchEvent(new Event("change"));
+
+    expect(actions).toEqual([
+      "openDiagnosticsLogs",
+      "copyDiagnostics",
+      "exportDiagnosticsBundle",
+      "clearDiagnosticsLogs",
+      "resetLocalUiState",
+      "setDiagnosticsLogLevel",
+    ]);
+
+    mounted.unmount();
+  });
 });

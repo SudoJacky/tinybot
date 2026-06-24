@@ -224,12 +224,17 @@ interface DesktopAgentUiFormActionOptions {
   onAgentUiFormAction?: (event: DesktopAgentUiFormActionEvent) => void;
 }
 
-export type DesktopSettingsActionId = "save" | "discoverModels" | "retryLoad" | "copyDiagnostics" | "restartGateway" | "reloadWorkspace" | "reset" | "testProviderConnection" | "chooseWorkspace" | "openWorkspace" | "openSessionFiles" | "openKnowledgeDocuments" | "setupChannelIntegrations" | "edit";
+export type DesktopSettingsActionId = "save" | "discoverModels" | "retryLoad" | "copyDiagnostics" | "restartGateway" | "reloadWorkspace" | "reset" | "testProviderConnection" | "chooseWorkspace" | "openWorkspace" | "openSessionFiles" | "openKnowledgeDocuments" | "setupChannelIntegrations" | "openDiagnosticsLogs" | "exportDiagnosticsBundle" | "clearDiagnosticsLogs" | "resetLocalUiState" | "setDiagnosticsLogLevel" | "edit";
 
 export type DesktopSettingsActionEvent =
   | {
-      action: "save" | "discoverModels" | "retryLoad" | "copyDiagnostics" | "restartGateway" | "reloadWorkspace" | "reset" | "chooseWorkspace" | "openWorkspace" | "openSessionFiles" | "openKnowledgeDocuments" | "setupChannelIntegrations";
+      action: "save" | "discoverModels" | "retryLoad" | "copyDiagnostics" | "restartGateway" | "reloadWorkspace" | "reset" | "chooseWorkspace" | "openWorkspace" | "openSessionFiles" | "openKnowledgeDocuments" | "setupChannelIntegrations" | "openDiagnosticsLogs" | "exportDiagnosticsBundle" | "clearDiagnosticsLogs" | "resetLocalUiState";
       pane: DesktopSettingsPaneModel;
+    }
+  | {
+      action: "setDiagnosticsLogLevel";
+      pane: DesktopSettingsPaneModel;
+      logLevel: string;
     }
   | {
       action: "testProviderConnection";

@@ -2083,7 +2083,7 @@ async function handleNativeSettingsAction(event: DesktopSettingsActionEvent): Pr
     return;
   }
   if (event.action === "copyDiagnostics") {
-    await copyNativeSettingsDiagnostics(event.pane.save.diagnostics || event.pane.save.message);
+    await copyNativeSettingsDiagnostics(event.pane.diagnostics?.runtimeSummary || event.pane.save.diagnostics || event.pane.save.message);
     return;
   }
   if (event.action === "restartGateway") {
@@ -2110,6 +2110,14 @@ async function handleNativeSettingsAction(event: DesktopSettingsActionEvent): Pr
   }
   if (event.action === "setupChannelIntegrations") {
     logDesktopNativeDebug("settings.channels.action.requested", { action: event.action });
+    return;
+  }
+  if (["openDiagnosticsLogs", "exportDiagnosticsBundle", "clearDiagnosticsLogs", "resetLocalUiState"].includes(event.action)) {
+    logDesktopNativeDebug("settings.diagnostics.action.requested", { action: event.action });
+    return;
+  }
+  if (event.action === "setDiagnosticsLogLevel") {
+    logDesktopNativeDebug("settings.diagnostics.log_level.requested", { logLevel: event.logLevel });
     return;
   }
   if (!nativeSettingsState) {

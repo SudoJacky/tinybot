@@ -466,6 +466,14 @@ export interface DesktopSettingsPaneModel {
     portStatus: string;
     heartbeatDependency: string;
   };
+  diagnostics?: {
+    runtimeSummary: string;
+    gatewayOwnership: string;
+    version: string;
+    activeConfigPath: string;
+    lastConfigError: string;
+    logLevel: "error" | "info" | "debug";
+  };
   groups: DesktopSettingsPaneGroup[];
   providerCatalog: Array<{
     id: string;
@@ -1141,6 +1149,7 @@ export function buildDesktopSettingsPaneModel(
     save.diagnostics = formatDesktopSettingsSaveDiagnostics(saveStatus, saveDetails);
   }
   const runtime = buildDesktopSettingsRuntimeSummary(state, options.lastSavedState ?? state, save);
+  const diagnostics = buildDesktopSettingsDiagnosticsSummary(runtime, save);
   const providerCatalog = providerSummaries.map((provider) => ({
     id: provider.id,
     label: provider.label,
@@ -1158,6 +1167,7 @@ export function buildDesktopSettingsPaneModel(
     validationErrors,
     save,
     runtime,
+    diagnostics,
     groups: buildDesktopSettingsPaneGroups(state, validationErrors, providerSummaries),
     providerCatalog,
     defaultRouting: buildDesktopDefaultRouting(state, providerCatalog),
@@ -1182,6 +1192,23 @@ export function buildDesktopProviderModelRequest(
     api_key: state.providerEditor.apiKey || "",
     api_base: state.providerEditor.apiBase || "",
     refresh,
+  };
+}
+
+function buildDesktopSettingsDiagnosticsSummary(
+  runtime: NonNullable<DesktopSettingsPaneModel["runtime"]>,
+  save: DesktopSettingsPaneModel["save"],
+): NonNullable<DesktopSettingsPaneModel["diagnostics"]> {
+  const saveStatus = `Settings save status: ${save.status}`;
+  return {
+    runtimeSummary: `Runtime summary: current ${runtime.currentEndpoint}; pending ${runtime.pendingEndpoint}; ${saveStatus}.`,
+    gatewayOwnership: "Gateway ownership: Desktop-managed local gateway.",
+    version: "Version: Current desktop build.",
+    activeConfigPath: "Active config path: Managed by native runtime.",
+    lastConfigError: save.status === "failed"
+      ? `Last config error: ${save.message}`
+      : "Last config error: None.",
+    logLevel: "info",
   };
 }
 
