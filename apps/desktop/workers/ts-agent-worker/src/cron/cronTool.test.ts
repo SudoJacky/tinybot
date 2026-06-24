@@ -78,8 +78,8 @@ describe("createCronTool", () => {
     await expect(tool.execute({ action: "add", message: "Bad tz", tz: "UTC" }, context)).resolves.toEqual({
       content: "Error: tz can only be used with cron_expr",
     });
-    await expect(tool.execute({ action: "add", message: "Bad timezone", cron_expr: "0 9 * * *", tz: "Mars/Phobos" }, context)).resolves.toEqual({
-      content: "Error: unknown timezone 'Mars/Phobos'",
+    await expect(tool.execute({ action: "add", message: "Unsupported cron", cron_expr: "0 9 * * *", tz: "UTC" }, context)).resolves.toEqual({
+      content: "Error: cron_expr schedules are not supported yet",
     });
     await expect(tool.execute({ action: "add", message: "Missing schedule" }, context)).resolves.toEqual({
       content: "Error: either every_seconds, cron_expr, or at is required",

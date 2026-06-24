@@ -39,7 +39,6 @@ impl WorkerRequestKey {
 #[derive(Default)]
 struct PendingResponses {
     waiting: HashMap<WorkerRequestKey, mpsc::Sender<WorkerResponse>>,
-    completed: HashMap<WorkerRequestKey, WorkerResponse>,
 }
 
 pub struct WorkerConnection<W> {
@@ -95,26 +94,12 @@ where
         timeout: Duration,
     ) -> Result<WorkerResponse, WorkerProtocolError> {
         let key = WorkerRequestKey::from_request(request);
-        let (tx, rx) = mpsc::channel();
-        let completed = {
-            let mut pending = lock_pending(&self.pending);
-            match pending.completed.remove(&key) {
-                Some(response) => Some(response),
-                None => {
-                    pending.waiting.insert(key.clone(), tx);
-                    None
-                }
-            }
-        };
+        let rx = register_pending_request(&self.pending, request)?;
 
         if let Err(error) = write_request(&self.writer, request) {
             let mut pending = lock_pending(&self.pending);
             pending.waiting.remove(&key);
             return Err(error);
-        }
-
-        if let Some(response) = completed {
-            return Ok(response);
         }
 
         rx.recv_timeout(timeout).map_err(|error| {
@@ -143,39 +128,49 @@ fn spawn_reader_loop<R, W>(
     R: BufRead + Send + 'static,
     W: Write + Send + 'static,
 {
-    thread::spawn(move || {
-        loop {
-            let mut line = String::new();
-            let bytes = match reader.read_line(&mut line) {
-                Ok(bytes) => bytes,
-                Err(error) => {
-                    emit_protocol_diagnostics(
-                        &on_event,
-                        format!("failed to read worker message: {error}"),
-                    );
-                    return;
-                }
-            };
-            if bytes == 0 {
+    thread::spawn(move || loop {
+        let mut line = String::new();
+        let bytes = match reader.read_line(&mut line) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                emit_protocol_diagnostics(
+                    &on_event,
+                    format!("failed to read worker message: {error}"),
+                );
+                wake_pending_requests(&pending, format!("failed to read worker message: {error}"));
                 return;
             }
-            let message = match decode_worker_line(line.trim_end_matches(['\r', '\n'])) {
-                Ok(message) => message,
-                Err(error) => {
-                    emit_protocol_diagnostics(&on_event, error.message);
-                    return;
-                }
-            };
-            match message {
-                WorkerInboundMessage::Request(request) => {
-                    let response = lock_router(&router).dispatch(&request);
-                    let _ = write_response(&writer, &response);
-                }
-                WorkerInboundMessage::Response(response) => {
-                    route_worker_response(&pending, response);
-                }
-                WorkerInboundMessage::Event(event) => on_event(event),
+        };
+        if bytes == 0 {
+            wake_pending_requests(&pending, "worker stdio connection closed");
+            return;
+        }
+        let message = match decode_worker_line(line.trim_end_matches(['\r', '\n'])) {
+            Ok(message) => message,
+            Err(error) => {
+                let message = error.message;
+                emit_protocol_diagnostics(&on_event, message.clone());
+                wake_pending_requests(
+                    &pending,
+                    format!("worker protocol decoding stopped: {message}"),
+                );
+                return;
             }
+        };
+        match message {
+            WorkerInboundMessage::Request(request) => {
+                let response = lock_router(&router).dispatch(&request);
+                let _ = write_response(&writer, &response);
+            }
+            WorkerInboundMessage::Response(response) => {
+                if !route_worker_response(&pending, response) {
+                    emit_protocol_diagnostics(
+                        &on_event,
+                        "worker response did not match a pending request",
+                    );
+                }
+            }
+            WorkerInboundMessage::Event(event) => on_event(event),
         }
     });
 }
@@ -195,23 +190,62 @@ fn emit_protocol_diagnostics(
     });
 }
 
-fn route_worker_response(
-    pending: &Arc<Mutex<PendingResponses>>,
-    response: WorkerResponse,
-) {
+fn route_worker_response(pending: &Arc<Mutex<PendingResponses>>, response: WorkerResponse) -> bool {
     let key = WorkerRequestKey::from_response(&response);
     let sender = {
         let mut pending = lock_pending(pending);
         match pending.waiting.remove(&key) {
             Some(sender) => Some(sender),
-            None => {
-                pending.completed.insert(key, response);
-                return;
-            }
+            None => return false,
         }
     };
     if let Some(sender) = sender {
         let _ = sender.send(response);
+    }
+    true
+}
+
+fn register_pending_request(
+    pending: &Arc<Mutex<PendingResponses>>,
+    request: &WorkerRequest,
+) -> Result<mpsc::Receiver<WorkerResponse>, WorkerProtocolError> {
+    let key = WorkerRequestKey::from_request(request);
+    let (tx, rx) = mpsc::channel();
+    let mut pending = lock_pending(pending);
+    if pending.waiting.contains_key(&key) {
+        return Err(invalid_protocol_error(
+            "duplicate worker request key",
+            serde_json::json!({
+                "id": request.id,
+                "trace_id": request.trace_id,
+            }),
+        ));
+    }
+    pending.waiting.insert(key, tx);
+    Ok(rx)
+}
+
+fn wake_pending_requests(pending: &Arc<Mutex<PendingResponses>>, message: impl Into<String>) {
+    let message = message.into();
+    let waiting = {
+        let mut pending = lock_pending(pending);
+        std::mem::take(&mut pending.waiting)
+    };
+    for (key, sender) in waiting {
+        let _ = sender.send(WorkerResponse {
+            protocol_version: WORKER_PROTOCOL_VERSION.to_string(),
+            id: key.id.clone(),
+            trace_id: key.trace_id.clone(),
+            result: None,
+            error: Some(worker_error(
+                message.clone(),
+                serde_json::json!({
+                    "id": key.id,
+                    "trace_id": key.trace_id,
+                }),
+                true,
+            )),
+        });
     }
 }
 
@@ -279,9 +313,7 @@ fn lock_pending(
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-fn lock_router(
-    router: &Arc<Mutex<WorkerRpcRouter>>,
-) -> std::sync::MutexGuard<'_, WorkerRpcRouter> {
+fn lock_router(router: &Arc<Mutex<WorkerRpcRouter>>) -> std::sync::MutexGuard<'_, WorkerRpcRouter> {
     router
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -299,7 +331,10 @@ fn lock_writer<W>(
     })
 }
 
-fn invalid_protocol_error(message: impl Into<String>, details: serde_json::Value) -> WorkerProtocolError {
+fn invalid_protocol_error(
+    message: impl Into<String>,
+    details: serde_json::Value,
+) -> WorkerProtocolError {
     WorkerProtocolError::new(
         WorkerProtocolErrorCode::InvalidProtocol,
         message,
@@ -309,7 +344,11 @@ fn invalid_protocol_error(message: impl Into<String>, details: serde_json::Value
     )
 }
 
-fn worker_error(message: impl Into<String>, details: serde_json::Value, retryable: bool) -> WorkerProtocolError {
+fn worker_error(
+    message: impl Into<String>,
+    details: serde_json::Value,
+    retryable: bool,
+) -> WorkerProtocolError {
     WorkerProtocolError::new(
         WorkerProtocolErrorCode::WorkerError,
         message,
@@ -321,12 +360,17 @@ fn worker_error(message: impl Into<String>, details: serde_json::Value, retryabl
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
-    use crate::worker_connection::WorkerConnection;
     use crate::worker_protocol::WorkerRequest;
     use crate::worker_rpc::WorkerRpcRouter;
     use serde_json::json;
-    use std::{io::Cursor, path::PathBuf, sync::{Arc, Mutex}, time::Duration};
+    use std::{
+        io::Cursor,
+        path::PathBuf,
+        sync::{Arc, Mutex},
+        time::Duration,
+    };
 
     #[test]
     fn full_duplex_request_allows_worker_to_call_rust_rpc_before_final_response() {
@@ -422,6 +466,51 @@ mod tests {
         assert!(written.contains(r#""capability":"fs.workspace.read""#));
     }
 
+    #[test]
+    fn duplicate_pending_request_key_is_rejected() {
+        let pending = Arc::new(Mutex::new(PendingResponses::default()));
+        let request = WorkerRequest::new("agent-req-1", "trace-agent", "agent.echo", json!({}));
+
+        let _first = register_pending_request(&pending, &request)
+            .expect("first pending request should register");
+        let duplicate = register_pending_request(&pending, &request)
+            .expect_err("duplicate pending request should be rejected");
+
+        assert_eq!(
+            duplicate.code,
+            crate::worker_protocol::WorkerProtocolErrorCode::InvalidProtocol
+        );
+        assert!(duplicate.message.contains("duplicate worker request key"));
+        assert_eq!(lock_pending(&pending).waiting.len(), 1);
+    }
+
+    #[test]
+    fn unmatched_worker_response_is_not_cached() {
+        let pending = Arc::new(Mutex::new(PendingResponses::default()));
+        let request = WorkerRequest::new("agent-req-1", "trace-agent", "agent.echo", json!({}));
+        let response = WorkerResponse::success(&request, json!({ "ok": true }));
+
+        assert!(!route_worker_response(&pending, response));
+        assert!(lock_pending(&pending).waiting.is_empty());
+    }
+
+    #[test]
+    fn closing_connection_wakes_pending_requests() {
+        let pending = Arc::new(Mutex::new(PendingResponses::default()));
+        let request = WorkerRequest::new("agent-req-1", "trace-agent", "agent.echo", json!({}));
+        let receiver =
+            register_pending_request(&pending, &request).expect("pending request should register");
+
+        wake_pending_requests(&pending, "worker stdio connection closed");
+
+        let response = receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("pending request should be woken");
+        let error = response.error.expect("wake response should carry error");
+        assert!(error.message.contains("worker stdio connection closed"));
+        assert!(lock_pending(&pending).waiting.is_empty());
+    }
+
     #[derive(Clone, Default)]
     struct SharedWriter {
         bytes: Arc<Mutex<Vec<u8>>>,
@@ -462,10 +551,7 @@ mod tests {
         events.lock().expect("events should lock").clone()
     }
 
-    fn wait_for_writer_text(
-        writer: &SharedWriter,
-        predicate: impl Fn(&str) -> bool,
-    ) -> String {
+    fn wait_for_writer_text(writer: &SharedWriter, predicate: impl Fn(&str) -> bool) -> String {
         for _ in 0..30 {
             let text = writer.text();
             if predicate(&text) {
@@ -495,7 +581,9 @@ mod tests {
         }
 
         fn write(&self, relative_path: &str, contents: &str) {
-            let path = self.root.join(relative_path.replace('/', std::path::MAIN_SEPARATOR_STR));
+            let path = self
+                .root
+                .join(relative_path.replace('/', std::path::MAIN_SEPARATOR_STR));
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent).expect("fixture parent should create");
             }

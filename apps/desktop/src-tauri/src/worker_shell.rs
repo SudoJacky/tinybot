@@ -33,10 +33,7 @@ impl WorkerShellRpc {
         params: ShellExecuteParams,
     ) -> Result<ShellExecuteResult, WorkerProtocolError> {
         self.require(WorkerCapability::ShellExecute)?;
-        let timeout = params
-            .timeout
-            .unwrap_or(60)
-            .clamp(1, MAX_TIMEOUT_SECONDS);
+        let timeout = params.timeout.unwrap_or(60).clamp(1, MAX_TIMEOUT_SECONDS);
         let working_dir = self.resolve_working_dir(
             params.working_dir.as_deref().unwrap_or("."),
             params.restrict_to_workspace.unwrap_or(true),
@@ -136,11 +133,19 @@ impl WorkerShellRpc {
             root.clone()
         } else {
             let normalized = requested.replace('\\', "/");
-            if normalized.starts_with('/') || normalized.contains(':') || normalized.contains('\0') {
-                return Err(invalid_shell_request("working_dir must be workspace-relative"));
+            if normalized.starts_with('/') || normalized.contains(':') || normalized.contains('\0')
+            {
+                return Err(invalid_shell_request(
+                    "working_dir must be workspace-relative",
+                ));
             }
-            if normalized.split('/').any(|part| part.is_empty() || part == "." || part == "..") {
-                return Err(invalid_shell_request("working_dir must be workspace-relative"));
+            if normalized
+                .split('/')
+                .any(|part| part.is_empty() || part == "." || part == "..")
+            {
+                return Err(invalid_shell_request(
+                    "working_dir must be workspace-relative",
+                ));
             }
             normalized
                 .split('/')
@@ -243,47 +248,56 @@ fn guard_command(command: &str, working_dir: &Path, workspace_root: &Path) -> Op
         return None;
     }
     let denied = [
-        "rm -rf",
-        "rm -fr",
-        "del /f",
-        "del /q",
-        "rmdir /s",
-        "shred",
-        "mkfs",
-        "diskpart",
-        "shutdown",
-        "reboot",
-        "poweroff",
-        "format ",
-        "format\t",
-        "format\n",
-        "sudo rm",
-        "sudo dd",
+        "rm -rf", "rm -fr", "del /f", "del /q", "rmdir /s", "shred", "mkfs", "diskpart",
+        "shutdown", "reboot", "poweroff", "format ", "format\t", "format\n", "sudo rm", "sudo dd",
     ];
     if denied.iter().any(|pattern| lower.contains(pattern)) || lower.starts_with("format") {
-        return Some("Error: Command blocked by safety guard (dangerous pattern detected)".to_string());
+        return Some(
+            "Error: Command blocked by safety guard (dangerous pattern detected)".to_string(),
+        );
     }
     if lower.contains("../") || lower.contains("..\\") {
-        return Some("Error: Command blocked by safety guard (path traversal detected)".to_string());
+        return Some(
+            "Error: Command blocked by safety guard (path traversal detected)".to_string(),
+        );
     }
     if contains_private_url(&lower) {
-        return Some("Error: Command blocked by safety guard (internal/private URL detected)".to_string());
+        return Some(
+            "Error: Command blocked by safety guard (internal/private URL detected)".to_string(),
+        );
     }
     if contains_absolute_path_outside_workspace(command, working_dir, workspace_root) {
-        return Some("Error: Command blocked by safety guard (path outside working dir)".to_string());
+        return Some(
+            "Error: Command blocked by safety guard (path outside working dir)".to_string(),
+        );
     }
     None
 }
 
 fn contains_private_url(command: &str) -> bool {
-    ["127.0.0.1", "localhost", "0.0.0.0", "10.", "192.168.", "169.254."]
-        .iter()
-        .any(|needle| command.contains(needle))
+    [
+        "127.0.0.1",
+        "localhost",
+        "0.0.0.0",
+        "10.",
+        "192.168.",
+        "169.254.",
+    ]
+    .iter()
+    .any(|needle| command.contains(needle))
 }
 
-fn contains_absolute_path_outside_workspace(command: &str, working_dir: &Path, workspace_root: &Path) -> bool {
-    let root = workspace_root.canonicalize().unwrap_or_else(|_| workspace_root.to_path_buf());
-    let cwd = working_dir.canonicalize().unwrap_or_else(|_| working_dir.to_path_buf());
+fn contains_absolute_path_outside_workspace(
+    command: &str,
+    working_dir: &Path,
+    workspace_root: &Path,
+) -> bool {
+    let root = workspace_root
+        .canonicalize()
+        .unwrap_or_else(|_| workspace_root.to_path_buf());
+    let cwd = working_dir
+        .canonicalize()
+        .unwrap_or_else(|_| working_dir.to_path_buf());
     command.split_whitespace().any(|token| {
         let cleaned = token.trim_matches(|ch| ch == '"' || ch == '\'' || ch == ';' || ch == '|');
         let path = PathBuf::from(cleaned);

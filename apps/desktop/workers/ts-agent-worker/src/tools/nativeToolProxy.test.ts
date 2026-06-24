@@ -106,7 +106,7 @@ describe("createNativeWriteTools", () => {
 
     const result = await writeFile.execute(
       { path: "notes/today.md", content: "hello" },
-      { runId: "run-1", traceId: "trace-1" },
+      { runId: "run-1", traceId: "trace-1", sessionId: "session-1" },
     );
 
     expect(writeFile.name).toBe("write_file");
@@ -115,7 +115,7 @@ describe("createNativeWriteTools", () => {
       {
         traceId: "trace-1",
         method: "workspace.write_file",
-        params: { path: "notes/today.md", contents: "hello" },
+        params: { path: "notes/today.md", contents: "hello", run_id: "run-1", session_id: "session-1" },
       },
     ]);
   });
@@ -129,7 +129,7 @@ describe("createNativeWriteTools", () => {
 
     const result = await editFile.execute(
       { path: "notes/today.md", old_text: "world", new_text: "desktop" },
-      { runId: "run-1", traceId: "trace-1" },
+      { runId: "run-1", traceId: "trace-1", sessionId: "session-1" },
     );
 
     expect(editFile.name).toBe("edit_file");
@@ -143,7 +143,14 @@ describe("createNativeWriteTools", () => {
       {
         traceId: "trace-1",
         method: "workspace.write_file",
-        params: { path: "notes/today.md", contents: "hello desktop" },
+        params: {
+          path: "notes/today.md",
+          contents: "hello desktop",
+          approval_fingerprint: "edit_file:notes/today.md",
+          approval_session_fingerprint: "edit_file:notes/today.md",
+          run_id: "run-1",
+          session_id: "session-1",
+        },
       },
     ]);
   });
@@ -167,7 +174,7 @@ describe("createNativeWriteTools", () => {
 
     const result = await deleteFile.execute(
       { path: "notes", recursive: true },
-      { runId: "run-1", traceId: "trace-1" },
+      { runId: "run-1", traceId: "trace-1", sessionId: "session-1" },
     );
 
     expect(deleteFile.name).toBe("delete_file");
@@ -176,7 +183,7 @@ describe("createNativeWriteTools", () => {
       {
         traceId: "trace-1",
         method: "workspace.delete_file",
-        params: { path: "notes", recursive: true },
+        params: { path: "notes", recursive: true, run_id: "run-1", session_id: "session-1" },
       },
     ]);
   });
@@ -199,7 +206,7 @@ describe("createNativeShellTools", () => {
 
     const result = await exec.execute(
       { command: "echo hello", working_dir: ".", timeout: 5 },
-      { runId: "run-1", traceId: "trace-1" },
+      { runId: "run-1", traceId: "trace-1", sessionId: "session-1" },
     );
 
     expect(exec.name).toBe("exec");
@@ -210,7 +217,7 @@ describe("createNativeShellTools", () => {
       {
         traceId: "trace-1",
         method: "shell.execute",
-        params: { command: "echo hello", working_dir: ".", timeout: 5, restrict_to_workspace: true },
+        params: { command: "echo hello", working_dir: ".", timeout: 5, restrict_to_workspace: true, run_id: "run-1", session_id: "session-1" },
       },
     ]);
   });

@@ -233,14 +233,20 @@ mod tests {
 
         assert_eq!(event.event, "diagnostics.log");
         assert_eq!(event.trace_id, "trace-abc");
-        assert_eq!(event.payload, json!({ "stream": "stdout", "line": "ready" }));
+        assert_eq!(
+            event.payload,
+            json!({ "stream": "stdout", "line": "ready" })
+        );
     }
 
     #[test]
     fn incompatible_protocol_version_returns_protocol_error() {
         let error = validate_protocol_version("0.9").expect_err("old worker should be rejected");
 
-        assert_eq!(error.code, WorkerProtocolErrorCode::IncompatibleProtocolVersion);
+        assert_eq!(
+            error.code,
+            WorkerProtocolErrorCode::IncompatibleProtocolVersion
+        );
         assert_eq!(error.source, WorkerProtocolErrorSource::RustCore);
         assert!(!error.retryable);
         assert_eq!(error.details["expected"], WORKER_PROTOCOL_VERSION);

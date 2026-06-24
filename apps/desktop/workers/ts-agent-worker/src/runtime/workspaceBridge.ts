@@ -43,7 +43,7 @@ export class NativeWorkspaceBridge implements WebuiWorkspaceProvider {
     traceId: string,
     expectedUpdatedAt?: string | null,
   ): Promise<WebuiWorkspaceWriteResult> {
-    const params: Record<string, unknown> = { path, contents };
+    const params: Record<string, unknown> = { path, contents, internal_operation: true };
     if (expectedUpdatedAt !== undefined) {
       params.expected_updated_at = expectedUpdatedAt;
     }

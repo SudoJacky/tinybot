@@ -45,7 +45,7 @@ export class NativeSkillsBridge implements SkillsBridge {
     try {
       const content = createSkillBodyContent(body.content, always);
       const contents = createSkillContent(name, description, content, always);
-      await this.rpcClient.request(traceId, "workspace.write_file", { path, contents });
+      await this.rpcClient.request(traceId, "workspace.write_file", { path, contents, internal_operation: true });
       for (const resource of normalizeSkillResources(body.resources)) {
         await this.rpcClient.request(traceId, "workspace.create_dir", {
           path: `${skillDirPath(name)}/${resource}`,
@@ -71,7 +71,7 @@ export class NativeSkillsBridge implements SkillsBridge {
       throw new NativeWebuiSkillError("skill not found", 404);
     }
     const contents = updateSkillContent(currentContent, name, body);
-    await this.rpcClient.request(traceId, "workspace.write_file", { path, contents });
+    await this.rpcClient.request(traceId, "workspace.write_file", { path, contents, internal_operation: true });
     return { updated: true, name, path };
   }
 
@@ -88,6 +88,7 @@ export class NativeSkillsBridge implements SkillsBridge {
       await this.rpcClient.request(traceId, "workspace.delete_file", {
         path: skillDirPath(name),
         recursive: true,
+        internal_operation: true,
       });
     } catch (error) {
       throw new NativeWebuiSkillError(`failed to delete skill: ${errorMessage(error)}`, 500);
@@ -154,6 +155,7 @@ export class NativeSkillsBridge implements SkillsBridge {
       await this.rpcClient.request(traceId, "workspace.delete_file", {
         path: skillDirPath(name),
         recursive: true,
+        internal_operation: true,
       });
     } catch {
       // Match Python's best-effort cleanup: creation still reports the original error.
