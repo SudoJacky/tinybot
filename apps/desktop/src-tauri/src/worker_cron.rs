@@ -417,7 +417,9 @@ fn validate_job_input(job: &CronJobInput) -> Result<(), WorkerProtocolError> {
             if tz.as_deref().is_some_and(|value| value.trim().is_empty()) {
                 return Err(invalid_cron_request("job.schedule.tz must be non-empty"));
             }
-            Ok(())
+            Err(invalid_cron_request(
+                "job.schedule.kind=cron is not supported yet",
+            ))
         }
         _ => Ok(()),
     }?;
@@ -538,6 +540,43 @@ mod tests {
         assert_eq!(job.id, "cron-existing");
         assert_eq!(job.state.last_status.as_deref(), Some("ok"));
         assert_eq!(job.state.run_history.len(), 1);
+    }
+
+    #[test]
+    fn add_job_rejects_unsupported_cron_expression_schedules() {
+        let root = temp_workspace_root("reject-cron-expr");
+        let _cleanup = TempWorkspaceCleanup(root.clone());
+        let rpc = WorkerCronRpc::new(
+            root.clone(),
+            CapabilityPolicy::new([WorkerCapability::CronWrite]),
+        );
+
+        let error = rpc
+            .add_job(CronJobAddParams {
+                job: CronJobInput {
+                    id: Some("cron-expr".to_string()),
+                    name: "Cron expression".to_string(),
+                    enabled: Some(true),
+                    schedule: CronSchedule::Cron {
+                        expr: "0 9 * * *".to_string(),
+                        tz: Some("UTC".to_string()),
+                    },
+                    payload: CronPayload::AgentTurn {
+                        message: "Check status".to_string(),
+                        deliver: Some(true),
+                        channel: Some("websocket".to_string()),
+                        to: Some("chat-1".to_string()),
+                    },
+                    state: None,
+                    created_at_ms: None,
+                    delete_after_run: Some(false),
+                },
+            })
+            .expect_err("unsupported cron expression schedules should be rejected");
+
+        assert_eq!(error.code, WorkerProtocolErrorCode::InvalidProtocol);
+        assert_eq!(error.message, "job.schedule.kind=cron is not supported yet");
+        assert!(!root.join("cron").join("jobs.json").exists());
     }
 
     fn temp_workspace_root(name: &str) -> PathBuf {

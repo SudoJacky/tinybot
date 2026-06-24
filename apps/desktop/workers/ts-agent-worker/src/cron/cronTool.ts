@@ -115,11 +115,7 @@ class CronToolRuntime {
       return { schedule: { kind: "every", everyMs: everySeconds * 1000 }, deleteAfterRun: false };
     }
     if (cronExpr) {
-      const timezone = tz || defaultTimezone;
-      if (!isValidTimezone(timezone)) {
-        return `Error: unknown timezone '${timezone}'`;
-      }
-      return { schedule: { kind: "cron", expr: cronExpr, tz: timezone }, deleteAfterRun: false };
+      return "Error: cron_expr schedules are not supported yet";
     }
     if (at) {
       const parsed = parseAtTimestampMs(at, defaultTimezone);
