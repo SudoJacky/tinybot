@@ -2076,6 +2076,14 @@ async function loadNativeSettingsPane(): Promise<DesktopSettingsPaneModel> {
 }
 
 async function handleNativeSettingsAction(event: DesktopSettingsActionEvent): Promise<void> {
+  if (event.action === "retryLoad") {
+    await retryLoadNativeSettingsPane();
+    return;
+  }
+  if (event.action === "copyDiagnostics") {
+    await copyNativeSettingsDiagnostics(event.pane.save.message);
+    return;
+  }
   if (!nativeSettingsState) {
     logDesktopNativeDebug("settings.action.skipped", { action: event.action, reason: "state unavailable" });
     return;
@@ -2095,6 +2103,28 @@ async function handleNativeSettingsAction(event: DesktopSettingsActionEvent): Pr
     return;
   }
   await refreshNativeProviderModels();
+}
+
+async function retryLoadNativeSettingsPane(): Promise<void> {
+  logDesktopNativeDebug("settings.load.retry.start");
+  const pane = await loadNativeSettingsPane();
+  updateDesktopSettingsPane(document, pane, {
+    onSettingsAction: (event) => {
+      void handleNativeSettingsAction(event);
+    },
+  });
+  syncNativeRuntimeMetadata();
+  logDesktopNativeDebug("settings.load.retry.complete", { status: pane.save.status });
+}
+
+async function copyNativeSettingsDiagnostics(diagnostics: string): Promise<void> {
+  const clipboard = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
+  if (!clipboard?.writeText) {
+    logDesktopNativeDebug("settings.diagnostics.copy.skipped", { reason: "clipboard unavailable" });
+    return;
+  }
+  await clipboard.writeText(diagnostics || "No settings diagnostics");
+  logDesktopNativeDebug("settings.diagnostics.copy.complete");
 }
 
 async function saveNativeSettingsPane(): Promise<void> {

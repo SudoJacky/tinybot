@@ -110,7 +110,7 @@ function createSettingsPaneApp(state: Ref<SettingsPaneIslandOptions>): App {
             renderSidebar(options.pane, selectedGroupId, setActiveGroupId),
             h("div", { class: "desktop-settings-content" }, [
               renderHeader(options, selectedGroupId),
-              renderSaveAlert(options.pane),
+              renderSaveAlert(options),
               renderActiveSettingsSection(options, selectedGroupId, providerSearch.value, (value) => {
                 providerSearch.value = value;
               }),
@@ -148,7 +148,8 @@ function renderSaveStatus(pane: DesktopSettingsPaneModel) {
   }, pane.save.message);
 }
 
-function renderSaveAlert(pane: DesktopSettingsPaneModel) {
+function renderSaveAlert(options: SettingsPaneIslandOptions) {
+  const pane = options.pane;
   if (pane.save.status !== "failed") {
     return null;
   }
@@ -157,8 +158,20 @@ function renderSaveAlert(pane: DesktopSettingsPaneModel) {
     role: "alert",
     "data-desktop-settings-alert": "save",
   }, [
-    h("strong", "Settings save failed"),
+    h("strong", "Settings need attention"),
     h("p", pane.save.message),
+    h("div", { class: "desktop-settings-error-actions" }, [
+      h("button", {
+        type: "button",
+        "data-desktop-settings-action": "retryLoad",
+        onClick: () => options.onSettingsAction?.({ action: "retryLoad", pane }),
+      }, "Retry"),
+      h("button", {
+        type: "button",
+        "data-desktop-settings-action": "copyDiagnostics",
+        onClick: () => options.onSettingsAction?.({ action: "copyDiagnostics", pane }),
+      }, "Copy diagnostics"),
+    ]),
   ]);
 }
 
@@ -709,6 +722,9 @@ function getActiveSettingsGroup(
 function saveLabel(pane: DesktopSettingsPaneModel): string {
   if (pane.save.status === "saving") {
     return "Saving...";
+  }
+  if (pane.save.status === "failed") {
+    return "Save failed";
   }
   if (pane.save.status === "saved" || !pane.dirty) {
     return "Saved";

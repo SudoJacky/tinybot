@@ -229,11 +229,11 @@ interface DesktopAgentUiFormActionOptions {
   onAgentUiFormAction?: (event: DesktopAgentUiFormActionEvent) => void;
 }
 
-export type DesktopSettingsActionId = "save" | "discoverModels" | "edit";
+export type DesktopSettingsActionId = "save" | "discoverModels" | "retryLoad" | "copyDiagnostics" | "edit";
 
 export type DesktopSettingsActionEvent =
   | {
-      action: "save" | "discoverModels";
+      action: "save" | "discoverModels" | "retryLoad" | "copyDiagnostics";
       pane: DesktopSettingsPaneModel;
     }
   | {

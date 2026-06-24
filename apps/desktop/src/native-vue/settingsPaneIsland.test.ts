@@ -162,6 +162,7 @@ describe("settings pane Vue island", () => {
 
   test("renders visible save failure and field validation errors accessibly", async () => {
     const host = document.createElement("section");
+    const actions: string[] = [];
     const invalidState = buildDesktopSettingsFormState({
       agents: { defaults: { model: "", provider: "openai", active_profile: "work", timezone: "Shanghai" } },
       providers: {
@@ -184,6 +185,9 @@ describe("settings pane Vue island", () => {
 
     const mounted = mountSettingsPaneIsland(host, {
       pane: invalidPane,
+      onSettingsAction: (event: DesktopSettingsActionEvent) => {
+        actions.push(event.action);
+      },
     });
     await nextTick();
 
@@ -191,12 +195,35 @@ describe("settings pane Vue island", () => {
     expect(status?.getAttribute("aria-live")).toBe("polite");
     expect(status?.textContent).toContain("HTTP 400");
     expect(host.querySelector('[data-desktop-settings-alert="save"]')?.textContent).toContain("HTTP 400");
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-action="retryLoad"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-action="copyDiagnostics"]')?.click();
+    expect(actions).toEqual(["retryLoad", "copyDiagnostics"]);
 
     const timezone = host.querySelector<HTMLInputElement>('[data-desktop-settings-control="timezone"]');
     const describedBy = timezone?.getAttribute("aria-describedby");
     expect(timezone?.getAttribute("aria-invalid")).toBe("true");
     expect(describedBy).toContain("desktop-settings-timezone-error");
     expect(host.querySelector("#desktop-settings-timezone-error")?.textContent).toContain("Invalid timezone");
+
+    mounted.unmount();
+  });
+
+  test("does not label failed clean settings as saved", async () => {
+    const host = document.createElement("section");
+    const failedPane = buildDesktopSettingsPaneModel(savedState, {
+      lastSavedState: savedState,
+      providerCatalog,
+      saveStatus: "failed",
+      saveError: "Failed to load settings: offline",
+    });
+
+    const mounted = mountSettingsPaneIsland(host, {
+      pane: failedPane,
+    });
+    await nextTick();
+
+    expect(host.querySelector<HTMLButtonElement>('[data-desktop-settings-action="save"]')?.textContent).toBe("Save failed");
+    expect(host.querySelector('[data-desktop-settings-alert="save"]')?.textContent).toContain("Failed to load settings: offline");
 
     mounted.unmount();
   });
