@@ -443,7 +443,7 @@ export function createDesktopSettingsPatch(
   providerCatalog: DesktopProviderCatalogItem[] = [],
 ): UnknownRecord {
   const comparisonConfig = existingConfig === undefined ? state.serverSnapshot ?? {} : existingConfig;
-  if (state.touchedPaths?.length) {
+  if (state.touchedPaths) {
     return createDesktopSettingsTouchedPatch(state, comparisonConfig);
   }
   return createDesktopSettingsFullPatch(state, comparisonConfig, providerCatalog);
@@ -900,6 +900,7 @@ export function applyDesktopSettingsFieldEdit(
   value: DesktopSettingsEditableValue,
 ): DesktopSettingsFormState {
   const nextState = cloneSettingsState(state);
+  nextState.touchedPaths = nextState.touchedPaths ?? [];
   const text = String(value);
   if (fieldId.startsWith("providerEnabled:")) {
     const providerId = fieldId.slice("providerEnabled:".length);
@@ -1181,7 +1182,7 @@ function desktopSettingsStateDirty(
   state: DesktopSettingsFormState,
   lastSavedState: DesktopSettingsFormState,
 ): boolean {
-  if (state.touchedPaths?.length) {
+  if (state.touchedPaths) {
     return state.touchedPaths.some((path) => (
       !desktopSettingsValuesEqual(
         getDesktopSettingsPatchPathValue(state, path),

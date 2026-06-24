@@ -552,6 +552,62 @@ describe("desktop settings and provider helpers", () => {
     expect(createDesktopSettingsPatch(applyDesktopSettingsFieldEdit(state, "apiBase", "https://api.openai.com/v1"))).toEqual({});
   });
 
+  test("omits unrelated fields from patches for each settings group", () => {
+    const providerCatalog = [{ id: "openai", displayName: "OpenAI", status: "ready" }];
+    const existingConfig = {
+      agents: {
+        defaults: {
+          model: "gpt-4.1-mini",
+          provider: "openai",
+          active_profile: "work",
+          timezone: "UTC",
+        },
+      },
+      providers: {
+        profiles: {
+          work: {
+            provider: "openai",
+            api_key: "sk-live",
+            api_base: "https://api.openai.com/v1",
+            models: ["gpt-4.1-mini"],
+          },
+        },
+        openai: {
+          api_key: "sk-live",
+          api_base: "https://api.openai.com/v1",
+        },
+      },
+      knowledge: { enabled: true, auto_retrieve: false },
+      tools: { exec: { enable: true, timeout: 120 }, web: { enable: true, search: { provider: "duckduckgo" } } },
+      channels: { send_progress: true, send_tool_hints: false, send_max_retries: 3 },
+      gateway: { host: "127.0.0.1", port: 18790, heartbeat: { enabled: true, interval_s: 1800 } },
+    };
+
+    const cases: Array<[string, string, string | boolean, unknown]> = [
+      ["general", "model", "gpt-4.1", { agents: { defaults: { model: "gpt-4.1" } } }],
+      ["provider-models", "apiKey", "sk-replacement", {
+        providers: {
+          openai: { api_key: "sk-replacement" },
+          profiles: { work: { api_key: "sk-replacement" } },
+        },
+      }],
+      ["knowledge", "autoRetrieve", true, { knowledge: { auto_retrieve: true } }],
+      ["tools-approvals", "execTimeout", "90", { tools: { exec: { timeout: 90 } } }],
+      ["channels", "sendMaxRetries", "5", { channels: { send_max_retries: 5 } }],
+      ["gateway-runtime", "heartbeatIntervalS", "900", { gateway: { heartbeat: { interval_s: 900 } } }],
+      ["files-workspace", "sessionFiles", "ignored", {}],
+      ["memory-experience", "memory", "ignored", {}],
+      ["skills", "skills", "ignored", {}],
+      ["automations", "automations", "ignored", {}],
+      ["logs-diagnostics", "diagnostics", "ignored", {}],
+    ];
+
+    for (const [groupName, fieldId, value, expectedPatch] of cases) {
+      const state = buildDesktopSettingsFormState(existingConfig, providerCatalog);
+      expect(createDesktopSettingsPatch(applyDesktopSettingsFieldEdit(state, fieldId, value), existingConfig, providerCatalog), groupName).toEqual(expectedPatch);
+    }
+  });
+
   test("classifies settings fields by requirement, input mode, and advanced visibility", () => {
     const state = buildDesktopSettingsFormState({
       agents: {
@@ -726,9 +782,7 @@ describe("desktop settings and provider helpers", () => {
       lastSavedState: savedState,
       providerCatalog,
     }).dirty).toBe(false);
-    expect(createDesktopSettingsPatch(browsingState, config, providerCatalog)).toEqual(
-      createDesktopSettingsPatch(savedState, config, providerCatalog),
-    );
+    expect(createDesktopSettingsPatch(browsingState, config, providerCatalog)).toEqual({});
   });
 
   test("prevents disabling the current default provider until another route is selected", () => {
