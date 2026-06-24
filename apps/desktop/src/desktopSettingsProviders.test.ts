@@ -359,9 +359,11 @@ describe("desktop settings and provider helpers", () => {
       expect.objectContaining({ id: "models", label: "Models", control: "textarea", requirement: "optional", configurationMode: "list" }),
     ]));
     expect(pane.groups.find((group) => group.id === "files-workspace")?.fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "workspace", label: "Workspace", value: "~/.tinybot/workspace", control: "text", requirement: "required", configurationMode: "freeform" }),
       expect.objectContaining({ id: "sessionFiles", label: "Session files", value: "Session file", control: "readonly", requirement: "readonly", configurationMode: "readonly" }),
       expect.objectContaining({ id: "workspaceFiles", label: "Workspace files", value: "Workspace file", control: "readonly", requirement: "readonly", configurationMode: "readonly" }),
     ]));
+    expect(pane.groups.find((group) => group.id === "general")?.fields.find((field) => field.id === "workspace")).toBeUndefined();
     expect(pane.groups.find((group) => group.id === "gateway-runtime")?.fields).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "host", label: "Host", requirement: "required", configurationMode: "freeform" }),
       expect.objectContaining({ id: "port", label: "Port", state: "normal", requirement: "required", configurationMode: "numeric" }),
@@ -772,10 +774,24 @@ describe("desktop settings and provider helpers", () => {
     const fields = Object.fromEntries(pane.groups.flatMap((group) => group.fields.map((field) => [`${group.id}.${field.id}`, field])));
 
     expect(groups.general).toMatchObject({
-      description: "Default model, provider routing, timezone, and desktop workspace defaults.",
+      description: "Default model, provider routing, and timezone behavior.",
       aliases: ["default model", "profile", "timezone", "workspace"],
+      navigationArea: "core",
+      navigationMode: "section",
       i18nKey: "settings.groups.general",
     });
+    expect(groups["files-workspace"]).toMatchObject({
+      navigationArea: "application",
+      navigationMode: "section",
+    });
+    expect(groups["gateway-runtime"]).toMatchObject({
+      navigationArea: "system",
+      navigationMode: "section",
+    });
+    expect(groups["memory-experience"]).toMatchObject({
+      navigationMode: "preview",
+    });
+    expect(fields["general.workspace"]).toBeUndefined();
     expect(fields["general.timezone"]).toMatchObject({
       description: "Timezone used for timestamps, reminders, and scheduled work.",
       aliases: ["time zone", "locale", "schedule timezone"],
@@ -786,8 +802,9 @@ describe("desktop settings and provider helpers", () => {
       sensitive: true,
       i18nKey: "settings.fields.provider-models.apiKey",
     });
-    expect(fields["general.workspace"]).toMatchObject({
+    expect(fields["files-workspace.workspace"]).toMatchObject({
       applyEffect: "workspace-reload",
+      i18nKey: "settings.fields.files-workspace.workspace",
     });
     expect(fields["gateway-runtime.host"]).toMatchObject({
       applyEffect: "gateway-restart",

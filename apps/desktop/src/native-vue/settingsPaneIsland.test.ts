@@ -95,6 +95,30 @@ describe("settings pane Vue island", () => {
     expect(host.querySelector(".desktop-settings-provider-section")).toBeNull();
     expect(host.querySelector(".desktop-settings-status-card")).toBeNull();
     expect(Array.from(
+      host.querySelectorAll(".desktop-settings-nav-heading"),
+      (node) => node.textContent,
+    )).toEqual(["Core", "Application", "System"]);
+    expect(Array.from(
+      host.querySelectorAll("[data-desktop-settings-nav]"),
+      (node) => node.getAttribute("data-desktop-settings-nav"),
+    )).toEqual([
+      "general",
+      "provider-models",
+      "knowledge",
+      "tools-approvals",
+      "files-workspace",
+      "channels",
+      "gateway-runtime",
+      "logs-diagnostics",
+    ]);
+    expect(host.querySelector('[data-desktop-settings-nav="memory-experience"]')).toBeNull();
+    expect(host.querySelector('[data-desktop-settings-nav="skills"]')).toBeNull();
+    expect(host.querySelector('[data-desktop-settings-nav="automations"]')).toBeNull();
+    expect(Array.from(
+      host.querySelectorAll("[data-desktop-settings-preview]"),
+      (node) => node.getAttribute("data-desktop-settings-preview"),
+    )).toEqual(["memory-experience", "skills", "automations"]);
+    expect(Array.from(
       host.querySelectorAll("[data-desktop-settings-group]"),
       (node) => node.getAttribute("data-desktop-settings-group"),
     )).toEqual(["general"]);
@@ -125,6 +149,7 @@ describe("settings pane Vue island", () => {
       host.querySelectorAll("[data-desktop-settings-group]"),
       (node) => node.getAttribute("data-desktop-settings-group"),
     )).toEqual(["files-workspace"]);
+    expect(host.querySelector('[data-desktop-settings-field="workspace"] input')?.getAttribute("placeholder")).toBe("~/.tinybot/workspace");
     expect(host.querySelector('[data-desktop-settings-field="sessionFiles"] output')?.textContent).toContain("Session file");
     expect(host.querySelector('[data-desktop-settings-field="sessionFiles"] [data-desktop-settings-control="sessionFiles"]')).toBeNull();
     expect(host.querySelector('[data-desktop-settings-nav="general"]')?.getAttribute("data-active")).toBeNull();

@@ -195,6 +195,8 @@ export interface DesktopSettingsPaneGroupMetadata {
   description: string;
   aliases: string[];
   i18nKey: string;
+  navigationArea: "core" | "application" | "system";
+  navigationMode: "section" | "preview" | "hidden";
 }
 
 export interface DesktopSettingsPaneField {
@@ -238,6 +240,8 @@ export interface DesktopSettingsPaneGroup {
   description?: string;
   aliases?: string[];
   i18nKey?: string;
+  navigationArea?: DesktopSettingsPaneGroupMetadata["navigationArea"];
+  navigationMode?: DesktopSettingsPaneGroupMetadata["navigationMode"];
   fields: DesktopSettingsPaneField[];
 }
 
@@ -246,69 +250,91 @@ type DesktopSettingsPaneGroupId = DesktopSettingsPaneGroup["id"];
 const DESKTOP_SETTINGS_GROUP_METADATA: Record<DesktopSettingsPaneGroupId, DesktopSettingsPaneGroupMetadata> = {
   general: {
     label: "General",
-    description: "Default model, provider routing, timezone, and desktop workspace defaults.",
+    description: "Default model, provider routing, and timezone behavior.",
     aliases: ["default model", "profile", "timezone", "workspace"],
     i18nKey: "settings.groups.general",
+    navigationArea: "core",
+    navigationMode: "section",
   },
   "provider-models": {
     label: "Provider & Models",
     description: "Provider profiles, endpoints, credentials, and model catalogs.",
     aliases: ["providers", "models", "api key", "credentials"],
     i18nKey: "settings.groups.provider-models",
+    navigationArea: "core",
+    navigationMode: "section",
   },
   knowledge: {
     label: "Knowledge",
     description: "Retrieval, indexing, reranking, and graph extraction behavior.",
     aliases: ["rag", "retrieval", "embeddings", "graph"],
     i18nKey: "settings.groups.knowledge",
+    navigationArea: "core",
+    navigationMode: "section",
   },
   "tools-approvals": {
     label: "Tools & Approvals",
     description: "Browser, command execution, approval policy, and MCP server access.",
     aliases: ["tools", "mcp", "approvals", "security"],
     i18nKey: "settings.groups.tools-approvals",
+    navigationArea: "core",
+    navigationMode: "section",
   },
   "files-workspace": {
     label: "Files & Workspace",
     description: "Session files, knowledge documents, and editable workspace file boundaries.",
     aliases: ["files", "storage", "workspace"],
     i18nKey: "settings.groups.files-workspace",
+    navigationArea: "application",
+    navigationMode: "section",
   },
   "memory-experience": {
     label: "Memory & Experience",
     description: "Memory and experience controls for contextual continuity.",
     aliases: ["memory", "experience"],
     i18nKey: "settings.groups.memory-experience",
+    navigationArea: "application",
+    navigationMode: "preview",
   },
   skills: {
     label: "Skills",
     description: "Skill availability and loading policy.",
     aliases: ["skills", "capabilities"],
     i18nKey: "settings.groups.skills",
+    navigationArea: "application",
+    navigationMode: "preview",
   },
   channels: {
     label: "Channels",
     description: "Streaming and retry behavior for desktop channels.",
     aliases: ["streaming", "progress", "retries"],
     i18nKey: "settings.groups.channels",
+    navigationArea: "application",
+    navigationMode: "section",
   },
   automations: {
     label: "Automations",
     description: "Automation and scheduling capabilities planned after core stability.",
     aliases: ["automation", "scheduling"],
     i18nKey: "settings.groups.automations",
+    navigationArea: "application",
+    navigationMode: "preview",
   },
   "gateway-runtime": {
     label: "Gateway & Runtime",
     description: "Local gateway connection, heartbeat, and runtime controls.",
     aliases: ["gateway", "runtime", "host", "port"],
     i18nKey: "settings.groups.gateway-runtime",
+    navigationArea: "system",
+    navigationMode: "section",
   },
   "logs-diagnostics": {
     label: "Logs & Diagnostics",
     description: "Runtime logs, diagnostics export, and local state recovery.",
     aliases: ["logs", "diagnostics", "debug"],
     i18nKey: "settings.groups.logs-diagnostics",
+    navigationArea: "system",
+    navigationMode: "section",
   },
 };
 
@@ -339,12 +365,12 @@ const DESKTOP_SETTINGS_FIELD_METADATA: Record<string, DesktopSettingsPaneFieldMe
     validationField: "timezone",
     i18nKey: "settings.fields.general.timezone",
   },
-  "general.workspace": {
+  "files-workspace.workspace": {
     label: "Workspace",
     description: "Default desktop workspace path for local files and agent work.",
     aliases: ["workspace folder", "working directory", "files"],
     applyEffect: "workspace-reload",
-    i18nKey: "settings.fields.general.workspace",
+    i18nKey: "settings.fields.files-workspace.workspace",
   },
   "provider-models.apiKey": {
     label: "API key",
@@ -1834,12 +1860,6 @@ function buildDesktopSettingsPaneGroups(
           configurationMode: "freeform",
           placeholder: "Asia/Shanghai",
         }),
-        field("workspace", "Workspace", state.agent.workspace, {
-          requirement: "required",
-          configurationMode: "freeform",
-          advanced: true,
-          placeholder: "~/.tinybot/workspace",
-        }),
         field("temperature", "Temperature", state.agent.temperature, {
           control: "number",
           requirement: "optional",
@@ -2032,6 +2052,11 @@ function buildDesktopSettingsPaneGroups(
       id: "files-workspace",
       label: "Files & Workspace",
       fields: [
+        field("workspace", "Workspace", state.agent.workspace, {
+          requirement: "required",
+          configurationMode: "freeform",
+          placeholder: "~/.tinybot/workspace",
+        }),
         field("sessionFiles", "Session files", buildWorkbenchFileScopeLabel("session").label, { control: "readonly" }),
         field("knowledgeDocuments", "Knowledge documents", buildWorkbenchFileScopeLabel("knowledge").label, { control: "readonly" }),
         field("workspaceFiles", "Workspace files", buildWorkbenchFileScopeLabel("workspace").label, { control: "readonly" }),
@@ -2116,6 +2141,8 @@ function enrichDesktopSettingsPaneGroups(groups: DesktopSettingsPaneGroup[]): De
       description: groupMetadata.description,
       aliases: [...groupMetadata.aliases],
       i18nKey: groupMetadata.i18nKey,
+      navigationArea: groupMetadata.navigationArea,
+      navigationMode: groupMetadata.navigationMode,
       fields: group.fields.map((field) => enrichDesktopSettingsPaneField(group.id, field)),
     };
   });

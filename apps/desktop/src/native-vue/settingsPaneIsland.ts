@@ -254,6 +254,7 @@ function renderSidebar(
       class: "desktop-settings-nav",
       "aria-label": "Settings sections",
     }, renderNavigation(pane.groups, activeGroupId, setActiveGroupId)),
+    renderPreviewSettingsGroups(pane.groups),
   ]);
 }
 
@@ -262,23 +263,40 @@ function renderNavigation(
   activeGroupId: DesktopSettingsPaneGroup["id"],
   setActiveGroupId: (groupId: DesktopSettingsPaneGroup["id"]) => void,
 ) {
-  const nodes = [
-    h("p", { class: "desktop-settings-nav-heading" }, "Personal"),
-  ];
-  groups.forEach((group, index) => {
-    if (index === 3) {
-      nodes.push(h("p", { class: "desktop-settings-nav-heading" }, "System"));
+  const nodes: ReturnType<typeof h>[] = [];
+  for (const area of ["core", "application", "system"] as const) {
+    const areaGroups = getNavigableSettingsGroups(groups).filter((group) => (group.navigationArea ?? "core") === area);
+    if (!areaGroups.length) {
+      continue;
     }
-    nodes.push(h("a", {
-      class: "desktop-settings-nav-item",
-      href: "#",
-      "data-desktop-settings-nav": group.id,
-      "data-active": group.id === activeGroupId ? "true" : undefined,
-      "aria-current": group.id === activeGroupId ? "page" : undefined,
-      onClick: (event: Event) => selectSettingsGroup(event, group.id, setActiveGroupId),
-    }, getSettingsNavLabel(group.id)));
-  });
+    nodes.push(h("p", { class: "desktop-settings-nav-heading" }, navigationAreaLabel(area)));
+    nodes.push(...areaGroups.map((group) => h("a", {
+        class: "desktop-settings-nav-item",
+        href: "#",
+        "data-desktop-settings-nav": group.id,
+        "data-active": group.id === activeGroupId ? "true" : undefined,
+        "aria-current": group.id === activeGroupId ? "page" : undefined,
+        onClick: (event: Event) => selectSettingsGroup(event, group.id, setActiveGroupId),
+      }, group.label)));
+  }
   return nodes;
+}
+
+function renderPreviewSettingsGroups(groups: DesktopSettingsPaneGroup[]) {
+  const previewGroups = getPreviewSettingsGroups(groups);
+  if (!previewGroups.length) {
+    return null;
+  }
+  return h("div", {
+    class: "desktop-settings-preview-list",
+    "aria-label": "Settings previews",
+  }, previewGroups.map((group) => h("div", {
+    class: "desktop-settings-preview-item",
+    "data-desktop-settings-preview": group.id,
+  }, [
+    h("span", group.label),
+    h("small", "Preview"),
+  ])));
 }
 
 function renderActiveSettingsSection(
@@ -775,7 +793,16 @@ function getActiveSettingsGroup(
   pane: DesktopSettingsPaneModel,
   activeGroupId?: DesktopSettingsPaneGroup["id"] | null,
 ): DesktopSettingsPaneGroup | null {
-  return pane.groups.find((group) => group.id === activeGroupId) ?? pane.groups[0] ?? null;
+  const groups = getNavigableSettingsGroups(pane.groups);
+  return groups.find((group) => group.id === activeGroupId) ?? groups[0] ?? null;
+}
+
+function getNavigableSettingsGroups(groups: DesktopSettingsPaneGroup[]): DesktopSettingsPaneGroup[] {
+  return groups.filter((group) => (group.navigationMode ?? "section") === "section");
+}
+
+function getPreviewSettingsGroups(groups: DesktopSettingsPaneGroup[]): DesktopSettingsPaneGroup[] {
+  return groups.filter((group) => group.navigationMode === "preview");
 }
 
 function saveLabel(pane: DesktopSettingsPaneModel): string {
@@ -816,20 +843,12 @@ function providerStatusTone(status: string): "default" | "error" | "success" | "
   return "default";
 }
 
-function getSettingsNavLabel(groupId: DesktopSettingsPaneGroup["id"]): string {
+function navigationAreaLabel(area: NonNullable<DesktopSettingsPaneGroup["navigationArea"]>): string {
   return {
-    general: "General",
-    "provider-models": "Provider & Models",
-    knowledge: "Knowledge",
-    "tools-approvals": "Tools & Approvals",
-    "files-workspace": "Files & Workspace",
-    "memory-experience": "Memory & Experience",
-    skills: "Skills",
-    channels: "Channels",
-    automations: "Automations",
-    "gateway-runtime": "Gateway & Runtime",
-    "logs-diagnostics": "Logs & Diagnostics",
-  }[groupId];
+    core: "Core",
+    application: "Application",
+    system: "System",
+  }[area];
 }
 
 function getSettingsGroupDescription(group: DesktopSettingsPaneGroup): string {
