@@ -691,6 +691,7 @@ function renderSettingsGroup(
     default: () => [
       h("h2", group.label),
       h("p", { class: "desktop-settings-group-description" }, getSettingsGroupDescription(group)),
+      renderMcpServerList(group),
       ...primaryFields.map((field) => renderSettingsField(options, group, field, highlightedFieldId)),
       advancedFields.length ? h("details", {
         class: "desktop-settings-advanced-fields",
@@ -701,6 +702,51 @@ function renderSettingsGroup(
       ]) : null,
     ],
   });
+}
+
+function renderMcpServerList(group: DesktopSettingsPaneGroup) {
+  if (group.id !== "tools-approvals") {
+    return null;
+  }
+  const mcpField = group.fields.find((field) => field.id === "mcpServers");
+  const servers = parseMcpServerRows(mcpField?.inputValue ?? "");
+  if (!servers.length) {
+    return null;
+  }
+  return h("div", {
+    class: "desktop-settings-mcp-server-list",
+    "aria-label": "MCP servers",
+  }, servers.map((server) => h("div", {
+    class: "desktop-settings-mcp-server",
+    "data-desktop-settings-mcp-server": server.name,
+  }, [
+    h("strong", server.name),
+    h("span", server.transport),
+    h("code", server.endpoint),
+  ])));
+}
+
+function parseMcpServerRows(value: string): Array<{ name: string; transport: string; endpoint: string }> {
+  try {
+    const root = JSON.parse(value) as unknown;
+    if (!root || typeof root !== "object" || Array.isArray(root)) {
+      return [];
+    }
+    return Object.entries(root as Record<string, unknown>).map(([name, config]) => {
+      const record = config && typeof config === "object" && !Array.isArray(config)
+        ? config as Record<string, unknown>
+        : {};
+      const command = typeof record.command === "string" ? record.command : "";
+      const url = typeof record.url === "string" ? record.url : "";
+      return {
+        name,
+        transport: command ? "command" : url ? "url" : "unknown",
+        endpoint: command || url || "Not configured",
+      };
+    });
+  } catch {
+    return [];
+  }
 }
 
 function renderSettingsField(

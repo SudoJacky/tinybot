@@ -583,4 +583,32 @@ describe("settings pane Vue island", () => {
     mounted.unmount();
     host.remove();
   });
+
+  test("renders MCP servers as a structured list with advanced JSON editing", async () => {
+    const host = document.createElement("section");
+    const mcpState = buildDesktopSettingsFormState({
+      agents: { defaults: { model: "gpt-4.1" } },
+      tools: {
+        mcp_servers: {
+          docs: { command: "docs-mcp", args: ["serve"] },
+          web: { url: "http://127.0.0.1:3000/mcp" },
+        },
+      },
+    });
+    const mcpPane = buildDesktopSettingsPaneModel(mcpState);
+
+    const mounted = mountSettingsPaneIsland(host, {
+      pane: mcpPane,
+      initialActiveGroupId: "tools-approvals",
+    });
+    await nextTick();
+
+    expect(host.querySelector('[data-desktop-settings-mcp-server="docs"]')?.textContent).toContain("docs-mcp");
+    expect(host.querySelector('[data-desktop-settings-mcp-server="docs"]')?.textContent).toContain("command");
+    expect(host.querySelector('[data-desktop-settings-mcp-server="web"]')?.textContent).toContain("http://127.0.0.1:3000/mcp");
+    expect(host.querySelector('[data-desktop-settings-field="mcpServers"]')?.closest("details")?.className).toContain("desktop-settings-advanced-fields");
+    expect(host.querySelector<HTMLTextAreaElement>('[data-desktop-settings-control="mcpServers"]')?.value).toContain("docs-mcp");
+
+    mounted.unmount();
+  });
 });
