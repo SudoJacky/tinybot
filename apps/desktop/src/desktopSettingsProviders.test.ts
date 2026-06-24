@@ -497,6 +497,34 @@ describe("desktop settings and provider helpers", () => {
     });
   });
 
+  test("omits reverted touched fields from patches and dirty state", () => {
+    const providerCatalog = [{ id: "openai", displayName: "OpenAI", status: "ready" }];
+    const existingConfig = {
+      agents: { defaults: { model: "gpt-4.1-mini", provider: "openai", active_profile: "work", timezone: "UTC" } },
+      providers: {
+        profiles: {
+          work: {
+            provider: "openai",
+            api_key: "sk-live",
+            api_base: "https://api.openai.com/v1",
+          },
+        },
+        openai: {
+          api_key: "sk-live",
+          api_base: "https://api.openai.com/v1",
+        },
+      },
+    };
+    const savedState = buildDesktopSettingsFormState(existingConfig, providerCatalog);
+    const sameTimezone = applyDesktopSettingsFieldEdit(savedState, "timezone", "UTC");
+    const sameProviderApiBase = applyDesktopSettingsFieldEdit(savedState, "apiBase", "https://api.openai.com/v1");
+
+    expect(createDesktopSettingsPatch(sameTimezone, existingConfig, providerCatalog)).toEqual({});
+    expect(createDesktopSettingsPatch(sameProviderApiBase, existingConfig, providerCatalog)).toEqual({});
+    expect(buildDesktopSettingsPaneModel(sameTimezone, { lastSavedState: savedState, providerCatalog }).dirty).toBe(false);
+    expect(buildDesktopSettingsPaneModel(sameProviderApiBase, { lastSavedState: savedState, providerCatalog }).dirty).toBe(false);
+  });
+
   test("classifies settings fields by requirement, input mode, and advanced visibility", () => {
     const state = buildDesktopSettingsFormState({
       agents: {

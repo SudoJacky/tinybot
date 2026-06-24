@@ -441,7 +441,7 @@ export function createDesktopSettingsPatch(
   providerCatalog: DesktopProviderCatalogItem[] = [],
 ): UnknownRecord {
   if (state.touchedPaths?.length) {
-    return createDesktopSettingsTouchedPatch(state);
+    return createDesktopSettingsTouchedPatch(state, existingConfig);
   }
   return createDesktopSettingsFullPatch(state, existingConfig, providerCatalog);
 }
@@ -587,10 +587,14 @@ function createDesktopSettingsFullPatch(
   };
 }
 
-function createDesktopSettingsTouchedPatch(state: DesktopSettingsFormState): UnknownRecord {
+function createDesktopSettingsTouchedPatch(state: DesktopSettingsFormState, existingConfig: unknown): UnknownRecord {
   const patch: UnknownRecord = {};
   for (const path of state.touchedPaths ?? []) {
-    setDesktopSettingsPatchPath(patch, path, getDesktopSettingsPatchPathValue(state, path));
+    const value = getDesktopSettingsPatchPathValue(state, path);
+    if (desktopSettingsValuesEqual(value, getDesktopSettingsExistingConfigPathValue(existingConfig, path))) {
+      continue;
+    }
+    setDesktopSettingsPatchPath(patch, path, value);
   }
   return patch;
 }
@@ -756,6 +760,18 @@ function setDesktopSettingsPatchPath(patch: UnknownRecord, path: string, value: 
   cursor[parts[parts.length - 1]] = value;
 }
 
+function getDesktopSettingsExistingConfigPathValue(existingConfig: unknown, path: string): unknown {
+  let cursor: unknown = existingConfig;
+  for (const part of path.split(".")) {
+    cursor = asRecord(cursor)[part];
+  }
+  return cursor;
+}
+
+function desktopSettingsValuesEqual(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 export function validateDesktopSettingsForm(state: DesktopSettingsFormState): DesktopSettingsValidationError[] {
   const errors: DesktopSettingsValidationError[] = [];
   if (!state.agent.model?.trim()) {
@@ -794,7 +810,7 @@ export function buildDesktopSettingsPaneModel(
   const validationErrors = validateDesktopSettingsForm(state);
   const providerSummaries = getDesktopStateProviderSummaries(state, options.providerCatalog ?? []);
   const dirty = options.lastSavedState
-    ? JSON.stringify(createDesktopSettingsPatch(state)) !== JSON.stringify(createDesktopSettingsPatch(options.lastSavedState))
+    ? desktopSettingsStateDirty(state, options.lastSavedState)
     : false;
   const saveStatus = options.saveStatus ?? "idle";
   return {
@@ -1156,6 +1172,21 @@ export function validateDesktopTimezone(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+function desktopSettingsStateDirty(
+  state: DesktopSettingsFormState,
+  lastSavedState: DesktopSettingsFormState,
+): boolean {
+  if (state.touchedPaths?.length) {
+    return state.touchedPaths.some((path) => (
+      !desktopSettingsValuesEqual(
+        getDesktopSettingsPatchPathValue(state, path),
+        getDesktopSettingsPatchPathValue(lastSavedState, path),
+      )
+    ));
+  }
+  return JSON.stringify(createDesktopSettingsPatch(state)) !== JSON.stringify(createDesktopSettingsPatch(lastSavedState));
 }
 
 export function validateDesktopUrl(value: string): boolean {
