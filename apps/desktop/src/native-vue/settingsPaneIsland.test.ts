@@ -159,9 +159,15 @@ describe("settings pane Vue island", () => {
 
     host.querySelector<HTMLAnchorElement>('[data-desktop-settings-nav="general"]')?.click();
     await nextTick();
-    const model = host.querySelector<HTMLSelectElement>('[data-desktop-settings-control="model"]');
-    model!.value = "gpt-4.1-mini";
-    model?.dispatchEvent(new Event("change", { bubbles: true }));
+    const model = host.querySelector<HTMLInputElement>('[data-desktop-settings-control="model"]');
+    expect(model?.getAttribute("role")).toBe("combobox");
+    expect(model?.getAttribute("list")).toBe("desktop-settings-model-options");
+    expect(Array.from(
+      host.querySelectorAll("#desktop-settings-model-options option"),
+      (node) => node.getAttribute("value"),
+    )).toEqual(["gpt-4.1", "gpt-4.1-mini"]);
+    model!.value = "custom-model-id";
+    model?.dispatchEvent(new Event("input", { bubbles: true }));
     host.querySelector<HTMLButtonElement>('[data-desktop-settings-action="save"]')?.click();
 
     host.querySelector<HTMLAnchorElement>('[data-desktop-settings-nav="provider-models"]')?.click();
@@ -174,7 +180,7 @@ describe("settings pane Vue island", () => {
 
     expect(actions).toEqual([
       "save",
-      "edit:model:gpt-4.1-mini",
+      "edit:model:custom-model-id",
       "save",
       "discoverModels",
       "edit:apiKey:sk-replacement",

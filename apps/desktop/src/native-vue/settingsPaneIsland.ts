@@ -629,30 +629,31 @@ function renderInlineField(
 ) {
   return h("label", { class: "desktop-settings-inline-field" }, [
     h("span", field.label),
-    field.id === "model" && getDefaultLlmModelOptions(options.pane).length > 0
-      ? renderModelSelect(options, field)
+    field.id === "model"
+      ? renderModelCombobox(options, field)
       : renderSettingsControl(options, field),
   ]);
 }
 
-function renderModelSelect(options: SettingsPaneIslandOptions, field: DesktopSettingsPaneField) {
+function renderModelCombobox(options: SettingsPaneIslandOptions, field: DesktopSettingsPaneField) {
   const optionValues = field.options?.map((option) => option.value) ?? getDefaultLlmModelOptions(options.pane);
   const values = Array.from(new Set([field.inputValue, ...optionValues].filter(Boolean)));
-  if (!values.length) {
-    values.push("");
-  }
-  return h("select", {
-    id: `desktop-settings-${field.id}`,
-    "data-desktop-settings-control": field.id,
-    "data-state": field.state,
-    "aria-invalid": field.state === "invalid" ? "true" : undefined,
-    "aria-describedby": getSettingsFieldErrorId(options.pane, field),
-    value: field.inputValue,
-    onChange: (event: Event) => emitEdit(options, field.id, String((event.target as HTMLSelectElement | null)?.value ?? "")),
-  }, values.map((value) => h("option", {
-    value,
-    selected: value === field.inputValue ? "true" : undefined,
-  }, value || "No model selected")));
+  const listId = "desktop-settings-model-options";
+  return [
+    h("input", {
+      id: `desktop-settings-${field.id}`,
+      "data-desktop-settings-control": field.id,
+      "data-state": field.state,
+      "aria-invalid": field.state === "invalid" ? "true" : undefined,
+      "aria-describedby": getSettingsFieldErrorId(options.pane, field),
+      role: "combobox",
+      list: listId,
+      value: field.inputValue,
+      placeholder: field.placeholder ?? "Enter model id",
+      onInput: (event: Event) => emitEdit(options, field.id, String((event.target as HTMLInputElement | null)?.value ?? "")),
+    }),
+    h("datalist", { id: listId }, values.map((value) => h("option", { value }))),
+  ];
 }
 
 function renderSettingsControl(options: SettingsPaneIslandOptions, field: DesktopSettingsPaneField) {
