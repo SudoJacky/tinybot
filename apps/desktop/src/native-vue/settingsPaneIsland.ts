@@ -134,14 +134,15 @@ function renderHeader(
       activeGroup ? h("p", { class: "desktop-settings-header-description" }, getSettingsGroupDescription(activeGroup.id)) : null,
     ]),
     h("div", { class: "desktop-settings-save-region" }, [
-      renderSaveStatus(pane),
+      renderSaveStatus(options),
       renderSaveButton(options),
     ]),
   ]);
 }
 
-function renderSaveStatus(pane: DesktopSettingsPaneModel) {
-  const saveDetails = renderSaveDetails(pane);
+function renderSaveStatus(options: SettingsPaneIslandOptions) {
+  const pane = options.pane;
+  const saveDetails = renderSaveDetails(options);
   return h("div", {
     class: "desktop-settings-save-status",
     "data-desktop-settings-status": "save",
@@ -152,21 +153,50 @@ function renderSaveStatus(pane: DesktopSettingsPaneModel) {
   ]);
 }
 
-function renderSaveDetails(pane: DesktopSettingsPaneModel) {
-  const details: string[] = [];
-  if (pane.save.transport === "gateway-fallback") {
-    details.push("Saved through gateway fallback");
+function renderSaveDetails(options: SettingsPaneIslandOptions) {
+  const pane = options.pane;
+  const details: Array<{
+    text: string;
+    action?: "restartGateway" | "reloadWorkspace";
+    label?: string;
+  }> = [];
+  if (pane.save.restartRequired?.length) {
+    details.push({
+      text: "Gateway restart required",
+      action: "restartGateway",
+      label: "Restart gateway now",
+    });
   }
-  details.push(...(pane.save.warnings ?? []));
+  if (pane.save.reloadRequired?.length) {
+    details.push({
+      text: "Workspace reload required",
+      action: "reloadWorkspace",
+      label: "Reload workspace",
+    });
+  }
+  if (pane.save.transport === "gateway-fallback") {
+    details.push({ text: "Saved through gateway fallback" });
+  }
+  details.push(...(pane.save.warnings ?? []).map((warning) => ({ text: warning })));
   if (details.length === 0) {
     return null;
   }
   return h("ul", {
     class: "desktop-settings-save-details",
     "data-desktop-settings-save-details": "",
-  }, details.map((detail) => h("li", {
-    "data-desktop-settings-save-detail": "",
-  }, detail)));
+  }, details.map((detail) => {
+    const action = detail.action;
+    return h("li", {
+      "data-desktop-settings-save-detail": "",
+    }, [
+      h("span", detail.text),
+      action ? h("button", {
+        type: "button",
+        "data-desktop-settings-action": action,
+        onClick: () => options.onSettingsAction?.({ action, pane }),
+      }, detail.label) : null,
+    ]);
+  }));
 }
 
 function renderSaveAlert(options: SettingsPaneIslandOptions) {

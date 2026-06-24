@@ -150,7 +150,7 @@ export interface DesktopSecretField {
   empty: boolean;
 }
 
-export type DesktopSettingsSaveStatus = "idle" | "saving" | "saved" | "failed";
+export type DesktopSettingsSaveStatus = "idle" | "saving" | "saved" | "failed" | "restart-required" | "reload-required";
 export type DesktopSettingsSaveTransport = "native" | "gateway-fallback";
 export interface DesktopSettingsPaneSaveDetails {
   transport: DesktopSettingsSaveTransport;
@@ -879,8 +879,8 @@ export function buildDesktopSettingsPaneModel(
   const dirty = options.lastSavedState
     ? desktopSettingsStateDirty(state, options.lastSavedState)
     : false;
-  const saveStatus = options.saveStatus ?? "idle";
   const saveDetails = normalizeDesktopSettingsSaveDetails(options.saveDetails);
+  const saveStatus = resolveDesktopSettingsSaveStatus(options.saveStatus ?? "idle", saveDetails);
   return {
     dirty,
     validationErrors,
@@ -1933,6 +1933,22 @@ function normalizeDesktopSettingsSaveDetails(
   };
 }
 
+function resolveDesktopSettingsSaveStatus(
+  status: DesktopSettingsSaveStatus,
+  saveDetails: DesktopSettingsPaneSaveDetails | null,
+): DesktopSettingsSaveStatus {
+  if (status !== "saved") {
+    return status;
+  }
+  if (saveDetails?.restartRequired.length) {
+    return "restart-required";
+  }
+  if (saveDetails?.reloadRequired.length) {
+    return "reload-required";
+  }
+  return status;
+}
+
 function formatDesktopSettingsSaveMessage(
   status: DesktopSettingsSaveStatus,
   dirty: boolean,
@@ -1950,6 +1966,12 @@ function formatDesktopSettingsSaveMessage(
       return "Settings saved with warnings";
     }
     return "Settings saved";
+  }
+  if (status === "restart-required") {
+    return "Settings saved. Gateway restart required";
+  }
+  if (status === "reload-required") {
+    return "Settings saved. Workspace reload required";
   }
   if (validationErrorCount > 0) {
     return `${validationErrorCount} ${validationErrorCount === 1 ? "setting needs" : "settings need"} attention`;

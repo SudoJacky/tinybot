@@ -930,4 +930,51 @@ describe("desktop settings and provider helpers", () => {
     expect(pane.save.applied).toEqual(["agents.defaults.model"]);
     expect(pane.save.warnings).toEqual(["Native patch failed; gateway fallback applied."]);
   });
+
+  test("promotes saved restart and reload side effects to distinct save states", () => {
+    const state = buildDesktopSettingsFormState({
+      agents: { defaults: { model: "gpt-4.1-mini", provider: "openai", active_profile: "work", timezone: "UTC" } },
+      providers: {
+        profiles: {
+          work: {
+            provider: "openai",
+            api_key: "sk-live",
+            models: ["gpt-4.1-mini"],
+          },
+        },
+      },
+    }, [{ id: "openai", displayName: "OpenAI", status: "ready" }]);
+
+    const restartPane = buildDesktopSettingsPaneModel(state, {
+      lastSavedState: state,
+      providerCatalog: [{ id: "openai", displayName: "OpenAI", status: "ready" }],
+      saveStatus: "saved",
+      saveDetails: {
+        transport: "native",
+        updatedFields: ["gateway.port"],
+        applied: ["gatewayRuntimeChanged"],
+        restartRequired: ["gatewayRestartRequired"],
+        reloadRequired: [],
+        warnings: [],
+      },
+    });
+    const reloadPane = buildDesktopSettingsPaneModel(state, {
+      lastSavedState: state,
+      providerCatalog: [{ id: "openai", displayName: "OpenAI", status: "ready" }],
+      saveStatus: "saved",
+      saveDetails: {
+        transport: "native",
+        updatedFields: ["agents.defaults.workspace"],
+        applied: ["workspaceChanged"],
+        restartRequired: [],
+        reloadRequired: ["workspaceReloadRequired"],
+        warnings: [],
+      },
+    });
+
+    expect(restartPane.save.status).toBe("restart-required");
+    expect(restartPane.save.message).toBe("Settings saved. Gateway restart required");
+    expect(reloadPane.save.status).toBe("reload-required");
+    expect(reloadPane.save.message).toBe("Settings saved. Workspace reload required");
+  });
 });

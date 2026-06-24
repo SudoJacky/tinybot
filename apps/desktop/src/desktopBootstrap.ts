@@ -2086,6 +2086,20 @@ async function handleNativeSettingsAction(event: DesktopSettingsActionEvent): Pr
     await copyNativeSettingsDiagnostics(event.pane.save.message);
     return;
   }
+  if (event.action === "restartGateway") {
+    await handleNativeGatewayRuntimeAction({
+      action: "restart",
+      status: nativeRuntimeStatus,
+      diagnostics: "",
+    });
+    return;
+  }
+  if (event.action === "reloadWorkspace") {
+    await retryLoadNativeSettingsPane();
+    scheduleNativeRuntimeStatusRefresh("settings.workspace.reload");
+    logDesktopNativeDebug("settings.workspace.reload.requested");
+    return;
+  }
   if (!nativeSettingsState) {
     logDesktopNativeDebug("settings.action.skipped", { action: event.action, reason: "state unavailable" });
     return;

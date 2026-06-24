@@ -264,4 +264,40 @@ describe("settings pane Vue island", () => {
 
     mounted.unmount();
   });
+
+  test("renders restart and reload required actions", async () => {
+    const host = document.createElement("section");
+    const actions: string[] = [];
+    const pendingPane = buildDesktopSettingsPaneModel(savedState, {
+      lastSavedState: savedState,
+      providerCatalog,
+      saveStatus: "saved",
+      saveDetails: {
+        transport: "native",
+        updatedFields: ["gateway.port", "agents.defaults.workspace"],
+        applied: ["gatewayRuntimeChanged", "workspaceChanged"],
+        restartRequired: ["gatewayRestartRequired"],
+        reloadRequired: ["workspaceReloadRequired"],
+        warnings: [],
+      },
+    });
+
+    const mounted = mountSettingsPaneIsland(host, {
+      pane: pendingPane,
+      onSettingsAction: (event: DesktopSettingsActionEvent) => {
+        actions.push(event.action);
+      },
+    });
+    await nextTick();
+
+    const status = host.querySelector('[data-desktop-settings-status="save"]');
+    expect(status?.textContent).toContain("Gateway restart required");
+    expect(status?.textContent).toContain("Workspace reload required");
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-action="restartGateway"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-action="reloadWorkspace"]')?.click();
+
+    expect(actions).toEqual(["restartGateway", "reloadWorkspace"]);
+
+    mounted.unmount();
+  });
 });
