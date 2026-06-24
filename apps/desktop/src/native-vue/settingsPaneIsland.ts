@@ -317,8 +317,8 @@ function renderDefaultLlmCard(options: SettingsPaneIslandOptions) {
           h("h2", "Default LLM"),
         ]),
         h("div", { class: "desktop-settings-default-llm-form" }, [
-          provider ? renderInlineField(options, provider, "Provider") : null,
-          model ? renderInlineField(options, model, "Model") : null,
+          provider ? renderInlineField(options, provider) : null,
+          model ? renderInlineField(options, model) : null,
         ]),
         h("p", { class: "desktop-settings-default-llm-copy" }, "Configure the global default LLM model. Individual agents can still choose a different model."),
       ],
@@ -507,10 +507,9 @@ function renderSettingsField(
 function renderInlineField(
   options: SettingsPaneIslandOptions,
   field: DesktopSettingsPaneField,
-  label: string,
 ) {
   return h("label", { class: "desktop-settings-inline-field" }, [
-    h("span", label),
+    h("span", field.label),
     field.id === "model" && getDefaultLlmModelOptions(options.pane).length > 0
       ? renderModelSelect(options, field)
       : renderSettingsControl(options, field),

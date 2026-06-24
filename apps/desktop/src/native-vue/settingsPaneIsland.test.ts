@@ -160,8 +160,9 @@ describe("settings pane Vue island", () => {
     expect(host.textContent).toBe("");
   });
 
-  test("renders group and field descriptions from the pane model", async () => {
+  test("renders labels, descriptions, validation, dirty state, and save actions from the pane model", async () => {
     const host = document.createElement("section");
+    const actions: string[] = [];
     const metadataPane = buildDesktopSettingsPaneModel(draftState, {
       lastSavedState: savedState,
       providerCatalog,
@@ -170,18 +171,54 @@ describe("settings pane Vue island", () => {
     metadataPane.groups[0] = {
       ...metadataPane.groups[0],
       description: "Model-owned group description",
-      fields: metadataPane.groups[0].fields.map((field) => field.id === "timezone"
-        ? { ...field, description: "Model-owned timezone description" }
-        : field),
+      fields: metadataPane.groups[0].fields.map((field) => {
+        if (field.id === "model") {
+          return { ...field, label: "Model-owned default model label" };
+        }
+        if (field.id === "provider") {
+          return { ...field, label: "Model-owned provider label" };
+        }
+        if (field.id === "timezone") {
+          return {
+            ...field,
+            description: "Model-owned timezone description",
+            state: "invalid",
+            validationField: "gatewayPort",
+          } as typeof field;
+        }
+        return field;
+      }),
+    };
+    metadataPane.validationErrors = [{ field: "gatewayPort", errorKey: "portRange" }];
+    metadataPane.dirty = true;
+    metadataPane.save = {
+      ...metadataPane.save,
+      message: "Model-owned dirty state",
+      canSave: false,
     };
 
     const mounted = mountSettingsPaneIsland(host, {
       pane: metadataPane,
+      onSettingsAction: (event: DesktopSettingsActionEvent) => {
+        actions.push(event.action);
+      },
     });
     await nextTick();
 
+    expect(host.querySelector(".desktop-settings-default-llm-card")?.textContent).toContain("Model-owned provider label");
+    expect(host.querySelector(".desktop-settings-default-llm-card")?.textContent).toContain("Model-owned default model label");
     expect(host.querySelector(".desktop-settings-header-description")?.textContent).toContain("Model-owned group description");
     expect(host.querySelector('[data-desktop-settings-field="timezone"] .desktop-settings-field-description')?.textContent).toContain("Model-owned timezone description");
+    expect(host.querySelector('[data-desktop-settings-status="save"]')?.textContent).toContain("Model-owned dirty state");
+
+    const save = host.querySelector<HTMLButtonElement>('[data-desktop-settings-action="save"]');
+    expect(save?.disabled).toBe(true);
+    save?.click();
+    expect(actions).toEqual([]);
+
+    const timezone = host.querySelector<HTMLInputElement>('[data-desktop-settings-control="timezone"]');
+    expect(timezone?.getAttribute("aria-invalid")).toBe("true");
+    expect(host.querySelector("#desktop-settings-timezone-error")?.textContent).toContain("Port must be between 1 and 65535.");
 
     mounted.unmount();
   });
