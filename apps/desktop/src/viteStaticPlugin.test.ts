@@ -19,6 +19,9 @@ describe("desktop WebUI static routing", () => {
     expect(resolveWebuiStaticFile(webuiRoot, "/assets/src/main.js")).toBe(
       path.join(webuiRoot, "assets", "src", "main.js"),
     );
+    expect(resolveWebuiStaticFile(webuiRoot, "/assets/styles/components/desktop-settings.css")).toBe(
+      path.join(webuiRoot, "assets", "styles", "components", "desktop-settings.css"),
+    );
   });
 
   test("leaves non-static and path traversal requests unresolved", () => {
@@ -71,6 +74,7 @@ describe("desktop WebUI static routing", () => {
         "docs/quickstart",
         "docs/quickstart.html",
         "assets/styles.css",
+        "assets/styles/components/desktop-settings.css",
         "assets/docs-styles.css",
         "assets/docs.js",
         "assets/logo-mark.svg",

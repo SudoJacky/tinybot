@@ -1,0 +1,50 @@
+name: Desktop CI
+
+on:
+  pull_request:
+    paths:
+      - "apps/desktop/**"
+      - "webui/**"
+      - ".github/workflows/desktop-ci.yml"
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/desktop
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run desktop tests
+        shell: bash
+        run: |
+          set +e
+          npm test > test-output.log 2>&1
+          status=$?
+          tail -n 200 test-output.log
+          exit "$status"
+
+      - name: Upload failed desktop test log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-test-output
+          path: apps/desktop/test-output.log
+          retention-days: 3
+
+      - name: Build desktop frontend
+        run: npm run build
