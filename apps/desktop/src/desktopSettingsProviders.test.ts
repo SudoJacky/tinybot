@@ -421,6 +421,82 @@ describe("desktop settings and provider helpers", () => {
     expect(patch.gateway).toMatchObject({ port: 18888 });
   });
 
+  test("generates touched-path patches for individual field edits without hidden settings", () => {
+    const existingConfig = {
+      agents: {
+        defaults: {
+          model: "gpt-4.1-mini",
+          provider: "openai",
+          timezone: "UTC",
+          hidden_backend_only: "preserve",
+          embedding: {
+            provider: "dashscope",
+            model_name: "text-embedding-v3",
+            hidden_embedding_only: true,
+          },
+        },
+      },
+      knowledge: {
+        enabled: true,
+        hidden_graph_backend_only: { preserve: true },
+      },
+      gateway: {
+        host: "127.0.0.1",
+        port: 18790,
+        hidden_gateway_only: "preserve",
+      },
+    };
+    const state = buildDesktopSettingsFormState(existingConfig, [{ id: "openai", displayName: "OpenAI", status: "ready" }]);
+
+    const withTimezone = applyDesktopSettingsFieldEdit(state, "timezone", "Asia/Shanghai");
+    const withKnowledgeDisabled = applyDesktopSettingsFieldEdit(state, "enabled", false);
+    const withGatewayPort = applyDesktopSettingsFieldEdit(state, "port", "18888");
+
+    expect(createDesktopSettingsPatch(withTimezone, existingConfig, [{ id: "openai", displayName: "OpenAI", status: "ready" }])).toEqual({
+      agents: { defaults: { timezone: "Asia/Shanghai" } },
+    });
+    expect(createDesktopSettingsPatch(withKnowledgeDisabled, existingConfig, [{ id: "openai", displayName: "OpenAI", status: "ready" }])).toEqual({
+      knowledge: { enabled: false },
+    });
+    expect(createDesktopSettingsPatch(withGatewayPort, existingConfig, [{ id: "openai", displayName: "OpenAI", status: "ready" }])).toEqual({
+      gateway: { port: 18888 },
+    });
+  });
+
+  test("generates touched-path patches for provider profile edits only", () => {
+    const providerCatalog = [{ id: "openai", displayName: "OpenAI", status: "ready" }];
+    const existingConfig = {
+      agents: { defaults: { model: "gpt-4.1-mini", provider: "openai", active_profile: "work" } },
+      providers: {
+        profiles: {
+          work: {
+            provider: "openai",
+            api_key: "sk-live",
+            api_base: "https://api.openai.com/v1",
+            models: ["gpt-4.1-mini"],
+            hidden_profile_only: "preserve",
+          },
+        },
+        openai: {
+          api_key: "sk-live",
+          api_base: "https://api.openai.com/v1",
+          hidden_provider_only: "preserve",
+        },
+      },
+    };
+    const state = buildDesktopSettingsFormState(existingConfig, providerCatalog);
+    const withProviderApiBase = applyDesktopSettingsFieldEdit(state, "apiBase", "https://proxy.example/v1");
+
+    expect(createDesktopSettingsPatch(withProviderApiBase, existingConfig, providerCatalog)).toEqual({
+      providers: {
+        openai: { api_base: "https://proxy.example/v1" },
+        profiles: {
+          work: { api_base: "https://proxy.example/v1" },
+        },
+      },
+    });
+  });
+
   test("classifies settings fields by requirement, input mode, and advanced visibility", () => {
     const state = buildDesktopSettingsFormState({
       agents: {
@@ -559,8 +635,6 @@ describe("desktop settings and provider helpers", () => {
       providers: {
         deepseek: {
           enabled: false,
-          api_base: "https://api.deepseek.com",
-          api_key: "sk-deepseek",
         },
       },
     });

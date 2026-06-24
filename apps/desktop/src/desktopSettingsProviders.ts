@@ -101,6 +101,7 @@ export interface DesktopSettingsFormState {
   providerEditor: DesktopSettingsProviderEditorState;
   providerSummaries: DesktopSettingsProviderSummary[];
   providerEditorDirty?: boolean;
+  touchedPaths?: string[];
 }
 
 export type DesktopSettingsValidationField =
@@ -439,6 +440,17 @@ export function createDesktopSettingsPatch(
   existingConfig: unknown = {},
   providerCatalog: DesktopProviderCatalogItem[] = [],
 ): UnknownRecord {
+  if (state.touchedPaths?.length) {
+    return createDesktopSettingsTouchedPatch(state);
+  }
+  return createDesktopSettingsFullPatch(state, existingConfig, providerCatalog);
+}
+
+function createDesktopSettingsFullPatch(
+  state: DesktopSettingsFormState,
+  existingConfig: unknown = {},
+  providerCatalog: DesktopProviderCatalogItem[] = [],
+): UnknownRecord {
   const providerIds = providerCatalog.map((provider) => stringValue(provider.id)).filter(Boolean);
   const providerDraft = getDesktopSettingsPersistedProviderDraft(state, providerIds);
   const providerName = providerDraft.providerName;
@@ -575,6 +587,175 @@ export function createDesktopSettingsPatch(
   };
 }
 
+function createDesktopSettingsTouchedPatch(state: DesktopSettingsFormState): UnknownRecord {
+  const patch: UnknownRecord = {};
+  for (const path of state.touchedPaths ?? []) {
+    setDesktopSettingsPatchPath(patch, path, getDesktopSettingsPatchPathValue(state, path));
+  }
+  return patch;
+}
+
+function getDesktopSettingsPatchPathValue(state: DesktopSettingsFormState, path: string): unknown {
+  switch (path) {
+    case "agents.defaults.model":
+      return state.agent.model;
+    case "agents.defaults.active_profile":
+      return state.agent.activeProfile;
+    case "agents.defaults.provider":
+      return state.agent.provider;
+    case "agents.defaults.workspace":
+      return state.agent.workspace;
+    case "agents.defaults.temperature":
+      return state.agent.temperature;
+    case "agents.defaults.max_tokens":
+      return state.agent.maxTokens;
+    case "agents.defaults.context_window_tokens":
+      return state.agent.contextWindowTokens;
+    case "agents.defaults.max_tool_iterations":
+      return state.agent.maxToolIterations;
+    case "agents.defaults.reasoning_effort":
+      return state.agent.reasoningEffort;
+    case "agents.defaults.timezone":
+      return state.agent.timezone;
+    case "agents.defaults.embedding.provider":
+      return state.embedding.provider;
+    case "agents.defaults.embedding.model_name":
+      return state.embedding.modelName;
+    case "agents.defaults.embedding.api_key":
+      return state.embedding.apiKey || "";
+    case "agents.defaults.embedding.api_base":
+      return state.embedding.apiBase;
+    case "knowledge.enabled":
+      return state.knowledge.enabled;
+    case "knowledge.auto_retrieve":
+      return state.knowledge.autoRetrieve;
+    case "knowledge.max_chunks":
+      return state.knowledge.maxChunks;
+    case "knowledge.chunk_size":
+      return state.knowledge.chunkSize;
+    case "knowledge.chunk_overlap":
+      return state.knowledge.chunkOverlap;
+    case "knowledge.retrieval_mode":
+      return state.knowledge.retrievalMode;
+    case "knowledge.rerank_enabled":
+      return state.knowledge.rerankEnabled;
+    case "knowledge.rerank_model":
+      return state.knowledge.rerankModel;
+    case "knowledge.rerank_api_key":
+      return state.knowledge.rerankApiKey;
+    case "knowledge.rerank_api_key_env_var":
+      return state.knowledge.rerankApiKeyEnvVar;
+    case "knowledge.rerank_api_base":
+      return state.knowledge.rerankApiBase;
+    case "knowledge.rerank_top_n":
+      return state.knowledge.rerankTopN;
+    case "knowledge.generate_summary":
+      return state.knowledge.generateSummary;
+    case "knowledge.semantic_extraction_mode":
+      return state.knowledge.semanticExtractionMode;
+    case "knowledge.semantic_llm_max_tokens":
+      return state.knowledge.semanticLlmMaxTokens;
+    case "knowledge.semantic_llm_timeout":
+      return state.knowledge.semanticLlmTimeout;
+    case "knowledge.graph_extraction_enabled":
+      return state.knowledge.graphExtractionEnabled;
+    case "knowledge.graph_auto_extract":
+      return state.knowledge.graphAutoExtract;
+    case "knowledge.graph_extraction_model":
+      return state.knowledge.graphExtractionModel;
+    case "knowledge.graph_extraction_max_tokens":
+      return state.knowledge.graphExtractionMaxTokens;
+    case "knowledge.graph_extraction_max_job_tokens":
+      return state.knowledge.graphExtractionMaxJobTokens;
+    case "knowledge.graph_extraction_concurrency":
+      return state.knowledge.graphExtractionConcurrency;
+    case "knowledge.graphrag_community_algorithm":
+      return state.knowledge.graphRagCommunityAlgorithm;
+    case "knowledge.graphrag_community_level":
+      return state.knowledge.graphRagCommunityLevel;
+    case "knowledge.graphrag_report_llm_enabled":
+      return state.knowledge.graphRagReportLlmEnabled;
+    case "knowledge.graphrag_report_max_tokens":
+      return state.knowledge.graphRagReportMaxTokens;
+    case "knowledge.graphrag_entity_summary_enabled":
+      return state.knowledge.graphRagEntitySummaryEnabled;
+    case "tools.web.enable":
+      return state.tools.webEnable;
+    case "tools.web.proxy":
+      return state.tools.webProxy;
+    case "tools.web.search.provider":
+      return state.tools.searchProvider;
+    case "tools.exec.enable":
+      return state.tools.execEnable;
+    case "tools.exec.timeout":
+      return state.tools.execTimeout;
+    case "tools.mcp_servers":
+      return parseDesktopJsonObject(state.tools.mcpServersText);
+    case "tools.restrict_to_workspace":
+      return state.tools.restrictToWorkspace;
+    case "gateway.host":
+      return state.gateway.host;
+    case "gateway.port":
+      return state.gateway.port;
+    case "gateway.heartbeat.enabled":
+      return state.gateway.heartbeatEnabled;
+    case "gateway.heartbeat.interval_s":
+      return state.gateway.heartbeatIntervalS;
+    case "channels.send_progress":
+      return state.channels.sendProgress;
+    case "channels.send_tool_hints":
+      return state.channels.sendToolHints;
+    case "channels.send_max_retries":
+      return state.channels.sendMaxRetries;
+  }
+
+  const providerEnabledPath = path.match(/^providers\.([^.]+)\.enabled$/);
+  if (providerEnabledPath) {
+    return state.providerSummaries.find((provider) => provider.id === providerEnabledPath[1])?.enabled ?? false;
+  }
+  const providerApiKeyPath = path.match(/^providers\.([^.]+)\.api_key$/);
+  if (providerApiKeyPath) {
+    return state.providerSummaries.find((provider) => provider.id === providerApiKeyPath[1])?.apiKey || "";
+  }
+  const providerApiBasePath = path.match(/^providers\.([^.]+)\.api_base$/);
+  if (providerApiBasePath) {
+    return state.providerSummaries.find((provider) => provider.id === providerApiBasePath[1])?.apiBase ?? null;
+  }
+  const profilePath = path.match(/^providers\.profiles\.([^.]+)\.([^.]+)$/);
+  if (profilePath) {
+    const [, profileId, field] = profilePath;
+    const summary = state.providerSummaries.find((provider) => provider.profileId === profileId);
+    switch (field) {
+      case "provider":
+        return summary?.id || state.providerEditor.selectedProvider;
+      case "enabled":
+        return summary?.enabled ?? false;
+      case "api_key":
+        return summary?.apiKey || "";
+      case "api_base":
+        return summary?.apiBase ?? null;
+      case "models":
+        return parseDesktopProviderModelList(summary?.modelsText ?? "");
+      case "supports_model_discovery":
+        return summary?.supportsModelDiscovery ?? true;
+    }
+  }
+
+  return undefined;
+}
+
+function setDesktopSettingsPatchPath(patch: UnknownRecord, path: string, value: unknown): void {
+  const parts = path.split(".");
+  let cursor = patch;
+  for (const part of parts.slice(0, -1)) {
+    if (!isRecordValue(cursor[part])) {
+      cursor[part] = {};
+    }
+    cursor = cursor[part] as UnknownRecord;
+  }
+  cursor[parts[parts.length - 1]] = value;
+}
+
 export function validateDesktopSettingsForm(state: DesktopSettingsFormState): DesktopSettingsValidationError[] {
   const errors: DesktopSettingsValidationError[] = [];
   if (!state.agent.model?.trim()) {
@@ -680,8 +861,10 @@ export function applyDesktopProviderModels(
   nextState.providerEditor.modelsText = models.join("\n");
   nextState.providerEditorDirty = true;
   syncDesktopProviderSummaryFromEditor(nextState);
+  markDesktopProviderEditorTouched(nextState, "models");
   if (!nextState.agent.model && models[0]) {
     nextState.agent.model = models[0];
+    markDesktopSettingsTouched(nextState, "agents.defaults.model");
   }
   return {
     state: nextState,
@@ -700,39 +883,51 @@ export function applyDesktopSettingsFieldEdit(
   const nextState = cloneSettingsState(state);
   const text = String(value);
   if (fieldId.startsWith("providerEnabled:")) {
-    setDesktopProviderEnabled(nextState, fieldId.slice("providerEnabled:".length), Boolean(value));
+    const providerId = fieldId.slice("providerEnabled:".length);
+    setDesktopProviderEnabled(nextState, providerId, Boolean(value));
+    markDesktopProviderEnabledTouched(nextState, providerId);
     return nextState;
   }
   switch (fieldId) {
     case "model":
       nextState.agent.model = stringOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "agents.defaults.model");
       break;
     case "provider":
       nextState.agent.provider = stringOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "agents.defaults.provider");
       break;
     case "activeProfile":
       nextState.agent.activeProfile = stringOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "agents.defaults.active_profile");
       break;
     case "workspace":
       nextState.agent.workspace = stringOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "agents.defaults.workspace");
       break;
     case "temperature":
       nextState.agent.temperature = numberOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "agents.defaults.temperature");
       break;
     case "maxTokens":
       nextState.agent.maxTokens = numberOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "agents.defaults.max_tokens");
       break;
     case "contextWindowTokens":
       nextState.agent.contextWindowTokens = numberOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "agents.defaults.context_window_tokens");
       break;
     case "maxToolIterations":
       nextState.agent.maxToolIterations = numberOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "agents.defaults.max_tool_iterations");
       break;
     case "reasoningEffort":
       nextState.agent.reasoningEffort = stringOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "agents.defaults.reasoning_effort");
       break;
     case "timezone":
       nextState.agent.timezone = stringOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "agents.defaults.timezone");
       break;
     case "selectedProvider":
       selectDesktopProviderEditor(nextState, stringOrNullInput(text) || "deepseek");
@@ -743,111 +938,146 @@ export function applyDesktopSettingsFieldEdit(
       nextState.agent.activeProfile = stringOrNullInput(text);
       nextState.providerEditorDirty = true;
       syncDesktopProviderSummaryFromEditor(nextState);
+      markDesktopSettingsTouched(nextState, "agents.defaults.active_profile");
+      markDesktopProviderEditorTouched(nextState, "profile");
       break;
     case "apiKey":
       nextState.providerEditor.apiKey = resolveDesktopSecretValue(text, nextState.providerEditor.apiKey);
       nextState.providerEditorDirty = true;
       syncDesktopProviderSummaryFromEditor(nextState);
+      markDesktopProviderEditorTouched(nextState, "api_key");
       break;
     case "apiBase":
       nextState.providerEditor.apiBase = stringOrNullInput(text);
       nextState.providerEditorDirty = true;
       syncDesktopProviderSummaryFromEditor(nextState);
+      markDesktopProviderEditorTouched(nextState, "api_base");
       break;
     case "models":
       nextState.providerEditor.modelsText = text;
       nextState.providerEditorDirty = true;
       syncDesktopProviderSummaryFromEditor(nextState);
+      markDesktopProviderEditorTouched(nextState, "models");
       break;
     case "enabled":
       nextState.knowledge.enabled = Boolean(value);
+      markDesktopSettingsTouched(nextState, "knowledge.enabled");
       break;
     case "autoRetrieve":
       nextState.knowledge.autoRetrieve = Boolean(value);
+      markDesktopSettingsTouched(nextState, "knowledge.auto_retrieve");
       break;
     case "retrievalMode":
       nextState.knowledge.retrievalMode = stringOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "knowledge.retrieval_mode");
       break;
     case "maxChunks":
       nextState.knowledge.maxChunks = numberOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "knowledge.max_chunks");
       break;
     case "chunkSize":
       nextState.knowledge.chunkSize = numberOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "knowledge.chunk_size");
       break;
     case "chunkOverlap":
       nextState.knowledge.chunkOverlap = numberOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "knowledge.chunk_overlap");
       break;
     case "rerankEnabled":
       nextState.knowledge.rerankEnabled = Boolean(value);
+      markDesktopSettingsTouched(nextState, "knowledge.rerank_enabled");
       break;
     case "rerankModel":
       nextState.knowledge.rerankModel = stringOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "knowledge.rerank_model");
       break;
     case "rerankApiBase":
       nextState.knowledge.rerankApiBase = stringOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "knowledge.rerank_api_base");
       break;
     case "rerankTopN":
       nextState.knowledge.rerankTopN = numberOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "knowledge.rerank_top_n");
       break;
     case "graphExtractionEnabled":
       nextState.knowledge.graphExtractionEnabled = Boolean(value);
+      markDesktopSettingsTouched(nextState, "knowledge.graph_extraction_enabled");
       break;
     case "graphAutoExtract":
       nextState.knowledge.graphAutoExtract = Boolean(value);
+      markDesktopSettingsTouched(nextState, "knowledge.graph_auto_extract");
       break;
     case "graphExtractionModel":
       nextState.knowledge.graphExtractionModel = stringOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "knowledge.graph_extraction_model");
       break;
     case "graphExtractionMaxTokens":
       nextState.knowledge.graphExtractionMaxTokens = numberOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "knowledge.graph_extraction_max_tokens");
       break;
     case "graphExtractionMaxJobTokens":
       nextState.knowledge.graphExtractionMaxJobTokens = numberOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "knowledge.graph_extraction_max_job_tokens");
       break;
     case "graphExtractionConcurrency":
       nextState.knowledge.graphExtractionConcurrency = numberOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "knowledge.graph_extraction_concurrency");
       break;
     case "webEnable":
       nextState.tools.webEnable = Boolean(value);
+      markDesktopSettingsTouched(nextState, "tools.web.enable");
       break;
     case "webProxy":
       nextState.tools.webProxy = stringOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "tools.web.proxy");
       break;
     case "searchProvider":
       nextState.tools.searchProvider = stringOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "tools.web.search.provider");
       break;
     case "execEnable":
       nextState.tools.execEnable = Boolean(value);
+      markDesktopSettingsTouched(nextState, "tools.exec.enable");
       break;
     case "execTimeout":
       nextState.tools.execTimeout = numberOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "tools.exec.timeout");
       break;
     case "mcpServers":
       nextState.tools.mcpServersText = text;
+      markDesktopSettingsTouched(nextState, "tools.mcp_servers");
       break;
     case "restrictToWorkspace":
       nextState.tools.restrictToWorkspace = Boolean(value);
+      markDesktopSettingsTouched(nextState, "tools.restrict_to_workspace");
       break;
     case "host":
       nextState.gateway.host = stringOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "gateway.host");
       break;
     case "port":
       nextState.gateway.port = numberOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "gateway.port");
       break;
     case "heartbeat":
       nextState.gateway.heartbeatEnabled = Boolean(value);
+      markDesktopSettingsTouched(nextState, "gateway.heartbeat.enabled");
       break;
     case "heartbeatIntervalS":
       nextState.gateway.heartbeatIntervalS = numberOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "gateway.heartbeat.interval_s");
       break;
     case "sendProgress":
       nextState.channels.sendProgress = Boolean(value);
+      markDesktopSettingsTouched(nextState, "channels.send_progress");
       break;
     case "sendToolHints":
       nextState.channels.sendToolHints = Boolean(value);
+      markDesktopSettingsTouched(nextState, "channels.send_tool_hints");
       break;
     case "sendMaxRetries":
       nextState.channels.sendMaxRetries = numberOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "channels.send_max_retries");
       break;
   }
   return nextState;
@@ -978,7 +1208,49 @@ function cloneSettingsState(state: DesktopSettingsFormState): DesktopSettingsFor
     providerEditor: { ...state.providerEditor },
     providerSummaries: (state.providerSummaries ?? []).map((provider) => ({ ...provider })),
     providerEditorDirty: state.providerEditorDirty,
+    touchedPaths: state.touchedPaths ? [...state.touchedPaths] : undefined,
   };
+}
+
+function markDesktopSettingsTouched(state: DesktopSettingsFormState, path: string): void {
+  const touchedPaths = state.touchedPaths ?? [];
+  if (!touchedPaths.includes(path)) {
+    touchedPaths.push(path);
+  }
+  state.touchedPaths = touchedPaths;
+}
+
+function markDesktopProviderEditorTouched(
+  state: DesktopSettingsFormState,
+  field: "profile" | "enabled" | "api_key" | "api_base" | "models" | "supports_model_discovery",
+): void {
+  const providerId = state.providerEditor.selectedProvider || "deepseek";
+  const profileId = state.providerEditor.profileId || providerId;
+  if (field === "profile") {
+    markDesktopSettingsTouched(state, `providers.profiles.${profileId}.provider`);
+    markDesktopSettingsTouched(state, `providers.profiles.${profileId}.enabled`);
+    markDesktopSettingsTouched(state, `providers.profiles.${profileId}.api_key`);
+    markDesktopSettingsTouched(state, `providers.profiles.${profileId}.api_base`);
+    markDesktopSettingsTouched(state, `providers.profiles.${profileId}.models`);
+    markDesktopSettingsTouched(state, `providers.profiles.${profileId}.supports_model_discovery`);
+    return;
+  }
+  if (field === "api_key" || field === "api_base") {
+    markDesktopSettingsTouched(state, `providers.${providerId}.${field}`);
+  }
+  markDesktopSettingsTouched(state, `providers.profiles.${profileId}.${field}`);
+}
+
+function markDesktopProviderEnabledTouched(state: DesktopSettingsFormState, providerId: string): void {
+  const normalizedProviderId = providerId.trim();
+  if (!normalizedProviderId) {
+    return;
+  }
+  markDesktopSettingsTouched(state, `providers.${normalizedProviderId}.enabled`);
+  const summary = state.providerSummaries.find((provider) => provider.id === normalizedProviderId);
+  if (summary?.profileId) {
+    markDesktopSettingsTouched(state, `providers.profiles.${summary.profileId}.enabled`);
+  }
 }
 
 function getDesktopSettingsPersistedProviderDraft(
