@@ -751,10 +751,23 @@ function settingsValidationFieldForControl(fieldId: string): string {
 }
 
 function renderSettingsFieldMeta(field: DesktopSettingsPaneField) {
-  return h("span", { class: "desktop-settings-field-meta" }, [
+  const chips = [
     h("span", { class: "desktop-settings-field-chip", "data-kind": field.requirement }, requirementLabel(field.requirement)),
     h("span", { class: "desktop-settings-field-chip", "data-kind": field.configurationMode }, configurationModeLabel(field.configurationMode)),
-  ]);
+  ];
+  if (field.sensitive) {
+    chips.push(h("span", { class: "desktop-settings-field-chip", "data-kind": "sensitive" }, "Sensitive"));
+  }
+  if (field.applyEffect) {
+    chips.push(h("span", { class: "desktop-settings-field-chip", "data-kind": field.applyEffect }, applyEffectLabel(field.applyEffect)));
+  }
+  if (field.unit) {
+    chips.push(h("span", { class: "desktop-settings-field-chip", "data-kind": "unit" }, field.unit));
+  }
+  if (field.recommendation) {
+    chips.push(h("span", { class: "desktop-settings-field-chip", "data-kind": "recommendation" }, field.recommendation));
+  }
+  return h("span", { class: "desktop-settings-field-meta" }, chips);
 }
 
 function renderSaveButton(options: SettingsPaneIslandOptions) {
@@ -1082,4 +1095,12 @@ function configurationModeLabel(mode: DesktopSettingsPaneField["configurationMod
     toggle: "Toggle",
     url: "URL",
   }[mode];
+}
+
+function applyEffectLabel(effect: NonNullable<DesktopSettingsPaneField["applyEffect"]>): string {
+  return {
+    immediate: "Immediate",
+    "gateway-restart": "Restart required",
+    "workspace-reload": "Reload required",
+  }[effect];
 }

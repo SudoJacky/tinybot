@@ -188,6 +188,8 @@ export interface DesktopSettingsPaneFieldMetadata {
   validationField?: DesktopSettingsValidationField;
   sensitive?: boolean;
   applyEffect?: DesktopSettingsPaneApplyEffect;
+  unit?: string;
+  recommendation?: string;
 }
 
 export interface DesktopSettingsPaneGroupMetadata {
@@ -208,6 +210,8 @@ export interface DesktopSettingsPaneField {
   validationField?: DesktopSettingsValidationField;
   sensitive?: boolean;
   applyEffect?: DesktopSettingsPaneApplyEffect;
+  unit?: string;
+  recommendation?: string;
   value: string;
   state: "normal" | "invalid";
   control: DesktopSettingsPaneFieldControl;
@@ -372,6 +376,20 @@ const DESKTOP_SETTINGS_FIELD_METADATA: Record<string, DesktopSettingsPaneFieldMe
     applyEffect: "workspace-reload",
     i18nKey: "settings.fields.files-workspace.workspace",
   },
+  "general.temperature": {
+    label: "Temperature",
+    description: "Sampling temperature for default chat and agent responses.",
+    aliases: ["creativity", "sampling"],
+    recommendation: "Recommended 0.1",
+    i18nKey: "settings.fields.general.temperature",
+  },
+  "general.maxTokens": {
+    label: "Max tokens",
+    description: "Maximum generated tokens for a default response.",
+    aliases: ["output tokens", "completion tokens"],
+    unit: "tokens",
+    i18nKey: "settings.fields.general.maxTokens",
+  },
   "provider-models.apiKey": {
     label: "API key",
     description: "Secret credential used by the selected provider profile.",
@@ -407,6 +425,7 @@ const DESKTOP_SETTINGS_FIELD_METADATA: Record<string, DesktopSettingsPaneFieldMe
     aliases: ["gateway port", "listen port"],
     validationField: "gatewayPort",
     applyEffect: "gateway-restart",
+    unit: "TCP port",
     i18nKey: "settings.fields.gateway-runtime.port",
   },
 };
@@ -2202,6 +2221,8 @@ function enrichDesktopSettingsPaneField(
     validationField: metadata.validationField ?? field.validationField,
     sensitive: metadata.sensitive,
     applyEffect: metadata.applyEffect,
+    unit: metadata.unit,
+    recommendation: metadata.recommendation,
   };
 }
 

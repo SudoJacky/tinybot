@@ -137,6 +137,7 @@ describe("settings pane Vue island", () => {
     expect(host.querySelector('[data-desktop-settings-provider-card="openai"]')?.textContent).toContain("OpenAI");
     expect(host.querySelector('[data-desktop-settings-field="apiKey"] input')?.getAttribute("type")).toBe("password");
     expect(host.querySelector<HTMLInputElement>('[data-desktop-settings-control="apiKey"]')?.value).toBe("********");
+    expect(host.querySelector('[data-desktop-settings-field="apiKey"] .desktop-settings-field-meta')?.textContent).toContain("Sensitive");
     const providerSave = host.querySelector<HTMLButtonElement>('[data-desktop-settings-action="save"]');
     expect(providerSave).not.toBeNull();
     providerSave?.click();
@@ -156,9 +157,16 @@ describe("settings pane Vue island", () => {
     const activeNavFiles = host.querySelector<HTMLAnchorElement>('[data-desktop-settings-nav="files-workspace"]');
     expect(activeNavFiles?.getAttribute("data-active")).toBe("true");
     expect(activeNavFiles?.getAttribute("aria-current")).toBe("page");
+    expect(host.querySelector('[data-desktop-settings-field="workspace"] .desktop-settings-field-meta')?.textContent).toContain("Reload required");
+
+    host.querySelector<HTMLAnchorElement>('[data-desktop-settings-nav="gateway-runtime"]')?.click();
+    await nextTick();
+    expect(host.querySelector('[data-desktop-settings-field="port"] .desktop-settings-field-meta')?.textContent).toContain("TCP port");
+    expect(host.querySelector('[data-desktop-settings-field="port"] .desktop-settings-field-meta')?.textContent).toContain("Restart required");
 
     host.querySelector<HTMLAnchorElement>('[data-desktop-settings-nav="general"]')?.click();
     await nextTick();
+    expect(host.querySelector('[data-desktop-settings-field="temperature"] .desktop-settings-field-meta')?.textContent).toContain("Recommended 0.1");
     const model = host.querySelector<HTMLInputElement>('[data-desktop-settings-control="model"]');
     expect(model?.getAttribute("role")).toBe("combobox");
     expect(model?.getAttribute("list")).toBe("desktop-settings-model-options");
