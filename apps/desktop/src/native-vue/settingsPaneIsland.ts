@@ -693,6 +693,7 @@ function renderSettingsGroup(
       h("p", { class: "desktop-settings-group-description" }, getSettingsGroupDescription(group)),
       renderFilesWorkspaceActions(options, group),
       renderChannelsSummary(options, group),
+      renderRuntimeSummary(options, group),
       renderMcpServerList(group),
       ...primaryFields.map((field) => renderSettingsField(options, group, field, highlightedFieldId)),
       advancedFields.length ? h("details", {
@@ -773,6 +774,49 @@ function renderChannelsSummary(
       "data-desktop-settings-channel-action": "setupIntegrations",
       onClick: () => options.onSettingsAction?.({ action: "setupChannelIntegrations", pane: options.pane }),
     }, "Set up integrations"),
+  ]);
+}
+
+function renderRuntimeSummary(
+  options: SettingsPaneIslandOptions,
+  group: DesktopSettingsPaneGroup,
+) {
+  if (group.id !== "gateway-runtime" || !options.pane.runtime) {
+    return null;
+  }
+  const runtime = options.pane.runtime;
+  const intents = [
+    { id: "local-only", label: "Local only", host: "127.0.0.1" },
+    { id: "local-network", label: "Local network", host: "0.0.0.0" },
+    { id: "advanced-custom", label: "Advanced custom", host: null },
+  ] as const;
+  return h("div", {
+    class: "desktop-settings-runtime-summary",
+    "aria-label": "Runtime gateway controls",
+  }, [
+    h("div", { class: "desktop-settings-runtime-intents" }, intents.map((intent) => h("button", {
+      type: "button",
+      "data-desktop-settings-runtime-intent": intent.id,
+      "data-active": runtime.intent === intent.id ? "true" : undefined,
+      disabled: intent.host === null ? true : undefined,
+      onClick: () => {
+        if (intent.host !== null) {
+          options.onSettingsAction?.({ action: "edit", pane: options.pane, fieldId: "host", value: intent.host });
+        }
+      },
+    }, intent.label))),
+    h("p", {
+      "data-desktop-settings-runtime-current-endpoint": "",
+    }, `Current endpoint: ${runtime.currentEndpoint}`),
+    h("p", {
+      "data-desktop-settings-runtime-pending-endpoint": "",
+    }, `Pending endpoint after restart: ${runtime.pendingEndpoint}`),
+    h("p", {
+      "data-desktop-settings-runtime-port-status": "",
+    }, runtime.portStatus),
+    h("p", {
+      "data-desktop-settings-runtime-heartbeat-dependency": "",
+    }, runtime.heartbeatDependency),
   ]);
 }
 

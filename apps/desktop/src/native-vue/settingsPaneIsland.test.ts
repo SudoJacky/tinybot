@@ -661,4 +661,53 @@ describe("settings pane Vue island", () => {
 
     mounted.unmount();
   });
+
+  test("renders Runtime intent controls, endpoint transition, port status, and heartbeat dependency", async () => {
+    const host = document.createElement("section");
+    const savedRuntimeState = buildDesktopSettingsFormState({
+      gateway: {
+        host: "127.0.0.1",
+        port: 18790,
+        heartbeat: { enabled: true, interval_s: 1800 },
+      },
+    }, providerCatalog);
+    const pendingRuntimeState = buildDesktopSettingsFormState({
+      gateway: {
+        host: "0.0.0.0",
+        port: 18888,
+        heartbeat: { enabled: false, interval_s: 1800 },
+      },
+    }, providerCatalog);
+    const runtimePane = buildDesktopSettingsPaneModel(pendingRuntimeState, {
+      lastSavedState: savedRuntimeState,
+      saveStatus: "saved",
+      saveDetails: {
+        transport: "native",
+        updatedFields: ["gateway.host", "gateway.port", "gateway.heartbeat.enabled"],
+        applied: ["gatewayRuntimeChanged"],
+        restartRequired: ["gatewayRestartRequired"],
+        reloadRequired: [],
+        warnings: [],
+      },
+    });
+
+    const mounted = mountSettingsPaneIsland(host, {
+      pane: runtimePane,
+      initialActiveGroupId: "gateway-runtime",
+    });
+    await nextTick();
+
+    expect(Array.from(
+      host.querySelectorAll("[data-desktop-settings-runtime-intent]"),
+      (node) => node.textContent,
+    )).toEqual(["Local only", "Local network", "Advanced custom"]);
+    expect(host.querySelector('[data-desktop-settings-runtime-intent="local-network"]')?.getAttribute("data-active")).toBe("true");
+    expect(host.querySelector("[data-desktop-settings-runtime-current-endpoint]")?.textContent).toContain("127.0.0.1:18790");
+    expect(host.querySelector("[data-desktop-settings-runtime-pending-endpoint]")?.textContent).toContain("0.0.0.0:18888");
+    expect(host.querySelector("[data-desktop-settings-runtime-port-status]")?.textContent).toContain("Port 18888");
+    expect(host.querySelector("[data-desktop-settings-runtime-heartbeat-dependency]")?.textContent).toContain("Heartbeat interval is disabled");
+    expect(host.querySelector<HTMLInputElement>('[data-desktop-settings-control="heartbeatIntervalS"]')?.disabled).toBe(true);
+
+    mounted.unmount();
+  });
 });

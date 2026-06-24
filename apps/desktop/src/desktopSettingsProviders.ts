@@ -459,6 +459,13 @@ export interface DesktopSettingsPaneModel {
     warnings?: string[];
     diagnostics?: string;
   };
+  runtime?: {
+    intent: "local-only" | "local-network" | "advanced-custom";
+    currentEndpoint: string;
+    pendingEndpoint: string;
+    portStatus: string;
+    heartbeatDependency: string;
+  };
   groups: DesktopSettingsPaneGroup[];
   providerCatalog: Array<{
     id: string;
@@ -1133,6 +1140,7 @@ export function buildDesktopSettingsPaneModel(
     save.warnings = saveDetails.warnings;
     save.diagnostics = formatDesktopSettingsSaveDiagnostics(saveStatus, saveDetails);
   }
+  const runtime = buildDesktopSettingsRuntimeSummary(state, options.lastSavedState ?? state, save);
   const providerCatalog = providerSummaries.map((provider) => ({
     id: provider.id,
     label: provider.label,
@@ -1149,6 +1157,7 @@ export function buildDesktopSettingsPaneModel(
     dirty,
     validationErrors,
     save,
+    runtime,
     groups: buildDesktopSettingsPaneGroups(state, validationErrors, providerSummaries),
     providerCatalog,
     defaultRouting: buildDesktopDefaultRouting(state, providerCatalog),
@@ -1174,6 +1183,46 @@ export function buildDesktopProviderModelRequest(
     api_base: state.providerEditor.apiBase || "",
     refresh,
   };
+}
+
+function buildDesktopSettingsRuntimeSummary(
+  state: DesktopSettingsFormState,
+  lastSavedState: DesktopSettingsFormState,
+  save: DesktopSettingsPaneModel["save"],
+): NonNullable<DesktopSettingsPaneModel["runtime"]> {
+  const pendingEndpoint = formatDesktopGatewayEndpoint(state.gateway.host, state.gateway.port);
+  const currentEndpoint = save.restartRequired?.length
+    ? formatDesktopGatewayEndpoint(lastSavedState.gateway.host, lastSavedState.gateway.port)
+    : pendingEndpoint;
+  const intent = classifyDesktopGatewayIntent(state.gateway.host);
+  const port = state.gateway.port;
+  return {
+    intent,
+    currentEndpoint,
+    pendingEndpoint,
+    portStatus: port && validateDesktopPortRange(port)
+      ? `Port ${port} will be checked for availability before the gateway restarts.`
+      : "Port availability cannot be checked until a valid port is configured.",
+    heartbeatDependency: state.gateway.heartbeatEnabled
+      ? "Heartbeat interval is active while heartbeat is enabled."
+      : "Heartbeat interval is disabled while heartbeat is off.",
+  };
+}
+
+function classifyDesktopGatewayIntent(host: string | null): NonNullable<DesktopSettingsPaneModel["runtime"]>["intent"] {
+  if (host === "127.0.0.1" || host === "localhost" || host === "::1") {
+    return "local-only";
+  }
+  if (host === "0.0.0.0" || host === "::") {
+    return "local-network";
+  }
+  return "advanced-custom";
+}
+
+function formatDesktopGatewayEndpoint(host: string | null, port: number | null): string {
+  const safeHost = host || "127.0.0.1";
+  const safePort = port ?? 18790;
+  return `${safeHost}:${safePort}`;
 }
 
 function buildDesktopDefaultRouting(
@@ -2185,6 +2234,7 @@ function buildDesktopSettingsPaneGroups(
           control: "number",
           configurationMode: "numeric",
           advanced: true,
+          disabled: !state.gateway.heartbeatEnabled,
           min: 1,
           step: 1,
         }),
