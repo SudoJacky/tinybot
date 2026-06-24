@@ -740,6 +740,65 @@ describe("desktop settings and provider helpers", () => {
     expect(fields["memory-experience.memory"]).toMatchObject({ control: "readonly", requirement: "readonly", configurationMode: "readonly" });
   });
 
+  test("adds shared settings metadata to groups and fields", () => {
+    const state = buildDesktopSettingsFormState({
+      agents: {
+        defaults: {
+          model: "deepseek-chat",
+          provider: "deepseek",
+          active_profile: "deepseek",
+          workspace: "D:/workspace",
+          timezone: "UTC",
+        },
+      },
+      providers: {
+        profiles: {
+          deepseek: {
+            provider: "deepseek",
+            api_key: "sk-live",
+            api_base: "https://api.deepseek.com",
+            models: ["deepseek-chat"],
+          },
+        },
+      },
+      gateway: { host: "127.0.0.1", port: 18790 },
+      tools: { mcp: { servers: { local: { command: "node" } } } },
+    }, [{ id: "deepseek", displayName: "DeepSeek", status: "ready" }]);
+
+    const pane = buildDesktopSettingsPaneModel(state, {
+      providerCatalog: [{ id: "deepseek", displayName: "DeepSeek", status: "ready" }],
+    });
+    const groups = Object.fromEntries(pane.groups.map((group) => [group.id, group]));
+    const fields = Object.fromEntries(pane.groups.flatMap((group) => group.fields.map((field) => [`${group.id}.${field.id}`, field])));
+
+    expect(groups.general).toMatchObject({
+      description: "Default model, provider routing, timezone, and desktop workspace defaults.",
+      aliases: ["default model", "profile", "timezone", "workspace"],
+      i18nKey: "settings.groups.general",
+    });
+    expect(fields["general.timezone"]).toMatchObject({
+      description: "Timezone used for timestamps, reminders, and scheduled work.",
+      aliases: ["time zone", "locale", "schedule timezone"],
+      validationField: "timezone",
+      i18nKey: "settings.fields.general.timezone",
+    });
+    expect(fields["provider-models.apiKey"]).toMatchObject({
+      sensitive: true,
+      i18nKey: "settings.fields.provider-models.apiKey",
+    });
+    expect(fields["general.workspace"]).toMatchObject({
+      applyEffect: "workspace-reload",
+    });
+    expect(fields["gateway-runtime.host"]).toMatchObject({
+      applyEffect: "gateway-restart",
+      aliases: ["bind host", "listen address", "gateway endpoint"],
+    });
+    expect(fields["tools-approvals.mcpServers"]).toMatchObject({
+      validationField: "mcpServers",
+      i18nKey: "settings.fields.tools-approvals.mcpServers",
+    });
+  });
+
   test("keeps provider editing separate from the default LLM provider", () => {
     const state = buildDesktopSettingsFormState({
       agents: { defaults: { model: "gpt-4.1", provider: "openai", active_profile: "work" } },

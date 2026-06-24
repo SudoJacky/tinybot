@@ -160,6 +160,32 @@ describe("settings pane Vue island", () => {
     expect(host.textContent).toBe("");
   });
 
+  test("renders group and field descriptions from the pane model", async () => {
+    const host = document.createElement("section");
+    const metadataPane = buildDesktopSettingsPaneModel(draftState, {
+      lastSavedState: savedState,
+      providerCatalog,
+      saveStatus: "idle",
+    });
+    metadataPane.groups[0] = {
+      ...metadataPane.groups[0],
+      description: "Model-owned group description",
+      fields: metadataPane.groups[0].fields.map((field) => field.id === "timezone"
+        ? { ...field, description: "Model-owned timezone description" }
+        : field),
+    };
+
+    const mounted = mountSettingsPaneIsland(host, {
+      pane: metadataPane,
+    });
+    await nextTick();
+
+    expect(host.querySelector(".desktop-settings-header-description")?.textContent).toContain("Model-owned group description");
+    expect(host.querySelector('[data-desktop-settings-field="timezone"] .desktop-settings-field-description')?.textContent).toContain("Model-owned timezone description");
+
+    mounted.unmount();
+  });
+
   test("renders visible save failure and field validation errors accessibly", async () => {
     const host = document.createElement("section");
     const actions: string[] = [];

@@ -173,15 +173,39 @@ export type DesktopSettingsPaneFieldConfigurationMode =
   | "toggle"
   | "url";
 export type DesktopSettingsEditableValue = string | boolean;
+export type DesktopSettingsPaneApplyEffect = "immediate" | "gateway-restart" | "workspace-reload";
 
 export interface DesktopSettingsPaneFieldOption {
   value: string;
   label: string;
 }
 
+export interface DesktopSettingsPaneFieldMetadata {
+  label: string;
+  description: string;
+  aliases: string[];
+  i18nKey: string;
+  validationField?: DesktopSettingsValidationField;
+  sensitive?: boolean;
+  applyEffect?: DesktopSettingsPaneApplyEffect;
+}
+
+export interface DesktopSettingsPaneGroupMetadata {
+  label: string;
+  description: string;
+  aliases: string[];
+  i18nKey: string;
+}
+
 export interface DesktopSettingsPaneField {
   id: string;
   label: string;
+  description?: string;
+  aliases?: string[];
+  i18nKey?: string;
+  validationField?: DesktopSettingsValidationField;
+  sensitive?: boolean;
+  applyEffect?: DesktopSettingsPaneApplyEffect;
   value: string;
   state: "normal" | "invalid";
   control: DesktopSettingsPaneFieldControl;
@@ -211,7 +235,167 @@ export interface DesktopSettingsPaneGroup {
     | "gateway-runtime"
     | "logs-diagnostics";
   label: string;
+  description?: string;
+  aliases?: string[];
+  i18nKey?: string;
   fields: DesktopSettingsPaneField[];
+}
+
+type DesktopSettingsPaneGroupId = DesktopSettingsPaneGroup["id"];
+
+const DESKTOP_SETTINGS_GROUP_METADATA: Record<DesktopSettingsPaneGroupId, DesktopSettingsPaneGroupMetadata> = {
+  general: {
+    label: "General",
+    description: "Default model, provider routing, timezone, and desktop workspace defaults.",
+    aliases: ["default model", "profile", "timezone", "workspace"],
+    i18nKey: "settings.groups.general",
+  },
+  "provider-models": {
+    label: "Provider & Models",
+    description: "Provider profiles, endpoints, credentials, and model catalogs.",
+    aliases: ["providers", "models", "api key", "credentials"],
+    i18nKey: "settings.groups.provider-models",
+  },
+  knowledge: {
+    label: "Knowledge",
+    description: "Retrieval, indexing, reranking, and graph extraction behavior.",
+    aliases: ["rag", "retrieval", "embeddings", "graph"],
+    i18nKey: "settings.groups.knowledge",
+  },
+  "tools-approvals": {
+    label: "Tools & Approvals",
+    description: "Browser, command execution, approval policy, and MCP server access.",
+    aliases: ["tools", "mcp", "approvals", "security"],
+    i18nKey: "settings.groups.tools-approvals",
+  },
+  "files-workspace": {
+    label: "Files & Workspace",
+    description: "Session files, knowledge documents, and editable workspace file boundaries.",
+    aliases: ["files", "storage", "workspace"],
+    i18nKey: "settings.groups.files-workspace",
+  },
+  "memory-experience": {
+    label: "Memory & Experience",
+    description: "Memory and experience controls for contextual continuity.",
+    aliases: ["memory", "experience"],
+    i18nKey: "settings.groups.memory-experience",
+  },
+  skills: {
+    label: "Skills",
+    description: "Skill availability and loading policy.",
+    aliases: ["skills", "capabilities"],
+    i18nKey: "settings.groups.skills",
+  },
+  channels: {
+    label: "Channels",
+    description: "Streaming and retry behavior for desktop channels.",
+    aliases: ["streaming", "progress", "retries"],
+    i18nKey: "settings.groups.channels",
+  },
+  automations: {
+    label: "Automations",
+    description: "Automation and scheduling capabilities planned after core stability.",
+    aliases: ["automation", "scheduling"],
+    i18nKey: "settings.groups.automations",
+  },
+  "gateway-runtime": {
+    label: "Gateway & Runtime",
+    description: "Local gateway connection, heartbeat, and runtime controls.",
+    aliases: ["gateway", "runtime", "host", "port"],
+    i18nKey: "settings.groups.gateway-runtime",
+  },
+  "logs-diagnostics": {
+    label: "Logs & Diagnostics",
+    description: "Runtime logs, diagnostics export, and local state recovery.",
+    aliases: ["logs", "diagnostics", "debug"],
+    i18nKey: "settings.groups.logs-diagnostics",
+  },
+};
+
+const DESKTOP_SETTINGS_FIELD_METADATA: Record<string, DesktopSettingsPaneFieldMetadata> = {
+  "general.model": {
+    label: "Model",
+    description: "Model used for default chat and agent responses.",
+    aliases: ["default model", "chat model", "agent model"],
+    validationField: "model",
+    i18nKey: "settings.fields.general.model",
+  },
+  "general.provider": {
+    label: "Provider",
+    description: "Provider routing for the selected model.",
+    aliases: ["default provider", "routing"],
+    i18nKey: "settings.fields.general.provider",
+  },
+  "general.activeProfile": {
+    label: "Profile",
+    description: "Named provider profile with credentials and endpoint settings.",
+    aliases: ["active profile", "provider profile"],
+    i18nKey: "settings.fields.general.activeProfile",
+  },
+  "general.timezone": {
+    label: "Timezone",
+    description: "Timezone used for timestamps, reminders, and scheduled work.",
+    aliases: ["time zone", "locale", "schedule timezone"],
+    validationField: "timezone",
+    i18nKey: "settings.fields.general.timezone",
+  },
+  "general.workspace": {
+    label: "Workspace",
+    description: "Default desktop workspace path for local files and agent work.",
+    aliases: ["workspace folder", "working directory", "files"],
+    applyEffect: "workspace-reload",
+    i18nKey: "settings.fields.general.workspace",
+  },
+  "provider-models.apiKey": {
+    label: "API key",
+    description: "Secret credential used by the selected provider profile.",
+    aliases: ["secret", "credential", "token"],
+    sensitive: true,
+    i18nKey: "settings.fields.provider-models.apiKey",
+  },
+  "provider-models.apiBase": {
+    label: "API base",
+    description: "OpenAI-compatible endpoint for this provider.",
+    aliases: ["base url", "endpoint", "provider url"],
+    validationField: "providerApiBase",
+    i18nKey: "settings.fields.provider-models.apiBase",
+  },
+  "tools-approvals.mcpServers": {
+    label: "MCP servers",
+    description: "JSON object of MCP server definitions.",
+    aliases: ["mcp", "servers", "tools json"],
+    validationField: "mcpServers",
+    sensitive: true,
+    i18nKey: "settings.fields.tools-approvals.mcpServers",
+  },
+  "gateway-runtime.host": {
+    label: "Host",
+    description: "Host interface where the desktop gateway listens.",
+    aliases: ["bind host", "listen address", "gateway endpoint"],
+    applyEffect: "gateway-restart",
+    i18nKey: "settings.fields.gateway-runtime.host",
+  },
+  "gateway-runtime.port": {
+    label: "Port",
+    description: "Port used by the local gateway endpoint.",
+    aliases: ["gateway port", "listen port"],
+    validationField: "gatewayPort",
+    applyEffect: "gateway-restart",
+    i18nKey: "settings.fields.gateway-runtime.port",
+  },
+};
+
+export function getDesktopSettingsGroupMetadata(
+  groupId: DesktopSettingsPaneGroupId,
+): DesktopSettingsPaneGroupMetadata {
+  return DESKTOP_SETTINGS_GROUP_METADATA[groupId];
+}
+
+export function getDesktopSettingsFieldMetadata(
+  groupId: DesktopSettingsPaneGroupId,
+  fieldId: string,
+): DesktopSettingsPaneFieldMetadata | null {
+  return DESKTOP_SETTINGS_FIELD_METADATA[`${groupId}.${fieldId}`] ?? null;
 }
 
 export interface DesktopSettingsPaneModel {
@@ -1606,6 +1790,7 @@ function buildDesktopSettingsPaneGroups(
   ): DesktopSettingsPaneField => ({
     id,
     label,
+    validationField: config.validationField,
     value: formatDesktopSettingsFieldValue(value),
     state: config.validationField && invalidFields.has(config.validationField) ? "invalid" : "normal",
     control: config.control ?? "text",
@@ -1621,7 +1806,7 @@ function buildDesktopSettingsPaneGroups(
     step: config.step,
   });
   const secretField = buildDesktopSecretField(state.providerEditor.apiKey);
-  return [
+  return enrichDesktopSettingsPaneGroups([
     {
       id: "general",
       label: "General",
@@ -1919,7 +2104,45 @@ function buildDesktopSettingsPaneGroups(
         field("diagnostics", "Diagnostics", "Export diagnostics and inspect runtime logs", { control: "readonly" }),
       ],
     },
-  ];
+  ]);
+}
+
+function enrichDesktopSettingsPaneGroups(groups: DesktopSettingsPaneGroup[]): DesktopSettingsPaneGroup[] {
+  return groups.map((group) => {
+    const groupMetadata = getDesktopSettingsGroupMetadata(group.id);
+    return {
+      ...group,
+      label: groupMetadata.label,
+      description: groupMetadata.description,
+      aliases: [...groupMetadata.aliases],
+      i18nKey: groupMetadata.i18nKey,
+      fields: group.fields.map((field) => enrichDesktopSettingsPaneField(group.id, field)),
+    };
+  });
+}
+
+function enrichDesktopSettingsPaneField(
+  groupId: DesktopSettingsPaneGroupId,
+  field: DesktopSettingsPaneField,
+): DesktopSettingsPaneField {
+  const metadata = getDesktopSettingsFieldMetadata(groupId, field.id);
+  if (!metadata) {
+    return {
+      ...field,
+      aliases: field.aliases ?? [],
+      i18nKey: field.i18nKey ?? `settings.fields.${groupId}.${field.id}`,
+    };
+  }
+  return {
+    ...field,
+    label: metadata.label,
+    description: metadata.description,
+    aliases: [...metadata.aliases],
+    i18nKey: metadata.i18nKey,
+    validationField: metadata.validationField ?? field.validationField,
+    sensitive: metadata.sensitive,
+    applyEffect: metadata.applyEffect,
+  };
 }
 
 function normalizeDesktopSettingsSaveDetails(

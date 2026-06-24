@@ -131,7 +131,7 @@ function renderHeader(
   return h("header", { class: "desktop-settings-header" }, [
     h("div", { class: "desktop-settings-breadcrumb" }, [
       h("h2", `Settings / ${activeGroup?.label ?? "General"}`),
-      activeGroup ? h("p", { class: "desktop-settings-header-description" }, getSettingsGroupDescription(activeGroup.id)) : null,
+      activeGroup ? h("p", { class: "desktop-settings-header-description" }, getSettingsGroupDescription(activeGroup)) : null,
     ]),
     h("div", { class: "desktop-settings-save-region" }, [
       renderSaveStatus(options),
@@ -474,7 +474,7 @@ function renderSettingsGroup(options: SettingsPaneIslandOptions, group: DesktopS
   }, {
     default: () => [
       h("h2", group.label),
-      h("p", { class: "desktop-settings-group-description" }, getSettingsGroupDescription(group.id)),
+      h("p", { class: "desktop-settings-group-description" }, getSettingsGroupDescription(group)),
       ...primaryFields.map((field) => renderSettingsField(options, group, field)),
       advancedFields.length ? h("details", { class: "desktop-settings-advanced-fields" }, [
         h("summary", "Advanced"),
@@ -496,7 +496,7 @@ function renderSettingsField(
   }, [
     h("div", { class: "desktop-settings-field-copy" }, [
       h("label", { for: `desktop-settings-${field.id}` }, `${field.label}: `),
-      h("span", { class: "desktop-settings-field-description" }, getSettingsFieldDescription(group.id, field.id, field.value)),
+      h("span", { class: "desktop-settings-field-description" }, getSettingsFieldDescription(group.id, field)),
       renderSettingsFieldMeta(field),
     ]),
     renderSettingsControl(options, field),
@@ -606,7 +606,7 @@ function getSettingsFieldErrorId(pane: DesktopSettingsPaneModel, field: DesktopS
 }
 
 function getSettingsFieldErrorMessage(pane: DesktopSettingsPaneModel, field: DesktopSettingsPaneField): string {
-  const validationField = settingsValidationFieldForControl(field.id);
+  const validationField = field.validationField ?? settingsValidationFieldForControl(field.id);
   const error = pane.validationErrors.find((validationError) => validationError.field === validationField);
   if (!error) {
     return "";
@@ -833,7 +833,10 @@ function getSettingsNavLabel(groupId: DesktopSettingsPaneGroup["id"]): string {
   }[groupId];
 }
 
-function getSettingsGroupDescription(groupId: DesktopSettingsPaneGroup["id"]): string {
+function getSettingsGroupDescription(group: DesktopSettingsPaneGroup): string {
+  if (group.description) {
+    return group.description;
+  }
   return {
     general: "Default model, profile, and timezone used by the desktop workbench.",
     "provider-models": "Provider profile, endpoint, and model catalog for chat and agent runs.",
@@ -846,14 +849,16 @@ function getSettingsGroupDescription(groupId: DesktopSettingsPaneGroup["id"]): s
     automations: "Automation and scheduling capabilities planned after core stability.",
     "gateway-runtime": "Local gateway connection, heartbeat, and runtime controls.",
     "logs-diagnostics": "Runtime logs, diagnostics export, and local state recovery.",
-  }[groupId];
+  }[group.id];
 }
 
 function getSettingsFieldDescription(
   groupId: DesktopSettingsPaneGroup["id"],
-  fieldId: string,
-  value: string,
+  field: DesktopSettingsPaneField,
 ): string {
+  if (field.description) {
+    return field.description;
+  }
   const descriptions: Record<string, string> = {
     "general.model": "Model used for default chat and agent responses.",
     "general.provider": "Provider routing for the selected model.",
@@ -877,7 +882,7 @@ function getSettingsFieldDescription(
     "channels.sendToolHints": "Show tool status hints during agent work.",
     "channels.sendMaxRetries": "Retry count for channel delivery failures.",
   };
-  return descriptions[`${groupId}.${fieldId}`] ?? `Current value: ${value || "Not configured"}.`;
+  return descriptions[`${groupId}.${field.id}`] ?? `Current value: ${field.value || "Not configured"}.`;
 }
 
 function requirementLabel(requirement: DesktopSettingsPaneField["requirement"]): string {
