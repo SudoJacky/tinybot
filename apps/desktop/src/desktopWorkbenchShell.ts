@@ -5152,6 +5152,10 @@ function createSettingsProvidersPane(
   section.setAttribute("data-settings-layout", "section-pages");
   section.setAttribute("aria-label", "Settings and providers");
   const activeGroupId = getDesktopSettingsActiveGroup(pane, initialActiveGroupId)?.id ?? "general";
+  if (canMountVueIsland(section)) {
+    mountSettingsPaneVueIsland(section, targetDocument, pane, settingsActions, activeGroupId);
+    return section;
+  }
 
   const content = targetDocument.createElement("div");
   content.className = "desktop-settings-content";
