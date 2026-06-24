@@ -452,6 +452,13 @@ export interface DesktopSettingsPaneModel {
     models?: string[];
     canDiscoverModels?: boolean;
   }>;
+  defaultRouting?: {
+    mode: "auto" | "provider";
+    providerId: string;
+    providerLabel: string;
+    model: string | null;
+    message: string;
+  };
   providerEditor: {
     selectedProvider: string;
     profileId: string;
@@ -1106,23 +1113,25 @@ export function buildDesktopSettingsPaneModel(
     save.warnings = saveDetails.warnings;
     save.diagnostics = formatDesktopSettingsSaveDiagnostics(saveStatus, saveDetails);
   }
+  const providerCatalog = providerSummaries.map((provider) => ({
+    id: provider.id,
+    label: provider.label,
+    profileId: provider.profileId,
+    status: provider.status || "unknown",
+    enabled: provider.enabled,
+    enabledConfigured: provider.enabledConfigured,
+    baseUrl: provider.apiBase,
+    apiKey: buildDesktopSecretField(provider.apiKey),
+    models: parseDesktopProviderModelList(provider.modelsText),
+    canDiscoverModels: provider.supportsModelDiscovery,
+  })).filter((provider) => provider.id);
   return {
     dirty,
     validationErrors,
     save,
     groups: buildDesktopSettingsPaneGroups(state, validationErrors, providerSummaries),
-    providerCatalog: providerSummaries.map((provider) => ({
-      id: provider.id,
-      label: provider.label,
-      profileId: provider.profileId,
-      status: provider.status || "unknown",
-      enabled: provider.enabled,
-      enabledConfigured: provider.enabledConfigured,
-      baseUrl: provider.apiBase,
-      apiKey: buildDesktopSecretField(provider.apiKey),
-      models: parseDesktopProviderModelList(provider.modelsText),
-      canDiscoverModels: provider.supportsModelDiscovery,
-    })).filter((provider) => provider.id),
+    providerCatalog,
+    defaultRouting: buildDesktopDefaultRouting(state, providerCatalog),
     providerEditor: {
       selectedProvider: state.providerEditor.selectedProvider,
       profileId: state.providerEditor.profileId,
@@ -1144,6 +1153,30 @@ export function buildDesktopProviderModelRequest(
     api_key: state.providerEditor.apiKey || "",
     api_base: state.providerEditor.apiBase || "",
     refresh,
+  };
+}
+
+function buildDesktopDefaultRouting(
+  state: DesktopSettingsFormState,
+  providerCatalog: DesktopSettingsPaneModel["providerCatalog"],
+): DesktopSettingsPaneModel["defaultRouting"] {
+  const model = state.agent.model;
+  const mode = state.agent.provider === "auto" ? "auto" : "provider";
+  const enabledProviders = providerCatalog.filter((provider) => provider.enabled !== false);
+  const configuredProvider = providerCatalog.find((provider) => provider.id === state.agent.provider);
+  const resolvedProvider = mode === "auto"
+    ? enabledProviders.find((provider) => model ? provider.models?.includes(model) : false) ?? enabledProviders[0] ?? providerCatalog[0]
+    : configuredProvider ?? providerCatalog[0];
+  const providerLabel = resolvedProvider?.label || resolvedProvider?.id || "Unavailable";
+  const providerId = resolvedProvider?.id || "";
+  return {
+    mode,
+    providerId,
+    providerLabel,
+    model,
+    message: mode === "auto"
+      ? `Auto resolves to ${providerLabel}${model ? ` / ${model}` : ""}`
+      : `${providerLabel}${model ? ` / ${model}` : ""}`,
   };
 }
 

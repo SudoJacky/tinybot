@@ -457,4 +457,48 @@ describe("settings pane Vue island", () => {
     mounted.unmount();
     host.remove();
   });
+
+  test("shows Auto model suggestions from enabled provider catalog instead of the provider editor", async () => {
+    const host = document.createElement("section");
+    const autoState = buildDesktopSettingsFormState({
+      agents: { defaults: { model: "openai-fast", provider: "auto", active_profile: "deepseek", timezone: "UTC" } },
+      providers: {
+        profiles: {
+          openai: {
+            provider: "openai",
+            api_key: "sk-openai",
+            models: ["openai-fast"],
+          },
+          deepseek: {
+            provider: "deepseek",
+            api_key: "sk-deepseek",
+            models: ["deepseek-chat"],
+          },
+        },
+      },
+    }, [
+      { id: "openai", displayName: "OpenAI", status: "ready" },
+      { id: "deepseek", displayName: "DeepSeek", status: "ready" },
+    ]);
+    const autoPane = buildDesktopSettingsPaneModel(autoState, {
+      providerCatalog: [
+        { id: "openai", displayName: "OpenAI", status: "ready" },
+        { id: "deepseek", displayName: "DeepSeek", status: "ready" },
+      ],
+    });
+
+    const mounted = mountSettingsPaneIsland(host, {
+      pane: autoPane,
+    });
+    await nextTick();
+
+    expect(host.querySelector('[data-desktop-settings-control="provider"]')?.textContent).toContain("Auto");
+    expect(Array.from(
+      host.querySelectorAll("#desktop-settings-model-options option"),
+      (node) => node.getAttribute("value"),
+    )).toEqual(["openai-fast", "deepseek-chat"]);
+    expect(host.querySelector("[data-desktop-settings-auto-resolution]")?.textContent).toContain("Auto resolves to OpenAI / openai-fast");
+
+    mounted.unmount();
+  });
 });

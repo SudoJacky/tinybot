@@ -430,6 +430,10 @@ function renderDefaultLlmCard(options: SettingsPaneIslandOptions) {
           provider ? renderInlineField(options, provider) : null,
           model ? renderInlineField(options, model) : null,
         ]),
+        options.pane.defaultRouting?.mode === "auto" ? h("p", {
+          class: "desktop-settings-auto-resolution",
+          "data-desktop-settings-auto-resolution": "",
+        }, options.pane.defaultRouting.message) : null,
         h("p", { class: "desktop-settings-default-llm-copy" }, "Configure the global default LLM model. Individual agents can still choose a different model."),
       ],
     }),
