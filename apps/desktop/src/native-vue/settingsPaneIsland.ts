@@ -1,4 +1,4 @@
-import { createApp, defineComponent, h, ref, type App, type Ref } from "vue";
+import { createApp, defineComponent, h, nextTick, ref, type App, type Ref } from "vue";
 import { NButton, NCard, NConfigProvider, NSpace, NTag } from "naive-ui";
 import type {
   DesktopSettingsPaneField,
@@ -34,6 +34,16 @@ interface ProviderCardModel {
   models: string;
 }
 
+interface SettingsSearchResult {
+  key: string;
+  groupId: DesktopSettingsPaneGroup["id"];
+  groupLabel: string;
+  fieldId: string;
+  fieldLabel: string;
+  description: string;
+  advanced: boolean;
+}
+
 const mountedSettingsPanes = new WeakMap<HTMLElement, MountedSettingsPaneIsland>();
 
 export function mountOrUpdateSettingsPaneIsland(
@@ -59,7 +69,7 @@ export function mountSettingsPaneIsland(
   }
   applySettingsPaneHost(host);
   const state = ref(options) as Ref<SettingsPaneIslandOptions>;
-  const app = createSettingsPaneApp(state);
+  const app = createSettingsPaneApp(state, host);
   app.mount(host);
   const nextMounted = {
     update: (nextOptions: SettingsPaneIslandOptions) => {
@@ -84,14 +94,28 @@ function applySettingsPaneHost(host: HTMLElement): void {
   host.setAttribute("aria-label", "Settings and providers");
 }
 
-function createSettingsPaneApp(state: Ref<SettingsPaneIslandOptions>): App {
+function createSettingsPaneApp(state: Ref<SettingsPaneIslandOptions>, host: HTMLElement): App {
   return createApp(defineComponent({
     name: "SettingsPaneIsland",
     setup() {
       const providerSearch = ref("");
+      const settingsSearch = ref("");
+      const highlightedFieldId = ref("");
       const activeGroupId = ref(getActiveSettingsGroup(state.value.pane, state.value.initialActiveGroupId)?.id ?? "general");
       const setActiveGroupId = (groupId: DesktopSettingsPaneGroup["id"]) => {
         activeGroupId.value = groupId;
+      };
+      const activateSearchResult = (result: SettingsSearchResult) => {
+        activeGroupId.value = result.groupId;
+        highlightedFieldId.value = result.fieldId;
+        void nextTick(() => {
+          host.querySelector<HTMLElement>(`#desktop-settings-${result.fieldId}`)?.focus();
+          window.setTimeout(() => {
+            if (highlightedFieldId.value === result.fieldId) {
+              highlightedFieldId.value = "";
+            }
+          }, 1400);
+        });
       };
       const currentActiveGroupId = (options: SettingsPaneIslandOptions) => {
         const activeGroup = getActiveSettingsGroup(options.pane, activeGroupId.value);
@@ -107,11 +131,20 @@ function createSettingsPaneApp(state: Ref<SettingsPaneIslandOptions>): App {
           const options = state.value;
           const selectedGroupId = currentActiveGroupId(options);
           return [
-            renderSidebar(options.pane, selectedGroupId, setActiveGroupId),
+            renderSidebar(
+              options,
+              selectedGroupId,
+              settingsSearch.value,
+              (value) => {
+                settingsSearch.value = value;
+              },
+              activateSearchResult,
+              setActiveGroupId,
+            ),
             h("div", { class: "desktop-settings-content" }, [
               renderHeader(options, selectedGroupId),
               renderSaveAlert(options),
-              renderActiveSettingsSection(options, selectedGroupId, providerSearch.value, (value) => {
+              renderActiveSettingsSection(options, selectedGroupId, highlightedFieldId.value, providerSearch.value, (value) => {
                 providerSearch.value = value;
               }),
             ]),
@@ -236,10 +269,14 @@ function renderSaveAlert(options: SettingsPaneIslandOptions) {
 }
 
 function renderSidebar(
-  pane: DesktopSettingsPaneModel,
+  options: SettingsPaneIslandOptions,
   activeGroupId: DesktopSettingsPaneGroup["id"],
+  searchQuery: string,
+  updateSearchQuery: (value: string) => void,
+  activateSearchResult: (result: SettingsSearchResult) => void,
   setActiveGroupId: (groupId: DesktopSettingsPaneGroup["id"]) => void,
 ) {
+  const pane = options.pane;
   return h("aside", {
     class: "desktop-settings-sidebar",
     "aria-label": "Settings navigation",
@@ -247,14 +284,68 @@ function renderSidebar(
     h("input", {
       class: "desktop-settings-search",
       type: "search",
+      value: searchQuery,
       placeholder: "Search settings...",
       "aria-label": "Search settings",
+      "data-desktop-settings-search": "query",
+      onInput: (event: Event) => updateSearchQuery(String((event.target as HTMLInputElement | null)?.value ?? "")),
     }),
+    renderSettingsSearchResults(pane, searchQuery, activateSearchResult),
+    renderDirtySummary(options),
     h("nav", {
       class: "desktop-settings-nav",
       "aria-label": "Settings sections",
     }, renderNavigation(pane.groups, activeGroupId, setActiveGroupId)),
     renderPreviewSettingsGroups(pane.groups),
+  ]);
+}
+
+function renderSettingsSearchResults(
+  pane: DesktopSettingsPaneModel,
+  searchQuery: string,
+  activateSearchResult: (result: SettingsSearchResult) => void,
+) {
+  const query = searchQuery.trim();
+  if (!query) {
+    return null;
+  }
+  const results = getSettingsSearchResults(pane, query);
+  if (!results.length) {
+    return h("div", {
+      class: "desktop-settings-search-empty",
+      "data-desktop-settings-search-empty": "true",
+      role: "status",
+    }, "No settings found");
+  }
+  return h("div", {
+    class: "desktop-settings-search-results",
+    "aria-label": "Settings search results",
+  }, results.map((result) => h("button", {
+    type: "button",
+    class: "desktop-settings-search-result",
+    "data-desktop-settings-search-result": result.key,
+    onClick: () => activateSearchResult(result),
+  }, [
+    h("span", result.fieldLabel),
+    h("small", result.groupLabel),
+  ])));
+}
+
+function renderDirtySummary(options: SettingsPaneIslandOptions) {
+  const pane = options.pane;
+  if (!pane.dirty) {
+    return null;
+  }
+  return h("div", {
+    class: "desktop-settings-dirty-summary",
+    "data-desktop-settings-dirty-summary": "",
+  }, [
+    h("span", pane.save.message || "Unsaved changes"),
+    h("button", {
+      type: "button",
+      "data-desktop-settings-action": "reset",
+      onClick: () => options.onSettingsAction?.({ action: "reset", pane }),
+    }, "Reset"),
   ]);
 }
 
@@ -302,11 +393,12 @@ function renderPreviewSettingsGroups(groups: DesktopSettingsPaneGroup[]) {
 function renderActiveSettingsSection(
   options: SettingsPaneIslandOptions,
   activeGroupId: DesktopSettingsPaneGroup["id"],
+  highlightedFieldId: string,
   providerSearch: string,
   setProviderSearch: (value: string) => void,
 ) {
   const group = getActiveSettingsGroup(options.pane, activeGroupId);
-  const groupNode = group ? renderSettingsGroup(options, group) : null;
+  const groupNode = group ? renderSettingsGroup(options, group, highlightedFieldId) : null;
   if (activeGroupId === "general") {
     return [
       renderDefaultLlmCard(options),
@@ -476,7 +568,11 @@ function renderSingleSettingsGroup(groupNode: ReturnType<typeof renderSettingsGr
   return h("div", { class: "desktop-settings-grid" }, [groupNode]);
 }
 
-function renderSettingsGroup(options: SettingsPaneIslandOptions, group: DesktopSettingsPaneGroup) {
+function renderSettingsGroup(
+  options: SettingsPaneIslandOptions,
+  group: DesktopSettingsPaneGroup,
+  highlightedFieldId = "",
+) {
   const fields = getSettingsGroupDisplayFields(group);
   if (!fields.length) {
     return null;
@@ -493,10 +589,13 @@ function renderSettingsGroup(options: SettingsPaneIslandOptions, group: DesktopS
     default: () => [
       h("h2", group.label),
       h("p", { class: "desktop-settings-group-description" }, getSettingsGroupDescription(group)),
-      ...primaryFields.map((field) => renderSettingsField(options, group, field)),
-      advancedFields.length ? h("details", { class: "desktop-settings-advanced-fields" }, [
+      ...primaryFields.map((field) => renderSettingsField(options, group, field, highlightedFieldId)),
+      advancedFields.length ? h("details", {
+        class: "desktop-settings-advanced-fields",
+        open: advancedFields.some((field) => field.id === highlightedFieldId) ? "" : undefined,
+      }, [
         h("summary", "Advanced"),
-        ...advancedFields.map((field) => renderSettingsField(options, group, field)),
+        ...advancedFields.map((field) => renderSettingsField(options, group, field, highlightedFieldId)),
       ]) : null,
     ],
   });
@@ -506,10 +605,12 @@ function renderSettingsField(
   options: SettingsPaneIslandOptions,
   group: DesktopSettingsPaneGroup,
   field: DesktopSettingsPaneField,
+  highlightedFieldId = "",
 ) {
   return h("div", {
     class: "desktop-settings-field",
     "data-desktop-settings-field": field.id,
+    "data-highlighted": field.id === highlightedFieldId ? "true" : undefined,
     "data-state": field.state,
   }, [
     h("div", { class: "desktop-settings-field-copy" }, [
@@ -795,6 +896,59 @@ function getActiveSettingsGroup(
 ): DesktopSettingsPaneGroup | null {
   const groups = getNavigableSettingsGroups(pane.groups);
   return groups.find((group) => group.id === activeGroupId) ?? groups[0] ?? null;
+}
+
+function getSettingsSearchResults(
+  pane: DesktopSettingsPaneModel,
+  query: string,
+): SettingsSearchResult[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) {
+    return [];
+  }
+  const results: Array<{ result: SettingsSearchResult; score: number }> = [];
+  for (const group of getNavigableSettingsGroups(pane.groups)) {
+    for (const field of group.fields) {
+      const fieldLabel = field.label.toLowerCase();
+      const fieldId = field.id.toLowerCase();
+      const haystack = [
+        group.label,
+        group.description ?? "",
+        ...(group.aliases ?? []),
+        field.label,
+        field.description ?? getSettingsFieldDescription(group.id, field),
+        ...(field.aliases ?? []),
+        field.sensitive ? "" : field.value,
+        field.sensitive ? "" : field.inputValue,
+      ].join(" ").toLowerCase();
+      if (!haystack.includes(normalizedQuery)) {
+        continue;
+      }
+      const score = fieldLabel === normalizedQuery || fieldId === normalizedQuery
+        ? 0
+        : fieldLabel.includes(normalizedQuery) || fieldId.includes(normalizedQuery)
+          ? 1
+          : (field.aliases ?? []).some((alias) => alias.toLowerCase().includes(normalizedQuery))
+            ? 2
+            : 3;
+      results.push({
+        score,
+        result: {
+        key: `${group.id}.${field.id}`,
+        groupId: group.id,
+        groupLabel: group.label,
+        fieldId: field.id,
+        fieldLabel: field.label,
+        description: field.description ?? "",
+        advanced: field.advanced === true,
+        },
+      });
+    }
+  }
+  return results
+    .sort((left, right) => left.score - right.score)
+    .slice(0, 8)
+    .map((item) => item.result);
 }
 
 function getNavigableSettingsGroups(groups: DesktopSettingsPaneGroup[]): DesktopSettingsPaneGroup[] {

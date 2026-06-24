@@ -2114,6 +2114,12 @@ async function handleNativeSettingsAction(event: DesktopSettingsActionEvent): Pr
     logDesktopNativeDebug("settings.action.complete", { action: event.action, fieldId: event.fieldId });
     return;
   }
+  if (event.action === "reset") {
+    nativeSettingsState = nativeSettingsLastSavedState;
+    updateNativeSettingsPane("idle");
+    logDesktopNativeDebug("settings.action.complete", { action: event.action });
+    return;
+  }
   if (event.action === "save") {
     await saveNativeSettingsPane();
     return;

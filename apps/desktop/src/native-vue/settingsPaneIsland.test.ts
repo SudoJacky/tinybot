@@ -395,4 +395,60 @@ describe("settings pane Vue island", () => {
 
     mounted.unmount();
   });
+
+  test("searches shared settings metadata and activates non-sensitive results", async () => {
+    const host = document.createElement("section");
+    const actions: string[] = [];
+    document.body.replaceChildren(host);
+
+    const mounted = mountSettingsPaneIsland(host, {
+      pane,
+      onSettingsAction: (event: DesktopSettingsActionEvent) => {
+        actions.push(event.action);
+      },
+    });
+    await nextTick();
+
+    const search = host.querySelector<HTMLInputElement>('[data-desktop-settings-search="query"]');
+    search!.value = "workspace";
+    search?.dispatchEvent(new Event("input", { bubbles: true }));
+    await nextTick();
+
+    expect(Array.from(
+      host.querySelectorAll("[data-desktop-settings-search-result]"),
+      (node) => node.getAttribute("data-desktop-settings-search-result"),
+    )).toContain("files-workspace.workspace");
+    const workspaceResult = host.querySelector<HTMLButtonElement>('[data-desktop-settings-search-result="files-workspace.workspace"]');
+    expect(workspaceResult?.textContent).toContain("Workspace");
+    expect(workspaceResult?.textContent).toContain("Files & Workspace");
+    workspaceResult?.click();
+    await nextTick();
+
+    const workspace = host.querySelector<HTMLInputElement>('[data-desktop-settings-control="workspace"]');
+    expect(host.querySelector(".desktop-settings-breadcrumb")?.textContent).toContain("Settings / Files & Workspace");
+    expect(document.activeElement).toBe(workspace);
+    expect(host.querySelector('[data-desktop-settings-field="workspace"]')?.getAttribute("data-highlighted")).toBe("true");
+
+    search!.value = "temperature";
+    search?.dispatchEvent(new Event("input", { bubbles: true }));
+    await nextTick();
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-search-result="general.temperature"]')?.click();
+    await nextTick();
+    expect(host.querySelector('[data-desktop-settings-group="general"] details.desktop-settings-advanced-fields')?.hasAttribute("open")).toBe(true);
+    expect(document.activeElement).toBe(host.querySelector('[data-desktop-settings-control="temperature"]'));
+
+    search!.value = "sk-live";
+    search?.dispatchEvent(new Event("input", { bubbles: true }));
+    await nextTick();
+    expect(host.querySelector("[data-desktop-settings-search-result]")).toBeNull();
+    expect(host.querySelector('[data-desktop-settings-search-empty="true"]')?.textContent).toContain("No settings found");
+    expect(host.textContent).not.toContain("sk-live");
+
+    expect(host.querySelector('[data-desktop-settings-dirty-summary]')?.textContent).toContain("Unsaved changes");
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-action="reset"]')?.click();
+    expect(actions).toEqual(["reset"]);
+
+    mounted.unmount();
+    host.remove();
+  });
 });
