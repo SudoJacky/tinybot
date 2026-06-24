@@ -63,6 +63,43 @@ describe("desktop settings native save bridge", () => {
     expect(applyGatewayConfigPatch).toHaveBeenCalledWith(patch);
   });
 
+  test("preserves native warnings without using gateway fallback", async () => {
+    const currentConfig = {
+      agents: { defaults: { model: "gpt-4.1-mini", provider: "openai" } },
+    };
+    const patch = { providers: { openai: { api_base: "https://api.openai.com/v1" } } };
+    const nativeConfig = {
+      agents: { defaults: { model: "gpt-4.1-mini", provider: "openai" } },
+      providers: { openai: { api_base: "https://api.openai.com/v1" } },
+    };
+    const applyNativeConfigPatch = vi.fn().mockResolvedValue({
+      ok: true,
+      config: nativeConfig,
+      updatedFields: ["providers.openai.api_base"],
+      sideEffects: {
+        applied: ["providerRuntimeChanged"],
+        restartRequired: [],
+        warnings: ["provider runtime will use the new base URL on the next request"],
+      },
+    });
+    const applyGatewayConfigPatch = vi.fn().mockResolvedValue({ unreachable: true });
+
+    await expect(saveDesktopSettingsConfig(currentConfig, patch, {
+      applyNativeConfigPatch,
+      applyGatewayConfigPatch,
+    })).resolves.toEqual({
+      config: nativeConfig,
+      transport: "native",
+      updatedFields: ["providers.openai.api_base"],
+      applied: ["providerRuntimeChanged"],
+      restartRequired: [],
+      reloadRequired: [],
+      warnings: ["provider runtime will use the new base URL on the next request"],
+    });
+
+    expect(applyGatewayConfigPatch).not.toHaveBeenCalled();
+  });
+
   test("splits native restart and reload requirements", async () => {
     const currentConfig = {
       agents: { defaults: { workspace: "old" } },
