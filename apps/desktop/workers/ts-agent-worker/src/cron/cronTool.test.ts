@@ -103,6 +103,9 @@ describe("createCronTool", () => {
     await expect(tool.execute({ action: "add", message: "Bad cron timezone", cron_expr: "0 9 * * *", tz: "Mars/Base" }, context)).resolves.toEqual({
       content: "Error: unknown timezone 'Mars/Base'",
     });
+    await expect(tool.execute({ action: "add", message: "Bad cron expression", cron_expr: "not cron", tz: "UTC" }, context)).resolves.toEqual({
+      content: "Error: invalid cron expression 'not cron'",
+    });
     await expect(tool.execute({ action: "add", message: "Missing schedule" }, context)).resolves.toEqual({
       content: "Error: either every_seconds, cron_expr, or at is required",
     });

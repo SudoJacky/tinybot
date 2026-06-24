@@ -37,8 +37,9 @@ export async function saveDesktopSettingsConfig(
       deps.onNativeFallback?.(error);
     }
   }
+  const gatewayResult = await deps.applyGatewayConfigPatch(patch);
   return {
-    config: await deps.applyGatewayConfigPatch(patch),
+    config: unwrapGatewayConfigPatchResult(gatewayResult),
     transport: "gateway-fallback",
     updatedFields: [],
     applied: [],
@@ -46,6 +47,13 @@ export async function saveDesktopSettingsConfig(
     reloadRequired: [],
     warnings: fallbackError ? [`Saved through gateway fallback after native config patch failed: ${stringifyError(fallbackError)}`] : [],
   };
+}
+
+function unwrapGatewayConfigPatchResult(result: unknown): unknown {
+  if (result && typeof result === "object" && !Array.isArray(result) && "config" in result) {
+    return (result as { config?: unknown }).config;
+  }
+  return result;
 }
 
 function buildNativeSaveResult(result: DesktopNativeConfigPatchResponse): DesktopSettingsSaveResult {

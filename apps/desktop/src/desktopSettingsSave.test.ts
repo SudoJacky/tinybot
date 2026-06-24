@@ -63,6 +63,30 @@ describe("desktop settings native save bridge", () => {
     expect(applyGatewayConfigPatch).toHaveBeenCalledWith(patch);
   });
 
+  test("unwraps gateway fallback config envelopes before returning the effective config", async () => {
+    const currentConfig = {
+      agents: { defaults: { model: "gpt-4.1-mini", provider: "openai" } },
+    };
+    const patch = { agents: { defaults: { model: "gpt-4.1" } } };
+    const gatewayConfig = {
+      agents: { defaults: { model: "gpt-4.1", provider: "openai" } },
+    };
+    const applyNativeConfigPatch = vi.fn().mockRejectedValue(new Error("command not found"));
+    const applyGatewayConfigPatch = vi.fn().mockResolvedValue({
+      updated: true,
+      updated_fields: ["agents.defaults.model"],
+      config: gatewayConfig,
+    });
+
+    await expect(saveDesktopSettingsConfig(currentConfig, patch, {
+      applyNativeConfigPatch,
+      applyGatewayConfigPatch,
+    })).resolves.toMatchObject({
+      config: gatewayConfig,
+      transport: "gateway-fallback",
+    });
+  });
+
   test("preserves native warnings without using gateway fallback", async () => {
     const currentConfig = {
       agents: { defaults: { model: "gpt-4.1-mini", provider: "openai" } },

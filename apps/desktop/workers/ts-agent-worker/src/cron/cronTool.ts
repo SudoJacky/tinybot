@@ -119,6 +119,9 @@ class CronToolRuntime {
       if (!isValidTimezone(timezone)) {
         return `Error: unknown timezone '${timezone}'`;
       }
+      if (!isValidCronExpression(cronExpr)) {
+        return `Error: invalid cron expression '${cronExpr}'`;
+      }
       return { schedule: { kind: "cron", expr: cronExpr, tz: timezone }, deleteAfterRun: false };
     }
     if (at) {
@@ -343,6 +346,90 @@ function cronDeliveryContext(args: Record<string, unknown>, context: ToolContext
 function stringArg(args: Record<string, unknown>, key: string): string {
   const value = args[key];
   return typeof value === "string" ? value.trim() : "";
+}
+
+const MONTH_NAMES = new Map([
+  ["jan", 1],
+  ["feb", 2],
+  ["mar", 3],
+  ["apr", 4],
+  ["may", 5],
+  ["jun", 6],
+  ["jul", 7],
+  ["aug", 8],
+  ["sep", 9],
+  ["oct", 10],
+  ["nov", 11],
+  ["dec", 12],
+]);
+
+const WEEKDAY_NAMES = new Map([
+  ["sun", 0],
+  ["mon", 1],
+  ["tue", 2],
+  ["wed", 3],
+  ["thu", 4],
+  ["fri", 5],
+  ["sat", 6],
+]);
+
+function isValidCronExpression(expr: string): boolean {
+  const fields = expr.trim().split(/\s+/);
+  if (fields.length !== 5) {
+    return false;
+  }
+  const ranges: Array<[number, number]> = [
+    [0, 59],
+    [0, 23],
+    [1, 31],
+    [1, 12],
+    [0, 7],
+  ];
+  return fields.every((field, index) => isValidCronField(field, ranges[index]!, index));
+}
+
+function isValidCronField(field: string, range: [number, number], index: number): boolean {
+  return field.split(",").every((part) => isValidCronFieldPart(part, range, index));
+}
+
+function isValidCronFieldPart(part: string, range: [number, number], index: number): boolean {
+  if (!part) {
+    return false;
+  }
+  const [base, step, extra] = part.split("/");
+  if (extra !== undefined || !base) {
+    return false;
+  }
+  if (step !== undefined && (!/^\d+$/.test(step) || Number(step) < 1)) {
+    return false;
+  }
+  if (base === "*") {
+    return true;
+  }
+  const rangeParts = base.split("-");
+  if (rangeParts.length === 1) {
+    return cronFieldValue(rangeParts[0]!, index, range) !== null;
+  }
+  if (rangeParts.length !== 2) {
+    return false;
+  }
+  const start = cronFieldValue(rangeParts[0]!, index, range);
+  const end = cronFieldValue(rangeParts[1]!, index, range);
+  return start !== null && end !== null && start <= end;
+}
+
+function cronFieldValue(value: string, index: number, [min, max]: [number, number]): number | null {
+  const normalized = value.toLowerCase();
+  const named = index === 3
+    ? MONTH_NAMES.get(normalized)
+    : index === 4
+      ? WEEKDAY_NAMES.get(normalized)
+      : undefined;
+  const numeric = named ?? (/^\d+$/.test(value) ? Number(value) : NaN);
+  if (!Number.isInteger(numeric) || numeric < min || numeric > max) {
+    return null;
+  }
+  return numeric;
 }
 
 function numberArg(args: Record<string, unknown>, key: string): number | null {
