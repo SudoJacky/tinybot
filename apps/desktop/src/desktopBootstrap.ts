@@ -39,7 +39,7 @@ import {
   type DesktopNativeStartupTrace,
 } from "./desktopNativeChatDebug";
 import { applyNativeConfigPatch } from "./desktopNativeConfigPatch";
-import { saveDesktopSettingsConfig } from "./desktopSettingsSave";
+import { saveDesktopSettingsConfig, type DesktopSettingsSaveResult } from "./desktopSettingsSave";
 import { buildDesktopTsAgentFormSubmissionInput } from "./desktopTsAgentFormActions";
 import { installDesktopNavigation } from "./desktopNavigation";
 import { applyDesktopWorkbenchRouteState } from "./desktopEntityFocus";
@@ -56,9 +56,11 @@ import {
   buildDesktopProviderModelRequest,
   buildDesktopSettingsFormState,
   buildDesktopSettingsPaneModel,
-  createDesktopSettingsPatch,
+  buildDesktopSettingsSavePatch,
+  reconcileDesktopSettingsSavedState,
   type DesktopSettingsFormState,
   type DesktopSettingsPaneModel,
+  type DesktopSettingsPaneSaveDetails,
 } from "./desktopSettingsProviders";
 import { bindStartupRetry, setStartupState } from "./desktopStartupView";
 import { buildDesktopTaskCenterItems, type DesktopTaskSourceOperation } from "./desktopTaskCenter";
@@ -2076,6 +2078,48 @@ async function loadNativeSettingsPane(): Promise<DesktopSettingsPaneModel> {
 }
 
 async function handleNativeSettingsAction(event: DesktopSettingsActionEvent): Promise<void> {
+  if (event.action === "retryLoad") {
+    await retryLoadNativeSettingsPane();
+    return;
+  }
+  if (event.action === "copyDiagnostics") {
+    await copyNativeSettingsDiagnostics(event.pane.diagnostics?.runtimeSummary || event.pane.save.diagnostics || event.pane.save.message);
+    return;
+  }
+  if (event.action === "restartGateway") {
+    await handleNativeGatewayRuntimeAction({
+      action: "restart",
+      status: nativeRuntimeStatus,
+      diagnostics: "",
+    });
+    return;
+  }
+  if (event.action === "reloadWorkspace") {
+    await retryLoadNativeSettingsPane();
+    scheduleNativeRuntimeStatusRefresh("settings.workspace.reload");
+    logDesktopNativeDebug("settings.workspace.reload.requested");
+    return;
+  }
+  if (event.action === "testProviderConnection") {
+    logDesktopNativeDebug("settings.provider.test.requested", { providerId: event.providerId });
+    return;
+  }
+  if (["chooseWorkspace", "openWorkspace", "openSessionFiles", "openKnowledgeDocuments"].includes(event.action)) {
+    logDesktopNativeDebug("settings.files.action.requested", { action: event.action });
+    return;
+  }
+  if (event.action === "setupChannelIntegrations") {
+    logDesktopNativeDebug("settings.channels.action.requested", { action: event.action });
+    return;
+  }
+  if (["openDiagnosticsLogs", "exportDiagnosticsBundle", "clearDiagnosticsLogs", "resetLocalUiState"].includes(event.action)) {
+    logDesktopNativeDebug("settings.diagnostics.action.requested", { action: event.action });
+    return;
+  }
+  if (event.action === "setDiagnosticsLogLevel") {
+    logDesktopNativeDebug("settings.diagnostics.log_level.requested", { logLevel: event.logLevel });
+    return;
+  }
   if (!nativeSettingsState) {
     logDesktopNativeDebug("settings.action.skipped", { action: event.action, reason: "state unavailable" });
     return;
@@ -2090,11 +2134,39 @@ async function handleNativeSettingsAction(event: DesktopSettingsActionEvent): Pr
     logDesktopNativeDebug("settings.action.complete", { action: event.action, fieldId: event.fieldId });
     return;
   }
+  if (event.action === "reset") {
+    nativeSettingsState = nativeSettingsLastSavedState;
+    updateNativeSettingsPane("idle");
+    logDesktopNativeDebug("settings.action.complete", { action: event.action });
+    return;
+  }
   if (event.action === "save") {
     await saveNativeSettingsPane();
     return;
   }
   await refreshNativeProviderModels();
+}
+
+async function retryLoadNativeSettingsPane(): Promise<void> {
+  logDesktopNativeDebug("settings.load.retry.start");
+  const pane = await loadNativeSettingsPane();
+  updateDesktopSettingsPane(document, pane, {
+    onSettingsAction: (event) => {
+      void handleNativeSettingsAction(event);
+    },
+  });
+  syncNativeRuntimeMetadata();
+  logDesktopNativeDebug("settings.load.retry.complete", { status: pane.save.status });
+}
+
+async function copyNativeSettingsDiagnostics(diagnostics: string): Promise<void> {
+  const clipboard = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
+  if (!clipboard?.writeText) {
+    logDesktopNativeDebug("settings.diagnostics.copy.skipped", { reason: "clipboard unavailable" });
+    return;
+  }
+  await clipboard.writeText(diagnostics || "No settings diagnostics");
+  logDesktopNativeDebug("settings.diagnostics.copy.complete");
 }
 
 async function saveNativeSettingsPane(): Promise<void> {
@@ -2105,23 +2177,44 @@ async function saveNativeSettingsPane(): Promise<void> {
   logDesktopNativeDebug("settings.save.start");
   updateNativeSettingsPane("saving");
   try {
-    const patch = createDesktopSettingsPatch(
+    const savePatch = buildDesktopSettingsSavePatch(
       nativeSettingsState,
       nativeSettingsConfig,
       nativeSettingsProviderCatalog,
     );
-    nativeSettingsConfig = await saveDesktopSettingsConfig(nativeSettingsConfig, patch, {
+    if (!savePatch.ok) {
+      const invalidFields = savePatch.validationErrors.map((error) => error.field).join(", ");
+      updateNativeSettingsPane("failed", `Settings validation failed: ${invalidFields}`);
+      logDesktopNativeDebug("settings.save.validationFailed", { fields: savePatch.validationErrors.map((error) => error.field) });
+      return;
+    }
+    const saveResult = await saveDesktopSettingsConfig(nativeSettingsConfig, savePatch.patch, {
       applyNativeConfigPatch,
       applyGatewayConfigPatch: (fallbackPatch) => gatewayApi.config.patch(fallbackPatch),
       onNativeFallback: (fallbackError) => {
         logDesktopNativeDebug("settings.save.nativeFallback", { error: stringifyError(fallbackError) });
       },
     });
+    const effectiveConfig = saveResult.config;
+    const reconciled = reconcileDesktopSettingsSavedState(nativeSettingsState, effectiveConfig, nativeSettingsProviderCatalog);
+    if (!reconciled.ok) {
+      updateNativeSettingsPane("failed", `Saved settings did not apply: ${reconciled.mismatchedPaths.join(", ")}`);
+      logDesktopNativeDebug("settings.save.reconcileFailed", { paths: reconciled.mismatchedPaths });
+      return;
+    }
+    nativeSettingsConfig = effectiveConfig;
     syncTsCoworkRuntimeRollout(nativeSettingsConfig);
-    nativeSettingsState = buildDesktopSettingsFormState(nativeSettingsConfig, nativeSettingsProviderCatalog);
+    nativeSettingsState = reconciled.state;
     nativeSettingsLastSavedState = nativeSettingsState;
-    updateNativeSettingsPane("saved");
-    logDesktopNativeDebug("settings.save.complete");
+    updateNativeSettingsPane("saved", undefined, buildNativeSettingsPaneSaveDetails(saveResult));
+    logDesktopNativeDebug("settings.save.complete", {
+      transport: saveResult.transport,
+      updatedFields: saveResult.updatedFields,
+      applied: saveResult.applied,
+      restartRequired: saveResult.restartRequired,
+      reloadRequired: saveResult.reloadRequired,
+      warnings: saveResult.warnings,
+    });
   } catch (error) {
     const message = stringifyError(error);
     updateNativeSettingsPane("failed", `Failed to save settings: ${message}`);
@@ -2187,6 +2280,7 @@ function syncTsCoworkRuntimeRollout(config: unknown): void {
 function updateNativeSettingsPane(
   saveStatus: "idle" | "saving" | "saved" | "failed",
   saveError?: string,
+  saveDetails?: DesktopSettingsPaneSaveDetails | null,
 ): void {
   if (!nativeSettingsState) {
     return;
@@ -2196,12 +2290,24 @@ function updateNativeSettingsPane(
     providerCatalog: nativeSettingsProviderCatalog,
     saveStatus,
     saveError,
+    saveDetails,
   }), {
     onSettingsAction: (event) => {
       void handleNativeSettingsAction(event);
     },
   });
   syncNativeRuntimeMetadata();
+}
+
+function buildNativeSettingsPaneSaveDetails(saveResult: DesktopSettingsSaveResult): DesktopSettingsPaneSaveDetails {
+  return {
+    transport: saveResult.transport,
+    updatedFields: saveResult.updatedFields,
+    applied: saveResult.applied,
+    restartRequired: saveResult.restartRequired,
+    reloadRequired: saveResult.reloadRequired,
+    warnings: saveResult.warnings,
+  };
 }
 
 function installNativeCommandPalette(): void {

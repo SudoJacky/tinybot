@@ -100,6 +100,9 @@ export interface DesktopSettingsFormState {
   };
   providerEditor: DesktopSettingsProviderEditorState;
   providerSummaries: DesktopSettingsProviderSummary[];
+  providerEditorDirty?: boolean;
+  touchedPaths?: string[];
+  serverSnapshot?: unknown;
 }
 
 export type DesktopSettingsValidationField =
@@ -115,6 +118,14 @@ export interface DesktopSettingsValidationError {
   field: DesktopSettingsValidationField;
   errorKey: "modelEmpty" | "timezoneError" | "portRange" | "jsonObjectError" | "urlError";
 }
+
+export type DesktopSettingsSavePatchResult =
+  | { ok: true; patch: UnknownRecord }
+  | { ok: false; validationErrors: DesktopSettingsValidationError[] };
+
+export type DesktopSettingsSaveReconcileResult =
+  | { ok: true; state: DesktopSettingsFormState }
+  | { ok: false; state: DesktopSettingsFormState; mismatchedPaths: string[] };
 
 export interface DesktopProviderModelRequest {
   provider: string;
@@ -139,7 +150,16 @@ export interface DesktopSecretField {
   empty: boolean;
 }
 
-export type DesktopSettingsSaveStatus = "idle" | "saving" | "saved" | "failed";
+export type DesktopSettingsSaveStatus = "idle" | "saving" | "saved" | "failed" | "restart-required" | "reload-required";
+export type DesktopSettingsSaveTransport = "native" | "gateway-fallback";
+export interface DesktopSettingsPaneSaveDetails {
+  transport: DesktopSettingsSaveTransport;
+  updatedFields: string[];
+  applied: string[];
+  restartRequired: string[];
+  reloadRequired: string[];
+  warnings: string[];
+}
 export type DesktopSettingsPaneFieldControl = "text" | "number" | "checkbox" | "textarea" | "select" | "password" | "readonly";
 export type DesktopSettingsPaneFieldRequirement = "required" | "optional" | "readonly";
 export type DesktopSettingsPaneFieldConfigurationMode =
@@ -153,15 +173,45 @@ export type DesktopSettingsPaneFieldConfigurationMode =
   | "toggle"
   | "url";
 export type DesktopSettingsEditableValue = string | boolean;
+export type DesktopSettingsPaneApplyEffect = "immediate" | "gateway-restart" | "workspace-reload";
 
 export interface DesktopSettingsPaneFieldOption {
   value: string;
   label: string;
 }
 
+export interface DesktopSettingsPaneFieldMetadata {
+  label: string;
+  description: string;
+  aliases: string[];
+  i18nKey: string;
+  validationField?: DesktopSettingsValidationField;
+  sensitive?: boolean;
+  applyEffect?: DesktopSettingsPaneApplyEffect;
+  unit?: string;
+  recommendation?: string;
+}
+
+export interface DesktopSettingsPaneGroupMetadata {
+  label: string;
+  description: string;
+  aliases: string[];
+  i18nKey: string;
+  navigationArea: "core" | "application" | "system";
+  navigationMode: "section" | "preview" | "hidden";
+}
+
 export interface DesktopSettingsPaneField {
   id: string;
   label: string;
+  description?: string;
+  aliases?: string[];
+  i18nKey?: string;
+  validationField?: DesktopSettingsValidationField;
+  sensitive?: boolean;
+  applyEffect?: DesktopSettingsPaneApplyEffect;
+  unit?: string;
+  recommendation?: string;
   value: string;
   state: "normal" | "invalid";
   control: DesktopSettingsPaneFieldControl;
@@ -170,6 +220,7 @@ export interface DesktopSettingsPaneField {
   options?: DesktopSettingsPaneFieldOption[];
   requirement: DesktopSettingsPaneFieldRequirement;
   configurationMode: DesktopSettingsPaneFieldConfigurationMode;
+  disabled?: boolean;
   advanced?: boolean;
   placeholder?: string;
   min?: number;
@@ -191,7 +242,206 @@ export interface DesktopSettingsPaneGroup {
     | "gateway-runtime"
     | "logs-diagnostics";
   label: string;
+  description?: string;
+  aliases?: string[];
+  i18nKey?: string;
+  navigationArea?: DesktopSettingsPaneGroupMetadata["navigationArea"];
+  navigationMode?: DesktopSettingsPaneGroupMetadata["navigationMode"];
   fields: DesktopSettingsPaneField[];
+}
+
+type DesktopSettingsPaneGroupId = DesktopSettingsPaneGroup["id"];
+
+const DESKTOP_SETTINGS_GROUP_METADATA: Record<DesktopSettingsPaneGroupId, DesktopSettingsPaneGroupMetadata> = {
+  general: {
+    label: "General",
+    description: "Default model, provider routing, and timezone behavior.",
+    aliases: ["default model", "profile", "timezone", "workspace"],
+    i18nKey: "settings.groups.general",
+    navigationArea: "core",
+    navigationMode: "section",
+  },
+  "provider-models": {
+    label: "Provider & Models",
+    description: "Provider profiles, endpoints, credentials, and model catalogs.",
+    aliases: ["providers", "models", "api key", "credentials"],
+    i18nKey: "settings.groups.provider-models",
+    navigationArea: "core",
+    navigationMode: "section",
+  },
+  knowledge: {
+    label: "Knowledge",
+    description: "Retrieval, indexing, reranking, and graph extraction behavior.",
+    aliases: ["rag", "retrieval", "embeddings", "graph"],
+    i18nKey: "settings.groups.knowledge",
+    navigationArea: "core",
+    navigationMode: "section",
+  },
+  "tools-approvals": {
+    label: "Tools & MCP",
+    description: "Tool toggles and MCP server access. Approval controls are not exposed here yet.",
+    aliases: ["tools", "mcp", "security"],
+    i18nKey: "settings.groups.tools-approvals",
+    navigationArea: "core",
+    navigationMode: "section",
+  },
+  "files-workspace": {
+    label: "Files & Workspace",
+    description: "Session files, knowledge documents, and editable workspace file boundaries.",
+    aliases: ["files", "storage", "workspace"],
+    i18nKey: "settings.groups.files-workspace",
+    navigationArea: "application",
+    navigationMode: "section",
+  },
+  "memory-experience": {
+    label: "Memory & Experience",
+    description: "Memory and experience controls for contextual continuity.",
+    aliases: ["memory", "experience"],
+    i18nKey: "settings.groups.memory-experience",
+    navigationArea: "application",
+    navigationMode: "preview",
+  },
+  skills: {
+    label: "Skills",
+    description: "Skill availability and loading policy.",
+    aliases: ["skills", "capabilities"],
+    i18nKey: "settings.groups.skills",
+    navigationArea: "application",
+    navigationMode: "preview",
+  },
+  channels: {
+    label: "Channels",
+    description: "Streaming and retry behavior for desktop channels.",
+    aliases: ["streaming", "progress", "retries"],
+    i18nKey: "settings.groups.channels",
+    navigationArea: "application",
+    navigationMode: "section",
+  },
+  automations: {
+    label: "Automations",
+    description: "Automation and scheduling capabilities planned after core stability.",
+    aliases: ["automation", "scheduling"],
+    i18nKey: "settings.groups.automations",
+    navigationArea: "application",
+    navigationMode: "preview",
+  },
+  "gateway-runtime": {
+    label: "Gateway & Runtime",
+    description: "Local gateway connection, heartbeat, and runtime controls.",
+    aliases: ["gateway", "runtime", "host", "port"],
+    i18nKey: "settings.groups.gateway-runtime",
+    navigationArea: "system",
+    navigationMode: "section",
+  },
+  "logs-diagnostics": {
+    label: "Logs & Diagnostics",
+    description: "Runtime logs, diagnostics export, and local state recovery.",
+    aliases: ["logs", "diagnostics", "debug"],
+    i18nKey: "settings.groups.logs-diagnostics",
+    navigationArea: "system",
+    navigationMode: "section",
+  },
+};
+
+const DESKTOP_SETTINGS_FIELD_METADATA: Record<string, DesktopSettingsPaneFieldMetadata> = {
+  "general.model": {
+    label: "Model",
+    description: "Model used for default chat and agent responses.",
+    aliases: ["default model", "chat model", "agent model"],
+    validationField: "model",
+    i18nKey: "settings.fields.general.model",
+  },
+  "general.provider": {
+    label: "Provider",
+    description: "Provider routing for the selected model.",
+    aliases: ["default provider", "routing"],
+    i18nKey: "settings.fields.general.provider",
+  },
+  "general.activeProfile": {
+    label: "Profile",
+    description: "Named provider profile with credentials and endpoint settings.",
+    aliases: ["active profile", "provider profile"],
+    i18nKey: "settings.fields.general.activeProfile",
+  },
+  "general.timezone": {
+    label: "Timezone",
+    description: "Timezone used for timestamps, reminders, and scheduled work.",
+    aliases: ["time zone", "locale", "schedule timezone"],
+    validationField: "timezone",
+    i18nKey: "settings.fields.general.timezone",
+  },
+  "files-workspace.workspace": {
+    label: "Workspace",
+    description: "Default desktop workspace path for local files and agent work.",
+    aliases: ["workspace folder", "working directory", "files"],
+    applyEffect: "workspace-reload",
+    i18nKey: "settings.fields.files-workspace.workspace",
+  },
+  "general.temperature": {
+    label: "Temperature",
+    description: "Sampling temperature for default chat and agent responses.",
+    aliases: ["creativity", "sampling"],
+    recommendation: "Recommended 0.1",
+    i18nKey: "settings.fields.general.temperature",
+  },
+  "general.maxTokens": {
+    label: "Max tokens",
+    description: "Maximum generated tokens for a default response.",
+    aliases: ["output tokens", "completion tokens"],
+    unit: "tokens",
+    i18nKey: "settings.fields.general.maxTokens",
+  },
+  "provider-models.apiKey": {
+    label: "API key",
+    description: "Secret credential used by the selected provider profile.",
+    aliases: ["secret", "credential", "token"],
+    sensitive: true,
+    i18nKey: "settings.fields.provider-models.apiKey",
+  },
+  "provider-models.apiBase": {
+    label: "API base",
+    description: "OpenAI-compatible endpoint for this provider.",
+    aliases: ["base url", "endpoint", "provider url"],
+    validationField: "providerApiBase",
+    i18nKey: "settings.fields.provider-models.apiBase",
+  },
+  "tools-approvals.mcpServers": {
+    label: "MCP servers",
+    description: "JSON object of MCP server definitions.",
+    aliases: ["mcp", "servers", "tools json"],
+    validationField: "mcpServers",
+    sensitive: true,
+    i18nKey: "settings.fields.tools-approvals.mcpServers",
+  },
+  "gateway-runtime.host": {
+    label: "Host",
+    description: "Host interface where the desktop gateway listens.",
+    aliases: ["bind host", "listen address", "gateway endpoint"],
+    applyEffect: "gateway-restart",
+    i18nKey: "settings.fields.gateway-runtime.host",
+  },
+  "gateway-runtime.port": {
+    label: "Port",
+    description: "Port used by the local gateway endpoint.",
+    aliases: ["gateway port", "listen port"],
+    validationField: "gatewayPort",
+    applyEffect: "gateway-restart",
+    unit: "TCP port",
+    i18nKey: "settings.fields.gateway-runtime.port",
+  },
+};
+
+export function getDesktopSettingsGroupMetadata(
+  groupId: DesktopSettingsPaneGroupId,
+): DesktopSettingsPaneGroupMetadata {
+  return DESKTOP_SETTINGS_GROUP_METADATA[groupId];
+}
+
+export function getDesktopSettingsFieldMetadata(
+  groupId: DesktopSettingsPaneGroupId,
+  fieldId: string,
+): DesktopSettingsPaneFieldMetadata | null {
+  return DESKTOP_SETTINGS_FIELD_METADATA[`${groupId}.${fieldId}`] ?? null;
 }
 
 export interface DesktopSettingsPaneModel {
@@ -201,6 +451,28 @@ export interface DesktopSettingsPaneModel {
     status: DesktopSettingsSaveStatus;
     message: string;
     canSave: boolean;
+    transport?: DesktopSettingsSaveTransport;
+    updatedFields?: string[];
+    applied?: string[];
+    restartRequired?: string[];
+    reloadRequired?: string[];
+    warnings?: string[];
+    diagnostics?: string;
+  };
+  runtime?: {
+    intent: "local-only" | "local-network" | "advanced-custom";
+    currentEndpoint: string;
+    pendingEndpoint: string;
+    portStatus: string;
+    heartbeatDependency: string;
+  };
+  diagnostics?: {
+    runtimeSummary: string;
+    gatewayOwnership: string;
+    version: string;
+    activeConfigPath: string;
+    lastConfigError: string;
+    logLevel: "error" | "info" | "debug";
   };
   groups: DesktopSettingsPaneGroup[];
   providerCatalog: Array<{
@@ -215,6 +487,13 @@ export interface DesktopSettingsPaneModel {
     models?: string[];
     canDiscoverModels?: boolean;
   }>;
+  defaultRouting?: {
+    mode: "auto" | "provider";
+    providerId: string;
+    providerLabel: string;
+    model: string | null;
+    message: string;
+  };
   providerEditor: {
     selectedProvider: string;
     profileId: string;
@@ -338,6 +617,7 @@ export function buildDesktopSettingsFormState(
       supportsModelDiscovery: pick(providerProfile, "supportsModelDiscovery", "supports_model_discovery") !== false,
     },
     providerSummaries,
+    serverSnapshot: cloneDesktopSettingsSnapshot(config),
   };
 }
 
@@ -435,14 +715,66 @@ export function buildDesktopProviderSummaries(
 
 export function createDesktopSettingsPatch(
   state: DesktopSettingsFormState,
+  existingConfig?: unknown,
+  providerCatalog: DesktopProviderCatalogItem[] = [],
+): UnknownRecord {
+  const comparisonConfig = existingConfig === undefined ? state.serverSnapshot ?? {} : existingConfig;
+  if (state.touchedPaths) {
+    return createDesktopSettingsTouchedPatch(state, comparisonConfig);
+  }
+  return createDesktopSettingsFullPatch(state, comparisonConfig, providerCatalog);
+}
+
+export function buildDesktopSettingsSavePatch(
+  state: DesktopSettingsFormState,
+  existingConfig?: unknown,
+  providerCatalog: DesktopProviderCatalogItem[] = [],
+): DesktopSettingsSavePatchResult {
+  const validationErrors = validateDesktopSettingsForm(state);
+  if (validationErrors.length) {
+    return { ok: false, validationErrors };
+  }
+  return {
+    ok: true,
+    patch: createDesktopSettingsPatch(state, existingConfig, providerCatalog),
+  };
+}
+
+export function reconcileDesktopSettingsSavedState(
+  draftState: DesktopSettingsFormState,
+  effectiveConfig: unknown,
+  providerCatalog: DesktopProviderCatalogItem[] = [],
+): DesktopSettingsSaveReconcileResult {
+  const savedState = buildDesktopSettingsFormState(effectiveConfig, providerCatalog);
+  const mismatchedPaths = (draftState.touchedPaths ?? []).filter((path) => (
+    !desktopSettingsValuesEqual(
+      getDesktopSettingsPatchPathValue(draftState, path),
+      getDesktopSettingsPatchPathValue(savedState, path),
+    )
+  ));
+  if (mismatchedPaths.length) {
+    return {
+      ok: false,
+      state: draftState,
+      mismatchedPaths,
+    };
+  }
+  return {
+    ok: true,
+    state: savedState,
+  };
+}
+
+function createDesktopSettingsFullPatch(
+  state: DesktopSettingsFormState,
   existingConfig: unknown = {},
   providerCatalog: DesktopProviderCatalogItem[] = [],
 ): UnknownRecord {
   const providerIds = providerCatalog.map((provider) => stringValue(provider.id)).filter(Boolean);
-  const providerName = providerIds.includes(state.providerEditor.selectedProvider)
-    ? state.providerEditor.selectedProvider
-    : state.providerEditor.selectedProvider || "deepseek";
-  const profileId = stringOrNull(state.providerEditor.profileId) || state.agent.activeProfile;
+  const providerDraft = getDesktopSettingsPersistedProviderDraft(state, providerIds);
+  const providerName = providerDraft.providerName;
+  const profileId = providerDraft.profileId;
+  const providerEditor = providerDraft.editor;
   const existingProfiles = { ...getDesktopProviderProfiles(asRecord(asRecord(existingConfig).providers)) };
   const providers: UnknownRecord = {};
 
@@ -452,18 +784,18 @@ export function createDesktopSettingsPatch(
       [profileId]: {
         provider: providerName,
         enabled: state.providerSummaries.find((provider) => provider.id === providerName)?.enabled,
-        api_key: state.providerEditor.apiKey || "",
-        api_base: state.providerEditor.apiBase,
-        models: parseDesktopProviderModelList(state.providerEditor.modelsText),
-        supports_model_discovery: state.providerEditor.supportsModelDiscovery,
+        api_key: providerEditor.apiKey || "",
+        api_base: providerEditor.apiBase,
+        models: parseDesktopProviderModelList(providerEditor.modelsText),
+        supports_model_discovery: providerEditor.supportsModelDiscovery,
       },
     };
   }
 
   providers[providerName] = {
     enabled: state.providerSummaries.find((provider) => provider.id === providerName)?.enabled,
-    api_key: state.providerEditor.apiKey || "",
-    api_base: state.providerEditor.apiBase,
+    api_key: providerEditor.apiKey || "",
+    api_base: providerEditor.apiBase,
   };
 
   for (const provider of state.providerSummaries) {
@@ -574,12 +906,197 @@ export function createDesktopSettingsPatch(
   };
 }
 
+function createDesktopSettingsTouchedPatch(state: DesktopSettingsFormState, existingConfig: unknown): UnknownRecord {
+  const patch: UnknownRecord = {};
+  for (const path of state.touchedPaths ?? []) {
+    const value = getDesktopSettingsPatchPathValue(state, path);
+    if (desktopSettingsValuesEqual(value, getDesktopSettingsExistingConfigPathValue(existingConfig, path))) {
+      continue;
+    }
+    setDesktopSettingsPatchPath(patch, path, value);
+  }
+  return patch;
+}
+
+function getDesktopSettingsPatchPathValue(state: DesktopSettingsFormState, path: string): unknown {
+  switch (path) {
+    case "agents.defaults.model":
+      return state.agent.model;
+    case "agents.defaults.active_profile":
+      return state.agent.activeProfile;
+    case "agents.defaults.provider":
+      return state.agent.provider;
+    case "agents.defaults.workspace":
+      return state.agent.workspace;
+    case "agents.defaults.temperature":
+      return state.agent.temperature;
+    case "agents.defaults.max_tokens":
+      return state.agent.maxTokens;
+    case "agents.defaults.context_window_tokens":
+      return state.agent.contextWindowTokens;
+    case "agents.defaults.max_tool_iterations":
+      return state.agent.maxToolIterations;
+    case "agents.defaults.reasoning_effort":
+      return state.agent.reasoningEffort;
+    case "agents.defaults.timezone":
+      return state.agent.timezone;
+    case "agents.defaults.embedding.provider":
+      return state.embedding.provider;
+    case "agents.defaults.embedding.model_name":
+      return state.embedding.modelName;
+    case "agents.defaults.embedding.api_key":
+      return state.embedding.apiKey || "";
+    case "agents.defaults.embedding.api_base":
+      return state.embedding.apiBase;
+    case "knowledge.enabled":
+      return state.knowledge.enabled;
+    case "knowledge.auto_retrieve":
+      return state.knowledge.autoRetrieve;
+    case "knowledge.max_chunks":
+      return state.knowledge.maxChunks;
+    case "knowledge.chunk_size":
+      return state.knowledge.chunkSize;
+    case "knowledge.chunk_overlap":
+      return state.knowledge.chunkOverlap;
+    case "knowledge.retrieval_mode":
+      return state.knowledge.retrievalMode;
+    case "knowledge.rerank_enabled":
+      return state.knowledge.rerankEnabled;
+    case "knowledge.rerank_model":
+      return state.knowledge.rerankModel;
+    case "knowledge.rerank_api_key":
+      return state.knowledge.rerankApiKey;
+    case "knowledge.rerank_api_key_env_var":
+      return state.knowledge.rerankApiKeyEnvVar;
+    case "knowledge.rerank_api_base":
+      return state.knowledge.rerankApiBase;
+    case "knowledge.rerank_top_n":
+      return state.knowledge.rerankTopN;
+    case "knowledge.generate_summary":
+      return state.knowledge.generateSummary;
+    case "knowledge.semantic_extraction_mode":
+      return state.knowledge.semanticExtractionMode;
+    case "knowledge.semantic_llm_max_tokens":
+      return state.knowledge.semanticLlmMaxTokens;
+    case "knowledge.semantic_llm_timeout":
+      return state.knowledge.semanticLlmTimeout;
+    case "knowledge.graph_extraction_enabled":
+      return state.knowledge.graphExtractionEnabled;
+    case "knowledge.graph_auto_extract":
+      return state.knowledge.graphAutoExtract;
+    case "knowledge.graph_extraction_model":
+      return state.knowledge.graphExtractionModel;
+    case "knowledge.graph_extraction_max_tokens":
+      return state.knowledge.graphExtractionMaxTokens;
+    case "knowledge.graph_extraction_max_job_tokens":
+      return state.knowledge.graphExtractionMaxJobTokens;
+    case "knowledge.graph_extraction_concurrency":
+      return state.knowledge.graphExtractionConcurrency;
+    case "knowledge.graphrag_community_algorithm":
+      return state.knowledge.graphRagCommunityAlgorithm;
+    case "knowledge.graphrag_community_level":
+      return state.knowledge.graphRagCommunityLevel;
+    case "knowledge.graphrag_report_llm_enabled":
+      return state.knowledge.graphRagReportLlmEnabled;
+    case "knowledge.graphrag_report_max_tokens":
+      return state.knowledge.graphRagReportMaxTokens;
+    case "knowledge.graphrag_entity_summary_enabled":
+      return state.knowledge.graphRagEntitySummaryEnabled;
+    case "tools.web.enable":
+      return state.tools.webEnable;
+    case "tools.web.proxy":
+      return state.tools.webProxy;
+    case "tools.web.search.provider":
+      return state.tools.searchProvider;
+    case "tools.exec.enable":
+      return state.tools.execEnable;
+    case "tools.exec.timeout":
+      return state.tools.execTimeout;
+    case "tools.mcp_servers":
+      return parseDesktopJsonObject(state.tools.mcpServersText);
+    case "tools.restrict_to_workspace":
+      return state.tools.restrictToWorkspace;
+    case "gateway.host":
+      return state.gateway.host;
+    case "gateway.port":
+      return state.gateway.port;
+    case "gateway.heartbeat.enabled":
+      return state.gateway.heartbeatEnabled;
+    case "gateway.heartbeat.interval_s":
+      return state.gateway.heartbeatIntervalS;
+    case "channels.send_progress":
+      return state.channels.sendProgress;
+    case "channels.send_tool_hints":
+      return state.channels.sendToolHints;
+    case "channels.send_max_retries":
+      return state.channels.sendMaxRetries;
+  }
+
+  const providerEnabledPath = path.match(/^providers\.([^.]+)\.enabled$/);
+  if (providerEnabledPath) {
+    return state.providerSummaries.find((provider) => provider.id === providerEnabledPath[1])?.enabled ?? false;
+  }
+  const providerApiKeyPath = path.match(/^providers\.([^.]+)\.api_key$/);
+  if (providerApiKeyPath) {
+    return state.providerSummaries.find((provider) => provider.id === providerApiKeyPath[1])?.apiKey || "";
+  }
+  const providerApiBasePath = path.match(/^providers\.([^.]+)\.api_base$/);
+  if (providerApiBasePath) {
+    return state.providerSummaries.find((provider) => provider.id === providerApiBasePath[1])?.apiBase ?? null;
+  }
+  const profilePath = path.match(/^providers\.profiles\.([^.]+)\.([^.]+)$/);
+  if (profilePath) {
+    const [, profileId, field] = profilePath;
+    const summary = state.providerSummaries.find((provider) => provider.profileId === profileId);
+    switch (field) {
+      case "provider":
+        return summary?.id || state.providerEditor.selectedProvider;
+      case "enabled":
+        return summary?.enabled ?? false;
+      case "api_key":
+        return summary?.apiKey || "";
+      case "api_base":
+        return summary?.apiBase ?? null;
+      case "models":
+        return parseDesktopProviderModelList(summary?.modelsText ?? "");
+      case "supports_model_discovery":
+        return summary?.supportsModelDiscovery ?? true;
+    }
+  }
+
+  return undefined;
+}
+
+function setDesktopSettingsPatchPath(patch: UnknownRecord, path: string, value: unknown): void {
+  const parts = path.split(".");
+  let cursor = patch;
+  for (const part of parts.slice(0, -1)) {
+    if (!isRecordValue(cursor[part])) {
+      cursor[part] = {};
+    }
+    cursor = cursor[part] as UnknownRecord;
+  }
+  cursor[parts[parts.length - 1]] = value;
+}
+
+function getDesktopSettingsExistingConfigPathValue(existingConfig: unknown, path: string): unknown {
+  let cursor: unknown = existingConfig;
+  for (const part of path.split(".")) {
+    cursor = asRecord(cursor)[part];
+  }
+  return cursor;
+}
+
+function desktopSettingsValuesEqual(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 export function validateDesktopSettingsForm(state: DesktopSettingsFormState): DesktopSettingsValidationError[] {
   const errors: DesktopSettingsValidationError[] = [];
   if (!state.agent.model?.trim()) {
     errors.push({ field: "model", errorKey: "modelEmpty" });
   }
-  if (state.agent.timezone && !validateDesktopTimezone(state.agent.timezone)) {
+  if (!validateDesktopTimezone(state.agent.timezone || "")) {
     errors.push({ field: "timezone", errorKey: "timezoneError" });
   }
   if (state.gateway.port !== null && !validateDesktopPortRange(state.gateway.port)) {
@@ -607,35 +1124,53 @@ export function buildDesktopSettingsPaneModel(
     providerCatalog?: DesktopProviderCatalogItem[];
     saveStatus?: DesktopSettingsSaveStatus;
     saveError?: string | null;
+    saveDetails?: DesktopSettingsPaneSaveDetails | null;
   } = {},
 ): DesktopSettingsPaneModel {
   const validationErrors = validateDesktopSettingsForm(state);
   const providerSummaries = getDesktopStateProviderSummaries(state, options.providerCatalog ?? []);
   const dirty = options.lastSavedState
-    ? JSON.stringify(createDesktopSettingsPatch(state)) !== JSON.stringify(createDesktopSettingsPatch(options.lastSavedState))
+    ? desktopSettingsStateDirty(state, options.lastSavedState)
     : false;
-  const saveStatus = options.saveStatus ?? "idle";
+  const saveDetails = normalizeDesktopSettingsSaveDetails(options.saveDetails);
+  const saveStatus = resolveDesktopSettingsSaveStatus(options.saveStatus ?? "idle", saveDetails);
+  const save: DesktopSettingsPaneModel["save"] = {
+    status: saveStatus,
+    message: saveStatus === "failed" ? options.saveError || "Save failed" : formatDesktopSettingsSaveMessage(saveStatus, dirty, validationErrors.length, saveDetails),
+    canSave: dirty && validationErrors.length === 0 && saveStatus !== "saving",
+  };
+  if (saveDetails) {
+    save.transport = saveDetails.transport;
+    save.updatedFields = saveDetails.updatedFields;
+    save.applied = saveDetails.applied;
+    save.restartRequired = saveDetails.restartRequired;
+    save.reloadRequired = saveDetails.reloadRequired;
+    save.warnings = saveDetails.warnings;
+    save.diagnostics = formatDesktopSettingsSaveDiagnostics(saveStatus, saveDetails);
+  }
+  const runtime = buildDesktopSettingsRuntimeSummary(state, options.lastSavedState ?? state, save);
+  const diagnostics = buildDesktopSettingsDiagnosticsSummary(runtime, save);
+  const providerCatalog = providerSummaries.map((provider) => ({
+    id: provider.id,
+    label: provider.label,
+    profileId: provider.profileId,
+    status: provider.status || "unknown",
+    enabled: provider.enabled,
+    enabledConfigured: provider.enabledConfigured,
+    baseUrl: provider.apiBase,
+    apiKey: buildDesktopSecretField(provider.apiKey),
+    models: parseDesktopProviderModelList(provider.modelsText),
+    canDiscoverModels: provider.supportsModelDiscovery,
+  })).filter((provider) => provider.id);
   return {
     dirty,
     validationErrors,
-    save: {
-      status: saveStatus,
-      message: saveStatus === "failed" ? options.saveError || "Save failed" : formatDesktopSettingsSaveMessage(saveStatus, dirty),
-      canSave: dirty && validationErrors.length === 0 && saveStatus !== "saving",
-    },
+    save,
+    runtime,
+    diagnostics,
     groups: buildDesktopSettingsPaneGroups(state, validationErrors, providerSummaries),
-    providerCatalog: providerSummaries.map((provider) => ({
-      id: provider.id,
-      label: provider.label,
-      profileId: provider.profileId,
-      status: provider.status || "unknown",
-      enabled: provider.enabled,
-      enabledConfigured: provider.enabledConfigured,
-      baseUrl: provider.apiBase,
-      apiKey: buildDesktopSecretField(provider.apiKey),
-      models: parseDesktopProviderModelList(provider.modelsText),
-      canDiscoverModels: provider.supportsModelDiscovery,
-    })).filter((provider) => provider.id),
+    providerCatalog,
+    defaultRouting: buildDesktopDefaultRouting(state, providerCatalog),
     providerEditor: {
       selectedProvider: state.providerEditor.selectedProvider,
       profileId: state.providerEditor.profileId,
@@ -660,6 +1195,87 @@ export function buildDesktopProviderModelRequest(
   };
 }
 
+function buildDesktopSettingsDiagnosticsSummary(
+  runtime: NonNullable<DesktopSettingsPaneModel["runtime"]>,
+  save: DesktopSettingsPaneModel["save"],
+): NonNullable<DesktopSettingsPaneModel["diagnostics"]> {
+  const saveStatus = `Settings save status: ${save.status}`;
+  return {
+    runtimeSummary: `Runtime summary: current ${runtime.currentEndpoint}; pending ${runtime.pendingEndpoint}; ${saveStatus}.`,
+    gatewayOwnership: "Gateway ownership: Desktop-managed local gateway.",
+    version: "Version: Current desktop build.",
+    activeConfigPath: "Active config path: Managed by native runtime.",
+    lastConfigError: save.status === "failed"
+      ? `Last config error: ${save.message}`
+      : "Last config error: None.",
+    logLevel: "info",
+  };
+}
+
+function buildDesktopSettingsRuntimeSummary(
+  state: DesktopSettingsFormState,
+  lastSavedState: DesktopSettingsFormState,
+  save: DesktopSettingsPaneModel["save"],
+): NonNullable<DesktopSettingsPaneModel["runtime"]> {
+  const pendingEndpoint = formatDesktopGatewayEndpoint(state.gateway.host, state.gateway.port);
+  const currentEndpoint = save.restartRequired?.length
+    ? formatDesktopGatewayEndpoint(lastSavedState.gateway.host, lastSavedState.gateway.port)
+    : pendingEndpoint;
+  const intent = classifyDesktopGatewayIntent(state.gateway.host);
+  const port = state.gateway.port;
+  return {
+    intent,
+    currentEndpoint,
+    pendingEndpoint,
+    portStatus: port && validateDesktopPortRange(port)
+      ? `Port ${port} will be checked for availability before the gateway restarts.`
+      : "Port availability cannot be checked until a valid port is configured.",
+    heartbeatDependency: state.gateway.heartbeatEnabled
+      ? "Heartbeat interval is active while heartbeat is enabled."
+      : "Heartbeat interval is disabled while heartbeat is off.",
+  };
+}
+
+function classifyDesktopGatewayIntent(host: string | null): NonNullable<DesktopSettingsPaneModel["runtime"]>["intent"] {
+  if (host === "127.0.0.1" || host === "localhost" || host === "::1") {
+    return "local-only";
+  }
+  if (host === "0.0.0.0" || host === "::") {
+    return "local-network";
+  }
+  return "advanced-custom";
+}
+
+function formatDesktopGatewayEndpoint(host: string | null, port: number | null): string {
+  const safeHost = host || "127.0.0.1";
+  const safePort = port ?? 18790;
+  return `${safeHost}:${safePort}`;
+}
+
+function buildDesktopDefaultRouting(
+  state: DesktopSettingsFormState,
+  providerCatalog: DesktopSettingsPaneModel["providerCatalog"],
+): DesktopSettingsPaneModel["defaultRouting"] {
+  const model = state.agent.model;
+  const mode = state.agent.provider === "auto" ? "auto" : "provider";
+  const enabledProviders = providerCatalog.filter((provider) => provider.enabled !== false);
+  const configuredProvider = providerCatalog.find((provider) => provider.id === state.agent.provider);
+  const resolvedProvider = mode === "auto"
+    ? enabledProviders.find((provider) => model ? provider.models?.includes(model) : false) ?? enabledProviders[0] ?? providerCatalog[0]
+    : configuredProvider ?? providerCatalog[0];
+  const providerLabel = resolvedProvider?.label || resolvedProvider?.id || "Unavailable";
+  const providerId = resolvedProvider?.id || "";
+  return {
+    mode,
+    providerId,
+    providerLabel,
+    model,
+    message: mode === "auto"
+      ? `Auto resolves to ${providerLabel}${model ? ` / ${model}` : ""}`
+      : `${providerLabel}${model ? ` / ${model}` : ""}`,
+  };
+}
+
 export function applyDesktopProviderModels(
   state: DesktopSettingsFormState,
   result: unknown,
@@ -677,9 +1293,12 @@ export function applyDesktopProviderModels(
     };
   }
   nextState.providerEditor.modelsText = models.join("\n");
+  nextState.providerEditorDirty = true;
   syncDesktopProviderSummaryFromEditor(nextState);
+  markDesktopProviderEditorTouched(nextState, "models");
   if (!nextState.agent.model && models[0]) {
     nextState.agent.model = models[0];
+    markDesktopSettingsTouched(nextState, "agents.defaults.model");
   }
   return {
     state: nextState,
@@ -696,151 +1315,204 @@ export function applyDesktopSettingsFieldEdit(
   value: DesktopSettingsEditableValue,
 ): DesktopSettingsFormState {
   const nextState = cloneSettingsState(state);
+  nextState.touchedPaths = nextState.touchedPaths ?? [];
   const text = String(value);
   if (fieldId.startsWith("providerEnabled:")) {
-    setDesktopProviderEnabled(nextState, fieldId.slice("providerEnabled:".length), Boolean(value));
+    const providerId = fieldId.slice("providerEnabled:".length);
+    setDesktopProviderEnabled(nextState, providerId, Boolean(value));
+    markDesktopProviderEnabledTouched(nextState, providerId);
     return nextState;
   }
   switch (fieldId) {
     case "model":
       nextState.agent.model = stringOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "agents.defaults.model");
       break;
     case "provider":
       nextState.agent.provider = stringOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "agents.defaults.provider");
       break;
     case "activeProfile":
       nextState.agent.activeProfile = stringOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "agents.defaults.active_profile");
       break;
     case "workspace":
       nextState.agent.workspace = stringOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "agents.defaults.workspace");
       break;
     case "temperature":
       nextState.agent.temperature = numberOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "agents.defaults.temperature");
       break;
     case "maxTokens":
       nextState.agent.maxTokens = numberOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "agents.defaults.max_tokens");
       break;
     case "contextWindowTokens":
       nextState.agent.contextWindowTokens = numberOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "agents.defaults.context_window_tokens");
       break;
     case "maxToolIterations":
       nextState.agent.maxToolIterations = numberOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "agents.defaults.max_tool_iterations");
       break;
     case "reasoningEffort":
       nextState.agent.reasoningEffort = stringOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "agents.defaults.reasoning_effort");
       break;
     case "timezone":
       nextState.agent.timezone = stringOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "agents.defaults.timezone");
       break;
     case "selectedProvider":
       selectDesktopProviderEditor(nextState, stringOrNullInput(text) || "deepseek");
+      nextState.providerEditorDirty = false;
       break;
     case "profileId":
       nextState.providerEditor.profileId = text.trim();
       nextState.agent.activeProfile = stringOrNullInput(text);
+      nextState.providerEditorDirty = true;
       syncDesktopProviderSummaryFromEditor(nextState);
+      markDesktopSettingsTouched(nextState, "agents.defaults.active_profile");
+      markDesktopProviderEditorTouched(nextState, "profile");
       break;
     case "apiKey":
       nextState.providerEditor.apiKey = resolveDesktopSecretValue(text, nextState.providerEditor.apiKey);
+      nextState.providerEditorDirty = true;
       syncDesktopProviderSummaryFromEditor(nextState);
+      markDesktopProviderEditorTouched(nextState, "api_key");
       break;
     case "apiBase":
       nextState.providerEditor.apiBase = stringOrNullInput(text);
+      nextState.providerEditorDirty = true;
       syncDesktopProviderSummaryFromEditor(nextState);
+      markDesktopProviderEditorTouched(nextState, "api_base");
       break;
     case "models":
       nextState.providerEditor.modelsText = text;
+      nextState.providerEditorDirty = true;
       syncDesktopProviderSummaryFromEditor(nextState);
+      markDesktopProviderEditorTouched(nextState, "models");
       break;
     case "enabled":
       nextState.knowledge.enabled = Boolean(value);
+      markDesktopSettingsTouched(nextState, "knowledge.enabled");
       break;
     case "autoRetrieve":
       nextState.knowledge.autoRetrieve = Boolean(value);
+      markDesktopSettingsTouched(nextState, "knowledge.auto_retrieve");
       break;
     case "retrievalMode":
       nextState.knowledge.retrievalMode = stringOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "knowledge.retrieval_mode");
       break;
     case "maxChunks":
       nextState.knowledge.maxChunks = numberOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "knowledge.max_chunks");
       break;
     case "chunkSize":
       nextState.knowledge.chunkSize = numberOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "knowledge.chunk_size");
       break;
     case "chunkOverlap":
       nextState.knowledge.chunkOverlap = numberOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "knowledge.chunk_overlap");
       break;
     case "rerankEnabled":
       nextState.knowledge.rerankEnabled = Boolean(value);
+      markDesktopSettingsTouched(nextState, "knowledge.rerank_enabled");
       break;
     case "rerankModel":
       nextState.knowledge.rerankModel = stringOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "knowledge.rerank_model");
       break;
     case "rerankApiBase":
       nextState.knowledge.rerankApiBase = stringOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "knowledge.rerank_api_base");
       break;
     case "rerankTopN":
       nextState.knowledge.rerankTopN = numberOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "knowledge.rerank_top_n");
       break;
     case "graphExtractionEnabled":
       nextState.knowledge.graphExtractionEnabled = Boolean(value);
+      markDesktopSettingsTouched(nextState, "knowledge.graph_extraction_enabled");
       break;
     case "graphAutoExtract":
       nextState.knowledge.graphAutoExtract = Boolean(value);
+      markDesktopSettingsTouched(nextState, "knowledge.graph_auto_extract");
       break;
     case "graphExtractionModel":
       nextState.knowledge.graphExtractionModel = stringOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "knowledge.graph_extraction_model");
       break;
     case "graphExtractionMaxTokens":
       nextState.knowledge.graphExtractionMaxTokens = numberOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "knowledge.graph_extraction_max_tokens");
       break;
     case "graphExtractionMaxJobTokens":
       nextState.knowledge.graphExtractionMaxJobTokens = numberOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "knowledge.graph_extraction_max_job_tokens");
       break;
     case "graphExtractionConcurrency":
       nextState.knowledge.graphExtractionConcurrency = numberOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "knowledge.graph_extraction_concurrency");
       break;
     case "webEnable":
       nextState.tools.webEnable = Boolean(value);
+      markDesktopSettingsTouched(nextState, "tools.web.enable");
       break;
     case "webProxy":
       nextState.tools.webProxy = stringOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "tools.web.proxy");
       break;
     case "searchProvider":
       nextState.tools.searchProvider = stringOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "tools.web.search.provider");
       break;
     case "execEnable":
       nextState.tools.execEnable = Boolean(value);
+      markDesktopSettingsTouched(nextState, "tools.exec.enable");
       break;
     case "execTimeout":
       nextState.tools.execTimeout = numberOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "tools.exec.timeout");
       break;
     case "mcpServers":
       nextState.tools.mcpServersText = text;
+      markDesktopSettingsTouched(nextState, "tools.mcp_servers");
       break;
     case "restrictToWorkspace":
       nextState.tools.restrictToWorkspace = Boolean(value);
+      markDesktopSettingsTouched(nextState, "tools.restrict_to_workspace");
       break;
     case "host":
       nextState.gateway.host = stringOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "gateway.host");
       break;
     case "port":
       nextState.gateway.port = numberOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "gateway.port");
       break;
     case "heartbeat":
       nextState.gateway.heartbeatEnabled = Boolean(value);
+      markDesktopSettingsTouched(nextState, "gateway.heartbeat.enabled");
       break;
     case "heartbeatIntervalS":
       nextState.gateway.heartbeatIntervalS = numberOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "gateway.heartbeat.interval_s");
       break;
     case "sendProgress":
       nextState.channels.sendProgress = Boolean(value);
+      markDesktopSettingsTouched(nextState, "channels.send_progress");
       break;
     case "sendToolHints":
       nextState.channels.sendToolHints = Boolean(value);
+      markDesktopSettingsTouched(nextState, "channels.send_tool_hints");
       break;
     case "sendMaxRetries":
       nextState.channels.sendMaxRetries = numberOrNullInput(text);
+      markDesktopSettingsTouched(nextState, "channels.send_max_retries");
       break;
   }
   return nextState;
@@ -906,15 +1578,34 @@ export function findDesktopProfileIdForProvider(providers: unknown, providerName
 }
 
 export function validateDesktopTimezone(value: string): boolean {
-  if (!value) {
+  const timezone = value.trim();
+  if (!timezone) {
     return false;
   }
-  const parts = value.split("/");
-  if (parts.length < 2) {
+  if (["UTC", "GMT"].includes(timezone)) {
+    return true;
+  }
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: timezone });
+    return true;
+  } catch {
     return false;
   }
-  const validPrefixes = ["Africa", "America", "Asia", "Atlantic", "Australia", "Europe", "Indian", "Pacific", "UTC", "GMT"];
-  return validPrefixes.includes(parts[0]) || parts[0] === "Etc";
+}
+
+function desktopSettingsStateDirty(
+  state: DesktopSettingsFormState,
+  lastSavedState: DesktopSettingsFormState,
+): boolean {
+  if (state.touchedPaths) {
+    return state.touchedPaths.some((path) => (
+      !desktopSettingsValuesEqual(
+        getDesktopSettingsPatchPathValue(state, path),
+        getDesktopSettingsPatchPathValue(lastSavedState, path),
+      )
+    ));
+  }
+  return JSON.stringify(createDesktopSettingsPatch(state)) !== JSON.stringify(createDesktopSettingsPatch(lastSavedState));
 }
 
 export function validateDesktopUrl(value: string): boolean {
@@ -966,6 +1657,86 @@ function cloneSettingsState(state: DesktopSettingsFormState): DesktopSettingsFor
     channels: { ...state.channels },
     providerEditor: { ...state.providerEditor },
     providerSummaries: (state.providerSummaries ?? []).map((provider) => ({ ...provider })),
+    providerEditorDirty: state.providerEditorDirty,
+    touchedPaths: state.touchedPaths ? [...state.touchedPaths] : undefined,
+    serverSnapshot: cloneDesktopSettingsSnapshot(state.serverSnapshot),
+  };
+}
+
+function markDesktopSettingsTouched(state: DesktopSettingsFormState, path: string): void {
+  const touchedPaths = state.touchedPaths ?? [];
+  if (!touchedPaths.includes(path)) {
+    touchedPaths.push(path);
+  }
+  state.touchedPaths = touchedPaths;
+}
+
+function markDesktopProviderEditorTouched(
+  state: DesktopSettingsFormState,
+  field: "profile" | "enabled" | "api_key" | "api_base" | "models" | "supports_model_discovery",
+): void {
+  const providerId = state.providerEditor.selectedProvider || "deepseek";
+  const profileId = state.providerEditor.profileId || providerId;
+  if (field === "profile") {
+    markDesktopSettingsTouched(state, `providers.profiles.${profileId}.provider`);
+    markDesktopSettingsTouched(state, `providers.profiles.${profileId}.enabled`);
+    markDesktopSettingsTouched(state, `providers.profiles.${profileId}.api_key`);
+    markDesktopSettingsTouched(state, `providers.profiles.${profileId}.api_base`);
+    markDesktopSettingsTouched(state, `providers.profiles.${profileId}.models`);
+    markDesktopSettingsTouched(state, `providers.profiles.${profileId}.supports_model_discovery`);
+    return;
+  }
+  if (field === "api_key" || field === "api_base") {
+    markDesktopSettingsTouched(state, `providers.${providerId}.${field}`);
+  }
+  markDesktopSettingsTouched(state, `providers.profiles.${profileId}.${field}`);
+}
+
+function markDesktopProviderEnabledTouched(state: DesktopSettingsFormState, providerId: string): void {
+  const normalizedProviderId = providerId.trim();
+  if (!normalizedProviderId) {
+    return;
+  }
+  markDesktopSettingsTouched(state, `providers.${normalizedProviderId}.enabled`);
+  const summary = state.providerSummaries.find((provider) => provider.id === normalizedProviderId);
+  if (summary?.profileId) {
+    markDesktopSettingsTouched(state, `providers.profiles.${summary.profileId}.enabled`);
+  }
+}
+
+function getDesktopSettingsPersistedProviderDraft(
+  state: DesktopSettingsFormState,
+  providerIds: string[],
+): { providerName: string; profileId: string | null; editor: DesktopSettingsProviderEditorState } {
+  if (state.providerEditorDirty !== false) {
+    const providerName = providerIds.includes(state.providerEditor.selectedProvider)
+      ? state.providerEditor.selectedProvider
+      : state.providerEditor.selectedProvider || "deepseek";
+    return {
+      providerName,
+      profileId: stringOrNull(state.providerEditor.profileId) || state.agent.activeProfile,
+      editor: state.providerEditor,
+    };
+  }
+
+  const profileId = state.agent.activeProfile;
+  const defaultProvider = state.agent.provider && state.agent.provider !== "auto" ? state.agent.provider : null;
+  const summary = state.providerSummaries.find((provider) => (
+    (profileId && provider.profileId === profileId)
+    || (defaultProvider && provider.id === defaultProvider)
+  ));
+  const providerName = defaultProvider || summary?.id || state.providerEditor.selectedProvider || "deepseek";
+  return {
+    providerName,
+    profileId: profileId || summary?.profileId || providerName,
+    editor: {
+      selectedProvider: providerName,
+      profileId: profileId || summary?.profileId || providerName,
+      apiKey: summary?.apiKey || "",
+      apiBase: summary?.apiBase ?? null,
+      modelsText: summary?.modelsText || "",
+      supportsModelDiscovery: summary?.supportsModelDiscovery ?? true,
+    },
   };
 }
 
@@ -1057,6 +1828,9 @@ function syncDesktopProviderSummaryFromEditor(state: DesktopSettingsFormState): 
 function setDesktopProviderEnabled(state: DesktopSettingsFormState, providerId: string, enabled: boolean): void {
   const normalizedProviderId = providerId.trim();
   if (!normalizedProviderId) {
+    return;
+  }
+  if (!enabled && state.agent.provider && state.agent.provider !== "auto" && state.agent.provider === normalizedProviderId) {
     return;
   }
   let summary = state.providerSummaries.find((provider) => provider.id === normalizedProviderId);
@@ -1162,6 +1936,7 @@ function buildDesktopSettingsPaneGroups(
       inputValue?: string;
       requirement?: DesktopSettingsPaneFieldRequirement;
       configurationMode?: DesktopSettingsPaneFieldConfigurationMode;
+      disabled?: boolean;
       advanced?: boolean;
       placeholder?: string;
       min?: number;
@@ -1171,6 +1946,7 @@ function buildDesktopSettingsPaneGroups(
   ): DesktopSettingsPaneField => ({
     id,
     label,
+    validationField: config.validationField,
     value: formatDesktopSettingsFieldValue(value),
     state: config.validationField && invalidFields.has(config.validationField) ? "invalid" : "normal",
     control: config.control ?? "text",
@@ -1179,6 +1955,7 @@ function buildDesktopSettingsPaneGroups(
     options: config.options,
     requirement: config.requirement ?? fieldRequirementForControl(config.control ?? "text"),
     configurationMode: config.configurationMode ?? fieldModeForControl(config.control ?? "text"),
+    disabled: config.disabled ?? false,
     advanced: config.advanced,
     placeholder: config.placeholder,
     min: config.min,
@@ -1186,7 +1963,10 @@ function buildDesktopSettingsPaneGroups(
     step: config.step,
   });
   const secretField = buildDesktopSecretField(state.providerEditor.apiKey);
-  return [
+  const knowledgeDisabled = !state.knowledge.enabled;
+  const rerankDisabled = knowledgeDisabled || !state.knowledge.rerankEnabled;
+  const graphExtractionDisabled = knowledgeDisabled || !state.knowledge.graphExtractionEnabled;
+  return enrichDesktopSettingsPaneGroups([
     {
       id: "general",
       label: "General",
@@ -1213,12 +1993,6 @@ function buildDesktopSettingsPaneGroups(
           requirement: "required",
           configurationMode: "freeform",
           placeholder: "Asia/Shanghai",
-        }),
-        field("workspace", "Workspace", state.agent.workspace, {
-          requirement: "required",
-          configurationMode: "freeform",
-          advanced: true,
-          placeholder: "~/.tinybot/workspace",
         }),
         field("temperature", "Temperature", state.agent.temperature, {
           control: "number",
@@ -1301,21 +2075,24 @@ function buildDesktopSettingsPaneGroups(
       id: "knowledge",
       label: "Knowledge",
       fields: [
-        field("enabled", "Enabled", state.knowledge.enabled, { control: "checkbox" }),
-        field("autoRetrieve", "Auto retrieve", state.knowledge.autoRetrieve, { control: "checkbox" }),
+        field("enabled", "Enabled", state.knowledge.enabled, { control: "checkbox", disabled: false }),
+        field("autoRetrieve", "Auto retrieve", state.knowledge.autoRetrieve, { control: "checkbox", disabled: knowledgeDisabled }),
         field("retrievalMode", "Retrieval mode", state.knowledge.retrievalMode, {
           control: "select",
           options: fixedOptions(["dense", "sparse", "hybrid"]),
+          disabled: knowledgeDisabled,
         }),
         field("maxChunks", "Max chunks", state.knowledge.maxChunks, {
           control: "number",
           configurationMode: "numeric",
+          disabled: knowledgeDisabled,
           min: 1,
           step: 1,
         }),
         field("chunkSize", "Chunk size", state.knowledge.chunkSize, {
           control: "number",
           configurationMode: "numeric",
+          disabled: knowledgeDisabled,
           advanced: true,
           min: 1,
           step: 1,
@@ -1323,34 +2100,39 @@ function buildDesktopSettingsPaneGroups(
         field("chunkOverlap", "Chunk overlap", state.knowledge.chunkOverlap, {
           control: "number",
           configurationMode: "numeric",
+          disabled: knowledgeDisabled,
           advanced: true,
           min: 0,
           step: 1,
         }),
-        field("rerankEnabled", "Rerank", state.knowledge.rerankEnabled, { control: "checkbox", advanced: true }),
-        field("rerankModel", "Rerank model", state.knowledge.rerankModel, { advanced: true }),
+        field("rerankEnabled", "Rerank", state.knowledge.rerankEnabled, { control: "checkbox", disabled: knowledgeDisabled, advanced: true }),
+        field("rerankModel", "Rerank model", state.knowledge.rerankModel, { disabled: rerankDisabled, advanced: true }),
         field("rerankApiBase", "Rerank API base", state.knowledge.rerankApiBase, {
           validationField: "rerankApiBase",
           requirement: "optional",
           configurationMode: "url",
+          disabled: rerankDisabled,
           advanced: true,
         }),
         field("rerankTopN", "Rerank top N", state.knowledge.rerankTopN, {
           control: "number",
           configurationMode: "numeric",
+          disabled: rerankDisabled,
           advanced: true,
           min: 0,
           step: 1,
         }),
-        field("graphExtractionEnabled", "Graph extraction", state.knowledge.graphExtractionEnabled, { control: "checkbox" }),
-        field("graphAutoExtract", "Auto extract graph", state.knowledge.graphAutoExtract, { control: "checkbox", advanced: true }),
+        field("graphExtractionEnabled", "Graph extraction", state.knowledge.graphExtractionEnabled, { control: "checkbox", disabled: knowledgeDisabled }),
+        field("graphAutoExtract", "Auto extract graph", state.knowledge.graphAutoExtract, { control: "checkbox", disabled: graphExtractionDisabled, advanced: true }),
         field("graphExtractionModel", "Graph extraction model", state.knowledge.graphExtractionModel, {
+          disabled: graphExtractionDisabled,
           advanced: true,
           placeholder: "defaults to semantic/chat model",
         }),
         field("graphExtractionMaxTokens", "Graph extraction max tokens", state.knowledge.graphExtractionMaxTokens, {
           control: "number",
           configurationMode: "numeric",
+          disabled: graphExtractionDisabled,
           advanced: true,
           min: 1,
           step: 1,
@@ -1358,6 +2140,7 @@ function buildDesktopSettingsPaneGroups(
         field("graphExtractionMaxJobTokens", "Graph extraction max job tokens", state.knowledge.graphExtractionMaxJobTokens, {
           control: "number",
           configurationMode: "numeric",
+          disabled: graphExtractionDisabled,
           advanced: true,
           min: 0,
           step: 1,
@@ -1365,6 +2148,7 @@ function buildDesktopSettingsPaneGroups(
         field("graphExtractionConcurrency", "Graph extraction concurrency", state.knowledge.graphExtractionConcurrency, {
           control: "number",
           configurationMode: "numeric",
+          disabled: graphExtractionDisabled,
           advanced: true,
           min: 1,
           step: 1,
@@ -1412,6 +2196,11 @@ function buildDesktopSettingsPaneGroups(
       id: "files-workspace",
       label: "Files & Workspace",
       fields: [
+        field("workspace", "Workspace", state.agent.workspace, {
+          requirement: "required",
+          configurationMode: "freeform",
+          placeholder: "~/.tinybot/workspace",
+        }),
         field("sessionFiles", "Session files", buildWorkbenchFileScopeLabel("session").label, { control: "readonly" }),
         field("knowledgeDocuments", "Knowledge documents", buildWorkbenchFileScopeLabel("knowledge").label, { control: "readonly" }),
         field("workspaceFiles", "Workspace files", buildWorkbenchFileScopeLabel("workspace").label, { control: "readonly" }),
@@ -1472,6 +2261,7 @@ function buildDesktopSettingsPaneGroups(
           control: "number",
           configurationMode: "numeric",
           advanced: true,
+          disabled: !state.gateway.heartbeatEnabled,
           min: 1,
           step: 1,
         }),
@@ -1484,17 +2274,132 @@ function buildDesktopSettingsPaneGroups(
         field("diagnostics", "Diagnostics", "Export diagnostics and inspect runtime logs", { control: "readonly" }),
       ],
     },
-  ];
+  ]);
 }
 
-function formatDesktopSettingsSaveMessage(status: DesktopSettingsSaveStatus, dirty: boolean): string {
+function enrichDesktopSettingsPaneGroups(groups: DesktopSettingsPaneGroup[]): DesktopSettingsPaneGroup[] {
+  return groups.map((group) => {
+    const groupMetadata = getDesktopSettingsGroupMetadata(group.id);
+    return {
+      ...group,
+      label: groupMetadata.label,
+      description: groupMetadata.description,
+      aliases: [...groupMetadata.aliases],
+      i18nKey: groupMetadata.i18nKey,
+      navigationArea: groupMetadata.navigationArea,
+      navigationMode: groupMetadata.navigationMode,
+      fields: group.fields.map((field) => enrichDesktopSettingsPaneField(group.id, field)),
+    };
+  });
+}
+
+function enrichDesktopSettingsPaneField(
+  groupId: DesktopSettingsPaneGroupId,
+  field: DesktopSettingsPaneField,
+): DesktopSettingsPaneField {
+  const metadata = getDesktopSettingsFieldMetadata(groupId, field.id);
+  if (!metadata) {
+    return {
+      ...field,
+      aliases: field.aliases ?? [],
+      i18nKey: field.i18nKey ?? `settings.fields.${groupId}.${field.id}`,
+    };
+  }
+  return {
+    ...field,
+    label: metadata.label,
+    description: metadata.description,
+    aliases: [...metadata.aliases],
+    i18nKey: metadata.i18nKey,
+    validationField: metadata.validationField ?? field.validationField,
+    sensitive: metadata.sensitive,
+    applyEffect: metadata.applyEffect,
+    unit: metadata.unit,
+    recommendation: metadata.recommendation,
+  };
+}
+
+function normalizeDesktopSettingsSaveDetails(
+  details: DesktopSettingsPaneSaveDetails | null | undefined,
+): DesktopSettingsPaneSaveDetails | null {
+  if (!details) {
+    return null;
+  }
+  return {
+    transport: details.transport,
+    updatedFields: [...details.updatedFields],
+    applied: [...details.applied],
+    restartRequired: [...details.restartRequired],
+    reloadRequired: [...details.reloadRequired],
+    warnings: [...details.warnings],
+  };
+}
+
+function resolveDesktopSettingsSaveStatus(
+  status: DesktopSettingsSaveStatus,
+  saveDetails: DesktopSettingsPaneSaveDetails | null,
+): DesktopSettingsSaveStatus {
+  if (status !== "saved") {
+    return status;
+  }
+  if (saveDetails?.restartRequired.length) {
+    return "restart-required";
+  }
+  if (saveDetails?.reloadRequired.length) {
+    return "reload-required";
+  }
+  return status;
+}
+
+function formatDesktopSettingsSaveMessage(
+  status: DesktopSettingsSaveStatus,
+  dirty: boolean,
+  validationErrorCount = 0,
+  saveDetails: DesktopSettingsPaneSaveDetails | null = null,
+): string {
   if (status === "saving") {
     return "Saving settings";
   }
   if (status === "saved") {
+    if (saveDetails?.transport === "gateway-fallback") {
+      return "Settings saved through gateway fallback";
+    }
+    if (saveDetails?.warnings.length) {
+      return "Settings saved with warnings";
+    }
     return "Settings saved";
   }
+  if (status === "restart-required") {
+    return "Settings saved. Gateway restart required";
+  }
+  if (status === "reload-required") {
+    return "Settings saved. Workspace reload required";
+  }
+  if (validationErrorCount > 0) {
+    return `${validationErrorCount} ${validationErrorCount === 1 ? "setting needs" : "settings need"} attention`;
+  }
   return dirty ? "Unsaved changes" : "No changes";
+}
+
+function formatDesktopSettingsSaveDiagnostics(
+  status: DesktopSettingsSaveStatus,
+  saveDetails: DesktopSettingsPaneSaveDetails | null,
+): string {
+  const rows = [`Status: ${status}`];
+  if (!saveDetails) {
+    return rows.join("\n");
+  }
+  rows.push(`Transport: ${saveDetails.transport}`);
+  rows.push(`Updated fields: ${formatDiagnosticList(saveDetails.updatedFields)}`);
+  rows.push(`Applied: ${formatDiagnosticList(saveDetails.applied)}`);
+  rows.push(`Restart required: ${formatDiagnosticList(saveDetails.restartRequired)}`);
+  rows.push(`Reload required: ${formatDiagnosticList(saveDetails.reloadRequired)}`);
+  rows.push(`Warnings: ${formatDiagnosticList(saveDetails.warnings)}`);
+  return rows.join("\n");
+}
+
+function formatDiagnosticList(values: string[]): string {
+  return values.length ? values.join(", ") : "none";
 }
 
 function formatDesktopSettingsFieldValue(value: unknown): string {
@@ -1522,6 +2427,17 @@ function asRecord(value: unknown): UnknownRecord {
 
 function isRecordValue(value: unknown): value is UnknownRecord {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function cloneDesktopSettingsSnapshot(value: unknown): unknown {
+  if (value === undefined || value === null) {
+    return value;
+  }
+  try {
+    return JSON.parse(JSON.stringify(value)) as unknown;
+  } catch {
+    return value;
+  }
 }
 
 function stringValue(value: unknown): string {

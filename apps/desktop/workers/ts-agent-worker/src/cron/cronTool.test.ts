@@ -69,6 +69,28 @@ describe("createCronTool", () => {
     });
   });
 
+  test("adds cron expression schedules with default and explicit timezones", async () => {
+    const bridge = memoryBridge();
+    const tool = createCronTool({ bridge, defaultTimezone: "Asia/Shanghai" });
+
+    await expect(tool.execute({
+      action: "add",
+      message: "Morning report",
+      cron_expr: "0 9 * * *",
+    }, context)).resolves.toEqual({ content: "Created job 'Morning report' (id: job-1)" });
+    await expect(tool.execute({
+      action: "add",
+      message: "Evening report",
+      cron_expr: "0 18 * * *",
+      tz: "Europe/Berlin",
+    }, context)).resolves.toEqual({ content: "Created job 'Evening report' (id: job-1)" });
+
+    expect(bridge.addRequests.map((request) => request.schedule)).toEqual([
+      { kind: "cron", expr: "0 9 * * *", tz: "Asia/Shanghai" },
+      { kind: "cron", expr: "0 18 * * *", tz: "Europe/Berlin" },
+    ]);
+  });
+
   test("validates add inputs and formats remove outcomes", async () => {
     const tool = createCronTool({ bridge: memoryBridge(), defaultTimezone: "UTC" });
 
@@ -78,8 +100,11 @@ describe("createCronTool", () => {
     await expect(tool.execute({ action: "add", message: "Bad tz", tz: "UTC" }, context)).resolves.toEqual({
       content: "Error: tz can only be used with cron_expr",
     });
-    await expect(tool.execute({ action: "add", message: "Unsupported cron", cron_expr: "0 9 * * *", tz: "UTC" }, context)).resolves.toEqual({
-      content: "Error: cron_expr schedules are not supported yet",
+    await expect(tool.execute({ action: "add", message: "Bad cron timezone", cron_expr: "0 9 * * *", tz: "Mars/Base" }, context)).resolves.toEqual({
+      content: "Error: unknown timezone 'Mars/Base'",
+    });
+    await expect(tool.execute({ action: "add", message: "Bad cron expression", cron_expr: "not cron", tz: "UTC" }, context)).resolves.toEqual({
+      content: "Error: invalid cron expression 'not cron'",
     });
     await expect(tool.execute({ action: "add", message: "Missing schedule" }, context)).resolves.toEqual({
       content: "Error: either every_seconds, cron_expr, or at is required",

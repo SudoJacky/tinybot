@@ -7,10 +7,12 @@ import {
   buildDesktopProviderModelRequest,
   buildDesktopSecretField,
   buildDesktopSettingsFormState,
+  buildDesktopSettingsSavePatch,
   createDesktopSettingsPatch,
   findDesktopProfileIdForProvider,
   getDesktopProviderProfileConfig,
   parseDesktopProviderModelList,
+  reconcileDesktopSettingsSavedState,
   resolveDesktopSecretValue,
   validateDesktopSettingsForm,
 } from "./desktopSettingsProviders";
@@ -187,6 +189,27 @@ describe("desktop settings and provider helpers", () => {
     ]);
   });
 
+  test("accepts UTC, GMT, and IANA timezone defaults while rejecting invalid timezone values", () => {
+    for (const timezone of ["UTC", "GMT", "Asia/Shanghai"]) {
+      const state = buildDesktopSettingsFormState({
+        agents: { defaults: { model: "gpt-4.1", timezone } },
+      });
+
+      expect(validateDesktopSettingsForm(state).filter((error) => error.field === "timezone")).toEqual([]);
+    }
+
+    for (const timezone of ["", "Shanghai", "Mars/Base"]) {
+      const state = buildDesktopSettingsFormState({
+        agents: { defaults: { model: "gpt-4.1", timezone } },
+      });
+      state.agent.timezone = timezone;
+
+      expect(validateDesktopSettingsForm(state)).toEqual(expect.arrayContaining([
+        { field: "timezone", errorKey: "timezoneError" },
+      ]));
+    }
+  });
+
   test("builds provider model discovery requests and applies model results", () => {
     const state = buildDesktopSettingsFormState({
       agents: { defaults: { provider: "openai", active_profile: "work" } },
@@ -317,7 +340,7 @@ describe("desktop settings and provider helpers", () => {
       ["general", "General"],
       ["provider-models", "Provider & Models"],
       ["knowledge", "Knowledge"],
-      ["tools-approvals", "Tools & Approvals"],
+      ["tools-approvals", "Tools & MCP"],
       ["files-workspace", "Files & Workspace"],
       ["memory-experience", "Memory & Experience"],
       ["skills", "Skills"],
@@ -336,9 +359,11 @@ describe("desktop settings and provider helpers", () => {
       expect.objectContaining({ id: "models", label: "Models", control: "textarea", requirement: "optional", configurationMode: "list" }),
     ]));
     expect(pane.groups.find((group) => group.id === "files-workspace")?.fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "workspace", label: "Workspace", value: "~/.tinybot/workspace", control: "text", requirement: "required", configurationMode: "freeform" }),
       expect.objectContaining({ id: "sessionFiles", label: "Session files", value: "Session file", control: "readonly", requirement: "readonly", configurationMode: "readonly" }),
       expect.objectContaining({ id: "workspaceFiles", label: "Workspace files", value: "Workspace file", control: "readonly", requirement: "readonly", configurationMode: "readonly" }),
     ]));
+    expect(pane.groups.find((group) => group.id === "general")?.fields.find((field) => field.id === "workspace")).toBeUndefined();
     expect(pane.groups.find((group) => group.id === "gateway-runtime")?.fields).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "host", label: "Host", requirement: "required", configurationMode: "freeform" }),
       expect.objectContaining({ id: "port", label: "Port", state: "normal", requirement: "required", configurationMode: "numeric" }),
@@ -363,6 +388,22 @@ describe("desktop settings and provider helpers", () => {
     });
   });
 
+  test("reports invalid dirty settings as needing attention beside save", () => {
+    const savedState = buildDesktopSettingsFormState({
+      agents: { defaults: { model: "gpt-4.1", provider: "openai", active_profile: "work", timezone: "UTC" } },
+      providers: { profiles: { work: { provider: "openai", api_key: "sk-live", models: ["gpt-4.1"] } } },
+    }, [{ id: "openai", displayName: "OpenAI", status: "ready" }]);
+    const invalidState = applyDesktopSettingsFieldEdit(savedState, "timezone", "Shanghai");
+
+    const pane = buildDesktopSettingsPaneModel(invalidState, {
+      lastSavedState: savedState,
+      providerCatalog: [{ id: "openai", displayName: "OpenAI", status: "ready" }],
+    });
+
+    expect(pane.save.canSave).toBe(false);
+    expect(pane.save.message).toBe("1 setting needs attention");
+  });
+
   test("applies desktop settings field edits to the saved config patch shape", () => {
     const state = buildDesktopSettingsFormState({
       agents: { defaults: { model: "gpt-4.1-mini", provider: "openai", active_profile: "work" } },
@@ -382,6 +423,267 @@ describe("desktop settings and provider helpers", () => {
     expect(patch.providers).toMatchObject({ openai: { api_key: "sk-replacement" } });
     expect(patch.knowledge).toMatchObject({ enabled: false });
     expect(patch.gateway).toMatchObject({ port: 18888 });
+  });
+
+  test("generates touched-path patches for individual field edits without hidden settings", () => {
+    const existingConfig = {
+      agents: {
+        defaults: {
+          model: "gpt-4.1-mini",
+          provider: "openai",
+          timezone: "UTC",
+          hidden_backend_only: "preserve",
+          embedding: {
+            provider: "dashscope",
+            model_name: "text-embedding-v3",
+            hidden_embedding_only: true,
+          },
+        },
+      },
+      knowledge: {
+        enabled: true,
+        hidden_graph_backend_only: { preserve: true },
+      },
+      gateway: {
+        host: "127.0.0.1",
+        port: 18790,
+        hidden_gateway_only: "preserve",
+      },
+    };
+    const state = buildDesktopSettingsFormState(existingConfig, [{ id: "openai", displayName: "OpenAI", status: "ready" }]);
+
+    const withTimezone = applyDesktopSettingsFieldEdit(state, "timezone", "Asia/Shanghai");
+    const withKnowledgeDisabled = applyDesktopSettingsFieldEdit(state, "enabled", false);
+    const withGatewayPort = applyDesktopSettingsFieldEdit(state, "port", "18888");
+
+    expect(createDesktopSettingsPatch(withTimezone, existingConfig, [{ id: "openai", displayName: "OpenAI", status: "ready" }])).toEqual({
+      agents: { defaults: { timezone: "Asia/Shanghai" } },
+    });
+    expect(createDesktopSettingsPatch(withKnowledgeDisabled, existingConfig, [{ id: "openai", displayName: "OpenAI", status: "ready" }])).toEqual({
+      knowledge: { enabled: false },
+    });
+    expect(createDesktopSettingsPatch(withGatewayPort, existingConfig, [{ id: "openai", displayName: "OpenAI", status: "ready" }])).toEqual({
+      gateway: { port: 18888 },
+    });
+  });
+
+  test("generates touched-path patches for provider profile edits only", () => {
+    const providerCatalog = [{ id: "openai", displayName: "OpenAI", status: "ready" }];
+    const existingConfig = {
+      agents: { defaults: { model: "gpt-4.1-mini", provider: "openai", active_profile: "work" } },
+      providers: {
+        profiles: {
+          work: {
+            provider: "openai",
+            api_key: "sk-live",
+            api_base: "https://api.openai.com/v1",
+            models: ["gpt-4.1-mini"],
+            hidden_profile_only: "preserve",
+          },
+        },
+        openai: {
+          api_key: "sk-live",
+          api_base: "https://api.openai.com/v1",
+          hidden_provider_only: "preserve",
+        },
+      },
+    };
+    const state = buildDesktopSettingsFormState(existingConfig, providerCatalog);
+    const withProviderApiBase = applyDesktopSettingsFieldEdit(state, "apiBase", "https://proxy.example/v1");
+
+    expect(createDesktopSettingsPatch(withProviderApiBase, existingConfig, providerCatalog)).toEqual({
+      providers: {
+        openai: { api_base: "https://proxy.example/v1" },
+        profiles: {
+          work: { api_base: "https://proxy.example/v1" },
+        },
+      },
+    });
+  });
+
+  test("omits reverted touched fields from patches and dirty state", () => {
+    const providerCatalog = [{ id: "openai", displayName: "OpenAI", status: "ready" }];
+    const existingConfig = {
+      agents: { defaults: { model: "gpt-4.1-mini", provider: "openai", active_profile: "work", timezone: "UTC" } },
+      providers: {
+        profiles: {
+          work: {
+            provider: "openai",
+            api_key: "sk-live",
+            api_base: "https://api.openai.com/v1",
+          },
+        },
+        openai: {
+          api_key: "sk-live",
+          api_base: "https://api.openai.com/v1",
+        },
+      },
+    };
+    const savedState = buildDesktopSettingsFormState(existingConfig, providerCatalog);
+    const sameTimezone = applyDesktopSettingsFieldEdit(savedState, "timezone", "UTC");
+    const sameProviderApiBase = applyDesktopSettingsFieldEdit(savedState, "apiBase", "https://api.openai.com/v1");
+
+    expect(createDesktopSettingsPatch(sameTimezone, existingConfig, providerCatalog)).toEqual({});
+    expect(createDesktopSettingsPatch(sameProviderApiBase, existingConfig, providerCatalog)).toEqual({});
+    expect(buildDesktopSettingsPaneModel(sameTimezone, { lastSavedState: savedState, providerCatalog }).dirty).toBe(false);
+    expect(buildDesktopSettingsPaneModel(sameProviderApiBase, { lastSavedState: savedState, providerCatalog }).dirty).toBe(false);
+  });
+
+  test("uses the loaded server snapshot when touched patches are generated without an explicit config", () => {
+    const providerCatalog = [{ id: "openai", displayName: "OpenAI", status: "ready" }];
+    const existingConfig = {
+      agents: { defaults: { model: "gpt-4.1-mini", provider: "openai", active_profile: "work", timezone: "UTC" } },
+      providers: {
+        profiles: {
+          work: {
+            provider: "openai",
+            api_key: "sk-live",
+            api_base: "https://api.openai.com/v1",
+          },
+        },
+        openai: {
+          api_key: "sk-live",
+          api_base: "https://api.openai.com/v1",
+        },
+      },
+    };
+    const state = buildDesktopSettingsFormState(existingConfig, providerCatalog);
+
+    expect(createDesktopSettingsPatch(applyDesktopSettingsFieldEdit(state, "timezone", "UTC"))).toEqual({});
+    expect(createDesktopSettingsPatch(applyDesktopSettingsFieldEdit(state, "timezone", "Asia/Shanghai"))).toEqual({
+      agents: { defaults: { timezone: "Asia/Shanghai" } },
+    });
+    expect(createDesktopSettingsPatch(applyDesktopSettingsFieldEdit(state, "apiBase", "https://api.openai.com/v1"))).toEqual({});
+  });
+
+  test("omits unrelated fields from patches for each settings group", () => {
+    const providerCatalog = [{ id: "openai", displayName: "OpenAI", status: "ready" }];
+    const existingConfig = {
+      agents: {
+        defaults: {
+          model: "gpt-4.1-mini",
+          provider: "openai",
+          active_profile: "work",
+          timezone: "UTC",
+        },
+      },
+      providers: {
+        profiles: {
+          work: {
+            provider: "openai",
+            api_key: "sk-live",
+            api_base: "https://api.openai.com/v1",
+            models: ["gpt-4.1-mini"],
+          },
+        },
+        openai: {
+          api_key: "sk-live",
+          api_base: "https://api.openai.com/v1",
+        },
+      },
+      knowledge: { enabled: true, auto_retrieve: false },
+      tools: { exec: { enable: true, timeout: 120 }, web: { enable: true, search: { provider: "duckduckgo" } } },
+      channels: { send_progress: true, send_tool_hints: false, send_max_retries: 3 },
+      gateway: { host: "127.0.0.1", port: 18790, heartbeat: { enabled: true, interval_s: 1800 } },
+    };
+
+    const cases: Array<[string, string, string | boolean, unknown]> = [
+      ["general", "model", "gpt-4.1", { agents: { defaults: { model: "gpt-4.1" } } }],
+      ["provider-models", "apiKey", "sk-replacement", {
+        providers: {
+          openai: { api_key: "sk-replacement" },
+          profiles: { work: { api_key: "sk-replacement" } },
+        },
+      }],
+      ["knowledge", "autoRetrieve", true, { knowledge: { auto_retrieve: true } }],
+      ["tools-approvals", "execTimeout", "90", { tools: { exec: { timeout: 90 } } }],
+      ["channels", "sendMaxRetries", "5", { channels: { send_max_retries: 5 } }],
+      ["gateway-runtime", "heartbeatIntervalS", "900", { gateway: { heartbeat: { interval_s: 900 } } }],
+      ["files-workspace", "sessionFiles", "ignored", {}],
+      ["memory-experience", "memory", "ignored", {}],
+      ["skills", "skills", "ignored", {}],
+      ["automations", "automations", "ignored", {}],
+      ["logs-diagnostics", "diagnostics", "ignored", {}],
+    ];
+
+    for (const [groupName, fieldId, value, expectedPatch] of cases) {
+      const state = buildDesktopSettingsFormState(existingConfig, providerCatalog);
+      expect(createDesktopSettingsPatch(applyDesktopSettingsFieldEdit(state, fieldId, value), existingConfig, providerCatalog), groupName).toEqual(expectedPatch);
+    }
+  });
+
+  test("validates the full draft before producing a touched-path save patch", () => {
+    const providerCatalog = [{ id: "openai", displayName: "OpenAI", status: "ready" }];
+    const existingConfig = {
+      agents: { defaults: { model: "gpt-4.1-mini", provider: "openai", active_profile: "work", timezone: "UTC" } },
+      providers: {
+        profiles: {
+          work: {
+            provider: "openai",
+            api_key: "sk-live",
+            api_base: "https://api.openai.com/v1",
+          },
+        },
+      },
+      knowledge: { enabled: true },
+    };
+    const state = buildDesktopSettingsFormState(existingConfig, providerCatalog);
+    const invalidDraft = applyDesktopSettingsFieldEdit(state, "model", "");
+    const invalidWithKnowledgeEdit = applyDesktopSettingsFieldEdit(invalidDraft, "enabled", false);
+
+    expect(buildDesktopSettingsSavePatch(invalidWithKnowledgeEdit, existingConfig, providerCatalog)).toEqual({
+      ok: false,
+      validationErrors: [{ field: "model", errorKey: "modelEmpty" }],
+    });
+
+    const validWithKnowledgeEdit = applyDesktopSettingsFieldEdit(state, "enabled", false);
+    expect(buildDesktopSettingsSavePatch(validWithKnowledgeEdit, existingConfig, providerCatalog)).toEqual({
+      ok: true,
+      patch: { knowledge: { enabled: false } },
+    });
+  });
+
+  test("reconciles saved config only when it reflects touched draft values", () => {
+    const providerCatalog = [{ id: "openai", displayName: "OpenAI", status: "ready" }];
+    const existingConfig = {
+      agents: { defaults: { model: "gpt-4.1-mini", provider: "openai", active_profile: "work", timezone: "UTC" } },
+      providers: {
+        profiles: {
+          work: {
+            provider: "openai",
+            api_key: "sk-live",
+            api_base: "https://api.openai.com/v1",
+          },
+        },
+      },
+    };
+    const draft = applyDesktopSettingsFieldEdit(
+      buildDesktopSettingsFormState(existingConfig, providerCatalog),
+      "timezone",
+      "Asia/Shanghai",
+    );
+
+    const staleResult = reconcileDesktopSettingsSavedState(draft, existingConfig, providerCatalog);
+    expect(staleResult).toEqual({
+      ok: false,
+      mismatchedPaths: ["agents.defaults.timezone"],
+      state: draft,
+    });
+    expect(createDesktopSettingsPatch(staleResult.state, existingConfig, providerCatalog)).toEqual({
+      agents: { defaults: { timezone: "Asia/Shanghai" } },
+    });
+
+    const savedResult = reconcileDesktopSettingsSavedState(draft, {
+      agents: { defaults: { model: "gpt-4.1-mini", provider: "openai", active_profile: "work", timezone: "Asia/Shanghai" } },
+      providers: existingConfig.providers,
+    }, providerCatalog);
+    expect(savedResult.ok).toBe(true);
+    if (savedResult.ok) {
+      expect(savedResult.state.touchedPaths).toBeUndefined();
+      expect(createDesktopSettingsPatch(savedResult.state, savedResult.state.serverSnapshot, providerCatalog)).toMatchObject({
+        agents: { defaults: { timezone: "Asia/Shanghai" } },
+      });
+    }
   });
 
   test("classifies settings fields by requirement, input mode, and advanced visibility", () => {
@@ -438,6 +740,107 @@ describe("desktop settings and provider helpers", () => {
     expect(fields["knowledge.graphExtractionMaxJobTokens"]).toMatchObject({ control: "number", requirement: "optional", configurationMode: "numeric", advanced: true });
     expect(fields["knowledge.graphExtractionConcurrency"]).toMatchObject({ control: "number", requirement: "optional", configurationMode: "numeric", advanced: true });
     expect(fields["memory-experience.memory"]).toMatchObject({ control: "readonly", requirement: "readonly", configurationMode: "readonly" });
+  });
+
+  test("disables dependent Knowledge controls when parent features are off", () => {
+    const state = buildDesktopSettingsFormState({
+      agents: { defaults: { model: "deepseek-chat" } },
+      knowledge: {
+        enabled: false,
+        rerank_enabled: false,
+        graph_extraction_enabled: false,
+      },
+    });
+
+    const pane = buildDesktopSettingsPaneModel(state);
+    const fields = Object.fromEntries(pane.groups.flatMap((group) => group.fields.map((field) => [`${group.id}.${field.id}`, field])));
+
+    expect(fields["knowledge.enabled"]).toMatchObject({ disabled: false });
+    expect(fields["knowledge.autoRetrieve"]).toMatchObject({ disabled: true });
+    expect(fields["knowledge.retrievalMode"]).toMatchObject({ disabled: true });
+    expect(fields["knowledge.maxChunks"]).toMatchObject({ disabled: true });
+    expect(fields["knowledge.rerankModel"]).toMatchObject({ disabled: true });
+    expect(fields["knowledge.rerankApiBase"]).toMatchObject({ disabled: true });
+    expect(fields["knowledge.graphAutoExtract"]).toMatchObject({ disabled: true });
+    expect(fields["knowledge.graphExtractionModel"]).toMatchObject({ disabled: true });
+  });
+
+  test("adds shared settings metadata to groups and fields", () => {
+    const state = buildDesktopSettingsFormState({
+      agents: {
+        defaults: {
+          model: "deepseek-chat",
+          provider: "deepseek",
+          active_profile: "deepseek",
+          workspace: "D:/workspace",
+          timezone: "UTC",
+        },
+      },
+      providers: {
+        profiles: {
+          deepseek: {
+            provider: "deepseek",
+            api_key: "sk-live",
+            api_base: "https://api.deepseek.com",
+            models: ["deepseek-chat"],
+          },
+        },
+      },
+      gateway: { host: "127.0.0.1", port: 18790 },
+      tools: { mcp: { servers: { local: { command: "node" } } } },
+    }, [{ id: "deepseek", displayName: "DeepSeek", status: "ready" }]);
+
+    const pane = buildDesktopSettingsPaneModel(state, {
+      providerCatalog: [{ id: "deepseek", displayName: "DeepSeek", status: "ready" }],
+    });
+    const groups = Object.fromEntries(pane.groups.map((group) => [group.id, group]));
+    const fields = Object.fromEntries(pane.groups.flatMap((group) => group.fields.map((field) => [`${group.id}.${field.id}`, field])));
+
+    expect(groups.general).toMatchObject({
+      description: "Default model, provider routing, and timezone behavior.",
+      aliases: ["default model", "profile", "timezone", "workspace"],
+      navigationArea: "core",
+      navigationMode: "section",
+      i18nKey: "settings.groups.general",
+    });
+    expect(groups["files-workspace"]).toMatchObject({
+      navigationArea: "application",
+      navigationMode: "section",
+    });
+    expect(groups["gateway-runtime"]).toMatchObject({
+      navigationArea: "system",
+      navigationMode: "section",
+    });
+    expect(groups["memory-experience"]).toMatchObject({
+      navigationMode: "preview",
+    });
+    expect(fields["general.workspace"]).toBeUndefined();
+    expect(fields["general.timezone"]).toMatchObject({
+      description: "Timezone used for timestamps, reminders, and scheduled work.",
+      aliases: ["time zone", "locale", "schedule timezone"],
+      validationField: "timezone",
+      i18nKey: "settings.fields.general.timezone",
+    });
+    expect(fields["provider-models.apiKey"]).toMatchObject({
+      sensitive: true,
+      i18nKey: "settings.fields.provider-models.apiKey",
+    });
+    expect(fields["files-workspace.workspace"]).toMatchObject({
+      applyEffect: "workspace-reload",
+      i18nKey: "settings.fields.files-workspace.workspace",
+    });
+    expect(fields["gateway-runtime.host"]).toMatchObject({
+      applyEffect: "gateway-restart",
+      aliases: ["bind host", "listen address", "gateway endpoint"],
+    });
+    expect(fields["tools-approvals.mcpServers"]).toMatchObject({
+      validationField: "mcpServers",
+      i18nKey: "settings.fields.tools-approvals.mcpServers",
+    });
+    expect(groups["tools-approvals"]).toMatchObject({
+      label: "Tools & MCP",
+      description: "Tool toggles and MCP server access. Approval controls are not exposed here yet.",
+    });
   });
 
   test("keeps provider editing separate from the default LLM provider", () => {
@@ -522,10 +925,193 @@ describe("desktop settings and provider helpers", () => {
       providers: {
         deepseek: {
           enabled: false,
-          api_base: "https://api.deepseek.com",
-          api_key: "sk-deepseek",
         },
       },
     });
+  });
+
+  test("does not dirty settings or change the patch when only browsing provider cards", () => {
+    const providerCatalog = [
+      { id: "openai", displayName: "OpenAI", status: "ready" },
+      { id: "deepseek", displayName: "DeepSeek", status: "ready" },
+    ];
+    const config = {
+      agents: { defaults: { model: "gpt-4.1", provider: "openai", active_profile: "work", timezone: "UTC" } },
+      providers: {
+        profiles: {
+          work: {
+            provider: "openai",
+            api_key: "sk-openai",
+            api_base: "https://api.openai.com/v1",
+            models: ["gpt-4.1"],
+          },
+          deepseek: {
+            provider: "deepseek",
+            api_key: "sk-deepseek",
+            api_base: "https://api.deepseek.com",
+            models: ["deepseek-chat"],
+          },
+        },
+      },
+    };
+    const savedState = buildDesktopSettingsFormState(config, providerCatalog);
+    const browsingState = applyDesktopSettingsFieldEdit(savedState, "selectedProvider", "deepseek");
+
+    expect(buildDesktopSettingsPaneModel(browsingState, {
+      lastSavedState: savedState,
+      providerCatalog,
+    }).dirty).toBe(false);
+    expect(createDesktopSettingsPatch(browsingState, config, providerCatalog)).toEqual({});
+  });
+
+  test("prevents disabling the current default provider until another route is selected", () => {
+    const providerCatalog = [
+      { id: "openai", displayName: "OpenAI", status: "ready" },
+      { id: "deepseek", displayName: "DeepSeek", status: "ready" },
+    ];
+    const state = buildDesktopSettingsFormState({
+      agents: { defaults: { model: "gpt-4.1", provider: "openai", active_profile: "work" } },
+      providers: {
+        profiles: {
+          work: {
+            provider: "openai",
+            enabled: true,
+            api_key: "sk-openai",
+            models: ["gpt-4.1"],
+          },
+          deepseek: {
+            provider: "deepseek",
+            enabled: true,
+            api_key: "sk-deepseek",
+            models: ["deepseek-chat"],
+          },
+        },
+      },
+    }, providerCatalog);
+
+    const attemptedDisable = applyDesktopSettingsFieldEdit(state, "providerEnabled:openai", false);
+
+    expect(buildDesktopSettingsPaneModel(attemptedDisable, { providerCatalog }).providerCatalog).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "openai", enabled: true }),
+    ]));
+    expect(createDesktopSettingsPatch(attemptedDisable, {}, providerCatalog).providers).not.toMatchObject({
+      openai: { enabled: false },
+    });
+  });
+
+  test("preserves save warnings and gateway fallback details in the pane model", () => {
+    const state = buildDesktopSettingsFormState({
+      agents: { defaults: { model: "gpt-4.1-mini", provider: "openai", active_profile: "work", timezone: "UTC" } },
+      providers: {
+        profiles: {
+          work: {
+            provider: "openai",
+            api_key: "sk-live",
+            models: ["gpt-4.1-mini"],
+          },
+        },
+      },
+    }, [{ id: "openai", displayName: "OpenAI", status: "ready" }]);
+
+    const pane = buildDesktopSettingsPaneModel(state, {
+      lastSavedState: state,
+      providerCatalog: [{ id: "openai", displayName: "OpenAI", status: "ready" }],
+      saveStatus: "saved",
+      saveDetails: {
+        transport: "gateway-fallback",
+        updatedFields: ["agents.defaults.model"],
+        applied: ["agents.defaults.model"],
+        restartRequired: [],
+        reloadRequired: [],
+        warnings: ["Native patch failed; gateway fallback applied."],
+      },
+    });
+
+    expect(pane.save.message).toBe("Settings saved through gateway fallback");
+    expect(pane.save.transport).toBe("gateway-fallback");
+    expect(pane.save.updatedFields).toEqual(["agents.defaults.model"]);
+    expect(pane.save.applied).toEqual(["agents.defaults.model"]);
+    expect(pane.save.warnings).toEqual(["Native patch failed; gateway fallback applied."]);
+  });
+
+  test("promotes saved restart and reload side effects to distinct save states", () => {
+    const state = buildDesktopSettingsFormState({
+      agents: { defaults: { model: "gpt-4.1-mini", provider: "openai", active_profile: "work", timezone: "UTC" } },
+      providers: {
+        profiles: {
+          work: {
+            provider: "openai",
+            api_key: "sk-live",
+            models: ["gpt-4.1-mini"],
+          },
+        },
+      },
+    }, [{ id: "openai", displayName: "OpenAI", status: "ready" }]);
+
+    const restartPane = buildDesktopSettingsPaneModel(state, {
+      lastSavedState: state,
+      providerCatalog: [{ id: "openai", displayName: "OpenAI", status: "ready" }],
+      saveStatus: "saved",
+      saveDetails: {
+        transport: "native",
+        updatedFields: ["gateway.port"],
+        applied: ["gatewayRuntimeChanged"],
+        restartRequired: ["gatewayRestartRequired"],
+        reloadRequired: [],
+        warnings: [],
+      },
+    });
+    const reloadPane = buildDesktopSettingsPaneModel(state, {
+      lastSavedState: state,
+      providerCatalog: [{ id: "openai", displayName: "OpenAI", status: "ready" }],
+      saveStatus: "saved",
+      saveDetails: {
+        transport: "native",
+        updatedFields: ["agents.defaults.workspace"],
+        applied: ["workspaceChanged"],
+        restartRequired: [],
+        reloadRequired: ["workspaceReloadRequired"],
+        warnings: [],
+      },
+    });
+
+    expect(restartPane.save.status).toBe("restart-required");
+    expect(restartPane.save.message).toBe("Settings saved. Gateway restart required");
+    expect(reloadPane.save.status).toBe("reload-required");
+    expect(reloadPane.save.message).toBe("Settings saved. Workspace reload required");
+  });
+
+  test("builds copyable save diagnostics for fallback and warning results", () => {
+    const state = buildDesktopSettingsFormState({
+      agents: { defaults: { model: "gpt-4.1-mini", provider: "openai", active_profile: "work", timezone: "UTC" } },
+      providers: {
+        profiles: {
+          work: {
+            provider: "openai",
+            api_key: "sk-live",
+            models: ["gpt-4.1-mini"],
+          },
+        },
+      },
+    }, [{ id: "openai", displayName: "OpenAI", status: "ready" }]);
+
+    const pane = buildDesktopSettingsPaneModel(state, {
+      lastSavedState: state,
+      providerCatalog: [{ id: "openai", displayName: "OpenAI", status: "ready" }],
+      saveStatus: "saved",
+      saveDetails: {
+        transport: "gateway-fallback",
+        updatedFields: ["agents.defaults.model"],
+        applied: [],
+        restartRequired: [],
+        reloadRequired: [],
+        warnings: ["Saved through gateway fallback after native config patch failed: boom"],
+      },
+    });
+
+    expect(pane.save.diagnostics).toContain("Status: saved");
+    expect(pane.save.diagnostics).toContain("Transport: gateway-fallback");
+    expect(pane.save.diagnostics).toContain("Updated fields: agents.defaults.model");
+    expect(pane.save.diagnostics).toContain("Warnings: Saved through gateway fallback after native config patch failed: boom");
   });
 });
