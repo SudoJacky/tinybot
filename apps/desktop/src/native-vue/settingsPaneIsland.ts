@@ -498,7 +498,7 @@ function renderProviderManagement(
           "data-desktop-settings-action": "discoverModels",
           "aria-label": `Refresh models for ${options.pane.providerEditor.selectedProvider}`,
           onClick: () => options.onSettingsAction?.({ action: "discoverModels", pane: options.pane }),
-        }, { default: () => "Refresh models" }),
+        }, { default: () => "Refresh" }),
         h(NButton, {
           class: "desktop-settings-provider-add",
           type: "primary",

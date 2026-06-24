@@ -12399,13 +12399,13 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-settings-pane {
-      grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+      grid-template-columns: minmax(190px, 230px) minmax(0, 1fr);
       justify-content: stretch;
       align-items: start;
-      gap: 28px;
+      gap: 24px;
       min-width: 0;
       width: 100%;
-      max-width: 1180px;
+      max-width: 1220px;
       margin: 0 auto;
     }
 
@@ -12418,9 +12418,12 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       top: 0;
       display: grid;
       align-content: start;
-      gap: 16px;
+      gap: 14px;
       min-width: 0;
-      padding-top: 6px;
+      border: 1px solid #ebe4dd;
+      border-radius: 8px;
+      padding: 12px;
+      background: #fffdfa;
     }
 
     body.desktop-native-workbench .desktop-settings-search {
@@ -12437,7 +12440,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-settings-nav {
       display: grid;
-      gap: 5px;
+      gap: 3px;
       min-width: 0;
     }
 
@@ -12458,6 +12461,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       color: #3a332e;
       font: 650 13px/1.25 var(--font-sans);
       text-decoration: none;
+      transition: background 140ms ease, color 140ms ease;
     }
 
     body.desktop-native-workbench .desktop-settings-nav-item:hover,
@@ -12469,7 +12473,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-settings-content {
       display: grid;
-      gap: 26px;
+      gap: 22px;
       width: 100%;
       min-width: 0;
     }
@@ -12480,7 +12484,29 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       justify-content: space-between;
       gap: 16px;
       min-width: 0;
-      padding-top: 22px;
+      padding-top: 12px;
+    }
+
+    body.desktop-native-workbench .desktop-settings-save-region {
+      display: flex;
+      align-items: center;
+      justify-content: end;
+      gap: 10px;
+      min-width: min(340px, 100%);
+    }
+
+    body.desktop-native-workbench .desktop-settings-save-status {
+      min-width: 0;
+      border: 1px solid #ebe4dd;
+      border-radius: 8px;
+      padding: 8px 10px;
+      background: #fffdfa;
+      color: #5f574f;
+      font: 650 12px/1.3 var(--font-sans);
+    }
+
+    body.desktop-native-workbench .desktop-settings-save-status p {
+      margin: 0;
     }
 
     body.desktop-native-workbench .desktop-settings-breadcrumb h2 {
@@ -12554,7 +12580,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       gap: 12px;
       border: 1px solid #ebe4dd;
       border-radius: 8px;
-      padding: 34px 40px;
+      padding: 24px 28px;
       background: #fffdfa;
     }
 
@@ -12672,6 +12698,16 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       border-color: #f07a2b;
       background: #ff7a1a;
       color: #ffffff;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-icon-button {
+      min-width: 82px;
+      width: auto;
+      color: #25211d;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-icon-button::before {
+      content: none;
     }
 
     body.desktop-native-workbench .desktop-settings-provider-grid {
@@ -12962,6 +12998,71 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       padding: 0 18px 14px;
     }
 
+    body.desktop-native-workbench .desktop-settings-files-actions,
+    body.desktop-native-workbench .desktop-settings-channels-summary,
+    body.desktop-native-workbench .desktop-settings-runtime-summary,
+    body.desktop-native-workbench .desktop-settings-diagnostics-actions,
+    body.desktop-native-workbench .desktop-settings-mcp-server-list,
+    body.desktop-native-workbench .desktop-settings-secret-controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin: 0 18px 14px;
+      border: 1px solid #eee8e1;
+      border-radius: 8px;
+      padding: 10px;
+      background: #fbf8f3;
+    }
+
+    body.desktop-native-workbench .desktop-settings-runtime-summary,
+    body.desktop-native-workbench .desktop-settings-diagnostics-actions,
+    body.desktop-native-workbench .desktop-settings-mcp-server-list {
+      display: grid;
+      align-items: stretch;
+    }
+
+    body.desktop-native-workbench .desktop-settings-files-actions p,
+    body.desktop-native-workbench .desktop-settings-channels-summary p,
+    body.desktop-native-workbench .desktop-settings-runtime-summary p,
+    body.desktop-native-workbench .desktop-settings-diagnostics-actions p {
+      flex: 1 1 100%;
+      min-width: 0;
+      margin: 0;
+      color: #5f574f;
+      font: 600 12px/1.45 var(--font-sans);
+      overflow-wrap: anywhere;
+    }
+
+    body.desktop-native-workbench .desktop-settings-files-actions button,
+    body.desktop-native-workbench .desktop-settings-channels-summary button,
+    body.desktop-native-workbench .desktop-settings-runtime-summary button,
+    body.desktop-native-workbench .desktop-settings-diagnostics-actions button,
+    body.desktop-native-workbench .desktop-settings-secret-controls button {
+      min-height: 30px;
+      border: 1px solid #d8d0c8;
+      border-radius: 6px;
+      padding: 0 10px;
+      background: #fffdfa;
+      color: #25211d;
+      font: 700 12px/1.2 var(--font-sans);
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-settings-runtime-intents,
+    body.desktop-native-workbench .desktop-settings-diagnostics-action-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-runtime-intents button[data-active="true"] {
+      border-color: #3d72e8;
+      background: #eef4ff;
+      color: #214fba;
+    }
+
     body.desktop-native-workbench .desktop-settings-field {
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(220px, 320px);
@@ -13066,6 +13167,11 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-settings-actions button:focus-visible,
+    body.desktop-native-workbench .desktop-settings-files-actions button:focus-visible,
+    body.desktop-native-workbench .desktop-settings-channels-summary button:focus-visible,
+    body.desktop-native-workbench .desktop-settings-runtime-summary button:focus-visible,
+    body.desktop-native-workbench .desktop-settings-diagnostics-actions button:focus-visible,
+    body.desktop-native-workbench .desktop-settings-secret-controls button:focus-visible,
     body.desktop-native-workbench .desktop-settings-save-status-button:focus-visible,
     body.desktop-native-workbench .desktop-settings-search:focus-visible,
     body.desktop-native-workbench .desktop-settings-provider-search:focus-visible,
@@ -13113,6 +13219,12 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       }
 
       body.desktop-native-workbench .desktop-settings-provider-header {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      body.desktop-native-workbench .desktop-settings-header,
+      body.desktop-native-workbench .desktop-settings-save-region {
         align-items: stretch;
         flex-direction: column;
       }
@@ -13933,6 +14045,11 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-provider-icon-button,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-provider-add,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-provider-card-actions button,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-files-actions button,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-channels-summary button,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-runtime-summary button,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-diagnostics-actions button,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-secret-controls button,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-provider-detail input,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-field input,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-field select,
@@ -13966,6 +14083,14 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-status-card,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-group,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-sidebar,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-save-status,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-files-actions,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-channels-summary,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-runtime-summary,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-diagnostics-actions,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-mcp-server-list,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-secret-controls,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-capability-card,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-default-llm-card,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-provider-card {
@@ -13974,7 +14099,13 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-status-item,
-    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-field {
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-field,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-files-actions,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-channels-summary,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-runtime-summary,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-diagnostics-actions,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-mcp-server-list,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-secret-controls {
       border-color: var(--border);
     }
 
@@ -13999,6 +14130,11 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-provider-detail,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-provider-advanced,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-status-item,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-save-status,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-files-actions p,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-channels-summary p,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-runtime-summary p,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-diagnostics-actions p,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-nav-heading {
       color: var(--muted);
     }
