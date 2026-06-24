@@ -7,6 +7,7 @@ import {
   buildDesktopProviderModelRequest,
   buildDesktopSecretField,
   buildDesktopSettingsFormState,
+  buildDesktopSettingsSavePatch,
   createDesktopSettingsPatch,
   findDesktopProfileIdForProvider,
   getDesktopProviderProfileConfig,
@@ -606,6 +607,37 @@ describe("desktop settings and provider helpers", () => {
       const state = buildDesktopSettingsFormState(existingConfig, providerCatalog);
       expect(createDesktopSettingsPatch(applyDesktopSettingsFieldEdit(state, fieldId, value), existingConfig, providerCatalog), groupName).toEqual(expectedPatch);
     }
+  });
+
+  test("validates the full draft before producing a touched-path save patch", () => {
+    const providerCatalog = [{ id: "openai", displayName: "OpenAI", status: "ready" }];
+    const existingConfig = {
+      agents: { defaults: { model: "gpt-4.1-mini", provider: "openai", active_profile: "work", timezone: "UTC" } },
+      providers: {
+        profiles: {
+          work: {
+            provider: "openai",
+            api_key: "sk-live",
+            api_base: "https://api.openai.com/v1",
+          },
+        },
+      },
+      knowledge: { enabled: true },
+    };
+    const state = buildDesktopSettingsFormState(existingConfig, providerCatalog);
+    const invalidDraft = applyDesktopSettingsFieldEdit(state, "model", "");
+    const invalidWithKnowledgeEdit = applyDesktopSettingsFieldEdit(invalidDraft, "enabled", false);
+
+    expect(buildDesktopSettingsSavePatch(invalidWithKnowledgeEdit, existingConfig, providerCatalog)).toEqual({
+      ok: false,
+      validationErrors: [{ field: "model", errorKey: "modelEmpty" }],
+    });
+
+    const validWithKnowledgeEdit = applyDesktopSettingsFieldEdit(state, "enabled", false);
+    expect(buildDesktopSettingsSavePatch(validWithKnowledgeEdit, existingConfig, providerCatalog)).toEqual({
+      ok: true,
+      patch: { knowledge: { enabled: false } },
+    });
   });
 
   test("classifies settings fields by requirement, input mode, and advanced visibility", () => {

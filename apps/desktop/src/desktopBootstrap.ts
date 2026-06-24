@@ -56,7 +56,7 @@ import {
   buildDesktopProviderModelRequest,
   buildDesktopSettingsFormState,
   buildDesktopSettingsPaneModel,
-  createDesktopSettingsPatch,
+  buildDesktopSettingsSavePatch,
   type DesktopSettingsFormState,
   type DesktopSettingsPaneModel,
 } from "./desktopSettingsProviders";
@@ -2135,12 +2135,18 @@ async function saveNativeSettingsPane(): Promise<void> {
   logDesktopNativeDebug("settings.save.start");
   updateNativeSettingsPane("saving");
   try {
-    const patch = createDesktopSettingsPatch(
+    const savePatch = buildDesktopSettingsSavePatch(
       nativeSettingsState,
       nativeSettingsConfig,
       nativeSettingsProviderCatalog,
     );
-    nativeSettingsConfig = await saveDesktopSettingsConfig(nativeSettingsConfig, patch, {
+    if (!savePatch.ok) {
+      const invalidFields = savePatch.validationErrors.map((error) => error.field).join(", ");
+      updateNativeSettingsPane("failed", `Settings validation failed: ${invalidFields}`);
+      logDesktopNativeDebug("settings.save.validationFailed", { fields: savePatch.validationErrors.map((error) => error.field) });
+      return;
+    }
+    nativeSettingsConfig = await saveDesktopSettingsConfig(nativeSettingsConfig, savePatch.patch, {
       applyNativeConfigPatch,
       applyGatewayConfigPatch: (fallbackPatch) => gatewayApi.config.patch(fallbackPatch),
       onNativeFallback: (fallbackError) => {

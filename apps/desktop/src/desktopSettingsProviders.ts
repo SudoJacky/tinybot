@@ -119,6 +119,10 @@ export interface DesktopSettingsValidationError {
   errorKey: "modelEmpty" | "timezoneError" | "portRange" | "jsonObjectError" | "urlError";
 }
 
+export type DesktopSettingsSavePatchResult =
+  | { ok: true; patch: UnknownRecord }
+  | { ok: false; validationErrors: DesktopSettingsValidationError[] };
+
 export interface DesktopProviderModelRequest {
   provider: string;
   profile: string;
@@ -447,6 +451,21 @@ export function createDesktopSettingsPatch(
     return createDesktopSettingsTouchedPatch(state, comparisonConfig);
   }
   return createDesktopSettingsFullPatch(state, comparisonConfig, providerCatalog);
+}
+
+export function buildDesktopSettingsSavePatch(
+  state: DesktopSettingsFormState,
+  existingConfig?: unknown,
+  providerCatalog: DesktopProviderCatalogItem[] = [],
+): DesktopSettingsSavePatchResult {
+  const validationErrors = validateDesktopSettingsForm(state);
+  if (validationErrors.length) {
+    return { ok: false, validationErrors };
+  }
+  return {
+    ok: true,
+    patch: createDesktopSettingsPatch(state, existingConfig, providerCatalog),
+  };
 }
 
 function createDesktopSettingsFullPatch(
