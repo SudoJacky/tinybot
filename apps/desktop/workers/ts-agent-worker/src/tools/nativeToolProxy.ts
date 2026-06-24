@@ -15,7 +15,7 @@ import { TaskPlanner } from "../task/taskPlanner.ts";
 import { TaskProviderSubagentExecutor } from "../task/taskSubagentExecutor.ts";
 import { createTaskTool } from "../task/taskTool.ts";
 import type { TaskProgressPublisher } from "../task/taskRuntime.ts";
-import type { Tool } from "./tool.ts";
+import type { Tool, ToolContext } from "./tool.ts";
 import { ToolRegistry } from "./toolRegistry.ts";
 
 export type NativeRpcClient = {
@@ -204,6 +204,14 @@ function createNativeSubagentToolRegistry(rpcClient: NativeRpcClient): ToolRegis
   return registry;
 }
 
+function nativeApprovalContextParams(context: ToolContext): JsonObject {
+  const params: JsonObject = { run_id: context.runId };
+  if (context.sessionId) {
+    params.session_id = context.sessionId;
+  }
+  return params;
+}
+
 function createReadFileTool(rpcClient: NativeRpcClient): Tool {
   return {
     name: "read_file",
@@ -309,6 +317,7 @@ function createWriteFileTool(rpcClient: NativeRpcClient): Tool {
       const result = asObject(await rpcClient.request(requireTraceId(context.traceId), "workspace.write_file", {
         path,
         contents: content,
+        ...nativeApprovalContextParams(context),
       })) ?? {};
       const resultPath = asString(result.path) ?? path;
       const bytesWritten = typeof result.bytes_written === "number" ? result.bytes_written : content.length;
@@ -349,7 +358,11 @@ function createEditFileTool(rpcClient: NativeRpcClient): Tool {
       if (!edit.ok) {
         return { content: edit.content };
       }
-      await rpcClient.request(traceId, "workspace.write_file", { path, contents: edit.content });
+      await rpcClient.request(traceId, "workspace.write_file", {
+        path,
+        contents: edit.content,
+        ...nativeApprovalContextParams(context),
+      });
       return { content: `Edited ${path}.` };
     },
   };
@@ -375,6 +388,7 @@ function createDeleteFileTool(rpcClient: NativeRpcClient): Tool {
       const result = asObject(await rpcClient.request(requireTraceId(context.traceId), "workspace.delete_file", {
         path,
         recursive,
+        ...nativeApprovalContextParams(context),
       })) ?? {};
       const resultPath = asString(result.path) ?? path;
       const kind = asString(result.kind) ?? "path";
@@ -403,6 +417,7 @@ function createExecTool(rpcClient: NativeRpcClient): Tool {
       const params: JsonObject = {
         command: stringArg(args, "command"),
         restrict_to_workspace: true,
+        ...nativeApprovalContextParams(context),
       };
       const workingDir = optionalStringArg(args, "working_dir");
       const timeout = optionalIntegerArg(args, "timeout");

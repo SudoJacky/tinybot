@@ -147,94 +147,7 @@ fn get_config_value<'a>(snapshot: &'a Value, segments: &[String]) -> Option<&'a 
 }
 
 fn public_config_snapshot(snapshot: &Value) -> Value {
-    let mut root = serde_json::Map::new();
-    if let Some(defaults) = snapshot
-        .get("agents")
-        .and_then(|agents| agents.get("defaults"))
-        .and_then(Value::as_object)
-    {
-        let public_defaults = public_object_from_keys(
-            defaults,
-            &[
-                "model",
-                "provider",
-                "workspace",
-                "temperature",
-                "max_tokens",
-                "maxTokens",
-            ],
-        );
-        if !public_defaults.is_empty() {
-            root.insert(
-                "agents".to_string(),
-                serde_json::json!({ "defaults": public_defaults }),
-            );
-        }
-    }
-    if let Some(providers) = snapshot.get("providers").and_then(Value::as_object) {
-        let mut public_providers = serde_json::Map::new();
-        for (provider_id, provider_config) in providers {
-            if provider_id == "profiles" {
-                if let Some(profiles) = provider_config.as_object() {
-                    let mut public_profiles = serde_json::Map::new();
-                    for (profile_name, profile_config) in profiles {
-                        if let Some(profile) = public_provider_config(profile_config) {
-                            public_profiles.insert(profile_name.clone(), profile);
-                        }
-                    }
-                    if !public_profiles.is_empty() {
-                        public_providers
-                            .insert("profiles".to_string(), Value::Object(public_profiles));
-                    }
-                }
-                continue;
-            }
-            if let Some(provider) = public_provider_config(provider_config) {
-                public_providers.insert(provider_id.clone(), provider);
-            }
-        }
-        if !public_providers.is_empty() {
-            root.insert("providers".to_string(), Value::Object(public_providers));
-        }
-    }
-    Value::Object(root)
-}
-
-fn public_provider_config(value: &Value) -> Option<Value> {
-    let config = value.as_object()?;
-    let public = public_object_from_keys(
-        config,
-        &[
-            "provider",
-            "model",
-            "api_base",
-            "apiBase",
-            "base_url",
-            "baseUrl",
-            "default_model",
-            "defaultModel",
-            "responses",
-        ],
-    );
-    if public.is_empty() {
-        None
-    } else {
-        Some(Value::Object(public))
-    }
-}
-
-fn public_object_from_keys(
-    source: &serde_json::Map<String, Value>,
-    keys: &[&str],
-) -> serde_json::Map<String, Value> {
-    keys.iter()
-        .filter_map(|key| {
-            source
-                .get(*key)
-                .filter(|_| !is_sensitive_key(key))
-                .map(|value| ((*key).to_string(), omit_sensitive_descendants(value)))
-        })
-        .collect()
+    omit_sensitive_descendants(snapshot)
 }
 
 fn omit_sensitive_descendants(value: &Value) -> Value {
@@ -490,6 +403,77 @@ mod tests {
             .as_object()
             .unwrap()
             .get("apiKey")
+            .is_none());
+    }
+
+    #[test]
+    fn config_snapshot_public_preserves_non_secret_runtime_sections() {
+        let rpc = WorkerConfigRpc::new(
+            json!({
+                "agents": {
+                    "defaults": {
+                        "model": "gpt-5",
+                        "provider": "openai",
+                        "maxToolIterations": 12,
+                        "reasoningEffort": "medium",
+                        "apiKey": "agent-secret"
+                    }
+                },
+                "channels": {
+                    "sendProgress": true,
+                    "token": "channel-secret"
+                },
+                "gateway": {
+                    "port": 18790,
+                    "accessToken": "gateway-secret"
+                },
+                "tools": {
+                    "mcpServers": {
+                        "docs": {
+                            "command": "docs-mcp",
+                            "env": {
+                                "DOCS_TOKEN": "mcp-secret",
+                                "DOCS_URL": "https://docs.example.test"
+                            }
+                        }
+                    }
+                },
+                "skills": {
+                    "enabled": ["planner"]
+                },
+                "knowledge": {
+                    "defaultCategory": "desktop"
+                }
+            }),
+            read_policy(),
+        );
+
+        let result = rpc
+            .snapshot_public()
+            .expect("public snapshot should preserve non-secret runtime config");
+
+        assert_eq!(result.value["agents"]["defaults"]["maxToolIterations"], 12);
+        assert_eq!(
+            result.value["agents"]["defaults"]["reasoningEffort"],
+            "medium"
+        );
+        assert_eq!(result.value["channels"]["sendProgress"], true);
+        assert_eq!(result.value["gateway"]["port"], 18790);
+        assert_eq!(
+            result.value["tools"]["mcpServers"]["docs"]["command"],
+            "docs-mcp"
+        );
+        assert_eq!(
+            result.value["tools"]["mcpServers"]["docs"]["env"]["DOCS_URL"],
+            "https://docs.example.test"
+        );
+        assert_eq!(result.value["skills"]["enabled"][0], "planner");
+        assert_eq!(result.value["knowledge"]["defaultCategory"], "desktop");
+        assert!(result.value["agents"]["defaults"].get("apiKey").is_none());
+        assert!(result.value["channels"].get("token").is_none());
+        assert!(result.value["gateway"].get("accessToken").is_none());
+        assert!(result.value["tools"]["mcpServers"]["docs"]["env"]
+            .get("DOCS_TOKEN")
             .is_none());
     }
 
