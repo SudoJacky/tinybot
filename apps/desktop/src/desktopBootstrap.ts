@@ -2147,13 +2147,14 @@ async function saveNativeSettingsPane(): Promise<void> {
       logDesktopNativeDebug("settings.save.validationFailed", { fields: savePatch.validationErrors.map((error) => error.field) });
       return;
     }
-    const effectiveConfig = await saveDesktopSettingsConfig(nativeSettingsConfig, savePatch.patch, {
+    const saveResult = await saveDesktopSettingsConfig(nativeSettingsConfig, savePatch.patch, {
       applyNativeConfigPatch,
       applyGatewayConfigPatch: (fallbackPatch) => gatewayApi.config.patch(fallbackPatch),
       onNativeFallback: (fallbackError) => {
         logDesktopNativeDebug("settings.save.nativeFallback", { error: stringifyError(fallbackError) });
       },
     });
+    const effectiveConfig = saveResult.config;
     const reconciled = reconcileDesktopSettingsSavedState(nativeSettingsState, effectiveConfig, nativeSettingsProviderCatalog);
     if (!reconciled.ok) {
       updateNativeSettingsPane("failed", `Saved settings did not apply: ${reconciled.mismatchedPaths.join(", ")}`);
@@ -2165,7 +2166,14 @@ async function saveNativeSettingsPane(): Promise<void> {
     nativeSettingsState = reconciled.state;
     nativeSettingsLastSavedState = nativeSettingsState;
     updateNativeSettingsPane("saved");
-    logDesktopNativeDebug("settings.save.complete");
+    logDesktopNativeDebug("settings.save.complete", {
+      transport: saveResult.transport,
+      updatedFields: saveResult.updatedFields,
+      applied: saveResult.applied,
+      restartRequired: saveResult.restartRequired,
+      reloadRequired: saveResult.reloadRequired,
+      warnings: saveResult.warnings,
+    });
   } catch (error) {
     const message = stringifyError(error);
     updateNativeSettingsPane("failed", `Failed to save settings: ${message}`);

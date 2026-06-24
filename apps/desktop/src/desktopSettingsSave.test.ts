@@ -21,7 +21,15 @@ describe("desktop settings native save bridge", () => {
     await expect(saveDesktopSettingsConfig(currentConfig, patch, {
       applyNativeConfigPatch,
       applyGatewayConfigPatch,
-    })).resolves.toBe(nativeConfig);
+    })).resolves.toEqual({
+      config: nativeConfig,
+      transport: "native",
+      updatedFields: ["agents.defaults.model"],
+      applied: ["providerRuntimeChanged"],
+      restartRequired: [],
+      reloadRequired: [],
+      warnings: [],
+    });
 
     expect(applyNativeConfigPatch).toHaveBeenCalledWith(currentConfig, patch);
     expect(applyGatewayConfigPatch).not.toHaveBeenCalled();
@@ -41,9 +49,62 @@ describe("desktop settings native save bridge", () => {
     await expect(saveDesktopSettingsConfig(currentConfig, patch, {
       applyNativeConfigPatch,
       applyGatewayConfigPatch,
-    })).resolves.toBe(gatewayConfig);
+    })).resolves.toEqual({
+      config: gatewayConfig,
+      transport: "gateway-fallback",
+      updatedFields: [],
+      applied: [],
+      restartRequired: [],
+      reloadRequired: [],
+      warnings: ["Saved through gateway fallback after native config patch failed: command not found"],
+    });
 
     expect(applyNativeConfigPatch).toHaveBeenCalledWith(currentConfig, patch);
     expect(applyGatewayConfigPatch).toHaveBeenCalledWith(patch);
+  });
+
+  test("splits native restart and reload requirements", async () => {
+    const currentConfig = {
+      agents: { defaults: { workspace: "old" } },
+      gateway: { port: 18790 },
+    };
+    const patch = {
+      agents: { defaults: { workspace: "new" } },
+      gateway: { port: 18888 },
+    };
+    const nativeConfig = {
+      agents: { defaults: { workspace: "new" } },
+      gateway: { port: 18888 },
+    };
+    const applyNativeConfigPatch = vi.fn().mockResolvedValue({
+      ok: true,
+      config: nativeConfig,
+      updatedFields: ["agents.defaults.workspace", "gateway.port"],
+      sideEffects: {
+        applied: [],
+        restartRequired: ["workspaceReloadRequired", "gatewayRestartRequired"],
+        warnings: [
+          "agents.defaults.workspace requires an explicit workspace reload",
+          "gateway host or port changes require restart",
+        ],
+      },
+    });
+    const applyGatewayConfigPatch = vi.fn().mockResolvedValue({ unreachable: true });
+
+    await expect(saveDesktopSettingsConfig(currentConfig, patch, {
+      applyNativeConfigPatch,
+      applyGatewayConfigPatch,
+    })).resolves.toMatchObject({
+      config: nativeConfig,
+      transport: "native",
+      updatedFields: ["agents.defaults.workspace", "gateway.port"],
+      applied: [],
+      restartRequired: ["gatewayRestartRequired"],
+      reloadRequired: ["workspaceReloadRequired"],
+      warnings: [
+        "agents.defaults.workspace requires an explicit workspace reload",
+        "gateway host or port changes require restart",
+      ],
+    });
   });
 });
