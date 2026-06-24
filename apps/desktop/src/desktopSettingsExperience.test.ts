@@ -1,7 +1,11 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
-import desktopSettingsCss from "../../../webui/assets/styles/components/desktop-settings.css?raw";
-import mainCss from "../../../webui/assets/styles/main.css?raw";
 
+const desktopSettingsCss = readFileSync(
+  new URL("../../../webui/assets/styles/components/desktop-settings.css", import.meta.url),
+  "utf8",
+);
+const mainCss = readFileSync(new URL("../../../webui/assets/styles/main.css", import.meta.url), "utf8");
 const nativeSettingsScope = "html[data-desktop-active-workbench-module=\"settings\"] body.desktop-native-workbench";
 
 describe("desktop settings experience stylesheet", () => {
