@@ -721,7 +721,33 @@ function renderSettingsField(
       renderSettingsFieldMeta(field),
     ]),
     renderSettingsControl(options, field),
+    renderSecretControls(options, field),
     renderSettingsFieldError(options.pane, field),
+  ]);
+}
+
+function renderSecretControls(
+  options: SettingsPaneIslandOptions,
+  field: DesktopSettingsPaneField,
+) {
+  if (!field.sensitive || field.control !== "password") {
+    return null;
+  }
+  return h("div", { class: "desktop-settings-secret-controls" }, [
+    h("p", {
+      class: "desktop-settings-secret-policy",
+      "data-desktop-settings-secret-policy": "",
+    }, "Reveal is disabled by the desktop secret policy."),
+    h("button", {
+      type: "button",
+      "data-desktop-settings-secret-action": "replace",
+      onClick: () => document.getElementById(`desktop-settings-${field.id}`)?.focus(),
+    }, "Replace key"),
+    h("button", {
+      type: "button",
+      "data-desktop-settings-secret-action": "clear",
+      onClick: () => emitEdit(options, field.id, ""),
+    }, "Clear key"),
   ]);
 }
 

@@ -557,4 +557,30 @@ describe("settings pane Vue island", () => {
 
     mounted.unmount();
   });
+
+  test("renders provider secret replacement and clear controls", async () => {
+    const host = document.createElement("section");
+    const actions: string[] = [];
+    document.body.replaceChildren(host);
+    const mounted = mountSettingsPaneIsland(host, {
+      pane,
+      initialActiveGroupId: "provider-models",
+      onSettingsAction: (event: DesktopSettingsActionEvent) => {
+        if (event.action === "edit") {
+          actions.push(`${event.action}:${event.fieldId}:${String(event.value)}`);
+        }
+      },
+    });
+    await nextTick();
+
+    const apiKey = host.querySelector<HTMLInputElement>('[data-desktop-settings-control="apiKey"]');
+    expect(host.querySelector("[data-desktop-settings-secret-policy]")?.textContent).toContain("Reveal is disabled");
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-secret-action="replace"]')?.click();
+    expect(document.activeElement).toBe(apiKey);
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-secret-action="clear"]')?.click();
+    expect(actions).toEqual(["edit:apiKey:"]);
+
+    mounted.unmount();
+    host.remove();
+  });
 });
