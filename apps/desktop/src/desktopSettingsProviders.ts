@@ -123,6 +123,10 @@ export type DesktopSettingsSavePatchResult =
   | { ok: true; patch: UnknownRecord }
   | { ok: false; validationErrors: DesktopSettingsValidationError[] };
 
+export type DesktopSettingsSaveReconcileResult =
+  | { ok: true; state: DesktopSettingsFormState }
+  | { ok: false; state: DesktopSettingsFormState; mismatchedPaths: string[] };
+
 export interface DesktopProviderModelRequest {
   provider: string;
   profile: string;
@@ -465,6 +469,31 @@ export function buildDesktopSettingsSavePatch(
   return {
     ok: true,
     patch: createDesktopSettingsPatch(state, existingConfig, providerCatalog),
+  };
+}
+
+export function reconcileDesktopSettingsSavedState(
+  draftState: DesktopSettingsFormState,
+  effectiveConfig: unknown,
+  providerCatalog: DesktopProviderCatalogItem[] = [],
+): DesktopSettingsSaveReconcileResult {
+  const savedState = buildDesktopSettingsFormState(effectiveConfig, providerCatalog);
+  const mismatchedPaths = (draftState.touchedPaths ?? []).filter((path) => (
+    !desktopSettingsValuesEqual(
+      getDesktopSettingsPatchPathValue(draftState, path),
+      getDesktopSettingsPatchPathValue(savedState, path),
+    )
+  ));
+  if (mismatchedPaths.length) {
+    return {
+      ok: false,
+      state: draftState,
+      mismatchedPaths,
+    };
+  }
+  return {
+    ok: true,
+    state: savedState,
   };
 }
 

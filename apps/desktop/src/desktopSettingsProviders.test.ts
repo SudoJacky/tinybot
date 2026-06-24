@@ -12,6 +12,7 @@ import {
   findDesktopProfileIdForProvider,
   getDesktopProviderProfileConfig,
   parseDesktopProviderModelList,
+  reconcileDesktopSettingsSavedState,
   resolveDesktopSecretValue,
   validateDesktopSettingsForm,
 } from "./desktopSettingsProviders";
@@ -638,6 +639,49 @@ describe("desktop settings and provider helpers", () => {
       ok: true,
       patch: { knowledge: { enabled: false } },
     });
+  });
+
+  test("reconciles saved config only when it reflects touched draft values", () => {
+    const providerCatalog = [{ id: "openai", displayName: "OpenAI", status: "ready" }];
+    const existingConfig = {
+      agents: { defaults: { model: "gpt-4.1-mini", provider: "openai", active_profile: "work", timezone: "UTC" } },
+      providers: {
+        profiles: {
+          work: {
+            provider: "openai",
+            api_key: "sk-live",
+            api_base: "https://api.openai.com/v1",
+          },
+        },
+      },
+    };
+    const draft = applyDesktopSettingsFieldEdit(
+      buildDesktopSettingsFormState(existingConfig, providerCatalog),
+      "timezone",
+      "Asia/Shanghai",
+    );
+
+    const staleResult = reconcileDesktopSettingsSavedState(draft, existingConfig, providerCatalog);
+    expect(staleResult).toEqual({
+      ok: false,
+      mismatchedPaths: ["agents.defaults.timezone"],
+      state: draft,
+    });
+    expect(createDesktopSettingsPatch(staleResult.state, existingConfig, providerCatalog)).toEqual({
+      agents: { defaults: { timezone: "Asia/Shanghai" } },
+    });
+
+    const savedResult = reconcileDesktopSettingsSavedState(draft, {
+      agents: { defaults: { model: "gpt-4.1-mini", provider: "openai", active_profile: "work", timezone: "Asia/Shanghai" } },
+      providers: existingConfig.providers,
+    }, providerCatalog);
+    expect(savedResult.ok).toBe(true);
+    if (savedResult.ok) {
+      expect(savedResult.state.touchedPaths).toBeUndefined();
+      expect(createDesktopSettingsPatch(savedResult.state, savedResult.state.serverSnapshot, providerCatalog)).toMatchObject({
+        agents: { defaults: { timezone: "Asia/Shanghai" } },
+      });
+    }
   });
 
   test("classifies settings fields by requirement, input mode, and advanced visibility", () => {

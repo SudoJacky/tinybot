@@ -57,6 +57,7 @@ import {
   buildDesktopSettingsFormState,
   buildDesktopSettingsPaneModel,
   buildDesktopSettingsSavePatch,
+  reconcileDesktopSettingsSavedState,
   type DesktopSettingsFormState,
   type DesktopSettingsPaneModel,
 } from "./desktopSettingsProviders";
@@ -2146,15 +2147,22 @@ async function saveNativeSettingsPane(): Promise<void> {
       logDesktopNativeDebug("settings.save.validationFailed", { fields: savePatch.validationErrors.map((error) => error.field) });
       return;
     }
-    nativeSettingsConfig = await saveDesktopSettingsConfig(nativeSettingsConfig, savePatch.patch, {
+    const effectiveConfig = await saveDesktopSettingsConfig(nativeSettingsConfig, savePatch.patch, {
       applyNativeConfigPatch,
       applyGatewayConfigPatch: (fallbackPatch) => gatewayApi.config.patch(fallbackPatch),
       onNativeFallback: (fallbackError) => {
         logDesktopNativeDebug("settings.save.nativeFallback", { error: stringifyError(fallbackError) });
       },
     });
+    const reconciled = reconcileDesktopSettingsSavedState(nativeSettingsState, effectiveConfig, nativeSettingsProviderCatalog);
+    if (!reconciled.ok) {
+      updateNativeSettingsPane("failed", `Saved settings did not apply: ${reconciled.mismatchedPaths.join(", ")}`);
+      logDesktopNativeDebug("settings.save.reconcileFailed", { paths: reconciled.mismatchedPaths });
+      return;
+    }
+    nativeSettingsConfig = effectiveConfig;
     syncTsCoworkRuntimeRollout(nativeSettingsConfig);
-    nativeSettingsState = buildDesktopSettingsFormState(nativeSettingsConfig, nativeSettingsProviderCatalog);
+    nativeSettingsState = reconciled.state;
     nativeSettingsLastSavedState = nativeSettingsState;
     updateNativeSettingsPane("saved");
     logDesktopNativeDebug("settings.save.complete");
