@@ -32,6 +32,8 @@ interface ProviderCardModel {
   baseUrl: string;
   apiKey: string;
   models: string;
+  modelCountLabel: string;
+  sourceLabel: string;
 }
 
 interface SettingsSearchResult {
@@ -494,7 +496,7 @@ function renderProviderManagement(
           size: "small",
           disabled: !options.pane.providerEditor.canDiscoverModels,
           "data-desktop-settings-action": "discoverModels",
-          "aria-label": "Refresh provider models",
+          "aria-label": `Refresh models for ${options.pane.providerEditor.selectedProvider}`,
           onClick: () => options.onSettingsAction?.({ action: "discoverModels", pane: options.pane }),
         }, { default: () => "Refresh models" }),
         h(NButton, {
@@ -625,6 +627,8 @@ function renderProviderCard(
         renderProviderDetail("Base URL", provider.baseUrl),
         renderProviderDetail("API Key", provider.apiKey),
         renderProviderDetail("Model", provider.models),
+        renderProviderDetail("Models", provider.modelCountLabel),
+        renderProviderDetail("Source", provider.sourceLabel),
       ]),
       h("button", {
         class: "desktop-settings-provider-advanced",
@@ -637,6 +641,15 @@ function renderProviderCard(
       ]),
       h(NSpace, { class: "desktop-settings-provider-card-actions", size: 8 }, {
         default: () => [
+          h(NButton, {
+            size: "small",
+            "data-desktop-settings-provider-action": "testConnection",
+            onClick: () => options.onSettingsAction?.({
+              action: "testProviderConnection",
+              pane: options.pane,
+              providerId: provider.id,
+            }),
+          }, { default: () => "Test connection" }),
           h(NButton, {
             size: "small",
             "data-desktop-settings-provider-action": "models",
@@ -957,6 +970,8 @@ function getProviderCards(pane: DesktopSettingsPaneModel): ProviderCardModel[] {
       baseUrl: provider.baseUrl || (isSelected ? pane.providerEditor.apiBase : "") || "Not configured",
       apiKey: apiKey.displayValue || "Not configured",
       models: models || "No models",
+      modelCountLabel: `${providerModels.length} ${providerModels.length === 1 ? "model" : "models"}`,
+      sourceLabel: provider.profileId ? "Configured profile" : "Catalog",
     };
   });
 }

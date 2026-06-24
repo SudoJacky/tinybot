@@ -2100,6 +2100,10 @@ async function handleNativeSettingsAction(event: DesktopSettingsActionEvent): Pr
     logDesktopNativeDebug("settings.workspace.reload.requested");
     return;
   }
+  if (event.action === "testProviderConnection") {
+    logDesktopNativeDebug("settings.provider.test.requested", { providerId: event.providerId });
+    return;
+  }
   if (!nativeSettingsState) {
     logDesktopNativeDebug("settings.action.skipped", { action: event.action, reason: "state unavailable" });
     return;

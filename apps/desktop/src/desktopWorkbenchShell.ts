@@ -224,12 +224,17 @@ interface DesktopAgentUiFormActionOptions {
   onAgentUiFormAction?: (event: DesktopAgentUiFormActionEvent) => void;
 }
 
-export type DesktopSettingsActionId = "save" | "discoverModels" | "retryLoad" | "copyDiagnostics" | "restartGateway" | "reloadWorkspace" | "reset" | "edit";
+export type DesktopSettingsActionId = "save" | "discoverModels" | "retryLoad" | "copyDiagnostics" | "restartGateway" | "reloadWorkspace" | "reset" | "testProviderConnection" | "edit";
 
 export type DesktopSettingsActionEvent =
   | {
       action: "save" | "discoverModels" | "retryLoad" | "copyDiagnostics" | "restartGateway" | "reloadWorkspace" | "reset";
       pane: DesktopSettingsPaneModel;
+    }
+  | {
+      action: "testProviderConnection";
+      pane: DesktopSettingsPaneModel;
+      providerId: string;
     }
   | {
       action: "edit";

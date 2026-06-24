@@ -77,6 +77,10 @@ describe("settings pane Vue island", () => {
           actions.push(`${event.action}:${event.fieldId}:${String(event.value)}`);
           return;
         }
+        if (event.action === "testProviderConnection") {
+          actions.push(`${event.action}:${event.providerId}`);
+          return;
+        }
         actions.push(event.action);
       },
       promptProviderId: () => "openai",
@@ -135,9 +139,13 @@ describe("settings pane Vue island", () => {
     expect(host.querySelector(".desktop-settings-default-llm-card")).toBeNull();
     expect(host.querySelector(".desktop-settings-provider-section")?.textContent).toContain("Providers");
     expect(host.querySelector('[data-desktop-settings-provider-card="openai"]')?.textContent).toContain("OpenAI");
+    expect(host.querySelector('[data-desktop-settings-provider-card="openai"]')?.textContent).toContain("2 models");
+    expect(host.querySelector('[data-desktop-settings-provider-card="openai"]')?.textContent).toContain("Configured profile");
     expect(host.querySelector('[data-desktop-settings-field="apiKey"] input')?.getAttribute("type")).toBe("password");
     expect(host.querySelector<HTMLInputElement>('[data-desktop-settings-control="apiKey"]')?.value).toBe("********");
     expect(host.querySelector('[data-desktop-settings-field="apiKey"] .desktop-settings-field-meta')?.textContent).toContain("Sensitive");
+    expect(host.querySelector<HTMLButtonElement>('[data-desktop-settings-action="discoverModels"]')?.getAttribute("aria-label")).toBe("Refresh models for openai");
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-provider-action="testConnection"]')?.click();
     const providerSave = host.querySelector<HTMLButtonElement>('[data-desktop-settings-action="save"]');
     expect(providerSave).not.toBeNull();
     providerSave?.click();
@@ -187,6 +195,7 @@ describe("settings pane Vue island", () => {
     apiKey?.dispatchEvent(new Event("input", { bubbles: true }));
 
     expect(actions).toEqual([
+      "testProviderConnection:openai",
       "save",
       "edit:model:custom-model-id",
       "save",
