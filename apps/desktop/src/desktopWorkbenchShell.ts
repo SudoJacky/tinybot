@@ -847,7 +847,7 @@ function createWorkbenchShell(
   const inspectorState = hasInspectorContent(inspectorContent)
     ? layout.inspector
     : { ...layout.inspector, visible: false };
-  const activeModule = getDesktopActiveWorkbenchModule(targetDocument, settingsPane, knowledgePane, toolsSkillsPane, coworkPane);
+  const activeModule = getDesktopActiveWorkbenchModule(targetDocument);
   const sidebarState = activeModule === "chat"
     ? layout.sidebar
     : { ...layout.sidebar, visible: false };
@@ -872,28 +872,10 @@ function createWorkbenchShell(
   return shell;
 }
 
-function getDesktopActiveWorkbenchModule(
-  targetDocument: Document,
-  settingsPane: DesktopSettingsPaneModel | null,
-  knowledgePane: DesktopKnowledgePaneModel | null,
-  toolsSkillsPane: DesktopToolsSkillsPaneModel | null,
-  coworkPane: DesktopCoworkPaneModel | null,
-): string {
+function getDesktopActiveWorkbenchModule(targetDocument: Document): string {
   const routeModule = targetDocument.documentElement?.getAttribute("data-desktop-active-workbench-module")?.trim();
   if (routeModule) {
     return routeModule;
-  }
-  if (settingsPane) {
-    return "settings";
-  }
-  if (knowledgePane) {
-    return "knowledge";
-  }
-  if (toolsSkillsPane) {
-    return "tools";
-  }
-  if (coworkPane) {
-    return "cowork";
   }
   return "chat";
 }

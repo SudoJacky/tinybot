@@ -3900,6 +3900,21 @@ describe("desktop workbench shell", () => {
     expect(chatDocument.getElementById("desktop-workbench-shell")?.getAttribute("data-sidebar-visible")).toBe("true");
     expect(chatDocument.body.querySelector('[data-workbench-region="sidebar"]')?.getAttribute("data-visible")).toBe("true");
 
+    const startupDocument = new FakeDocument();
+    const startupSettingsState = buildDesktopSettingsFormState({
+      agents: { defaults: { provider: "deepseek", model: "deepseek-v4-flash" } },
+    });
+
+    installDesktopWorkbenchShell({
+      targetDocument: startupDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      settingsPane: buildDesktopSettingsPaneModel(startupSettingsState, { lastSavedState: startupSettingsState }),
+    });
+
+    expect(startupDocument.getElementById("desktop-workbench-shell")?.getAttribute("data-sidebar-visible")).toBe("true");
+    expect(startupDocument.body.querySelector('[data-workbench-region="sidebar"]')?.getAttribute("data-visible")).toBe("true");
+
     const settingsDocument = new FakeDocument();
     settingsDocument.documentElement.setAttribute("data-desktop-active-workbench-module", "settings");
     const settingsState = buildDesktopSettingsFormState({
