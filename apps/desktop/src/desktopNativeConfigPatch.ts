@@ -38,6 +38,7 @@ export async function applyNativeConfigPatch(
 function buildDesktopConfigPatchResult(currentConfig: JsonRecord, patch: JsonRecord) {
   const updatedFields: string[] = [];
   const candidate = structuredClone(currentConfig) as JsonRecord;
+  stripSyntheticConfigMetadata(candidate);
   mergePatch(candidate, patch, [], updatedFields);
   return {
     ok: true,
@@ -55,6 +56,9 @@ function mergePatch(
   updatedFields: string[],
 ): void {
   for (const [key, patchValue] of Object.entries(patch)) {
+    if (isSyntheticConfigMetadataKey(key)) {
+      continue;
+    }
     if (patchValue === UI_SECRET_PLACEHOLDER && isSensitiveConfigKey(key)) {
       continue;
     }
@@ -72,6 +76,18 @@ function mergePatch(
     if (JSON.stringify(currentValue) !== JSON.stringify(patchValue)) {
       target[key] = structuredClone(patchValue);
       updatedFields.push(fieldPath.join("."));
+    }
+  }
+}
+
+function stripSyntheticConfigMetadata(value: JsonRecord): void {
+  for (const [key, childValue] of Object.entries(value)) {
+    if (isSyntheticConfigMetadataKey(key)) {
+      delete value[key];
+      continue;
+    }
+    if (isRecord(childValue)) {
+      stripSyntheticConfigMetadata(childValue);
     }
   }
 }
@@ -154,6 +170,13 @@ function isSensitiveConfigKey(key: string): boolean {
     return true;
   }
   return parts.length >= 2 && parts[parts.length - 2] === "api" && last === "key";
+}
+
+function isSyntheticConfigMetadataKey(key: string): boolean {
+  return key
+    .replace(/-/g, "_")
+    .replace(/(?<=[a-z0-9])(?=[A-Z])/g, "_")
+    .toLowerCase() === "api_key_configured";
 }
 
 function isRecord(value: unknown): value is JsonRecord {

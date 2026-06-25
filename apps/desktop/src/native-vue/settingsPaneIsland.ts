@@ -1309,6 +1309,10 @@ function renderSettingsField(
     "data-desktop-settings-field": field.id,
     "data-highlighted": field.id === highlightedFieldId ? "true" : undefined,
     "data-state": field.state,
+    "data-persistent-path": field.persistentPath,
+    "data-source-kind": field.sourceKind,
+    "data-value-origin": field.valueOrigin,
+    "data-apply-effect": field.applyEffect,
   }, [
     h("div", { class: "desktop-settings-field-copy" }, [
       h("label", { for: `desktop-settings-${field.id}` }, `${field.label}: `),
@@ -1477,6 +1481,12 @@ function renderSettingsFieldMeta(field: DesktopSettingsPaneField) {
   ];
   if (field.sensitive) {
     chips.push(h("span", { class: "desktop-settings-field-chip", "data-kind": "sensitive" }, "Sensitive"));
+  }
+  if (field.sourceKind) {
+    chips.push(h("span", { class: "desktop-settings-field-chip", "data-kind": field.sourceKind }, sourceKindLabel(field.sourceKind)));
+  }
+  if (field.valueOrigin) {
+    chips.push(h("span", { class: "desktop-settings-field-chip", "data-kind": field.valueOrigin }, valueOriginLabel(field.valueOrigin)));
   }
   if (field.applyEffect) {
     chips.push(h("span", { class: "desktop-settings-field-chip", "data-kind": field.applyEffect }, applyEffectLabel(field.applyEffect)));
@@ -1817,6 +1827,26 @@ function configurationModeLabel(mode: DesktopSettingsPaneField["configurationMod
     toggle: "Toggle",
     url: "URL",
   }[mode];
+}
+
+function sourceKindLabel(sourceKind: NonNullable<DesktopSettingsPaneField["sourceKind"]>): string {
+  return {
+    config: "Local config",
+    "local-ui-preference": "UI preference",
+    cache: "Cache",
+    "runtime-status": "Runtime status",
+  }[sourceKind];
+}
+
+function valueOriginLabel(origin: NonNullable<DesktopSettingsPaneField["valueOrigin"]>): string {
+  return {
+    explicit: "Explicit value",
+    default: "Default value",
+    secret: "Secret value",
+    cache: "Cached value",
+    runtime: "Runtime value",
+    catalog: "Catalog value",
+  }[origin];
 }
 
 function applyEffectLabel(effect: NonNullable<DesktopSettingsPaneField["applyEffect"]>): string {

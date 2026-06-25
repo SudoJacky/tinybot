@@ -322,6 +322,10 @@ describe("settings pane Vue island", () => {
     expect(host.querySelector('[data-desktop-settings-group="knowledge"]')).toBeNull();
     expect(host.querySelector('[data-desktop-settings-field="timezone"] .desktop-settings-field-meta')?.textContent).toContain("Required");
     expect(host.querySelector('[data-desktop-settings-field="timezone"] .desktop-settings-field-meta')?.textContent).toContain("Free text");
+    expect(host.querySelector('[data-desktop-settings-field="timezone"]')?.getAttribute("data-persistent-path")).toBe("agents.defaults.timezone");
+    expect(host.querySelector('[data-desktop-settings-field="timezone"]')?.getAttribute("data-source-kind")).toBe("config");
+    expect(host.querySelector('[data-desktop-settings-field="timezone"]')?.getAttribute("data-value-origin")).toBe("explicit");
+    expect(host.querySelector('[data-desktop-settings-field="timezone"] .desktop-settings-field-meta')?.textContent).toContain("Explicit value");
     expect(host.querySelector(".desktop-settings-response-defaults-section")?.textContent).toContain("Response defaults");
     expect(host.querySelector('[data-desktop-settings-field="temperature"]')?.closest(".desktop-settings-response-defaults-section")).not.toBeNull();
 
@@ -708,6 +712,37 @@ describe("settings pane Vue island", () => {
       (node) => node.getAttribute("value"),
     )).toEqual(["openai-fast", "deepseek-chat"]);
     expect(host.querySelector("[data-desktop-settings-auto-resolution]")?.textContent).toContain("Auto resolves to OpenAI / openai-fast");
+
+    mounted.unmount();
+  });
+
+  test("shows the saved provider value when the default provider is disabled", async () => {
+    const host = document.createElement("section");
+    const state = buildDesktopSettingsFormState({
+      agents: { defaults: { model: "deepseek-v4-flash", provider: "deepseek", active_profile: "deepseek", timezone: "UTC" } },
+      providers: {
+        profiles: {
+          deepseek: {
+            provider: "deepseek",
+            enabled: false,
+            api_key: "sk-deepseek",
+            models: ["deepseek-v4-flash"],
+          },
+        },
+      },
+    }, [{ id: "deepseek", displayName: "DeepSeek", status: "ready", enabled: false }]);
+    const disabledProviderPane = buildDesktopSettingsPaneModel(state, {
+      providerCatalog: [{ id: "deepseek", displayName: "DeepSeek", status: "ready", enabled: false }],
+    });
+
+    const mounted = mountSettingsPaneIsland(host, {
+      pane: disabledProviderPane,
+    });
+    await nextTick();
+
+    const provider = host.querySelector<HTMLSelectElement>('[data-desktop-settings-control="provider"]');
+    expect(provider?.value).toBe("deepseek");
+    expect(provider?.selectedOptions[0]?.textContent).toBe("DeepSeek");
 
     mounted.unmount();
   });

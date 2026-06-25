@@ -843,6 +843,62 @@ describe("desktop settings and provider helpers", () => {
     });
   });
 
+  test("declares local persistence metadata for every editable settings field", () => {
+    const state = buildDesktopSettingsFormState({
+      agents: {
+        defaults: {
+          model: "deepseek-chat",
+          provider: "deepseek",
+          active_profile: "deepseek",
+          workspace: "D:/workspace",
+          timezone: "UTC",
+        },
+      },
+      providers: {
+        profiles: {
+          deepseek: {
+            provider: "deepseek",
+            api_key: "sk-live",
+            api_base: "https://api.deepseek.com",
+            models: ["deepseek-chat"],
+          },
+        },
+      },
+      gateway: { host: "127.0.0.1", port: 18790 },
+    }, [{ id: "deepseek", displayName: "DeepSeek", status: "ready" }]);
+
+    const pane = buildDesktopSettingsPaneModel(state, {
+      providerCatalog: [{ id: "deepseek", displayName: "DeepSeek", status: "ready" }],
+    });
+    const editableFields = pane.groups.flatMap((group) =>
+      group.fields
+        .filter((field) => field.control !== "readonly")
+        .map((field) => [`${group.id}.${field.id}`, field] as const),
+    );
+
+    expect(editableFields).not.toHaveLength(0);
+    expect(editableFields).toEqual(editableFields.map(([key]) => [
+      key,
+      expect.objectContaining({
+        sourceKind: expect.stringMatching(/^(config|local-ui-preference)$/),
+        valueOrigin: expect.stringMatching(/^(explicit|default|secret)$/),
+      }),
+    ]));
+    expect(editableFields.filter(([, field]) => field.sourceKind === "config")).toEqual(
+      editableFields
+        .filter(([, field]) => field.sourceKind === "config")
+        .map(([key]) => [key, expect.objectContaining({ persistentPath: expect.any(String) })]),
+    );
+    expect(Object.fromEntries(editableFields)).toMatchObject({
+      "general.model": { persistentPath: "agents.defaults.model", valueOrigin: "explicit", applyEffect: "immediate" },
+      "general.temperature": { persistentPath: "agents.defaults.temperature", valueOrigin: "default" },
+      "provider-models.selectedProvider": { sourceKind: "local-ui-preference" },
+      "provider-models.apiKey": { persistentPath: "providers.deepseek.api_key", sensitive: true },
+      "files-workspace.workspace": { persistentPath: "agents.defaults.workspace", applyEffect: "workspace-reload" },
+      "gateway-runtime.port": { persistentPath: "gateway.port", applyEffect: "gateway-restart" },
+    });
+  });
+
   test("keeps provider editing separate from the default LLM provider", () => {
     const state = buildDesktopSettingsFormState({
       agents: { defaults: { model: "gpt-4.1", provider: "openai", active_profile: "work" } },
@@ -997,6 +1053,69 @@ describe("desktop settings and provider helpers", () => {
     expect(createDesktopSettingsPatch(attemptedDisable, {}, providerCatalog).providers).not.toMatchObject({
       openai: { enabled: false },
     });
+  });
+
+  test("keeps the current default provider visible even when it is currently disabled", () => {
+    const providerCatalog = [
+      { id: "deepseek", displayName: "DeepSeek", status: "ready", enabled: false },
+    ];
+    const state = buildDesktopSettingsFormState({
+      agents: { defaults: { model: "deepseek-v4-flash", provider: "deepseek", active_profile: "deepseek" } },
+      providers: {
+        profiles: {
+          deepseek: {
+            provider: "deepseek",
+            enabled: false,
+            api_key: "sk-deepseek",
+            models: ["deepseek-v4-flash"],
+          },
+        },
+      },
+    }, providerCatalog);
+
+    const pane = buildDesktopSettingsPaneModel(state, { providerCatalog });
+    const providerField = pane.groups.find((group) => group.id === "general")?.fields.find((field) => field.id === "provider");
+
+    expect(providerField?.inputValue).toBe("deepseek");
+    expect(providerField?.options).toEqual(expect.arrayContaining([
+      { value: "deepseek", label: "DeepSeek" },
+    ]));
+  });
+
+  test("treats redacted provider API key metadata as a configured secret", () => {
+    const state = buildDesktopSettingsFormState({
+      agents: { defaults: { model: "deepseek-v4-flash", provider: "deepseek", active_profile: "deepseek" } },
+      providers: {
+        profiles: {
+          deepseek: {
+            provider: "deepseek",
+            api_key_configured: true,
+            api_base: "https://api.deepseek.com/v1",
+            models: ["deepseek-v4-flash"],
+          },
+        },
+      },
+    }, [{ id: "deepseek", displayName: "DeepSeek", status: "ready" }]);
+
+    const pane = buildDesktopSettingsPaneModel(state, {
+      providerCatalog: [{ id: "deepseek", displayName: "DeepSeek", status: "ready" }],
+    });
+
+    expect(pane.providerEditor.apiKey).toMatchObject({
+      displayValue: "********",
+      masked: true,
+      empty: false,
+    });
+    expect(pane.providerCatalog).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "deepseek",
+        apiKey: expect.objectContaining({
+          displayValue: "********",
+          masked: true,
+          empty: false,
+        }),
+      }),
+    ]));
   });
 
   test("preserves save warnings and gateway fallback details in the pane model", () => {

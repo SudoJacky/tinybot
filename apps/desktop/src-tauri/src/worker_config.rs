@@ -7,7 +7,7 @@ use crate::worker_protocol::{
     WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 #[derive(Clone, Debug)]
 pub struct WorkerConfigRpc {
@@ -152,12 +152,23 @@ fn public_config_snapshot(snapshot: &Value) -> Value {
 
 fn omit_sensitive_descendants(value: &Value) -> Value {
     match value {
-        Value::Object(map) => Value::Object(
-            map.iter()
-                .filter(|(key, _)| !is_sensitive_key(key))
-                .map(|(key, value)| (key.clone(), omit_sensitive_descendants(value)))
-                .collect(),
-        ),
+        Value::Object(map) => {
+            let mut public = Map::new();
+            let mut api_key_configured = false;
+            for (key, value) in map {
+                if is_sensitive_key(key) {
+                    if is_api_key_key(key) && sensitive_value_configured(value) {
+                        api_key_configured = true;
+                    }
+                    continue;
+                }
+                public.insert(key.clone(), omit_sensitive_descendants(value));
+            }
+            if api_key_configured {
+                public.insert("api_key_configured".to_string(), Value::Bool(true));
+            }
+            Value::Object(public)
+        }
         Value::Array(values) => {
             Value::Array(values.iter().map(omit_sensitive_descendants).collect())
         }
@@ -165,12 +176,19 @@ fn omit_sensitive_descendants(value: &Value) -> Value {
     }
 }
 
+fn is_api_key_key(key: &str) -> bool {
+    normalized_config_key(key) == "apikey"
+}
+
+fn sensitive_value_configured(value: &Value) -> bool {
+    value
+        .as_str()
+        .map(str::trim)
+        .is_some_and(|value| !value.is_empty())
+}
+
 fn is_sensitive_key(key: &str) -> bool {
-    let key = key
-        .chars()
-        .filter(|character| character.is_ascii_alphanumeric())
-        .collect::<String>()
-        .to_ascii_lowercase();
+    let key = normalized_config_key(key);
     matches!(
         key.as_str(),
         "apikey"
@@ -189,6 +207,14 @@ fn is_sensitive_key(key: &str) -> bool {
         || key.ends_with("credential")
         || key.ends_with("credentials")
         || key.ends_with("privatekey")
+}
+
+fn normalized_config_key(key: &str) -> String {
+    key
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .collect::<String>()
+        .to_ascii_lowercase()
 }
 
 fn invalid_config_path(path: &str) -> WorkerProtocolError {
@@ -336,6 +362,22 @@ mod tests {
             .expect("provider config should be an object");
         assert!(!provider.contains_key("api_key"));
         assert!(!provider.contains_key("apiKey"));
+    }
+
+    #[test]
+    fn config_snapshot_public_keeps_provider_secret_presence_metadata() {
+        let rpc = WorkerConfigRpc::new(config_fixture(), read_policy());
+
+        let result = rpc
+            .snapshot_public()
+            .expect("public snapshot should read public projection");
+
+        assert_eq!(
+            result.value["providers"]["openai"]["api_key_configured"],
+            json!(true)
+        );
+        assert!(result.value["providers"]["openai"].get("api_key").is_none());
+        assert!(result.value["providers"]["openai"].get("apiKey").is_none());
     }
 
     #[test]

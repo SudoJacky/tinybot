@@ -39,6 +39,12 @@ import {
   type DesktopNativeStartupTrace,
 } from "./desktopNativeChatDebug";
 import { applyNativeConfigPatch } from "./desktopNativeConfigPatch";
+import {
+  applyDesktopSettingsLocalPreferences,
+  clearDesktopSettingsLocalPreferences,
+  loadDesktopSettingsLocalPreferences,
+  saveDesktopSettingsLocalPreferences,
+} from "./desktopSettingsLocalPreferences";
 import { saveDesktopSettingsConfig, type DesktopSettingsSaveResult } from "./desktopSettingsSave";
 import { buildDesktopTsAgentFormSubmissionInput } from "./desktopTsAgentFormActions";
 import { installDesktopNavigation } from "./desktopNavigation";
@@ -2052,7 +2058,10 @@ async function loadNativeSettingsPane(): Promise<DesktopSettingsPaneModel> {
       gatewayApi.config.providers(),
     ]);
     const providerCatalog = buildDesktopProviderCatalogItems(providersPayload);
-    const state = buildDesktopSettingsFormState(config, providerCatalog);
+    const state = applyDesktopSettingsLocalPreferences(
+      buildDesktopSettingsFormState(config, providerCatalog),
+      loadDesktopSettingsLocalPreferences(),
+    );
     nativeSettingsConfig = config;
     syncTsCoworkRuntimeRollout(config);
     nativeSettingsState = state;
@@ -2112,7 +2121,17 @@ async function handleNativeSettingsAction(event: DesktopSettingsActionEvent): Pr
     logDesktopNativeDebug("settings.channels.action.requested", { action: event.action });
     return;
   }
-  if (["openDiagnosticsLogs", "exportDiagnosticsBundle", "clearDiagnosticsLogs", "resetLocalUiState"].includes(event.action)) {
+  if (event.action === "resetLocalUiState") {
+    clearDesktopSettingsLocalPreferences();
+    if (nativeSettingsState) {
+      nativeSettingsState = buildDesktopSettingsFormState(nativeSettingsConfig, nativeSettingsProviderCatalog);
+      nativeSettingsLastSavedState = nativeSettingsState;
+      updateNativeSettingsPane("idle");
+    }
+    logDesktopNativeDebug("settings.diagnostics.action.requested", { action: event.action });
+    return;
+  }
+  if (["openDiagnosticsLogs", "exportDiagnosticsBundle", "clearDiagnosticsLogs"].includes(event.action)) {
     logDesktopNativeDebug("settings.diagnostics.action.requested", { action: event.action });
     return;
   }
@@ -2129,6 +2148,9 @@ async function handleNativeSettingsAction(event: DesktopSettingsActionEvent): Pr
     fieldId: "fieldId" in event ? event.fieldId : undefined,
   });
   if (event.action === "edit") {
+    if (event.fieldId === "selectedProvider") {
+      saveDesktopSettingsLocalPreferences({ providerEditorSelectedProvider: String(event.value) });
+    }
     nativeSettingsState = applyDesktopSettingsFieldEdit(nativeSettingsState, event.fieldId, event.value);
     updateNativeSettingsPane("idle");
     logDesktopNativeDebug("settings.action.complete", { action: event.action, fieldId: event.fieldId });

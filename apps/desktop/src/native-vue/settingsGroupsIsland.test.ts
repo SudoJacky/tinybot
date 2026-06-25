@@ -32,6 +32,10 @@ const pane: DesktopSettingsPaneModel = {
           id: "timezone",
           label: "Timezone",
           value: "Asia/Shanghai",
+          persistentPath: "agents.defaults.timezone",
+          sourceKind: "config",
+          valueOrigin: "explicit",
+          applyEffect: "immediate",
           state: "invalid",
           control: "text",
           inputValue: "Asia/Shanghai",
@@ -59,6 +63,10 @@ const pane: DesktopSettingsPaneModel = {
           id: "apiBase",
           label: "API base",
           value: "https://api.openai.com/v1",
+          persistentPath: "providers.openai.api_base",
+          sourceKind: "config",
+          valueOrigin: "explicit",
+          applyEffect: "immediate",
           state: "normal",
           control: "text",
           inputValue: "https://api.openai.com/v1",
@@ -157,6 +165,13 @@ describe("settings groups Vue island", () => {
     expect(host.textContent).toContain("Retrieval behavior for workspace knowledge and RAG context.");
     expect(host.querySelector('[data-desktop-settings-control="model"]')).toBeNull();
     expect(host.querySelector('[data-desktop-settings-control="selectedProvider"]')).toBeNull();
+
+    const timezoneField = host.querySelector('[data-desktop-settings-field="timezone"]');
+    expect(timezoneField?.getAttribute("data-persistent-path")).toBe("agents.defaults.timezone");
+    expect(timezoneField?.getAttribute("data-source-kind")).toBe("config");
+    expect(timezoneField?.getAttribute("data-value-origin")).toBe("explicit");
+    expect(timezoneField?.textContent).toContain("Explicit value");
+    expect(timezoneField?.textContent).toContain("Immediate");
 
     const timezone = host.querySelector<HTMLInputElement>('[data-desktop-settings-control="timezone"]');
     expect(timezone?.tagName).toBe("INPUT");

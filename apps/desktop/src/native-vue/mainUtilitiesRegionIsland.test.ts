@@ -79,7 +79,7 @@ describe("main utilities region Vue island", () => {
     expect(host.querySelector(".desktop-help-pane")?.textContent).toContain("Help tour");
     expect(host.querySelector(".desktop-agent-ui-forms")?.textContent).toContain("Approve import");
     expect(host.querySelector(".desktop-workspace-files")?.textContent).toContain("Workspace files");
-    expect(host.querySelector(".desktop-settings-pane")?.textContent).toContain("Settings / General");
+    expect(host.querySelector(".desktop-settings-pane")?.textContent).toContain("Default AI");
     expect(host.querySelector(".desktop-settings-capability-map")).toBeNull();
 
     host.querySelector<HTMLButtonElement>('[data-desktop-help-action="page-help"]')?.click();
