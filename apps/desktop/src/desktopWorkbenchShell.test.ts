@@ -4031,6 +4031,33 @@ describe("desktop workbench shell", () => {
     expect(styleText).not.toContain(":root {");
   });
 
+  test("keeps settings pages aligned to the DESIGN.md warm editorial system", () => {
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const styleText = targetDocument.head.querySelector("#desktop-workbench-shell-style")?.textContent ?? "";
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-settings-task-card {\n      display: grid;");
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-settings-task-card .desktop-settings-field {\n      grid-template-columns: minmax(0, 1fr);");
+    expect(styleText).toContain("background: var(--panel, #faf9f5);");
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-settings-breadcrumb h2 {\n      margin: 0;\n      color: var(--text, #141413);\n      font: 400 28px/1.2 var(--font-display);");
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-settings-provider-add {\n      border-color: var(--accent, #cc785c);");
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-settings-provider-mark {\n      display: grid;");
+    expect(styleText).toContain("background: var(--surface-dark, #181715);");
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-settings-provider-switch[data-state=\"on\"] {\n      background: var(--accent, #cc785c);");
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-settings-runtime-intents button[data-active=\"true\"] {\n      border-color: var(--accent, #cc785c);");
+    expect(styleText).toContain("outline: 2px solid var(--accent-glow-strong, rgba(204, 120, 92, 0.24));");
+    expect(styleText).not.toContain("body.desktop-native-workbench .desktop-settings-provider-add {\n      border-color: #f07a2b;");
+    expect(styleText).not.toContain("body.desktop-native-workbench .desktop-settings-provider-mark {\n      display: grid;\n      place-items: center;\n      flex: 0 0 auto;\n      width: 42px;\n      height: 42px;\n      border-radius: 8px;\n      background: linear-gradient(135deg, #5f6df2, #7db7ff);");
+    expect(styleText).not.toContain("body.desktop-native-workbench .desktop-settings-provider-switch[data-state=\"on\"] {\n      background: #5c55f5;");
+    expect(styleText).not.toContain("body.desktop-native-workbench .desktop-settings-runtime-intents button[data-active=\"true\"] {\n      border-color: #3d72e8;");
+    expect(styleText).not.toContain("outline: 2px solid rgba(31, 111, 235, 0.45);");
+  });
+
   test("declares dark theme overrides for native workbench surfaces", () => {
     const targetDocument = new FakeDocument();
 

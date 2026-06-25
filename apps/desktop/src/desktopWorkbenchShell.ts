@@ -12609,7 +12609,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       grid-template-columns: minmax(190px, 230px) minmax(0, 1fr);
       justify-content: stretch;
       align-items: start;
-      gap: 24px;
+      gap: 28px;
       min-width: 0;
       width: 100%;
       max-width: 1220px;
@@ -12627,22 +12627,81 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       align-content: start;
       gap: 14px;
       min-width: 0;
-      border: 1px solid #ebe4dd;
-      border-radius: 8px;
-      padding: 12px;
-      background: #fffdfa;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: var(--radius-lg, 12px);
+      padding: 14px;
+      background: var(--surface-soft, #f5f0e8);
     }
 
     body.desktop-native-workbench .desktop-settings-search {
       width: 100%;
       min-width: 0;
       min-height: 34px;
-      border: 1px solid #e5ded7;
-      border-radius: 8px;
-      background: #fffdfa;
-      color: #25211d;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: var(--radius-md, 8px);
+      background: var(--panel, #faf9f5);
+      color: var(--text, #141413);
       padding: 0 10px;
       font: 500 13px/1.35 var(--font-sans);
+    }
+
+    body.desktop-native-workbench .desktop-settings-search-results,
+    body.desktop-native-workbench .desktop-settings-preview-list {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-search-result,
+    body.desktop-native-workbench .desktop-settings-preview-item,
+    body.desktop-native-workbench .desktop-settings-dirty-summary {
+      display: grid;
+      gap: 2px;
+      min-width: 0;
+      border: 1px solid var(--border-subtle, #ebe6df);
+      border-radius: var(--radius-md, 8px);
+      padding: 8px 10px;
+      background: var(--panel, #faf9f5);
+      color: var(--text, #141413);
+      font: 500 12px/1.3 var(--font-sans);
+      text-align: left;
+    }
+
+    body.desktop-native-workbench .desktop-settings-search-result {
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-settings-search-result small,
+    body.desktop-native-workbench .desktop-settings-preview-item small {
+      color: var(--text-muted, #6c6a64);
+      font: 500 11px/1.25 var(--font-sans);
+    }
+
+    body.desktop-native-workbench .desktop-settings-search-empty {
+      border: 1px solid var(--border-subtle, #ebe6df);
+      border-radius: var(--radius-md, 8px);
+      padding: 9px 10px;
+      background: var(--panel, #faf9f5);
+      color: var(--text-muted, #6c6a64);
+      font: 500 12px/1.35 var(--font-sans);
+    }
+
+    body.desktop-native-workbench .desktop-settings-dirty-summary {
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      border-color: var(--accent, #cc785c);
+      background: var(--accent-soft, rgba(204, 120, 92, 0.12));
+    }
+
+    body.desktop-native-workbench .desktop-settings-dirty-summary button {
+      min-height: 28px;
+      border: 1px solid var(--accent, #cc785c);
+      border-radius: var(--radius-sm, 6px);
+      padding: 0 9px;
+      background: var(--panel, #faf9f5);
+      color: var(--accent, #cc785c);
+      font: 600 12px/1.2 var(--font-sans);
+      cursor: pointer;
     }
 
     body.desktop-native-workbench .desktop-settings-nav {
@@ -12653,8 +12712,9 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-settings-nav-heading {
       margin: 14px 0 4px;
-      color: #9a9189;
-      font: 650 11px/1.2 var(--font-sans);
+      color: var(--text-muted, #6c6a64);
+      font: 500 11px/1.2 var(--font-sans);
+      letter-spacing: 0;
       text-transform: uppercase;
     }
 
@@ -12663,10 +12723,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       align-items: center;
       min-height: 34px;
       min-width: 0;
-      border-radius: 7px;
+      border-radius: var(--radius-md, 8px);
       padding: 0 10px;
-      color: #3a332e;
-      font: 650 13px/1.25 var(--font-sans);
+      color: var(--text, #141413);
+      font: 500 13px/1.25 var(--font-sans);
       text-decoration: none;
       transition: background 140ms ease, color 140ms ease;
     }
@@ -12674,8 +12734,8 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-settings-nav-item:hover,
     body.desktop-native-workbench .desktop-settings-nav-item:focus-visible,
     body.desktop-native-workbench .desktop-settings-nav-item[data-active="true"] {
-      background: #eee9e3;
-      color: #1f1d1a;
+      background: var(--surface-card, #efe9de);
+      color: var(--text-strong, #252523);
     }
 
     body.desktop-native-workbench .desktop-settings-content {
@@ -12691,7 +12751,6 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       justify-content: space-between;
       gap: 16px;
       min-width: 0;
-      padding-top: 12px;
     }
 
     body.desktop-native-workbench .desktop-settings-save-region {
@@ -12704,12 +12763,12 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-settings-save-status {
       min-width: 0;
-      border: 1px solid #ebe4dd;
-      border-radius: 8px;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: var(--radius-md, 8px);
       padding: 8px 10px;
-      background: #fffdfa;
-      color: #5f574f;
-      font: 650 12px/1.3 var(--font-sans);
+      background: var(--panel, #faf9f5);
+      color: var(--text-muted, #6c6a64);
+      font: 500 12px/1.3 var(--font-sans);
     }
 
     body.desktop-native-workbench .desktop-settings-save-status p {
@@ -12718,13 +12777,56 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-settings-breadcrumb h2 {
       margin: 0;
-      color: #1f1d1a;
-      font: 700 20px/1.2 var(--font-sans);
+      color: var(--text, #141413);
+      font: 400 28px/1.2 var(--font-display);
       letter-spacing: 0;
     }
 
     body.desktop-native-workbench .desktop-settings-breadcrumb {
-      color: #8c847c;
+      color: var(--text-muted, #6c6a64);
+    }
+
+    body.desktop-native-workbench .desktop-settings-error-banner {
+      display: grid;
+      gap: 8px;
+      border: 1px solid var(--danger, #c64545);
+      border-radius: var(--radius-lg, 12px);
+      padding: 14px 16px;
+      background: var(--danger-soft, rgba(198, 69, 69, 0.12));
+      color: var(--text, #141413);
+    }
+
+    body.desktop-native-workbench .desktop-settings-error-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    body.desktop-native-workbench .desktop-settings-error-actions button,
+    body.desktop-native-workbench .desktop-settings-save-details button {
+      min-height: 28px;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: var(--radius-sm, 6px);
+      padding: 0 10px;
+      background: var(--panel, #faf9f5);
+      color: var(--text, #141413);
+      font: 600 12px/1.2 var(--font-sans);
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-settings-save-details {
+      display: grid;
+      gap: 5px;
+      margin: 8px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    body.desktop-native-workbench .desktop-settings-save-details li {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
     }
 
     body.desktop-native-workbench .desktop-settings-capability-map,
@@ -12746,56 +12848,138 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       gap: 5px;
       min-width: 0;
       min-height: 92px;
-      border: 1px solid #ebe4dd;
-      border-radius: 8px;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: var(--radius-lg, 12px);
       padding: 10px 12px;
-      background: #fffdfa;
-      color: #25211d;
+      background: var(--panel, #faf9f5);
+      color: var(--text, #141413);
       text-decoration: none;
     }
 
     body.desktop-native-workbench .desktop-settings-capability-card:hover,
     body.desktop-native-workbench .desktop-settings-capability-card:focus-visible {
-      border-color: #d8d0c8;
-      background: #f8f6f2;
+      border-color: var(--accent, #cc785c);
+      background: var(--accent-soft, rgba(204, 120, 92, 0.12));
       outline: 2px solid transparent;
     }
 
     body.desktop-native-workbench .desktop-settings-capability-label {
-      color: #7a7068;
-      font: 700 11px/1.2 var(--font-sans);
+      color: var(--text-muted, #6c6a64);
+      font: 500 11px/1.2 var(--font-sans);
       text-transform: uppercase;
       letter-spacing: 0;
     }
 
     body.desktop-native-workbench .desktop-settings-capability-status {
       min-width: 0;
-      color: #1f1d1a;
-      font: 750 14px/1.25 var(--font-sans);
+      color: var(--text-strong, #252523);
+      font: 500 14px/1.25 var(--font-sans);
       overflow-wrap: anywhere;
     }
 
     body.desktop-native-workbench .desktop-settings-capability-detail {
       min-width: 0;
-      color: #6b635c;
+      color: var(--text-muted, #6c6a64);
       font: 500 12px/1.35 var(--font-sans);
       overflow-wrap: anywhere;
+    }
+
+    body.desktop-native-workbench .desktop-settings-task-page {
+      display: grid;
+      gap: 18px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-task-card {
+      display: grid;
+      gap: 16px;
+      min-width: 0;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: var(--radius-lg, 12px);
+      padding: 24px;
+      background: var(--panel, #faf9f5);
+      color: var(--text, #141413);
+      overflow: hidden;
+      scroll-margin-top: 16px;
+    }
+
+    body.desktop-native-workbench .desktop-settings-section-heading {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 14px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-section-heading h2 {
+      margin: 0;
+      color: var(--text, #141413);
+      font: 400 24px/1.2 var(--font-display);
+      letter-spacing: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-section-heading p,
+    body.desktop-native-workbench .desktop-settings-supporting-copy {
+      margin: 4px 0 0;
+      color: var(--text-muted, #6c6a64);
+      font: 500 13px/1.5 var(--font-sans);
+    }
+
+    body.desktop-native-workbench .desktop-settings-section-badge,
+    body.desktop-native-workbench .desktop-settings-provider-summary,
+    body.desktop-native-workbench .desktop-settings-eyebrow {
+      display: inline-flex;
+      align-items: center;
+      width: max-content;
+      max-width: 100%;
+      border-radius: var(--radius-full, 9999px);
+      padding: 4px 10px;
+      background: var(--accent-soft, rgba(204, 120, 92, 0.12));
+      color: var(--accent, #cc785c);
+      font: 600 12px/1.2 var(--font-sans);
+      overflow-wrap: anywhere;
+    }
+
+    body.desktop-native-workbench .desktop-settings-default-ai-layout,
+    body.desktop-native-workbench .desktop-settings-field-pair,
+    body.desktop-native-workbench .desktop-settings-response-grid,
+    body.desktop-native-workbench .desktop-settings-knowledge-core-layout {
+      display: grid;
+      gap: 14px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-default-ai-layout {
+      grid-template-columns: minmax(0, 1fr) minmax(220px, 0.45fr);
+      align-items: stretch;
+    }
+
+    body.desktop-native-workbench .desktop-settings-field-pair {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    body.desktop-native-workbench .desktop-settings-response-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    body.desktop-native-workbench .desktop-settings-knowledge-core-layout {
+      grid-template-columns: minmax(0, 1fr) minmax(240px, 0.55fr);
     }
 
     body.desktop-native-workbench .desktop-settings-default-llm-card {
       display: grid;
       gap: 12px;
-      border: 1px solid #ebe4dd;
-      border-radius: 8px;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: var(--radius-lg, 12px);
       padding: 24px 28px;
-      background: #fffdfa;
+      background: var(--panel, #faf9f5);
     }
 
     body.desktop-native-workbench .desktop-settings-card-heading h2,
     body.desktop-native-workbench .desktop-settings-provider-header h2 {
       margin: 0;
-      color: #1f1d1a;
-      font: 750 21px/1.2 var(--font-sans);
+      color: var(--text, #141413);
+      font: 400 24px/1.2 var(--font-display);
       letter-spacing: 0;
     }
 
@@ -12811,8 +12995,8 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       display: grid;
       gap: 8px;
       min-width: 0;
-      color: #3b352f;
-      font: 650 13px/1.3 var(--font-sans);
+      color: var(--text, #141413);
+      font: 500 13px/1.3 var(--font-sans);
     }
 
     body.desktop-native-workbench .desktop-settings-inline-field select,
@@ -12821,33 +13005,36 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       width: 100%;
       min-width: 0;
       min-height: 34px;
-      border: 1px solid #e0d8d0;
-      border-radius: 6px;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: var(--radius-md, 8px);
       padding: 0 10px;
-      background: #fffdfa;
-      color: #25211d;
+      background: var(--panel, #faf9f5);
+      color: var(--text, #141413);
       font: 500 13px/1.35 var(--font-sans);
     }
 
     body.desktop-native-workbench .desktop-settings-save-status-button {
       min-height: 34px;
-      border: 1px solid #d8d0c8;
-      border-radius: 6px;
+      border: 1px solid var(--accent, #cc785c);
+      border-radius: var(--radius-md, 8px);
       padding: 0 14px;
-      background: #f8f6f2;
-      color: #5c554e;
-      font: 700 13px/1.2 var(--font-sans);
+      background: var(--accent, #cc785c);
+      color: var(--on-primary, #ffffff);
+      font: 600 13px/1.2 var(--font-sans);
       cursor: pointer;
     }
 
     body.desktop-native-workbench .desktop-settings-save-status-button:disabled {
       cursor: not-allowed;
       opacity: 0.62;
+      background: var(--surface-card, #efe9de);
+      border-color: var(--border, #e6dfd8);
+      color: var(--text-muted, #6c6a64);
     }
 
     body.desktop-native-workbench .desktop-settings-default-llm-copy {
       margin: 0;
-      color: #6b635c;
+      color: var(--text-muted, #6c6a64);
       font: 500 13px/1.55 var(--font-sans);
     }
 
@@ -12875,12 +13062,12 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-settings-provider-add,
     body.desktop-native-workbench .desktop-settings-provider-card-actions button {
       min-height: 34px;
-      border: 1px solid #d8d0c8;
-      border-radius: 6px;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: var(--radius-md, 8px);
       padding: 0 12px;
-      background: #fffdfa;
-      color: #25211d;
-      font: 700 13px/1.2 var(--font-sans);
+      background: var(--panel, #faf9f5);
+      color: var(--text, #141413);
+      font: 600 13px/1.2 var(--font-sans);
       cursor: pointer;
     }
 
@@ -12902,9 +13089,9 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-settings-provider-add {
-      border-color: #f07a2b;
-      background: #ff7a1a;
-      color: #ffffff;
+      border-color: var(--accent, #cc785c);
+      background: var(--accent, #cc785c);
+      color: var(--on-primary, #ffffff);
     }
 
     body.desktop-native-workbench .desktop-settings-provider-icon-button {
@@ -12931,11 +13118,16 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       gap: 14px;
       min-width: 0;
       min-height: 246px;
-      border: 1px solid #ebe4dd;
-      border-radius: 8px;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: var(--radius-lg, 12px);
       padding: 14px;
-      background: #fffdfa;
-      box-shadow: 0 1px 2px rgba(20, 20, 19, 0.04);
+      background: var(--panel, #faf9f5);
+      box-shadow: none;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-card[data-selected="true"] {
+      border-color: var(--accent, #cc785c);
+      background: var(--accent-soft, rgba(204, 120, 92, 0.12));
     }
 
     body.desktop-native-workbench .desktop-settings-provider-card-header {
@@ -12959,10 +13151,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       flex: 0 0 auto;
       width: 42px;
       height: 42px;
-      border-radius: 8px;
-      background: linear-gradient(135deg, #5f6df2, #7db7ff);
-      color: #ffffff;
-      font: 800 14px/1 var(--font-sans);
+      border-radius: var(--radius-md, 8px);
+      background: var(--surface-dark, #181715);
+      color: var(--on-dark, #faf9f5);
+      font: 600 14px/1 var(--font-sans);
       letter-spacing: 0;
     }
 
@@ -12974,8 +13166,8 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-settings-provider-title h3 {
       margin: 0;
-      color: #141413;
-      font: 750 15px/1.2 var(--font-sans);
+      color: var(--text, #141413);
+      font: 500 15px/1.2 var(--font-sans);
       letter-spacing: 0;
       overflow-wrap: anywhere;
     }
@@ -12989,16 +13181,16 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-settings-provider-badge {
-      border-radius: 5px;
-      padding: 2px 6px;
-      background: #d9f7f1;
-      color: #08756b;
-      font: 700 11px/1.2 var(--font-sans);
+      border-radius: var(--radius-full, 9999px);
+      padding: 3px 8px;
+      background: var(--accent-soft, rgba(204, 120, 92, 0.12));
+      color: var(--accent, #cc785c);
+      font: 600 11px/1.2 var(--font-sans);
     }
 
     body.desktop-native-workbench .desktop-settings-provider-status {
-      color: #8c847c;
-      font: 700 11px/1.2 var(--font-sans);
+      color: var(--text-muted, #6c6a64);
+      font: 500 11px/1.2 var(--font-sans);
       white-space: nowrap;
     }
 
@@ -13010,14 +13202,14 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       border: 0;
       border-radius: 999px;
       appearance: none;
-      background: #d9dfe5;
+      background: var(--surface-cream-strong, #e8e0d2);
       box-shadow: inset 0 0 0 1px rgba(20, 20, 19, 0.05);
       cursor: pointer;
       padding: 0;
     }
 
     body.desktop-native-workbench .desktop-settings-provider-switch:focus-visible {
-      outline: 2px solid #5c55f5;
+      outline: 2px solid var(--accent-glow-strong, rgba(204, 120, 92, 0.24));
       outline-offset: 2px;
     }
 
@@ -13029,13 +13221,13 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       width: 14px;
       height: 14px;
       border-radius: 999px;
-      background: #ffffff;
+      background: var(--panel, #faf9f5);
       box-shadow: 0 1px 3px rgba(20, 20, 19, 0.18);
       transition: transform 160ms ease;
     }
 
     body.desktop-native-workbench .desktop-settings-provider-switch[data-state="on"] {
-      background: #5c55f5;
+      background: var(--accent, #cc785c);
     }
 
     body.desktop-native-workbench .desktop-settings-provider-switch[data-state="on"]::after {
@@ -13055,19 +13247,19 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       gap: 10px;
       min-width: 0;
       margin: 0;
-      color: #6f665e;
-      font: 650 11px/1.2 var(--font-sans);
+      color: var(--text-muted, #6c6a64);
+      font: 500 11px/1.2 var(--font-sans);
     }
 
     body.desktop-native-workbench .desktop-settings-provider-detail input {
       width: 100%;
       min-width: 0;
       min-height: 30px;
-      border: 1px solid #e0d8d0;
-      border-radius: 6px;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: var(--radius-sm, 6px);
       padding: 0 9px;
-      background: #fffdfa;
-      color: #3a332e;
+      background: var(--panel, #faf9f5);
+      color: var(--text, #141413);
       font: 500 12px/1.25 var(--font-sans);
       overflow: hidden;
       text-overflow: ellipsis;
@@ -13093,8 +13285,8 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       border: 0;
       padding: 0;
       background: transparent;
-      color: #6b635c;
-      font: 650 12px/1.2 var(--font-sans);
+      color: var(--text-muted, #6c6a64);
+      font: 500 12px/1.2 var(--font-sans);
       cursor: pointer;
     }
 
@@ -13110,7 +13302,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-settings-field-description,
     body.desktop-native-workbench .desktop-settings-group-description {
       margin: 4px 0 0;
-      color: #67605a;
+      color: var(--text-muted, #6c6a64);
       font: 500 12px/1.45 var(--font-sans);
     }
 
@@ -13125,10 +13317,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-settings-field input,
     body.desktop-native-workbench .desktop-settings-field select,
     body.desktop-native-workbench .desktop-settings-field textarea {
-      border: 1px solid #d8d0c8;
-      border-radius: 6px;
-      background: #fffdfa;
-      color: #25211d;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: var(--radius-md, 8px);
+      background: var(--panel, #faf9f5);
+      color: var(--text, #141413);
       font: 500 13px/1.35 var(--font-sans);
     }
 
@@ -13145,11 +13337,25 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-settings-status-card {
       min-width: 0;
-      border: 1px solid #ebe4dd;
-      border-radius: 8px;
-      background: #fffdfa;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: var(--radius-lg, 12px);
+      background: var(--surface-soft, #f5f0e8);
       overflow: hidden;
       scroll-margin-top: 12px;
+    }
+
+    body.desktop-native-workbench .desktop-settings-status-card strong {
+      display: block;
+      color: var(--text, #141413);
+      font: 500 14px/1.3 var(--font-sans);
+      overflow-wrap: anywhere;
+    }
+
+    body.desktop-native-workbench .desktop-settings-status-card span {
+      display: block;
+      color: var(--text-muted, #6c6a64);
+      font: 500 12px/1.45 var(--font-sans);
+      overflow-wrap: anywhere;
     }
 
     body.desktop-native-workbench .desktop-settings-summary {
@@ -13161,10 +13367,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-settings-status-item {
       min-width: 0;
       margin: 0;
-      border-bottom: 1px solid #eee8e1;
+      border-bottom: 1px solid var(--border-subtle, #ebe6df);
       padding: 12px 14px;
-      color: #67605a;
-      font: 600 12px/1.45 var(--font-sans);
+      color: var(--text-muted, #6c6a64);
+      font: 500 12px/1.45 var(--font-sans);
     }
 
     body.desktop-native-workbench .desktop-settings-status-item:nth-last-child(-n + 2) {
@@ -13172,8 +13378,8 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-settings-status-item strong {
-      color: #36312c;
-      font-weight: 650;
+      color: var(--text, #141413);
+      font-weight: 500;
     }
 
     body.desktop-native-workbench .desktop-settings-grid {
@@ -13187,17 +13393,17 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       align-content: start;
       gap: 0;
       min-width: 0;
-      border: 1px solid #ebe4dd;
-      border-radius: 8px;
-      background: #fffdfa;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: var(--radius-lg, 12px);
+      background: var(--panel, #faf9f5);
       overflow: hidden;
     }
 
     body.desktop-native-workbench .desktop-settings-group h2 {
       margin: 0;
       padding: 16px 18px 0;
-      color: #2d2924;
-      font: 650 14px/1.2 var(--font-sans);
+      color: var(--text, #141413);
+      font: 400 20px/1.2 var(--font-display);
       letter-spacing: 0;
     }
 
@@ -13216,10 +13422,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       align-items: center;
       gap: 8px;
       margin: 0 18px 14px;
-      border: 1px solid #eee8e1;
-      border-radius: 8px;
+      border: 1px solid var(--border-subtle, #ebe6df);
+      border-radius: var(--radius-md, 8px);
       padding: 10px;
-      background: #fbf8f3;
+      background: var(--surface-soft, #f5f0e8);
     }
 
     body.desktop-native-workbench .desktop-settings-runtime-summary,
@@ -13236,8 +13442,8 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       flex: 1 1 100%;
       min-width: 0;
       margin: 0;
-      color: #5f574f;
-      font: 600 12px/1.45 var(--font-sans);
+      color: var(--text-muted, #6c6a64);
+      font: 500 12px/1.45 var(--font-sans);
       overflow-wrap: anywhere;
     }
 
@@ -13247,27 +13453,96 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-settings-diagnostics-actions button,
     body.desktop-native-workbench .desktop-settings-secret-controls button {
       min-height: 30px;
-      border: 1px solid #d8d0c8;
-      border-radius: 6px;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: var(--radius-sm, 6px);
       padding: 0 10px;
-      background: #fffdfa;
-      color: #25211d;
-      font: 700 12px/1.2 var(--font-sans);
+      background: var(--panel, #faf9f5);
+      color: var(--text, #141413);
+      font: 600 12px/1.2 var(--font-sans);
       cursor: pointer;
     }
 
     body.desktop-native-workbench .desktop-settings-runtime-intents,
-    body.desktop-native-workbench .desktop-settings-diagnostics-action-list {
+    body.desktop-native-workbench .desktop-settings-diagnostics-action-list,
+    body.desktop-native-workbench .desktop-settings-knowledge-toolbar,
+    body.desktop-native-workbench .desktop-settings-quality-presets {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
       min-width: 0;
     }
 
+    body.desktop-native-workbench .desktop-settings-knowledge-toolbar {
+      align-items: center;
+      justify-content: space-between;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: var(--radius-lg, 12px);
+      padding: 12px 14px;
+      background: var(--surface-soft, #f5f0e8);
+    }
+
+    body.desktop-native-workbench .desktop-settings-knowledge-enabled {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text, #141413);
+      font: 500 13px/1.3 var(--font-sans);
+    }
+
+    body.desktop-native-workbench .desktop-settings-knowledge-toolbar button,
+    body.desktop-native-workbench .desktop-settings-quality-presets button {
+      min-height: 34px;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: var(--radius-md, 8px);
+      padding: 0 12px;
+      background: var(--panel, #faf9f5);
+      color: var(--text, #141413);
+      font: 600 13px/1.2 var(--font-sans);
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-settings-knowledge-stages {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+      gap: 10px;
+      min-width: 0;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    body.desktop-native-workbench .desktop-settings-knowledge-stages li {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+      border: 1px solid var(--border-subtle, #ebe6df);
+      border-radius: var(--radius-md, 8px);
+      padding: 10px;
+      background: var(--surface-soft, #f5f0e8);
+      color: var(--text, #141413);
+      font: 500 13px/1.3 var(--font-sans);
+      text-transform: capitalize;
+    }
+
+    body.desktop-native-workbench .desktop-settings-knowledge-stage-marker {
+      display: inline-grid;
+      place-items: center;
+      width: 22px;
+      height: 22px;
+      border-radius: var(--radius-full, 9999px);
+      background: var(--surface-dark, #181715);
+      color: var(--on-dark, #faf9f5);
+      font: 600 11px/1 var(--font-sans);
+    }
+
+    body.desktop-native-workbench .desktop-settings-knowledge-page[data-knowledge-disabled="true"] .desktop-settings-knowledge-stages li {
+      color: var(--text-muted, #6c6a64);
+    }
+
     body.desktop-native-workbench .desktop-settings-runtime-intents button[data-active="true"] {
-      border-color: #3d72e8;
-      background: #eef4ff;
-      color: #214fba;
+      border-color: var(--accent, #cc785c);
+      background: var(--accent-soft, rgba(204, 120, 92, 0.12));
+      color: var(--accent, #cc785c);
     }
 
     body.desktop-native-workbench .desktop-settings-field {
@@ -13276,9 +13551,27 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       align-items: center;
       gap: 22px;
       margin: 0;
-      border-top: 1px solid #eee8e1;
+      border-top: 1px solid var(--border-subtle, #ebe6df);
       padding: 14px 18px;
       min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-task-card .desktop-settings-field {
+      grid-template-columns: minmax(0, 1fr);
+      border: 1px solid var(--border-subtle, #ebe6df);
+      border-radius: var(--radius-md, 8px);
+      padding: 12px;
+      background: var(--surface-soft, #f5f0e8);
+    }
+
+    body.desktop-native-workbench .desktop-settings-task-card .desktop-settings-readonly-value {
+      justify-self: start;
+      text-align: left;
+    }
+
+    body.desktop-native-workbench .desktop-settings-field[data-highlighted="true"] {
+      border-color: var(--accent, #cc785c);
+      box-shadow: 0 0 0 3px var(--accent-glow, rgba(204, 120, 92, 0.15));
     }
 
     body.desktop-native-workbench .desktop-settings-field-copy {
@@ -13288,8 +13581,8 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-settings-field label {
-      color: #2d2924;
-      font: 650 13px/1.35 var(--font-sans);
+      color: var(--text, #141413);
+      font: 500 13px/1.35 var(--font-sans);
     }
 
     body.desktop-native-workbench .desktop-settings-field-meta {
@@ -13302,38 +13595,45 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-settings-field-chip {
       width: max-content;
       max-width: 100%;
-      border: 1px solid #e6ddd4;
+      border: 1px solid var(--border, #e6dfd8);
       border-radius: 999px;
       padding: 2px 7px;
-      background: #fbf8f3;
-      color: #71675e;
-      font: 650 11px/1.2 var(--font-sans);
+      background: var(--panel, #faf9f5);
+      color: var(--text-muted, #6c6a64);
+      font: 500 11px/1.2 var(--font-sans);
       overflow-wrap: anywhere;
     }
 
     body.desktop-native-workbench .desktop-settings-field-chip[data-kind="required"] {
-      border-color: #f3caa6;
-      color: #985314;
+      border-color: var(--accent, #cc785c);
+      color: var(--accent, #cc785c);
     }
 
     body.desktop-native-workbench .desktop-settings-field-chip[data-kind="readonly"],
     body.desktop-native-workbench .desktop-settings-field-chip[data-kind="readonly"] + .desktop-settings-field-chip {
-      color: #81776f;
+      color: var(--text-muted, #6c6a64);
     }
 
     body.desktop-native-workbench .desktop-settings-advanced-fields {
       display: grid;
       min-width: 0;
-      border-top: 1px solid #eee8e1;
+      border-top: 1px solid var(--border-subtle, #ebe6df);
     }
 
     body.desktop-native-workbench .desktop-settings-advanced-fields summary {
       min-height: 38px;
       padding: 10px 18px;
-      color: #4b443d;
-      font: 700 12px/1.3 var(--font-sans);
+      color: var(--text, #141413);
+      font: 600 12px/1.3 var(--font-sans);
       cursor: pointer;
       list-style-position: inside;
+    }
+
+    body.desktop-native-workbench .desktop-settings-advanced-fields p {
+      margin: 0;
+      padding: 0 18px 14px;
+      color: var(--text-muted, #6c6a64);
+      font: 500 12px/1.45 var(--font-sans);
     }
 
     body.desktop-native-workbench .desktop-settings-field input,
@@ -13347,8 +13647,8 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-settings-readonly-value {
       min-width: 0;
-      color: #5f574f;
-      font: 650 13px/1.35 var(--font-sans);
+      color: var(--text-muted, #6c6a64);
+      font: 500 13px/1.35 var(--font-sans);
       overflow-wrap: anywhere;
       justify-self: end;
       text-align: right;
@@ -13369,8 +13669,58 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-settings-field input[aria-invalid="true"],
     body.desktop-native-workbench .desktop-settings-field select[aria-invalid="true"],
     body.desktop-native-workbench .desktop-settings-field textarea[aria-invalid="true"] {
-      border-color: #bd3d2a;
-      box-shadow: 0 0 0 1px rgba(189, 61, 42, 0.12);
+      border-color: var(--danger, #c64545);
+      box-shadow: 0 0 0 2px var(--danger-soft, rgba(198, 69, 69, 0.12));
+    }
+
+    body.desktop-native-workbench .desktop-settings-field-error,
+    body.desktop-native-workbench .desktop-settings-provider-setup-error {
+      margin: 4px 0 0;
+      color: var(--danger, #c64545);
+      font: 500 12px/1.35 var(--font-sans);
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-setup {
+      display: grid;
+      gap: 10px;
+      min-width: 0;
+      border: 1px solid var(--accent, #cc785c);
+      border-radius: var(--radius-lg, 12px);
+      padding: 14px;
+      background: var(--accent-soft, rgba(204, 120, 92, 0.12));
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-setup-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-setup input {
+      min-height: 34px;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: var(--radius-md, 8px);
+      padding: 0 10px;
+      background: var(--panel, #faf9f5);
+      color: var(--text, #141413);
+      font: 500 13px/1.35 var(--font-sans);
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-setup button {
+      min-height: 32px;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: var(--radius-md, 8px);
+      padding: 0 12px;
+      background: var(--panel, #faf9f5);
+      color: var(--text, #141413);
+      font: 600 12px/1.2 var(--font-sans);
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-setup button[data-desktop-settings-provider-setup-action="create"] {
+      border-color: var(--accent, #cc785c);
+      background: var(--accent, #cc785c);
+      color: var(--on-primary, #ffffff);
     }
 
     body.desktop-native-workbench .desktop-settings-actions button:focus-visible,
@@ -13393,7 +13743,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-settings-field input:focus-visible,
     body.desktop-native-workbench .desktop-settings-field select:focus-visible,
     body.desktop-native-workbench .desktop-settings-field textarea:focus-visible {
-      outline: 2px solid rgba(31, 111, 235, 0.45);
+      outline: 2px solid var(--accent-glow-strong, rgba(204, 120, 92, 0.24));
       outline-offset: 2px;
     }
 
@@ -13438,6 +13788,14 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
       body.desktop-native-workbench .desktop-settings-field input[type="checkbox"] {
         justify-self: start;
+      }
+
+      body.desktop-native-workbench .desktop-settings-default-ai-layout,
+      body.desktop-native-workbench .desktop-settings-field-pair,
+      body.desktop-native-workbench .desktop-settings-response-grid,
+      body.desktop-native-workbench .desktop-settings-knowledge-core-layout,
+      body.desktop-native-workbench .desktop-settings-knowledge-stages {
+        grid-template-columns: minmax(0, 1fr);
       }
     }
 
