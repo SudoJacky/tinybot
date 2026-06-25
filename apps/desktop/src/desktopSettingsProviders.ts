@@ -12,6 +12,7 @@ export interface DesktopSettingsProviderEditorState {
   selectedProvider: string;
   profileId: string;
   apiKey: string;
+  apiKeyConfigured: boolean;
   apiBase: string | null;
   modelsText: string;
   supportsModelDiscovery: boolean;
@@ -22,6 +23,7 @@ export interface DesktopSettingsProviderSummary {
   label: string;
   profileId: string;
   apiKey: string;
+  apiKeyConfigured: boolean;
   apiBase: string | null;
   modelsText: string;
   supportsModelDiscovery: boolean;
@@ -538,6 +540,8 @@ export function buildDesktopSettingsFormState(
   const displayProvider = selectedProvider === "auto" ? "deepseek" : selectedProvider;
   const profileId = stringValue(pick(defaults, "activeProfile", "active_profile")) || findDesktopProfileIdForProvider(providers, displayProvider);
   const providerProfile = getDesktopProviderProfileConfig(providers, profileId, displayProvider, providerCatalog);
+  const providerProfileApiKey = stringValue(pick(providerProfile, "apiKey", "api_key"));
+  const providerProfileApiKeyConfigured = providerProfileApiKey !== "" || hasDesktopProviderApiKeyConfigured(providerProfile);
 
   return {
     agent: {
@@ -616,7 +620,8 @@ export function buildDesktopSettingsFormState(
     providerEditor: {
       selectedProvider: stringValue(providerProfile.provider) || displayProvider,
       profileId,
-      apiKey: stringValue(pick(providerProfile, "apiKey", "api_key")),
+      apiKey: providerProfileApiKey || (providerProfileApiKeyConfigured ? MASKED_SECRET : ""),
+      apiKeyConfigured: providerProfileApiKeyConfigured,
       apiBase: stringOrNull(pick(providerProfile, "apiBase", "api_base")),
       modelsText: parseDesktopProviderModelList(providerProfile.models).join("\n"),
       supportsModelDiscovery: pick(providerProfile, "supportsModelDiscovery", "supports_model_discovery") !== false,
@@ -686,7 +691,9 @@ export function buildDesktopProviderSummaries(
     const profileId = profileEntry?.[0] ?? findDesktopProfileIdForProvider(providerRoot, id);
     const profile = asRecord(profileEntry?.[1]);
     const legacyProvider = asRecord(providerRoot[id]);
-    const apiKey = stringValue(pick(profile, "apiKey", "api_key")) || stringValue(pick(legacyProvider, "apiKey", "api_key"));
+    const rawApiKey = stringValue(pick(profile, "apiKey", "api_key")) || stringValue(pick(legacyProvider, "apiKey", "api_key"));
+    const apiKeyConfigured = rawApiKey !== "" || hasDesktopProviderApiKeyConfigured(profile, legacyProvider);
+    const apiKey = rawApiKey || (apiKeyConfigured ? MASKED_SECRET : "");
     const apiBase = stringOrNull(
       pick(profile, "apiBase", "api_base")
       || pick(legacyProvider, "apiBase", "api_base")
@@ -707,6 +714,7 @@ export function buildDesktopProviderSummaries(
       label: stringValue(catalogProvider?.displayName) || id,
       profileId,
       apiKey,
+      apiKeyConfigured,
       apiBase,
       modelsText: parseDesktopProviderModelList(models).join("\n"),
       supportsModelDiscovery: pick(profile, "supportsModelDiscovery", "supports_model_discovery") !== false
@@ -1383,6 +1391,7 @@ export function applyDesktopSettingsFieldEdit(
       break;
     case "apiKey":
       nextState.providerEditor.apiKey = resolveDesktopSecretValue(text, nextState.providerEditor.apiKey);
+      nextState.providerEditor.apiKeyConfigured = Boolean(nextState.providerEditor.apiKey);
       nextState.providerEditorDirty = true;
       syncDesktopProviderSummaryFromEditor(nextState);
       markDesktopProviderEditorTouched(nextState, "api_key");
@@ -1533,6 +1542,13 @@ export function buildDesktopSecretField(value: unknown, mask = MASKED_SECRET): D
   };
 }
 
+function hasDesktopProviderApiKeyConfigured(...records: UnknownRecord[]): boolean {
+  return records.some((record) => (
+    boolValue(pick(record, "apiKeyConfigured", "api_key_configured"))
+    || Boolean(stringValue(pick(record, "apiKey", "api_key")).trim())
+  ));
+}
+
 export function resolveDesktopSecretValue(displayValue: string, previousValue: string, mask = MASKED_SECRET): string {
   return displayValue === mask ? previousValue : displayValue;
 }
@@ -1565,6 +1581,8 @@ export function getDesktopProviderProfileConfig(
     provider: fallbackProvider,
     apiKey: stringValue(pick(legacyProvider, "apiKey", "api_key")),
     api_key: stringValue(pick(legacyProvider, "api_key", "apiKey")),
+    apiKeyConfigured: hasDesktopProviderApiKeyConfigured(legacyProvider),
+    api_key_configured: hasDesktopProviderApiKeyConfigured(legacyProvider),
     apiBase: stringValue(pick(legacyProvider, "apiBase", "api_base")) || stringValue(catalogProvider?.baseUrl),
     api_base: stringValue(pick(legacyProvider, "api_base", "apiBase")) || stringValue(catalogProvider?.baseUrl),
     models: Array.isArray(legacyProvider.models) ? legacyProvider.models : [],
@@ -1738,6 +1756,7 @@ function getDesktopSettingsPersistedProviderDraft(
       selectedProvider: providerName,
       profileId: profileId || summary?.profileId || providerName,
       apiKey: summary?.apiKey || "",
+      apiKeyConfigured: summary?.apiKeyConfigured ?? Boolean(summary?.apiKey),
       apiBase: summary?.apiBase ?? null,
       modelsText: summary?.modelsText || "",
       supportsModelDiscovery: summary?.supportsModelDiscovery ?? true,
@@ -1765,6 +1784,7 @@ function getDesktopStateProviderSummaries(
       label: stringValue(provider.displayName) || id,
       profileId: isSelected ? state.providerEditor.profileId : id,
       apiKey: isSelected ? state.providerEditor.apiKey : "",
+      apiKeyConfigured: isSelected ? state.providerEditor.apiKeyConfigured : false,
       apiBase: isSelected ? state.providerEditor.apiBase : stringOrNull(provider.baseUrl),
       modelsText: isSelected ? state.providerEditor.modelsText : "",
       supportsModelDiscovery: isSelected ? state.providerEditor.supportsModelDiscovery : true,
@@ -1781,6 +1801,7 @@ function selectDesktopProviderEditor(state: DesktopSettingsFormState, providerId
   if (!summary) {
     state.providerEditor.profileId = providerId;
     state.providerEditor.apiKey = "";
+    state.providerEditor.apiKeyConfigured = false;
     state.providerEditor.apiBase = null;
     state.providerEditor.modelsText = "";
     state.providerEditor.supportsModelDiscovery = true;
@@ -1789,6 +1810,7 @@ function selectDesktopProviderEditor(state: DesktopSettingsFormState, providerId
       label: providerId,
       profileId: providerId,
       apiKey: "",
+      apiKeyConfigured: false,
       apiBase: null,
       modelsText: "",
       supportsModelDiscovery: true,
@@ -1800,6 +1822,7 @@ function selectDesktopProviderEditor(state: DesktopSettingsFormState, providerId
   }
   state.providerEditor.profileId = summary.profileId;
   state.providerEditor.apiKey = summary.apiKey;
+  state.providerEditor.apiKeyConfigured = summary.apiKeyConfigured;
   state.providerEditor.apiBase = summary.apiBase;
   state.providerEditor.modelsText = summary.modelsText;
   state.providerEditor.supportsModelDiscovery = summary.supportsModelDiscovery;
@@ -1814,6 +1837,7 @@ function syncDesktopProviderSummaryFromEditor(state: DesktopSettingsFormState): 
       label: selectedProvider,
       profileId: state.providerEditor.profileId || selectedProvider,
       apiKey: state.providerEditor.apiKey,
+      apiKeyConfigured: state.providerEditor.apiKeyConfigured,
       apiBase: state.providerEditor.apiBase,
       modelsText: state.providerEditor.modelsText,
       supportsModelDiscovery: state.providerEditor.supportsModelDiscovery,
@@ -1825,6 +1849,7 @@ function syncDesktopProviderSummaryFromEditor(state: DesktopSettingsFormState): 
   }
   summary.profileId = state.providerEditor.profileId || selectedProvider;
   summary.apiKey = state.providerEditor.apiKey;
+  summary.apiKeyConfigured = state.providerEditor.apiKeyConfigured;
   summary.apiBase = state.providerEditor.apiBase;
   summary.modelsText = state.providerEditor.modelsText;
   summary.supportsModelDiscovery = state.providerEditor.supportsModelDiscovery;
@@ -1845,6 +1870,7 @@ function setDesktopProviderEnabled(state: DesktopSettingsFormState, providerId: 
       label: normalizedProviderId,
       profileId: normalizedProviderId,
       apiKey: "",
+      apiKeyConfigured: false,
       apiBase: null,
       modelsText: "",
       supportsModelDiscovery: true,
@@ -1898,13 +1924,22 @@ function buildDesktopSettingsPaneGroups(
       editorProviderOptions.push({ value, label: value });
     }
   }
+  const currentDefaultProvider = state.agent.provider && state.agent.provider !== "auto" ? state.agent.provider : "";
+  const selectableProviderOptions = providerSummaries.filter((provider) => provider.enabled && isDesktopProviderDefaultSelectableStatus(provider.status)).map((provider) => ({
+    value: provider.id,
+    label: provider.label || provider.id,
+  }));
   const agentProviderOptions = [
     { value: "auto", label: "Auto" },
-    ...providerSummaries.filter((provider) => provider.enabled && isDesktopProviderDefaultSelectableStatus(provider.status)).map((provider) => ({
-      value: provider.id,
-      label: provider.label || provider.id,
-    })),
+    ...selectableProviderOptions,
   ];
+  if (currentDefaultProvider && !agentProviderOptions.some((option) => option.value === currentDefaultProvider)) {
+    const currentDefaultSummary = providerSummaries.find((provider) => provider.id === currentDefaultProvider);
+    agentProviderOptions.push({
+      value: currentDefaultProvider,
+      label: currentDefaultSummary?.label || currentDefaultProvider,
+    });
+  }
   const fixedOptions = (values: string[]): DesktopSettingsPaneFieldOption[] => values.map((value) => ({
     value,
     label: value || "None",

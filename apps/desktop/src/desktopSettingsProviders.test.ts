@@ -1055,6 +1055,69 @@ describe("desktop settings and provider helpers", () => {
     });
   });
 
+  test("keeps the current default provider visible even when it is currently disabled", () => {
+    const providerCatalog = [
+      { id: "deepseek", displayName: "DeepSeek", status: "ready", enabled: false },
+    ];
+    const state = buildDesktopSettingsFormState({
+      agents: { defaults: { model: "deepseek-v4-flash", provider: "deepseek", active_profile: "deepseek" } },
+      providers: {
+        profiles: {
+          deepseek: {
+            provider: "deepseek",
+            enabled: false,
+            api_key: "sk-deepseek",
+            models: ["deepseek-v4-flash"],
+          },
+        },
+      },
+    }, providerCatalog);
+
+    const pane = buildDesktopSettingsPaneModel(state, { providerCatalog });
+    const providerField = pane.groups.find((group) => group.id === "general")?.fields.find((field) => field.id === "provider");
+
+    expect(providerField?.inputValue).toBe("deepseek");
+    expect(providerField?.options).toEqual(expect.arrayContaining([
+      { value: "deepseek", label: "DeepSeek" },
+    ]));
+  });
+
+  test("treats redacted provider API key metadata as a configured secret", () => {
+    const state = buildDesktopSettingsFormState({
+      agents: { defaults: { model: "deepseek-v4-flash", provider: "deepseek", active_profile: "deepseek" } },
+      providers: {
+        profiles: {
+          deepseek: {
+            provider: "deepseek",
+            api_key_configured: true,
+            api_base: "https://api.deepseek.com/v1",
+            models: ["deepseek-v4-flash"],
+          },
+        },
+      },
+    }, [{ id: "deepseek", displayName: "DeepSeek", status: "ready" }]);
+
+    const pane = buildDesktopSettingsPaneModel(state, {
+      providerCatalog: [{ id: "deepseek", displayName: "DeepSeek", status: "ready" }],
+    });
+
+    expect(pane.providerEditor.apiKey).toMatchObject({
+      displayValue: "********",
+      masked: true,
+      empty: false,
+    });
+    expect(pane.providerCatalog).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "deepseek",
+        apiKey: expect.objectContaining({
+          displayValue: "********",
+          masked: true,
+          empty: false,
+        }),
+      }),
+    ]));
+  });
+
   test("preserves save warnings and gateway fallback details in the pane model", () => {
     const state = buildDesktopSettingsFormState({
       agents: { defaults: { model: "gpt-4.1-mini", provider: "openai", active_profile: "work", timezone: "UTC" } },

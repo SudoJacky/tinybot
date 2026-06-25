@@ -716,6 +716,37 @@ describe("settings pane Vue island", () => {
     mounted.unmount();
   });
 
+  test("shows the saved provider value when the default provider is disabled", async () => {
+    const host = document.createElement("section");
+    const state = buildDesktopSettingsFormState({
+      agents: { defaults: { model: "deepseek-v4-flash", provider: "deepseek", active_profile: "deepseek", timezone: "UTC" } },
+      providers: {
+        profiles: {
+          deepseek: {
+            provider: "deepseek",
+            enabled: false,
+            api_key: "sk-deepseek",
+            models: ["deepseek-v4-flash"],
+          },
+        },
+      },
+    }, [{ id: "deepseek", displayName: "DeepSeek", status: "ready", enabled: false }]);
+    const disabledProviderPane = buildDesktopSettingsPaneModel(state, {
+      providerCatalog: [{ id: "deepseek", displayName: "DeepSeek", status: "ready", enabled: false }],
+    });
+
+    const mounted = mountSettingsPaneIsland(host, {
+      pane: disabledProviderPane,
+    });
+    await nextTick();
+
+    const provider = host.querySelector<HTMLSelectElement>('[data-desktop-settings-control="provider"]');
+    expect(provider?.value).toBe("deepseek");
+    expect(provider?.selectedOptions[0]?.textContent).toBe("DeepSeek");
+
+    mounted.unmount();
+  });
+
   test("uses a guided provider setup flow instead of prompt creation", async () => {
     const host = document.createElement("section");
     const actions: string[] = [];
