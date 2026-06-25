@@ -77,6 +77,10 @@ function renderSettingsField(
     class: "desktop-settings-field",
     "data-desktop-settings-field": field.id,
     "data-state": field.state,
+    "data-persistent-path": field.persistentPath,
+    "data-source-kind": field.sourceKind,
+    "data-value-origin": field.valueOrigin,
+    "data-apply-effect": field.applyEffect,
   }, [
     h("div", { class: "desktop-settings-field-copy" }, [
       h("label", { for: `desktop-settings-${field.id}` }, `${field.label}: `),
@@ -141,6 +145,8 @@ function renderSettingsFieldMeta(field: DesktopSettingsPaneField) {
   return h("span", { class: "desktop-settings-field-meta" }, [
     h("span", { class: "desktop-settings-field-chip", "data-kind": field.requirement }, requirementLabel(field.requirement)),
     h("span", { class: "desktop-settings-field-chip", "data-kind": field.configurationMode }, configurationModeLabel(field.configurationMode)),
+    field.valueOrigin ? h("span", { class: "desktop-settings-field-chip", "data-kind": field.valueOrigin }, valueOriginLabel(field.valueOrigin)) : null,
+    field.applyEffect ? h("span", { class: "desktop-settings-field-chip", "data-kind": field.applyEffect }, applyEffectLabel(field.applyEffect)) : null,
   ]);
 }
 
@@ -230,4 +236,23 @@ function configurationModeLabel(mode: DesktopSettingsPaneField["configurationMod
     toggle: "Toggle",
     url: "URL",
   }[mode];
+}
+
+function valueOriginLabel(origin: NonNullable<DesktopSettingsPaneField["valueOrigin"]>): string {
+  return {
+    explicit: "Explicit value",
+    default: "Default value",
+    secret: "Secret value",
+    cache: "Cached value",
+    runtime: "Runtime value",
+    catalog: "Catalog value",
+  }[origin];
+}
+
+function applyEffectLabel(effect: NonNullable<DesktopSettingsPaneField["applyEffect"]>): string {
+  return {
+    immediate: "Immediate",
+    "gateway-restart": "Restart gateway",
+    "workspace-reload": "Reload workspace",
+  }[effect];
 }

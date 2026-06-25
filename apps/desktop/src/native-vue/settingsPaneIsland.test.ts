@@ -322,6 +322,10 @@ describe("settings pane Vue island", () => {
     expect(host.querySelector('[data-desktop-settings-group="knowledge"]')).toBeNull();
     expect(host.querySelector('[data-desktop-settings-field="timezone"] .desktop-settings-field-meta')?.textContent).toContain("Required");
     expect(host.querySelector('[data-desktop-settings-field="timezone"] .desktop-settings-field-meta')?.textContent).toContain("Free text");
+    expect(host.querySelector('[data-desktop-settings-field="timezone"]')?.getAttribute("data-persistent-path")).toBe("agents.defaults.timezone");
+    expect(host.querySelector('[data-desktop-settings-field="timezone"]')?.getAttribute("data-source-kind")).toBe("config");
+    expect(host.querySelector('[data-desktop-settings-field="timezone"]')?.getAttribute("data-value-origin")).toBe("explicit");
+    expect(host.querySelector('[data-desktop-settings-field="timezone"] .desktop-settings-field-meta')?.textContent).toContain("Explicit value");
     expect(host.querySelector(".desktop-settings-response-defaults-section")?.textContent).toContain("Response defaults");
     expect(host.querySelector('[data-desktop-settings-field="temperature"]')?.closest(".desktop-settings-response-defaults-section")).not.toBeNull();
 

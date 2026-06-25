@@ -162,6 +162,8 @@ export interface DesktopSettingsPaneSaveDetails {
 }
 export type DesktopSettingsPaneFieldControl = "text" | "number" | "checkbox" | "textarea" | "select" | "password" | "readonly";
 export type DesktopSettingsPaneFieldRequirement = "required" | "optional" | "readonly";
+export type DesktopSettingsPaneSourceKind = "config" | "local-ui-preference" | "cache" | "runtime-status";
+export type DesktopSettingsPaneValueOrigin = "explicit" | "default" | "secret" | "cache" | "runtime" | "catalog";
 export type DesktopSettingsPaneFieldConfigurationMode =
   | "fixed"
   | "freeform"
@@ -207,6 +209,9 @@ export interface DesktopSettingsPaneField {
   description?: string;
   aliases?: string[];
   i18nKey?: string;
+  persistentPath?: string;
+  sourceKind?: DesktopSettingsPaneSourceKind;
+  valueOrigin?: DesktopSettingsPaneValueOrigin;
   validationField?: DesktopSettingsValidationField;
   sensitive?: boolean;
   applyEffect?: DesktopSettingsPaneApplyEffect;
@@ -1930,12 +1935,16 @@ function buildDesktopSettingsPaneGroups(
     label: string,
     value: unknown,
     config: {
+      persistentPath?: string;
+      sourceKind?: DesktopSettingsPaneSourceKind;
+      valueOrigin?: DesktopSettingsPaneValueOrigin;
       validationField?: DesktopSettingsValidationField;
       control?: DesktopSettingsPaneFieldControl;
       options?: DesktopSettingsPaneFieldOption[];
       inputValue?: string;
       requirement?: DesktopSettingsPaneFieldRequirement;
       configurationMode?: DesktopSettingsPaneFieldConfigurationMode;
+      applyEffect?: DesktopSettingsPaneApplyEffect;
       disabled?: boolean;
       advanced?: boolean;
       placeholder?: string;
@@ -1946,6 +1955,9 @@ function buildDesktopSettingsPaneGroups(
   ): DesktopSettingsPaneField => ({
     id,
     label,
+    persistentPath: config.persistentPath,
+    sourceKind: config.sourceKind,
+    valueOrigin: config.valueOrigin,
     validationField: config.validationField,
     value: formatDesktopSettingsFieldValue(value),
     state: config.validationField && invalidFields.has(config.validationField) ? "invalid" : "normal",
@@ -1955,6 +1967,7 @@ function buildDesktopSettingsPaneGroups(
     options: config.options,
     requirement: config.requirement ?? fieldRequirementForControl(config.control ?? "text"),
     configurationMode: config.configurationMode ?? fieldModeForControl(config.control ?? "text"),
+    applyEffect: config.applyEffect,
     disabled: config.disabled ?? false,
     advanced: config.advanced,
     placeholder: config.placeholder,
@@ -1963,6 +1976,8 @@ function buildDesktopSettingsPaneGroups(
     step: config.step,
   });
   const secretField = buildDesktopSecretField(state.providerEditor.apiKey);
+  const providerEditorProviderId = state.providerEditor.selectedProvider || "deepseek";
+  const providerEditorProfileId = state.providerEditor.profileId || providerEditorProviderId;
   const knowledgeDisabled = !state.knowledge.enabled;
   const rerankDisabled = knowledgeDisabled || !state.knowledge.rerankEnabled;
   const graphExtractionDisabled = knowledgeDisabled || !state.knowledge.graphExtractionEnabled;
@@ -2041,6 +2056,8 @@ function buildDesktopSettingsPaneGroups(
       label: "Provider & Models",
       fields: [
         field("selectedProvider", "Selected provider", state.providerEditor.selectedProvider, {
+          persistentPath: "desktop.ui.settings.providerEditor.selectedProvider",
+          sourceKind: "local-ui-preference",
           control: "select",
           options: editorProviderOptions,
           requirement: "required",
@@ -2051,18 +2068,21 @@ function buildDesktopSettingsPaneGroups(
           configurationMode: "freeform",
         }),
         field("apiKey", "API key", secretField.empty ? "" : "Configured", {
+          persistentPath: `providers.${providerEditorProviderId}.api_key`,
           control: "password",
           inputValue: secretField.displayValue,
           requirement: "optional",
           configurationMode: "secret",
         }),
         field("apiBase", "API base", state.providerEditor.apiBase, {
+          persistentPath: `providers.${providerEditorProviderId}.api_base`,
           validationField: "providerApiBase",
           requirement: "optional",
           configurationMode: "url",
           placeholder: "https://api.example.com/v1",
         }),
         field("models", "Models", parseDesktopProviderModelList(state.providerEditor.modelsText).join(", "), {
+          persistentPath: `providers.profiles.${providerEditorProfileId}.models`,
           control: "textarea",
           inputValue: state.providerEditor.modelsText,
           requirement: "optional",
@@ -2274,10 +2294,13 @@ function buildDesktopSettingsPaneGroups(
         field("diagnostics", "Diagnostics", "Export diagnostics and inspect runtime logs", { control: "readonly" }),
       ],
     },
-  ]);
+  ], state);
 }
 
-function enrichDesktopSettingsPaneGroups(groups: DesktopSettingsPaneGroup[]): DesktopSettingsPaneGroup[] {
+function enrichDesktopSettingsPaneGroups(
+  groups: DesktopSettingsPaneGroup[],
+  state: DesktopSettingsFormState,
+): DesktopSettingsPaneGroup[] {
   return groups.map((group) => {
     const groupMetadata = getDesktopSettingsGroupMetadata(group.id);
     return {
@@ -2288,35 +2311,132 @@ function enrichDesktopSettingsPaneGroups(groups: DesktopSettingsPaneGroup[]): De
       i18nKey: groupMetadata.i18nKey,
       navigationArea: groupMetadata.navigationArea,
       navigationMode: groupMetadata.navigationMode,
-      fields: group.fields.map((field) => enrichDesktopSettingsPaneField(group.id, field)),
+      fields: group.fields.map((field) => enrichDesktopSettingsPaneField(state, group.id, field)),
     };
   });
 }
 
 function enrichDesktopSettingsPaneField(
+  state: DesktopSettingsFormState,
   groupId: DesktopSettingsPaneGroupId,
   field: DesktopSettingsPaneField,
 ): DesktopSettingsPaneField {
   const metadata = getDesktopSettingsFieldMetadata(groupId, field.id);
+  const persistence = resolveDesktopSettingsPaneFieldPersistence(state, groupId, field);
   if (!metadata) {
     return {
       ...field,
       aliases: field.aliases ?? [],
       i18nKey: field.i18nKey ?? `settings.fields.${groupId}.${field.id}`,
+      ...persistence,
     };
   }
   return {
     ...field,
+    ...persistence,
     label: metadata.label,
     description: metadata.description,
     aliases: [...metadata.aliases],
     i18nKey: metadata.i18nKey,
     validationField: metadata.validationField ?? field.validationField,
     sensitive: metadata.sensitive,
-    applyEffect: metadata.applyEffect,
+    applyEffect: metadata.applyEffect ?? persistence.applyEffect,
     unit: metadata.unit,
     recommendation: metadata.recommendation,
   };
+}
+
+function resolveDesktopSettingsPaneFieldPersistence(
+  state: DesktopSettingsFormState,
+  groupId: DesktopSettingsPaneGroupId,
+  field: DesktopSettingsPaneField,
+): Pick<DesktopSettingsPaneField, "persistentPath" | "sourceKind" | "valueOrigin" | "applyEffect"> {
+  if (field.control === "readonly") {
+    return {
+      sourceKind: groupId === "logs-diagnostics" ? "runtime-status" : "config",
+      valueOrigin: "runtime",
+    };
+  }
+  const persistentPath = getDesktopSettingsPaneFieldPersistentPath(groupId, field);
+  const sourceKind = field.sourceKind ?? (field.id === "selectedProvider" ? "local-ui-preference" : "config");
+  return {
+    ...(persistentPath ? { persistentPath } : {}),
+    sourceKind,
+    valueOrigin: field.valueOrigin ?? resolveDesktopSettingsValueOrigin(state, sourceKind, persistentPath, field),
+    applyEffect: field.applyEffect ?? (sourceKind === "config" ? "immediate" : undefined),
+  };
+}
+
+function resolveDesktopSettingsValueOrigin(
+  state: DesktopSettingsFormState,
+  sourceKind: DesktopSettingsPaneSourceKind,
+  persistentPath: string | undefined,
+  field: DesktopSettingsPaneField,
+): DesktopSettingsPaneValueOrigin {
+  if (field.sensitive || field.configurationMode === "secret") {
+    return "secret";
+  }
+  if (sourceKind !== "config" || !persistentPath) {
+    return "default";
+  }
+  return getDesktopSettingsExistingConfigPathValue(state.serverSnapshot, persistentPath) === undefined
+    ? "default"
+    : "explicit";
+}
+
+function getDesktopSettingsPaneFieldPersistentPath(
+  groupId: DesktopSettingsPaneGroupId,
+  field: DesktopSettingsPaneField,
+): string | undefined {
+  const key = `${groupId}.${field.id}`;
+  const staticPaths: Record<string, string> = {
+    "general.model": "agents.defaults.model",
+    "general.provider": "agents.defaults.provider",
+    "general.activeProfile": "agents.defaults.active_profile",
+    "general.timezone": "agents.defaults.timezone",
+    "general.temperature": "agents.defaults.temperature",
+    "general.maxTokens": "agents.defaults.max_tokens",
+    "general.contextWindowTokens": "agents.defaults.context_window_tokens",
+    "general.maxToolIterations": "agents.defaults.max_tool_iterations",
+    "general.reasoningEffort": "agents.defaults.reasoning_effort",
+    "provider-models.selectedProvider": "desktop.ui.settings.providerEditor.selectedProvider",
+    "provider-models.profileId": "agents.defaults.active_profile",
+    "knowledge.enabled": "knowledge.enabled",
+    "knowledge.autoRetrieve": "knowledge.auto_retrieve",
+    "knowledge.retrievalMode": "knowledge.retrieval_mode",
+    "knowledge.maxChunks": "knowledge.max_chunks",
+    "knowledge.chunkSize": "knowledge.chunk_size",
+    "knowledge.chunkOverlap": "knowledge.chunk_overlap",
+    "knowledge.rerankEnabled": "knowledge.rerank_enabled",
+    "knowledge.rerankModel": "knowledge.rerank_model",
+    "knowledge.rerankApiBase": "knowledge.rerank_api_base",
+    "knowledge.rerankTopN": "knowledge.rerank_top_n",
+    "knowledge.graphExtractionEnabled": "knowledge.graph_extraction_enabled",
+    "knowledge.graphAutoExtract": "knowledge.graph_auto_extract",
+    "knowledge.graphExtractionModel": "knowledge.graph_extraction_model",
+    "knowledge.graphExtractionMaxTokens": "knowledge.graph_extraction_max_tokens",
+    "knowledge.graphExtractionMaxJobTokens": "knowledge.graph_extraction_max_job_tokens",
+    "knowledge.graphExtractionConcurrency": "knowledge.graph_extraction_concurrency",
+    "tools-approvals.webEnable": "tools.web.enable",
+    "tools-approvals.execEnable": "tools.exec.enable",
+    "tools-approvals.webProxy": "tools.web.proxy",
+    "tools-approvals.searchProvider": "tools.web.search.provider",
+    "tools-approvals.execTimeout": "tools.exec.timeout",
+    "tools-approvals.restrictToWorkspace": "tools.restrict_to_workspace",
+    "tools-approvals.mcpServers": "tools.mcp_servers",
+    "files-workspace.workspace": "agents.defaults.workspace",
+    "channels.sendProgress": "channels.send_progress",
+    "channels.sendToolHints": "channels.send_tool_hints",
+    "channels.sendMaxRetries": "channels.send_max_retries",
+    "gateway-runtime.host": "gateway.host",
+    "gateway-runtime.port": "gateway.port",
+    "gateway-runtime.heartbeat": "gateway.heartbeat.enabled",
+    "gateway-runtime.heartbeatIntervalS": "gateway.heartbeat.interval_s",
+  };
+  if (field.persistentPath) {
+    return field.persistentPath;
+  }
+  return staticPaths[key];
 }
 
 function normalizeDesktopSettingsSaveDetails(
