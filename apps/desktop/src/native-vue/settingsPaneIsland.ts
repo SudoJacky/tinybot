@@ -1,4 +1,4 @@
-import { createApp, defineComponent, h, nextTick, ref, type App, type Ref } from "vue";
+import { createApp, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, type App, type Ref } from "vue";
 import { NButton, NCard, NConfigProvider, NSpace, NTag } from "naive-ui";
 import type {
   DesktopSettingsPaneField,
@@ -11,6 +11,7 @@ import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 export interface SettingsPaneIslandOptions {
   pane: DesktopSettingsPaneModel;
   initialActiveGroupId?: DesktopSettingsPaneGroup["id"];
+  mode?: "full" | "content" | "sidebar";
   onSettingsAction?: (event: DesktopSettingsActionEvent) => void;
   promptProviderId?: () => string | null;
   onFocusSettingsControl?: (fieldId: string) => void;
@@ -54,6 +55,7 @@ interface ProviderSetupState {
 }
 
 const mountedSettingsPanes = new WeakMap<HTMLElement, MountedSettingsPaneIsland>();
+const SETTINGS_GROUP_SELECT_EVENT = "desktop-settings-select-group";
 
 export function mountOrUpdateSettingsPaneIsland(
   host: HTMLElement,
@@ -76,13 +78,13 @@ export function mountSettingsPaneIsland(
     mounted.update(options);
     return mounted;
   }
-  applySettingsPaneHost(host);
+  applySettingsPaneHost(host, options.mode);
   const state = ref(options) as Ref<SettingsPaneIslandOptions>;
   const app = createSettingsPaneApp(state, host);
   app.mount(host);
   const nextMounted = {
     update: (nextOptions: SettingsPaneIslandOptions) => {
-      applySettingsPaneHost(host);
+      applySettingsPaneHost(host, nextOptions.mode);
       state.value = nextOptions;
     },
     unmount: () => {
@@ -95,7 +97,15 @@ export function mountSettingsPaneIsland(
   return nextMounted;
 }
 
-function applySettingsPaneHost(host: HTMLElement): void {
+function applySettingsPaneHost(host: HTMLElement, mode: SettingsPaneIslandOptions["mode"] = "full"): void {
+  if (mode === "sidebar") {
+    host.setAttribute("data-desktop-vue-island", "settings-sidebar");
+    host.className = "desktop-settings-sidebar";
+    host.removeAttribute("data-desktop-module-surface");
+    host.removeAttribute("data-settings-layout");
+    host.setAttribute("aria-label", "Settings navigation");
+    return;
+  }
   host.setAttribute("data-desktop-vue-island", "settings-pane");
   host.className = "desktop-workbench-section desktop-settings-pane";
   host.setAttribute("data-desktop-module-surface", "settings");
@@ -113,12 +123,20 @@ function createSettingsPaneApp(state: Ref<SettingsPaneIslandOptions>, host: HTML
       const settingsSearch = ref("");
       const highlightedFieldId = ref("");
       const activeGroupId = ref(getActiveSettingsGroup(state.value.pane, state.value.initialActiveGroupId)?.id ?? "general");
+      const dispatchActiveGroupId = (groupId: DesktopSettingsPaneGroup["id"], fieldId = "") => {
+        const EventCtor = host.ownerDocument.defaultView?.CustomEvent ?? CustomEvent;
+        host.ownerDocument.dispatchEvent(new EventCtor(SETTINGS_GROUP_SELECT_EVENT, {
+          detail: { groupId, fieldId },
+        }));
+      };
       const setActiveGroupId = (groupId: DesktopSettingsPaneGroup["id"]) => {
         activeGroupId.value = groupId;
+        dispatchActiveGroupId(groupId);
       };
       const activateSearchResult = (result: SettingsSearchResult) => {
         activeGroupId.value = result.groupId;
         highlightedFieldId.value = result.fieldId;
+        dispatchActiveGroupId(result.groupId, result.fieldId);
         void nextTick(() => {
           host.querySelector<HTMLElement>(`#desktop-settings-${result.fieldId}`)?.focus();
           window.setTimeout(() => {
@@ -137,12 +155,32 @@ function createSettingsPaneApp(state: Ref<SettingsPaneIslandOptions>, host: HTML
         activeGroupId.value = "general";
         return activeGroupId.value;
       };
+      const onExternalGroupSelected = (event: Event) => {
+        const detail = (event as CustomEvent<{ groupId?: DesktopSettingsPaneGroup["id"]; fieldId?: string }>).detail;
+        const groupId = detail?.groupId;
+        if (!groupId || !getActiveSettingsGroup(state.value.pane, groupId)) {
+          return;
+        }
+        activeGroupId.value = groupId;
+        if (detail.fieldId) {
+          highlightedFieldId.value = detail.fieldId;
+          void nextTick(() => {
+            host.ownerDocument.querySelector<HTMLElement>(`#desktop-settings-${detail.fieldId}`)?.focus();
+          });
+        }
+      };
+      onMounted(() => {
+        host.ownerDocument.addEventListener(SETTINGS_GROUP_SELECT_EVENT, onExternalGroupSelected);
+      });
+      onBeforeUnmount(() => {
+        host.ownerDocument.removeEventListener(SETTINGS_GROUP_SELECT_EVENT, onExternalGroupSelected);
+      });
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
         default: () => {
           const options = state.value;
+          const mode = options.mode ?? "full";
           const selectedGroupId = currentActiveGroupId(options);
-          return [
-            renderSidebar(
+          const sidebar = renderSidebar(
               options,
               selectedGroupId,
               settingsSearch.value,
@@ -151,8 +189,8 @@ function createSettingsPaneApp(state: Ref<SettingsPaneIslandOptions>, host: HTML
               },
               activateSearchResult,
               setActiveGroupId,
-            ),
-            h("div", { class: "desktop-settings-content" }, [
+            );
+          const content = h("div", { class: "desktop-settings-content" }, [
               renderHeader(options, selectedGroupId),
               renderSaveAlert(options),
               renderActiveSettingsSection(
@@ -174,8 +212,14 @@ function createSettingsPaneApp(state: Ref<SettingsPaneIslandOptions>, host: HTML
                   },
                 },
               ),
-            ]),
-          ];
+            ]);
+          if (mode === "sidebar") {
+            return sidebar;
+          }
+          if (mode === "content") {
+            return content;
+          }
+          return [sidebar, content];
         },
       });
     },
@@ -447,7 +491,6 @@ function renderGeneralSettingsPage(
   const field = (fieldId: string) => findPaneField(options.pane, "general", fieldId);
   const provider = field("provider");
   const model = field("model");
-  const activeProfile = field("activeProfile");
   const timezone = field("timezone");
   const temperature = field("temperature");
   const maxTokens = field("maxTokens");
@@ -476,11 +519,9 @@ function renderGeneralSettingsPage(
       class: "desktop-settings-task-card desktop-settings-profile-locale-section",
       "data-desktop-settings-page-section": "profile-locale",
     }, [
-      renderSectionHeading("Profile & locale", "Identity and time settings used throughout the desktop app."),
+      renderSectionHeading("Locale", "Time settings used throughout the desktop app."),
       h("div", { class: "desktop-settings-field-pair" }, [
-        activeProfile ? renderSettingsField(options, group, activeProfile, highlightedFieldId) : null,
         timezone ? renderSettingsField(options, group, timezone, highlightedFieldId) : null,
-        renderTimezoneStatusCard(timezone),
       ]),
     ]),
     h("section", {
@@ -532,20 +573,6 @@ function renderSectionHeading(title: string, description: string, badge?: string
       h("p", description),
     ]),
     badge ? h("span", { class: "desktop-settings-section-badge" }, badge) : null,
-  ]);
-}
-
-function renderTimezoneStatusCard(timezone: DesktopSettingsPaneField | null) {
-  if (!timezone) {
-    return null;
-  }
-  const valid = timezone.state !== "invalid";
-  return h("aside", {
-    class: "desktop-settings-status-card desktop-settings-timezone-status",
-    "data-desktop-settings-timezone-status": valid ? "valid" : "invalid",
-  }, [
-    h("strong", valid ? "Timezone is valid" : "Timezone needs attention"),
-    h("span", "Used for reminders, schedules, and time display."),
   ]);
 }
 
@@ -809,7 +836,7 @@ function renderProviderManagement(
           disabled: !options.pane.providerEditor.canDiscoverModels,
           "data-desktop-settings-action": "discoverModels",
           "aria-label": `Refresh models for ${options.pane.providerEditor.selectedProvider}`,
-          onClick: () => options.onSettingsAction?.({ action: "discoverModels", pane: options.pane }),
+          onClick: () => requestProviderModelDiscovery(options, options.pane.providerEditor.selectedProvider),
         }, { default: () => "Refresh" }),
         h(NButton, {
           class: "desktop-settings-provider-add",
@@ -868,6 +895,16 @@ function renderProviderDetailPanel(
     }, [
       h("h3", "Model catalog"),
       models ? renderSettingsField(options, group, models, highlightedFieldId) : null,
+      h("div", { class: "desktop-settings-provider-model-actions" }, [
+        h(NButton, {
+          size: "small",
+          disabled: !options.pane.providerEditor.canDiscoverModels,
+          "data-desktop-settings-action": "discoverModels",
+          "data-desktop-settings-provider-action": "autoFetchModels",
+          "aria-label": `Auto fetch models for ${selected?.id ?? options.pane.providerEditor.selectedProvider}`,
+          onClick: () => requestProviderModelDiscovery(options, selected?.id ?? options.pane.providerEditor.selectedProvider),
+        }, { default: () => "Auto fetch models" }),
+      ]),
       h("div", { class: "desktop-settings-provider-model-list" }, options.pane.providerEditor.models.map((model) => h("span", {
         "data-desktop-settings-provider-model": model,
       }, model))),
@@ -1539,9 +1576,23 @@ function handleProviderCardAction(
   if (providerId !== options.pane.providerEditor.selectedProvider) {
     emitEdit(options, "selectedProvider", providerId);
     options.onFocusSettingsControl?.(target === "models" ? "models" : "apiBase");
+    if (target === "models") {
+      requestProviderModelDiscovery(options, providerId);
+    }
     return;
   }
   options.onFocusSettingsControl?.(target === "models" ? "models" : "apiBase");
+  if (target === "models") {
+    requestProviderModelDiscovery(options, providerId);
+  }
+}
+
+function requestProviderModelDiscovery(options: SettingsPaneIslandOptions, providerId: string): void {
+  options.onSettingsAction?.({
+    action: "discoverModels",
+    pane: options.pane,
+    providerId,
+  });
 }
 
 function emitEdit(options: SettingsPaneIslandOptions, fieldId: string, value: string | boolean): void {

@@ -27,17 +27,32 @@ describe("desktop settings experience stylesheet", () => {
   });
 
   test("adapts the settings layout for compact desktop windows", () => {
+    const workbenchSettingsSidebarRule = desktopSettingsCss.match(
+      /\.desktop-workbench-sidebar \.desktop-settings-sidebar \{[\s\S]*?\}/,
+    )?.[0] ?? "";
+
     expect(desktopSettingsCss).toContain("@media (max-width: 1040px)");
     expect(desktopSettingsCss).toContain("@media (max-width: 760px)");
     expect(desktopSettingsCss).toContain("@media (max-width: 520px)");
+    expect(desktopSettingsCss).toContain(".desktop-settings-pane {\n  grid-template-columns: minmax(0, 1fr);");
+    expect(desktopSettingsCss).not.toContain("grid-template-columns: minmax(216px, 252px) minmax(0, 1fr)");
+    expect(desktopSettingsCss).toContain(".desktop-workbench-sidebar .desktop-settings-sidebar");
+    expect(workbenchSettingsSidebarRule).toContain("min-height: 100%");
+    expect(workbenchSettingsSidebarRule).toContain("overflow: visible");
     expect(desktopSettingsCss).toContain("grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr))");
     expect(desktopSettingsCss).toContain("grid-template-columns: 1fr");
   });
 
   test("styles the redesigned settings task pages and quality layers", () => {
+    const providerDetailPanelRule = desktopSettingsCss.match(
+      /\.desktop-settings-provider-detail-panel \{[\s\S]*?\}/,
+    )?.[0] ?? "";
+
     expect(desktopSettingsCss).toContain(".desktop-settings-task-page");
     expect(desktopSettingsCss).toContain(".desktop-settings-provider-page");
     expect(desktopSettingsCss).toContain(".desktop-settings-provider-detail-panel");
+    expect(providerDetailPanelRule).toContain("max-height:");
+    expect(providerDetailPanelRule).toContain("overflow-y: auto");
     expect(desktopSettingsCss).toContain(".desktop-settings-knowledge-stages");
     expect(desktopSettingsCss).toContain(".desktop-settings-quality-layer-grid");
     expect(desktopSettingsCss).toContain(".desktop-settings-segmented-control");

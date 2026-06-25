@@ -230,6 +230,7 @@ export type DesktopSettingsActionEvent =
   | {
       action: "save" | "discoverModels" | "retryLoad" | "copyDiagnostics" | "restartGateway" | "reloadWorkspace" | "reset" | "chooseWorkspace" | "openWorkspace" | "openSessionFiles" | "openKnowledgeDocuments" | "setupChannelIntegrations" | "openDiagnosticsLogs" | "exportDiagnosticsBundle" | "clearDiagnosticsLogs" | "resetLocalUiState";
       pane: DesktopSettingsPaneModel;
+      providerId?: string;
     }
   | {
       action: "setDiagnosticsLogLevel";
@@ -546,14 +547,79 @@ export function updateDesktopSettingsPane(
     mountOrUpdateSettingsPaneIsland(pane, {
       pane: settingsPane,
       initialActiveGroupId: activeGroupId,
+      mode: "content",
+      onSettingsAction: settingsActions.onSettingsAction,
+      promptProviderId: () => promptForSettingsProviderId(targetDocument),
+      onFocusSettingsControl: (fieldId) => focusDesktopSettingsControl(targetDocument, fieldId),
+    });
+    updateDesktopSettingsSidebar(targetDocument, settingsPane, settingsActions, activeGroupId);
+    return;
+  }
+  const next = createSettingsProvidersPane(targetDocument, settingsPane, settingsActions, activeGroupId);
+  pane.replaceChildren(...Array.from(next.children));
+  updateDesktopSettingsSidebar(targetDocument, settingsPane, settingsActions, activeGroupId);
+}
+
+export function syncDesktopWorkbenchRouteSidebar(
+  targetDocument: Document = document,
+  activeModule: string = getDesktopActiveWorkbenchModule(targetDocument),
+  options: {
+    chat?: DesktopNativeChatModel | null;
+    chatActions?: DesktopNativeChatActionOptions;
+    settingsPane?: DesktopSettingsPaneModel | null;
+    settingsActions?: DesktopSettingsActionOptions;
+  } = {},
+): void {
+  if (activeModule !== "chat" && activeModule !== "settings") {
+    return;
+  }
+  const sidebarPanel = targetDocument.querySelector<HTMLElement>('[data-workbench-region="sidebar"]');
+  if (!sidebarPanel) {
+    return;
+  }
+  const nextContent = activeModule === "settings" && options.settingsPane
+    ? createSettingsWorkbenchSidebar(targetDocument, options.settingsPane, options.settingsActions ?? {})
+    : createSidebar(targetDocument, options.chat ?? null, options.chatActions ?? {});
+  replaceDesktopWorkbenchSidebarContent(sidebarPanel, nextContent);
+}
+
+function replaceDesktopWorkbenchSidebarContent(sidebarPanel: HTMLElement, content: HTMLElement): void {
+  const contentHost = sidebarPanel.querySelector<HTMLElement>(".desktop-workbench-panel-content");
+  if (contentHost) {
+    contentHost.replaceChildren(content);
+    return;
+  }
+  const resizer = sidebarPanel.querySelector<HTMLElement>("[data-desktop-sidebar-resizer]");
+  if (resizer) {
+    sidebarPanel.replaceChildren(content, resizer);
+    return;
+  }
+  sidebarPanel.replaceChildren(content);
+}
+
+function updateDesktopSettingsSidebar(
+  targetDocument: Document,
+  settingsPane: DesktopSettingsPaneModel,
+  settingsActions: DesktopSettingsActionOptions,
+  activeGroupId: DesktopSettingsPaneGroup["id"],
+): void {
+  const sidebar = targetDocument.querySelector<HTMLElement>(".desktop-settings-sidebar");
+  if (!sidebar) {
+    return;
+  }
+  if (canMountVueIsland(sidebar) && sidebar.getAttribute("data-desktop-vue-island") === "settings-sidebar") {
+    mountOrUpdateSettingsPaneIsland(sidebar, {
+      pane: settingsPane,
+      initialActiveGroupId: activeGroupId,
+      mode: "sidebar",
       onSettingsAction: settingsActions.onSettingsAction,
       promptProviderId: () => promptForSettingsProviderId(targetDocument),
       onFocusSettingsControl: (fieldId) => focusDesktopSettingsControl(targetDocument, fieldId),
     });
     return;
   }
-  const next = createSettingsProvidersPane(targetDocument, settingsPane, settingsActions, activeGroupId);
-  pane.replaceChildren(...Array.from(next.children));
+  const next = createSettingsWorkbenchSidebar(targetDocument, settingsPane, settingsActions, activeGroupId);
+  sidebar.replaceChildren(...Array.from(next.children));
 }
 
 export function updateDesktopKnowledgePane(
@@ -848,9 +914,13 @@ function createWorkbenchShell(
     ? layout.inspector
     : { ...layout.inspector, visible: false };
   const activeModule = getDesktopActiveWorkbenchModule(targetDocument);
-  const sidebarState = activeModule === "chat"
+  const shouldShowSidebar = activeModule === "chat" || (activeModule === "settings" && settingsPane !== null);
+  const sidebarState = shouldShowSidebar
     ? layout.sidebar
     : { ...layout.sidebar, visible: false };
+  const sidebarContent = activeModule === "settings" && settingsPane !== null
+    ? createSettingsWorkbenchSidebar(targetDocument, settingsPane, settingsActions)
+    : createSidebar(targetDocument, chat, chatActions);
   const shell = targetDocument.createElement("main");
   shell.id = SHELL_ID;
   shell.className = "desktop-workbench-shell";
@@ -863,7 +933,7 @@ function createWorkbenchShell(
 
   shell.append(
     createActivityRail(targetDocument),
-    createPanel(targetDocument, "sidebar", sidebarState, createSidebar(targetDocument, chat, chatActions)),
+    createPanel(targetDocument, "sidebar", sidebarState, sidebarContent),
     createMainRegion(targetDocument, gatewayHttp, layout, chat, chatActions, agentUiForms, agentUiActions, taskCenterItems, settingsPane, settingsActions, knowledgePane, knowledgeActions, toolsSkillsPane, toolsSkillsActions, coworkPane, coworkActions, workLens, workLensActions),
     createPanel(targetDocument, "inspector", inspectorState, inspectorContent),
     createPanel(targetDocument, "bottom", layout.bottom, createBottomRegion(targetDocument, runtimeStatus, gatewayHttp, taskCenterItems, taskActions, gatewayActions)),
@@ -890,6 +960,7 @@ function createActivityRail(targetDocument: Document): HTMLElement {
   rail.className = "desktop-activity-rail";
   rail.setAttribute("data-workbench-region", "activity");
   rail.setAttribute("aria-label", "Desktop workbench modules");
+  const activeModule = getDesktopActiveWorkbenchModule(targetDocument);
 
   const primary = targetDocument.createElement("div");
   primary.className = "desktop-activity-primary";
@@ -908,7 +979,7 @@ function createActivityRail(targetDocument: Document): HTMLElement {
     item.setAttribute("aria-label", label);
     item.setAttribute("title", label);
     item.setAttribute("data-desktop-module-target", module);
-    if (module === "chat") {
+    if (module === activeModule) {
       item.setAttribute("data-active", "true");
       item.setAttribute("aria-current", "page");
     }
@@ -928,6 +999,10 @@ function createActivityRail(targetDocument: Document): HTMLElement {
     item.setAttribute("aria-label", label);
     item.setAttribute("title", label);
     item.setAttribute("data-desktop-module-target", module);
+    if (module === activeModule) {
+      item.setAttribute("data-active", "true");
+      item.setAttribute("aria-current", "page");
+    }
     secondary.append(item);
   }
 
@@ -950,6 +1025,28 @@ function createSidebar(
     mountSidebarContentVueIsland(sidebar, targetDocument, chat);
   }
   return sidebar;
+}
+
+function createSettingsWorkbenchSidebar(
+  targetDocument: Document,
+  pane: DesktopSettingsPaneModel,
+  settingsActions: DesktopSettingsActionOptions = {},
+  initialActiveGroupId?: DesktopSettingsPaneGroup["id"],
+): HTMLElement {
+  const activeGroupId = getDesktopSettingsActiveGroup(pane, initialActiveGroupId)?.id ?? "general";
+  const sidebar = targetDocument.createElement("aside");
+  sidebar.className = "desktop-settings-sidebar";
+  sidebar.setAttribute("aria-label", "Settings navigation");
+  if (canMountVueIsland(sidebar)) {
+    mountSettingsPaneVueIsland(sidebar, targetDocument, pane, settingsActions, activeGroupId, "sidebar");
+    return sidebar;
+  }
+  return createSettingsSidebar(
+    targetDocument,
+    pane,
+    (groupId) => renderFallbackSettingsContent(targetDocument, pane, settingsActions, groupId),
+    activeGroupId,
+  );
 }
 
 function mountSidebarContentVueIsland(
@@ -5170,7 +5267,7 @@ function createSettingsProvidersPane(
   section.setAttribute("aria-label", "Settings and providers");
   const activeGroupId = getDesktopSettingsActiveGroup(pane, initialActiveGroupId)?.id ?? "general";
   if (canMountVueIsland(section)) {
-    mountSettingsPaneVueIsland(section, targetDocument, pane, settingsActions, activeGroupId);
+    mountSettingsPaneVueIsland(section, targetDocument, pane, settingsActions, activeGroupId, "content");
     return section;
   }
 
@@ -5182,11 +5279,23 @@ function createSettingsProvidersPane(
     content.replaceChildren(...createSettingsActivePage(targetDocument, pane, settingsActions, groupId));
   };
 
-  section.append(createSettingsSidebar(targetDocument, pane, renderActiveGroup, activeGroupId));
   renderActiveGroup(activeGroupId);
   section.append(content);
-  mountSettingsPaneVueIsland(section, targetDocument, pane, settingsActions, activeGroupId);
   return section;
+}
+
+function renderFallbackSettingsContent(
+  targetDocument: Document,
+  pane: DesktopSettingsPaneModel,
+  settingsActions: DesktopSettingsActionOptions,
+  activeGroupId: DesktopSettingsPaneGroup["id"],
+): void {
+  const content = targetDocument.querySelector<HTMLElement>(".desktop-settings-content");
+  if (!content) {
+    return;
+  }
+  setDesktopSettingsActiveNav(targetDocument, activeGroupId);
+  content.replaceChildren(...createSettingsActivePage(targetDocument, pane, settingsActions, activeGroupId));
 }
 
 function createSettingsActivePage(
@@ -5314,6 +5423,7 @@ function mountSettingsPaneVueIsland(
   pane: DesktopSettingsPaneModel,
   settingsActions: DesktopSettingsActionOptions,
   initialActiveGroupId: DesktopSettingsPaneGroup["id"],
+  mode: "full" | "content" | "sidebar" = "full",
 ): void {
   if (!canMountVueIsland(section)) {
     return;
@@ -5321,6 +5431,7 @@ function mountSettingsPaneVueIsland(
   mountSettingsPaneIsland(section, {
     pane,
     initialActiveGroupId,
+    mode,
     onSettingsAction: settingsActions.onSettingsAction,
     promptProviderId: () => promptForSettingsProviderId(targetDocument),
     onFocusSettingsControl: (fieldId) => focusDesktopSettingsControl(targetDocument, fieldId),
@@ -5381,17 +5492,13 @@ function createGeneralSettingsPage(
   const profileLocale = targetDocument.createElement("section");
   profileLocale.className = "desktop-settings-task-card desktop-settings-profile-locale-section";
   profileLocale.setAttribute("data-desktop-settings-page-section", "profile-locale");
-  profileLocale.append(createSettingsSectionHeading(targetDocument, "Profile & locale", "Identity and time settings used throughout the desktop app."));
+  profileLocale.append(createSettingsSectionHeading(targetDocument, "Locale", "Time settings used throughout the desktop app."));
   const localeFields = targetDocument.createElement("div");
   localeFields.className = "desktop-settings-field-pair";
-  for (const id of ["activeProfile", "timezone"]) {
+  for (const id of ["timezone"]) {
     const field = findSettingsPaneField(pane, "general", id);
     if (field) localeFields.append(createDesktopSettingsFieldRow(targetDocument, pane, group, field, settingsActions));
   }
-  const timezoneStatus = targetDocument.createElement("aside");
-  timezoneStatus.className = "desktop-settings-status-card desktop-settings-timezone-status";
-  timezoneStatus.append(createText(targetDocument, "strong", "Timezone is valid"), createText(targetDocument, "span", "Used for reminders and schedules."));
-  localeFields.append(timezoneStatus);
   profileLocale.append(localeFields);
 
   const responseDefaults = targetDocument.createElement("section");
@@ -5443,6 +5550,21 @@ function createProviderModelsSettingsPage(
   models.append(createText(targetDocument, "h3", "Model catalog"));
   const modelField = findSettingsPaneField(pane, "provider-models", "models");
   if (modelField) models.append(createDesktopSettingsFieldRow(targetDocument, pane, group, modelField, settingsActions));
+  const modelActions = targetDocument.createElement("div");
+  modelActions.className = "desktop-settings-provider-model-actions";
+  const autoFetch = createText(targetDocument, "button", "Auto fetch models");
+  autoFetch.setAttribute("type", "button");
+  autoFetch.setAttribute("data-desktop-settings-action", "discoverModels");
+  autoFetch.setAttribute("data-desktop-settings-provider-action", "autoFetchModels");
+  autoFetch.setAttribute("aria-label", `Auto fetch models for ${selected?.id ?? pane.providerEditor.selectedProvider}`);
+  if (!pane.providerEditor.canDiscoverModels) {
+    autoFetch.setAttribute("disabled", "true");
+  }
+  autoFetch.addEventListener("click", () => {
+    requestSettingsProviderModels(pane, settingsActions, selected?.id ?? pane.providerEditor.selectedProvider);
+  });
+  modelActions.append(autoFetch);
+  models.append(modelActions);
   detail.append(connection, models);
 
   page.append(detail);
@@ -5561,7 +5683,7 @@ function createProviderManagementSection(
   }
   refresh.textContent = "Refresh models";
   refresh.addEventListener("click", () => {
-    settingsActions.onSettingsAction?.({ action: "discoverModels", pane });
+    requestSettingsProviderModels(pane, settingsActions, pane.providerEditor.selectedProvider);
   });
 
   const allProviders = getProviderCards(pane);
@@ -5742,7 +5864,7 @@ function createProviderManagementCard(
 
   const actions = targetDocument.createElement("div");
   actions.className = "desktop-settings-provider-card-actions";
-  const modelAction = createText(targetDocument, "button", "\u6a21\u578b");
+  const modelAction = createText(targetDocument, "button", "Models");
   modelAction.setAttribute("type", "button");
   modelAction.setAttribute("data-desktop-settings-provider-action", "models");
   modelAction.addEventListener("click", () => {
@@ -5798,9 +5920,15 @@ function handleSettingsProviderCardAction(
   if (providerId !== pane.providerEditor.selectedProvider) {
     selectSettingsProvider(pane, settingsActions, providerId);
     focusDesktopSettingsControl(targetDocument, target === "models" ? "models" : "apiBase");
+    if (target === "models") {
+      requestSettingsProviderModels(pane, settingsActions, providerId);
+    }
     return;
   }
   focusDesktopSettingsControl(targetDocument, target === "models" ? "models" : "apiBase");
+  if (target === "models") {
+    requestSettingsProviderModels(pane, settingsActions, providerId);
+  }
 }
 
 function selectSettingsProvider(
@@ -5813,6 +5941,18 @@ function selectSettingsProvider(
     pane,
     fieldId: "selectedProvider",
     value: providerId,
+  });
+}
+
+function requestSettingsProviderModels(
+  pane: DesktopSettingsPaneModel,
+  settingsActions: DesktopSettingsActionOptions,
+  providerId: string,
+): void {
+  settingsActions.onSettingsAction?.({
+    action: "discoverModels",
+    pane,
+    providerId,
   });
 }
 
@@ -5995,7 +6135,7 @@ function getCurrentDesktopSettingsActiveGroupId(
   pane: HTMLElement,
   nextSettingsPane: DesktopSettingsPaneModel,
 ): DesktopSettingsPaneGroup["id"] {
-  const activeGroupId = Array.from(pane.querySelectorAll<HTMLElement>("[data-desktop-settings-nav]"))
+  const activeGroupId = Array.from(pane.ownerDocument.querySelectorAll<HTMLElement>("[data-desktop-settings-nav]"))
     .find((item) => item.getAttribute("data-active") === "true")
     ?.getAttribute("data-desktop-settings-nav");
   return getDesktopSettingsActiveGroup(nextSettingsPane, activeGroupId)?.id ?? nextSettingsPane.groups[0]?.id ?? "general";
@@ -7527,7 +7667,7 @@ function createSidebarResizer(targetDocument: Document, initialSize: number): HT
   handle.className = "desktop-workbench-sidebar-resizer";
   handle.setAttribute("data-desktop-sidebar-resizer", "");
   handle.setAttribute("role", "separator");
-  handle.setAttribute("aria-label", "Resize session list");
+  handle.setAttribute("aria-label", "Resize sidebar");
   handle.setAttribute("aria-orientation", "vertical");
   handle.setAttribute("aria-valuemin", String(DESKTOP_SIDEBAR_MIN_SIZE));
   handle.setAttribute("aria-valuemax", String(DESKTOP_SIDEBAR_MAX_SIZE));
@@ -12606,10 +12746,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-settings-pane {
-      grid-template-columns: minmax(190px, 230px) minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr);
       justify-content: stretch;
       align-items: start;
-      gap: 28px;
+      gap: 0;
       min-width: 0;
       width: 100%;
       max-width: 1220px;
@@ -12631,6 +12771,20 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       border-radius: var(--radius-lg, 12px);
       padding: 14px;
       background: var(--surface-soft, #f5f0e8);
+    }
+
+    body.desktop-native-workbench .desktop-workbench-sidebar .desktop-settings-sidebar {
+      position: static;
+      min-height: 100%;
+      height: auto;
+      max-height: none;
+      border: 0;
+      border-radius: 0;
+      padding: 14px 16px;
+      background: transparent;
+      overflow: visible;
+      overscroll-behavior: auto;
+      scrollbar-gutter: auto;
     }
 
     body.desktop-native-workbench .desktop-settings-search {
@@ -13041,6 +13195,29 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-settings-provider-section {
       display: grid;
       gap: 18px;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-detail-panel {
+      position: sticky;
+      top: 88px;
+      align-self: start;
+      max-height: min(720px, calc(100dvh - var(--desktop-window-frame-height, 0px) - 112px));
+      overflow-x: hidden;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      scrollbar-gutter: stable;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-detail-section {
+      display: grid;
+      gap: 10px;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-model-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      min-width: 0;
     }
 
     body.desktop-native-workbench .desktop-settings-provider-header {
@@ -13558,10 +13735,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-settings-task-card .desktop-settings-field {
       grid-template-columns: minmax(0, 1fr);
-      border: 1px solid var(--border-subtle, #ebe6df);
-      border-radius: var(--radius-md, 8px);
-      padding: 12px;
-      background: var(--surface-soft, #f5f0e8);
+      border: 0;
+      border-radius: 0;
+      padding: 0;
+      background: transparent;
     }
 
     body.desktop-native-workbench .desktop-settings-task-card .desktop-settings-readonly-value {
@@ -13641,8 +13818,8 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-settings-field textarea {
       width: 100%;
       min-width: 0;
-      min-height: 34px;
-      padding: 7px 9px;
+      min-height: 40px;
+      padding: 10px 12px;
     }
 
     body.desktop-native-workbench .desktop-settings-readonly-value {
