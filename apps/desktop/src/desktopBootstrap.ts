@@ -2125,6 +2125,7 @@ async function handleNativeSettingsAction(event: DesktopSettingsActionEvent): Pr
     clearDesktopSettingsLocalPreferences();
     if (nativeSettingsState) {
       nativeSettingsState = buildDesktopSettingsFormState(nativeSettingsConfig, nativeSettingsProviderCatalog);
+      nativeSettingsLastSavedState = nativeSettingsState;
       updateNativeSettingsPane("idle");
     }
     logDesktopNativeDebug("settings.diagnostics.action.requested", { action: event.action });

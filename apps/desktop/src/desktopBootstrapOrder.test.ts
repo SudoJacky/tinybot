@@ -107,4 +107,17 @@ describe("desktop root WebUI bootstrap order", () => {
     expect(uploadActionsSource).toContain("loadNativeKnowledgePane");
     expect(uploadActionsSource).toContain("setNativeKnowledgePane");
   });
+
+  test("resetting local settings UI state also resets the saved baseline", () => {
+    const resetSource = sourceBlock(
+      'if (event.action === "resetLocalUiState") {',
+      'if (["openDiagnosticsLogs", "exportDiagnosticsBundle", "clearDiagnosticsLogs"].includes(event.action)) {',
+    );
+
+    expect(resetSource).toContain("nativeSettingsState = buildDesktopSettingsFormState(nativeSettingsConfig, nativeSettingsProviderCatalog);");
+    expect(resetSource).toContain("nativeSettingsLastSavedState = nativeSettingsState;");
+    expect(resetSource.indexOf("nativeSettingsLastSavedState = nativeSettingsState;")).toBeLessThan(
+      resetSource.indexOf('updateNativeSettingsPane("idle");'),
+    );
+  });
 });
