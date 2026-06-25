@@ -13,8 +13,8 @@ html[data-desktop-active-workbench-module="settings"] body.desktop-native-workbe
 }
 
 html[data-desktop-active-workbench-module="settings"] body.desktop-native-workbench .desktop-settings-pane {
-  grid-template-columns: minmax(216px, 252px) minmax(0, 1fr);
-  gap: clamp(24px, 3vw, 40px);
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
   width: 100%;
   max-width: min(100%, 1320px);
   min-width: 0;
@@ -35,6 +35,22 @@ html[data-desktop-active-workbench-module="settings"] body.desktop-native-workbe
   background: color-mix(in srgb, var(--panel) 92%, var(--surface-soft));
   box-shadow: var(--shadow-xs);
   scrollbar-gutter: stable;
+}
+
+html[data-desktop-active-workbench-module="settings"] body.desktop-native-workbench .desktop-workbench-sidebar .desktop-settings-sidebar {
+  position: static;
+  top: auto;
+  min-height: 100%;
+  height: auto;
+  max-height: none;
+  overflow: visible;
+  overscroll-behavior: auto;
+  border: 0;
+  border-radius: 0;
+  padding: 14px 16px;
+  background: transparent;
+  box-shadow: none;
+  scrollbar-gutter: auto;
 }
 
 html[data-desktop-active-workbench-module="settings"] body.desktop-native-workbench .desktop-settings-sidebar:focus-within {
@@ -523,6 +539,12 @@ html[data-desktop-active-workbench-module="settings"] body.desktop-native-workbe
 html[data-desktop-active-workbench-module="settings"] body.desktop-native-workbench .desktop-settings-provider-detail-panel {
   position: sticky;
   top: 88px;
+  align-self: start;
+  max-height: min(720px, calc(100dvh - var(--desktop-window-frame-height, 0px) - 112px));
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 html[data-desktop-active-workbench-module="settings"] body.desktop-native-workbench .desktop-settings-provider-detail-header,
@@ -543,6 +565,13 @@ html[data-desktop-active-workbench-module="settings"] body.desktop-native-workbe
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+html[data-desktop-active-workbench-module="settings"] body.desktop-native-workbench .desktop-settings-provider-model-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
 }
 
 html[data-desktop-active-workbench-module="settings"] body.desktop-native-workbench .desktop-settings-provider-model-list span {

@@ -1605,6 +1605,9 @@ export function validateDesktopTimezone(value: string): boolean {
   if (!timezone) {
     return false;
   }
+  if (/^(?:UTC|GMT)[+-](?:[0-9]|0[0-9]|1[0-4])(?::[0-5][0-9])?$/i.test(timezone)) {
+    return true;
+  }
   if (["UTC", "GMT"].includes(timezone)) {
     return true;
   }

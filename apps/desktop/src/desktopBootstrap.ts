@@ -85,6 +85,7 @@ import {
 } from "./desktopToolsSkills";
 import {
   installDesktopWorkbenchShell,
+  syncDesktopWorkbenchRouteSidebar,
   updateDesktopGatewayRuntimeStatus,
   updateDesktopAgentUiForms,
   updateDesktopCoworkPane,
@@ -1085,7 +1086,17 @@ function installNativeChatRuntimeActions(): void {
     logDesktopNativeDebug("route.request", {
       path,
     });
-    applyDesktopWorkbenchRouteState(document, path);
+    const activeModule = applyDesktopWorkbenchRouteState(document, path);
+    syncDesktopWorkbenchRouteSidebar(document, activeModule, {
+      chat: nativeWorkbenchRuntime?.chat ?? null,
+      chatActions: nativeChatActions(),
+      settingsPane: currentNativeSettingsPane(),
+      settingsActions: {
+        onSettingsAction: (nextEvent) => {
+          void handleNativeSettingsAction(nextEvent);
+        },
+      },
+    });
     if (path === "/chat/new") {
       nativeChatActions().onNewChat();
       return;
@@ -2166,7 +2177,9 @@ async function handleNativeSettingsAction(event: DesktopSettingsActionEvent): Pr
     await saveNativeSettingsPane();
     return;
   }
-  await refreshNativeProviderModels();
+  if (event.action === "discoverModels") {
+    await refreshNativeProviderModels(event.providerId);
+  }
 }
 
 async function retryLoadNativeSettingsPane(): Promise<void> {
@@ -2244,10 +2257,16 @@ async function saveNativeSettingsPane(): Promise<void> {
   }
 }
 
-async function refreshNativeProviderModels(): Promise<void> {
+async function refreshNativeProviderModels(providerId?: string): Promise<void> {
   if (!nativeSettingsState) {
     logDesktopNativeDebug("settings.providerModels.skipped", { reason: "state unavailable" });
     return;
+  }
+  const nextProviderId = providerId?.trim();
+  if (nextProviderId && nextProviderId !== nativeSettingsState.providerEditor.selectedProvider) {
+    saveDesktopSettingsLocalPreferences({ providerEditorSelectedProvider: nextProviderId });
+    nativeSettingsState = applyDesktopSettingsFieldEdit(nativeSettingsState, "selectedProvider", nextProviderId);
+    updateNativeSettingsPane("idle");
   }
   const request = buildDesktopProviderModelRequest(nativeSettingsState);
   logDesktopNativeDebug("settings.providerModels.start", {
@@ -2319,6 +2338,17 @@ function updateNativeSettingsPane(
     },
   });
   syncNativeRuntimeMetadata();
+}
+
+function currentNativeSettingsPane(): DesktopSettingsPaneModel | null {
+  if (!nativeSettingsState) {
+    return null;
+  }
+  return buildDesktopSettingsPaneModel(nativeSettingsState, {
+    lastSavedState: nativeSettingsLastSavedState,
+    providerCatalog: nativeSettingsProviderCatalog,
+    saveStatus: "idle",
+  });
 }
 
 function buildNativeSettingsPaneSaveDetails(saveResult: DesktopSettingsSaveResult): DesktopSettingsPaneSaveDetails {

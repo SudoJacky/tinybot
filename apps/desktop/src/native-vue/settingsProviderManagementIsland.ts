@@ -84,7 +84,7 @@ function renderProviderManagement(
           disabled: !options.pane.providerEditor.canDiscoverModels,
           "data-desktop-settings-action": "discoverModels",
           "aria-label": "Refresh provider models",
-          onClick: () => options.onSettingsAction?.({ action: "discoverModels", pane: options.pane }),
+          onClick: () => requestProviderModelDiscovery(options, options.pane.providerEditor.selectedProvider),
         }, { default: () => "Refresh models" }),
         h(NButton, {
           class: "desktop-settings-provider-add",
@@ -213,9 +213,15 @@ function handleProviderCardAction(
   if (providerId !== options.pane.providerEditor.selectedProvider) {
     selectProvider(options, providerId);
     options.onFocusSettingsControl?.(target === "models" ? "models" : "apiBase");
+    if (target === "models") {
+      requestProviderModelDiscovery(options, providerId);
+    }
     return;
   }
   options.onFocusSettingsControl?.(target === "models" ? "models" : "apiBase");
+  if (target === "models") {
+    requestProviderModelDiscovery(options, providerId);
+  }
 }
 
 function selectProvider(options: SettingsProviderManagementIslandOptions, providerId: string): void {
@@ -224,6 +230,14 @@ function selectProvider(options: SettingsProviderManagementIslandOptions, provid
     pane: options.pane,
     fieldId: "selectedProvider",
     value: providerId,
+  });
+}
+
+function requestProviderModelDiscovery(options: SettingsProviderManagementIslandOptions, providerId: string): void {
+  options.onSettingsAction?.({
+    action: "discoverModels",
+    pane: options.pane,
+    providerId,
   });
 }
 

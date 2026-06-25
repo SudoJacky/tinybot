@@ -189,8 +189,8 @@ describe("desktop settings and provider helpers", () => {
     ]);
   });
 
-  test("accepts UTC, GMT, and IANA timezone defaults while rejecting invalid timezone values", () => {
-    for (const timezone of ["UTC", "GMT", "Asia/Shanghai"]) {
+  test("accepts UTC, GMT, offset aliases, and IANA timezone defaults while rejecting invalid timezone values", () => {
+    for (const timezone of ["UTC", "GMT", "UTC+8", "UTC-05:30", "Asia/Shanghai"]) {
       const state = buildDesktopSettingsFormState({
         agents: { defaults: { model: "gpt-4.1", timezone } },
       });

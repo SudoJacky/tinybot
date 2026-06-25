@@ -74,6 +74,7 @@ describe("desktop settings renderer ownership", () => {
 
       document.body.replaceChildren();
       document.head.replaceChildren();
+      document.documentElement.setAttribute("data-desktop-active-workbench-module", "settings");
       const state = buildDesktopSettingsFormState({
         agents: { defaults: { model: "gpt-4.1-mini", provider: "openai", active_profile: "work", timezone: "Asia/Shanghai" } },
         providers: { profiles: { work: { provider: "openai", api_key: "sk-live", models: ["gpt-4.1-mini"] } } },
@@ -91,15 +92,19 @@ describe("desktop settings renderer ownership", () => {
       });
 
       const settingsPane = document.querySelector(".desktop-settings-pane");
+      const settingsSidebar = document.querySelector(".desktop-workbench-sidebar .desktop-settings-sidebar");
       expect(settingsPane?.getAttribute("data-desktop-vue-island")).toBeNull();
+      expect(settingsPane?.querySelector(".desktop-settings-sidebar")).toBeNull();
+      expect(settingsSidebar?.querySelector('[data-desktop-settings-nav="general"]')?.getAttribute("data-active")).toBe("true");
       expect(settingsPane?.querySelector(".desktop-settings-breadcrumb h2")?.textContent).toBe("General");
       expect(settingsPane?.querySelector(".desktop-settings-default-ai-section")?.textContent).toContain("Default AI");
 
-      settingsPane?.querySelector<HTMLAnchorElement>('[data-desktop-settings-nav="provider-models"]')?.click();
+      settingsSidebar?.querySelector<HTMLAnchorElement>('[data-desktop-settings-nav="provider-models"]')?.click();
       expect(settingsPane?.querySelector(".desktop-settings-breadcrumb h2")?.textContent).toBe("Provider & Models");
+      expect(settingsSidebar?.querySelector('[data-desktop-settings-nav="provider-models"]')?.getAttribute("data-active")).toBe("true");
       expect(settingsPane?.querySelector(".desktop-settings-provider-detail-panel")?.textContent).toContain("Edit OpenAI");
 
-      settingsPane?.querySelector<HTMLAnchorElement>('[data-desktop-settings-nav="knowledge"]')?.click();
+      settingsSidebar?.querySelector<HTMLAnchorElement>('[data-desktop-settings-nav="knowledge"]')?.click();
       expect(settingsPane?.querySelector(".desktop-settings-breadcrumb h2")?.textContent).toBe("Knowledge");
       expect(Array.from(
         settingsPane?.querySelectorAll("[data-desktop-settings-knowledge-stage]") ?? [],
