@@ -356,7 +356,68 @@ describe("conversation thread Vue island", () => {
     expect(host.querySelectorAll(".desktop-conversation-message")[1]).toBe(firstAssistant);
   });
 
-  test("collapses completed assistant intermediate steps behind the final answer", async () => {
+  test("restores conversation timeline scroll after streamed updates", async () => {
+    const host = document.createElement("section");
+
+    const mounted = mountConversationThreadIsland(host, {
+      emptyMessage: "",
+      messages: [
+        {
+          author: "You",
+          body: ["Stream this"],
+          references: [],
+          time: "10:30 AM",
+          tone: "user",
+          toolActivities: [],
+        },
+        {
+          author: "Tinybot",
+          body: ["first chunk"],
+          references: [],
+          time: "10:30 AM",
+          tone: "assistant",
+          toolActivities: [],
+        },
+      ],
+    });
+    await nextTick();
+    await nextTick();
+
+    const timeline = host.querySelector<HTMLElement>(".desktop-conversation-timeline");
+    expect(timeline).not.toBeNull();
+    Object.defineProperty(timeline, "scrollHeight", { configurable: true, value: 1200 });
+    Object.defineProperty(timeline, "clientHeight", { configurable: true, value: 500 });
+    timeline!.scrollTop = 420;
+
+    mounted.update({
+      emptyMessage: "",
+      messages: [
+        {
+          author: "You",
+          body: ["Stream this"],
+          references: [],
+          time: "10:30 AM",
+          tone: "user",
+          toolActivities: [],
+        },
+        {
+          author: "Tinybot",
+          body: ["first chunk second chunk"],
+          references: [],
+          time: "10:30 AM",
+          tone: "assistant",
+          toolActivities: [],
+        },
+      ],
+    });
+    timeline!.scrollTop = 0;
+    await nextTick();
+    await nextTick();
+
+    expect(host.querySelector<HTMLElement>(".desktop-conversation-timeline")?.scrollTop).toBe(420);
+  });
+
+  test("collapses completed assistant process steps in event order before the final answer", async () => {
     const host = document.createElement("section");
 
     mountConversationThreadIsland(host, {
@@ -381,7 +442,7 @@ describe("conversation thread Vue island", () => {
         },
         {
           author: "Tinybot",
-          body: ["I found a few top-level entries and will inspect them."],
+          body: [],
           references: [],
           time: "10:31 AM",
           tone: "assistant",
@@ -397,7 +458,33 @@ describe("conversation thread Vue island", () => {
         },
         {
           author: "Tinybot",
+          body: [],
+          reasoningContent: "I found a few top-level entries and will inspect them.",
+          references: [],
+          time: "10:31 AM",
+          tone: "assistant",
+          toolActivities: [],
+        },
+        {
+          author: "Tinybot",
+          body: [],
+          references: [],
+          time: "10:31 AM",
+          tone: "assistant",
+          toolActivities: [{
+            approvalStatus: "",
+            argsText: "{\"path\":\"apps\"}",
+            id: "tool-apps",
+            kind: "call",
+            name: "list_dir",
+            responseText: "apps files",
+            status: "completed",
+          }],
+        },
+        {
+          author: "Tinybot",
           body: ["The workspace contains `apps`, `tinybot`, and `tests`."],
+          reasoningContent: "I have enough context to answer.",
           references: [{ detail: "workspace", kind: "File", title: "." }],
           time: "10:32 AM",
           tone: "assistant",
@@ -411,7 +498,7 @@ describe("conversation thread Vue island", () => {
     const summaries = host.querySelectorAll(".desktop-assistant-step-summary");
     expect(summaries).toHaveLength(1);
     expect(summaries[0]?.textContent).toContain("Processed");
-    expect(summaries[0]?.textContent).toContain("2 steps");
+    expect(summaries[0]?.textContent).toContain("5 steps");
     expect(host.textContent).toContain("The workspace contains");
     expect(host.querySelector(".desktop-conversation-reference")?.textContent).toContain("File: .");
     expect(host.querySelectorAll(".desktop-conversation-meta strong")).toHaveLength(0);
@@ -421,12 +508,33 @@ describe("conversation thread Vue island", () => {
     expect(details?.textContent).toContain("I should inspect the workspace.");
     expect(details?.textContent).toContain("I found a few top-level entries");
     expect(details?.textContent).toContain("list_dir");
+    expect(details?.textContent).toContain("I have enough context to answer.");
+    expect(details?.querySelectorAll(".desktop-tool-activity")).toHaveLength(2);
     details!.open = true;
     details?.dispatchEvent(new Event("toggle"));
     await nextTick();
 
-    expect(host.textContent).toContain("I should inspect the workspace.");
-    expect(host.textContent).toContain("list_dir");
+    const processEntries = Array.from(details!.querySelectorAll<HTMLElement>(
+      ".desktop-message-reasoning-body, .desktop-tool-activity-title",
+    )).map((entry) => entry.textContent);
+    expect(processEntries).toEqual([
+      "I should inspect the workspace.",
+      "list_dir",
+      "I found a few top-level entries and will inspect them.",
+      "list_dir",
+      "I have enough context to answer.",
+    ]);
+    const toolRow = details!.querySelector<HTMLElement>(".desktop-tool-activity");
+    expect(toolRow?.closest(".desktop-assistant-step-group")).toBe(details);
+    expect(Array.from(details!.querySelectorAll(".desktop-message-reasoning-toggle")).map((button) => button.textContent)).toEqual([
+      "Thinking",
+      "Thinking",
+      "Thinking complete",
+    ]);
+    const finalAnswer = Array.from(host.querySelectorAll<HTMLElement>(".desktop-conversation-message"))
+      .find((message) => message.textContent?.includes("The workspace contains"));
+    expect(details && finalAnswer ? details.compareDocumentPosition(finalAnswer) & Node.DOCUMENT_POSITION_FOLLOWING : 0).not.toBe(0);
+    expect(finalAnswer?.querySelector(".desktop-message-reasoning-toggle")).toBeNull();
     expect(host.querySelectorAll(".desktop-message-copy-button")).toHaveLength(1);
     expect(host.querySelector(".desktop-assistant-step-group .desktop-message-copy-button")).toBeNull();
   });
@@ -512,6 +620,7 @@ describe("conversation thread Vue island", () => {
     await flushDetailPanelOpeningMotion();
 
     expect(layout?.getAttribute("data-detail-panel-state")).toBe("open");
+    expect(host.querySelector(".desktop-conversation-body-layout")?.getAttribute("data-detail-panel-mode")).toBe("push");
     expect(layout?.getAttribute("data-tool-detail-visible")).toBe("true");
     expect(host.querySelector(".desktop-detail-panel-slot")?.getAttribute("data-detail-panel-state")).toBe("open");
     expect(host.querySelector(".desktop-tool-detail-panel")?.getAttribute("data-tool-detail-motion")).toBe("open");
@@ -597,6 +706,9 @@ describe("conversation thread Vue island", () => {
     expect(host.querySelector<HTMLElement>(".desktop-conversation-layout")?.style.getPropertyValue("--desktop-tool-detail-width")).toBe("50%");
     expect(panel?.getAttribute("aria-label")).toBe("Tool call details");
     expect(panel?.getAttribute("data-tool-detail-mode")).toBe("push");
+    expect(panel?.closest(".desktop-conversation-layout")).toBeNull();
+    expect(host.querySelector(".desktop-conversation-layout > .desktop-detail-panel-slot")).toBeNull();
+    expect(host.querySelector(".desktop-conversation-body-layout > .desktop-detail-panel-slot")).toBe(panel?.parentElement);
     expect(panel?.textContent).toContain("read_file");
     expect(panel?.textContent).toContain("Pending approval");
     expect(panel?.textContent).toContain("\"path\": \"README.md\"");

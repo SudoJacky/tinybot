@@ -1,4 +1,4 @@
-import { computed, createApp, defineComponent, h, onBeforeUnmount, ref, type App, type Ref, type VNode } from "vue";
+import { computed, createApp, defineComponent, h, nextTick, onBeforeUnmount, ref, type App, type Ref, type VNode } from "vue";
 import { NConfigProvider, NEmpty } from "naive-ui";
 import type { AgentUiForm } from "../agentUiEvents";
 import { logDesktopNativeChatDebug, logDesktopNativeDebug, summarizeDebugText } from "../desktopNativeChatDebug";
@@ -58,6 +58,12 @@ export interface MountedConversationThreadIsland {
   unmount: () => void;
 }
 
+interface ConversationTimelineScrollState {
+  bottomOffset: number;
+  scrollTop: number;
+  wasNearBottom: boolean;
+}
+
 const mountedConversationThreads = new WeakMap<HTMLElement, MountedConversationThreadIsland>();
 const DETAIL_PANEL_MOTION_MS = 560;
 type DetailPanelState = "closed" | "opening" | "open" | "closing";
@@ -101,7 +107,9 @@ export function mountConversationThreadIsland(
   return {
     update: (nextOptions) => {
       applyHostContract(host);
+      const scrollState = captureConversationTimelineScroll(host);
       state.value = nextOptions;
+      queueConversationTimelineScrollRestore(host, scrollState);
     },
     unmount: () => {
       mountedConversationThreads.delete(host);
@@ -278,8 +286,9 @@ function createConversationThreadApp(state: Ref<ConversationThreadIslandOptions>
                 : null;
           return nodes.length
             ? h("div", {
-              class: "desktop-conversation-layout",
+              class: "desktop-conversation-body-layout",
               "data-cowork-agent-detail-visible": String(Boolean(selectedCoworkAgent.value) && detailPanelState.value === "open"),
+              "data-detail-panel-mode": overlayMode.value ? "overlay" : "push",
               "data-detail-panel-state": hasPanelSelection ? detailPanelState.value : "closed",
               "data-reference-detail-visible": String(Boolean(selectedReference.value) && detailPanelState.value === "open"),
               "data-tool-detail-visible": String(Boolean(selectedTool.value) && detailPanelState.value === "open"),
@@ -291,7 +300,18 @@ function createConversationThreadApp(state: Ref<ConversationThreadIslandOptions>
                 : undefined,
               tabindex: "-1",
             }, [
-              h("div", { class: "desktop-conversation-timeline" }, nodes),
+              h("div", {
+                class: "desktop-conversation-layout",
+                "data-cowork-agent-detail-visible": String(Boolean(selectedCoworkAgent.value) && detailPanelState.value === "open"),
+                "data-detail-panel-state": hasPanelSelection ? detailPanelState.value : "closed",
+                "data-reference-detail-visible": String(Boolean(selectedReference.value) && detailPanelState.value === "open"),
+                "data-tool-detail-visible": String(Boolean(selectedTool.value) && detailPanelState.value === "open"),
+                style: hasPanelSelection
+                  ? { "--desktop-tool-detail-width": `${panelWidth.value}%` }
+                  : undefined,
+              }, [
+                h("div", { class: "desktop-conversation-timeline" }, nodes),
+              ]),
               detailPanel
                 ? h("div", {
                   class: "desktop-detail-panel-slot",
@@ -361,11 +381,118 @@ function renderAssistantRun(
     const copyable = run.length === 1 && hasAssistantFinalAnswer(final.message);
     return run.map((item) => renderThreadMessage(item.message, item.index, selectedToolKey, copyable, onReferenceInspect));
   }
-  const intermediate = run.slice(0, -1);
-  return [
-    renderAssistantStepGroup(intermediate, selectedToolKey, onReferenceInspect),
-    renderThreadMessage(final.message, final.index, selectedToolKey, true, onReferenceInspect),
-  ];
+  const processSteps = assistantProcessSteps(run);
+  const nodes: VNode[] = [];
+  if (processSteps.length) {
+    nodes.push(renderAssistantStepGroup(processSteps, selectedToolKey, onReferenceInspect));
+  }
+  nodes.push(renderThreadMessage(assistantFinalAnswerMessage(final.message), final.index, selectedToolKey, true, onReferenceInspect));
+  return nodes;
+}
+
+function assistantProcessSteps(run: AssistantMessageRunItem[]): AssistantMessageRunItem[] {
+  const final = run[run.length - 1];
+  const steps = run.slice(0, -1).filter((item) => hasAssistantStepContent(item.message));
+  const finalReasoningStep = assistantFinalReasoningStep(final);
+  return finalReasoningStep ? [...steps, finalReasoningStep] : steps;
+}
+
+function assistantFinalReasoningStep(item: AssistantMessageRunItem): AssistantMessageRunItem | null {
+  if (!item.message.reasoningContent?.trim() && !item.message.toolActivities?.length) {
+    return null;
+  }
+  return {
+    ...item,
+    message: {
+      ...item.message,
+      body: [],
+      copyable: false,
+      references: [],
+      reasoningLabel: "Thinking complete",
+      toolActivities: item.message.toolActivities ?? [],
+    },
+  };
+}
+
+function captureConversationTimelineScroll(host: HTMLElement): ConversationTimelineScrollState | null {
+  const timeline = conversationTimelineScrollElement(host);
+  if (!timeline) {
+    return null;
+  }
+  const scrollTop = Number(timeline.scrollTop || 0);
+  const bottomOffset = Math.max(0, Number(timeline.scrollHeight || 0) - scrollTop - Number(timeline.clientHeight || 0));
+  return {
+    bottomOffset,
+    scrollTop,
+    wasNearBottom: bottomOffset < 24,
+  };
+}
+
+function queueConversationTimelineScrollRestore(
+  host: HTMLElement,
+  scrollState: ConversationTimelineScrollState | null,
+): void {
+  if (!scrollState) {
+    return;
+  }
+  void nextTick(() => {
+    restoreConversationTimelineScroll(host, scrollState);
+    const win = host.ownerDocument.defaultView;
+    if (typeof win?.requestAnimationFrame === "function") {
+      win.requestAnimationFrame(() => restoreConversationTimelineScroll(host, scrollState));
+      return;
+    }
+    const queue = win?.queueMicrotask ?? globalThis.queueMicrotask;
+    if (typeof queue === "function") {
+      queue(() => restoreConversationTimelineScroll(host, scrollState));
+    }
+  });
+}
+
+function restoreConversationTimelineScroll(
+  host: HTMLElement,
+  scrollState: ConversationTimelineScrollState,
+): void {
+  const timeline = conversationTimelineScrollElement(host);
+  if (!timeline) {
+    return;
+  }
+  if (scrollState.wasNearBottom) {
+    timeline.scrollTop = boundedConversationTimelineScrollTop(
+      timeline,
+      Number(timeline.scrollHeight || 0) - Number(timeline.clientHeight || 0) - scrollState.bottomOffset,
+    );
+    return;
+  }
+  timeline.scrollTop = boundedConversationTimelineScrollTop(timeline, scrollState.scrollTop);
+}
+
+function conversationTimelineScrollElement(host: HTMLElement): HTMLElement | null {
+  return host.querySelector<HTMLElement>(".desktop-conversation-timeline") ?? host;
+}
+
+function boundedConversationTimelineScrollTop(element: HTMLElement, value: number): number {
+  const maxScrollTop = Math.max(0, Number(element.scrollHeight || 0) - Number(element.clientHeight || 0));
+  return Math.min(Math.max(0, Number.isFinite(value) ? value : 0), maxScrollTop);
+}
+
+function assistantFinalAnswerMessage(message: ConversationMessageIslandOptions): ConversationMessageIslandOptions {
+  return {
+    ...message,
+    reasoningContent: "",
+    reasoningLabel: undefined,
+    toolActivities: [],
+  };
+}
+
+function hasAssistantStepContent(message: ConversationMessageIslandOptions): boolean {
+  return Boolean(
+    message.body.some((line) => line.trim())
+    || message.reasoningContent?.trim()
+    || message.references.length
+    || message.toolActivities?.length
+    || message.attachment
+  );
 }
 
 function renderAssistantStepGroup(
@@ -847,7 +974,7 @@ function startToolDetailResize(event: PointerEvent, onResize: (nextWidth: number
     return;
   }
   const panel = target.closest(".desktop-tool-detail-panel");
-  const layout = target.closest(".desktop-conversation-layout");
+  const layout = target.closest(".desktop-conversation-body-layout") ?? target.closest(".desktop-conversation-layout");
   if (!(panel instanceof HTMLElement) || !(layout instanceof HTMLElement)) {
     return;
   }

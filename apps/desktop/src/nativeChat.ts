@@ -251,7 +251,7 @@ export function applyChatEvent(state: NativeChatState, event: NormalizedGatewayE
       });
       return;
     }
-    bucket.push({
+    const nextMessage: NativeChatMessage = {
       role: "assistant",
       content: toolMessage ? "" : event.text,
       reasoningContent: "",
@@ -259,7 +259,12 @@ export function applyChatEvent(state: NativeChatState, event: NormalizedGatewayE
       ...(references.length ? { references } : {}),
       timestamp: new Date().toISOString(),
       messageId: event.messageId || "",
-    });
+    };
+    if (toolMessage) {
+      insertToolActivityMessage(bucket, nextMessage);
+    } else {
+      bucket.push(nextMessage);
+    }
     state.respondingSessionKeys.delete(sessionKey);
     state.error = "";
     logDesktopNativeChatDebug("state.event.after", {
@@ -393,9 +398,32 @@ function coalesceToolActivityMessages(messages: NativeChatMessage[]): NativeChat
         continue;
       }
     }
+    if (canCoalesce) {
+      insertToolActivityMessage(coalesced, message);
+      continue;
+    }
     coalesced.push(message);
   }
   return coalesced;
+}
+
+function insertToolActivityMessage(messages: NativeChatMessage[], message: NativeChatMessage): void {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].role === "user") {
+      break;
+    }
+    if (isAssistantFinalAnswerMessage(messages[index])) {
+      messages.splice(index, 0, message);
+      return;
+    }
+  }
+  messages.push(message);
+}
+
+function isAssistantFinalAnswerMessage(message: NativeChatMessage): boolean {
+  return message.role === "assistant"
+    && Boolean(message.content.trim())
+    && !message.toolActivities?.length;
 }
 
 function mergeToolActivity(
@@ -503,6 +531,8 @@ function normalizeToolActivities(message: Record<string, unknown>): NativeChatTo
   if (!activities.length && (message.role === "tool" || message.role === "progress")) {
     const responseText = textValue(message.content ?? message.text);
     if (responseText) {
+      const status = normalizeToolActivityStatus(message.status ?? message.state ?? message.phase);
+      const isResult = message.role === "tool" || booleanValue(message._tool_result);
       activities.push({
         id: stringValue(message.tool_call_id ?? message.toolCallId ?? message._tool_call_id) || stringValue(message.message_id) || "tool-result",
         name: stringValue(message._tool_name ?? message.name) || "tool",
@@ -511,7 +541,7 @@ function normalizeToolActivities(message: Record<string, unknown>): NativeChatTo
         kind: "result",
         ...(stringValue(message._approval_id ?? message.approval_id) ? { approvalId: stringValue(message._approval_id ?? message.approval_id) } : {}),
         ...(stringValue(message._approval_status) ? { approvalStatus: stringValue(message._approval_status) } : {}),
-        ...(normalizeToolActivityStatus(message.status ?? message.state ?? message.phase) ? { status: normalizeToolActivityStatus(message.status ?? message.state ?? message.phase) } : {}),
+        ...(status || isResult ? { status: status || "completed" } : {}),
       });
     }
   }
@@ -583,11 +613,12 @@ function toolCallRows(value: unknown): Array<Pick<NativeChatToolActivity, "id" |
 
 function toolResultRows(value: unknown): Array<Pick<NativeChatToolActivity, "id" | "name" | "responseText"> & { approvalId?: string; approvalStatus?: string; status?: string }> {
   return arrayRows(value).map((row, index) => {
-    const status = normalizeToolActivityStatus(row.status ?? row.state ?? row.phase);
+    const responseText = textValue(row.content ?? row.response ?? row.result ?? row.output ?? row.detail ?? row.summary);
+    const status = normalizeToolActivityStatus(row.status ?? row.state ?? row.phase) || (responseText ? "completed" : "");
     return {
       id: stringValue(row.tool_call_id ?? row.toolCallId ?? row.id) || `tool-result-${index + 1}`,
       name: stringValue(row.name ?? row.title ?? row.tool_name) || "",
-      responseText: textValue(row.content ?? row.response ?? row.result ?? row.output ?? row.detail ?? row.summary),
+      responseText,
       ...(stringValue(row._approval_id ?? row.approval_id) ? { approvalId: stringValue(row._approval_id ?? row.approval_id) } : {}),
       ...(stringValue(row._approval_status ?? row.approval_status) ? { approvalStatus: stringValue(row._approval_status ?? row.approval_status) } : {}),
       ...(status ? { status } : {}),

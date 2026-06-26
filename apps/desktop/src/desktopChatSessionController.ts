@@ -82,14 +82,24 @@ export function createDesktopChatSessionController({
       sessionKey,
     });
     activateSession(state, sessionKey, chatId);
-    const payload = await api.loadMessages(sessionKey);
-    const messages = normalizeMessagesPayload(payload);
-    setMessages(state, sessionKey, messages);
+    try {
+      const payload = await api.loadMessages(sessionKey);
+      const messages = normalizeMessagesPayload(payload);
+      setMessages(state, sessionKey, messages);
+      state.error = "";
+    } catch (error) {
+      state.error = error instanceof Error ? error.message : String(error);
+      logDesktopNativeDebug("session.select.messages.failed", {
+        ...summarizeSessionState(),
+        error: state.error,
+        sessionKey,
+      });
+    }
     sendSocketMessage(createGatewaySocketMessage.attach(chatId));
     logDesktopNativeDebug("session.select.complete", {
       ...summarizeSessionState(),
       chatId,
-      messageCount: messages.length,
+      messageCount: state.messages.get(sessionKey)?.length ?? 0,
       sessionKey,
     });
   }

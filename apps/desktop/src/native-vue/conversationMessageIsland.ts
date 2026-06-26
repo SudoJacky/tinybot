@@ -15,6 +15,7 @@ export interface ConversationMessageIslandOptions {
   onReferenceInspect?: (reference: ConversationReferenceIslandOptions) => void;
   references: ConversationReferenceIslandOptions[];
   reasoningContent?: string;
+  reasoningLabel?: string;
   time: string;
   tone: "assistant" | "user";
   toolActivities?: ToolActivityIslandOptions[];
@@ -105,7 +106,7 @@ const ConversationMessageContent = defineComponent({
               ? h("div", { class: "desktop-conversation-header" }, [
                 renderReasoningToggle(
                   reasoningExpanded.value,
-                  hasBody.value ? "Thinking complete" : "Thinking",
+                  props.options.reasoningLabel ?? (hasBody.value ? "Thinking complete" : "Thinking"),
                   toggleReasoning,
                 ),
               ])

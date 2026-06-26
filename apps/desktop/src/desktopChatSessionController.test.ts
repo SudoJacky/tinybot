@@ -208,6 +208,43 @@ describe("desktop chat session controller", () => {
     ]);
   });
 
+  test("keeps locally created sessions selectable when gateway messages are not ready yet", async () => {
+    const sent: unknown[] = [];
+    const loadMessages = vi.fn(async (key: string) => {
+      if (key === sessionKeyForChat("chat-live")) {
+        throw new Error("Gateway bootstrap failed: Failed to fetch");
+      }
+      return { messages: [{ role: "assistant", content: `loaded ${key}`, message_id: `m-${key}` }] };
+    });
+    const controller = createDesktopChatSessionController({
+      api: {
+        listSessions: vi.fn(async () => ({
+          items: [{ key: "WebSocket:chat-old", chat_id: "chat-old", title: "Older chat" }],
+        })),
+        loadMessages,
+      },
+      sendSocketMessage: (message) => sent.push(message),
+    });
+
+    await controller.loadSessions();
+    controller.startNewChat();
+    await controller.handleGatewayEvent({ kind: "chat.created", chatId: "chat-live", raw: {} });
+    await controller.selectSession("WebSocket:chat-old", "chat-old");
+
+    await expect(controller.selectSession(sessionKeyForChat("chat-live"), "chat-live")).resolves.toBeUndefined();
+
+    expect(controller.state.activeSessionKey).toBe(sessionKeyForChat("chat-live"));
+    expect(controller.state.activeChatId).toBe("chat-live");
+    expect(controller.state.messages.get(sessionKeyForChat("chat-live"))).toEqual([]);
+    expect(controller.state.error).toContain("Gateway bootstrap failed: Failed to fetch");
+    expect(sent).toEqual([
+      { type: "attach", chat_id: "chat-old" },
+      { type: "new_chat" },
+      { type: "attach", chat_id: "chat-old" },
+      { type: "attach", chat_id: "chat-live" },
+    ]);
+  });
+
   test("sends active chat messages, interrupt requests, and attached message loads through existing gateway shapes", async () => {
     const sent: unknown[] = [];
     const controller = createDesktopChatSessionController({
