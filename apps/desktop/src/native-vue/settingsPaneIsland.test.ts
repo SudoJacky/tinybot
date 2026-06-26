@@ -661,14 +661,18 @@ describe("settings pane Vue island", () => {
 
     const status = host.querySelector('[data-desktop-settings-status="save"]');
     expect(status?.getAttribute("aria-live")).toBe("polite");
-    expect(status?.textContent).toContain("Settings saved through gateway fallback");
-    expect(host.querySelector("[data-desktop-settings-save-details]")?.textContent).toContain("Saved through gateway fallback");
+    expect(status?.textContent).toContain("Settings persisted through gateway fallback");
+    expect(host.querySelector("[data-desktop-settings-save-details]")?.textContent).toContain("Persisted: agents.defaults.model");
+    expect(host.querySelector("[data-desktop-settings-save-details]")?.textContent).toContain("Runtime applied: agents.defaults.model");
+    expect(host.querySelector("[data-desktop-settings-save-details]")?.textContent).toContain("Persisted through gateway fallback");
     expect(host.querySelector("[data-desktop-settings-save-details]")?.textContent).toContain("Native patch failed; gateway fallback applied.");
     expect(Array.from(
       host.querySelectorAll("[data-desktop-settings-save-detail]"),
       (node) => node.textContent,
     )).toEqual([
-      "Saved through gateway fallback",
+      "Persisted: agents.defaults.model",
+      "Runtime applied: agents.defaults.model",
+      "Persisted through gateway fallback",
       "Native patch failed; gateway fallback applied.",
       "Copy diagnostics",
     ]);
@@ -687,8 +691,9 @@ describe("settings pane Vue island", () => {
       saveStatus: "saved",
       saveDetails: {
         transport: "native",
+        persistedRevision: "hash:new",
         updatedFields: ["gateway.port", "agents.defaults.workspace"],
-        applied: ["gatewayRuntimeChanged", "workspaceChanged"],
+        applied: [],
         restartRequired: ["gatewayRestartRequired"],
         reloadRequired: ["workspaceReloadRequired"],
         warnings: [],
@@ -706,6 +711,8 @@ describe("settings pane Vue island", () => {
     const status = host.querySelector('[data-desktop-settings-status="save"]');
     expect(status?.textContent).toContain("Gateway restart required");
     expect(status?.textContent).toContain("Workspace reload required");
+    expect(status?.textContent).toContain("Persisted at hash:new: gateway.port, agents.defaults.workspace");
+    expect(status?.textContent).toContain("Runtime applied: none acknowledged");
     host.querySelector<HTMLButtonElement>('[data-desktop-settings-action="restartGateway"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-desktop-settings-action="reloadWorkspace"]')?.click();
 

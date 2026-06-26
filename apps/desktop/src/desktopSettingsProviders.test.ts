@@ -881,7 +881,7 @@ describe("desktop settings and provider helpers", () => {
       key,
       expect.objectContaining({
         sourceKind: expect.stringMatching(/^(config|local-ui-preference)$/),
-        valueOrigin: expect.stringMatching(/^(explicit|default|secret)$/),
+        valueOrigin: expect.stringMatching(/^(explicit|default|environment|secret)$/),
       }),
     ]));
     expect(editableFields.filter(([, field]) => field.sourceKind === "config")).toEqual(
@@ -897,6 +897,31 @@ describe("desktop settings and provider helpers", () => {
       "files-workspace.workspace": { persistentPath: "agents.defaults.workspace", applyEffect: "workspace-reload" },
       "gateway-runtime.port": { persistentPath: "gateway.port", applyEffect: "gateway-restart" },
     });
+  });
+
+  test("uses native config metadata origins instead of materializing defaults", () => {
+    const state = buildDesktopSettingsFormState({
+      agents: {
+        defaults: {
+          model: "deepseek-reasoner",
+          timezone: "Asia/Shanghai",
+        },
+      },
+      configMetadata: {
+        origins: {
+          "agents.defaults.model": "default",
+          "agents.defaults.timezone": "environment",
+        },
+      },
+    });
+
+    const pane = buildDesktopSettingsPaneModel(state);
+    const fields = Object.fromEntries(pane.groups.flatMap((group) =>
+      group.fields.map((field) => [`${group.id}.${field.id}`, field] as const),
+    ));
+
+    expect(fields["general.model"]).toMatchObject({ valueOrigin: "default" });
+    expect(fields["general.timezone"]).toMatchObject({ valueOrigin: "environment" });
   });
 
   test("keeps provider editing separate from the default LLM provider", () => {
@@ -1146,7 +1171,7 @@ describe("desktop settings and provider helpers", () => {
       },
     });
 
-    expect(pane.save.message).toBe("Settings saved through gateway fallback");
+    expect(pane.save.message).toBe("Settings persisted through gateway fallback");
     expect(pane.save.transport).toBe("gateway-fallback");
     expect(pane.save.updatedFields).toEqual(["agents.defaults.model"]);
     expect(pane.save.applied).toEqual(["agents.defaults.model"]);
@@ -1195,9 +1220,9 @@ describe("desktop settings and provider helpers", () => {
     });
 
     expect(restartPane.save.status).toBe("restart-required");
-    expect(restartPane.save.message).toBe("Settings saved. Gateway restart required");
+    expect(restartPane.save.message).toBe("Settings persisted. Gateway restart required");
     expect(reloadPane.save.status).toBe("reload-required");
-    expect(reloadPane.save.message).toBe("Settings saved. Workspace reload required");
+    expect(reloadPane.save.message).toBe("Settings persisted. Workspace reload required");
   });
 
   test("builds copyable save diagnostics for fallback and warning results", () => {

@@ -84,7 +84,63 @@ describe("desktop settings native save bridge", () => {
     })).resolves.toMatchObject({
       config: gatewayConfig,
       transport: "gateway-fallback",
+      persistedRevision: undefined,
     });
+  });
+
+  test("normalizes gateway fallback revision metadata", async () => {
+    const currentConfig = {
+      agents: { defaults: { model: "gpt-4.1-mini", provider: "openai" } },
+    };
+    const patch = { agents: { defaults: { model: "gpt-4.1" } } };
+    const gatewayConfig = {
+      agents: { defaults: { model: "gpt-4.1", provider: "openai" } },
+    };
+    const applyNativeConfigPatch = vi.fn().mockRejectedValue(new Error("command not found"));
+    const applyGatewayConfigPatch = vi.fn().mockResolvedValue({
+      updated: true,
+      config_revision: "hash:gateway",
+      config: gatewayConfig,
+    });
+
+    await expect(saveDesktopSettingsConfig(currentConfig, patch, {
+      applyNativeConfigPatch,
+      applyGatewayConfigPatch,
+    })).resolves.toMatchObject({
+      config: gatewayConfig,
+      transport: "gateway-fallback",
+      persistedRevision: "hash:gateway",
+      applied: [],
+      restartRequired: [],
+      reloadRequired: [],
+    });
+  });
+
+  test("does not use gateway fallback when native rejects a stale revision", async () => {
+    const currentConfig = {
+      revision: "hash:old",
+      agents: { defaults: { model: "gpt-4.1-mini", provider: "openai" } },
+    };
+    const patch = { agents: { defaults: { model: "gpt-4.1" } } };
+    const applyNativeConfigPatch = vi.fn().mockResolvedValue({
+      ok: false,
+      config: currentConfig,
+      revision: "hash:new",
+      updatedFields: [],
+      sideEffects: { applied: [], restartRequired: [], warnings: [] },
+      error: "configuration_changed",
+    });
+    const applyGatewayConfigPatch = vi.fn().mockResolvedValue({ unreachable: true });
+    const onNativeFallback = vi.fn();
+
+    await expect(saveDesktopSettingsConfig(currentConfig, patch, {
+      applyNativeConfigPatch,
+      applyGatewayConfigPatch,
+      onNativeFallback,
+    })).rejects.toThrow("configuration_changed");
+
+    expect(applyGatewayConfigPatch).not.toHaveBeenCalled();
+    expect(onNativeFallback).not.toHaveBeenCalled();
   });
 
   test("preserves native warnings without using gateway fallback", async () => {
@@ -122,6 +178,36 @@ describe("desktop settings native save bridge", () => {
     });
 
     expect(applyGatewayConfigPatch).not.toHaveBeenCalled();
+  });
+
+  test("returns native persisted revision separately from runtime effects", async () => {
+    const currentConfig = {
+      agents: { defaults: { model: "gpt-4.1-mini", provider: "openai" } },
+    };
+    const patch = { agents: { defaults: { model: "gpt-4.1" } } };
+    const nativeConfig = {
+      agents: { defaults: { model: "gpt-4.1", provider: "openai" } },
+    };
+    const applyNativeConfigPatch = vi.fn().mockResolvedValue({
+      ok: true,
+      config: nativeConfig,
+      revision: "hash:new",
+      updatedFields: ["agents.defaults.model"],
+      sideEffects: { applied: ["providerRuntimeChanged"], restartRequired: [], warnings: [] },
+    });
+    const applyGatewayConfigPatch = vi.fn().mockResolvedValue({ unreachable: true });
+
+    await expect(saveDesktopSettingsConfig(currentConfig, patch, {
+      applyNativeConfigPatch,
+      applyGatewayConfigPatch,
+    })).resolves.toMatchObject({
+      config: nativeConfig,
+      transport: "native",
+      persistedRevision: "hash:new",
+      applied: ["providerRuntimeChanged"],
+      restartRequired: [],
+      reloadRequired: [],
+    });
   });
 
   test("splits native restart and reload requirements", async () => {

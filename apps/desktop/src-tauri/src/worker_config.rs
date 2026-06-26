@@ -1,6 +1,6 @@
 use crate::config_store::{
-    ConfigPatchApplyResult, ConfigPatchBridgeResult, ConfigPatchSideEffects, ConfigStore,
-    ConfigStoreError,
+    ConfigOperationRequest, ConfigPatchApplyResult, ConfigPatchBridgeResult,
+    ConfigPatchSideEffects, ConfigStore, ConfigStoreError,
 };
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_protocol::{
@@ -56,6 +56,7 @@ impl WorkerConfigRpc {
             return Ok(ConfigPatchApplyResult {
                 ok: false,
                 config: public_config_snapshot(&self.snapshot),
+                revision: None,
                 updated_fields: Vec::new(),
                 side_effects: ConfigPatchSideEffects::default(),
                 error: result.error,
@@ -65,6 +66,7 @@ impl WorkerConfigRpc {
             return Ok(ConfigPatchApplyResult {
                 ok: false,
                 config: public_config_snapshot(&self.snapshot),
+                revision: None,
                 updated_fields: Vec::new(),
                 side_effects: ConfigPatchSideEffects::default(),
                 error: Some(
@@ -77,6 +79,7 @@ impl WorkerConfigRpc {
         Ok(ConfigPatchApplyResult {
             ok: true,
             config: public_config_snapshot(&self.snapshot),
+            revision: None,
             updated_fields: result.updated_fields,
             side_effects: result.side_effects,
             error: None,
@@ -96,6 +99,27 @@ impl WorkerConfigRpc {
         Ok(ConfigPatchApplyResult {
             ok: result.ok,
             config: public_config_snapshot(&result.config),
+            revision: result.revision,
+            updated_fields: result.updated_fields,
+            side_effects: result.side_effects,
+            error: result.error,
+        })
+    }
+
+    pub fn apply_operations_to_store(
+        &mut self,
+        store: &mut ConfigStore,
+        request: ConfigOperationRequest,
+    ) -> Result<ConfigPatchApplyResult, WorkerProtocolError> {
+        self.require(WorkerCapability::ConfigWrite)?;
+        let result = store
+            .apply_operations(request)
+            .map_err(config_store_protocol_error)?;
+        self.snapshot = store.snapshot().clone();
+        Ok(ConfigPatchApplyResult {
+            ok: result.ok,
+            config: public_config_snapshot(&result.config),
+            revision: result.revision,
             updated_fields: result.updated_fields,
             side_effects: result.side_effects,
             error: result.error,
@@ -210,8 +234,7 @@ fn is_sensitive_key(key: &str) -> bool {
 }
 
 fn normalized_config_key(key: &str) -> String {
-    key
-        .chars()
+    key.chars()
         .filter(|character| character.is_ascii_alphanumeric())
         .collect::<String>()
         .to_ascii_lowercase()

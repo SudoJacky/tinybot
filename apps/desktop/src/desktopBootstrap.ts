@@ -180,6 +180,20 @@ let nativeSettingsConfig: unknown = {};
 let nativeSettingsState: DesktopSettingsFormState | null = null;
 let nativeSettingsLastSavedState: DesktopSettingsFormState | null = null;
 let nativeSettingsProviderCatalog: ReturnType<typeof buildDesktopProviderCatalogItems> = [];
+
+type NativeConfigEditorSnapshot = {
+  configPath?: string;
+  config_path?: string;
+  revision?: string;
+  explicitPublicConfig?: unknown;
+  explicit_public_config?: unknown;
+  effectivePublicConfig?: unknown;
+  effective_public_config?: unknown;
+  origins?: unknown;
+  diagnostics?: unknown;
+  secretPresence?: unknown;
+  secret_presence?: unknown;
+};
 let nativeSkillsPayload: unknown = {};
 let nativeToolsPayload: unknown = {};
 let nativeToolsSkillsConfig: unknown = {};
@@ -2065,7 +2079,7 @@ function desktopSkillValidationFromPayload(payload: unknown): { state: "valid" |
 async function loadNativeSettingsPane(): Promise<DesktopSettingsPaneModel> {
   try {
     const [config, providersPayload] = await Promise.all([
-      gatewayApi.config.get(),
+      loadNativeSettingsConfig(),
       gatewayApi.config.providers(),
     ]);
     const providerCatalog = buildDesktopProviderCatalogItems(providersPayload);
@@ -2095,6 +2109,46 @@ async function loadNativeSettingsPane(): Promise<DesktopSettingsPaneModel> {
       saveError: `Failed to load settings: ${stringifyError(error)}`,
     });
   }
+}
+
+async function loadNativeSettingsConfig(): Promise<unknown> {
+  try {
+    const snapshot = await invoke<NativeConfigEditorSnapshot>("get_config_editor_snapshot");
+    const publicConfig = snapshot.effectivePublicConfig
+      ?? snapshot.effective_public_config
+      ?? snapshot.explicitPublicConfig
+      ?? snapshot.explicit_public_config
+      ?? {};
+    return attachNativeConfigSnapshotMetadata(publicConfig, snapshot);
+  } catch (error) {
+    logDesktopNativeDebug("settings.configSnapshot.fallback", { error: stringifyError(error) });
+    return gatewayApi.config.get();
+  }
+}
+
+function attachNativeConfigSnapshotMetadata(config: unknown, snapshot: NativeConfigEditorSnapshot): unknown {
+  if (!config || typeof config !== "object" || Array.isArray(config)) {
+    return config;
+  }
+  const revision = typeof snapshot.revision === "string" && snapshot.revision.trim()
+    ? snapshot.revision
+    : undefined;
+  const configPath = typeof snapshot.configPath === "string"
+    ? snapshot.configPath
+    : typeof snapshot.config_path === "string"
+      ? snapshot.config_path
+      : undefined;
+  return {
+    ...(config as Record<string, unknown>),
+    ...(revision ? { revision } : {}),
+    configMetadata: {
+      ...(revision ? { revision } : {}),
+      ...(configPath ? { configPath } : {}),
+      origins: snapshot.origins,
+      diagnostics: snapshot.diagnostics,
+      secretPresence: snapshot.secretPresence ?? snapshot.secret_presence,
+    },
+  };
 }
 
 async function handleNativeSettingsAction(event: DesktopSettingsActionEvent): Promise<void> {
@@ -2237,7 +2291,7 @@ async function saveNativeSettingsPane(): Promise<void> {
       logDesktopNativeDebug("settings.save.reconcileFailed", { paths: reconciled.mismatchedPaths });
       return;
     }
-    nativeSettingsConfig = effectiveConfig;
+    nativeSettingsConfig = attachPersistedConfigRevision(effectiveConfig, saveResult.persistedRevision);
     syncTsCoworkRuntimeRollout(nativeSettingsConfig);
     nativeSettingsState = reconciled.state;
     nativeSettingsLastSavedState = nativeSettingsState;
@@ -2255,6 +2309,24 @@ async function saveNativeSettingsPane(): Promise<void> {
     updateNativeSettingsPane("failed", `Failed to save settings: ${message}`);
     logDesktopNativeDebug("settings.save.failed", { error: message });
   }
+}
+
+function attachPersistedConfigRevision(config: unknown, revision: string | undefined): unknown {
+  if (!revision || !config || typeof config !== "object" || Array.isArray(config)) {
+    return config;
+  }
+  const record = config as Record<string, unknown>;
+  const existingMetadata = record.configMetadata;
+  return {
+    ...record,
+    revision,
+    configMetadata: {
+      ...(existingMetadata && typeof existingMetadata === "object" && !Array.isArray(existingMetadata)
+        ? existingMetadata as Record<string, unknown>
+        : {}),
+      revision,
+    },
+  };
 }
 
 async function refreshNativeProviderModels(providerId?: string): Promise<void> {
@@ -2354,6 +2426,7 @@ function currentNativeSettingsPane(): DesktopSettingsPaneModel | null {
 function buildNativeSettingsPaneSaveDetails(saveResult: DesktopSettingsSaveResult): DesktopSettingsPaneSaveDetails {
   return {
     transport: saveResult.transport,
+    persistedRevision: saveResult.persistedRevision,
     updatedFields: saveResult.updatedFields,
     applied: saveResult.applied,
     restartRequired: saveResult.restartRequired,

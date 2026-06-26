@@ -265,22 +265,31 @@ function renderSaveDetails(options: SettingsPaneIslandOptions) {
     label?: string;
     buttonOnly?: boolean;
   }> = [];
+  if (pane.save.updatedFields?.length) {
+    const revision = pane.save.persistedRevision ? ` at ${pane.save.persistedRevision}` : "";
+    details.push({ text: `Persisted${revision}: ${pane.save.updatedFields.join(", ")}` });
+  }
+  if (pane.save.applied?.length) {
+    details.push({ text: `Runtime applied: ${pane.save.applied.join(", ")}` });
+  } else if (pane.save.updatedFields?.length) {
+    details.push({ text: "Runtime applied: none acknowledged" });
+  }
   if (pane.save.restartRequired?.length) {
     details.push({
-      text: "Gateway restart required",
+      text: `Gateway restart required: ${pane.save.restartRequired.join(", ")}`,
       action: "restartGateway",
       label: "Restart gateway now",
     });
   }
   if (pane.save.reloadRequired?.length) {
     details.push({
-      text: "Workspace reload required",
+      text: `Workspace reload required: ${pane.save.reloadRequired.join(", ")}`,
       action: "reloadWorkspace",
       label: "Reload workspace",
     });
   }
   if (pane.save.transport === "gateway-fallback") {
-    details.push({ text: "Saved through gateway fallback" });
+    details.push({ text: "Persisted through gateway fallback" });
   }
   details.push(...(pane.save.warnings ?? []).map((warning) => ({ text: warning })));
   if (pane.save.transport === "gateway-fallback" || pane.save.warnings?.length) {
@@ -1893,6 +1902,7 @@ function valueOriginLabel(origin: NonNullable<DesktopSettingsPaneField["valueOri
   return {
     explicit: "Explicit value",
     default: "Default value",
+    environment: "Environment value",
     secret: "Secret value",
     cache: "Cached value",
     runtime: "Runtime value",

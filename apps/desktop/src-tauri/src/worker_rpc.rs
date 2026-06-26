@@ -15,7 +15,10 @@ use crate::worker_knowledge::{
     KnowledgeStartIndexJobParams, WorkerKnowledgeRpc,
 };
 use crate::worker_memory::WorkerMemoryRpc;
-use crate::worker_protocol::{WorkerRequest, WorkerResponse};
+use crate::worker_protocol::{
+    WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource, WorkerRequest,
+    WorkerResponse,
+};
 use crate::worker_secret::{ProviderResolveSecretParams, WorkerSecretRpc};
 use crate::worker_session::{SessionMetadata, WorkerSessionRpc};
 use crate::worker_shell::{ShellExecuteParams, WorkerShellRpc};
@@ -268,6 +271,25 @@ impl WorkerRpcRouter {
                         .apply_patch_result_to_store(config_store, params)?
                 } else {
                     self.config.apply_patch_result(params)?
+                };
+                if result.ok {
+                    self.secret.update_snapshot(self.config.snapshot().clone());
+                }
+                serde_json::to_value(result).map_err(serialization_error)
+            }
+            "config.apply_operations" => {
+                let params: crate::config_store::ConfigOperationRequest = parse_params(request)?;
+                let result = if let Some(config_store) = self.config_store.as_mut() {
+                    self.config
+                        .apply_operations_to_store(config_store, params)?
+                } else {
+                    return Err(WorkerProtocolError::new(
+                        WorkerProtocolErrorCode::InvalidProtocol,
+                        "config operation writes require a config store",
+                        serde_json::json!({ "method": request.method }),
+                        false,
+                        WorkerProtocolErrorSource::RustCore,
+                    ));
                 };
                 if result.ok {
                     self.secret.update_snapshot(self.config.snapshot().clone());
@@ -1441,6 +1463,65 @@ mod tests {
             get_response.result,
             Some(json!({ "path": "agents.defaults.model", "value": "gpt-5.2" }))
         );
+    }
+
+    #[test]
+    fn dispatches_config_apply_operations_to_config_store() {
+        let fixture = WorkspaceFixture::new();
+        let config_path = fixture.root.join("tinybot-config.json");
+        let mut store = crate::config_store::ConfigStore::from_snapshot(
+            config_path.clone(),
+            json!({
+                "agents": { "defaults": { "model": "gpt-5", "timezone": "UTC" } },
+                "providers": { "openai": { "api_key": "sk-old-secret" } }
+            }),
+        );
+        store
+            .save_snapshot()
+            .expect("fixture config should be saved before operation dispatch");
+        let revision = store.revision();
+        let mut router = WorkerRpcRouter::with_config_store(
+            fixture.root.clone(),
+            store,
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::ConfigRead, WorkerCapability::ConfigWrite]),
+        );
+
+        let response = router.dispatch(&WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "config.apply_operations",
+            json!({
+                "expectedRevision": revision,
+                "operations": [
+                    {
+                        "op": "replace",
+                        "path": "agents.defaults.timezone",
+                        "value": "Asia/Shanghai"
+                    }
+                ]
+            }),
+        ));
+
+        let result = response.result.expect("operation result should return");
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["updatedFields"], json!(["agents.defaults.timezone"]));
+        assert_eq!(
+            result["config"]["providers"]["openai"]["api_key_configured"],
+            true
+        );
+        assert!(result["config"]["providers"]["openai"]
+            .get("api_key")
+            .is_none());
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(
+                &std::fs::read_to_string(config_path).expect("patched config should save")
+            )
+            .expect("saved config should be JSON")["providers"]["openai"]["api_key"],
+            "sk-old-secret"
+        );
+        assert!(response.error.is_none());
     }
 
     #[test]

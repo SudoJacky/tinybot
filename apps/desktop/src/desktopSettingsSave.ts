@@ -11,6 +11,7 @@ export type DesktopSettingsSaveTransport = "native" | "gateway-fallback";
 export type DesktopSettingsSaveResult = {
   config: unknown;
   transport: DesktopSettingsSaveTransport;
+  persistedRevision?: string;
   updatedFields: string[];
   applied: string[];
   restartRequired: string[];
@@ -25,22 +26,25 @@ export async function saveDesktopSettingsConfig(
 ): Promise<DesktopSettingsSaveResult> {
   let fallbackError: unknown = null;
   if (deps.applyNativeConfigPatch) {
+    let result: DesktopNativeConfigPatchResponse | null = null;
     try {
-      const result = await deps.applyNativeConfigPatch(currentConfig, patch);
-      if (result.ok) {
-        return buildNativeSaveResult(result);
-      }
-      fallbackError = new Error(result.error ?? "native config patch failed");
-      deps.onNativeFallback?.(fallbackError);
+      result = await deps.applyNativeConfigPatch(currentConfig, patch);
     } catch (error) {
       fallbackError = error;
       deps.onNativeFallback?.(error);
+    }
+    if (result) {
+      if (result.ok) {
+        return buildNativeSaveResult(result);
+      }
+      throw new Error(result.error ?? "native config patch failed");
     }
   }
   const gatewayResult = await deps.applyGatewayConfigPatch(patch);
   return {
     config: unwrapGatewayConfigPatchResult(gatewayResult),
     transport: "gateway-fallback",
+    persistedRevision: extractGatewayRevision(gatewayResult),
     updatedFields: [],
     applied: [],
     restartRequired: [],
@@ -62,12 +66,26 @@ function buildNativeSaveResult(result: DesktopNativeConfigPatchResponse): Deskto
   return {
     config: result.config,
     transport: "native",
+    persistedRevision: result.revision ?? undefined,
     updatedFields: result.updatedFields,
     applied: result.sideEffects.applied,
     restartRequired,
     reloadRequired,
     warnings: result.sideEffects.warnings,
   };
+}
+
+function extractGatewayRevision(result: unknown): string | undefined {
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    return undefined;
+  }
+  const record = result as { revision?: unknown; configRevision?: unknown; config_revision?: unknown };
+  for (const value of [record.revision, record.configRevision, record.config_revision]) {
+    if (typeof value === "string" && value.trim()) {
+      return value;
+    }
+  }
+  return undefined;
 }
 
 function stringifyError(error: unknown): string {
