@@ -1,5 +1,5 @@
 import { createApp, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, type App, type Ref } from "vue";
-import { NButton, NCard, NConfigProvider, NSpace, NTag } from "naive-ui";
+import { NButton, NCard, NConfigProvider, NTag } from "naive-ui";
 import type {
   DesktopSettingsPaneField,
   DesktopSettingsPaneGroup,
@@ -50,8 +50,19 @@ interface SettingsSearchResult {
 interface ProviderSetupState {
   open: boolean;
   providerId: string;
+  profileName: string;
+  credentialSource: string;
+  endpoint: string;
+  models: string;
+  useDefault: boolean;
   setOpen: (value: boolean) => void;
   setProviderId: (value: string) => void;
+  setProfileName: (value: string) => void;
+  setCredentialSource: (value: string) => void;
+  setEndpoint: (value: string) => void;
+  setModels: (value: string) => void;
+  setUseDefault: (value: boolean) => void;
+  reset: () => void;
 }
 
 const mountedSettingsPanes = new WeakMap<HTMLElement, MountedSettingsPaneIsland>();
@@ -120,6 +131,11 @@ function createSettingsPaneApp(state: Ref<SettingsPaneIslandOptions>, host: HTML
       const providerSearch = ref("");
       const providerSetupOpen = ref(false);
       const newProviderId = ref("");
+      const newProviderProfileName = ref("");
+      const newProviderCredentialSource = ref("env");
+      const newProviderEndpoint = ref("");
+      const newProviderModels = ref("");
+      const newProviderUseDefault = ref(false);
       const settingsSearch = ref("");
       const highlightedFieldId = ref("");
       const activeGroupId = ref(getActiveSettingsGroup(state.value.pane, state.value.initialActiveGroupId)?.id ?? "general");
@@ -138,7 +154,11 @@ function createSettingsPaneApp(state: Ref<SettingsPaneIslandOptions>, host: HTML
         highlightedFieldId.value = result.fieldId;
         dispatchActiveGroupId(result.groupId, result.fieldId);
         void nextTick(() => {
-          host.querySelector<HTMLElement>(`#desktop-settings-${result.fieldId}`)?.focus();
+          const control = host.querySelector<HTMLElement>(`#desktop-settings-${result.fieldId}`);
+          control?.focus();
+          if (!control || host.ownerDocument.activeElement !== control) {
+            host.querySelector<HTMLElement>(`[data-desktop-settings-field="${result.fieldId}"]`)?.focus();
+          }
           window.setTimeout(() => {
             if (highlightedFieldId.value === result.fieldId) {
               highlightedFieldId.value = "";
@@ -165,7 +185,11 @@ function createSettingsPaneApp(state: Ref<SettingsPaneIslandOptions>, host: HTML
         if (detail.fieldId) {
           highlightedFieldId.value = detail.fieldId;
           void nextTick(() => {
-            host.ownerDocument.querySelector<HTMLElement>(`#desktop-settings-${detail.fieldId}`)?.focus();
+            const control = host.ownerDocument.querySelector<HTMLElement>(`#desktop-settings-${detail.fieldId}`);
+            control?.focus();
+            if (!control || host.ownerDocument.activeElement !== control) {
+              host.ownerDocument.querySelector<HTMLElement>(`[data-desktop-settings-field="${detail.fieldId}"]`)?.focus();
+            }
           });
         }
       };
@@ -204,11 +228,40 @@ function createSettingsPaneApp(state: Ref<SettingsPaneIslandOptions>, host: HTML
                 {
                   open: providerSetupOpen.value,
                   providerId: newProviderId.value,
+                  profileName: newProviderProfileName.value,
+                  credentialSource: newProviderCredentialSource.value,
+                  endpoint: newProviderEndpoint.value,
+                  models: newProviderModels.value,
+                  useDefault: newProviderUseDefault.value,
                   setOpen: (value) => {
                     providerSetupOpen.value = value;
                   },
                   setProviderId: (value) => {
                     newProviderId.value = value;
+                  },
+                  setProfileName: (value) => {
+                    newProviderProfileName.value = value;
+                  },
+                  setCredentialSource: (value) => {
+                    newProviderCredentialSource.value = value;
+                  },
+                  setEndpoint: (value) => {
+                    newProviderEndpoint.value = value;
+                  },
+                  setModels: (value) => {
+                    newProviderModels.value = value;
+                  },
+                  setUseDefault: (value) => {
+                    newProviderUseDefault.value = value;
+                  },
+                  reset: () => {
+                    providerSetupOpen.value = false;
+                    newProviderId.value = "";
+                    newProviderProfileName.value = "";
+                    newProviderCredentialSource.value = "env";
+                    newProviderEndpoint.value = "";
+                    newProviderModels.value = "";
+                    newProviderUseDefault.value = false;
                   },
                 },
               ),
@@ -917,6 +970,45 @@ function renderProviderDetailPanel(
       h("div", { class: "desktop-settings-provider-model-list" }, options.pane.providerEditor.models.map((model) => h("span", {
         "data-desktop-settings-provider-model": model,
       }, model))),
+      h("div", {
+        class: "desktop-settings-provider-detail-actions",
+        "aria-label": "Provider actions",
+      }, [
+        h(NButton, {
+          size: "small",
+          "data-desktop-settings-provider-command": "discoverModels",
+          disabled: !options.pane.providerEditor.canDiscoverModels,
+          onClick: () => requestProviderModelDiscovery(options, selected?.id ?? options.pane.providerEditor.selectedProvider),
+        }, { default: () => "Discover models" }),
+        h(NButton, {
+          size: "small",
+          "data-desktop-settings-provider-command": "editConnection",
+          onClick: () => options.onFocusSettingsControl?.("apiBase"),
+        }, { default: () => "Edit connection" }),
+        h(NButton, {
+          size: "small",
+          "data-desktop-settings-provider-command": "useAsDefault",
+          onClick: () => emitEdit(options, "provider", selected?.id ?? options.pane.providerEditor.selectedProvider),
+        }, { default: () => "Use as default" }),
+        h(NButton, {
+          size: "small",
+          disabled: true,
+          title: "Provider rename is not available yet.",
+          "data-desktop-settings-provider-command": "rename",
+        }, { default: () => "Rename" }),
+        h(NButton, {
+          size: "small",
+          disabled: true,
+          title: "Provider duplication is not available yet.",
+          "data-desktop-settings-provider-command": "duplicate",
+        }, { default: () => "Duplicate" }),
+        h(NButton, {
+          size: "small",
+          disabled: true,
+          title: "Provider deletion is not available yet.",
+          "data-desktop-settings-provider-command": "delete",
+        }, { default: () => "Delete" }),
+      ]),
       h(NButton, {
         size: "small",
         "data-desktop-settings-provider-action": "testConnection",
@@ -935,6 +1027,7 @@ function renderProviderSetup(
   providerSetup: ProviderSetupState,
 ) {
   const providerId = providerSetup.providerId.trim();
+  const profileName = providerSetup.profileName.trim() || providerId;
   const duplicate = providerId
     ? options.pane.providerCatalog.some((provider) => provider.id.toLowerCase() === providerId.toLowerCase())
     : false;
@@ -955,6 +1048,65 @@ function renderProviderSetup(
         onInput: (event: Event) => providerSetup.setProviderId(String((event.target as HTMLInputElement | null)?.value ?? "")),
       }),
     ]),
+    h("label", { class: "desktop-settings-inline-field" }, [
+      h("span", "Profile name"),
+      h("input", {
+        "data-desktop-settings-control": "newProviderProfileName",
+        value: providerSetup.profileName,
+        placeholder: "work-openai",
+        onInput: (event: Event) => providerSetup.setProfileName(String((event.target as HTMLInputElement | null)?.value ?? "")),
+      }),
+    ]),
+    h("label", { class: "desktop-settings-inline-field" }, [
+      h("span", "Provider type"),
+      h("select", {
+        "data-desktop-settings-control": "newProviderType",
+        value: providerSetup.providerId,
+        onChange: (event: Event) => providerSetup.setProviderId(String((event.target as HTMLSelectElement | null)?.value ?? "")),
+      }, ["openai", "deepseek", "anthropic", "ollama", "localai"].map((provider) => h("option", {
+        value: provider,
+        selected: providerSetup.providerId === provider ? "true" : undefined,
+      }, provider))),
+    ]),
+    h("label", { class: "desktop-settings-inline-field" }, [
+      h("span", "Credential source"),
+      h("select", {
+        "data-desktop-settings-control": "newProviderCredentialSource",
+        value: providerSetup.credentialSource,
+        onChange: (event: Event) => providerSetup.setCredentialSource(String((event.target as HTMLSelectElement | null)?.value ?? "")),
+      }, [
+        h("option", { value: "env" }, "Environment variable"),
+        h("option", { value: "manual" }, "Saved API key"),
+        h("option", { value: "none" }, "No credential"),
+      ]),
+    ]),
+    h("label", { class: "desktop-settings-inline-field" }, [
+      h("span", "Endpoint"),
+      h("input", {
+        "data-desktop-settings-control": "newProviderEndpoint",
+        value: providerSetup.endpoint,
+        placeholder: "https://api.example.com/v1",
+        onInput: (event: Event) => providerSetup.setEndpoint(String((event.target as HTMLInputElement | null)?.value ?? "")),
+      }),
+    ]),
+    h("label", { class: "desktop-settings-inline-field" }, [
+      h("span", "Models"),
+      h("textarea", {
+        "data-desktop-settings-control": "newProviderModels",
+        value: providerSetup.models,
+        placeholder: "one-model-id-per-line",
+        onInput: (event: Event) => providerSetup.setModels(String((event.target as HTMLTextAreaElement | null)?.value ?? "")),
+      }),
+    ]),
+    h("label", { class: "desktop-settings-inline-field" }, [
+      h("input", {
+        type: "checkbox",
+        "data-desktop-settings-control": "newProviderUseDefault",
+        checked: providerSetup.useDefault,
+        onChange: (event: Event) => providerSetup.setUseDefault((event.target as HTMLInputElement | null)?.checked === true),
+      }),
+      h("span", "Use as default route"),
+    ]),
     h("p", {
       id: "desktop-settings-provider-setup-guidance",
       class: "desktop-settings-provider-setup-guidance",
@@ -974,18 +1126,20 @@ function renderProviderSetup(
             return;
           }
           emitEdit(options, "selectedProvider", providerId);
+          emitEdit(options, "profileId", profileName);
+          emitEdit(options, "apiBase", providerSetup.endpoint.trim());
+          emitEdit(options, "models", providerSetup.models.trim());
+          if (providerSetup.useDefault) {
+            emitEdit(options, "provider", providerId);
+          }
           options.onFocusSettingsControl?.("selectedProvider");
-          providerSetup.setOpen(false);
-          providerSetup.setProviderId("");
+          providerSetup.reset();
         },
       }, "Create provider"),
       h("button", {
         type: "button",
         "data-desktop-settings-provider-setup-action": "cancel",
-        onClick: () => {
-          providerSetup.setOpen(false);
-          providerSetup.setProviderId("");
-        },
+        onClick: () => providerSetup.reset(),
       }, "Cancel"),
     ]),
   ]);
@@ -1028,56 +1182,20 @@ function renderProviderCard(
             ]),
           ]),
         ]),
-        h("button", {
-          class: "desktop-settings-provider-switch",
-          type: "button",
-          role: "switch",
-          "aria-checked": provider.connected ? "true" : "false",
-          "aria-label": `${provider.connected ? "Disable" : "Enable"} ${provider.label}`,
-          "data-desktop-settings-provider-action": "toggle",
-          "data-state": provider.connected ? "on" : "off",
-          onClick: () => toggleProvider(options, provider),
-        }),
+        h(NButton, {
+          size: "small",
+          secondary: true,
+          "data-desktop-settings-provider-action": "select",
+          "aria-label": `Select ${provider.label}`,
+          onClick: () => emitEdit(options, "selectedProvider", provider.id),
+        }, { default: () => provider.badge ? "Selected" : "Select" }),
       ]),
       h("div", { class: "desktop-settings-provider-details" }, [
-        renderProviderDetail("Base URL", provider.baseUrl),
+        renderProviderDetail("Endpoint", provider.baseUrl),
         renderProviderDetail("API Key", provider.apiKey),
-        renderProviderDetail("Model", provider.models),
         renderProviderDetail("Models", provider.modelCountLabel),
         renderProviderDetail("Source", provider.sourceLabel),
       ]),
-      h("button", {
-        class: "desktop-settings-provider-advanced",
-        type: "button",
-        "data-desktop-settings-provider-action": "settings",
-        onClick: () => handleProviderCardAction(options, provider.id, "settings"),
-      }, [
-        h("span", "Advanced settings"),
-        h("span", { "aria-hidden": "true" }, "v"),
-      ]),
-      h(NSpace, { class: "desktop-settings-provider-card-actions", size: 8 }, {
-        default: () => [
-          h(NButton, {
-            size: "small",
-            "data-desktop-settings-provider-action": "testConnection",
-            onClick: () => options.onSettingsAction?.({
-              action: "testProviderConnection",
-              pane: options.pane,
-              providerId: provider.id,
-            }),
-          }, { default: () => "Test connection" }),
-          h(NButton, {
-            size: "small",
-            "data-desktop-settings-provider-action": "models",
-            onClick: () => handleProviderCardAction(options, provider.id, "models"),
-          }, { default: () => "Models" }),
-          h(NButton, {
-            size: "small",
-            "data-desktop-settings-provider-action": "settings",
-            onClick: () => handleProviderCardAction(options, provider.id, "settings"),
-          }, { default: () => "Settings" }),
-        ],
-      }),
     ],
   });
 }
@@ -1352,6 +1470,7 @@ function renderSettingsField(
 ) {
   return h("div", {
     class: "desktop-settings-field",
+    tabindex: field.id === highlightedFieldId ? -1 : undefined,
     "data-desktop-settings-field": field.id,
     "data-highlighted": field.id === highlightedFieldId ? "true" : undefined,
     "data-state": field.state,
@@ -1577,25 +1696,6 @@ function getDefaultLlmModelOptions(pane: DesktopSettingsPaneModel): string[] {
   return pane.providerCatalog.find((provider) => provider.id === defaultProvider)?.models ?? [];
 }
 
-function handleProviderCardAction(
-  options: SettingsPaneIslandOptions,
-  providerId: string,
-  target: "models" | "settings",
-): void {
-  if (providerId !== options.pane.providerEditor.selectedProvider) {
-    emitEdit(options, "selectedProvider", providerId);
-    options.onFocusSettingsControl?.(target === "models" ? "models" : "apiBase");
-    if (target === "models") {
-      requestProviderModelDiscovery(options, providerId);
-    }
-    return;
-  }
-  options.onFocusSettingsControl?.(target === "models" ? "models" : "apiBase");
-  if (target === "models") {
-    requestProviderModelDiscovery(options, providerId);
-  }
-}
-
 function requestProviderModelDiscovery(options: SettingsPaneIslandOptions, providerId: string): void {
   options.onSettingsAction?.({
     action: "discoverModels",
@@ -1668,10 +1768,6 @@ function getProviderCards(pane: DesktopSettingsPaneModel): ProviderCardModel[] {
   });
 }
 
-function toggleProvider(options: SettingsPaneIslandOptions, provider: ProviderCardModel): void {
-  emitEdit(options, `providerEnabled:${provider.id}`, !provider.connected);
-}
-
 function selectSettingsGroup(
   event: Event,
   groupId: DesktopSettingsPaneGroup["id"],
@@ -1719,6 +1815,10 @@ function getSettingsSearchResults(
   const results: Array<{ result: SettingsSearchResult; score: number }> = [];
   for (const group of getNavigableSettingsGroups(pane.groups)) {
     for (const field of group.fields) {
+      const isSecret = field.sensitive || field.configurationMode === "secret";
+      if (isSecret) {
+        continue;
+      }
       const fieldLabel = field.label.toLowerCase();
       const fieldId = field.id.toLowerCase();
       const haystack = [
@@ -1728,8 +1828,8 @@ function getSettingsSearchResults(
         field.label,
         field.description ?? getSettingsFieldDescription(group.id, field),
         ...(field.aliases ?? []),
-        field.sensitive ? "" : field.value,
-        field.sensitive ? "" : field.inputValue,
+        field.value,
+        field.inputValue,
       ].join(" ").toLowerCase();
       if (!haystack.includes(normalizedQuery)) {
         continue;

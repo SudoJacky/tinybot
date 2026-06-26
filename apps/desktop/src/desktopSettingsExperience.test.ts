@@ -34,7 +34,9 @@ describe("desktop settings experience stylesheet", () => {
     expect(desktopSettingsCss).toContain("@media (max-width: 1040px)");
     expect(desktopSettingsCss).toContain("@media (max-width: 760px)");
     expect(desktopSettingsCss).toContain("@media (max-width: 520px)");
-    expect(desktopSettingsCss).toContain(".desktop-settings-pane {\n  grid-template-columns: minmax(0, 1fr);");
+    expect(desktopSettingsCss).toMatch(
+      /html\[data-desktop-active-workbench-module="settings"\]\s+body\.desktop-native-workbench\s+\.desktop-settings-pane\s*\{\s*grid-template-columns:\s*minmax\(0,\s*1fr\);/,
+    );
     expect(desktopSettingsCss).not.toContain("grid-template-columns: minmax(216px, 252px) minmax(0, 1fr)");
     expect(desktopSettingsCss).toContain(".desktop-workbench-sidebar .desktop-settings-sidebar");
     expect(workbenchSettingsSidebarRule).toContain("min-height: 100%");

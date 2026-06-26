@@ -154,7 +154,7 @@ describe("settings pane Vue island", () => {
     expect(host.querySelector('[data-desktop-settings-provider-card="openai"]')).toBeNull();
     expect(host.querySelector('[data-desktop-settings-provider-card="anthropic"]')?.textContent).toContain("Anthropic");
 
-    host.querySelector<HTMLButtonElement>('[data-desktop-settings-provider-card="anthropic"] [data-desktop-settings-provider-action="settings"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-provider-card="anthropic"] [data-desktop-settings-provider-action="select"]')?.click();
     expect(actions).toContain("selectedProvider:anthropic");
     expect(host.querySelector(".desktop-settings-provider-detail-panel")?.textContent).toContain("Edit OpenAI");
 
@@ -346,6 +346,9 @@ describe("settings pane Vue island", () => {
     expect(host.querySelector('[data-desktop-settings-provider-card="openai"]')?.textContent).toContain("OpenAI");
     expect(host.querySelector('[data-desktop-settings-provider-card="openai"]')?.textContent).toContain("2 models");
     expect(host.querySelector('[data-desktop-settings-provider-card="openai"]')?.textContent).toContain("Configured profile");
+    expect(host.querySelector('[data-desktop-settings-provider-card="openai"] [data-desktop-settings-provider-action="models"]')).toBeNull();
+    expect(host.querySelector('[data-desktop-settings-provider-card="openai"] [data-desktop-settings-provider-action="settings"]')).toBeNull();
+    expect(host.querySelector('[data-desktop-settings-provider-card="openai"]')?.textContent).not.toContain("Advanced settings");
     expect(host.querySelector('[data-desktop-settings-field="apiKey"] input')?.getAttribute("type")).toBe("password");
     expect(host.querySelector<HTMLInputElement>('[data-desktop-settings-control="apiKey"]')?.value).toBe("********");
     expect(host.querySelector('[data-desktop-settings-field="apiKey"] .desktop-settings-field-meta')?.textContent).toContain("Sensitive");
@@ -395,7 +398,7 @@ describe("settings pane Vue island", () => {
     host.querySelector<HTMLAnchorElement>('[data-desktop-settings-nav="provider-models"]')?.click();
     await nextTick();
     host.querySelector<HTMLButtonElement>('[data-desktop-settings-action="discoverModels"]')?.click();
-    host.querySelector<HTMLButtonElement>('[data-desktop-settings-provider-action="settings"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-provider-command="editConnection"]')?.click();
     const apiKey = host.querySelector<HTMLInputElement>('[data-desktop-settings-control="apiKey"]');
     apiKey!.value = "sk-replacement";
     apiKey?.dispatchEvent(new Event("input", { bubbles: true }));
@@ -414,7 +417,7 @@ describe("settings pane Vue island", () => {
     expect(host.textContent).toBe("");
   });
 
-  test("fetches models for the provider selected from a provider card", async () => {
+  test("selects providers from cards while keeping model fetch in the detail panel", async () => {
     const host = document.createElement("section");
     const actions: string[] = [];
     const focused: string[] = [];
@@ -462,11 +465,12 @@ describe("settings pane Vue island", () => {
     await nextTick();
 
     host.querySelector<HTMLElement>('[data-desktop-settings-provider-card="deepseek"]')
-      ?.querySelector<HTMLButtonElement>('[data-desktop-settings-provider-action="models"]')
+      ?.querySelector<HTMLButtonElement>('[data-desktop-settings-provider-action="select"]')
       ?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-provider-command="discoverModels"]')?.click();
 
-    expect(actions).toEqual(["edit:selectedProvider:deepseek", "discoverModels:deepseek"]);
-    expect(focused).toEqual(["models"]);
+    expect(actions).toEqual(["edit:selectedProvider:deepseek", "discoverModels:openai"]);
+    expect(focused).toEqual([]);
 
     mounted.unmount();
   });
@@ -762,6 +766,16 @@ describe("settings pane Vue island", () => {
     expect(host.querySelector(".desktop-settings-response-defaults-section")?.textContent).toContain("Temperature");
     expect(document.activeElement).toBe(host.querySelector('[data-desktop-settings-control="temperature"]'));
 
+    search!.value = "heartbeat interval";
+    search?.dispatchEvent(new Event("input", { bubbles: true }));
+    await nextTick();
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-search-result="gateway-runtime.heartbeatIntervalS"]')?.click();
+    await nextTick();
+    const advancedRuntime = host.querySelector('[data-desktop-settings-field="heartbeatIntervalS"]')?.closest("details");
+    expect(host.querySelector(".desktop-settings-breadcrumb h2")?.textContent).toBe("Gateway & Runtime");
+    expect(advancedRuntime?.hasAttribute("open")).toBe(true);
+    expect(document.activeElement).toBe(host.querySelector('[data-desktop-settings-field="heartbeatIntervalS"]'));
+
     search!.value = "sk-live";
     search?.dispatchEvent(new Event("input", { bubbles: true }));
     await nextTick();
@@ -875,6 +889,12 @@ describe("settings pane Vue island", () => {
     expect(providerId?.getAttribute("aria-describedby")).toBe("desktop-settings-provider-setup-guidance");
     expect(host.querySelector("[data-desktop-settings-provider-setup]")?.textContent).toContain("Add provider");
     expect(host.querySelector("#desktop-settings-provider-setup-guidance")?.textContent).toContain("API key");
+    expect(host.querySelector('[data-desktop-settings-control="newProviderProfileName"]')).not.toBeNull();
+    expect(host.querySelector('[data-desktop-settings-control="newProviderType"]')).not.toBeNull();
+    expect(host.querySelector('[data-desktop-settings-control="newProviderCredentialSource"]')).not.toBeNull();
+    expect(host.querySelector('[data-desktop-settings-control="newProviderEndpoint"]')).not.toBeNull();
+    expect(host.querySelector('[data-desktop-settings-control="newProviderModels"]')).not.toBeNull();
+    expect(host.querySelector('[data-desktop-settings-control="newProviderUseDefault"]')).not.toBeNull();
 
     providerId!.value = "openai";
     providerId?.dispatchEvent(new Event("input", { bubbles: true }));
@@ -886,7 +906,12 @@ describe("settings pane Vue island", () => {
     await nextTick();
     host.querySelector<HTMLButtonElement>('[data-desktop-settings-provider-setup-action="create"]')?.click();
 
-    expect(actions).toEqual(["edit:selectedProvider:localai"]);
+    expect(actions).toEqual(expect.arrayContaining([
+      "edit:selectedProvider:localai",
+      "edit:profileId:localai",
+      "edit:apiBase:",
+      "edit:models:",
+    ]));
 
     mounted.unmount();
   });

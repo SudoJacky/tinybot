@@ -2,8 +2,13 @@ import { describe, expect, test } from "vitest";
 import {
   buildDesktopSettingsSearchableIndex,
   canonicalizeDesktopSettingsPersistentPath,
+  getDesktopSettingsPathDisposition,
   validateDesktopSettingsPaneSchemaCoverage,
 } from "./desktopSettingsSchemaCoverage";
+import {
+  getDesktopSettingsConceptOwners,
+  validateDesktopSettingsConceptOwners,
+} from "./desktopSettingsConceptOwners";
 import {
   buildDesktopProviderCatalogItems,
   buildDesktopSettingsFormState,
@@ -42,6 +47,7 @@ describe("desktop settings schema coverage", () => {
     const pane = buildDesktopSettingsPaneModel(state, { providerCatalog });
 
     expect(validateDesktopSettingsPaneSchemaCoverage(pane)).toEqual([]);
+    expect(getDesktopSettingsPathDisposition("tools.mcpServers.local.command")).toBe("expert-editor");
   });
 
   test("flags duplicate editable owners for the same canonical path", () => {
@@ -112,5 +118,48 @@ describe("desktop settings schema coverage", () => {
     expect(index.some((row) => row.field === "provider-models.apiKey")).toBe(false);
     expect(index.some((row) => row.text.includes("sk-live"))).toBe(false);
     expect(index.some((row) => row.field === "memory-experience.hiddenEditable")).toBe(false);
+  });
+
+  test("declares one editable owner per settings concept and keeps previews out of editing", () => {
+    const providerCatalog = buildDesktopProviderCatalogItems([
+      { id: "deepseek", displayName: "DeepSeek", status: "ready" },
+    ]);
+    const state = buildDesktopSettingsFormState({
+      agents: {
+        defaults: {
+          model: "deepseek-chat",
+          provider: "deepseek",
+          active_profile: "deepseek",
+          workspace: "D:/work",
+        },
+      },
+      providers: {
+        profiles: {
+          deepseek: {
+            provider: "deepseek",
+            api_key: "sk-live",
+            api_base: "https://api.deepseek.com",
+            models: ["deepseek-chat"],
+          },
+        },
+      },
+    }, providerCatalog);
+    const pane = buildDesktopSettingsPaneModel(state, { providerCatalog });
+    const owners = Object.fromEntries(getDesktopSettingsConceptOwners().map((owner) => [owner.concept, owner]));
+
+    expect(owners["default-route"]).toMatchObject({ role: "editable-owner", groupId: "general" });
+    expect(owners["provider-profile"]).toMatchObject({ role: "editable-owner", groupId: "provider-models" });
+    expect(owners.workspace).toMatchObject({ role: "editable-owner", groupId: "files-workspace", fieldId: "workspace" });
+    expect(owners["gateway-endpoint"]).toMatchObject({ role: "editable-owner", groupId: "gateway-runtime" });
+    expect(owners["mcp-servers"]).toMatchObject({ role: "editable-owner", groupId: "tools-approvals", fieldId: "mcpServers" });
+    expect(owners.memory).toMatchObject({ role: "feature-preview", groupId: "memory-experience" });
+    expect(owners.skills).toMatchObject({ role: "feature-preview", groupId: "skills" });
+    expect(owners.automations).toMatchObject({ role: "feature-preview", groupId: "automations" });
+
+    expect(validateDesktopSettingsConceptOwners(pane)).toEqual([]);
+    expect(pane.groups.find((group) => group.id === "provider-models")?.fields.find((field) => field.id === "profileId")).toMatchObject({
+      control: "readonly",
+      configurationMode: "readonly",
+    });
   });
 });
