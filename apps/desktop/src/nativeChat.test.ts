@@ -76,6 +76,7 @@ describe("native chat state", () => {
             argsText: "{\"path\":\"docs/desktop.md\"}",
             responseText: "file contents",
             kind: "result",
+            status: "completed",
           },
         ],
         references: [
@@ -218,6 +219,7 @@ describe("native chat state", () => {
             argsText: "{\"path\":\"README.md\"}",
             responseText: "README contents",
             kind: "result",
+            status: "completed",
           },
         ],
         timestamp: "2026-05-29T08:00:01Z",
@@ -386,6 +388,7 @@ describe("native chat state", () => {
             argsText: "",
             responseText: "stdout: done",
             kind: "result",
+            status: "completed",
           },
         ],
         timestamp: "2026-05-29T08:00:02Z",
@@ -561,6 +564,52 @@ describe("native chat state", () => {
       },
     ]);
     expect(state.messages.get(sessionKeyForChat("chat-1"))).toHaveLength(1);
+  });
+
+  test("keeps late live tool events before the streamed final answer", () => {
+    const state = createNativeChatState();
+    applyChatEvent(state, { kind: "attached", chatId: "chat-1", raw: {} });
+    applyChatEvent(state, {
+      kind: "message.delta",
+      chatId: "chat-1",
+      messageId: "answer-1",
+      text: "The workspace contains apps and docs.",
+      reasoning: false,
+      raw: {},
+    });
+    applyChatEvent(state, {
+      kind: "message.completed",
+      chatId: "chat-1",
+      messageId: "tool-list-1",
+      text: "AGENTS.md\napps/\ndocs/",
+      raw: {
+        _tool_result: true,
+        tool_call_id: "call-list",
+        _tool_name: "list_dir",
+        status: "completed",
+      },
+    });
+
+    expect(state.messages.get(sessionKeyForChat("chat-1"))).toMatchObject([
+      {
+        role: "assistant",
+        content: "",
+        messageId: "tool-list-1",
+        toolActivities: [
+          {
+            id: "call-list",
+            name: "list_dir",
+            responseText: "AGENTS.md\napps/\ndocs/",
+            status: "completed",
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: "The workspace contains apps and docs.",
+        messageId: "answer-1",
+      },
+    ]);
   });
 
   test("normalizes tool activity execution status for timeline rendering", () => {

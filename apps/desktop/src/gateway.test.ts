@@ -2715,6 +2715,43 @@ describe("gateway HTTP client", () => {
     }
   });
 
+  test("retries gateway bootstrap after an earlier bootstrap failure", async () => {
+    let bootstrapAttempts = 0;
+    const fetchFn = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
+      const path = new URL(String(url)).pathname;
+      if (path === "/webui/bootstrap") {
+        bootstrapAttempts += 1;
+        if (bootstrapAttempts === 1) {
+          throw new TypeError("Failed to fetch");
+        }
+        return new Response(JSON.stringify({ token: "token-2", token_ttl_s: 300 }), { status: 200 });
+      }
+      if (path === "/api/approvals") {
+        return new Response(JSON.stringify({ approvals: [] }), { status: 200 });
+      }
+      if (path === "/api/sessions/WebSocket%3Achat-live/messages") {
+        return new Response(JSON.stringify({ messages: [] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ error: "unexpected route" }), { status: 404 });
+    });
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+    });
+
+    await expect(client.tools.approvals()).rejects.toThrow("Gateway bootstrap failed: Failed to fetch");
+    await expect(client.sessions.messages("WebSocket:chat-live")).resolves.toEqual({ messages: [] });
+
+    expect(fetchFn.mock.calls.map((call) => String(call[0]))).toEqual([
+      "http://127.0.0.1:18790/webui/bootstrap",
+      "http://127.0.0.1:18790/webui/bootstrap",
+      "http://127.0.0.1:18790/api/sessions/WebSocket%3Achat-live/messages",
+    ]);
+    expect(fetchFn.mock.calls[2][1]).toMatchObject({
+      headers: expect.objectContaining({ Authorization: "Bearer token-2" }),
+    });
+  });
+
   test("bootstraps a fresh token and retries once when an authenticated request receives 401", async () => {
     const fetchFn = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
       const path = new URL(String(url)).pathname;

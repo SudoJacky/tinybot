@@ -4,6 +4,7 @@ import type {
   DesktopTaskActionId,
   DesktopTaskCenterItem,
 } from "../desktopTaskCenter";
+import { buildDesktopTaskCenterAttention } from "../desktopTaskCenter";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 import { renderTaskActionSurface } from "./taskActionIsland";
 import { renderTaskStateBadgeSurface } from "./taskStateBadgeIsland";
@@ -123,10 +124,7 @@ function taskCenterSummary(items: DesktopTaskCenterItem[]): string {
   if (!items.length) {
     return "0 tasks";
   }
-  const active = items.filter((item) => item.state === "active").length;
-  const blocked = items.filter((item) => item.state === "blocked").length;
-  const failed = items.filter((item) => item.state === "failed").length;
-  return `${items.length} tasks - ${active} active - ${blocked} blocked - ${failed} failed`;
+  return buildDesktopTaskCenterAttention(items).compactLabel;
 }
 
 function formatTaskSource(source: DesktopTaskCenterItem["source"]): string {

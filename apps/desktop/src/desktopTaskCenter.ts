@@ -1,3 +1,5 @@
+import { buildDesktopTaskCenterAttentionUx } from "./desktopNativeUx";
+
 export type DesktopTaskSource =
   | "chat"
   | "knowledge"
@@ -107,6 +109,8 @@ export interface DesktopTaskCenterItem {
   approval?: DesktopTaskApprovalAction;
 }
 
+export type DesktopTaskCenterAttention = ReturnType<typeof buildDesktopTaskCenterAttentionUx>;
+
 const ACTIVE_STATUSES = new Set(["active", "running", "streaming", "indexing", "starting", "refreshing", "saving", "uploading", "exporting", "pending"]);
 const BLOCKED_STATUSES = new Set(["blocked", "waiting", "requires_approval", "approval_required", "requires-approval", "approval-needed", "paused", "intervention-needed", "intervention_needed", "needs_intervention", "needs-intervention"]);
 const FAILED_STATUSES = new Set(["failed", "error", "conflict", "rejected", "timeout"]);
@@ -137,6 +141,10 @@ export function buildDesktopTaskCenterItems(input: DesktopTaskProjectionInput): 
     ...projectOperations("approval", input.approvals),
     ...projectOperations("failure", input.failures),
   ].sort(compareTaskItems);
+}
+
+export function buildDesktopTaskCenterAttention(items: DesktopTaskCenterItem[]): DesktopTaskCenterAttention {
+  return buildDesktopTaskCenterAttentionUx(items);
 }
 
 function projectOperations(source: DesktopTaskSource, operations: DesktopTaskSourceOperation[] = []): DesktopTaskCenterItem[] {

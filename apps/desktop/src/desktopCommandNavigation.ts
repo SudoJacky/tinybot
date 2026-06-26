@@ -15,6 +15,7 @@ export type DesktopMenuCommandId =
   | "open-shortcut-help"
   | "open-page-help"
   | "open-backend-logs"
+  | "open-safe-mode"
   | "toggle-theme"
   | "toggle-sidebar"
   | "open-command-palette"
@@ -72,9 +73,10 @@ export const DESKTOP_MENU_COMMANDS: DesktopMenuCommand[] = [
   { id: "open-shortcut-help", label: "Shortcut Help", chromeGroup: "secondary", shortcut: "Ctrl+/" },
   { id: "open-page-help", label: "Page Help", chromeGroup: "secondary", shortcut: "Ctrl+Shift+/" },
   { id: "open-backend-logs", label: "Backend Logs", chromeGroup: "secondary", shortcut: "" },
+  { id: "open-safe-mode", label: "Open browser-compatible WebUI", chromeGroup: "secondary", shortcut: "" },
   { id: "toggle-theme", label: "Toggle Theme", chromeGroup: "secondary", shortcut: "Ctrl+Shift+T" },
   { id: "toggle-sidebar", label: "Toggle Sidebar", chromeGroup: "secondary", shortcut: "Ctrl+B" },
-  { id: "open-command-palette", label: "Command Palette", chromeLabel: "Command", chromeGroup: "primary", shortcut: "Ctrl+Shift+P" },
+  { id: "open-command-palette", label: "Command Palette", chromeLabel: "Command", chromeGroup: "primary", shortcut: "Ctrl+Shift+P / Ctrl+K" },
   { id: "refresh-gateway-status", label: "Gateway Status", chromeGroup: "secondary", shortcut: "Ctrl+Shift+G" },
 ];
 
@@ -116,6 +118,7 @@ const DESKTOP_HELP_COMMAND_IDS: DesktopMenuCommandId[] = [
   "open-shortcut-help",
   "open-page-help",
   "open-backend-logs",
+  "open-safe-mode",
   "open-tinybot-repo",
 ];
 
@@ -163,6 +166,8 @@ export function routeDesktopMenuCommand(id: string, context: DesktopMenuCommandC
       return { kind: "action", action: "open-page-help" };
     case "open-backend-logs":
       return { kind: "action", action: "open-backend-logs" };
+    case "open-safe-mode":
+      return { kind: "navigate", href: "/?desktop-workbench=root" };
     case "toggle-theme":
       return { kind: "action", action: "set-theme", value: context.theme === "dark" ? "light" : "dark" };
     case "toggle-sidebar":
@@ -244,6 +249,9 @@ export function resolveDesktopShortcutCommand(event: DesktopShortcutLike): Deskt
     return "toggle-sidebar";
   }
   if (shift && key === "p") {
+    return "open-command-palette";
+  }
+  if (!shift && key === "k") {
     return "open-command-palette";
   }
   if (shift && key === "g") {

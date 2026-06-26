@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { buildDesktopTaskCenterItems } from "./desktopTaskCenter";
+import { buildDesktopTaskCenterAttention, buildDesktopTaskCenterItems } from "./desktopTaskCenter";
 
 describe("desktop task center projection", () => {
   test("projects long-running module operations without replacing canonical records", () => {
@@ -138,6 +138,48 @@ describe("desktop task center projection", () => {
     expect(items.map((item) => [item.id, item.state, item.tone, item.actions.map((action) => action.id).join(",")])).toEqual([
       ["file:workspace:SOUL.md:save", "failed", "danger", "open,inspect,copyDiagnostics,dismiss"],
       ["file:export:trace", "completed", "complete", "open,dismiss"],
+    ]);
+  });
+
+  test("summarizes compact task attention and primary actions", () => {
+    const items = buildDesktopTaskCenterItems({
+      chatStreams: [
+        {
+          id: "chat:stream",
+          title: "Streaming response",
+          status: "streaming",
+          canonical: { module: "chat", href: "/chat" },
+          cancelable: true,
+        },
+      ],
+      approvals: [
+        {
+          id: "approval:tool",
+          title: "Approve shell command",
+          status: "waiting",
+          canonical: { module: "approvals", entityId: "tool", href: "/chat" },
+          approval: { approvalId: "tool", sessionKey: "WebSocket:chat" },
+        },
+      ],
+      fileOperations: [
+        {
+          id: "file:save",
+          title: "Save workspace file",
+          status: "failed",
+          canonical: { module: "workspace", href: "/workspace" },
+          retryable: true,
+        },
+      ],
+    });
+
+    const attention = buildDesktopTaskCenterAttention(items);
+
+    expect(attention.compactLabel).toBe("1 running · 1 blocked · 1 failed");
+    expect(attention.autoOpenReason).toBe("blocked");
+    expect(attention.rows.map((row) => `${row.id}:${row.primaryAction?.id}`)).toEqual([
+      "approval:tool:approveOnce",
+      "file:save:retry",
+      "chat:stream:cancel",
     ]);
   });
 });

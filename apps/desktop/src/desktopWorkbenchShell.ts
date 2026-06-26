@@ -787,12 +787,16 @@ function syncChatWorkbenchChrome(targetDocument: Document, chat: DesktopNativeCh
   const header = workbench.querySelector<HTMLElement>(".desktop-chat-header");
   const thread = workbench.querySelector<HTMLElement>(".desktop-conversation-thread");
   const workLens = workbench.querySelector<HTMLElement>(".desktop-work-lens-inline");
+  const composer = workbench.querySelector<HTMLElement>("#desktop-native-composer");
   const children = [header, thread].filter((child): child is HTMLElement => Boolean(child));
   if (!hasChatTimelineContent(targetDocument, chat)) {
     children.push(createChatWorkbenchEmptyState(targetDocument, []));
   }
   if (workLens) {
     children.push(workLens);
+  }
+  if (composer) {
+    children.push(composer);
   }
   workbench.replaceChildren(...children);
 }
@@ -1447,6 +1451,7 @@ function createMainRegion(
     workbenchChildren.push(createChatWorkbenchEmptyState(targetDocument, chatWorkItems));
   }
   workbenchChildren.push(createWorkLensInlineHost(targetDocument, layout.inspector.visible ? null : workLens, workLensActions));
+  workbenchChildren.push(createNativeComposerSurface(targetDocument, chat, chatActions));
   workbench.append(...workbenchChildren);
 
   const utilities = targetDocument.createElement("div");
@@ -1487,7 +1492,7 @@ function createMainRegion(
   if (canMountVueIsland(status)) {
     mountStatusStripIsland(status, { message: status.textContent });
   }
-  main.append(workbench, createNativeComposerSurface(targetDocument, chat, chatActions), utilities, status);
+  main.append(workbench, utilities, status);
   return main;
 }
 
@@ -8692,6 +8697,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       --desktop-chat-column-width: clamp(720px, calc(100vw - 240px), 1760px);
       --desktop-chat-gutter: clamp(16px, 2vw, 36px);
       --desktop-chat-composer-gutter: clamp(32px, 4vw, 72px);
+      --desktop-chat-composer-bottom-offset: 8px;
       margin: 0;
       min-height: 100vh;
       overflow: hidden;
@@ -10481,7 +10487,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       display: block;
       width: min(var(--desktop-chat-column-width), calc(100% - var(--desktop-chat-composer-gutter)));
       min-width: 0;
-      margin: 0 auto 10px;
+      margin: 0 auto var(--desktop-chat-composer-bottom-offset);
       border: 1px solid var(--border);
       border-radius: 24px;
       padding: 14px 8px 8px 14px;
@@ -11029,9 +11035,11 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       --desktop-composer-reserve: 36px;
       align-self: stretch;
       display: grid;
-      grid-template-rows: auto minmax(0, 1fr);
-      gap: 0;
-      justify-items: center;
+      grid-template-columns: minmax(0, 1fr) 0;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      column-gap: 0;
+      row-gap: 0;
+      justify-items: stretch;
       width: 100%;
       max-width: none;
       height: 100%;
@@ -11040,6 +11048,15 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       padding: 0 var(--desktop-chat-gutter);
       overflow: hidden;
       background: #f7f7f5;
+      transition:
+        column-gap 520ms cubic-bezier(0.16, 1, 0.3, 1),
+        grid-template-columns 520ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    body.desktop-native-workbench .desktop-chat-workbench:has(.desktop-conversation-body-layout[data-detail-panel-mode="push"][data-detail-panel-state="opening"]),
+    body.desktop-native-workbench .desktop-chat-workbench:has(.desktop-conversation-body-layout[data-detail-panel-mode="push"][data-detail-panel-state="open"]) {
+      column-gap: 18px;
+      grid-template-columns: minmax(0, 1fr) minmax(300px, var(--desktop-tool-detail-width, 50%));
     }
 
     body.desktop-native-workbench .desktop-chat-workbench > span,
@@ -11076,6 +11093,9 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-chat-header {
+      grid-column: 1;
+      grid-row: 1;
+      justify-self: center;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -11295,16 +11315,11 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-conversation-thread {
-      display: grid;
-      align-content: start;
-      justify-items: stretch;
-      gap: 10px;
-      width: min(var(--desktop-chat-column-width), 100%);
-      min-height: 0;
-      margin: 0 auto;
-      padding: 18px 0 var(--desktop-composer-reserve);
-      overflow-y: auto;
-      overflow-x: hidden;
+      display: contents;
+    }
+
+    body.desktop-native-workbench .desktop-conversation-thread > .n-config-provider {
+      display: contents;
     }
 
     body.desktop-native-workbench .desktop-conversation-message {
@@ -11594,41 +11609,46 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       color: #625d57;
     }
 
+    body.desktop-native-workbench .desktop-conversation-body-layout {
+      display: contents;
+    }
+
     body.desktop-native-workbench .desktop-conversation-layout {
+      grid-column: 1;
+      grid-row: 2;
+      justify-self: center;
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 0;
-      align-items: start;
-      gap: 18px 0;
+      align-content: start;
       min-width: 0;
-      width: 100%;
-      transition:
-        column-gap 520ms cubic-bezier(0.16, 1, 0.3, 1),
-        grid-template-columns 520ms cubic-bezier(0.16, 1, 0.3, 1);
-    }
-
-    body.desktop-native-workbench .desktop-conversation-layout[data-detail-panel-state="open"] {
-      column-gap: 18px;
-      grid-template-columns: minmax(0, 1fr) minmax(300px, var(--desktop-tool-detail-width, 50%));
-    }
-
-    body.desktop-native-workbench .desktop-conversation-layout[data-detail-panel-state="closing"] {
-      column-gap: 0;
-      grid-template-columns: minmax(0, 1fr) 0;
+      min-height: 0;
+      width: min(var(--desktop-chat-column-width), 100%);
+      height: 100%;
+      padding: 18px 0 var(--desktop-composer-reserve);
+      overflow: hidden;
     }
 
     body.desktop-native-workbench .desktop-conversation-timeline {
       display: grid;
+      align-content: start;
       gap: 6px;
       min-width: 0;
+      min-height: 0;
       width: 100%;
+      overflow-y: auto;
+      overflow-x: hidden;
     }
 
     body.desktop-native-workbench .desktop-detail-panel-slot {
-      position: sticky;
-      top: 0;
-      align-self: start;
+      grid-column: 2;
+      grid-row: 2 / 4;
+      position: relative;
+      align-self: stretch;
+      box-sizing: border-box;
       z-index: 3;
       min-width: 0;
+      min-height: 0;
+      height: 100%;
+      padding-bottom: var(--desktop-chat-composer-bottom-offset);
       opacity: 0;
       overflow: visible;
       pointer-events: none;
@@ -11949,7 +11969,9 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       grid-template-rows: auto auto auto minmax(0, 1fr);
       width: 100%;
       min-width: 300px;
-      max-height: calc(100vh - 190px);
+      height: 100%;
+      min-height: 0;
+      max-height: none;
       overflow: hidden;
       border: 1px solid var(--border, #e6dfd8);
       border-radius: 10px;
@@ -12634,9 +12656,12 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-native-composer {
       position: relative;
+      grid-column: 1;
+      grid-row: 3;
+      justify-self: center;
       width: min(var(--desktop-chat-column-width), calc(100% - var(--desktop-chat-composer-gutter)));
       min-height: 0;
-      margin: 0 auto 8px;
+      margin: 0 auto var(--desktop-chat-composer-bottom-offset);
       border-color: #ddd5cd;
       border-radius: 24px;
       padding: 14px 8px 8px 14px;

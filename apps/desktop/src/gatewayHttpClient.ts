@@ -262,12 +262,21 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
       }
       return trackSession(result.session);
     });
+  const createBootstrapSessionPromise = () => {
+    const next = startBootstrap().catch((error) => {
+      if (sessionPromise === next) {
+        sessionPromise = null;
+      }
+      throw error;
+    });
+    return next;
+  };
   const getSession = async (sessionOptions: { forceBootstrap?: boolean } = {}) => {
     if (sessionOptions.forceBootstrap) {
-      sessionPromise = startBootstrap();
+      sessionPromise = createBootstrapSessionPromise();
       return sessionPromise;
     }
-    sessionPromise ??= startBootstrap();
+    sessionPromise ??= createBootstrapSessionPromise();
     const session = await sessionPromise;
     if (!shouldRefreshSession(session)) {
       return session;
@@ -277,7 +286,9 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         if (result.ok) {
           return trackSession(result.session);
         }
-        return startBootstrap();
+        const nextSessionPromise = createBootstrapSessionPromise();
+        sessionPromise = nextSessionPromise;
+        return nextSessionPromise;
       })
       .then((nextSession) => {
         sessionPromise = Promise.resolve(nextSession);

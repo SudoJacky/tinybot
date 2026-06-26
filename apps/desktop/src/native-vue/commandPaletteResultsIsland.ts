@@ -58,6 +58,13 @@ function renderResultButton(result: DesktopCommandPaletteResult, selected: boole
     default: () => [
       h(NText, { strong: true, tag: "strong" }, { default: () => result.title }),
       h(NText, { depth: 3, tag: "span" }, { default: () => [result.group, result.secondary].filter(Boolean).join(" / ") }),
+      result.actions.length
+        ? h(NText, {
+          class: "desktop-command-palette-result-actions",
+          depth: 3,
+          tag: "span",
+        }, { default: () => result.actions.map((action) => action.label).join(" / ") })
+        : null,
     ],
   });
 }
