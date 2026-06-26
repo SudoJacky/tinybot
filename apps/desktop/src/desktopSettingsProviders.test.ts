@@ -742,6 +742,64 @@ describe("desktop settings and provider helpers", () => {
     expect(fields["memory-experience.memory"]).toMatchObject({ control: "readonly", requirement: "readonly", configurationMode: "readonly" });
   });
 
+  test("classifies checkbox fields by commit behavior and risk treatment", () => {
+    const state = buildDesktopSettingsFormState({
+      knowledge: {
+        enabled: true,
+        auto_retrieve: true,
+        rerank_enabled: false,
+        graph_extraction_enabled: false,
+        graph_auto_extract: false,
+      },
+      tools: {
+        web: { enable: true },
+        exec: { enable: false },
+        restrict_to_workspace: true,
+      },
+      channels: {
+        send_progress: true,
+        send_tool_hints: true,
+      },
+      gateway: {
+        heartbeat: { enabled: true },
+      },
+    });
+
+    const pane = buildDesktopSettingsPaneModel(state);
+    const fields = Object.fromEntries(pane.groups.flatMap((group) =>
+      group.fields.map((field) => [`${group.id}.${field.id}`, field] as const),
+    ));
+
+    expect(fields["knowledge.enabled"]).toMatchObject({ commitMode: "auto" });
+    expect(fields["knowledge.autoRetrieve"]).toMatchObject({ commitMode: "auto" });
+    expect(fields["tools-approvals.webEnable"]).toMatchObject({ commitMode: "auto" });
+    expect(fields["channels.sendProgress"]).toMatchObject({ commitMode: "auto" });
+    expect(fields["channels.sendToolHints"]).toMatchObject({ commitMode: "auto" });
+    expect(fields["gateway-runtime.heartbeat"]).toMatchObject({ commitMode: "auto" });
+
+    expect(fields["tools-approvals.execEnable"]).toMatchObject({
+      commitMode: "auto",
+      confirmation: expect.objectContaining({ when: "enable" }),
+    });
+    expect(fields["tools-approvals.restrictToWorkspace"]).toMatchObject({
+      commitMode: "auto",
+      confirmation: expect.objectContaining({ when: "disable" }),
+    });
+    expect(fields["knowledge.graphAutoExtract"]).toMatchObject({
+      commitMode: "auto",
+      confirmation: expect.objectContaining({ when: "enable" }),
+    });
+
+    expect(fields["knowledge.rerankEnabled"]).toMatchObject({
+      commitMode: "auto",
+      notice: expect.stringContaining("latency"),
+    });
+    expect(fields["knowledge.graphExtractionEnabled"]).toMatchObject({
+      commitMode: "auto",
+      notice: expect.stringContaining("Graph extraction"),
+    });
+  });
+
   test("disables dependent Knowledge controls when parent features are off", () => {
     const state = buildDesktopSettingsFormState({
       agents: { defaults: { model: "deepseek-chat" } },

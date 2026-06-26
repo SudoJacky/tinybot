@@ -23,6 +23,9 @@ describe("desktop settings experience stylesheet", () => {
     expect(desktopSettingsCss).toContain('.desktop-settings-nav-item[data-active="true"]::before');
     expect(desktopSettingsCss).toContain(".desktop-settings-save-status-button:not(:disabled)");
     expect(desktopSettingsCss).toContain(":focus-visible");
+    expect(desktopSettingsCss).toMatch(
+      /\.desktop-workbench-sidebar\s+\.desktop-settings-sidebar:focus-within\s*\{[\s\S]*?box-shadow:\s*none;/,
+    );
     expect(desktopSettingsCss).toContain("@media (prefers-reduced-motion: reduce)");
   });
 
@@ -67,6 +70,40 @@ describe("desktop settings experience stylesheet", () => {
     expect(desktopSettingsCss).toContain("grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr))");
     expect(desktopSettingsCss).toContain("width: 100%");
     expect(desktopSettingsCss).toContain("min-width: 0");
+  });
+
+  test("collapses provider settings at constrained content widths", () => {
+    expect(desktopSettingsCss).toMatch(
+      /\.desktop-settings-content\s*\{[\s\S]*?align-content:\s*start;/,
+    );
+    expect(desktopSettingsCss).toContain("container-type: inline-size");
+    expect(desktopSettingsCss).toContain("@container desktop-settings-content (max-width: 880px)");
+    expect(desktopSettingsCss).toMatch(
+      /\.desktop-settings-header,\s*[\s\S]*?\.desktop-settings-provider-header\s*\{[\s\S]*?justify-content:\s*start;[\s\S]*?min-height:\s*0;/,
+    );
+    expect(desktopSettingsCss).toMatch(
+      /\.desktop-settings-save-region\s*\{[\s\S]*?flex:\s*0\s+1\s+auto;/,
+    );
+    expect(desktopSettingsCss).toMatch(
+      /\.desktop-settings-provider-page\s*\{\s*grid-template-columns:\s*minmax\(0,\s*1fr\);/,
+    );
+    expect(desktopSettingsCss).toMatch(
+      /\.desktop-settings-provider-detail-panel\s*\{[\s\S]*?position:\s*static;[\s\S]*?max-height:\s*none;/,
+    );
+    expect(desktopSettingsCss).toContain("grid-template-columns: minmax(0, 1fr) repeat(3, minmax(0, max-content))");
+    expect(desktopSettingsCss).toContain("overflow-wrap: anywhere");
+  });
+
+  test("shows local settings navigation only when the workbench sidebar is hidden", () => {
+    expect(desktopSettingsCss).toMatch(
+      /\.desktop-settings-local-nav\s*\{[\s\S]*?display:\s*none;/,
+    );
+    expect(desktopSettingsCss).toContain('.desktop-workbench-shell[data-sidebar-visible="false"] .desktop-settings-local-nav');
+    expect(desktopSettingsCss).toMatch(
+      /\.desktop-workbench-shell\[data-sidebar-visible="false"\]\s+\.desktop-settings-local-nav\s*\{[\s\S]*?display:\s*grid;/,
+    );
+    expect(desktopSettingsCss).toContain(".desktop-settings-local-nav-current");
+    expect(desktopSettingsCss).toContain(".desktop-settings-local-nav-restore");
   });
 
   test("uses shared desktop design tokens instead of a light-theme-only palette", () => {

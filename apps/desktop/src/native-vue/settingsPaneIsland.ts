@@ -193,11 +193,21 @@ function createSettingsPaneApp(state: Ref<SettingsPaneIslandOptions>, host: HTML
           });
         }
       };
+      const onDocumentClick = (event: Event) => {
+        const ElementCtor = host.ownerDocument.defaultView?.Element ?? Element;
+        const target = event.target;
+        if (target instanceof ElementCtor && target.closest(".desktop-settings-local-nav")) {
+          return;
+        }
+        closeSettingsLocalNavigationMenus(host.ownerDocument);
+      };
       onMounted(() => {
         host.ownerDocument.addEventListener(SETTINGS_GROUP_SELECT_EVENT, onExternalGroupSelected);
+        host.ownerDocument.addEventListener("click", onDocumentClick);
       });
       onBeforeUnmount(() => {
         host.ownerDocument.removeEventListener(SETTINGS_GROUP_SELECT_EVENT, onExternalGroupSelected);
+        host.ownerDocument.removeEventListener("click", onDocumentClick);
       });
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
         default: () => {
@@ -215,6 +225,7 @@ function createSettingsPaneApp(state: Ref<SettingsPaneIslandOptions>, host: HTML
               setActiveGroupId,
             );
           const content = h("div", { class: "desktop-settings-content" }, [
+              mode === "content" ? renderLocalNavigationFallback(options.pane, selectedGroupId, setActiveGroupId, host.ownerDocument) : null,
               renderHeader(options, selectedGroupId),
               renderSaveAlert(options),
               renderActiveSettingsSection(
@@ -285,21 +296,34 @@ function renderHeader(
 ) {
   const pane = options.pane;
   const activeGroup = getActiveSettingsGroup(pane, activeGroupId);
+  const saveRegion = renderSaveRegion(options);
   return h("header", { class: "desktop-settings-header" }, [
     h("div", { class: "desktop-settings-breadcrumb" }, [
       h("h2", activeGroup?.label ?? "General"),
       activeGroup ? h("p", { class: "desktop-settings-header-description" }, getSettingsGroupDescription(activeGroup)) : null,
     ]),
-    h("div", { class: "desktop-settings-save-region" }, [
-      renderSaveStatus(options),
-      renderSaveButton(options),
-    ]),
+    saveRegion,
+  ]);
+}
+
+function renderSaveRegion(options: SettingsPaneIslandOptions) {
+  const saveStatus = renderSaveStatus(options);
+  const saveButton = renderSaveButton(options);
+  if (!saveStatus && !saveButton) {
+    return null;
+  }
+  return h("div", { class: "desktop-settings-save-region" }, [
+    saveStatus,
+    saveButton,
   ]);
 }
 
 function renderSaveStatus(options: SettingsPaneIslandOptions) {
   const pane = options.pane;
   const saveDetails = renderSaveDetails(options);
+  if (!saveDetails && !pane.dirty && pane.save.status !== "saving" && pane.save.status !== "failed") {
+    return null;
+  }
   return h("div", {
     class: "desktop-settings-save-status",
     "data-desktop-settings-status": "save",
@@ -480,6 +504,35 @@ function renderDirtySummary(options: SettingsPaneIslandOptions) {
       onClick: () => options.onSettingsAction?.({ action: "reset", pane }),
     }, "Reset"),
   ]);
+}
+
+function renderLocalNavigationFallback(
+  pane: DesktopSettingsPaneModel,
+  activeGroupId: DesktopSettingsPaneGroup["id"],
+  setActiveGroupId: (groupId: DesktopSettingsPaneGroup["id"]) => void,
+  targetDocument: Document,
+) {
+  const activeGroup = getActiveSettingsGroup(pane, activeGroupId);
+  return h("nav", {
+    class: "desktop-settings-local-nav",
+    "aria-label": "Settings navigation fallback",
+  }, [
+    h("details", { class: "desktop-settings-local-nav-menu" }, [
+      h("summary", { class: "desktop-settings-local-nav-current" }, activeGroup?.label ?? "Settings"),
+      h("div", { class: "desktop-settings-local-nav-list" }, renderNavigation(pane.groups, activeGroupId, setActiveGroupId)),
+    ]),
+    h("button", {
+      type: "button",
+      class: "desktop-settings-local-nav-restore",
+      "data-desktop-settings-action": "showSidebarNav",
+      onClick: () => showDesktopSettingsSidebarNavigation(targetDocument),
+    }, "Show settings nav"),
+  ]);
+}
+
+function showDesktopSettingsSidebarNavigation(targetDocument: Document): void {
+  targetDocument.getElementById("desktop-workbench-shell")?.setAttribute("data-sidebar-visible", "true");
+  targetDocument.querySelector<HTMLElement>('[data-workbench-region="sidebar"]')?.setAttribute("data-visible", "true");
 }
 
 function renderNavigation(
@@ -1483,11 +1536,22 @@ function renderSettingsField(
       h("label", { for: `desktop-settings-${field.id}` }, `${field.label}: `),
       h("span", { class: "desktop-settings-field-description" }, getSettingsFieldDescription(group.id, field)),
       renderSettingsFieldMeta(field),
+      renderSettingsFieldNotice(field),
     ]),
     renderSettingsControl(options, field),
     renderSecretControls(options, field),
     renderSettingsFieldError(options.pane, field),
   ]);
+}
+
+function renderSettingsFieldNotice(field: DesktopSettingsPaneField) {
+  if (!field.notice) {
+    return null;
+  }
+  return h("span", {
+    class: "desktop-settings-field-notice",
+    "data-desktop-settings-field-notice": field.id,
+  }, field.notice);
 }
 
 function renderSecretControls(
@@ -1568,12 +1632,24 @@ function renderSettingsControl(options: SettingsPaneIslandOptions, field: Deskto
     disabled: field.disabled ? true : undefined,
   };
   if (field.control === "checkbox") {
-    return h("input", {
+    const checked = Boolean(field.checked);
+    const nextChecked = !checked;
+    return h("button", {
       ...commonAttrs,
-      type: "checkbox",
-      checked: Boolean(field.checked),
-      onChange: (event: Event) => emitEdit(options, field.id, Boolean((event.target as HTMLInputElement | null)?.checked)),
-    });
+      type: "button",
+      class: "desktop-settings-switch",
+      role: "switch",
+      "aria-checked": checked ? "true" : "false",
+      "aria-label": `${field.label}: ${checked ? "On" : "Off"}`,
+      "data-state": checked ? "on" : "off",
+      "data-commit-mode": field.commitMode ?? "manual",
+      onClick: () => handleSettingsSwitchChange(options, field, nextChecked),
+    }, [
+      h("span", { class: "desktop-settings-switch-track", "aria-hidden": "true" }, [
+        h("span", { class: "desktop-settings-switch-thumb" }),
+      ]),
+      h("span", { class: "desktop-settings-switch-text" }, checked ? "On" : "Off"),
+    ]);
   }
   if (field.control === "select") {
     const values = field.options?.length ? field.options : [{ value: field.inputValue, label: field.inputValue }];
@@ -1666,6 +1742,9 @@ function renderSettingsFieldMeta(field: DesktopSettingsPaneField) {
 }
 
 function renderSaveButton(options: SettingsPaneIslandOptions) {
+  if (!options.pane.dirty && !options.pane.save.canSave && options.pane.save.status !== "saving" && options.pane.save.status !== "failed") {
+    return null;
+  }
   return h("button", {
     class: "desktop-settings-save-status-button",
     type: "button",
@@ -1704,12 +1783,18 @@ function requestProviderModelDiscovery(options: SettingsPaneIslandOptions, provi
   });
 }
 
-function emitEdit(options: SettingsPaneIslandOptions, fieldId: string, value: string | boolean): void {
+function emitEdit(
+  options: SettingsPaneIslandOptions,
+  fieldId: string,
+  value: string | boolean,
+  commitMode?: DesktopSettingsPaneField["commitMode"],
+): void {
   options.onSettingsAction?.({
     action: "edit",
     pane: options.pane,
     fieldId,
     value,
+    commitMode,
   });
 }
 
@@ -1775,6 +1860,42 @@ function selectSettingsGroup(
 ): void {
   event.preventDefault();
   setActiveGroupId?.(groupId);
+  const target = event.currentTarget;
+  if (target instanceof HTMLElement) {
+    closeSettingsLocalNavigationMenus(target.ownerDocument);
+  }
+}
+
+function handleSettingsSwitchChange(
+  options: SettingsPaneIslandOptions,
+  field: DesktopSettingsPaneField,
+  nextChecked: boolean,
+): void {
+  if (!confirmSettingsSwitchChange(field, nextChecked)) {
+    return;
+  }
+  emitEdit(options, field.id, nextChecked, field.commitMode);
+}
+
+function confirmSettingsSwitchChange(field: DesktopSettingsPaneField, nextChecked: boolean): boolean {
+  const confirmation = field.confirmation;
+  if (!confirmation) {
+    return true;
+  }
+  const matchesDirection = confirmation.when === "change"
+    || (confirmation.when === "enable" && nextChecked)
+    || (confirmation.when === "disable" && !nextChecked);
+  if (!matchesDirection) {
+    return true;
+  }
+  const confirm = globalThis.confirm;
+  return typeof confirm === "function" ? confirm(confirmation.message) : true;
+}
+
+function closeSettingsLocalNavigationMenus(targetDocument: Document): void {
+  for (const menu of targetDocument.querySelectorAll<HTMLDetailsElement>(".desktop-settings-local-nav-menu[open]")) {
+    menu.removeAttribute("open");
+  }
 }
 
 function providerInitials(label: string): string {

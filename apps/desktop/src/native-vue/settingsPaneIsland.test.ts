@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { nextTick } from "vue";
 import {
   buildDesktopSettingsFormState,
@@ -47,6 +47,10 @@ const pane = buildDesktopSettingsPaneModel(draftState, {
 });
 
 describe("settings pane Vue island", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   test("renders redesigned General, Provider, and Knowledge task pages", async () => {
     const host = document.createElement("section");
     const actions: string[] = [];
@@ -505,6 +509,52 @@ describe("settings pane Vue island", () => {
 
     sidebarMounted.unmount();
     contentMounted.unmount();
+  });
+
+  test("keeps settings navigation available inside content mode when the workbench sidebar is hidden", async () => {
+    const shell = document.createElement("main");
+    shell.id = "desktop-workbench-shell";
+    shell.setAttribute("data-sidebar-visible", "false");
+    const sidebarPanel = document.createElement("aside");
+    sidebarPanel.setAttribute("data-workbench-region", "sidebar");
+    sidebarPanel.setAttribute("data-visible", "false");
+    const contentHost = document.createElement("section");
+    shell.append(sidebarPanel, contentHost);
+    document.body.append(shell);
+
+    const contentMounted = mountSettingsPaneIsland(contentHost, {
+      pane,
+      mode: "content",
+    });
+    await nextTick();
+
+    const localNav = contentHost.querySelector(".desktop-settings-local-nav");
+    const localNavMenu = localNav?.querySelector<HTMLDetailsElement>(".desktop-settings-local-nav-menu");
+    expect(localNav?.getAttribute("aria-label")).toBe("Settings navigation fallback");
+    expect(localNav?.querySelector(".desktop-settings-local-nav-current")?.textContent).toContain("General");
+    expect(localNav?.querySelector('[data-desktop-settings-nav="provider-models"]')?.textContent).toBe("Provider & Models");
+
+    localNavMenu?.setAttribute("open", "");
+    localNav?.querySelector<HTMLAnchorElement>('[data-desktop-settings-nav="provider-models"]')?.click();
+    await nextTick();
+
+    expect(contentHost.querySelector(".desktop-settings-breadcrumb h2")?.textContent).toBe("Provider & Models");
+    expect(localNav?.querySelector(".desktop-settings-local-nav-current")?.textContent).toContain("Provider & Models");
+    expect(localNavMenu?.hasAttribute("open")).toBe(false);
+
+    localNavMenu?.setAttribute("open", "");
+    document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await nextTick();
+
+    expect(localNavMenu?.hasAttribute("open")).toBe(false);
+
+    localNav?.querySelector<HTMLButtonElement>('[data-desktop-settings-action="showSidebarNav"]')?.click();
+
+    expect(shell.getAttribute("data-sidebar-visible")).toBe("true");
+    expect(sidebarPanel.getAttribute("data-visible")).toBe("true");
+
+    contentMounted.unmount();
+    shell.remove();
   });
 
   test("renders labels, descriptions, validation, dirty state, and save actions from the pane model", async () => {
@@ -1016,6 +1066,112 @@ describe("settings pane Vue island", () => {
     host.querySelector<HTMLButtonElement>('[data-desktop-settings-channel-action="setupIntegrations"]')?.click();
 
     expect(actions).toEqual(["setupChannelIntegrations"]);
+
+    mounted.unmount();
+  });
+
+  test("renders checkbox settings as switches with auto-save intent", async () => {
+    const host = document.createElement("section");
+    const actions: DesktopSettingsActionEvent[] = [];
+    const toolsState = buildDesktopSettingsFormState({
+      tools: {
+        web: { enable: false },
+        exec: { enable: false },
+        restrict_to_workspace: true,
+      },
+    }, providerCatalog);
+    const toolsPane = buildDesktopSettingsPaneModel(toolsState, {
+      lastSavedState: toolsState,
+      providerCatalog,
+    });
+
+    const mounted = mountSettingsPaneIsland(host, {
+      pane: toolsPane,
+      initialActiveGroupId: "tools-approvals",
+      onSettingsAction: (event: DesktopSettingsActionEvent) => {
+        actions.push(event);
+      },
+    });
+    await nextTick();
+
+    const webSwitch = host.querySelector<HTMLButtonElement>('[data-desktop-settings-control="webEnable"]');
+    expect(webSwitch?.getAttribute("role")).toBe("switch");
+    expect(webSwitch?.getAttribute("aria-checked")).toBe("false");
+    expect(webSwitch?.classList.contains("desktop-settings-switch")).toBe(true);
+
+    webSwitch?.click();
+
+    expect(actions).toContainEqual(expect.objectContaining({
+      action: "edit",
+      fieldId: "webEnable",
+      value: true,
+      commitMode: "auto",
+    }));
+
+    mounted.unmount();
+  });
+
+  test("requires confirmation only for risky switch directions", async () => {
+    const confirm = vi.fn(() => false);
+    vi.stubGlobal("confirm", confirm);
+    const host = document.createElement("section");
+    const actions: DesktopSettingsActionEvent[] = [];
+    const toolsState = buildDesktopSettingsFormState({
+      tools: {
+        exec: { enable: false },
+        restrict_to_workspace: true,
+      },
+    }, providerCatalog);
+    const toolsPane = buildDesktopSettingsPaneModel(toolsState, {
+      lastSavedState: toolsState,
+      providerCatalog,
+    });
+
+    const mounted = mountSettingsPaneIsland(host, {
+      pane: toolsPane,
+      initialActiveGroupId: "tools-approvals",
+      onSettingsAction: (event: DesktopSettingsActionEvent) => {
+        actions.push(event);
+      },
+    });
+    await nextTick();
+
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-control="execEnable"]')?.click();
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("local command execution"));
+    expect(actions).toEqual([]);
+
+    confirm.mockReturnValue(true);
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-control="execEnable"]')?.click();
+    expect(actions).toContainEqual(expect.objectContaining({
+      action: "edit",
+      fieldId: "execEnable",
+      value: true,
+      commitMode: "auto",
+    }));
+
+    mounted.unmount();
+  });
+
+  test("hides the disabled save button when there are no manual changes", async () => {
+    const host = document.createElement("section");
+    const toolsState = buildDesktopSettingsFormState({
+      tools: {
+        web: { enable: false },
+        exec: { enable: false },
+      },
+    }, providerCatalog);
+    const toolsPane = buildDesktopSettingsPaneModel(toolsState, {
+      lastSavedState: toolsState,
+      providerCatalog,
+    });
+
+    const mounted = mountSettingsPaneIsland(host, {
+      pane: toolsPane,
+      initialActiveGroupId: "tools-approvals",
+    });
+    await nextTick();
+
+    expect(host.querySelector('[data-desktop-settings-action="save"]')).toBeNull();
 
     mounted.unmount();
   });

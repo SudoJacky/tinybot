@@ -247,6 +247,7 @@ export type DesktopSettingsActionEvent =
       pane: DesktopSettingsPaneModel;
       fieldId: string;
       value: string | boolean;
+      commitMode?: "manual" | "auto";
     };
 
 interface DesktopSettingsActionOptions {
@@ -5276,7 +5277,10 @@ function createSettingsProvidersPane(
 
   const renderActiveGroup = (groupId: DesktopSettingsPaneGroup["id"]) => {
     setDesktopSettingsActiveNav(targetDocument, groupId);
-    content.replaceChildren(...createSettingsActivePage(targetDocument, pane, settingsActions, groupId));
+    content.replaceChildren(
+      createSettingsLocalNavigationFallback(targetDocument, pane, groupId, renderActiveGroup),
+      ...createSettingsActivePage(targetDocument, pane, settingsActions, groupId),
+    );
   };
 
   renderActiveGroup(activeGroupId);
@@ -5295,7 +5299,61 @@ function renderFallbackSettingsContent(
     return;
   }
   setDesktopSettingsActiveNav(targetDocument, activeGroupId);
-  content.replaceChildren(...createSettingsActivePage(targetDocument, pane, settingsActions, activeGroupId));
+  const renderActiveGroup = (groupId: DesktopSettingsPaneGroup["id"]) => {
+    renderFallbackSettingsContent(targetDocument, pane, settingsActions, groupId);
+  };
+  content.replaceChildren(
+    createSettingsLocalNavigationFallback(targetDocument, pane, activeGroupId, renderActiveGroup),
+    ...createSettingsActivePage(targetDocument, pane, settingsActions, activeGroupId),
+  );
+}
+
+function createSettingsLocalNavigationFallback(
+  targetDocument: Document,
+  pane: DesktopSettingsPaneModel,
+  activeGroupId: DesktopSettingsPaneGroup["id"],
+  onSelectGroup: (groupId: DesktopSettingsPaneGroup["id"]) => void,
+): HTMLElement {
+  const activeGroup = getDesktopSettingsActiveGroup(pane, activeGroupId);
+  const nav = targetDocument.createElement("nav");
+  nav.className = "desktop-settings-local-nav";
+  nav.setAttribute("aria-label", "Settings navigation fallback");
+
+  const menu = targetDocument.createElement("details");
+  menu.className = "desktop-settings-local-nav-menu";
+  const summary = createText(targetDocument, "summary", activeGroup?.label ?? "Settings");
+  summary.className = "desktop-settings-local-nav-current";
+  const list = targetDocument.createElement("div");
+  list.className = "desktop-settings-local-nav-list";
+
+  for (const group of pane.groups) {
+    const item = targetDocument.createElement("a");
+    item.className = "desktop-settings-nav-item";
+    item.setAttribute("href", "#");
+    item.setAttribute("data-desktop-settings-nav", group.id);
+    if (group.id === activeGroupId) {
+      item.setAttribute("data-active", "true");
+      item.setAttribute("aria-current", "page");
+    }
+    item.textContent = getSettingsNavLabel(group.id);
+    item.addEventListener("click", (event) => {
+      selectDesktopSettingsGroup(event, targetDocument, group.id, onSelectGroup);
+      menu.removeAttribute("open");
+    });
+    list.append(item);
+  }
+
+  menu.append(summary, list);
+  const restore = targetDocument.createElement("button");
+  restore.className = "desktop-settings-local-nav-restore";
+  restore.setAttribute("type", "button");
+  restore.setAttribute("data-desktop-settings-action", "showSidebarNav");
+  restore.textContent = "Show settings nav";
+  restore.addEventListener("click", () => {
+    setDesktopPanelVisible(targetDocument, "sidebar", true);
+  });
+  nav.append(menu, restore);
+  return nav;
 }
 
 function createSettingsActivePage(
@@ -5346,7 +5404,11 @@ function createSettingsPageHeader(
     description.className = "desktop-settings-header-description";
     breadcrumb.append(description);
   }
-  header.append(breadcrumb, createSettingsSaveButton(targetDocument, pane, settingsActions));
+  header.append(breadcrumb);
+  const saveButton = createSettingsSaveButton(targetDocument, pane, settingsActions);
+  if (saveButton) {
+    header.append(saveButton);
+  }
   return header;
 }
 
@@ -5354,7 +5416,10 @@ function createSettingsSaveButton(
   targetDocument: Document,
   pane: DesktopSettingsPaneModel,
   settingsActions: DesktopSettingsActionOptions,
-): HTMLElement {
+): HTMLElement | null {
+  if (!pane.dirty && !pane.save.canSave && pane.save.status !== "saving" && pane.save.status !== "failed") {
+    return null;
+  }
   const save = targetDocument.createElement("button");
   save.className = "desktop-settings-save-status-button";
   save.setAttribute("type", "button");
@@ -6223,6 +6288,12 @@ function createDesktopSettingsFieldRow(
   const help = createText(targetDocument, "span", getSettingsFieldDescription(group.id, field.id, field.value));
   help.className = "desktop-settings-field-description";
   copy.append(label, help, createDesktopSettingsFieldMeta(targetDocument, field));
+  if (field.notice) {
+    const notice = createText(targetDocument, "span", field.notice);
+    notice.className = "desktop-settings-field-notice";
+    notice.setAttribute("data-desktop-settings-field-notice", field.id);
+    copy.append(notice);
+  }
   row.append(copy, createDesktopSettingsControl(targetDocument, pane, field, settingsActions));
   return row;
 }
@@ -6275,17 +6346,43 @@ function createDesktopSettingsControl(
   }
 
   if (field.control === "checkbox") {
-    (control as HTMLInputElement).type = "checkbox";
-    (control as HTMLInputElement).checked = Boolean(field.checked);
-    control.addEventListener("change", (event) => {
+    const checked = Boolean(field.checked);
+    const button = targetDocument.createElement("button");
+    button.className = "desktop-settings-switch";
+    button.setAttribute("id", `desktop-settings-${field.id}`);
+    button.setAttribute("type", "button");
+    button.setAttribute("role", "switch");
+    button.setAttribute("aria-checked", checked ? "true" : "false");
+    button.setAttribute("aria-label", `${field.label}: ${checked ? "On" : "Off"}`);
+    button.setAttribute("data-desktop-settings-control", field.id);
+    button.setAttribute("data-state", checked ? "on" : "off");
+    button.setAttribute("data-commit-mode", field.commitMode ?? "manual");
+    if (field.disabled) {
+      button.setAttribute("disabled", "true");
+    }
+    const track = targetDocument.createElement("span");
+    track.className = "desktop-settings-switch-track";
+    track.setAttribute("aria-hidden", "true");
+    const thumb = targetDocument.createElement("span");
+    thumb.className = "desktop-settings-switch-thumb";
+    track.append(thumb);
+    const text = createText(targetDocument, "span", checked ? "On" : "Off");
+    text.className = "desktop-settings-switch-text";
+    button.append(track, text);
+    button.addEventListener("click", () => {
+      const nextChecked = !checked;
+      if (!confirmDesktopSettingsSwitchChange(field, nextChecked)) {
+        return;
+      }
       settingsActions.onSettingsAction?.({
         action: "edit",
         pane,
         fieldId: field.id,
-        value: Boolean((event.target as HTMLInputElement | null)?.checked),
+        value: nextChecked,
+        commitMode: field.commitMode,
       });
     });
-    return control;
+    return button;
   }
 
   if (field.control === "number") {
@@ -6321,6 +6418,21 @@ function createDesktopSettingsControl(
     });
   });
   return control;
+}
+
+function confirmDesktopSettingsSwitchChange(field: DesktopSettingsPaneField, nextChecked: boolean): boolean {
+  const confirmation = field.confirmation;
+  if (!confirmation) {
+    return true;
+  }
+  const matchesDirection = confirmation.when === "change"
+    || (confirmation.when === "enable" && nextChecked)
+    || (confirmation.when === "disable" && !nextChecked);
+  if (!matchesDirection) {
+    return true;
+  }
+  const confirm = globalThis.confirm;
+  return typeof confirm === "function" ? confirm(confirmation.message) : true;
 }
 
 function desktopSettingsRequirementLabel(requirement: DesktopSettingsPaneField["requirement"]): string {
@@ -10485,14 +10597,14 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-workbench-shell {
-      grid-template-columns: 92px minmax(220px, 280px) minmax(0, 1fr) minmax(280px, 340px);
+      grid-template-columns: 92px minmax(220px, var(--desktop-sidebar-size, 260px)) minmax(0, 1fr) minmax(280px, 340px);
       grid-template-rows: minmax(0, 1fr) auto;
       border-top: 0;
-      background: #fbfaf7;
+      background: #f7f7f5;
     }
 
     body.desktop-native-workbench .desktop-workbench-shell[data-inspector-visible="false"] {
-      grid-template-columns: 92px minmax(220px, 280px) minmax(0, 1fr) 0;
+      grid-template-columns: 92px minmax(220px, var(--desktop-sidebar-size, 260px)) minmax(0, 1fr) 0;
     }
 
     body.desktop-native-workbench .desktop-workbench-shell[data-sidebar-visible="false"] {
@@ -10591,6 +10703,18 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       background: #f7f7f5;
     }
 
+    body.desktop-native-workbench .desktop-workbench-panel,
+    body.desktop-native-workbench .desktop-workbench-panel > .n-card__content,
+    body.desktop-native-workbench .desktop-workbench-panel-content {
+      height: 100%;
+      min-height: 0;
+      background: transparent;
+    }
+
+    body.desktop-native-workbench .desktop-workbench-panel > .n-card__content {
+      padding: 0;
+    }
+
     body.desktop-native-workbench .desktop-workbench-inspector {
       margin: 16px 16px 16px 0;
       border: 1px solid #e9e4df;
@@ -10608,7 +10732,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       padding: 18px 14px;
       overflow-y: auto;
       overflow-x: hidden;
-      background: #fbfaf7;
+      background: inherit;
     }
 
     body.desktop-native-workbench .desktop-sidebar-content > .desktop-workbench-section {
@@ -12858,6 +12982,65 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       cursor: pointer;
     }
 
+    body.desktop-native-workbench .desktop-settings-local-nav {
+      display: none;
+      align-items: center;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      min-width: 0;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: var(--radius-md, 8px);
+      padding: 8px;
+      background: var(--panel, #faf9f5);
+      box-shadow: var(--shadow-xs, 0 1px 2px rgba(15, 23, 42, 0.04));
+    }
+
+    body.desktop-native-workbench .desktop-workbench-shell[data-sidebar-visible="false"] .desktop-settings-local-nav {
+      display: grid;
+    }
+
+    body.desktop-native-workbench .desktop-settings-local-nav-menu {
+      position: relative;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-local-nav-current,
+    body.desktop-native-workbench .desktop-settings-local-nav-restore {
+      min-height: 34px;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: var(--radius-sm, 6px);
+      padding: 0 10px;
+      background: var(--bg, #fffdfa);
+      color: var(--text, #141413);
+      font: 700 12px/1.2 var(--font-sans);
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-settings-local-nav-current {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-local-nav-list {
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      z-index: 10;
+      display: grid;
+      gap: 3px;
+      width: min(320px, calc(100vw - 48px));
+      max-height: min(420px, 60vh);
+      overflow-y: auto;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: var(--radius-md, 8px);
+      padding: 6px;
+      background: var(--panel, #faf9f5);
+      box-shadow: var(--shadow-md, 0 12px 24px rgba(15, 23, 42, 0.1));
+    }
+
     body.desktop-native-workbench .desktop-settings-nav {
       display: grid;
       gap: 3px;
@@ -13838,6 +14021,71 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       justify-self: end;
     }
 
+    body.desktop-native-workbench .desktop-settings-field-notice {
+      display: block;
+      margin-top: 6px;
+      color: var(--text-muted, #6c6a64);
+      font: 600 11px/1.35 var(--font-sans);
+    }
+
+    body.desktop-native-workbench .desktop-settings-switch {
+      display: inline-grid;
+      grid-template-columns: 46px minmax(24px, auto);
+      align-items: center;
+      justify-self: end;
+      gap: 8px;
+      width: max-content;
+      min-width: 82px;
+      min-height: 32px;
+      border: 0;
+      padding: 0;
+      background: transparent;
+      color: var(--text-muted, #6c6a64);
+      font: 700 11px/1.2 var(--font-sans);
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-settings-switch:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    body.desktop-native-workbench .desktop-settings-switch-track {
+      position: relative;
+      display: block;
+      width: 46px;
+      height: 26px;
+      border-radius: 9999px;
+      background: var(--surface-cream-strong, #e8e0d2);
+      box-shadow: inset 0 0 0 1px rgba(20, 20, 19, 0.08);
+      transition: background 160ms ease, box-shadow 160ms ease;
+    }
+
+    body.desktop-native-workbench .desktop-settings-switch-thumb {
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 20px;
+      height: 20px;
+      border-radius: 9999px;
+      background: var(--panel, #faf9f5);
+      box-shadow: 0 1px 4px rgba(20, 20, 19, 0.18);
+      transition: transform 160ms ease;
+    }
+
+    body.desktop-native-workbench .desktop-settings-switch[data-state="on"] {
+      color: var(--text, #141413);
+    }
+
+    body.desktop-native-workbench .desktop-settings-switch[data-state="on"] .desktop-settings-switch-track {
+      background: var(--accent, #cc785c);
+      box-shadow: inset 0 0 0 1px rgba(153, 74, 49, 0.48);
+    }
+
+    body.desktop-native-workbench .desktop-settings-switch[data-state="on"] .desktop-settings-switch-thumb {
+      transform: translateX(20px);
+    }
+
     body.desktop-native-workbench .desktop-settings-field textarea {
       min-height: 76px;
       resize: vertical;
@@ -13914,6 +14162,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-settings-provider-advanced:focus-visible,
     body.desktop-native-workbench .desktop-settings-provider-card-actions button:focus-visible,
     body.desktop-native-workbench .desktop-settings-capability-card:focus-visible,
+    body.desktop-native-workbench .desktop-settings-switch:focus-visible,
     body.desktop-native-workbench .desktop-settings-nav-item:focus-visible,
     body.desktop-native-workbench .desktop-settings-inline-field select:focus-visible,
     body.desktop-native-workbench .desktop-settings-inline-field input:focus-visible,

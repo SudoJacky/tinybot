@@ -2217,6 +2217,12 @@ async function handleNativeSettingsAction(event: DesktopSettingsActionEvent): Pr
       saveDesktopSettingsLocalPreferences({ providerEditorSelectedProvider: String(event.value) });
     }
     nativeSettingsState = applyDesktopSettingsFieldEdit(nativeSettingsState, event.fieldId, event.value);
+    if (event.commitMode === "auto") {
+      updateNativeSettingsPane("idle");
+      await saveNativeSettingsPane();
+      logDesktopNativeDebug("settings.action.complete", { action: event.action, fieldId: event.fieldId, commitMode: event.commitMode });
+      return;
+    }
     updateNativeSettingsPane("idle");
     logDesktopNativeDebug("settings.action.complete", { action: event.action, fieldId: event.fieldId });
     return;

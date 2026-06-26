@@ -179,6 +179,13 @@ export type DesktopSettingsPaneFieldConfigurationMode =
   | "url";
 export type DesktopSettingsEditableValue = string | boolean;
 export type DesktopSettingsPaneApplyEffect = "immediate" | "gateway-restart" | "workspace-reload";
+export type DesktopSettingsPaneCommitMode = "manual" | "auto";
+export type DesktopSettingsPaneConfirmationWhen = "enable" | "disable" | "change";
+
+export interface DesktopSettingsPaneFieldConfirmation {
+  when: DesktopSettingsPaneConfirmationWhen;
+  message: string;
+}
 
 export interface DesktopSettingsPaneFieldOption {
   value: string;
@@ -195,6 +202,9 @@ export interface DesktopSettingsPaneFieldMetadata {
   applyEffect?: DesktopSettingsPaneApplyEffect;
   unit?: string;
   recommendation?: string;
+  commitMode?: DesktopSettingsPaneCommitMode;
+  confirmation?: DesktopSettingsPaneFieldConfirmation;
+  notice?: string;
 }
 
 export interface DesktopSettingsPaneGroupMetadata {
@@ -220,6 +230,9 @@ export interface DesktopSettingsPaneField {
   applyEffect?: DesktopSettingsPaneApplyEffect;
   unit?: string;
   recommendation?: string;
+  commitMode?: DesktopSettingsPaneCommitMode;
+  confirmation?: DesktopSettingsPaneFieldConfirmation;
+  notice?: string;
   value: string;
   state: "normal" | "invalid";
   control: DesktopSettingsPaneFieldControl;
@@ -437,6 +450,40 @@ const DESKTOP_SETTINGS_FIELD_METADATA: Record<string, DesktopSettingsPaneFieldMe
     unit: "TCP port",
     i18nKey: "settings.fields.gateway-runtime.port",
   },
+};
+
+const DESKTOP_SETTINGS_AUTO_COMMIT_FIELDS = new Set([
+  "knowledge.enabled",
+  "knowledge.autoRetrieve",
+  "knowledge.rerankEnabled",
+  "knowledge.graphExtractionEnabled",
+  "knowledge.graphAutoExtract",
+  "tools-approvals.webEnable",
+  "tools-approvals.execEnable",
+  "tools-approvals.restrictToWorkspace",
+  "channels.sendProgress",
+  "channels.sendToolHints",
+  "gateway-runtime.heartbeat",
+]);
+
+const DESKTOP_SETTINGS_FIELD_CONFIRMATIONS: Record<string, DesktopSettingsPaneFieldConfirmation> = {
+  "tools-approvals.execEnable": {
+    when: "enable",
+    message: "Enable local command execution for agent workflows? Only enable this when you trust the active workspace.",
+  },
+  "tools-approvals.restrictToWorkspace": {
+    when: "disable",
+    message: "Allow execution outside the workspace boundary? This broadens local file access for command workflows.",
+  },
+  "knowledge.graphAutoExtract": {
+    when: "enable",
+    message: "Enable automatic graph extraction? This can start background extraction work and may increase token usage.",
+  },
+};
+
+const DESKTOP_SETTINGS_FIELD_NOTICES: Record<string, string> = {
+  "knowledge.rerankEnabled": "Reranking can improve retrieval quality, but may add latency and requires the rerank settings to be valid.",
+  "knowledge.graphExtractionEnabled": "Graph extraction makes graph features available. Automatic background extraction is controlled separately.",
 };
 
 export function getDesktopSettingsGroupMetadata(
@@ -1992,6 +2039,9 @@ function buildDesktopSettingsPaneGroups(
       min?: number;
       max?: number;
       step?: number;
+      commitMode?: DesktopSettingsPaneCommitMode;
+      confirmation?: DesktopSettingsPaneFieldConfirmation;
+      notice?: string;
     } = {},
   ): DesktopSettingsPaneField => ({
     id,
@@ -2015,6 +2065,9 @@ function buildDesktopSettingsPaneGroups(
     min: config.min,
     max: config.max,
     step: config.step,
+    commitMode: config.commitMode,
+    confirmation: config.confirmation,
+    notice: config.notice,
   });
   const secretField = buildDesktopSecretField(state.providerEditor.apiKey);
   const providerEditorProviderId = state.providerEditor.selectedProvider || "deepseek";
@@ -2364,6 +2417,7 @@ function enrichDesktopSettingsPaneField(
   field: DesktopSettingsPaneField,
 ): DesktopSettingsPaneField {
   const metadata = getDesktopSettingsFieldMetadata(groupId, field.id);
+  const behavior = resolveDesktopSettingsFieldBehavior(groupId, field);
   const persistence = resolveDesktopSettingsPaneFieldPersistence(state, groupId, field);
   if (!metadata) {
     return {
@@ -2371,6 +2425,7 @@ function enrichDesktopSettingsPaneField(
       aliases: field.aliases ?? [],
       i18nKey: field.i18nKey ?? `settings.fields.${groupId}.${field.id}`,
       ...persistence,
+      ...behavior,
     };
   }
   return {
@@ -2385,6 +2440,21 @@ function enrichDesktopSettingsPaneField(
     applyEffect: metadata.applyEffect ?? persistence.applyEffect,
     unit: metadata.unit,
     recommendation: metadata.recommendation,
+    commitMode: metadata.commitMode ?? behavior.commitMode,
+    confirmation: metadata.confirmation ?? behavior.confirmation,
+    notice: metadata.notice ?? behavior.notice,
+  };
+}
+
+function resolveDesktopSettingsFieldBehavior(
+  groupId: DesktopSettingsPaneGroupId,
+  field: DesktopSettingsPaneField,
+): Pick<DesktopSettingsPaneField, "commitMode" | "confirmation" | "notice"> {
+  const key = `${groupId}.${field.id}`;
+  return {
+    commitMode: field.commitMode ?? (DESKTOP_SETTINGS_AUTO_COMMIT_FIELDS.has(key) ? "auto" : "manual"),
+    confirmation: field.confirmation ?? DESKTOP_SETTINGS_FIELD_CONFIRMATIONS[key],
+    notice: field.notice ?? DESKTOP_SETTINGS_FIELD_NOTICES[key],
   };
 }
 
