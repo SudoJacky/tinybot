@@ -201,19 +201,66 @@ function buildTimeline(input: DesktopChatWorkbenchProjectionInput): DesktopChatW
   const start = clampWindowStart(input.virtualWindow?.start ?? 0, total, size);
   const end = Math.min(total, start + size);
   const pendingFormIds = input.pendingFormIds ?? [];
-
+  const items: DesktopChatWorkbenchTimelineItem[] = [];
+  let pendingAttached = false;
+  const messages = input.messages;
+  let localIndex = 0;
+  for (let idx = start; idx < end;) {
+    const message = messages[idx];
+    // Non-assistant messages or final assistant messages are added directly
+    if (message.role !== 'assistant' || isFinalAssistantMessage(message)) {
+      items.push({
+        id: message.messageId || `message-${start + localIndex + 1}`,
+        role: message.role,
+        content: message.content,
+        reasoningVisible: Boolean(message.reasoningContent),
+        referenceCount: message.references?.length ?? 0,
+        toolCards: (message.toolActivities ?? []).map(toolCard),
+        formCards: pendingAttached ? [] : pendingFormIds.map((id) => ({ id, state: "pending" as const })),
+      });
+      pendingAttached = true;
+      idx++;
+      localIndex++;
+      continue;
+    }
+    // Collect run-chain messages until a final assistant message is reached
+    const chainMessages: NativeChatMessage[] = [];
+    while (idx < end && !isFinalAssistantMessage(messages[idx])) {
+      chainMessages.push(messages[idx]);
+      idx++;
+    }
+    const aggregatedActivities = chainMessages.flatMap((msg) => msg.toolActivities ?? []);
+    const chainId = chainMessages[0]?.messageId || `chain-${start + items.length + 1}`;
+    items.push({
+      id: chainId,
+      role: 'assistant',
+      content: '',
+      reasoningVisible: false,
+      referenceCount: 0,
+      toolCards: aggregatedActivities.map(toolCard),
+      formCards: pendingAttached ? [] : pendingFormIds.map((id) => ({ id, state: "pending" as const })),
+    });
+    pendingAttached = true;
+    // After collapsing the chain, add the final assistant message if present
+    if (idx < end && isFinalAssistantMessage(messages[idx])) {
+      const finalMessage = messages[idx];
+      items.push({
+        id: finalMessage.messageId || `message-${start + items.length + 1}`,
+        role: finalMessage.role,
+        content: finalMessage.content,
+        reasoningVisible: Boolean(finalMessage.reasoningContent),
+        referenceCount: finalMessage.references?.length ?? 0,
+        toolCards: (finalMessage.toolActivities ?? []).map(toolCard),
+        formCards: [],
+      });
+      idx++;
+    }
+    localIndex = items.length;
+  }
   return {
     total,
     window: { start, end, size },
-    items: input.messages.slice(start, end).map((message, index) => ({
-      id: message.messageId || `message-${start + index + 1}`,
-      role: message.role,
-      content: message.content,
-      reasoningVisible: Boolean(message.reasoningContent),
-      referenceCount: message.references?.length ?? 0,
-      toolCards: (message.toolActivities ?? []).map(toolCard),
-      formCards: index === 0 ? pendingFormIds.map((id) => ({ id, state: "pending" as const })) : [],
-    })),
+    items,
   };
 }
 
@@ -285,4 +332,12 @@ function clampWindowStart(start: number, total: number, size: number): number {
     return 0;
   }
   return Math.max(0, Math.min(Math.floor(start), Math.max(0, total - size)));
+}
+
+function hasToolActivities(message: NativeChatMessage): boolean {
+  return Boolean(message.toolActivities && message.toolActivities.length > 0);
+}
+
+function isFinalAssistantMessage(message: NativeChatMessage): boolean {
+  return message.role === 'assistant' && !hasToolActivities(message);
 }
