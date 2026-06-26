@@ -8,6 +8,7 @@ import {
   installDesktopCommandPalette,
   openDesktopCommandPalette,
 } from "./desktopCommandPalette";
+import { resolveDesktopShortcutCommand } from "./desktopCommandNavigation";
 import {
   installRootWebUiCommandPaletteSurface,
 } from "./desktopRootWebUiWorkbench";
@@ -177,6 +178,47 @@ describe("desktop command palette", () => {
     });
   });
 
+  test("ranks active knowledge results and exposes result actions", () => {
+    const state = createDesktopCommandPaletteState({
+      knowledgeDocuments: {
+        loaded: true,
+        rows: [
+          {
+            id: "doc-1",
+            title: "Desktop Notes",
+            path: "knowledge/desktop.md",
+            category: "design",
+            tags: ["notes"],
+            chunkCount: 2,
+            status: "indexed",
+            phaseLabel: "Indexed",
+            progressPercent: 100,
+            progressDetail: "2 chunks indexed",
+            updatedAt: "2026-06-01",
+            meta: "indexed / 2 chunks",
+          },
+        ],
+      },
+    }, {
+      activeModule: "knowledge",
+      recentEntityIds: ["doc-1"],
+    });
+
+    const [result] = buildDesktopCommandPaletteResults(state, "desktop notes");
+    expect(result).toMatchObject({
+      id: "knowledge:doc-1",
+      groupId: "knowledgeDocuments",
+      title: "Desktop Notes",
+    });
+    expect(result.actions.map((action) => action.id)).toEqual(["open", "focus", "inspect", "useInChat"]);
+  });
+
+  test("maps Ctrl/Cmd+K to command palette without removing Ctrl+Shift+P", () => {
+    expect(resolveDesktopShortcutCommand({ key: "k", ctrlKey: true })).toBe("open-command-palette");
+    expect(resolveDesktopShortcutCommand({ key: "k", metaKey: true })).toBe("open-command-palette");
+    expect(resolveDesktopShortcutCommand({ key: "p", ctrlKey: true, shiftKey: true })).toBe("open-command-palette");
+  });
+
   test("reports unloaded groups without fabricating searchable results", () => {
     const state = createDesktopCommandPaletteState();
 
@@ -274,6 +316,7 @@ describe("desktop command palette", () => {
         secondary: "Updated",
         keywords: [],
         destination: { module: "files", entityId: "docs/desktop-shell.md", href: "/files" },
+        actions: [{ id: "open", label: "Open" }],
       },
       {
         gatewayOrigin: "http://127.0.0.1:18790",
@@ -312,6 +355,7 @@ describe("desktop command palette", () => {
         secondary: "workspace / enabled",
         keywords: [],
         destination: { module: "skills", entityId: "desktop-planner", href: "/tools" },
+        actions: [{ id: "open", label: "Open" }],
       },
       {
         gatewayOrigin: "http://127.0.0.1:18790",

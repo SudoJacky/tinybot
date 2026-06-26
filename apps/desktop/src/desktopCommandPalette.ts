@@ -1,6 +1,7 @@
 import { DESKTOP_MENU_COMMANDS, type DesktopMenuCommandId } from "./desktopCommandNavigation";
 import { focusDesktopEntity, type DesktopWorkbenchEntityModule } from "./desktopEntityFocus";
 import { resolveDesktopNavigationTarget } from "./desktopNavigation";
+import { buildDesktopCommandPaletteUx } from "./desktopNativeUx";
 import type { DesktopCommandEntry } from "./desktopSharedModels";
 import type { NativeChatSession } from "./nativeChat";
 import type { DesktopCoworkSessionRow } from "./desktopCowork";
@@ -37,6 +38,12 @@ export interface DesktopCommandPaletteResult {
   secondary: string;
   keywords: string[];
   destination: DesktopCommandPaletteDestination;
+  actions: DesktopCommandPaletteResultAction[];
+}
+
+export interface DesktopCommandPaletteResultAction {
+  id: string;
+  label: string;
 }
 
 export interface DesktopCommandPaletteGroupState {
@@ -49,6 +56,12 @@ export interface DesktopCommandPaletteGroupState {
 export interface DesktopCommandPaletteState {
   groups: DesktopCommandPaletteGroupState[];
   results: DesktopCommandPaletteResult[];
+  ranking?: DesktopCommandPaletteRankingContext;
+}
+
+export interface DesktopCommandPaletteRankingContext {
+  activeModule?: DesktopWorkbenchEntityModule;
+  recentEntityIds?: string[];
 }
 
 export interface DesktopCommandPaletteInput {
@@ -82,7 +95,10 @@ interface LoadedRows<T> {
 
 const OPEN_PALETTE_EVENT = "tinybot:open-command-palette";
 
-export function createDesktopCommandPaletteState(input: DesktopCommandPaletteInput = {}): DesktopCommandPaletteState {
+export function createDesktopCommandPaletteState(
+  input: DesktopCommandPaletteInput = {},
+  ranking: DesktopCommandPaletteRankingContext = {},
+): DesktopCommandPaletteState {
   const commandResults = commandResultsFromInput(input.desktopCommands);
   const resultGroups: Array<[DesktopCommandPaletteGroupId, string, LoadedRows<unknown>, DesktopCommandPaletteResult[]]> = [
     ["commands", "Commands", { loaded: true, rows: DESKTOP_MENU_COMMANDS }, commandResults],
@@ -102,6 +118,7 @@ export function createDesktopCommandPaletteState(input: DesktopCommandPaletteInp
       count: source.loaded ? results.length : 0,
     })),
     results: resultGroups.flatMap(([, , source, results]) => source.loaded ? results : []),
+    ranking,
   };
 }
 
@@ -114,9 +131,25 @@ export function buildDesktopCommandPaletteResults(
   if (!tokens.length) {
     return state.results.slice(0, limit);
   }
-  return state.results
+  const matches = state.results
     .filter((result) => tokens.every((token) => searchableText(result).includes(token)))
     .slice(0, limit);
+  if (!state.ranking?.activeModule && !state.ranking?.recentEntityIds?.length) {
+    return matches;
+  }
+  const ranked = buildDesktopCommandPaletteUx({
+    query,
+    results: matches.map((result) => ({
+      id: result.id,
+      groupId: result.groupId,
+      title: result.title,
+      keywords: result.keywords,
+      updatedAt: state.ranking?.recentEntityIds?.includes(result.destination.entityId ?? result.id.split(":").slice(1).join(":")) ? "recent" : "",
+      activeModule: result.destination.module === state.ranking?.activeModule,
+    })),
+  });
+  const order = new Map(ranked.results.map((result, index) => [result.id, index]));
+  return [...matches].sort((left, right) => (order.get(left.id) ?? 0) - (order.get(right.id) ?? 0)).slice(0, limit);
 }
 
 export function openDesktopCommandPalette(targetDocument: Document = document, query = ""): void {
@@ -264,6 +297,7 @@ function menuCommandResults(commands: typeof DESKTOP_MENU_COMMANDS): DesktopComm
     secondary: command.shortcut,
     keywords: ["command", command.id, command.shortcut, ...commandKeywords(command.id)],
     destination: { module: "command", commandId: command.id },
+    actions: paletteActions("commands"),
   }));
 }
 
@@ -276,6 +310,7 @@ function desktopCommandEntryResult(entry: DesktopCommandEntry): DesktopCommandPa
     secondary: entry.href ?? entry.commandId ?? "",
     keywords: [...entry.keywords, entry.commandId ? commandKeywords(entry.commandId).join(" ") : ""],
     destination: desktopCommandEntryDestination(entry),
+    actions: paletteActions("commands"),
   };
 }
 
@@ -365,6 +400,7 @@ function sessionResults(rows: NativeChatSession[]): DesktopCommandPaletteResult[
     secondary: session.updatedAt || session.chatId || session.key,
     keywords: [session.key, session.chatId],
     destination: { module: "chat", entityId: session.chatId || session.key, href: session.chatId ? `/chat/${session.chatId}` : "/chat" },
+    actions: paletteActions("sessions"),
   }));
 }
 
@@ -377,6 +413,7 @@ function workspaceResults(rows: DesktopWorkspaceFileRow[]): DesktopCommandPalett
     secondary: file.meta,
     keywords: [file.updatedAt ?? "", file.exists ? "available" : "missing"],
     destination: { module: "files", entityId: file.path, href: "/files" },
+    actions: paletteActions("workspaceFiles"),
   }));
 }
 
@@ -389,6 +426,7 @@ function knowledgeResults(rows: DesktopKnowledgeDocumentRow[]): DesktopCommandPa
     secondary: document.meta || document.path,
     keywords: [document.id, document.path, document.category, ...document.tags],
     destination: { module: "knowledge", entityId: document.id || document.path, href: "/knowledge" },
+    actions: paletteActions("knowledgeDocuments"),
   }));
 }
 
@@ -401,6 +439,7 @@ function toolResults(rows: DesktopToolRow[]): DesktopCommandPaletteResult[] {
     secondary: tool.meta || tool.description,
     keywords: [tool.name, tool.description, tool.configHint, tool.riskHint],
     destination: { module: "tools", entityId: tool.name, href: "/tools" },
+    actions: paletteActions("tools"),
   }));
 }
 
@@ -413,6 +452,7 @@ function skillResults(rows: DesktopSkillRow[]): DesktopCommandPaletteResult[] {
     secondary: skill.meta,
     keywords: [skill.source, skill.status, skill.available ? "available" : "unavailable"],
     destination: { module: "skills", entityId: skill.name, href: "/tools" },
+    actions: paletteActions("skills"),
   }));
 }
 
@@ -425,7 +465,30 @@ function coworkResults(rows: DesktopCoworkSessionRow[]): DesktopCommandPaletteRe
     secondary: session.meta,
     keywords: [session.id, session.goal, session.status, session.workflow],
     destination: { module: "cowork", entityId: session.id, href: "/cowork" },
+    actions: paletteActions("coworkSessions"),
   }));
+}
+
+function paletteActions(groupId: DesktopCommandPaletteGroupId): DesktopCommandPaletteResultAction[] {
+  if (groupId === "knowledgeDocuments") {
+    return [
+      { id: "open", label: "Open" },
+      { id: "focus", label: "Focus" },
+      { id: "inspect", label: "Inspect" },
+      { id: "useInChat", label: "Use in chat" },
+    ];
+  }
+  if (groupId === "workspaceFiles") {
+    return [
+      { id: "open", label: "Open" },
+      { id: "focus", label: "Focus" },
+      { id: "reveal", label: "Reveal" },
+    ];
+  }
+  return [
+    { id: "open", label: "Open" },
+    { id: "focus", label: "Focus" },
+  ];
 }
 
 function commandKeywords(id: DesktopMenuCommandId): string[] {
@@ -452,6 +515,8 @@ function commandKeywords(id: DesktopMenuCommandId): string[] {
       return ["palette", "quick search"];
     case "refresh-gateway-status":
       return ["gateway", "runtime", "diagnostics", "status"];
+    case "open-safe-mode":
+      return ["safe mode", "browser compatible", "root webui", "recovery"];
     case "search-sessions":
       return ["session", "search"];
     case "open-settings":

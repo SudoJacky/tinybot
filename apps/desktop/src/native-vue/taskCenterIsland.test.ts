@@ -41,7 +41,7 @@ describe("task center Vue island", () => {
     expect(host.getAttribute("data-desktop-vue-island")).toBe("task-center");
     expect(host.getAttribute("id")).toBe("desktop-task-center");
     expect(host.getAttribute("aria-label")).toBe("Background task center");
-    expect(host.querySelector(".desktop-task-center-summary")?.textContent).toBe("2 tasks - 1 active - 0 blocked - 1 failed");
+    expect(host.querySelector(".desktop-task-center-summary")?.textContent).toBe("1 running · 0 blocked · 1 failed");
     expect(Array.from(host.querySelectorAll(".desktop-task-center-item")).map((row) => row.getAttribute("data-desktop-task-id"))).toEqual([
       "file:workspace:AGENTS.md:save",
       "chat:stream:chat-1",

@@ -94,6 +94,7 @@ describe("desktop command navigation", () => {
       "open-shortcut-help",
       "open-page-help",
       "open-backend-logs",
+      "open-safe-mode",
       "toggle-theme",
       "toggle-sidebar",
       "open-command-palette",
@@ -113,6 +114,7 @@ describe("desktop command navigation", () => {
       "Shortcut Help",
       "Page Help",
       "Backend Logs",
+      "Open browser-compatible WebUI",
       "Toggle Theme",
       "Toggle Sidebar",
       "Command Palette",
@@ -132,9 +134,10 @@ describe("desktop command navigation", () => {
       "Ctrl+/",
       "Ctrl+Shift+/",
       "",
+      "",
       "Ctrl+Shift+T",
       "Ctrl+B",
-      "Ctrl+Shift+P",
+      "Ctrl+Shift+P / Ctrl+K",
       "Ctrl+Shift+G",
     ]);
     expect(DESKTOP_CHROME_COMMANDS.map((command) => command.id)).toEqual([
@@ -168,6 +171,7 @@ describe("desktop command navigation", () => {
       "open-shortcut-help",
       "open-page-help",
       "open-backend-logs",
+      "open-safe-mode",
       "open-tinybot-repo",
     ]);
     expect(DESKTOP_HELP_COMMANDS.map((command) => command.label)).toEqual([
@@ -175,6 +179,7 @@ describe("desktop command navigation", () => {
       "Shortcut Help",
       "Page Help",
       "Backend Logs",
+      "Open browser-compatible WebUI",
       "Tinybot repo",
     ]);
     expect(DESKTOP_MENU_COMMANDS.filter((command) => command.chromeGroup === "secondary").map((command) => command.id)).toEqual([
@@ -188,6 +193,7 @@ describe("desktop command navigation", () => {
       "open-shortcut-help",
       "open-page-help",
       "open-backend-logs",
+      "open-safe-mode",
       "toggle-theme",
       "toggle-sidebar",
       "refresh-gateway-status",
@@ -217,6 +223,7 @@ describe("desktop command navigation", () => {
     expect(routeDesktopMenuCommand("open-shortcut-help", context)).toMatchObject({ kind: "action", action: "open-shortcut-help" });
     expect(routeDesktopMenuCommand("open-page-help", context)).toMatchObject({ kind: "action", action: "open-page-help" });
     expect(routeDesktopMenuCommand("open-backend-logs", context)).toMatchObject({ kind: "action", action: "open-backend-logs" });
+    expect(routeDesktopMenuCommand("open-safe-mode", context)).toMatchObject({ kind: "navigate", href: "/?desktop-workbench=root" });
     expect(routeDesktopMenuCommand("toggle-theme", context)).toMatchObject({ kind: "action", action: "set-theme", value: "dark" });
     expect(routeDesktopMenuCommand("toggle-sidebar", context)).toMatchObject({ kind: "action", action: "set-sidebar-visible", value: false });
     expect(routeDesktopMenuCommand("open-command-palette", context)).toMatchObject({ kind: "action", action: "open-command-palette" });
@@ -241,6 +248,7 @@ describe("desktop command navigation", () => {
     expect(resolveDesktopShortcutCommand({ key: "?", ctrlKey: true, shiftKey: true })).toBe("open-page-help");
     expect(resolveDesktopShortcutCommand({ key: "T", ctrlKey: true, shiftKey: true })).toBe("toggle-theme");
     expect(resolveDesktopShortcutCommand({ key: "b", ctrlKey: true })).toBe("toggle-sidebar");
+    expect(resolveDesktopShortcutCommand({ key: "k", ctrlKey: true })).toBe("open-command-palette");
     expect(resolveDesktopShortcutCommand({ key: "P", ctrlKey: true, shiftKey: true })).toBe("open-command-palette");
     expect(resolveDesktopShortcutCommand({ key: "G", ctrlKey: true, shiftKey: true })).toBe("refresh-gateway-status");
     expect(resolveDesktopShortcutCommand({ key: "n" })).toBeNull();
