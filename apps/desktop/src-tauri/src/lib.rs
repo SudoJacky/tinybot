@@ -37,7 +37,10 @@ pub mod worker_storage;
 pub mod worker_task;
 pub mod worker_workspace;
 
-use crate::config_store::{ConfigPatchApplyResult, ConfigPatchBridgeResult, ConfigStore};
+use crate::config_store::{
+    ConfigEditorSnapshot, ConfigOperationRequest, ConfigPatchApplyResult, ConfigPatchBridgeResult,
+    ConfigStore,
+};
 use crate::desktop_cron::{
     start_worker_cron_timer, stop_worker_cron_timer, worker_cron_dispatch_due,
 };
@@ -623,6 +626,25 @@ fn apply_config_patch_result(
     )
 }
 
+#[tauri::command]
+fn get_config_editor_snapshot() -> Result<ConfigEditorSnapshot, String> {
+    config_editor_snapshot_from_path(
+        &default_tinybot_config_path(),
+        experimental_worker_config_snapshot(),
+    )
+}
+
+#[tauri::command]
+fn apply_config_operations(
+    request: ConfigOperationRequest,
+) -> Result<ConfigPatchApplyResult, String> {
+    apply_config_operations_to_path(
+        &default_tinybot_config_path(),
+        experimental_worker_config_snapshot(),
+        request,
+    )
+}
+
 fn default_tinybot_config_path() -> PathBuf {
     tinybot_home_dir().join(".tinybot").join("config.json")
 }
@@ -648,6 +670,27 @@ fn apply_config_patch_result_to_path(
     store
         .apply_validated_patch_result(result)
         .map_err(|error| format!("failed to apply native config patch: {error}"))
+}
+
+fn config_editor_snapshot_from_path(
+    config_path: &Path,
+    default_snapshot: serde_json::Value,
+) -> Result<ConfigEditorSnapshot, String> {
+    let store = ConfigStore::load(config_path.to_path_buf(), default_snapshot)
+        .map_err(|error| format!("failed to load config store: {error}"))?;
+    Ok(store.editor_snapshot())
+}
+
+fn apply_config_operations_to_path(
+    config_path: &Path,
+    default_snapshot: serde_json::Value,
+    request: ConfigOperationRequest,
+) -> Result<ConfigPatchApplyResult, String> {
+    let mut store = ConfigStore::load(config_path.to_path_buf(), default_snapshot)
+        .map_err(|error| format!("failed to load config store: {error}"))?;
+    store
+        .apply_operations(request)
+        .map_err(|error| format!("failed to apply native config operations: {error}"))
 }
 
 fn worker_echo_agent_with_options(
@@ -1849,7 +1892,9 @@ pub fn run() {
             worker_submit_agent_form,
             worker_resume_agent_approval,
             worker_cron_dispatch_due,
+            get_config_editor_snapshot,
             apply_config_patch_result,
+            apply_config_operations,
             pick_upload_file,
             reveal_workspace_file,
             save_export_file
@@ -3165,6 +3210,144 @@ mod tests {
             .expect("saved config should be JSON")["agents"]["defaults"]["model"],
             "gpt-4.1"
         );
+    }
+
+    #[test]
+    fn native_config_editor_snapshot_returns_redacted_revisioned_view() {
+        let fixture = WorkspaceFixture::new();
+        let config_path = fixture.root.join(".tinybot").join("config.json");
+        std::fs::create_dir_all(
+            config_path
+                .parent()
+                .expect("config path should have parent"),
+        )
+        .expect("config directory should create");
+        std::fs::write(
+            &config_path,
+            r#"{
+              "agents": { "defaults": { "model": "gpt-5" } },
+              "providers": { "openai": { "api_key": "sk-secret" } }
+            }"#,
+        )
+        .expect("fixture config should write");
+
+        let snapshot = config_editor_snapshot_from_path(
+            &config_path,
+            serde_json::json!({ "agents": { "defaults": { "model": "fallback" } } }),
+        )
+        .expect("editor snapshot should load");
+
+        assert_eq!(snapshot.config_path, config_path);
+        assert!(snapshot.revision.starts_with("hash:"));
+        assert_eq!(
+            snapshot.explicit_public_config["providers"]["openai"]["api_key_configured"],
+            true
+        );
+        assert!(snapshot.explicit_public_config["providers"]["openai"]
+            .get("api_key")
+            .is_none());
+        assert_eq!(
+            snapshot.secret_presence["providers.openai.api_key"]["configured"],
+            true
+        );
+    }
+
+    #[test]
+    fn native_config_operations_preserve_secret_while_saving_unrelated_field() {
+        let fixture = WorkspaceFixture::new();
+        let config_path = fixture.root.join(".tinybot").join("config.json");
+        std::fs::create_dir_all(
+            config_path
+                .parent()
+                .expect("config path should have parent"),
+        )
+        .expect("config directory should create");
+        std::fs::write(
+            &config_path,
+            r#"{
+              "agents": { "defaults": { "model": "gpt-5", "timezone": "UTC" } },
+              "providers": { "openai": { "api_key": "sk-secret" } }
+            }"#,
+        )
+        .expect("fixture config should write");
+        let store = crate::config_store::ConfigStore::load(
+            config_path.clone(),
+            serde_json::json!({ "agents": { "defaults": { "model": "fallback" } } }),
+        )
+        .expect("fixture config should load");
+
+        let result = apply_config_operations_to_path(
+            &config_path,
+            serde_json::json!({ "agents": { "defaults": { "model": "fallback" } } }),
+            crate::config_store::ConfigOperationRequest {
+                expected_revision: Some(store.revision()),
+                operations: vec![crate::config_store::ConfigOperation::Replace {
+                    path: "agents.defaults.timezone".to_string(),
+                    value: serde_json::json!("Asia/Shanghai"),
+                }],
+            },
+        )
+        .expect("native config operations should persist");
+
+        assert!(result.ok);
+        assert_eq!(result.updated_fields, vec!["agents.defaults.timezone"]);
+        assert_eq!(
+            result.config["providers"]["openai"]["api_key_configured"],
+            true
+        );
+        assert!(result.config["providers"]["openai"]
+            .get("api_key")
+            .is_none());
+        let saved = serde_json::from_str::<serde_json::Value>(
+            &std::fs::read_to_string(config_path).expect("config file should save"),
+        )
+        .expect("saved config should be JSON");
+        assert_eq!(saved["agents"]["defaults"]["timezone"], "Asia/Shanghai");
+        assert_eq!(saved["providers"]["openai"]["api_key"], "sk-secret");
+    }
+
+    #[test]
+    fn native_config_operations_save_to_custom_config_path() {
+        let fixture = WorkspaceFixture::new();
+        let config_path = fixture.root.join("portable").join("custom-config.json");
+        std::fs::create_dir_all(
+            config_path
+                .parent()
+                .expect("config path should have parent"),
+        )
+        .expect("config directory should create");
+        std::fs::write(
+            &config_path,
+            r#"{"agents":{"defaults":{"model":"gpt-5"}}}"#,
+        )
+        .expect("fixture config should write");
+        let store = crate::config_store::ConfigStore::load(
+            config_path.clone(),
+            serde_json::json!({}),
+        )
+        .expect("custom config should load");
+
+        let result = apply_config_operations_to_path(
+            &config_path,
+            serde_json::json!({}),
+            crate::config_store::ConfigOperationRequest {
+                expected_revision: Some(store.revision()),
+                operations: vec![crate::config_store::ConfigOperation::Replace {
+                    path: "agents.defaults.timezone".to_string(),
+                    value: serde_json::json!("Asia/Shanghai"),
+                }],
+            },
+        )
+        .expect("custom config operation should persist");
+
+        assert!(result.ok);
+        let saved = serde_json::from_str::<serde_json::Value>(
+            &std::fs::read_to_string(&config_path).expect("custom config should save"),
+        )
+        .expect("saved config should be JSON");
+        assert_eq!(saved["agents"]["defaults"]["model"], "gpt-5");
+        assert_eq!(saved["agents"]["defaults"]["timezone"], "Asia/Shanghai");
+        assert!(!fixture.root.join(".tinybot").join("config.json").exists());
     }
 
     #[test]

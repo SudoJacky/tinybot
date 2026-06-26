@@ -156,6 +156,7 @@ export type DesktopSettingsSaveStatus = "idle" | "saving" | "saved" | "failed" |
 export type DesktopSettingsSaveTransport = "native" | "gateway-fallback";
 export interface DesktopSettingsPaneSaveDetails {
   transport: DesktopSettingsSaveTransport;
+  persistedRevision?: string;
   updatedFields: string[];
   applied: string[];
   restartRequired: string[];
@@ -165,7 +166,7 @@ export interface DesktopSettingsPaneSaveDetails {
 export type DesktopSettingsPaneFieldControl = "text" | "number" | "checkbox" | "textarea" | "select" | "password" | "readonly";
 export type DesktopSettingsPaneFieldRequirement = "required" | "optional" | "readonly";
 export type DesktopSettingsPaneSourceKind = "config" | "local-ui-preference" | "cache" | "runtime-status";
-export type DesktopSettingsPaneValueOrigin = "explicit" | "default" | "secret" | "cache" | "runtime" | "catalog";
+export type DesktopSettingsPaneValueOrigin = "explicit" | "default" | "environment" | "secret" | "cache" | "runtime" | "catalog";
 export type DesktopSettingsPaneFieldConfigurationMode =
   | "fixed"
   | "freeform"
@@ -178,6 +179,13 @@ export type DesktopSettingsPaneFieldConfigurationMode =
   | "url";
 export type DesktopSettingsEditableValue = string | boolean;
 export type DesktopSettingsPaneApplyEffect = "immediate" | "gateway-restart" | "workspace-reload";
+export type DesktopSettingsPaneCommitMode = "manual" | "auto";
+export type DesktopSettingsPaneConfirmationWhen = "enable" | "disable" | "change";
+
+export interface DesktopSettingsPaneFieldConfirmation {
+  when: DesktopSettingsPaneConfirmationWhen;
+  message: string;
+}
 
 export interface DesktopSettingsPaneFieldOption {
   value: string;
@@ -194,6 +202,9 @@ export interface DesktopSettingsPaneFieldMetadata {
   applyEffect?: DesktopSettingsPaneApplyEffect;
   unit?: string;
   recommendation?: string;
+  commitMode?: DesktopSettingsPaneCommitMode;
+  confirmation?: DesktopSettingsPaneFieldConfirmation;
+  notice?: string;
 }
 
 export interface DesktopSettingsPaneGroupMetadata {
@@ -219,6 +230,9 @@ export interface DesktopSettingsPaneField {
   applyEffect?: DesktopSettingsPaneApplyEffect;
   unit?: string;
   recommendation?: string;
+  commitMode?: DesktopSettingsPaneCommitMode;
+  confirmation?: DesktopSettingsPaneFieldConfirmation;
+  notice?: string;
   value: string;
   state: "normal" | "invalid";
   control: DesktopSettingsPaneFieldControl;
@@ -438,6 +452,40 @@ const DESKTOP_SETTINGS_FIELD_METADATA: Record<string, DesktopSettingsPaneFieldMe
   },
 };
 
+const DESKTOP_SETTINGS_AUTO_COMMIT_FIELDS = new Set([
+  "knowledge.enabled",
+  "knowledge.autoRetrieve",
+  "knowledge.rerankEnabled",
+  "knowledge.graphExtractionEnabled",
+  "knowledge.graphAutoExtract",
+  "tools-approvals.webEnable",
+  "tools-approvals.execEnable",
+  "tools-approvals.restrictToWorkspace",
+  "channels.sendProgress",
+  "channels.sendToolHints",
+  "gateway-runtime.heartbeat",
+]);
+
+const DESKTOP_SETTINGS_FIELD_CONFIRMATIONS: Record<string, DesktopSettingsPaneFieldConfirmation> = {
+  "tools-approvals.execEnable": {
+    when: "enable",
+    message: "Enable local command execution for agent workflows? Only enable this when you trust the active workspace.",
+  },
+  "tools-approvals.restrictToWorkspace": {
+    when: "disable",
+    message: "Allow execution outside the workspace boundary? This broadens local file access for command workflows.",
+  },
+  "knowledge.graphAutoExtract": {
+    when: "enable",
+    message: "Enable automatic graph extraction? This can start background extraction work and may increase token usage.",
+  },
+};
+
+const DESKTOP_SETTINGS_FIELD_NOTICES: Record<string, string> = {
+  "knowledge.rerankEnabled": "Reranking can improve retrieval quality, but may add latency and requires the rerank settings to be valid.",
+  "knowledge.graphExtractionEnabled": "Graph extraction makes graph features available. Automatic background extraction is controlled separately.",
+};
+
 export function getDesktopSettingsGroupMetadata(
   groupId: DesktopSettingsPaneGroupId,
 ): DesktopSettingsPaneGroupMetadata {
@@ -459,6 +507,7 @@ export interface DesktopSettingsPaneModel {
     message: string;
     canSave: boolean;
     transport?: DesktopSettingsSaveTransport;
+    persistedRevision?: string;
     updatedFields?: string[];
     applied?: string[];
     restartRequired?: string[];
@@ -1154,6 +1203,7 @@ export function buildDesktopSettingsPaneModel(
   };
   if (saveDetails) {
     save.transport = saveDetails.transport;
+    save.persistedRevision = saveDetails.persistedRevision;
     save.updatedFields = saveDetails.updatedFields;
     save.applied = saveDetails.applied;
     save.restartRequired = saveDetails.restartRequired;
@@ -1989,6 +2039,9 @@ function buildDesktopSettingsPaneGroups(
       min?: number;
       max?: number;
       step?: number;
+      commitMode?: DesktopSettingsPaneCommitMode;
+      confirmation?: DesktopSettingsPaneFieldConfirmation;
+      notice?: string;
     } = {},
   ): DesktopSettingsPaneField => ({
     id,
@@ -2012,6 +2065,9 @@ function buildDesktopSettingsPaneGroups(
     min: config.min,
     max: config.max,
     step: config.step,
+    commitMode: config.commitMode,
+    confirmation: config.confirmation,
+    notice: config.notice,
   });
   const secretField = buildDesktopSecretField(state.providerEditor.apiKey);
   const providerEditorProviderId = state.providerEditor.selectedProvider || "deepseek";
@@ -2102,8 +2158,9 @@ function buildDesktopSettingsPaneGroups(
           configurationMode: "fixed",
         }),
         field("profileId", "Profile ID", state.providerEditor.profileId, {
-          requirement: "required",
-          configurationMode: "freeform",
+          control: "readonly",
+          requirement: "readonly",
+          configurationMode: "readonly",
         }),
         field("apiKey", "API key", secretField.empty ? "" : "Configured", {
           persistentPath: `providers.${providerEditorProviderId}.api_key`,
@@ -2360,6 +2417,7 @@ function enrichDesktopSettingsPaneField(
   field: DesktopSettingsPaneField,
 ): DesktopSettingsPaneField {
   const metadata = getDesktopSettingsFieldMetadata(groupId, field.id);
+  const behavior = resolveDesktopSettingsFieldBehavior(groupId, field);
   const persistence = resolveDesktopSettingsPaneFieldPersistence(state, groupId, field);
   if (!metadata) {
     return {
@@ -2367,6 +2425,7 @@ function enrichDesktopSettingsPaneField(
       aliases: field.aliases ?? [],
       i18nKey: field.i18nKey ?? `settings.fields.${groupId}.${field.id}`,
       ...persistence,
+      ...behavior,
     };
   }
   return {
@@ -2381,6 +2440,21 @@ function enrichDesktopSettingsPaneField(
     applyEffect: metadata.applyEffect ?? persistence.applyEffect,
     unit: metadata.unit,
     recommendation: metadata.recommendation,
+    commitMode: metadata.commitMode ?? behavior.commitMode,
+    confirmation: metadata.confirmation ?? behavior.confirmation,
+    notice: metadata.notice ?? behavior.notice,
+  };
+}
+
+function resolveDesktopSettingsFieldBehavior(
+  groupId: DesktopSettingsPaneGroupId,
+  field: DesktopSettingsPaneField,
+): Pick<DesktopSettingsPaneField, "commitMode" | "confirmation" | "notice"> {
+  const key = `${groupId}.${field.id}`;
+  return {
+    commitMode: field.commitMode ?? (DESKTOP_SETTINGS_AUTO_COMMIT_FIELDS.has(key) ? "auto" : "manual"),
+    confirmation: field.confirmation ?? DESKTOP_SETTINGS_FIELD_CONFIRMATIONS[key],
+    notice: field.notice ?? DESKTOP_SETTINGS_FIELD_NOTICES[key],
   };
 }
 
@@ -2417,9 +2491,39 @@ function resolveDesktopSettingsValueOrigin(
   if (sourceKind !== "config" || !persistentPath) {
     return "default";
   }
+  const metadataOrigin = getDesktopSettingsMetadataValueOrigin(state.serverSnapshot, persistentPath);
+  if (metadataOrigin) {
+    return metadataOrigin;
+  }
   return getDesktopSettingsExistingConfigPathValue(state.serverSnapshot, persistentPath) === undefined
     ? "default"
     : "explicit";
+}
+
+function getDesktopSettingsMetadataValueOrigin(
+  existingConfig: unknown,
+  persistentPath: string,
+): DesktopSettingsPaneValueOrigin | null {
+  const metadata = asRecord(asRecord(existingConfig).configMetadata);
+  const origins = asRecord(metadata.origins);
+  const origin = stringValue(origins[persistentPath]);
+  switch (origin) {
+    case "file":
+      return "explicit";
+    case "default":
+      return "default";
+    case "environment":
+    case "env":
+      return "environment";
+    case "secret-store":
+      return "secret";
+    case "runtime":
+      return "runtime";
+    case "catalog":
+      return "catalog";
+    default:
+      return null;
+  }
 }
 
 function getDesktopSettingsPaneFieldPersistentPath(
@@ -2430,46 +2534,46 @@ function getDesktopSettingsPaneFieldPersistentPath(
   const staticPaths: Record<string, string> = {
     "general.model": "agents.defaults.model",
     "general.provider": "agents.defaults.provider",
-    "general.activeProfile": "agents.defaults.active_profile",
+    "general.activeProfile": "agents.defaults.activeProfile",
     "general.timezone": "agents.defaults.timezone",
     "general.temperature": "agents.defaults.temperature",
-    "general.maxTokens": "agents.defaults.max_tokens",
-    "general.contextWindowTokens": "agents.defaults.context_window_tokens",
-    "general.maxToolIterations": "agents.defaults.max_tool_iterations",
-    "general.reasoningEffort": "agents.defaults.reasoning_effort",
+    "general.maxTokens": "agents.defaults.maxTokens",
+    "general.contextWindowTokens": "agents.defaults.contextWindowTokens",
+    "general.maxToolIterations": "agents.defaults.maxToolIterations",
+    "general.reasoningEffort": "agents.defaults.reasoningEffort",
     "provider-models.selectedProvider": "desktop.ui.settings.providerEditor.selectedProvider",
-    "provider-models.profileId": "agents.defaults.active_profile",
+    "provider-models.profileId": "agents.defaults.activeProfile",
     "knowledge.enabled": "knowledge.enabled",
     "knowledge.autoRetrieve": "knowledge.auto_retrieve",
-    "knowledge.retrievalMode": "knowledge.retrieval_mode",
+    "knowledge.retrievalMode": "knowledge.retrievalMode",
     "knowledge.maxChunks": "knowledge.max_chunks",
-    "knowledge.chunkSize": "knowledge.chunk_size",
-    "knowledge.chunkOverlap": "knowledge.chunk_overlap",
+    "knowledge.chunkSize": "knowledge.chunkSize",
+    "knowledge.chunkOverlap": "knowledge.chunkOverlap",
     "knowledge.rerankEnabled": "knowledge.rerank_enabled",
     "knowledge.rerankModel": "knowledge.rerank_model",
     "knowledge.rerankApiBase": "knowledge.rerank_api_base",
     "knowledge.rerankTopN": "knowledge.rerank_top_n",
-    "knowledge.graphExtractionEnabled": "knowledge.graph_extraction_enabled",
+    "knowledge.graphExtractionEnabled": "knowledge.semanticExtractionEnabled",
     "knowledge.graphAutoExtract": "knowledge.graph_auto_extract",
-    "knowledge.graphExtractionModel": "knowledge.graph_extraction_model",
-    "knowledge.graphExtractionMaxTokens": "knowledge.graph_extraction_max_tokens",
-    "knowledge.graphExtractionMaxJobTokens": "knowledge.graph_extraction_max_job_tokens",
-    "knowledge.graphExtractionConcurrency": "knowledge.graph_extraction_concurrency",
+    "knowledge.graphExtractionModel": "knowledge.semanticExtractionModel",
+    "knowledge.graphExtractionMaxTokens": "knowledge.semanticExtractionMaxTokens",
+    "knowledge.graphExtractionMaxJobTokens": "knowledge.semanticExtractionMaxJobTokens",
+    "knowledge.graphExtractionConcurrency": "knowledge.semanticExtractionConcurrency",
     "tools-approvals.webEnable": "tools.web.enable",
     "tools-approvals.execEnable": "tools.exec.enable",
     "tools-approvals.webProxy": "tools.web.proxy",
     "tools-approvals.searchProvider": "tools.web.search.provider",
     "tools-approvals.execTimeout": "tools.exec.timeout",
-    "tools-approvals.restrictToWorkspace": "tools.restrict_to_workspace",
-    "tools-approvals.mcpServers": "tools.mcp_servers",
+    "tools-approvals.restrictToWorkspace": "tools.restrictToWorkspace",
+    "tools-approvals.mcpServers": "tools.mcpServers",
     "files-workspace.workspace": "agents.defaults.workspace",
-    "channels.sendProgress": "channels.send_progress",
-    "channels.sendToolHints": "channels.send_tool_hints",
-    "channels.sendMaxRetries": "channels.send_max_retries",
+    "channels.sendProgress": "channels.sendProgress",
+    "channels.sendToolHints": "channels.sendToolHints",
+    "channels.sendMaxRetries": "channels.sendMaxRetries",
     "gateway-runtime.host": "gateway.host",
     "gateway-runtime.port": "gateway.port",
     "gateway-runtime.heartbeat": "gateway.heartbeat.enabled",
-    "gateway-runtime.heartbeatIntervalS": "gateway.heartbeat.interval_s",
+    "gateway-runtime.heartbeatIntervalS": "gateway.heartbeat.intervalS",
   };
   if (field.persistentPath) {
     return field.persistentPath;
@@ -2485,6 +2589,7 @@ function normalizeDesktopSettingsSaveDetails(
   }
   return {
     transport: details.transport,
+    persistedRevision: details.persistedRevision,
     updatedFields: [...details.updatedFields],
     applied: [...details.applied],
     restartRequired: [...details.restartRequired],
@@ -2520,18 +2625,21 @@ function formatDesktopSettingsSaveMessage(
   }
   if (status === "saved") {
     if (saveDetails?.transport === "gateway-fallback") {
-      return "Settings saved through gateway fallback";
+      return "Settings persisted through gateway fallback";
     }
     if (saveDetails?.warnings.length) {
-      return "Settings saved with warnings";
+      return "Settings persisted with warnings";
     }
-    return "Settings saved";
+    if (saveDetails && !saveDetails.applied.length && saveDetails.updatedFields.length) {
+      return "Settings persisted. Runtime not applied yet";
+    }
+    return "Settings persisted";
   }
   if (status === "restart-required") {
-    return "Settings saved. Gateway restart required";
+    return "Settings persisted. Gateway restart required";
   }
   if (status === "reload-required") {
-    return "Settings saved. Workspace reload required";
+    return "Settings persisted. Workspace reload required";
   }
   if (validationErrorCount > 0) {
     return `${validationErrorCount} ${validationErrorCount === 1 ? "setting needs" : "settings need"} attention`;
@@ -2548,6 +2656,9 @@ function formatDesktopSettingsSaveDiagnostics(
     return rows.join("\n");
   }
   rows.push(`Transport: ${saveDetails.transport}`);
+  if (saveDetails.persistedRevision) {
+    rows.push(`Persisted revision: ${saveDetails.persistedRevision}`);
+  }
   rows.push(`Updated fields: ${formatDiagnosticList(saveDetails.updatedFields)}`);
   rows.push(`Applied: ${formatDiagnosticList(saveDetails.applied)}`);
   rows.push(`Restart required: ${formatDiagnosticList(saveDetails.restartRequired)}`);

@@ -1,12 +1,11 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 
-const UI_SECRET_PLACEHOLDER = "********";
-
 type JsonRecord = Record<string, unknown>;
 
 export type DesktopNativeConfigPatchResponse = {
   ok: boolean;
   config: JsonRecord;
+  revision?: string | null;
   updatedFields: string[];
   sideEffects: {
     applied: string[];
@@ -15,6 +14,12 @@ export type DesktopNativeConfigPatchResponse = {
   };
   error?: string | null;
 };
+
+type DesktopConfigOperation =
+  | { op: "replace"; path: string; value: unknown }
+  | { op: "remove"; path: string }
+  | { op: "secretReplace"; path: string; value: unknown }
+  | { op: "secretRemove"; path: string };
 
 type TauriInvoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
 
@@ -26,133 +31,118 @@ export async function applyNativeConfigPatch(
   if (!isRecord(patch)) {
     throw new Error("desktop settings patch must be a JSON object");
   }
-  if (!isRecord(currentConfig)) {
-    throw new Error("desktop settings current config must be a JSON object");
-  }
-  const result = buildDesktopConfigPatchResult(currentConfig, patch);
-  return (options.invoke ?? tauriInvoke)<DesktopNativeConfigPatchResponse>("apply_config_patch_result", {
-    result,
+  const request = buildDesktopConfigOperationRequest(currentConfig, patch);
+  return (options.invoke ?? tauriInvoke)<DesktopNativeConfigPatchResponse>("apply_config_operations", {
+    request,
   });
 }
 
-function buildDesktopConfigPatchResult(currentConfig: JsonRecord, patch: JsonRecord) {
-  const updatedFields: string[] = [];
-  const candidate = structuredClone(currentConfig) as JsonRecord;
-  stripSyntheticConfigMetadata(candidate);
-  mergePatch(candidate, patch, [], updatedFields);
+function buildDesktopConfigOperationRequest(currentConfig: unknown, patch: JsonRecord) {
   return {
-    ok: true,
-    config: candidate,
-    updatedFields,
-    sideEffects: planConfigPatchSideEffects(updatedFields),
-    error: null,
+    expectedRevision: extractExpectedRevision(currentConfig),
+    operations: buildDesktopConfigOperations(patch),
   };
 }
 
-function mergePatch(
-  target: JsonRecord,
+function buildDesktopConfigOperations(patch: JsonRecord): DesktopConfigOperation[] {
+  const operations: DesktopConfigOperation[] = [];
+  collectDesktopConfigOperations(patch, [], operations);
+  return operations;
+}
+
+function collectDesktopConfigOperations(
   patch: JsonRecord,
   path: string[],
-  updatedFields: string[],
+  operations: DesktopConfigOperation[],
 ): void {
   for (const [key, patchValue] of Object.entries(patch)) {
     if (isSyntheticConfigMetadataKey(key)) {
       continue;
     }
-    if (patchValue === UI_SECRET_PLACEHOLDER && isSensitiveConfigKey(key)) {
-      continue;
-    }
-    const currentValue = target[key];
     const fieldPath = [...path, key];
-    if (!isRecord(currentValue) && isRecord(patchValue)) {
-      target[key] = structuredClone(patchValue);
-      collectUpdatedLeafPaths(patchValue, fieldPath, updatedFields);
+    if (isConfigRemoveOperation(patchValue)) {
+      operations.push({ op: isSensitiveConfigKey(key) ? "secretRemove" : "remove", path: canonicalConfigPath(fieldPath) });
       continue;
     }
-    if (isRecord(currentValue) && isRecord(patchValue)) {
-      mergePatch(currentValue, patchValue, fieldPath, updatedFields);
+    if (isRecord(patchValue) && Object.entries(patchValue).length > 0) {
+      collectDesktopConfigOperations(patchValue, fieldPath, operations);
       continue;
     }
-    if (JSON.stringify(currentValue) !== JSON.stringify(patchValue)) {
-      target[key] = structuredClone(patchValue);
-      updatedFields.push(fieldPath.join("."));
-    }
+    operations.push({
+      op: isSensitiveConfigKey(key) ? "secretReplace" : "replace",
+      path: canonicalConfigPath(fieldPath),
+      value: structuredClone(patchValue),
+    });
   }
 }
 
-function stripSyntheticConfigMetadata(value: JsonRecord): void {
-  for (const [key, childValue] of Object.entries(value)) {
-    if (isSyntheticConfigMetadataKey(key)) {
-      delete value[key];
-      continue;
-    }
-    if (isRecord(childValue)) {
-      stripSyntheticConfigMetadata(childValue);
-    }
+function canonicalConfigPath(path: readonly string[]): string {
+  const canonical: string[] = [];
+  for (const segment of path) {
+    canonical.push(canonicalConfigSegment(canonical, segment));
   }
+  return canonical.join(".");
 }
 
-function collectUpdatedLeafPaths(value: JsonRecord, path: string[], updatedFields: string[]): void {
-  const entries = Object.entries(value);
-  if (!entries.length) {
-    updatedFields.push(path.join("."));
-    return;
+function canonicalConfigSegment(parent: readonly string[], segment: string): string {
+  if (parent.length === 2 && parent[0] === "agents" && parent[1] === "defaults") {
+    return ({
+      active_profile: "activeProfile",
+      max_tokens: "maxTokens",
+      context_block_limit: "contextBlockLimit",
+      max_tool_result_chars: "maxToolResultChars",
+      reasoning_effort: "reasoningEffort",
+    } as Record<string, string>)[segment] ?? segment;
   }
-  for (const [key, childValue] of entries) {
-    const childPath = [...path, key];
-    if (isRecord(childValue)) {
-      collectUpdatedLeafPaths(childValue, childPath, updatedFields);
-    } else {
-      updatedFields.push(childPath.join("."));
-    }
+  if (parent.length === 1 && parent[0] === "tools") {
+    return ({
+      mcp_servers: "mcpServers",
+      ssrf_whitelist: "ssrfWhitelist",
+    } as Record<string, string>)[segment] ?? segment;
   }
+  if (parent.length === 1 && parent[0] === "channels" && segment === "send_progress") {
+    return "sendProgress";
+  }
+  if (parent.length === 2 && parent[0] === "gateway" && parent[1] === "heartbeat" && segment === "interval_s") {
+    return "intervalS";
+  }
+  if (parent.length === 1 && parent[0] === "knowledge") {
+    return ({
+      chunk_size: "chunkSize",
+      chunk_overlap: "chunkOverlap",
+      retrieval_mode: "retrievalMode",
+      graph_extraction_enabled: "semanticExtractionEnabled",
+      graph_extraction_model: "semanticExtractionModel",
+      graph_extraction_max_tokens: "semanticExtractionMaxTokens",
+    } as Record<string, string>)[segment] ?? segment;
+  }
+  return segment;
 }
 
-function planConfigPatchSideEffects(updatedFields: readonly string[]): DesktopNativeConfigPatchResponse["sideEffects"] {
-  const applied: string[] = [];
-  const restartRequired: string[] = [];
-  const warnings: string[] = [];
-  for (const field of updatedFields) {
-    if (
-      field === "agents.defaults.model"
-      || field === "agents.defaults.provider"
-      || field === "agents.defaults.activeProfile"
-      || field === "agents.defaults.active_profile"
-      || field.startsWith("providers.")
-    ) {
-      pushUnique(applied, "providerRuntimeChanged");
-    }
-    if (field.startsWith("agents.defaults.embedding.")) {
-      pushUnique(applied, "embeddingConfigChanged");
-    }
-    if (field.startsWith("tools.mcpServers.") || field.startsWith("tools.mcp_servers.")) {
-      pushUnique(applied, "mcpConfigChanged");
-    }
-    if (field === "tools.ssrfWhitelist" || field.startsWith("tools.ssrfWhitelist.") || field === "tools.ssrf_whitelist" || field.startsWith("tools.ssrf_whitelist.")) {
-      pushUnique(applied, "ssrfWhitelistChanged");
-    }
-    if (field.startsWith("channels.")) {
-      pushUnique(applied, "channelConfigChanged");
-    }
-    if (field.startsWith("knowledge.")) {
-      pushUnique(applied, "knowledgeConfigChanged");
-    }
-    if (field === "agents.defaults.workspace") {
-      pushUnique(restartRequired, "workspaceReloadRequired");
-      pushUnique(warnings, "agents.defaults.workspace requires an explicit workspace reload");
-    }
-    if (field === "gateway.host" || field === "gateway.port") {
-      pushUnique(restartRequired, "gatewayRestartRequired");
-      pushUnique(warnings, "gateway host or port changes require restart");
+function extractExpectedRevision(currentConfig: unknown): string | undefined {
+  if (!isRecord(currentConfig)) {
+    return undefined;
+  }
+  for (const key of ["revision", "configRevision", "config_revision"]) {
+    const value = currentConfig[key];
+    if (typeof value === "string" && value.trim()) {
+      return value;
     }
   }
-  return { applied, restartRequired, warnings };
+  const metadata = currentConfig.configMetadata ?? currentConfig.config_metadata;
+  if (isRecord(metadata)) {
+    const value = metadata.revision;
+    if (typeof value === "string" && value.trim()) {
+      return value;
+    }
+  }
+  return undefined;
 }
 
-function pushUnique(values: string[], value: string): void {
-  if (!values.includes(value)) {
-    values.push(value);
-  }
+function isConfigRemoveOperation(value: unknown): boolean {
+  return isRecord(value)
+    && (value.__desktopConfigOperation === "remove" || value.op === "remove")
+    && Object.keys(value).every((key) => ["__desktopConfigOperation", "op"].includes(key));
 }
 
 function isSensitiveConfigKey(key: string): boolean {

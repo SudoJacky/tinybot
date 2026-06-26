@@ -91,7 +91,6 @@ describe("settings provider management Vue island", () => {
     expect(host.getAttribute("aria-label")).toBe("Provider management");
     expect(host.textContent).toContain("Providers");
     expect(host.querySelector<HTMLInputElement>(".desktop-settings-provider-search")?.getAttribute("placeholder")).toBe("Search providers...");
-    expect(host.querySelector('[data-desktop-settings-action="discoverModels"]')?.textContent).toBe("Refresh models");
     expect(host.querySelector('[data-desktop-settings-action="addProvider"]')?.textContent).toBe("+ Add provider");
 
     const cards = Array.from(host.querySelectorAll<HTMLElement>(".desktop-settings-provider-card"));
@@ -102,12 +101,21 @@ describe("settings provider management Vue island", () => {
     ]);
     expect(cards[0]?.textContent).toContain("OpenAI");
     expect(cards[0]?.textContent).toContain("Current");
-    expect(cards[0]?.textContent).toContain("Base URL: https://api.openai.com/v1");
+    expect(cards[0]?.textContent).toContain("Endpoint: https://api.openai.com/v1");
     expect(cards[0]?.textContent).toContain("API Key: sk-...123");
-    expect(cards[0]?.textContent).toContain("Model: gpt-4.1, gpt-4.1-mini");
-    expect(cards[1]?.textContent).toContain("Base URL: https://api.deepseek.com");
-    expect(cards[1]?.textContent).toContain("Model: deepseek-chat");
+    expect(cards[0]?.textContent).toContain("Models: 2 models");
+    expect(cards[0]?.querySelector('[data-desktop-settings-provider-action="models"]')).toBeNull();
+    expect(cards[0]?.querySelector('[data-desktop-settings-provider-action="settings"]')).toBeNull();
+    expect(cards[0]?.querySelector('[data-desktop-settings-provider-action="toggle"]')).toBeNull();
+    expect(cards[0]?.textContent).not.toContain("Advanced settings");
+    expect(cards[1]?.textContent).toContain("Endpoint: https://api.deepseek.com");
+    expect(cards[1]?.textContent).toContain("Models: 1 model");
     expect(cards[2]?.textContent).toContain("Not configured");
+    expect(host.querySelector('[data-desktop-settings-provider-detail="openai"]')?.textContent).toContain("Provider actions");
+    expect(Array.from(
+      host.querySelectorAll("[data-desktop-settings-provider-command]"),
+      (node) => node.getAttribute("data-desktop-settings-provider-command"),
+    )).toEqual(["discoverModels", "testConnection", "useAsDefault", "rename", "duplicate", "delete"]);
 
     const search = host.querySelector<HTMLInputElement>(".desktop-settings-provider-search");
     search!.value = "deep";
@@ -122,13 +130,17 @@ describe("settings provider management Vue island", () => {
     expect(host.textContent).toBe("");
   });
 
-  test("dispatches refresh, add, and provider-card selection actions", () => {
+  test("dispatches detail commands and uses a durable provider setup flow", async () => {
     const host = document.createElement("section");
     const actions: string[] = [];
+    let prompted = false;
 
     const mounted = mountSettingsProviderManagementIsland(host, {
       pane,
-      promptProviderId: () => "custom-openai",
+      promptProviderId: () => {
+        prompted = true;
+        return "custom-openai";
+      },
       onSettingsAction: (event: DesktopSettingsActionEvent) => {
         if (event.action === "edit") {
           actions.push(`${event.action}:${event.fieldId}:${String(event.value)}`);
@@ -138,21 +150,38 @@ describe("settings provider management Vue island", () => {
       },
     });
 
-    host.querySelector<HTMLButtonElement>('[data-desktop-settings-action="discoverModels"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-desktop-settings-action="addProvider"]')?.click();
-    host.querySelector<HTMLElement>('[data-desktop-settings-provider-card="deepseek"]')
-      ?.querySelector<HTMLButtonElement>('[data-desktop-settings-provider-action="settings"]')
-      ?.click();
-    host.querySelector<HTMLElement>('[data-desktop-settings-provider-card="deepseek"]')
-      ?.querySelector<HTMLButtonElement>('[data-desktop-settings-provider-action="toggle"]')
-      ?.click();
+    await nextTick();
+    expect(prompted).toBe(false);
+    expect(host.querySelector("[data-desktop-settings-provider-setup]")?.textContent).toContain("Add provider");
+    host.querySelector<HTMLInputElement>('[data-desktop-settings-control="newProviderProfileName"]')!.value = "local profile";
+    host.querySelector<HTMLInputElement>('[data-desktop-settings-control="newProviderProfileName"]')?.dispatchEvent(new Event("input", { bubbles: true }));
+    host.querySelector<HTMLSelectElement>('[data-desktop-settings-control="newProviderType"]')!.value = "localai";
+    host.querySelector<HTMLSelectElement>('[data-desktop-settings-control="newProviderType"]')?.dispatchEvent(new Event("change", { bubbles: true }));
+    host.querySelector<HTMLInputElement>('[data-desktop-settings-control="newProviderEndpoint"]')!.value = "http://127.0.0.1:8080/v1";
+    host.querySelector<HTMLInputElement>('[data-desktop-settings-control="newProviderEndpoint"]')?.dispatchEvent(new Event("input", { bubbles: true }));
+    host.querySelector<HTMLTextAreaElement>('[data-desktop-settings-control="newProviderModels"]')!.value = "local-model";
+    host.querySelector<HTMLTextAreaElement>('[data-desktop-settings-control="newProviderModels"]')?.dispatchEvent(new Event("input", { bubbles: true }));
+    await nextTick();
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-provider-setup-action="create"]')?.click();
 
-    expect(actions).toEqual([
-      "discoverModels",
-      "edit:selectedProvider:custom-openai",
+    host.querySelector<HTMLElement>('[data-desktop-settings-provider-card="deepseek"]')
+      ?.querySelector<HTMLButtonElement>('[data-desktop-settings-provider-action="select"]')
+      ?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-provider-command="discoverModels"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-provider-command="testConnection"]')?.click();
+    host.querySelector<HTMLButtonElement>('[data-desktop-settings-provider-command="useAsDefault"]')?.click();
+
+    expect(actions).toEqual(expect.arrayContaining([
+      "edit:selectedProvider:localai",
+      "edit:profileId:local profile",
+      "edit:apiBase:http://127.0.0.1:8080/v1",
+      "edit:models:local-model",
       "edit:selectedProvider:deepseek",
-      "edit:providerEnabled:deepseek:false",
-    ]);
+      "discoverModels",
+      "testProviderConnection",
+      "edit:provider:openai",
+    ]));
 
     mounted.unmount();
   });
@@ -170,7 +199,7 @@ describe("settings provider management Vue island", () => {
       },
     });
 
-    expect(host.querySelector<HTMLButtonElement>('[data-desktop-settings-action="discoverModels"]')?.disabled).toBe(true);
+    expect(host.querySelector<HTMLButtonElement>('[data-desktop-settings-provider-command="discoverModels"]')?.disabled).toBe(true);
 
     mounted.unmount();
   });

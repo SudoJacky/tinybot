@@ -2922,10 +2922,10 @@ describe("desktop workbench shell", () => {
     modelInput?.dispatchEvent({ type: "change", target: modelInput });
 
     clickSettingsNav("knowledge");
-    expect(pane?.querySelector('[data-desktop-settings-control="enabled"]')?.checked).toBe(true);
-    const knowledgeToggle = pane?.querySelector('[data-desktop-settings-control="enabled"]');
-    knowledgeToggle!.checked = false;
-    knowledgeToggle?.dispatchEvent({ type: "change", target: knowledgeToggle });
+    const knowledgeToggle = pane?.querySelector('[data-desktop-settings-control="enabled"]') as HTMLButtonElement | null | undefined;
+    expect(knowledgeToggle?.getAttribute("role")).toBe("switch");
+    expect(knowledgeToggle?.getAttribute("aria-checked")).toBe("true");
+    knowledgeToggle?.click();
 
     clickSettingsNav("tools-approvals");
     expect(pane?.querySelector('[data-desktop-settings-control="mcpServers"]')?.tagName).toBe("textarea");
@@ -4018,6 +4018,44 @@ describe("desktop workbench shell", () => {
     expect(settingsDocument.body.querySelector(".desktop-settings-pane")).not.toBeNull();
   });
 
+  test("renders local settings navigation when the settings sidebar is hidden", () => {
+    const targetDocument = new FakeDocument();
+    targetDocument.documentElement.setAttribute("data-desktop-active-workbench-module", "settings");
+    const settingsState = buildDesktopSettingsFormState({
+      agents: { defaults: { provider: "deepseek", model: "deepseek-v4-flash" } },
+    });
+    const layout = createDefaultWorkbenchLayout();
+    layout.sidebar.visible = false;
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout,
+      gatewayHttp: "http://127.0.0.1:18790",
+      settingsPane: buildDesktopSettingsPaneModel(settingsState, { lastSavedState: settingsState }),
+    });
+
+    const shell = targetDocument.getElementById("desktop-workbench-shell");
+    const pane = targetDocument.body.querySelector(".desktop-settings-pane");
+    const localNav = pane?.querySelector(".desktop-settings-local-nav");
+
+    expect(shell?.getAttribute("data-sidebar-visible")).toBe("false");
+    expect(localNav?.getAttribute("aria-label")).toBe("Settings navigation fallback");
+    expect(localNav?.querySelector(".desktop-settings-local-nav-current")?.textContent).toContain("General");
+
+    const localNavMenu = localNav?.querySelector(".desktop-settings-local-nav-menu");
+    localNavMenu?.setAttribute("open", "");
+    localNav?.querySelector('[data-desktop-settings-nav="provider-models"]')?.click();
+
+    expect(pane?.querySelector(".desktop-settings-breadcrumb")?.textContent).toContain("Provider & Models");
+    expect(pane?.querySelector(".desktop-settings-local-nav-current")?.textContent).toContain("Provider & Models");
+    expect(localNavMenu?.getAttribute("open")).toBeNull();
+
+    pane?.querySelector('[data-desktop-settings-action="showSidebarNav"]')?.click();
+
+    expect(shell?.getAttribute("data-sidebar-visible")).toBe("true");
+    expect(targetDocument.body.querySelector('[data-workbench-region="sidebar"]')?.getAttribute("data-visible")).toBe("true");
+  });
+
   test("syncs the existing secondary sidebar when route changes between chat and settings", () => {
     const targetDocument = new FakeDocument();
     targetDocument.documentElement.setAttribute("data-desktop-active-workbench-module", "chat");
@@ -4267,7 +4305,13 @@ describe("desktop workbench shell", () => {
     });
 
     const styleText = targetDocument.head.querySelector("#desktop-workbench-shell-style")?.textContent ?? "";
-    expect(styleText).toContain("grid-template-columns: 92px minmax(220px, 280px) minmax(0, 1fr) minmax(280px, 340px);");
+    expect(styleText).toContain("grid-template-columns: 92px minmax(220px, var(--desktop-sidebar-size, 260px)) minmax(0, 1fr) minmax(280px, 340px);");
+    expect(styleText).toContain('body.desktop-native-workbench .desktop-workbench-shell[data-inspector-visible="false"] {\n      grid-template-columns: 92px minmax(220px, var(--desktop-sidebar-size, 260px)) minmax(0, 1fr) 0;');
+    expect(styleText).not.toContain("grid-template-columns: 92px minmax(220px, 280px) minmax(0, 1fr)");
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-workbench-shell {\n      grid-template-columns: 92px minmax(220px, var(--desktop-sidebar-size, 260px)) minmax(0, 1fr) minmax(280px, 340px);\n      grid-template-rows: minmax(0, 1fr) auto;\n      border-top: 0;\n      background: #f7f7f5;");
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-workbench-panel,\n    body.desktop-native-workbench .desktop-workbench-panel > .n-card__content,\n    body.desktop-native-workbench .desktop-workbench-panel-content {\n      height: 100%;\n      min-height: 0;\n      background: transparent;");
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-workbench-panel > .n-card__content {\n      padding: 0;");
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-sidebar-content {\n      display: flex;\n      flex-direction: column;\n      gap: 10px;\n      height: 100%;\n      min-height: 0;\n      padding: 18px 14px;\n      overflow-y: auto;\n      overflow-x: hidden;\n      background: inherit;");
     expect(styleText).toContain('grid-template-areas: "input input input" "attach runtime send";');
     expect(styleText).toContain("body.desktop-native-workbench .desktop-native-composer-layout {");
     expect(styleText).toContain("display: grid;");

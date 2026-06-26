@@ -242,6 +242,7 @@ function valueOriginLabel(origin: NonNullable<DesktopSettingsPaneField["valueOri
   return {
     explicit: "Explicit value",
     default: "Default value",
+    environment: "Environment value",
     secret: "Secret value",
     cache: "Cached value",
     runtime: "Runtime value",
