@@ -445,7 +445,7 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
       approveApproval: (approvalId: string, body: unknown) => {
         const path = `/api/approvals/${encodePathSegment(approvalId)}/approve`;
         return nativeOrGateway(
-          () => options.nativeWebui?.route({ method: "POST", path, body }),
+          () => options.nativeWebui?.route({ method: "POST", path, body: nativeWebuiApprovalBody(body) }),
           () => request(path, jsonRequest("POST", body)),
           "webui.approvals.approve",
         );
@@ -453,7 +453,7 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
       denyApproval: (approvalId: string, body: unknown) => {
         const path = `/api/approvals/${encodePathSegment(approvalId)}/deny`;
         return nativeOrGateway(
-          () => options.nativeWebui?.route({ method: "POST", path, body }),
+          () => options.nativeWebui?.route({ method: "POST", path, body: nativeWebuiApprovalBody(body) }),
           () => request(path, jsonRequest("POST", body)),
           "webui.approvals.deny",
         );
@@ -1567,6 +1567,10 @@ function encodePathSegment(value: string): string {
   return encodeURIComponent(value);
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function approvalsListPath(options: WebuiApprovalsListOptions | undefined): string {
   const params = new URLSearchParams();
   if (options?.sessionKey) {
@@ -1580,6 +1584,22 @@ function approvalsListPath(options: WebuiApprovalsListOptions | undefined): stri
   }
   const query = params.toString();
   return query ? `/api/approvals?${query}` : "/api/approvals";
+}
+
+function nativeWebuiApprovalBody(body: unknown): unknown {
+  if (!isRecord(body) || typeof body.session_key !== "string") {
+    return body;
+  }
+  return {
+    ...body,
+    session_key: normalizeNativeWebuiSessionKey(body.session_key),
+  };
+}
+
+function normalizeNativeWebuiSessionKey(sessionKey: string): string {
+  return sessionKey.startsWith("WebSocket:")
+    ? `websocket:${sessionKey.slice("WebSocket:".length)}`
+    : sessionKey;
 }
 
 function knowledgeDocumentsPath(options: KnowledgeDocumentsOptions): string {

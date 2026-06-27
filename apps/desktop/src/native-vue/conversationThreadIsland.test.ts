@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { readFileSync } from "node:fs";
 import { describe, expect, test, vi } from "vitest";
 import { nextTick } from "vue";
 import { mountConversationThreadIsland } from "./conversationThreadIsland";
@@ -747,5 +748,144 @@ describe("conversation thread Vue island", () => {
     expect(host.querySelector(".desktop-tool-detail-panel")).toBeNull();
     expect(host.querySelector(".desktop-conversation-layout")?.getAttribute("data-tool-detail-visible")).toBe("false");
     expect(host.querySelector<HTMLElement>(".desktop-conversation-layout")?.style.getPropertyValue("--desktop-tool-detail-width")).toBe("");
+  });
+
+  test("renders delegated workflow and artifact inspector rows with safe previews", async () => {
+    const host = document.createElement("section");
+
+    mountConversationThreadIsland(host, {
+      emptyMessage: "",
+      messages: [{
+        author: "Tinybot",
+        body: ["I coordinated extra work."],
+        references: [],
+        time: "10:31 AM",
+        tone: "assistant",
+        toolActivities: [{
+          argsText: "Review implementation",
+          approvalStatus: "",
+          id: "delegate-cowork",
+          kind: "call",
+          name: "Cowork: Review implementation",
+          responseText: "2 agents active",
+          runChainItemKey: "turn-1:delegate-cowork",
+          status: "running",
+        }, {
+          argsText: "",
+          approvalStatus: "",
+          id: "artifact-output",
+          kind: "result",
+          name: "Artifact: npm test",
+          responseText: "<script>alert(1)</script> api_key=secret",
+          runChainItemKey: "turn-1:artifact-output",
+          status: "completed",
+        }],
+      }],
+    });
+    await nextTick();
+    await nextTick();
+
+    expect(host.textContent).toContain("Cowork: Review implementation");
+    expect(host.textContent).toContain("Artifact: npm test");
+
+    host.querySelector<HTMLButtonElement>('[data-desktop-tool-activity-id="artifact-output"] .desktop-tool-activity-row')?.click();
+    await nextTick();
+    await flushDetailPanelOpeningMotion();
+
+    const panel = host.querySelector<HTMLElement>(".desktop-tool-detail-panel");
+    expect(panel?.getAttribute("aria-label")).toBe("Artifact details");
+    expect(panel?.getAttribute("data-inspector-kind")).toBe("artifact");
+    expect(panel?.textContent).toContain("Artifact: npm test");
+    expect(panel?.textContent).not.toContain("<script>");
+    expect(panel?.textContent).not.toContain("api_key=secret");
+    expect(panel?.textContent).toContain("[unsafe omitted]");
+    expect(panel?.textContent).toContain("[redacted]");
+
+    host.querySelector<HTMLButtonElement>('[data-desktop-tool-activity-id="delegate-cowork"] .desktop-tool-activity-row')?.click();
+    await nextTick();
+    await flushDetailPanelOpeningMotion();
+
+    const delegatePanel = host.querySelector<HTMLElement>(".desktop-tool-detail-panel");
+    expect(delegatePanel?.getAttribute("aria-label")).toBe("Delegated agent details");
+    expect(delegatePanel?.getAttribute("data-inspector-kind")).toBe("delegate");
+    expect(delegatePanel?.textContent).toContain("Review implementation");
+    expect(delegatePanel?.textContent).toContain("2 agents active");
+  });
+
+  test("windows very large timelines and keeps the latest visible nodes", async () => {
+    const host = document.createElement("section");
+    const messages = Array.from({ length: 340 }, (_, index) => ({
+      author: index % 2 === 0 ? "You" : "Tinybot",
+      body: [`Message ${index}`],
+      references: [],
+      time: "10:31 AM",
+      tone: index % 2 === 0 ? "user" as const : "assistant" as const,
+      toolActivities: [],
+    }));
+
+    mountConversationThreadIsland(host, {
+      emptyMessage: "",
+      messages,
+    });
+    await nextTick();
+    await nextTick();
+
+    const timeline = host.querySelector<HTMLElement>(".desktop-conversation-timeline");
+    expect(host.querySelector(".desktop-conversation-layout")?.getAttribute("data-large-timeline-windowed")).toBe("true");
+    expect(timeline?.getAttribute("data-total-node-count")).toBe("340");
+    expect(timeline?.getAttribute("data-rendered-node-count")).toBe("301");
+    expect(host.querySelector(".desktop-conversation-large-window-placeholder")?.getAttribute("data-omitted-node-count")).toBe("40");
+    expect(host.textContent).not.toContain("Message 0");
+    expect(host.textContent).toContain("Message 339");
+  });
+
+  test("respects reduced motion for inspector transitions", async () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      addEventListener: vi.fn(),
+      addListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+      matches: query === "(prefers-reduced-motion: reduce)",
+      media: query,
+      onchange: null,
+      removeEventListener: vi.fn(),
+      removeListener: vi.fn(),
+    }));
+    const host = document.createElement("section");
+
+    mountConversationThreadIsland(host, {
+      emptyMessage: "",
+      messages: [{
+        author: "Tinybot",
+        body: [],
+        references: [],
+        time: "10:31 AM",
+        tone: "assistant",
+        toolActivities: [{
+          argsText: "npm test",
+          approvalStatus: "",
+          id: "tool-shell",
+          kind: "call",
+          name: "shell",
+          responseText: "",
+          runChainItemKey: "turn-1:tool-shell",
+          status: "running",
+        }],
+      }],
+    });
+    await nextTick();
+
+    host.querySelector<HTMLButtonElement>('[data-desktop-tool-activity-id="tool-shell"] .desktop-tool-activity-row')?.click();
+    await nextTick();
+
+    expect(host.querySelector(".desktop-conversation-layout")?.getAttribute("data-reduced-motion")).toBe("true");
+    expect(host.querySelector(".desktop-tool-detail-panel")?.getAttribute("data-tool-detail-motion")).toBe("open");
+
+    const css = readFileSync("src/styles.css", "utf8");
+    expect(css).toContain("@media (prefers-reduced-motion: reduce)");
+    expect(css).toContain("animation: none !important");
+    expect(css).toContain("transition: none !important");
+
+    window.matchMedia = originalMatchMedia;
   });
 });

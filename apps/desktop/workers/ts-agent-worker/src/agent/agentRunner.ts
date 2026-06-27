@@ -175,6 +175,7 @@ export class AgentRunner {
               toolCallId: toolCall.id,
               toolName: toolCall.name,
               content: result.content,
+              ...(result.metadata ? { metadata: result.metadata } : {}),
             },
           });
           const memoryReferences = memoryReferencesFromMetadata(result.metadata);

@@ -2,6 +2,7 @@ import { computed, createApp, defineComponent, h, nextTick, onBeforeUnmount, ref
 import { NConfigProvider, NEmpty } from "naive-ui";
 import type { AgentUiForm } from "../agentUiEvents";
 import { logDesktopNativeChatDebug, logDesktopNativeDebug, summarizeDebugText } from "../desktopNativeChatDebug";
+import { sanitizeTextPreview } from "../chatRunModel";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 import { renderAgentUiFormCardChildren } from "./agentUiFormCardIsland";
 import { renderConversationMessageChildren, type ConversationMessageIslandOptions } from "./conversationMessageIsland";
@@ -96,6 +97,8 @@ interface AgentFlowStepProfile {
 
 const mountedConversationThreads = new WeakMap<HTMLElement, MountedConversationThreadIsland>();
 const DETAIL_PANEL_MOTION_MS = 560;
+const TIMELINE_EAGER_NODE_LIMIT = 300;
+type ActivityInspectorKind = "approval" | "artifact" | "delegate" | "tool_call";
 const CONVERSATION_AGENT_FLOW_STYLE_ID = "desktop-conversation-agent-flow-styles";
 const AGENT_WORKFLOW_STEP_LIMIT = 8;
 
@@ -162,6 +165,7 @@ function createConversationThreadApp(state: Ref<ConversationThreadIslandOptions>
       const detailPanelState = ref<DetailPanelState>("closed");
       const panelWidth = ref(50);
       const overlayMode = ref(isToolDetailOverlayMode());
+      const reducedMotion = ref(prefersReducedMotion());
       let closePanelTimer: number | null = null;
       let openPanelFrame: number | null = null;
       const selectedTool = computed(() => selectedToolKey.value ? findToolActivity(state.value.messages, selectedToolKey.value) : null);
@@ -196,7 +200,7 @@ function createConversationThreadApp(state: Ref<ConversationThreadIslandOptions>
         detailPanelState.value = "closing";
         clearOpenPanelFrame();
         clearClosePanelTimer();
-        if (typeof window === "undefined") {
+        if (typeof window === "undefined" || reducedMotion.value) {
           clearPanelSelection();
           return;
         }
@@ -209,7 +213,7 @@ function createConversationThreadApp(state: Ref<ConversationThreadIslandOptions>
         }
         clearOpenPanelFrame();
         detailPanelState.value = "opening";
-        if (typeof window === "undefined" || typeof window.requestAnimationFrame !== "function") {
+        if (typeof window === "undefined" || reducedMotion.value || typeof window.requestAnimationFrame !== "function") {
           detailPanelState.value = "open";
           return;
         }
@@ -261,6 +265,7 @@ function createConversationThreadApp(state: Ref<ConversationThreadIslandOptions>
       };
       const updateOverlayMode = () => {
         overlayMode.value = isToolDetailOverlayMode();
+        reducedMotion.value = prefersReducedMotion();
       };
       if (typeof window !== "undefined") {
         window.addEventListener("resize", updateOverlayMode);
@@ -281,9 +286,10 @@ function createConversationThreadApp(state: Ref<ConversationThreadIslandOptions>
             ...(state.value.coworkRuns ?? []).map((run) => renderChatCoworkRun(run, openCoworkAgentDetail)),
             ...(state.value.inlineForms ?? []).map((form) => renderInlineAgentUiForm(state.value, form)),
           ];
+          const timelineNodes = windowTimelineNodes(nodes);
           const hasPanelSelection = hasDetailPanelSelection();
           const detailPanel = selectedTool.value
-            ? renderToolDetailPanel({
+            ? renderActivityInspectorPanel({
               activity: selectedTool.value,
               mode: overlayMode.value ? "overlay" : "push",
               motionState: detailPanelState.value,
@@ -323,7 +329,9 @@ function createConversationThreadApp(state: Ref<ConversationThreadIslandOptions>
               "data-cowork-agent-detail-visible": String(Boolean(selectedCoworkAgent.value) && detailPanelState.value === "open"),
               "data-detail-panel-mode": overlayMode.value ? "overlay" : "push",
               "data-detail-panel-state": hasPanelSelection ? detailPanelState.value : "closed",
+              "data-large-timeline-windowed": String(nodes.length > TIMELINE_EAGER_NODE_LIMIT),
               "data-reference-detail-visible": String(Boolean(selectedReference.value) && detailPanelState.value === "open"),
+              "data-reduced-motion": String(reducedMotion.value),
               "data-tool-detail-visible": String(Boolean(selectedTool.value) && detailPanelState.value === "open"),
               onClick: handleLayoutClick,
               onDesktopToolDetailOpen: openToolDetail,
@@ -337,13 +345,19 @@ function createConversationThreadApp(state: Ref<ConversationThreadIslandOptions>
                 class: "desktop-conversation-layout",
                 "data-cowork-agent-detail-visible": String(Boolean(selectedCoworkAgent.value) && detailPanelState.value === "open"),
                 "data-detail-panel-state": hasPanelSelection ? detailPanelState.value : "closed",
+                "data-large-timeline-windowed": String(nodes.length > TIMELINE_EAGER_NODE_LIMIT),
                 "data-reference-detail-visible": String(Boolean(selectedReference.value) && detailPanelState.value === "open"),
+                "data-reduced-motion": String(reducedMotion.value),
                 "data-tool-detail-visible": String(Boolean(selectedTool.value) && detailPanelState.value === "open"),
                 style: hasPanelSelection
                   ? { "--desktop-tool-detail-width": `${panelWidth.value}%` }
                   : undefined,
               }, [
-                h("div", { class: "desktop-conversation-timeline" }, nodes),
+                h("div", {
+                  class: "desktop-conversation-timeline",
+                  "data-rendered-node-count": String(timelineNodes.length),
+                  "data-total-node-count": String(nodes.length),
+                }, timelineNodes),
               ]),
               detailPanel
                 ? h("div", {
@@ -357,6 +371,21 @@ function createConversationThreadApp(state: Ref<ConversationThreadIslandOptions>
       });
     },
   }));
+}
+
+function windowTimelineNodes(nodes: VNode[]): VNode[] {
+  if (nodes.length <= TIMELINE_EAGER_NODE_LIMIT) {
+    return nodes;
+  }
+  const omitted = nodes.length - TIMELINE_EAGER_NODE_LIMIT;
+  return [
+    h("div", {
+      key: "timeline-window-placeholder",
+      class: "desktop-conversation-large-window-placeholder",
+      "data-omitted-node-count": String(omitted),
+    }, `${omitted} earlier timeline item${omitted === 1 ? "" : "s"} deferred`),
+    ...nodes.slice(-TIMELINE_EAGER_NODE_LIMIT),
+  ];
 }
 
 function renderThreadMessages(
@@ -689,7 +718,7 @@ function renderInlineAgentUiForm(options: ConversationThreadIslandOptions, form:
   }));
 }
 
-function renderToolDetailPanel(options: {
+function renderActivityInspectorPanel(options: {
   activity: ToolActivityIslandOptions;
   mode: "overlay" | "push";
   motionState: DetailPanelState;
@@ -697,14 +726,16 @@ function renderToolDetailPanel(options: {
   onResize: (nextWidth: number) => void;
 }) {
   const { activity } = options;
+  const inspectorKind = activityInspectorKind(activity);
   const status = normalizeToolStatus(activity);
   const label = getToolStatusLabel(status);
   const tone = getToolStatusTone(status);
   const agentProfile = resolveAgentToolProfile(activity);
   return h("aside", {
-    "aria-label": "Tool call details",
-    class: "desktop-tool-detail-panel",
+    "aria-label": inspectorAriaLabel(inspectorKind),
+    class: ["desktop-tool-detail-panel", `desktop-${inspectorKind}-detail-panel`].join(" "),
     "data-agent-call-kind": agentProfile.kind,
+    "data-inspector-kind": inspectorKind,
     "data-tool-detail-mode": options.mode,
     "data-tool-detail-motion": options.motionState,
   }, [
@@ -719,7 +750,7 @@ function renderToolDetailPanel(options: {
       : null,
     h("header", { class: "desktop-tool-detail-header" }, [
       h("div", { class: "desktop-tool-detail-title-group" }, [
-        h("span", { class: "desktop-tool-detail-eyebrow" }, agentProfile.kind === "tool" ? "Tool" : agentProfile.label),
+        h("span", { class: "desktop-tool-detail-eyebrow" }, inspectorEyebrow(inspectorKind)),
         h("h3", { class: "desktop-tool-detail-title" }, activity.name || "unknown"),
       ]),
       h("button", {
@@ -733,22 +764,101 @@ function renderToolDetailPanel(options: {
       h("span", { class: "desktop-tool-activity-status-dot", "data-tool-status-tone": tone }),
       h("span", label),
     ]),
-    isPendingToolApproval(activity)
+    inspectorKind === "approval"
       ? h("section", { class: "desktop-tool-detail-approval-actions", "aria-label": "Tool approval actions" }, [
         renderDetailApprovalButton(activity, "approveOnce", "Approve once"),
         renderDetailApprovalButton(activity, "approveSession", "Allow session"),
         renderDetailApprovalButton(activity, "deny", "Deny"),
       ])
       : null,
-    h("div", { class: "desktop-tool-detail-body" }, [
-      agentProfile.kind === "tool" ? null : renderAgentToolWorkflowPanel(activity, agentProfile),
-      renderToolDetailMeta(activity),
-      renderToolDetailText("Arguments", activity.argsText, "No arguments available"),
-      renderToolDetailText("Response", activity.responseText, "No response available"),
-      renderToolDetailText("stderr", "", "No stderr available"),
-      renderToolDetailText("Duration", "", "Duration unavailable"),
-    ]),
+    h("div", { class: "desktop-tool-detail-body" }, renderActivityInspectorBody(activity, inspectorKind)),
   ]);
+}
+
+function renderActivityInspectorBody(
+  activity: ToolActivityIslandOptions,
+  inspectorKind: ActivityInspectorKind,
+): Array<VNode | null> {
+  const agentProfile = resolveAgentToolProfile(activity);
+  if (inspectorKind === "artifact") {
+    return [
+      renderToolDetailMeta(activity),
+      renderToolDetailText("Preview", activity.responseText || activity.argsText, "Preview unavailable"),
+      renderToolDetailText("Fetch", activity.runChainItemKey || activity.id, "Artifact fetch reference unavailable"),
+      renderToolDetailText("Renderer", artifactRendererLabel(activity.name), "Renderer unavailable"),
+    ];
+  }
+  if (inspectorKind === "delegate") {
+    return [
+      renderAgentToolWorkflowPanel(activity, agentProfile),
+      renderToolDetailMeta(activity),
+      renderToolDetailText("Task", activity.argsText, "No delegated task available"),
+      renderToolDetailText("Latest activity", activity.responseText, "No delegated activity available"),
+      renderToolDetailText("Related link", activity.runChainItemKey || activity.id, "Related link unavailable"),
+    ];
+  }
+  return [
+    renderToolDetailMeta(activity),
+    renderToolDetailText("Arguments", activity.argsText, "No arguments available"),
+    renderToolDetailText("Response", activity.responseText, "No response available"),
+    renderToolDetailText("stderr", "", "No stderr available"),
+    renderToolDetailText("Duration", "", "Duration unavailable"),
+  ];
+}
+
+function activityInspectorKind(activity: ToolActivityIslandOptions): ActivityInspectorKind {
+  const normalized = `${activity.name} ${activity.id}`.toLowerCase();
+  if (normalized.includes("artifact:") || normalized.includes("artifact")) {
+    return "artifact";
+  }
+  if (resolveAgentToolProfile(activity).kind !== "tool") {
+    return "delegate";
+  }
+  if (isPendingToolApproval(activity)) {
+    return "approval";
+  }
+  return "tool_call";
+}
+
+function inspectorAriaLabel(kind: ActivityInspectorKind): string {
+  return {
+    approval: "Tool call details",
+    artifact: "Artifact details",
+    delegate: "Delegated agent details",
+    tool_call: "Tool call details",
+  }[kind];
+}
+
+function inspectorEyebrow(kind: ActivityInspectorKind): string {
+  return {
+    approval: "Approval",
+    artifact: "Artifact",
+    delegate: "Delegated work",
+    tool_call: "Tool",
+  }[kind];
+}
+
+function artifactRendererLabel(name: string): string {
+  const normalized = name.toLowerCase();
+  if (normalized.includes("json")) {
+    return "Structured JSON";
+  }
+  if (normalized.includes("diff")) {
+    return "File diff";
+  }
+  if (normalized.includes("snapshot") || normalized.includes("browser")) {
+    return "Browser snapshot";
+  }
+  if (normalized.includes("image")) {
+    return "Image";
+  }
+  if (normalized.includes("markdown")) {
+    return "Markdown";
+  }
+  if (normalized.includes("terminal") || normalized.includes("npm") || normalized.includes("shell")) {
+    return "Terminal output";
+  }
+  return "Inert text";
 }
 
 function renderAgentToolWorkflowPanel(activity: ToolActivityIslandOptions, profile: AgentToolProfile): VNode {
@@ -1009,7 +1119,7 @@ function renderToolDetailMeta(activity: ToolActivityIslandOptions) {
 }
 
 function renderToolDetailText(label: string, value: string, emptyLabel: string) {
-  const formatted = formatMaybeJson(value);
+  const formatted = formatMaybeJson(sanitizeTextPreview(value));
   return h("section", { class: "desktop-tool-detail-section" }, [
     h("h4", label),
     h("pre", { class: "desktop-tool-detail-pre" }, formatted || emptyLabel),
@@ -1387,6 +1497,12 @@ function boundedConversationTimelineScrollTop(element: HTMLElement, value: numbe
 
 function isToolDetailOverlayMode(): boolean {
   return typeof window !== "undefined" ? window.innerWidth < 900 : false;
+}
+
+function prefersReducedMotion(): boolean {
+  return typeof window !== "undefined"
+    && typeof window.matchMedia === "function"
+    && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
 function clampToolPanelWidth(value: number): number {

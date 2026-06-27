@@ -619,6 +619,43 @@ describe("gateway HTTP client", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
+  test("normalizes desktop WebSocket session keys for native WebUI approval resolution", async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
+    const nativeWebui = {
+      route: vi.fn(async (request: { method: string; path: string; body?: unknown }) => ({
+        ok: true,
+        request,
+      })),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeWebui,
+    });
+
+    await client.tools.approveApproval("approval-1", {
+      session_key: "WebSocket:chat-1",
+      scope: "once",
+      auto_retry: true,
+    });
+    await client.tools.denyApproval("approval-1", {
+      session_key: "WebSocket:chat-1",
+      auto_retry: true,
+    });
+
+    expect(nativeWebui.route).toHaveBeenCalledWith({
+      method: "POST",
+      path: "/api/approvals/approval-1/approve",
+      body: { session_key: "websocket:chat-1", scope: "once", auto_retry: true },
+    });
+    expect(nativeWebui.route).toHaveBeenCalledWith({
+      method: "POST",
+      path: "/api/approvals/approval-1/deny",
+      body: { session_key: "websocket:chat-1", auto_retry: true },
+    });
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
   test("prefers native WebUI session list route when available", async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
     const nativeWebui = {
@@ -2874,6 +2911,20 @@ describe("gateway WebSocket client", () => {
     });
     expect(normalizeGatewayFrame({ event: "agent_ui_form", form: { form_id: "form-1" } })).toMatchObject({
       kind: "agent-ui.form",
+    });
+    expect(
+      normalizeGatewayFrame({
+        event: "agent_event",
+        schema_version: "tinybot.agent_event.v1",
+        event_id: "event-tool",
+        event_type: "tool.call.started",
+        chat_id: "chat-1",
+        turn_id: "turn-1",
+        payload: { name: "read_file" },
+      }),
+    ).toMatchObject({
+      kind: "agent.event",
+      chatId: "chat-1",
     });
     expect(
       normalizeGatewayFrame({

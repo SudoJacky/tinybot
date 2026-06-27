@@ -1,0 +1,428 @@
+import { describe, expect, test } from "vitest";
+import {
+  createChatRunState,
+  getArtifactRef,
+  legacyMessagesToTurns,
+  reduceAgentEvent,
+  redactedPreview,
+  resolveChatInspectorPanel,
+  safeArtifactPreview,
+  selectChatInspector,
+  turnsToConversationMessages,
+} from "./chatRunModel";
+import type { NativeChatMessage } from "./nativeChat";
+
+describe("chat run model", () => {
+  test("converts legacy messages into turns with separate process steps and final answer", () => {
+    const messages: NativeChatMessage[] = [
+      {
+        role: "user",
+        content: "List the workspace",
+        reasoningContent: "",
+        timestamp: "2026-06-27T04:00:00.000Z",
+        messageId: "user-1",
+      },
+      {
+        role: "assistant",
+        content: "",
+        reasoningContent: "I should inspect the workspace.",
+        toolActivities: [{
+          argsText: "{\"path\":\".\"}",
+          id: "call-list",
+          kind: "call",
+          name: "list_dir",
+          responseText: "",
+          status: "running",
+        }],
+        timestamp: "2026-06-27T04:00:01.000Z",
+        messageId: "assistant-tools",
+      },
+      {
+        role: "assistant",
+        content: "The workspace contains apps and tests.",
+        reasoningContent: "I have enough context.",
+        references: [{ detail: "workspace", kind: "reference", title: "." }],
+        timestamp: "2026-06-27T04:00:02.000Z",
+        messageId: "assistant-final",
+      },
+    ];
+
+    const turns = legacyMessagesToTurns("WebSocket:chat-1", messages);
+
+    expect(turns).toHaveLength(1);
+    expect(turns[0]).toMatchObject({
+      id: "turn:WebSocket:chat-1:user-1",
+      sessionKey: "WebSocket:chat-1",
+      userMessageId: "user-1",
+      status: "completed",
+      finalMessage: {
+        id: "assistant-final",
+        text: "The workspace contains apps and tests.",
+      },
+    });
+    expect(turns[0].steps.map((step) => [step.kind, step.title, step.status])).toEqual([
+      ["reasoning", "Thinking", "completed"],
+      ["tool_call", "list_dir", "running"],
+      ["reasoning", "Thinking complete", "completed"],
+    ]);
+    expect(turns[0].steps[1].toolCall).toMatchObject({
+      id: "call-list",
+      argsPreview: "{\"path\":\".\"}",
+      name: "list_dir",
+    });
+  });
+
+  test("replays structured events with deduplication, delegated workflows, and artifacts", () => {
+    const state = createChatRunState();
+    const started = {
+      schema_version: "tinybot.agent_event.v1",
+      event_id: "event-turn-start",
+      event_type: "agent.turn.started",
+      chat_id: "chat-1",
+      session_key: "WebSocket:chat-1",
+      turn_id: "turn-1",
+      sequence: 1,
+      created_at: "2026-06-27T04:00:00.000Z",
+      payload: {
+        user_message: { id: "user-1", role: "user", text: "Run tests" },
+        user_message_id: "user-1",
+        title: "Run tests",
+      },
+    } as const;
+
+    reduceAgentEvent(state, started);
+    reduceAgentEvent(state, started);
+    reduceAgentEvent(state, {
+      schema_version: "tinybot.agent_event.v1",
+      event_id: "event-tool-start",
+      event_type: "tool.call.started",
+      chat_id: "chat-1",
+      session_key: "WebSocket:chat-1",
+      turn_id: "turn-1",
+      step_id: "step-tool",
+      sequence: 2,
+      created_at: "2026-06-27T04:00:01.000Z",
+      payload: {
+        args_json: { command: "npm test", token: "secret-token" },
+        name: "shell",
+        status: "running",
+        tool_call_id: "call-shell",
+      },
+    });
+    reduceAgentEvent(state, {
+      schema_version: "tinybot.agent_event.v1",
+      event_id: "event-delegate",
+      event_type: "agent.delegate.started",
+      chat_id: "chat-1",
+      session_key: "WebSocket:chat-1",
+      turn_id: "turn-1",
+      step_id: "step-delegate",
+      sequence: 3,
+      created_at: "2026-06-27T04:00:02.000Z",
+      payload: {
+        agent_context: { id: "cowork-1", title: "Cowork", type: "cowork" },
+        delegate_id: "cowork-1",
+        delegate_type: "cowork",
+        task: "Review implementation",
+        title: "Review implementation",
+      },
+    });
+    reduceAgentEvent(state, {
+      schema_version: "tinybot.agent_event.v1",
+      event_id: "event-artifact",
+      event_type: "artifact.created",
+      chat_id: "chat-1",
+      session_key: "WebSocket:chat-1",
+      turn_id: "turn-1",
+      step_id: "step-tool",
+      sequence: 4,
+      created_at: "2026-06-27T04:00:03.000Z",
+      payload: {
+        artifact: {
+          id: "artifact-output",
+          kind: "terminal_output",
+          mimeType: "text/plain",
+          preview: "npm test output",
+          sizeBytes: 1200,
+          title: "npm test",
+        },
+      },
+    });
+    reduceAgentEvent(state, {
+      schema_version: "tinybot.agent_event.v1",
+      event_id: "event-final",
+      event_type: "message.completed",
+      chat_id: "chat-1",
+      session_key: "WebSocket:chat-1",
+      turn_id: "turn-1",
+      step_id: "step-final",
+      sequence: 5,
+      created_at: "2026-06-27T04:00:04.000Z",
+      payload: {
+        message_id: "assistant-final",
+        role: "assistant",
+        text: "Tests passed.",
+      },
+    });
+
+    const turns = state.turnsBySession.get("WebSocket:chat-1") ?? [];
+    expect(turns).toHaveLength(1);
+    expect(state.appliedEventIds.size).toBe(5);
+    expect(turns[0].steps.map((step) => [step.id, step.kind, step.title])).toEqual([
+      ["step-tool", "tool_call", "shell"],
+      ["step-delegate", "delegate", "Review implementation"],
+      ["step-final", "message", "Final answer"],
+    ]);
+    expect(turns[0].steps[0].toolCall?.argsJson).toEqual({ command: "npm test", token: "[redacted]" });
+    expect(turns[0].steps[0].artifacts).toEqual([{
+      id: "artifact-output",
+      kind: "terminal_output",
+      mimeType: "text/plain",
+      preview: "npm test output",
+      sizeBytes: 1200,
+      status: "available",
+      title: "npm test",
+    }]);
+    expect(turns[0].steps[1].delegate).toMatchObject({
+      id: "cowork-1",
+      type: "cowork",
+      task: "Review implementation",
+    });
+    expect(turns[0].finalMessage?.text).toBe("Tests passed.");
+  });
+
+  test("builds legacy conversation messages and keeps final answer copy separate", () => {
+    const turns = legacyMessagesToTurns("WebSocket:chat-1", [
+      {
+        role: "user",
+        content: "Summarize",
+        reasoningContent: "",
+        timestamp: "2026-06-27T04:00:00.000Z",
+        messageId: "user-1",
+      },
+      {
+        role: "assistant",
+        content: "",
+        reasoningContent: "hidden raw chain",
+        timestamp: "2026-06-27T04:00:01.000Z",
+        messageId: "reasoning-1",
+      },
+      {
+        role: "assistant",
+        content: "Final only",
+        reasoningContent: "do not copy",
+        timestamp: "2026-06-27T04:00:02.000Z",
+        messageId: "final-1",
+      },
+    ]);
+
+    const view = turnsToConversationMessages(turns);
+
+    expect(view).toEqual([
+      expect.objectContaining({ body: ["Summarize"], tone: "user" }),
+      expect.objectContaining({ body: [], reasoningContent: "hidden raw chain", tone: "assistant" }),
+      expect.objectContaining({ body: [], reasoningContent: "do not copy", tone: "assistant" }),
+      expect.objectContaining({ body: ["Final only"], copyable: true, reasoningContent: "", tone: "assistant" }),
+    ]);
+  });
+
+  test("redacts sensitive fields and renders unsafe artifact payloads inertly", () => {
+    expect(redactedPreview({
+      authorization: "Bearer abc",
+      nested: { private_key: "key", safe: "value" },
+      token: "secret",
+    })).toBe("{\"authorization\":\"[redacted]\",\"nested\":{\"private_key\":\"[redacted]\",\"safe\":\"value\"},\"token\":\"[redacted]\"}");
+
+    expect(safeArtifactPreview({
+      html: "<button onclick=\"steal()\">Run</button>",
+      onClick: "steal()",
+      script: "alert(1)",
+      text: "Visible",
+    })).toBe("{\"html\":\"[unsafe omitted]\",\"onClick\":\"[unsafe omitted]\",\"script\":\"[unsafe omitted]\",\"text\":\"Visible\"}");
+  });
+
+  test("stores artifact refs lazily and resolves inspector registry panels", () => {
+    const state = createChatRunState();
+    reduceAgentEvent(state, {
+      schema_version: "tinybot.agent_event.v1",
+      event_id: "event-tool",
+      event_type: "tool.call.completed",
+      chat_id: "chat-1",
+      session_key: "WebSocket:chat-1",
+      turn_id: "turn-1",
+      step_id: "step-tool",
+      sequence: 1,
+      created_at: "2026-06-27T04:00:01.000Z",
+      payload: {
+        name: "shell",
+        result_preview: "ok",
+        status: "completed",
+        tool_call_id: "call-shell",
+      },
+    });
+    reduceAgentEvent(state, {
+      schema_version: "tinybot.agent_event.v1",
+      event_id: "event-artifact",
+      event_type: "artifact.created",
+      chat_id: "chat-1",
+      session_key: "WebSocket:chat-1",
+      turn_id: "turn-1",
+      step_id: "step-tool",
+      sequence: 2,
+      created_at: "2026-06-27T04:00:02.000Z",
+      payload: {
+        artifact: {
+          fetch_path: "/api/sessions/WebSocket:chat-1/artifacts/artifact-log",
+          id: "artifact-log",
+          kind: "terminal_output",
+          mime_type: "text/plain",
+          preview: "npm test summary",
+          size_bytes: 4096,
+          title: "npm test",
+        },
+      },
+    });
+
+    expect(getArtifactRef(state, "WebSocket:chat-1", "artifact-log")).toMatchObject({
+      fetchPath: "/api/sessions/WebSocket:chat-1/artifacts/artifact-log",
+      preview: "npm test summary",
+      sizeBytes: 4096,
+    });
+    selectChatInspector(state, { kind: "artifact", sessionKey: "WebSocket:chat-1", artifactId: "artifact-log" });
+    expect(resolveChatInspectorPanel(state)).toMatchObject({
+      kind: "artifact",
+      subtitle: "terminal_output / text/plain / 4096 bytes",
+      title: "npm test",
+    });
+    expect(resolveChatInspectorPanel(state)?.body).toBe("npm test summary");
+
+    selectChatInspector(state, { kind: "tool_call", sessionKey: "WebSocket:chat-1", turnId: "turn-1", stepId: "step-tool", toolCallId: "call-shell" });
+    expect(resolveChatInspectorPanel(state)).toMatchObject({
+      kind: "tool_call",
+      status: "completed",
+      title: "shell",
+    });
+
+    selectChatInspector(state, { kind: "delegate", sessionKey: "WebSocket:chat-1", turnId: "turn-1", stepId: "missing", delegateId: "missing" });
+    expect(resolveChatInspectorPanel(state)).toMatchObject({
+      kind: "delegate",
+      status: "unavailable",
+      title: "Unavailable",
+    });
+  });
+
+  test("replays approval, failure, interruption, form, browser, file diff, and delegate variants", () => {
+    const state = createChatRunState();
+    const base = {
+      schema_version: "tinybot.agent_event.v1" as const,
+      chat_id: "chat-1",
+      session_key: "WebSocket:chat-1",
+      turn_id: "turn-rich",
+      created_at: "2026-06-27T04:00:00.000Z",
+    };
+    reduceAgentEvent(state, {
+      ...base,
+      event_id: "turn-updated",
+      event_type: "agent.turn.updated",
+      sequence: 1,
+      payload: { status: "awaiting_form" },
+    });
+    reduceAgentEvent(state, {
+      ...base,
+      event_id: "approval-requested",
+      event_type: "approval.requested",
+      step_id: "step-approval",
+      sequence: 2,
+      payload: {
+        actions: ["approveOnce", "deny"],
+        approval_id: "approval-1",
+        risk_level: "medium",
+        title: "Run shell",
+        tool_call_id: "call-shell",
+      },
+    });
+    reduceAgentEvent(state, {
+      ...base,
+      event_id: "form-requested",
+      event_type: "ui.form.requested",
+      step_id: "step-form",
+      sequence: 3,
+      payload: { form: { title: "Travel preferences" } },
+    });
+    for (const [index, delegateType] of ["spawn", "subagent", "cowork", "team"].entries()) {
+      reduceAgentEvent(state, {
+        ...base,
+        event_id: `delegate-${delegateType}`,
+        event_type: index === 3 ? "agent.delegate.completed" : "agent.delegate.started",
+        step_id: `step-${delegateType}`,
+        sequence: 4 + index,
+        payload: {
+          agent_count: index + 1,
+          artifacts: [{ id: `artifact-${delegateType}`, kind: "markdown", preview: `${delegateType} notes`, title: `${delegateType} notes` }],
+          delegate_id: delegateType,
+          delegate_type: delegateType,
+          final_output: index === 3 ? "Team finished" : "",
+          latest_activity: `${delegateType} active`,
+          status: index === 3 ? "completed" : "running",
+          task: `${delegateType} task`,
+          workflow: "review",
+        },
+      });
+    }
+    reduceAgentEvent(state, {
+      ...base,
+      event_id: "browser-artifact",
+      event_type: "artifact.created",
+      step_id: "step-browser",
+      sequence: 9,
+      payload: { artifact: { id: "browser-1", kind: "browser_snapshot", preview: "data:image/png;base64,x", title: "Browser snapshot" } },
+    });
+    reduceAgentEvent(state, {
+      ...base,
+      event_id: "diff-artifact",
+      event_type: "artifact.created",
+      step_id: "step-diff",
+      sequence: 10,
+      payload: { artifact: { id: "diff-1", kind: "file_diff", preview: "-old\n+new", title: "Patch" } },
+    });
+    reduceAgentEvent(state, {
+      ...base,
+      event_id: "turn-failed",
+      event_type: "agent.turn.failed",
+      step_id: "step-error",
+      sequence: 11,
+      payload: { error: { message: "boom" } },
+    });
+    reduceAgentEvent(state, {
+      ...base,
+      event_id: "turn-interrupted",
+      event_type: "agent.turn.interrupted",
+      sequence: 12,
+      payload: {},
+    });
+
+    const turn = state.turnsBySession.get("WebSocket:chat-1")?.[0];
+    expect(turn?.status).toBe("interrupted");
+    expect(turn?.steps.map((step) => step.kind)).toEqual([
+      "approval",
+      "form",
+      "delegate",
+      "delegate",
+      "delegate",
+      "delegate",
+      "artifact",
+      "artifact",
+      "error",
+    ]);
+    expect(turn?.steps.filter((step) => step.kind === "delegate").map((step) => step.delegate?.type)).toEqual(["spawn", "subagent", "cowork", "team"]);
+    expect(getArtifactRef(state, "WebSocket:chat-1", "artifact-team")).toMatchObject({ kind: "markdown", preview: "team notes" });
+    expect(getArtifactRef(state, "WebSocket:chat-1", "browser-1")).toMatchObject({ kind: "browser_snapshot" });
+    expect(getArtifactRef(state, "WebSocket:chat-1", "diff-1")).toMatchObject({ kind: "file_diff" });
+    selectChatInspector(state, { kind: "approval", sessionKey: "WebSocket:chat-1", turnId: "turn-rich", stepId: "step-approval", approvalId: "approval-1" });
+    expect(resolveChatInspectorPanel(state)).toMatchObject({
+      kind: "approval",
+      subtitle: "approval-1",
+      title: "Run shell",
+    });
+  });
+});

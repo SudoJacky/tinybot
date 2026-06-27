@@ -18,6 +18,7 @@ import type { NormalizedGatewayEvent } from "./gatewayWebSocketClient";
 import {
   appendUserMessage,
   applyChatEvent,
+  resolveNativeChatApproval,
   sessionKeyForChatState,
   type NativeChatMessage,
   type NativeChatReference,
@@ -113,6 +114,7 @@ export interface DesktopNativeWorkbenchRuntime {
   setPersistentRag(enabled: boolean): void;
   submitComposerMessage(content: string, usePersistentRag?: boolean): ChatSubmitResult;
   interruptActiveChat(): boolean;
+  resolveApproval(approvalId: string, decision: "approved" | "denied", sessionKey?: string): boolean;
   handleGatewayEvent(event: NormalizedGatewayEvent): Promise<void>;
   handleTsAgentWorkerEvent(eventName: DesktopTsAgentWorkerEventName, payload: unknown): void;
 }
@@ -847,6 +849,9 @@ export function createDesktopNativeWorkbenchRuntime({
     setPersistentRag,
     submitComposerMessage,
     interruptActiveChat,
+    resolveApproval(approvalId: string, decision: "approved" | "denied", sessionKey = chatController.state.activeSessionKey) {
+      return resolveNativeChatApproval(chatController.state, { approvalId, decision, sessionKey });
+    },
     handleGatewayEvent,
     handleTsAgentWorkerEvent,
   };

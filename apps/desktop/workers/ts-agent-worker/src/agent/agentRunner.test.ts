@@ -1081,6 +1081,53 @@ describe("AgentRunner", () => {
     });
   });
 
+  test("includes awaiting approval metadata in tool result events", async () => {
+    const provider = new QueueProvider([
+      {
+        content: "",
+        toolCalls: [{ id: "call-1", name: "request_approval", argumentsJson: "{}" }],
+        stopReason: "tool_calls",
+      },
+    ]);
+    const tools = new ToolRegistry();
+    tools.register({
+      name: "request_approval",
+      description: "Request approval",
+      parameters: { type: "object" },
+      execute: async () => ({
+        content: "Waiting for approval.",
+        metadata: {
+          awaitingUserInput: true,
+          stopReason: "awaiting_approval",
+          approvalId: "approval-1",
+        },
+      }),
+    });
+    const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    const runner = new AgentRunner({
+      provider,
+      tools,
+      emitEvent: (event) => events.push(event),
+    });
+
+    await runner.run(spec());
+
+    expect(events).toContainEqual({
+      type: "tool_result",
+      payload: {
+        runId: "run-1",
+        toolCallId: "call-1",
+        toolName: "request_approval",
+        content: "Waiting for approval.",
+        metadata: {
+          awaitingUserInput: true,
+          stopReason: "awaiting_approval",
+          approvalId: "approval-1",
+        },
+      },
+    });
+  });
+
   test("forwards provider streaming deltas as runner events", async () => {
     const provider = new QueueProvider([{ content: "done", toolCalls: [], stopReason: "stop" }]);
     const events: Array<{ type: string; payload: Record<string, unknown> }> = [];

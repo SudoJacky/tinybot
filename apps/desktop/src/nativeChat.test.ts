@@ -1,10 +1,12 @@
 import { describe, expect, test } from "vitest";
 import {
+  activateChat,
   applyChatEvent,
   appendUserMessage,
   createNativeChatState,
   normalizeMessagesPayload,
   normalizeSessionsPayload,
+  resolveNativeChatApproval,
   sessionKeyForChat,
 } from "./nativeChat";
 
@@ -612,6 +614,71 @@ describe("native chat state", () => {
     ]);
   });
 
+  test("projects structured agent events through the native chat message timeline", () => {
+    const state = createNativeChatState();
+    applyChatEvent(state, { kind: "attached", chatId: "chat-1", raw: {} });
+    appendUserMessage(state, "Inspect files", "2026-06-27T04:00:00.000Z");
+
+    applyChatEvent(state, {
+      kind: "agent.event",
+      chatId: "chat-1",
+      raw: {
+        event: "agent_event",
+        schema_version: "tinybot.agent_event.v1",
+        event_id: "event-tool-start",
+        event_type: "tool.call.started",
+        chat_id: "chat-1",
+        session_key: "WebSocket:chat-1",
+        turn_id: "turn-1",
+        step_id: "step-tool",
+        sequence: 2,
+        created_at: "2026-06-27T04:00:01.000Z",
+        payload: {
+          args_preview: "{\"path\":\".\"}",
+          name: "list_dir",
+          status: "running",
+          tool_call_id: "call-list",
+        },
+      },
+    });
+    applyChatEvent(state, {
+      kind: "agent.event",
+      chatId: "chat-1",
+      raw: {
+        event: "agent_event",
+        schema_version: "tinybot.agent_event.v1",
+        event_id: "event-final",
+        event_type: "message.completed",
+        chat_id: "chat-1",
+        session_key: "WebSocket:chat-1",
+        turn_id: "turn-1",
+        step_id: "step-final",
+        sequence: 3,
+        created_at: "2026-06-27T04:00:02.000Z",
+        payload: {
+          message_id: "assistant-final",
+          text: "Files inspected.",
+        },
+      },
+    });
+
+    expect(state.messages.get(sessionKeyForChat("chat-1"))).toMatchObject([
+      { role: "user", content: "Inspect files" },
+      {
+        role: "assistant",
+        content: "",
+        toolActivities: [{
+          id: "call-list",
+          name: "list_dir",
+          argsText: "{\"path\":\".\"}",
+          status: "running",
+        }],
+      },
+      { role: "assistant", content: "Files inspected." },
+    ]);
+    expect(state.respondingSessionKeys.has(sessionKeyForChat("chat-1"))).toBe(false);
+  });
+
   test("normalizes tool activity execution status for timeline rendering", () => {
     expect(
       normalizeMessagesPayload({
@@ -664,5 +731,136 @@ describe("native chat state", () => {
         status: "failed",
       },
     ]);
+  });
+
+  test("merges approval requests into the matching tool activity", () => {
+    const state = createNativeChatState();
+    activateChat(state, "chat-1");
+    appendUserMessage(state, "Use subagent");
+
+    applyChatEvent(state, {
+      kind: "agent.event",
+      chatId: "chat-1",
+      raw: {
+        event: "agent_event",
+        schema_version: "tinybot.agent_event.v1",
+        event_id: "event-tool-start",
+        event_type: "tool.call.started",
+        chat_id: "chat-1",
+        session_key: "WebSocket:chat-1",
+        turn_id: "turn-1",
+        step_id: "turn-1:call-spawn",
+        sequence: 2,
+        created_at: "2026-06-27T04:00:01.000Z",
+        payload: {
+          args_preview: "spawn({\"task\":\"say hi\"})",
+          name: "spawn",
+          status: "running",
+          tool_call_id: "call-spawn",
+        },
+      },
+    });
+    applyChatEvent(state, {
+      kind: "agent.event",
+      chatId: "chat-1",
+      raw: {
+        event: "agent_event",
+        schema_version: "tinybot.agent_event.v1",
+        event_id: "event-approval",
+        event_type: "approval.requested",
+        chat_id: "chat-1",
+        session_key: "WebSocket:chat-1",
+        turn_id: "turn-1",
+        step_id: "turn-1:approval:approval-1",
+        sequence: 3,
+        created_at: "2026-06-27T04:00:02.000Z",
+        payload: {
+          approval_id: "approval-1",
+          approval_status: "approval_required",
+          args_preview: "spawn({\"task\":\"say hi\"})",
+          title: "Approval required",
+          tool_call_id: "call-spawn",
+        },
+      },
+    });
+
+    const assistantMessages = state.messages.get(sessionKeyForChat("chat-1"))?.filter((message) => message.role === "assistant") ?? [];
+    expect(assistantMessages).toHaveLength(1);
+    expect(assistantMessages[0].toolActivities).toEqual([{
+      id: "call-spawn",
+      name: "spawn",
+      argsText: "spawn({\"task\":\"say hi\"})",
+      responseText: "",
+      kind: "call",
+      approvalId: "approval-1",
+      approvalStatus: "approval_required",
+      status: "blocked",
+    }]);
+  });
+
+  test("marks pending approval tool activities as resolved locally", () => {
+    const state = createNativeChatState();
+    activateChat(state, "chat-1");
+    appendUserMessage(state, "Use subagent");
+
+    applyChatEvent(state, {
+      kind: "agent.event",
+      chatId: "chat-1",
+      raw: {
+        event: "agent_event",
+        schema_version: "tinybot.agent_event.v1",
+        event_id: "event-tool-start",
+        event_type: "tool.call.started",
+        chat_id: "chat-1",
+        session_key: "WebSocket:chat-1",
+        turn_id: "turn-1",
+        step_id: "turn-1:call-spawn",
+        sequence: 2,
+        created_at: "2026-06-27T04:00:01.000Z",
+        payload: {
+          args_preview: "spawn({\"task\":\"say hi\"})",
+          name: "spawn",
+          status: "running",
+          tool_call_id: "call-spawn",
+        },
+      },
+    });
+    applyChatEvent(state, {
+      kind: "agent.event",
+      chatId: "chat-1",
+      raw: {
+        event: "agent_event",
+        schema_version: "tinybot.agent_event.v1",
+        event_id: "event-approval",
+        event_type: "approval.requested",
+        chat_id: "chat-1",
+        session_key: "WebSocket:chat-1",
+        turn_id: "turn-1",
+        step_id: "turn-1:approval:approval-1",
+        sequence: 3,
+        created_at: "2026-06-27T04:00:02.000Z",
+        payload: {
+          approval_id: "approval-1",
+          approval_status: "approval_required",
+          title: "Approval required",
+          tool_call_id: "call-spawn",
+        },
+      },
+    });
+
+    expect(resolveNativeChatApproval(state, {
+      approvalId: "approval-1",
+      decision: "approved",
+      sessionKey: "WebSocket:chat-1",
+    })).toBe(true);
+
+    const assistantMessages = state.messages.get(sessionKeyForChat("chat-1"))?.filter((message) => message.role === "assistant") ?? [];
+    expect(assistantMessages[0].toolActivities).toEqual([expect.objectContaining({
+      approvalId: "approval-1",
+      approvalStatus: "approved",
+      id: "call-spawn",
+      responseText: "Approved.",
+      status: "completed",
+    })]);
   });
 });

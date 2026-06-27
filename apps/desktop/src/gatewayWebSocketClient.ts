@@ -16,6 +16,7 @@ export const createGatewaySocketMessage = {
 export type NormalizedGatewayEvent =
   | { kind: "attached"; chatId: string; raw: Record<string, unknown> }
   | { kind: "chat.created"; chatId: string; raw: Record<string, unknown> }
+  | { kind: "agent.event"; chatId?: string; raw: Record<string, unknown> }
   | { kind: "message.delta"; chatId?: string; messageId?: string; text: string; reasoning: boolean; raw: Record<string, unknown> }
   | { kind: "message.completed"; chatId?: string; messageId?: string; text: string; raw: Record<string, unknown> }
   | { kind: "message.stream.completed"; chatId?: string; messageId?: string; raw: Record<string, unknown> }
@@ -36,6 +37,8 @@ export function normalizeGatewayFrame(frame: unknown): NormalizedGatewayEvent {
       return { kind: "attached", chatId: stringValue(raw.chat_id), raw };
     case "chat_created":
       return { kind: "chat.created", chatId: stringValue(raw.chat_id), raw };
+    case "agent_event":
+      return { kind: "agent.event", chatId: optionalString(raw.chat_id), raw };
     case "delta":
     case "message_delta":
       return {
