@@ -48,7 +48,7 @@ type DesktopApprovalResumeArgs = {
 
 export function nativeApprovalRefreshOptions(context: DesktopApprovalRefreshContext): DesktopApprovalRefreshOptions | undefined {
   if (context.activeSessionKey) {
-    return { sessionKey: context.activeSessionKey };
+    return { sessionKey: gatewayCompatibleApprovalSessionKey(context.activeSessionKey) };
   }
   if (context.activeChatId) {
     return { chatId: context.activeChatId, channel: "websocket" };
@@ -107,19 +107,29 @@ export async function submitDesktopApprovalAction(options: SubmitDesktopApproval
       // Fall through to WebUI/gateway approval routes for non-native approvals.
     }
   }
-  options.onGatewayFallback?.(context);
+  const gatewaySessionKey = gatewayCompatibleApprovalSessionKey(options.sessionKey);
+  const gatewayContext = gatewaySessionKey === options.sessionKey
+    ? context
+    : { ...context, sessionKey: gatewaySessionKey };
+  options.onGatewayFallback?.(gatewayContext);
   if (!approved) {
     await options.gatewayTools.denyApproval(options.approvalId, {
-      session_key: options.sessionKey,
+      session_key: gatewaySessionKey,
       auto_retry: true,
     });
     return undefined;
   }
   return await options.gatewayTools.approveApproval(options.approvalId, {
-    session_key: options.sessionKey,
+    session_key: gatewaySessionKey,
     scope,
     auto_retry: true,
   });
+}
+
+export function gatewayCompatibleApprovalSessionKey(sessionKey: string): string {
+  return sessionKey.startsWith("WebSocket:")
+    ? `websocket:${sessionKey.slice("WebSocket:".length)}`
+    : sessionKey;
 }
 
 function resultPreviewValue(result: unknown): unknown {
