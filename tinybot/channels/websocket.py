@@ -15,7 +15,13 @@ from typing import Any
 from loguru import logger
 
 from tinybot.agent.forms import AgentUiFormRegistry
-from tinybot.api.webui import WebUIControlPaths, WebUIControlRuntime, desktop_cors_middleware, register_webui_control_routes
+from tinybot.api.webui import (
+    WebUIControlPaths,
+    WebUIControlRuntime,
+    _serialize_artifact_refs,
+    desktop_cors_middleware,
+    register_webui_control_routes,
+)
 from tinybot.bus.events import OutboundMessage
 from tinybot.bus.queue import MessageBus
 from tinybot.channels.base import BaseChannel
@@ -73,7 +79,7 @@ def _serialize_message(message: dict[str, Any]) -> dict[str, Any]:
         "trace_ref",
     ):
         if key in message:
-            payload[key] = message[key]
+            payload[key] = _serialize_artifact_refs(message[key]) if key == "artifacts" else message[key]
     return payload
 
 

@@ -104,6 +104,8 @@ class DesktopNativeWebSocket extends EventTarget {
   private readonly activeToolCallDeltas = new Map<string, ActiveToolCallDelta>();
   private readonly completedStreamedRunIds = new Set<string>();
   private readonly completedStreamedRunIdsByChat = new Map<string, string>();
+  private readonly startedAgentRunIds = new Set<string>();
+  private readonly lastUserMessageByChat = new Map<string, string>();
   private agentEventSequence = 0;
   private attachedChatId?: string;
 
@@ -152,6 +154,7 @@ class DesktopNativeWebSocket extends EventTarget {
     const sessionExists = await this.resolveAttachSessionExists(frame);
     const model = stringValue(frame.model);
     const run = optimisticRunForFrame(frame);
+    this.maybeEmitApprovalResolvedFrame(frame);
     logDesktopNativeDebug("nativeWebSocket.dispatchFrame", {
       chatId: stringValue(frame.chat_id),
       hasRun: Boolean(run),
@@ -168,7 +171,9 @@ class DesktopNativeWebSocket extends EventTarget {
       ...(run ? { runId: run.runId } : {}),
     };
     if (run) {
+      this.lastUserMessageByChat.set(run.chatId, stringValue(frame.content));
       this.registerRun(run.runId, run);
+      this.emitTurnStartedFrame(run, run.runId, frame);
     }
     try {
       this.applyDispatchResult(await this.nativeTransport.dispatchWebsocketMessage(request));
@@ -223,6 +228,12 @@ class DesktopNativeWebSocket extends EventTarget {
         messageId: stringValue(agent?.messageId) || stringValue(agent?.message_id) || runId,
         streamed: false,
       });
+      const registeredRun = this.activeRuns.get(runId);
+      if (registeredRun) {
+        this.emitTurnStartedFrame(registeredRun, runId, {
+          content: this.lastUserMessageByChat.get(chatId) ?? "",
+        });
+      }
     }
     const finalContent = stringValue(agent?.finalContent);
     const run = runId ? this.activeRuns.get(runId) : undefined;
@@ -240,6 +251,17 @@ class DesktopNativeWebSocket extends EventTarget {
         message_id: runId || `native:${chatId}`,
         reason: stringValue(agent?.stopReason) || "stop",
       });
+      if (run && runId) {
+        this.emitAgentEventFrame(run, runId, "message.completed", {
+          message_id: run.messageId,
+          text: finalContent,
+        }, `${runId}:final`);
+        this.emitAgentEventFrame(run, runId, "agent.turn.completed", {
+          message_id: run.messageId,
+          reason: stringValue(agent?.stopReason) || "stop",
+          usage: isRecord(agent?.usage) ? agent?.usage : undefined,
+        });
+      }
     }
   }
 
@@ -297,6 +319,8 @@ class DesktopNativeWebSocket extends EventTarget {
     this.activeToolCallDeltas.clear();
     this.completedStreamedRunIds.clear();
     this.completedStreamedRunIdsByChat.clear();
+    this.startedAgentRunIds.clear();
+    this.lastUserMessageByChat.clear();
   }
 
   private registerRun(runId: string, run: ActiveRun): void {
@@ -381,6 +405,7 @@ class DesktopNativeWebSocket extends EventTarget {
         is_reasoning: eventName === "agent.reasoning_delta",
       });
       this.emitAgentEventFrame(run, runId, eventName === "agent.reasoning_delta" ? "reasoning.delta" : "message.delta", {
+        message_id: run.messageId,
         text,
         visibility: eventName === "agent.reasoning_delta" ? "hidden" : "visible",
       });
@@ -421,13 +446,15 @@ class DesktopNativeWebSocket extends EventTarget {
       const toolCallId = stringValue(payload.toolCallId) || stringValue(payload.tool_call_id) || `${runId}:tool`;
       const toolName = stringValue(payload.toolName) || stringValue(payload.tool_name) || "tool";
       const text = stringValue(payload.content) || stringValue(payload.result) || stringValue(payload.output);
+      const failed = ["failed", "error", "errored"].includes(stringValue(payload.status).toLowerCase());
       this.emitToolProgressFrame(run.chatId, `${runId}:${toolCallId}:result`, toolName, toolCallId, text, {
         result: true,
       });
-      this.emitAgentEventFrame(run, runId, "tool.call.completed", {
+      this.emitAgentEventFrame(run, runId, failed ? "tool.call.failed" : "tool.call.completed", {
+        error: failed ? { message: text || "tool failed" } : undefined,
         name: toolName,
         result_preview: text,
-        status: "completed",
+        status: failed ? "failed" : "completed",
         tool_call_id: toolCallId,
       }, `${runId}:${toolCallId}`);
       this.deleteToolCallDelta(runId, toolCallId);
@@ -453,7 +480,10 @@ class DesktopNativeWebSocket extends EventTarget {
         ...(approvalId ? { approval_id: approvalId } : {}),
       });
       this.emitAgentEventFrame(run, runId, "approval.requested", {
+        actions: arrayValue(payload.actions),
         approval_id: approvalId,
+        args_preview: stringValue(payload.argsPreview) || stringValue(payload.args_preview),
+        risk_level: stringValue(payload.riskLevel) || stringValue(payload.risk_level),
         title: stringValue(payload.title) || stringValue(payload.message) || "Approval required",
         tool_call_id: stringValue(payload.toolCallId) || stringValue(payload.tool_call_id),
       }, approvalId ? `${runId}:approval:${approvalId}` : `${runId}:approval`);
@@ -540,6 +570,7 @@ class DesktopNativeWebSocket extends EventTarget {
         ...referenceMetadata(payload),
       });
       this.emitAgentEventFrame(run, runId, "agent.turn.completed", {
+        message_id: run.messageId,
         reason: stringValue(payload.stopReason) || stringValue(payload.stop_reason) || "stop",
         usage: isRecord(payload.usage) ? payload.usage : undefined,
       });
@@ -624,6 +655,41 @@ class DesktopNativeWebSocket extends EventTarget {
       ...(flags.result ? { _tool_result: true } : {}),
       _tool_name: toolName,
     });
+  }
+
+  private emitTurnStartedFrame(run: ActiveRun, runId: string, frame: Record<string, unknown>): void {
+    if (this.startedAgentRunIds.has(runId)) {
+      return;
+    }
+    this.startedAgentRunIds.add(runId);
+    this.emitAgentEventFrame(run, runId, "agent.turn.started", {
+      user_message: {
+        id: `${runId}:user`,
+        role: "user",
+        text: stringValue(frame.content),
+      },
+      user_message_id: `${runId}:user`,
+    });
+  }
+
+  private maybeEmitApprovalResolvedFrame(frame: Record<string, unknown>): void {
+    const approvalId = stringValue(frame.approval_id) || stringValue(frame.approvalId);
+    const decision = stringValue(frame.decision) || stringValue(frame.action) || stringValue(frame.approval_action);
+    const normalizedDecision = decision.toLowerCase();
+    if (!approvalId || !["approve", "approved", "approve_once", "approve_session", "deny", "denied", "reject", "rejected"].includes(normalizedDecision)) {
+      return;
+    }
+    const chatId = stringValue(frame.chat_id) || stringValue(frame.chatId) || this.attachedChatId || "";
+    const runId = stringValue(frame.run_id) || stringValue(frame.runId) || this.activeRunIdForChat(chatId);
+    const run = runId ? this.activeRuns.get(runId) : undefined;
+    if (!run) {
+      return;
+    }
+    this.emitAgentEventFrame(run, runId, "approval.resolved", {
+      approval_id: approvalId,
+      decision: normalizedDecision.startsWith("deny") || normalizedDecision.startsWith("reject") ? "denied" : "approved",
+      tool_call_id: stringValue(frame.tool_call_id) || stringValue(frame.toolCallId),
+    }, `${runId}:approval:${approvalId}`);
   }
 
   private emitAgentEventFrame(

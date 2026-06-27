@@ -201,6 +201,31 @@ def test_serialize_message_preserves_agent_turn_event_metadata():
     assert payload["artifacts"][0]["id"] == "artifact-1"
 
 
+def test_serialize_message_returns_lightweight_safe_artifact_refs():
+    payload = _serialize_message(
+        {
+            "role": "assistant",
+            "content": "",
+            "artifacts": [
+                {
+                    "id": "artifact-log",
+                    "kind": "terminal_output",
+                    "preview": "<script>alert(1)</script> token=secret",
+                    "content": "large body",
+                    "renderer": {"component": "DangerousPanel"},
+                }
+            ],
+        }
+    )
+
+    artifact = payload["artifacts"][0]
+    assert artifact == {
+        "id": "artifact-log",
+        "kind": "terminal_output",
+        "preview": "[unsafe omitted] token=[redacted]",
+    }
+
+
 @pytest.mark.asyncio
 async def test_websocket_chat_flow(web_channel, web_client):
     channel, bus, _ = web_channel

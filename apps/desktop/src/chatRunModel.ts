@@ -21,6 +21,7 @@ export type AgentContext = {
 };
 
 export type ArtifactRef = {
+  fetchPath?: string;
   id: string;
   kind: ArtifactKind | string;
   mimeType?: string;
@@ -90,6 +91,7 @@ export type ChatStepKind =
   | "delegate"
   | "artifact"
   | "browser"
+  | "form"
   | "memory"
   | "error";
 
@@ -136,6 +138,7 @@ export type ChatInspectorSelection =
 
 export type ChatRunState = {
   appliedEventIds: Set<string>;
+  artifactsBySession: Map<string, Map<string, ArtifactRef>>;
   legacyMessagesBySession: Map<string, NativeChatMessage[]>;
   selectedInspector: ChatInspectorSelection | null;
   turnsBySession: Map<string, ChatTurn[]>;
@@ -155,16 +158,54 @@ export type AgentEventEnvelope = {
   turn_id: string;
 };
 
+export type ChatInspectorPanel = {
+  body: string;
+  kind: ChatInspectorSelection["kind"];
+  status?: string;
+  subtitle?: string;
+  title: string;
+};
+
+export type ChatInspectorRegistry = Record<ChatInspectorSelection["kind"], (state: ChatRunState, selection: ChatInspectorSelection) => ChatInspectorPanel>;
+
 const SENSITIVE_KEYS = new Set(["api_key", "token", "secret", "password", "authorization", "cookie", "credential", "private_key"]);
 const UNSAFE_KEYS = new Set(["html", "script", "style", "component", "handler", "renderer", "template", "onClick", "onSubmit"]);
 
 export function createChatRunState(): ChatRunState {
   return {
     appliedEventIds: new Set(),
+    artifactsBySession: new Map(),
     legacyMessagesBySession: new Map(),
     selectedInspector: null,
     turnsBySession: new Map(),
   };
+}
+
+export function createChatInspectorRegistry(): ChatInspectorRegistry {
+  return {
+    approval: resolveApprovalInspectorPanel,
+    artifact: resolveArtifactInspectorPanel,
+    delegate: resolveDelegateInspectorPanel,
+    error: resolveErrorInspectorPanel,
+    reference: resolveReferenceInspectorPanel,
+    tool_call: resolveToolCallInspectorPanel,
+  };
+}
+
+export function selectChatInspector(state: ChatRunState, selection: ChatInspectorSelection | null): ChatRunState {
+  state.selectedInspector = selection;
+  return state;
+}
+
+export function resolveChatInspectorPanel(state: ChatRunState, selection = state.selectedInspector): ChatInspectorPanel | null {
+  if (!selection) {
+    return null;
+  }
+  return createChatInspectorRegistry()[selection.kind](state, selection);
+}
+
+export function getArtifactRef(state: ChatRunState, sessionKey: string, artifactId: string): ArtifactRef | null {
+  return state.artifactsBySession.get(sessionKey)?.get(artifactId) ?? null;
 }
 
 export function legacyMessagesToTurns(sessionKey: string, messages: NativeChatMessage[]): ChatTurn[] {
@@ -252,6 +293,12 @@ export function reduceAgentEvent(state: ChatRunState, event: AgentEventEnvelope)
     return state;
   }
 
+  if (event.event_type === "agent.turn.updated") {
+    turn.status = turnStatusValue(event.payload.status) || turn.status;
+    turn.usage = normalizeUsage(event.payload.usage) ?? turn.usage;
+    return state;
+  }
+
   if (event.event_type === "agent.turn.failed") {
     turn.status = "failed";
     upsertStep(turn, event, {
@@ -334,8 +381,21 @@ export function reduceAgentEvent(state: ChatRunState, event: AgentEventEnvelope)
     return state;
   }
 
+  if (event.event_type === "agent.form.requested" || event.event_type === "ui.form.requested") {
+    upsertStep(turn, event, {
+      kind: "form",
+      status: "blocked",
+      summary: stringValue(event.payload.title) || stringValue(recordValue(event.payload.form).title),
+      title: stringValue(event.payload.title) || stringValue(recordValue(event.payload.form).title) || "Form requested",
+    });
+    return state;
+  }
+
   if (event.event_type === "agent.delegate.started" || event.event_type === "agent.delegate.updated" || event.event_type === "agent.delegate.completed") {
     const delegate = delegateFromPayload(event.payload);
+    for (const artifact of delegate.artifacts ?? []) {
+      storeArtifact(state, event.session_key, artifact);
+    }
     upsertStep(turn, event, {
       delegate,
       kind: "delegate",
@@ -347,6 +407,7 @@ export function reduceAgentEvent(state: ChatRunState, event: AgentEventEnvelope)
 
   if (event.event_type === "artifact.created" || event.event_type === "artifact.updated") {
     const artifact = artifactFromPayload(event.payload.artifact ?? event.payload);
+    storeArtifact(state, event.session_key, artifact);
     const targetStep = event.step_id ? turn.steps.find((step) => step.id === event.step_id) : undefined;
     if (targetStep) {
       targetStep.artifacts = upsertArtifact(targetStep.artifacts ?? [], artifact);
@@ -620,7 +681,9 @@ function delegateFromPayload(payload: Record<string, unknown>): DelegatedAgentSt
 
 function artifactFromPayload(value: unknown): ArtifactRef {
   const payload = recordValue(value);
+  const fetchPath = stringValue(payload.fetch_path ?? payload.fetchPath);
   return {
+    ...(fetchPath ? { fetchPath } : {}),
     id: stringValue(payload.id ?? payload.artifact_id) || "artifact",
     kind: stringValue(payload.kind) || "text",
     mimeType: stringValue(payload.mime_type ?? payload.mimeType),
@@ -641,6 +704,122 @@ function upsertArtifact(artifacts: ArtifactRef[], artifact: ArtifactRef): Artifa
     return [...artifacts, artifact];
   }
   return artifacts.map((item, itemIndex) => itemIndex === index ? { ...item, ...artifact } : item);
+}
+
+function storeArtifact(state: ChatRunState, sessionKey: string, artifact: ArtifactRef): void {
+  const bucket = state.artifactsBySession.get(sessionKey) ?? new Map<string, ArtifactRef>();
+  state.artifactsBySession.set(sessionKey, bucket);
+  bucket.set(artifact.id, { ...(bucket.get(artifact.id) ?? {}), ...artifact });
+}
+
+function resolveToolCallInspectorPanel(state: ChatRunState, selection: ChatInspectorSelection): ChatInspectorPanel {
+  if (selection.kind !== "tool_call") {
+    return unavailablePanel(selection.kind);
+  }
+  const step = findStep(state, selection.sessionKey, selection.turnId, selection.stepId);
+  const tool = step?.toolCall;
+  if (!tool) {
+    return unavailablePanel("tool_call");
+  }
+  return {
+    body: [
+      tool.argsPreview || serialize(tool.argsJson ?? ""),
+      tool.resultPreview || serialize(tool.resultJson ?? ""),
+      tool.stderrPreview || "",
+    ].filter(Boolean).join("\n\n"),
+    kind: "tool_call",
+    status: step?.status,
+    subtitle: tool.id,
+    title: tool.name,
+  };
+}
+
+function resolveDelegateInspectorPanel(state: ChatRunState, selection: ChatInspectorSelection): ChatInspectorPanel {
+  if (selection.kind !== "delegate") {
+    return unavailablePanel(selection.kind);
+  }
+  const step = findStep(state, selection.sessionKey, selection.turnId, selection.stepId);
+  const delegate = step?.delegate;
+  if (!delegate) {
+    return unavailablePanel("delegate");
+  }
+  return {
+    body: [
+      delegate.task,
+      delegate.latestActivity,
+      delegate.finalOutput,
+      delegate.artifacts?.map((artifact) => `${artifact.kind}: ${artifact.title}`).join("\n"),
+    ].filter(Boolean).join("\n\n"),
+    kind: "delegate",
+    status: delegate.status,
+    subtitle: [delegate.type, delegate.workflow, delegate.agentCount ? `${delegate.agentCount} agents` : ""].filter(Boolean).join(" / "),
+    title: delegate.title,
+  };
+}
+
+function resolveApprovalInspectorPanel(state: ChatRunState, selection: ChatInspectorSelection): ChatInspectorPanel {
+  if (selection.kind !== "approval") {
+    return unavailablePanel(selection.kind);
+  }
+  const step = findStep(state, selection.sessionKey, selection.turnId, selection.stepId);
+  const approval = step?.approval;
+  if (!approval) {
+    return unavailablePanel("approval");
+  }
+  return {
+    body: [approval.riskLevel, approval.actions?.join(", "), approval.decision].filter(Boolean).join("\n"),
+    kind: "approval",
+    status: step?.status,
+    subtitle: approval.approvalId,
+    title: approval.title || "Approval",
+  };
+}
+
+function resolveArtifactInspectorPanel(state: ChatRunState, selection: ChatInspectorSelection): ChatInspectorPanel {
+  if (selection.kind !== "artifact") {
+    return unavailablePanel(selection.kind);
+  }
+  const artifact = getArtifactRef(state, selection.sessionKey, selection.artifactId);
+  if (!artifact) {
+    return unavailablePanel("artifact");
+  }
+  return {
+    body: artifact.preview || "Artifact preview unavailable. Full content is fetched only when requested.",
+    kind: "artifact",
+    status: artifact.status,
+    subtitle: [artifact.kind, artifact.mimeType, artifact.sizeBytes ? `${artifact.sizeBytes} bytes` : ""].filter(Boolean).join(" / "),
+    title: artifact.title,
+  };
+}
+
+function resolveReferenceInspectorPanel(): ChatInspectorPanel {
+  return unavailablePanel("reference");
+}
+
+function resolveErrorInspectorPanel(state: ChatRunState, selection: ChatInspectorSelection): ChatInspectorPanel {
+  if (selection.kind !== "error") {
+    return unavailablePanel(selection.kind);
+  }
+  const step = findStep(state, selection.sessionKey, selection.turnId, selection.stepId);
+  return {
+    body: serialize(step?.error ?? "Error details unavailable."),
+    kind: "error",
+    status: step?.status,
+    title: step?.title || "Error",
+  };
+}
+
+function findStep(state: ChatRunState, sessionKey: string, turnId: string, stepId: string): ChatStep | null {
+  return state.turnsBySession.get(sessionKey)?.find((turn) => turn.id === turnId)?.steps.find((step) => step.id === stepId) ?? null;
+}
+
+function unavailablePanel(kind: ChatInspectorSelection["kind"]): ChatInspectorPanel {
+  return {
+    body: "Details are unavailable for this selection.",
+    kind,
+    status: "unavailable",
+    title: "Unavailable",
+  };
 }
 
 function normalizeUsage(value: unknown): TokenUsage | undefined {
@@ -717,6 +896,17 @@ function statusValue(value: unknown): ChatStepStatus | "" {
   }
   if (["canceled", "interrupted", "stopped"].includes(normalized)) {
     return "cancelled";
+  }
+  return "";
+}
+
+function turnStatusValue(value: unknown): ChatTurnStatus | "" {
+  const normalized = stringValue(value).toLowerCase().replace(/[\s-]+/g, "_");
+  if (["pending", "running", "awaiting_approval", "awaiting_user", "completed", "failed", "interrupted"].includes(normalized)) {
+    return normalized as ChatTurnStatus;
+  }
+  if (normalized === "awaiting_form" || normalized === "blocked") {
+    return "awaiting_user";
   }
   return "";
 }

@@ -741,6 +741,63 @@ pre {
   line-height: 1.45;
 }
 
+.desktop-conversation-message,
+.desktop-assistant-step-group,
+.desktop-tool-detail-panel {
+  animation: desktop-agent-workbench-enter 160ms ease-out;
+}
+
+.desktop-tool-detail-panel[data-tool-detail-motion="opening"],
+.desktop-tool-detail-panel[data-tool-detail-motion="closing"] {
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.desktop-tool-activity-status-dot[data-tool-status-tone="running"] {
+  animation: desktop-agent-running-pulse 1100ms ease-in-out infinite;
+}
+
+.desktop-conversation-large-window-placeholder {
+  border: 1px dashed var(--color-hairline);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--color-muted);
+  background: var(--color-surface-soft);
+  font-size: 13px;
+}
+
+@keyframes desktop-agent-workbench-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes desktop-agent-running-pulse {
+  0%,
+  100% {
+    opacity: 0.65;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .desktop-conversation-message,
+  .desktop-assistant-step-group,
+  .desktop-tool-detail-panel,
+  .desktop-tool-activity-status-dot {
+    animation: none !important;
+    scroll-behavior: auto !important;
+    transition: none !important;
+    transform: none !important;
+  }
+}
+
 @media (max-width: 900px) {
   body {
     min-width: 0;

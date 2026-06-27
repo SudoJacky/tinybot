@@ -88,6 +88,26 @@ describe("desktop native WebSocket bridge", () => {
       _memory_references: [{ note_id: "note-1" }],
       _recent_context_references: [{ evidence_id: "ev-1" }],
     });
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "agent_event",
+      event_type: "message.delta",
+      turn_id: "run-1",
+      payload: expect.objectContaining({
+        message_id: "message-1",
+        text: "hello",
+        visibility: "visible",
+      }),
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "agent_event",
+      event_type: "reasoning.delta",
+      turn_id: "run-1",
+      payload: expect.objectContaining({
+        message_id: "message-1",
+        text: "thinking",
+        visibility: "hidden",
+      }),
+    }));
     expect(events).not.toContainEqual(expect.objectContaining({
       event: "message",
       chat_id: "chat-native",
@@ -664,9 +684,13 @@ describe("desktop native WebSocket bridge", () => {
       stopReason: "awaiting_form",
     });
     handlers.get(toDesktopNativeTauriEventName("agent.awaiting_approval"))?.({
+      actions: ["approveOnce", "deny"],
       runId: "run-3",
+      argsPreview: "shell command",
       approvalId: "approval-1",
+      riskLevel: "medium",
       stopReason: "awaiting_approval",
+      toolCallId: "call-shell",
     });
 
     expect(events).toContainEqual({
@@ -694,6 +718,76 @@ describe("desktop native WebSocket bridge", () => {
       chat_id: "chat-native",
       approval_id: "approval-1",
     });
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "agent_event",
+      event_type: "approval.requested",
+      chat_id: "chat-native",
+      turn_id: "run-3",
+      payload: expect.objectContaining({
+        actions: ["approveOnce", "deny"],
+        approval_id: "approval-1",
+        args_preview: "shell command",
+        risk_level: "medium",
+        tool_call_id: "call-shell",
+      }),
+    }));
+  });
+
+  test("emits approval resolved structured events while forwarding legacy approval frames", async () => {
+    const nativeTransport: NativeTransportApi = {
+      gatewayFrame: vi.fn(),
+      websocketMessage: vi.fn(),
+      dispatchWebsocketMessage: vi.fn(async () => ({
+        transport: {
+          kind: "message",
+          chatId: "chat-native",
+          sessionId: "websocket:chat-native",
+          frames: [],
+        },
+      })),
+      dispatchChannelInbound: vi.fn(),
+      startChannels: vi.fn(),
+      channelStatus: vi.fn(),
+      stopChannels: vi.fn(),
+    };
+    const socket = createDesktopNativeWebSocket({
+      url: "/ws",
+      nativeTransport,
+    });
+    const events: Array<Record<string, unknown>> = [];
+    socket.addEventListener("message", (event) => {
+      events.push(JSON.parse(String((event as MessageEvent).data)) as Record<string, unknown>);
+    });
+
+    await flushMicrotasks();
+    socket.send(JSON.stringify({ type: "message", chat_id: "chat-native", content: "needs approval" }));
+    await flushMicrotasks();
+    const request = vi.mocked(nativeTransport.dispatchWebsocketMessage).mock.calls[0]?.[0] as { runId?: string };
+    expect(request.runId).toBeTruthy();
+
+    socket.send(JSON.stringify({
+      type: "approval",
+      chat_id: "chat-native",
+      run_id: request.runId,
+      approval_id: "approval-1",
+      action: "deny",
+      tool_call_id: "call-shell",
+    }));
+    await flushMicrotasks();
+
+    expect(nativeTransport.dispatchWebsocketMessage).toHaveBeenCalledTimes(2);
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "agent_event",
+      event_type: "approval.resolved",
+      chat_id: "chat-native",
+      turn_id: request.runId,
+      step_id: `${request.runId}:approval:approval-1`,
+      payload: expect.objectContaining({
+        approval_id: "approval-1",
+        decision: "denied",
+        tool_call_id: "call-shell",
+      }),
+    }));
   });
 
   test("projects TS worker memory references and task progress into legacy WebUI message frames", async () => {

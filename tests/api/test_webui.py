@@ -1212,6 +1212,60 @@ async def test_webui_control_messages_restore_agent_ui_form_display_metadata(api
 
 
 @pytest.mark.asyncio
+async def test_webui_control_artifact_refs_are_lightweight_and_fetch_details_safely(api_workspace):
+    token_manager = WebTokenManager(ttl_s=300)
+    session_manager = SessionManager(api_workspace)
+    session = session_manager.get_or_create("websocket:chat-1")
+    session.add_message(
+        "assistant",
+        "",
+        message_id="msg-artifact-1",
+        artifacts=[
+            {
+                "id": "artifact-log",
+                "kind": "terminal_output",
+                "title": "npm test",
+                "mime_type": "text/plain",
+                "size_bytes": 4096,
+                "status": "available",
+                "preview": "npm test api_key=secret",
+                "content": "<script>alert(1)</script> api_key=secret",
+                "renderer": {"component": "DangerousPanel"},
+            }
+        ],
+    )
+    session_manager.save(session)
+    app = web.Application()
+    register_webui_control_routes(
+        app,
+        WebUIControlRuntime(token_manager=token_manager, session_manager=session_manager),
+    )
+    client = await _client(app)
+    try:
+        headers = _authorized_headers(token_manager)
+        response = await client.get("/api/sessions/websocket:chat-1/messages", headers=headers)
+        assert response.status == 200
+        payload = await response.json()
+        artifact_ref = payload["messages"][0]["artifacts"][0]
+        assert artifact_ref["id"] == "artifact-log"
+        assert artifact_ref["preview"] == "npm test api_key=[redacted]"
+        assert "content" not in artifact_ref
+        assert "renderer" not in artifact_ref
+
+        response = await client.get("/api/sessions/websocket:chat-1/artifacts/artifact-log", headers=headers)
+        assert response.status == 200
+        artifact = (await response.json())["artifact"]
+        assert artifact["content"] == "[unsafe omitted] api_key=[redacted]"
+        assert artifact["renderer"] == "[unsafe omitted]"
+
+        response = await client.get("/api/sessions/websocket:chat-1/artifacts/missing", headers=headers)
+        assert response.status == 404
+        assert (await response.json())["artifact"]["status"] == "unavailable"
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
 async def test_webui_control_messages_hide_internal_agent_ui_tool_results(api_workspace):
     token_manager = WebTokenManager(ttl_s=300)
     session_manager = SessionManager(api_workspace)

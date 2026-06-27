@@ -257,8 +257,80 @@ def _serialize_message(message: dict[str, Any]) -> dict[str, Any]:
         "trace_ref",
     ):
         if key in message:
-            payload[key] = message[key]
+            payload[key] = _serialize_artifact_refs(message[key]) if key == "artifacts" else message[key]
     return payload
+
+
+_SENSITIVE_ARTIFACT_KEYS = {
+    "api_key",
+    "authorization",
+    "cookie",
+    "credential",
+    "password",
+    "private_key",
+    "secret",
+    "token",
+}
+_UNSAFE_ARTIFACT_KEYS = {
+    "component",
+    "handler",
+    "html",
+    "onclick",
+    "onsubmit",
+    "renderer",
+    "script",
+    "style",
+    "template",
+}
+
+
+def _serialize_artifact_refs(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    refs: list[dict[str, Any]] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            continue
+        artifact_id = str(item.get("id") or item.get("artifact_id") or f"artifact-{index}")
+        refs.append(
+            {
+                key: _safe_artifact_preview(item.get(key))
+                for key in ("kind", "title", "mime_type", "mimeType", "size_bytes", "sizeBytes", "status", "preview")
+                if key in item
+            }
+            | {"id": artifact_id}
+        )
+    return refs
+
+
+def _safe_artifact_detail(value: Any) -> Any:
+    if isinstance(value, list):
+        return [_safe_artifact_detail(item) for item in value]
+    if isinstance(value, dict):
+        cleaned: dict[str, Any] = {}
+        for key, item in value.items():
+            normalized = str(key).lower()
+            if normalized in _UNSAFE_ARTIFACT_KEYS or normalized.startswith("on"):
+                cleaned[key] = "[unsafe omitted]"
+            elif normalized in _SENSITIVE_ARTIFACT_KEYS:
+                cleaned[key] = "[redacted]"
+            else:
+                cleaned[key] = _safe_artifact_detail(item)
+        return cleaned
+    return _safe_artifact_preview(value)
+
+
+def _safe_artifact_preview(value: Any) -> Any:
+    if isinstance(value, str):
+        text = re.sub(r"<\s*script\b[^>]*>[\s\S]*?<\s*/\s*script\s*>", "[unsafe omitted]", value, flags=re.IGNORECASE)
+        text = re.sub(r"<[^>]+>", "[unsafe omitted]", text)
+        return re.sub(
+            r"\b(api_key|token|secret|password|authorization|cookie|credential|private_key)\s*[:=]\s*([^\s,;]+)",
+            r"\1=[redacted]",
+            text,
+            flags=re.IGNORECASE,
+        )
+    return value
 
 
 def _task_progress_message_from_plan(runtime: WebUIControlRuntime, plan_id: str) -> dict[str, Any] | None:
@@ -468,6 +540,47 @@ def _get_messages_handler(runtime: WebUIControlRuntime, paths: WebUIControlPaths
         )
 
     return handler
+
+
+def _get_session_artifact_handler(runtime: WebUIControlRuntime, paths: WebUIControlPaths) -> Handler:
+    async def handler(request: web.Request) -> web.Response:
+        if runtime.session_manager is None:
+            return _session_manager_unavailable()
+
+        key = request.match_info["key"]
+        artifact_id = request.match_info["artifact_id"]
+        session = runtime.session_manager.get(key)
+        if session is None:
+            return web.json_response({"error": "session not found"}, status=404)
+        artifact = _find_session_artifact(session.messages, artifact_id)
+        if artifact is None:
+            return web.json_response(
+                {
+                    "artifact": {
+                        "id": artifact_id,
+                        "status": "unavailable",
+                        "preview": "Artifact is unavailable or expired.",
+                    }
+                },
+                status=404,
+            )
+        return web.json_response({"artifact": _safe_artifact_detail(artifact)})
+
+    return handler
+
+
+def _find_session_artifact(messages: list[dict[str, Any]], artifact_id: str) -> dict[str, Any] | None:
+    for message in messages:
+        artifacts = message.get("artifacts")
+        if not isinstance(artifacts, list):
+            continue
+        for artifact in artifacts:
+            if not isinstance(artifact, dict):
+                continue
+            candidate_id = str(artifact.get("id") or artifact.get("artifact_id") or "")
+            if candidate_id == artifact_id:
+                return artifact
+    return None
 
 
 def _delete_session_handler(runtime: WebUIControlRuntime, paths: WebUIControlPaths) -> Handler:
@@ -2029,6 +2142,7 @@ def _default_handler(route_key: str, runtime: WebUIControlRuntime, paths: WebUIC
         "refresh_token": _refresh_token_handler,
         "list_sessions": _list_sessions_handler,
         "get_messages": _get_messages_handler,
+        "get_session_artifact": _get_session_artifact_handler,
         "delete_session": _delete_session_handler,
         "patch_session": _patch_session_handler,
         "clear_session": _clear_session_handler,
@@ -2069,6 +2183,7 @@ def _route_specs(paths: WebUIControlPaths) -> tuple[_RouteSpec, ...]:
         _RouteSpec("refresh_token", "POST", "/webui/refresh-token", public=True),
         _RouteSpec("list_sessions", "GET", sessions_path),
         _RouteSpec("get_messages", "GET", f"{sessions_path}/{{key}}/messages"),
+        _RouteSpec("get_session_artifact", "GET", f"{sessions_path}/{{key}}/artifacts/{{artifact_id}}"),
         _RouteSpec("delete_session", "DELETE", f"{sessions_path}/{{key}}"),
         _RouteSpec("patch_session", "PATCH", f"{sessions_path}/{{key}}"),
         _RouteSpec("clear_session", "POST", f"{sessions_path}/{{key}}/clear"),
