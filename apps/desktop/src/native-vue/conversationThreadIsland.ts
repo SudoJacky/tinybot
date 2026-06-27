@@ -64,9 +64,40 @@ interface ConversationTimelineScrollState {
   wasNearBottom: boolean;
 }
 
+type DetailPanelState = "closed" | "opening" | "open" | "closing";
+type AgentToolKind = "tool" | "spawn" | "subagent" | "cowork" | "team";
+type AgentFlowStepKind = "thinking" | "tool" | "spawn" | "subagent" | "cowork" | "team" | "response";
+
+interface AssistantMessageRunItem {
+  index: number;
+  message: ConversationMessageIslandOptions;
+}
+
+interface AgentToolProfile {
+  contextLabel: string;
+  headline: string;
+  kind: AgentToolKind;
+  label: string;
+  tone: string;
+}
+
+interface AgentWorkflowStep {
+  agent: string;
+  detail: string;
+  status: string;
+  title: string;
+}
+
+interface AgentFlowStepProfile {
+  kind: AgentFlowStepKind;
+  label: string;
+  title: string;
+}
+
 const mountedConversationThreads = new WeakMap<HTMLElement, MountedConversationThreadIsland>();
 const DETAIL_PANEL_MOTION_MS = 560;
-type DetailPanelState = "closed" | "opening" | "open" | "closing";
+const CONVERSATION_AGENT_FLOW_STYLE_ID = "desktop-conversation-agent-flow-styles";
+const AGENT_WORKFLOW_STEP_LIMIT = 8;
 
 export function mountOrUpdateConversationThreadIsland(
   host: HTMLElement,
@@ -85,7 +116,9 @@ export function mountOrUpdateConversationThreadIsland(
 
 function summarizeConversationThreadOptions(options: ConversationThreadIslandOptions): Record<string, unknown> {
   return {
+    coworkRuns: options.coworkRuns?.length ?? 0,
     emptyMessage: options.emptyMessage,
+    inlineForms: options.inlineForms?.length ?? 0,
     messageCount: options.messages.length,
     messages: options.messages.slice(-2).map((message) => ({
       body: summarizeDebugText(message.body.join("\n")),
@@ -132,7 +165,7 @@ function createConversationThreadApp(state: Ref<ConversationThreadIslandOptions>
       let closePanelTimer: number | null = null;
       let openPanelFrame: number | null = null;
       const selectedTool = computed(() => selectedToolKey.value ? findToolActivity(state.value.messages, selectedToolKey.value) : null);
-      const hasDetailPanelSelection = () => Boolean(selectedToolKey.value || selectedReference.value || selectedCoworkAgent.value);
+      const hasDetailPanelSelection = () => Boolean(selectedTool.value || selectedReference.value || selectedCoworkAgent.value);
       const clearClosePanelTimer = () => {
         if (closePanelTimer !== null && typeof window !== "undefined") {
           window.clearTimeout(closePanelTimer);
@@ -326,11 +359,6 @@ function createConversationThreadApp(state: Ref<ConversationThreadIslandOptions>
   }));
 }
 
-interface AssistantMessageRunItem {
-  index: number;
-  message: ConversationMessageIslandOptions;
-}
-
 function renderThreadMessages(
   messages: ConversationMessageIslandOptions[],
   selectedToolKey: string,
@@ -364,6 +392,7 @@ function isDetailPanelPreservingClickTarget(target: EventTarget | null): boolean
     ".desktop-message-reference-item",
     ".desktop-chat-cowork-agent-row",
     ".desktop-agent-ui-form-card",
+    ".desktop-agent-flow-step",
   ].join(",")));
 }
 
@@ -414,68 +443,6 @@ function assistantFinalReasoningStep(item: AssistantMessageRunItem): AssistantMe
   };
 }
 
-function captureConversationTimelineScroll(host: HTMLElement): ConversationTimelineScrollState | null {
-  const timeline = conversationTimelineScrollElement(host);
-  if (!timeline) {
-    return null;
-  }
-  const scrollTop = Number(timeline.scrollTop || 0);
-  const bottomOffset = Math.max(0, Number(timeline.scrollHeight || 0) - scrollTop - Number(timeline.clientHeight || 0));
-  return {
-    bottomOffset,
-    scrollTop,
-    wasNearBottom: bottomOffset < 24,
-  };
-}
-
-function queueConversationTimelineScrollRestore(
-  host: HTMLElement,
-  scrollState: ConversationTimelineScrollState | null,
-): void {
-  if (!scrollState) {
-    return;
-  }
-  void nextTick(() => {
-    restoreConversationTimelineScroll(host, scrollState);
-    const win = host.ownerDocument.defaultView;
-    if (typeof win?.requestAnimationFrame === "function") {
-      win.requestAnimationFrame(() => restoreConversationTimelineScroll(host, scrollState));
-      return;
-    }
-    const queue = win?.queueMicrotask ?? globalThis.queueMicrotask;
-    if (typeof queue === "function") {
-      queue(() => restoreConversationTimelineScroll(host, scrollState));
-    }
-  });
-}
-
-function restoreConversationTimelineScroll(
-  host: HTMLElement,
-  scrollState: ConversationTimelineScrollState,
-): void {
-  const timeline = conversationTimelineScrollElement(host);
-  if (!timeline) {
-    return;
-  }
-  if (scrollState.wasNearBottom) {
-    timeline.scrollTop = boundedConversationTimelineScrollTop(
-      timeline,
-      Number(timeline.scrollHeight || 0) - Number(timeline.clientHeight || 0) - scrollState.bottomOffset,
-    );
-    return;
-  }
-  timeline.scrollTop = boundedConversationTimelineScrollTop(timeline, scrollState.scrollTop);
-}
-
-function conversationTimelineScrollElement(host: HTMLElement): HTMLElement | null {
-  return host.querySelector<HTMLElement>(".desktop-conversation-timeline") ?? host;
-}
-
-function boundedConversationTimelineScrollTop(element: HTMLElement, value: number): number {
-  const maxScrollTop = Math.max(0, Number(element.scrollHeight || 0) - Number(element.clientHeight || 0));
-  return Math.min(Math.max(0, Number.isFinite(value) ? value : 0), maxScrollTop);
-}
-
 function assistantFinalAnswerMessage(message: ConversationMessageIslandOptions): ConversationMessageIslandOptions {
   return {
     ...message,
@@ -500,24 +467,105 @@ function renderAssistantStepGroup(
   selectedToolKey: string,
   onReferenceInspect?: (reference: ConversationReferenceIslandOptions) => void,
 ) {
+  const flowSummary = summarizeAssistantAgentFlow(items);
   return h("details", {
     key: `assistant-steps:${items[0]?.index ?? 0}`,
-    class: "desktop-assistant-step-group",
+    class: "desktop-assistant-step-group desktop-agent-flow-group",
+    "data-agent-flow-tool-count": String(flowSummary.toolCount),
+    "data-agent-flow-delegated-count": String(flowSummary.delegatedCount),
     "data-desktop-chat-region": "assistant-intermediate-steps",
   }, [
-    h("summary", { class: "desktop-assistant-step-summary" }, [
+    h("summary", { class: "desktop-assistant-step-summary desktop-agent-flow-summary" }, [
       h("span", { class: "desktop-assistant-step-summary-label" }, "Processed"),
       h("span", { class: "desktop-assistant-step-summary-count" }, `${items.length} ${items.length === 1 ? "step" : "steps"}`),
+      flowSummary.label
+        ? h("span", { class: "desktop-agent-flow-summary-label" }, flowSummary.label)
+        : null,
       h("span", { class: "desktop-assistant-step-summary-time" }, assistantStepTimeRange(items)),
     ]),
-    h("div", { class: "desktop-assistant-step-list" }, items.map((item) => renderThreadMessage(
-      item.message,
-      item.index,
+    h("div", { class: "desktop-assistant-step-list desktop-agent-flow-step-list" }, items.map((item, position) => renderAgentFlowStep(
+      item,
+      position,
+      items.length,
       selectedToolKey,
-      false,
       onReferenceInspect,
     ))),
   ]);
+}
+
+function summarizeAssistantAgentFlow(items: AssistantMessageRunItem[]): { delegatedCount: number; label: string; toolCount: number } {
+  let delegatedCount = 0;
+  let toolCount = 0;
+  const toolNames = new Set<string>();
+  for (const item of items) {
+    for (const activity of item.message.toolActivities ?? []) {
+      toolCount += 1;
+      toolNames.add(resolveAgentToolProfile(activity).label);
+      if (resolveAgentToolProfile(activity).kind !== "tool") {
+        delegatedCount += 1;
+      }
+    }
+  }
+  const label = delegatedCount
+    ? `${delegatedCount} delegated agent ${delegatedCount === 1 ? "call" : "calls"}`
+    : toolCount
+      ? `${toolCount} ${toolCount === 1 ? "tool call" : "tool calls"}`
+      : "AI thought loop";
+  return { delegatedCount, label: [...toolNames].length > 1 ? `${label} · ${[...toolNames].slice(0, 2).join(" + ")}` : label, toolCount };
+}
+
+function renderAgentFlowStep(
+  item: AssistantMessageRunItem,
+  position: number,
+  total: number,
+  selectedToolKey: string,
+  onReferenceInspect?: (reference: ConversationReferenceIslandOptions) => void,
+): VNode {
+  const profile = agentFlowStepProfile(item.message);
+  return h("section", {
+    key: `agent-flow-step:${item.index}`,
+    class: "desktop-agent-flow-step",
+    "data-agent-flow-step-kind": profile.kind,
+    "data-agent-flow-step-index": String(position + 1),
+  }, [
+    h("div", { class: "desktop-agent-flow-step-rail", "aria-hidden": "true" }, [
+      h("span", { class: "desktop-agent-flow-step-node" }, String(position + 1)),
+      position < total - 1 ? h("span", { class: "desktop-agent-flow-step-line" }) : null,
+    ]),
+    h("div", { class: "desktop-agent-flow-step-card" }, [
+      h("header", { class: "desktop-agent-flow-step-header" }, [
+        h("span", { class: "desktop-agent-flow-step-kind" }, profile.label),
+        h("strong", { class: "desktop-agent-flow-step-title" }, profile.title),
+        item.message.time ? h("small", { class: "desktop-agent-flow-step-time" }, item.message.time) : null,
+      ]),
+      renderThreadMessage(item.message, item.index, selectedToolKey, false, onReferenceInspect),
+    ]),
+  ]);
+}
+
+function agentFlowStepProfile(message: ConversationMessageIslandOptions): AgentFlowStepProfile {
+  const activities = message.toolActivities ?? [];
+  if (activities.length) {
+    const profile = resolveAgentToolProfile(activities[0]);
+    const names = activities.map((activity) => activity.name || "unknown").filter(Boolean).slice(0, 2).join(", ");
+    return {
+      kind: profile.kind === "tool" ? "tool" : profile.kind,
+      label: profile.kind === "tool" ? (activities.length > 1 ? "Tools" : "Tool call") : profile.label,
+      title: names || profile.headline,
+    };
+  }
+  if (message.reasoningContent?.trim()) {
+    return {
+      kind: "thinking",
+      label: "Think",
+      title: message.reasoningLabel ?? "Reasoning",
+    };
+  }
+  return {
+    kind: "response",
+    label: "Draft",
+    title: message.body.find((line) => line.trim())?.slice(0, 80) || "Assistant step",
+  };
 }
 
 function renderThreadMessage(
@@ -652,9 +700,11 @@ function renderToolDetailPanel(options: {
   const status = normalizeToolStatus(activity);
   const label = getToolStatusLabel(status);
   const tone = getToolStatusTone(status);
+  const agentProfile = resolveAgentToolProfile(activity);
   return h("aside", {
     "aria-label": "Tool call details",
     class: "desktop-tool-detail-panel",
+    "data-agent-call-kind": agentProfile.kind,
     "data-tool-detail-mode": options.mode,
     "data-tool-detail-motion": options.motionState,
   }, [
@@ -669,7 +719,7 @@ function renderToolDetailPanel(options: {
       : null,
     h("header", { class: "desktop-tool-detail-header" }, [
       h("div", { class: "desktop-tool-detail-title-group" }, [
-        h("span", { class: "desktop-tool-detail-eyebrow" }, "Tool"),
+        h("span", { class: "desktop-tool-detail-eyebrow" }, agentProfile.kind === "tool" ? "Tool" : agentProfile.label),
         h("h3", { class: "desktop-tool-detail-title" }, activity.name || "unknown"),
       ]),
       h("button", {
@@ -691,6 +741,7 @@ function renderToolDetailPanel(options: {
       ])
       : null,
     h("div", { class: "desktop-tool-detail-body" }, [
+      agentProfile.kind === "tool" ? null : renderAgentToolWorkflowPanel(activity, agentProfile),
       renderToolDetailMeta(activity),
       renderToolDetailText("Arguments", activity.argsText, "No arguments available"),
       renderToolDetailText("Response", activity.responseText, "No response available"),
@@ -698,6 +749,59 @@ function renderToolDetailPanel(options: {
       renderToolDetailText("Duration", "", "Duration unavailable"),
     ]),
   ]);
+}
+
+function renderAgentToolWorkflowPanel(activity: ToolActivityIslandOptions, profile: AgentToolProfile): VNode {
+  const payload = mergedActivityPayload(activity);
+  const metrics = agentWorkflowMetricRows(activity, payload);
+  const steps = extractAgentWorkflowSteps(payload, activity);
+  return h("section", {
+    class: "desktop-agent-tool-workflow-panel",
+    "data-agent-call-kind": profile.kind,
+  }, [
+    h("header", { class: "desktop-agent-tool-workflow-header" }, [
+      h("span", { class: "desktop-agent-tool-workflow-eyebrow" }, "Agent workflow"),
+      h("strong", profile.headline),
+      h("small", profile.contextLabel),
+    ]),
+    h("p", { class: "desktop-agent-tool-workflow-copy" }, agentWorkflowCopy(profile.kind)),
+    metrics.length
+      ? h("dl", { class: "desktop-agent-tool-workflow-metrics" }, metrics.flatMap(([label, value]) => [
+        h("dt", label),
+        h("dd", value),
+      ]))
+      : null,
+    steps.length
+      ? h("ol", { class: "desktop-agent-tool-workflow-timeline" }, steps.map((step, index) => h("li", {
+        class: "desktop-agent-tool-workflow-step",
+        "data-agent-workflow-step-status": step.status || "unknown",
+      }, [
+        h("span", { class: "desktop-agent-tool-workflow-step-index" }, String(index + 1)),
+        h("div", { class: "desktop-agent-tool-workflow-step-main" }, [
+          h("strong", step.title || `Step ${index + 1}`),
+          step.agent ? h("small", step.agent) : null,
+          step.detail ? h("p", step.detail) : null,
+        ]),
+        step.status ? h("span", { class: "desktop-agent-tool-workflow-step-status" }, step.status) : null,
+      ])))
+      : h("p", { class: "desktop-agent-tool-workflow-empty" }, "No nested workflow trace was returned yet. The raw arguments and response remain available below."),
+  ]);
+}
+
+function agentWorkflowCopy(kind: AgentToolKind): string {
+  if (kind === "cowork") {
+    return "Cowork calls own an independent team context, so the nested workflow is summarized here while the main chat stays focused on the final answer.";
+  }
+  if (kind === "team") {
+    return "Agent-team calls usually contain multiple independent worker contexts; inspect the team plan, agent roster, and latest events before opening the raw payload.";
+  }
+  if (kind === "subagent") {
+    return "Subagent calls run with their own context. This panel promotes the delegated task, trace, and returned result above the raw tool payload.";
+  }
+  if (kind === "spawn") {
+    return "Spawn calls start a separate agent loop. The spawned workflow is shown here as a nested timeline whenever the tool returns structured trace data.";
+  }
+  return "";
 }
 
 function renderReferenceDetailPanel(options: {
@@ -890,11 +994,13 @@ function renderDetailApprovalButton(
 }
 
 function renderToolDetailMeta(activity: ToolActivityIslandOptions) {
+  const agentProfile = resolveAgentToolProfile(activity);
   const items = [
     ["approvalId", activity.approvalId || ""],
     ["approvalStatus", activity.approvalStatus || ""],
     ["sessionKey", activity.sessionKey || ""],
     ["kind", activity.kind],
+    ["callType", agentProfile.kind === "tool" ? "" : agentProfile.label],
   ].filter(([, value]) => value);
   return h("dl", { class: "desktop-tool-detail-meta" }, items.flatMap(([label, value]) => [
     h("dt", label),
@@ -960,6 +1066,325 @@ function summarizeToolActivity(activity: ToolActivityIslandOptions | null): Reco
   };
 }
 
+function resolveAgentToolProfile(activity: ToolActivityIslandOptions): AgentToolProfile {
+  const name = (activity.name || "").toLowerCase().replace(/[\s-]+/g, "_");
+  const payload = mergedActivityPayload(activity);
+  const declaredKind = fieldString(payload, ["agent_kind", "agentKind", "agent_type", "agentType", "call_type", "callType", "workflow_kind", "workflowKind"]).toLowerCase();
+  const kindText = `${name} ${declaredKind}`;
+  if (hasAny(kindText, ["cowork", "co_work"])) {
+    return {
+      contextLabel: "Independent Cowork context",
+      headline: "Cowork agent workflow",
+      kind: "cowork",
+      label: "Cowork",
+      tone: "cowork",
+    };
+  }
+  if (hasAny(kindText, ["agent_team", "team_agent", "multi_agent", "multiagent", "swarm", "crew"]) || declaredKind === "team") {
+    return {
+      contextLabel: "Independent team context",
+      headline: "Agent team workflow",
+      kind: "team",
+      label: "Agent team",
+      tone: "team",
+    };
+  }
+  if (hasAny(kindText, ["subagent", "sub_agent", "delegate", "handoff"])) {
+    return {
+      contextLabel: "Independent subagent context",
+      headline: "Delegated subagent workflow",
+      kind: "subagent",
+      label: "Subagent",
+      tone: "subagent",
+    };
+  }
+  if (hasAny(kindText, ["spawn", "fork_agent", "launch_agent", "start_agent"])) {
+    return {
+      contextLabel: "Spawned independent context",
+      headline: "Spawned agent workflow",
+      kind: "spawn",
+      label: "Spawn",
+      tone: "spawn",
+    };
+  }
+  return {
+    contextLabel: "Main agent context",
+    headline: "Tool call",
+    kind: "tool",
+    label: "Tool",
+    tone: "tool",
+  };
+}
+
+function hasAny(value: string, needles: string[]): boolean {
+  return needles.some((needle) => value.includes(needle));
+}
+
+function mergedActivityPayload(activity: ToolActivityIslandOptions): Record<string, unknown> {
+  const payload: Record<string, unknown> = {};
+  const args = parseStructuredText(activity.argsText);
+  const response = parseStructuredText(activity.responseText);
+  mergePayloadValue(payload, args, "arguments");
+  mergePayloadValue(payload, response, "response");
+  return payload;
+}
+
+function mergePayloadValue(target: Record<string, unknown>, value: unknown, fallbackKey: string): void {
+  if (isRecord(value)) {
+    Object.assign(target, value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    target[fallbackKey] = value;
+  }
+}
+
+function parseStructuredText(value: string): unknown {
+  const trimmed = stripMarkdownFence(value.trim());
+  if (!trimmed) {
+    return null;
+  }
+  if (!/^[{[]/.test(trimmed)) {
+    return null;
+  }
+  try {
+    return JSON.parse(trimmed);
+  } catch (error) {
+    return null;
+  }
+}
+
+function stripMarkdownFence(value: string): string {
+  const match = value.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return match?.[1]?.trim() ?? value;
+}
+
+function agentWorkflowMetricRows(
+  activity: ToolActivityIslandOptions,
+  payload: Record<string, unknown>,
+): Array<[string, string]> {
+  const agents = extractAgentNames(payload);
+  return [
+    ["Task", fieldString(payload, ["task", "task_title", "taskTitle", "prompt", "instruction", "query", "goal"])],
+    ["Session", fieldString(payload, ["session_id", "sessionId", "run_id", "runId", "cowork_id", "coworkId"]) || activity.sessionKey || ""],
+    ["Workflow", fieldString(payload, ["workflow", "architecture", "blueprint", "mode", "strategy"])],
+    ["Agents", agents.length ? agents.join(", ") : fieldString(payload, ["agent", "agent_name", "agentName", "role"])],
+    ["Status", fieldString(payload, ["status", "state", "phase"]) || activity.status || activity.kind],
+  ].filter((entry): entry is [string, string] => Boolean(entry[1]?.trim()));
+}
+
+function extractAgentWorkflowSteps(payload: Record<string, unknown>, activity: ToolActivityIslandOptions): AgentWorkflowStep[] {
+  const rows = [
+    ...arrayRowsForKeys(payload, ["steps", "events", "trace", "timeline", "workflow", "messages", "tasks", "arguments", "response"]),
+    ...arrayRowsForKeys(payload, ["agent_steps", "agentSteps", "run_steps", "runSteps"]),
+  ];
+  const steps = rows
+    .map((row, index) => workflowStepFromUnknown(row, index))
+    .filter((step): step is AgentWorkflowStep => Boolean(step));
+  if (steps.length) {
+    return steps.slice(0, AGENT_WORKFLOW_STEP_LIMIT);
+  }
+  const agents = arrayRowsForKeys(payload, ["agents", "members", "workers", "subagents", "participants"])
+    .map((row, index) => workflowStepFromAgent(row, index))
+    .filter((step): step is AgentWorkflowStep => Boolean(step));
+  if (agents.length) {
+    return agents.slice(0, AGENT_WORKFLOW_STEP_LIMIT);
+  }
+  const preview = summarizeWorkflowText(activity.responseText || activity.argsText);
+  return preview
+    ? [{ agent: "", detail: preview, status: activity.status || activity.kind, title: "Latest event" }]
+    : [];
+}
+
+function workflowStepFromUnknown(row: unknown, index: number): AgentWorkflowStep | null {
+  if (typeof row === "string") {
+    return {
+      agent: "",
+      detail: summarizeWorkflowText(row),
+      status: "",
+      title: `Step ${index + 1}`,
+    };
+  }
+  if (!isRecord(row)) {
+    return null;
+  }
+  const title = fieldString(row, ["title", "name", "action", "event", "type", "phase", "status"]) || `Step ${index + 1}`;
+  const detail = fieldString(row, ["detail", "summary", "content", "message", "output", "result", "observation", "task", "prompt"]);
+  const agent = fieldString(row, ["agent", "agent_name", "agentName", "role", "worker", "assignee"]);
+  const status = fieldString(row, ["status", "state", "phase"]);
+  return {
+    agent,
+    detail: summarizeWorkflowText(detail),
+    status,
+    title,
+  };
+}
+
+function workflowStepFromAgent(row: unknown, index: number): AgentWorkflowStep | null {
+  if (typeof row === "string") {
+    return {
+      agent: row,
+      detail: "Agent context attached",
+      status: "",
+      title: row || `Agent ${index + 1}`,
+    };
+  }
+  if (!isRecord(row)) {
+    return null;
+  }
+  const name = fieldString(row, ["name", "label", "id", "agent", "role"]);
+  return {
+    agent: name,
+    detail: fieldString(row, ["latestActivity", "latest_activity", "task", "description", "summary", "status"]),
+    status: fieldString(row, ["status", "state", "phase"]),
+    title: name || `Agent ${index + 1}`,
+  };
+}
+
+function extractAgentNames(payload: Record<string, unknown>): string[] {
+  const rows = arrayRowsForKeys(payload, ["agents", "members", "workers", "subagents", "participants"]);
+  return rows.map((row) => {
+    if (typeof row === "string") {
+      return row;
+    }
+    if (!isRecord(row)) {
+      return "";
+    }
+    return fieldString(row, ["name", "label", "id", "agent", "role"]);
+  }).filter(Boolean).slice(0, 5);
+}
+
+function arrayRowsForKeys(payload: Record<string, unknown>, keys: string[]): unknown[] {
+  const rows: unknown[] = [];
+  for (const key of keys) {
+    const value = payload[key];
+    if (Array.isArray(value)) {
+      rows.push(...value);
+    } else if (isRecord(value)) {
+      rows.push(...Object.values(value));
+    }
+  }
+  return rows;
+}
+
+function fieldString(payload: Record<string, unknown>, keys: string[]): string {
+  const direct = directFieldString(payload, keys);
+  if (direct) {
+    return direct;
+  }
+  for (const nestedKey of ["input", "request", "payload", "config", "context", "result", "response", "metadata"]) {
+    const nested = payload[nestedKey];
+    if (isRecord(nested)) {
+      const nestedValue = directFieldString(nested, keys);
+      if (nestedValue) {
+        return nestedValue;
+      }
+    }
+  }
+  return "";
+}
+
+function directFieldString(payload: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = payload[key];
+    const stringValue = valueToDisplayString(value);
+    if (stringValue) {
+      return stringValue;
+    }
+  }
+  return "";
+}
+
+function valueToDisplayString(value: unknown): string {
+  if (typeof value === "string") {
+    return value.trim();
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map(valueToDisplayString).filter(Boolean).join(", ");
+  }
+  if (isRecord(value)) {
+    return fieldString(value, ["title", "name", "id", "summary", "status"]);
+  }
+  return "";
+}
+
+function summarizeWorkflowText(value: string): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return "";
+  }
+  return normalized.length > 220 ? `${normalized.slice(0, 217)}...` : normalized;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function captureConversationTimelineScroll(host: HTMLElement): ConversationTimelineScrollState | null {
+  const timeline = conversationTimelineScrollElement(host);
+  if (!timeline) {
+    return null;
+  }
+  const scrollTop = Number(timeline.scrollTop || 0);
+  const bottomOffset = Math.max(0, Number(timeline.scrollHeight || 0) - scrollTop - Number(timeline.clientHeight || 0));
+  return {
+    bottomOffset,
+    scrollTop,
+    wasNearBottom: bottomOffset < 24,
+  };
+}
+
+function queueConversationTimelineScrollRestore(
+  host: HTMLElement,
+  scrollState: ConversationTimelineScrollState | null,
+): void {
+  if (!scrollState) {
+    return;
+  }
+  void nextTick(() => {
+    restoreConversationTimelineScroll(host, scrollState);
+    const win = host.ownerDocument.defaultView;
+    if (typeof win?.requestAnimationFrame === "function") {
+      win.requestAnimationFrame(() => restoreConversationTimelineScroll(host, scrollState));
+      return;
+    }
+    const queue = win?.queueMicrotask ?? globalThis.queueMicrotask;
+    if (typeof queue === "function") {
+      queue(() => restoreConversationTimelineScroll(host, scrollState));
+    }
+  });
+}
+
+function restoreConversationTimelineScroll(
+  host: HTMLElement,
+  scrollState: ConversationTimelineScrollState,
+): void {
+  const timeline = conversationTimelineScrollElement(host);
+  if (!timeline) {
+    return;
+  }
+  if (scrollState.wasNearBottom) {
+    timeline.scrollTop = boundedConversationTimelineScrollTop(
+      timeline,
+      Number(timeline.scrollHeight || 0) - Number(timeline.clientHeight || 0) - scrollState.bottomOffset,
+    );
+    return;
+  }
+  timeline.scrollTop = boundedConversationTimelineScrollTop(timeline, scrollState.scrollTop);
+}
+
+function conversationTimelineScrollElement(host: HTMLElement): HTMLElement | null {
+  return host.querySelector<HTMLElement>(".desktop-conversation-timeline") ?? host;
+}
+
+function boundedConversationTimelineScrollTop(element: HTMLElement, value: number): number {
+  const maxScrollTop = Math.max(0, Number(element.scrollHeight || 0) - Number(element.clientHeight || 0));
+  return Math.min(Math.max(0, Number.isFinite(value) ? value : 0), maxScrollTop);
+}
+
 function isToolDetailOverlayMode(): boolean {
   return typeof window !== "undefined" ? window.innerWidth < 900 : false;
 }
@@ -992,10 +1417,340 @@ function startToolDetailResize(event: PointerEvent, onResize: (nextWidth: number
 }
 
 function applyHostContract(host: HTMLElement): void {
+  installConversationAgentFlowStyles(host.ownerDocument);
   host.setAttribute("data-desktop-vue-island", "conversation-thread");
   host.className = "desktop-conversation-thread";
   host.setAttribute("aria-label", "Message Timeline");
   host.setAttribute("aria-live", "polite");
   host.setAttribute("data-desktop-chat-region", "message-timeline");
   host.setAttribute("role", "log");
+}
+
+function installConversationAgentFlowStyles(targetDocument: Document): void {
+  if (targetDocument.getElementById(CONVERSATION_AGENT_FLOW_STYLE_ID)) {
+    return;
+  }
+  const style = targetDocument.createElement("style");
+  style.id = CONVERSATION_AGENT_FLOW_STYLE_ID;
+  style.textContent = `
+    .desktop-conversation-body-layout {
+      --desktop-flow-muted-border: color-mix(in srgb, var(--border, #e6dfd8) 76%, transparent);
+      --desktop-flow-card-bg: color-mix(in srgb, var(--panel-strong, #faf9f5) 78%, var(--bg-subtle, #f5f0e8));
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      min-height: 0;
+      position: relative;
+      gap: 0;
+    }
+
+    .desktop-conversation-layout {
+      min-width: 0;
+      transition: transform 320ms cubic-bezier(.2,.8,.2,1), filter 320ms ease;
+    }
+
+    .desktop-conversation-timeline {
+      min-height: 0;
+      overflow: auto;
+      scroll-behavior: smooth;
+    }
+
+    .desktop-assistant-step-group.desktop-agent-flow-group {
+      overflow: hidden;
+      border: 1px solid var(--desktop-flow-muted-border);
+      border-radius: 14px;
+      background: var(--desktop-flow-card-bg);
+      box-shadow: 0 12px 32px rgba(20, 20, 19, 0.08);
+      animation: desktopAgentFlowEnter 240ms ease-out both;
+    }
+
+    .desktop-agent-flow-summary {
+      align-items: center;
+      cursor: pointer;
+      display: flex;
+      gap: 10px;
+      list-style: none;
+      min-height: 42px;
+      padding: 10px 14px;
+      user-select: none;
+    }
+
+    .desktop-agent-flow-summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .desktop-agent-flow-summary::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--accent, #cc785c);
+      box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent, #cc785c) 12%, transparent);
+      transition: transform 220ms ease, box-shadow 220ms ease;
+    }
+
+    .desktop-agent-flow-group[open] .desktop-agent-flow-summary::before {
+      transform: scale(1.18);
+      box-shadow: 0 0 0 9px color-mix(in srgb, var(--accent, #cc785c) 16%, transparent);
+    }
+
+    .desktop-agent-flow-summary-label {
+      margin-inline-start: auto;
+      color: var(--text-muted, #6c6a64);
+      font-size: 12px;
+    }
+
+    .desktop-agent-flow-step-list {
+      display: grid;
+      gap: 0;
+      padding: 4px 12px 14px;
+    }
+
+    .desktop-agent-flow-step {
+      display: grid;
+      grid-template-columns: 30px minmax(0, 1fr);
+      min-width: 0;
+      animation: desktopAgentFlowStepIn 260ms ease both;
+    }
+
+    .desktop-agent-flow-step-rail {
+      align-items: center;
+      display: flex;
+      flex-direction: column;
+      padding-top: 12px;
+    }
+
+    .desktop-agent-flow-step-node {
+      display: grid;
+      place-items: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--accent, #cc785c) 16%, var(--panel, #faf9f5));
+      border: 1px solid color-mix(in srgb, var(--accent, #cc785c) 28%, transparent);
+      color: var(--accent, #cc785c);
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .desktop-agent-flow-step-line {
+      width: 1px;
+      flex: 1;
+      min-height: 18px;
+      margin-block: 4px 0;
+      background: linear-gradient(var(--desktop-flow-muted-border), transparent);
+    }
+
+    .desktop-agent-flow-step-card {
+      min-width: 0;
+      padding: 8px 0 10px;
+    }
+
+    .desktop-agent-flow-step-header {
+      align-items: center;
+      display: flex;
+      gap: 8px;
+      margin: 0 0 6px;
+      color: var(--text-muted, #6c6a64);
+      font-size: 12px;
+    }
+
+    .desktop-agent-flow-step-kind {
+      border: 1px solid color-mix(in srgb, var(--accent, #cc785c) 24%, var(--border, #e6dfd8));
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--accent, #cc785c) 10%, transparent);
+      color: var(--accent, #cc785c);
+      font-size: 10px;
+      font-weight: 800;
+      padding: 2px 7px;
+      text-transform: uppercase;
+    }
+
+    .desktop-agent-flow-step-title {
+      color: var(--text, #141413);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .desktop-agent-flow-step-time {
+      margin-left: auto;
+      color: var(--text-subtle, #8e8b82);
+    }
+
+    .desktop-detail-panel-slot {
+      min-width: 320px;
+      max-width: 100%;
+      pointer-events: none;
+      z-index: 9;
+    }
+
+    .desktop-detail-panel-slot > .desktop-tool-detail-panel {
+      pointer-events: auto;
+    }
+
+    .desktop-tool-detail-panel[data-tool-detail-motion="opening"],
+    .desktop-tool-detail-panel[data-tool-detail-motion="open"] {
+      animation: desktopToolDetailSlideIn 360ms cubic-bezier(.2,.8,.2,1) both;
+    }
+
+    .desktop-tool-detail-panel[data-tool-detail-motion="closing"] {
+      animation: desktopToolDetailSlideOut 560ms cubic-bezier(.2,.8,.2,1) both;
+    }
+
+    .desktop-agent-tool-workflow-panel {
+      display: grid;
+      gap: 12px;
+      border: 1px solid color-mix(in srgb, var(--accent, #cc785c) 22%, var(--border, #e6dfd8));
+      border-radius: 14px;
+      padding: 14px;
+      background: color-mix(in srgb, var(--accent, #cc785c) 8%, var(--panel, #faf9f5));
+    }
+
+    .desktop-agent-tool-workflow-header {
+      display: grid;
+      gap: 2px;
+    }
+
+    .desktop-agent-tool-workflow-eyebrow {
+      color: var(--accent, #cc785c);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .desktop-agent-tool-workflow-header strong {
+      color: var(--text, #141413);
+      font-size: 15px;
+    }
+
+    .desktop-agent-tool-workflow-header small,
+    .desktop-agent-tool-workflow-copy,
+    .desktop-agent-tool-workflow-empty {
+      color: var(--text-muted, #6c6a64);
+      font-size: 12px;
+      line-height: 1.5;
+      margin: 0;
+    }
+
+    .desktop-agent-tool-workflow-metrics {
+      display: grid;
+      grid-template-columns: max-content minmax(0, 1fr);
+      gap: 6px 12px;
+      margin: 0;
+      font-size: 12px;
+    }
+
+    .desktop-agent-tool-workflow-metrics dt {
+      color: var(--text-subtle, #8e8b82);
+      font-weight: 700;
+    }
+
+    .desktop-agent-tool-workflow-metrics dd {
+      margin: 0;
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .desktop-agent-tool-workflow-timeline {
+      display: grid;
+      gap: 8px;
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+
+    .desktop-agent-tool-workflow-step {
+      display: grid;
+      grid-template-columns: 24px minmax(0, 1fr) auto;
+      gap: 9px;
+      align-items: start;
+      padding: 9px;
+      border: 1px solid color-mix(in srgb, var(--border, #e6dfd8) 70%, transparent);
+      border-radius: 10px;
+      background: color-mix(in srgb, var(--panel-strong, #faf9f5) 76%, transparent);
+    }
+
+    .desktop-agent-tool-workflow-step-index {
+      display: grid;
+      place-items: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--accent, #cc785c) 13%, transparent);
+      color: var(--accent, #cc785c);
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .desktop-agent-tool-workflow-step-main {
+      min-width: 0;
+    }
+
+    .desktop-agent-tool-workflow-step-main strong,
+    .desktop-agent-tool-workflow-step-main small,
+    .desktop-agent-tool-workflow-step-main p {
+      display: block;
+      margin: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .desktop-agent-tool-workflow-step-main small,
+    .desktop-agent-tool-workflow-step-main p,
+    .desktop-agent-tool-workflow-step-status {
+      color: var(--text-muted, #6c6a64);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    .desktop-agent-tool-workflow-step-status {
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--text-muted, #6c6a64) 10%, transparent);
+      padding: 2px 7px;
+      white-space: nowrap;
+    }
+
+    .desktop-conversation-body-layout[data-detail-panel-mode="push"][data-detail-panel-state="opening"],
+    .desktop-conversation-body-layout[data-detail-panel-mode="push"][data-detail-panel-state="open"],
+    .desktop-conversation-body-layout[data-detail-panel-mode="push"][data-detail-panel-state="closing"] {
+      grid-template-columns: minmax(0, calc(100% - var(--desktop-tool-detail-width, 50%))) minmax(320px, var(--desktop-tool-detail-width, 50%));
+    }
+
+    .desktop-conversation-body-layout[data-detail-panel-mode="overlay"] .desktop-detail-panel-slot {
+      position: absolute;
+      inset: 0 0 0 auto;
+      width: min(520px, 92vw);
+    }
+
+    @keyframes desktopAgentFlowEnter {
+      from { opacity: 0; transform: translateY(8px) scale(.995); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    @keyframes desktopAgentFlowStepIn {
+      from { opacity: 0; transform: translateX(-6px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+
+    @keyframes desktopToolDetailSlideIn {
+      from { opacity: 0; transform: translateX(18px) scale(.99); filter: blur(2px); }
+      to { opacity: 1; transform: translateX(0) scale(1); filter: blur(0); }
+    }
+
+    @keyframes desktopToolDetailSlideOut {
+      from { opacity: 1; transform: translateX(0) scale(1); filter: blur(0); }
+      to { opacity: 0; transform: translateX(24px) scale(.99); filter: blur(2px); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .desktop-conversation-layout,
+      .desktop-agent-flow-summary::before,
+      .desktop-agent-flow-step,
+      .desktop-tool-detail-panel[data-tool-detail-motion] {
+        animation: none !important;
+        scroll-behavior: auto !important;
+        transition: none !important;
+      }
+    }
+  `;
+  targetDocument.head.append(style);
 }
