@@ -748,4 +748,54 @@ describe("conversation thread Vue island", () => {
     expect(host.querySelector(".desktop-conversation-layout")?.getAttribute("data-tool-detail-visible")).toBe("false");
     expect(host.querySelector<HTMLElement>(".desktop-conversation-layout")?.style.getPropertyValue("--desktop-tool-detail-width")).toBe("");
   });
+
+  test("renders delegated workflow and artifact inspector rows with safe previews", async () => {
+    const host = document.createElement("section");
+
+    mountConversationThreadIsland(host, {
+      emptyMessage: "",
+      messages: [{
+        author: "Tinybot",
+        body: ["I coordinated extra work."],
+        references: [],
+        time: "10:31 AM",
+        tone: "assistant",
+        toolActivities: [{
+          argsText: "Review implementation",
+          approvalStatus: "",
+          id: "delegate-cowork",
+          kind: "call",
+          name: "Cowork: Review implementation",
+          responseText: "2 agents active",
+          runChainItemKey: "turn-1:delegate-cowork",
+          status: "running",
+        }, {
+          argsText: "",
+          approvalStatus: "",
+          id: "artifact-output",
+          kind: "result",
+          name: "Artifact: npm test",
+          responseText: "<script>alert(1)</script> api_key=secret",
+          runChainItemKey: "turn-1:artifact-output",
+          status: "completed",
+        }],
+      }],
+    });
+    await nextTick();
+    await nextTick();
+
+    expect(host.textContent).toContain("Cowork: Review implementation");
+    expect(host.textContent).toContain("Artifact: npm test");
+
+    host.querySelector<HTMLButtonElement>('[data-desktop-tool-activity-id="artifact-output"] .desktop-tool-activity-row')?.click();
+    await nextTick();
+    await flushDetailPanelOpeningMotion();
+
+    const panel = host.querySelector<HTMLElement>(".desktop-tool-detail-panel");
+    expect(panel?.textContent).toContain("Artifact: npm test");
+    expect(panel?.textContent).not.toContain("<script>");
+    expect(panel?.textContent).not.toContain("api_key=secret");
+    expect(panel?.textContent).toContain("[unsafe omitted]");
+    expect(panel?.textContent).toContain("[redacted]");
+  });
 });

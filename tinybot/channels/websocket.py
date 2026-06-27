@@ -58,6 +58,19 @@ def _serialize_message(message: dict[str, Any]) -> dict[str, Any]:
         "_agent_ui_form_status",
         "_agent_ui_form_display",
         "_agent_ui_form_response",
+        "turn_id",
+        "step_id",
+        "parent_step_id",
+        "sequence",
+        "agent_context",
+        "status",
+        "tool_call",
+        "tool_result",
+        "approval",
+        "duration_ms",
+        "error",
+        "artifacts",
+        "trace_ref",
     ):
         if key in message:
             payload[key] = message[key]

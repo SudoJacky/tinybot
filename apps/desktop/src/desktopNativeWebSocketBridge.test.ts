@@ -579,6 +579,35 @@ describe("desktop native WebSocket bridge", () => {
       _tool_name: "read_file",
       _tool_result: true,
     });
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "agent_event",
+      schema_version: "tinybot.agent_event.v1",
+      event_type: "tool.call.started",
+      chat_id: "chat-native",
+      session_key: "websocket:chat-native",
+      turn_id: "run-2",
+      step_id: "run-2:call-read",
+      payload: expect.objectContaining({
+        name: "read_file",
+        status: "running",
+        tool_call_id: "call-read",
+      }),
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "agent_event",
+      schema_version: "tinybot.agent_event.v1",
+      event_type: "tool.call.completed",
+      chat_id: "chat-native",
+      session_key: "websocket:chat-native",
+      turn_id: "run-2",
+      step_id: "run-2:call-read",
+      payload: expect.objectContaining({
+        name: "read_file",
+        result_preview: "file contents",
+        status: "completed",
+        tool_call_id: "call-read",
+      }),
+    }));
   });
 
   test("projects TS worker awaiting interaction events into legacy WebUI frames", async () => {

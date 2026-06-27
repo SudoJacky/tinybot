@@ -2877,6 +2877,20 @@ describe("gateway WebSocket client", () => {
     });
     expect(
       normalizeGatewayFrame({
+        event: "agent_event",
+        schema_version: "tinybot.agent_event.v1",
+        event_id: "event-tool",
+        event_type: "tool.call.started",
+        chat_id: "chat-1",
+        turn_id: "turn-1",
+        payload: { name: "read_file" },
+      }),
+    ).toMatchObject({
+      kind: "agent.event",
+      chatId: "chat-1",
+    });
+    expect(
+      normalizeGatewayFrame({
         event: "agent_ui_event",
         agent_ui_event: { event_type: "ui.form.requested", payload: { form_id: "form-1" } },
       }),

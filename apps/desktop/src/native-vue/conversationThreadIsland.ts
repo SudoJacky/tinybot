@@ -2,6 +2,7 @@ import { computed, createApp, defineComponent, h, nextTick, onBeforeUnmount, ref
 import { NConfigProvider, NEmpty } from "naive-ui";
 import type { AgentUiForm } from "../agentUiEvents";
 import { logDesktopNativeChatDebug, logDesktopNativeDebug, summarizeDebugText } from "../desktopNativeChatDebug";
+import { sanitizeTextPreview } from "../chatRunModel";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 import { renderAgentUiFormCardChildren } from "./agentUiFormCardIsland";
 import { renderConversationMessageChildren, type ConversationMessageIslandOptions } from "./conversationMessageIsland";
@@ -903,7 +904,7 @@ function renderToolDetailMeta(activity: ToolActivityIslandOptions) {
 }
 
 function renderToolDetailText(label: string, value: string, emptyLabel: string) {
-  const formatted = formatMaybeJson(value);
+  const formatted = formatMaybeJson(sanitizeTextPreview(value));
   return h("section", { class: "desktop-tool-detail-section" }, [
     h("h4", label),
     h("pre", { class: "desktop-tool-detail-pre" }, formatted || emptyLabel),

@@ -13,6 +13,7 @@ from tinybot.api.webui import (
     WebUIControlPaths,
     WebUIControlRuntime,
     _attach_cowork_listener,
+    _serialize_message,
     desktop_cors_middleware,
     register_webui_control_routes,
 )
@@ -42,6 +43,34 @@ def api_workspace():
 def _authorized_headers(token_manager: WebTokenManager) -> dict[str, str]:
     token = token_manager.issue()
     return {"Authorization": f"Bearer {token}"}
+
+
+def test_webui_serialize_message_preserves_agent_turn_event_metadata():
+    payload = _serialize_message(
+        {
+            "role": "assistant",
+            "content": "",
+            "turn_id": "turn-1",
+            "step_id": "step-tool",
+            "parent_step_id": "step-parent",
+            "sequence": 4,
+            "agent_context": {"type": "main", "id": "main", "title": "Tinybot"},
+            "status": "completed",
+            "tool_call": {"id": "call-1", "name": "read_file"},
+            "tool_result": {"status": "completed", "result_preview": "ok"},
+            "approval": {"approval_id": "approval-1", "decision": "approved_once"},
+            "duration_ms": 12,
+            "error": {"message": "boom"},
+            "artifacts": [{"id": "artifact-1", "kind": "terminal_output"}],
+            "trace_ref": "trace-1",
+        }
+    )
+
+    assert payload["turn_id"] == "turn-1"
+    assert payload["step_id"] == "step-tool"
+    assert payload["sequence"] == 4
+    assert payload["tool_call"]["name"] == "read_file"
+    assert payload["artifacts"][0]["id"] == "artifact-1"
 
 
 @pytest.mark.asyncio

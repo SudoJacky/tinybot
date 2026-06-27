@@ -1,5 +1,13 @@
 import type { NormalizedGatewayEvent } from "./gatewayWebSocketClient";
 import { logDesktopNativeChatDebug, summarizeDebugText } from "./desktopNativeChatDebug";
+import {
+  createChatRunState,
+  legacyMessagesToTurns,
+  reduceAgentEvent,
+  turnsToConversationMessages,
+  type AgentEventEnvelope,
+  type ChatRunState,
+} from "./chatRunModel";
 
 export type NativeChatSession = {
   key: string;
@@ -49,6 +57,7 @@ export type NativeChatReference = {
 export type NativeChatState = {
   sessions: NativeChatSession[];
   messages: Map<string, NativeChatMessage[]>;
+  chatRuns: ChatRunState;
   activeSessionKey: string;
   activeChatId: string;
   respondingSessionKeys: Set<string>;
@@ -60,6 +69,7 @@ export function createNativeChatState(): NativeChatState {
   return {
     sessions: [],
     messages: new Map(),
+    chatRuns: createChatRunState(),
     activeSessionKey: "",
     activeChatId: "",
     respondingSessionKeys: new Set(),
@@ -128,6 +138,7 @@ export function setSessions(state: NativeChatState, sessions: NativeChatSession[
 
 export function setMessages(state: NativeChatState, sessionKey: string, messages: NativeChatMessage[]) {
   state.messages.set(sessionKey, messages);
+  state.chatRuns.legacyMessagesBySession.set(sessionKey, messages);
 }
 
 export function activateChat(state: NativeChatState, chatId: string) {
@@ -206,6 +217,42 @@ export function applyChatEvent(state: NativeChatState, event: NormalizedGatewayE
       state: summarizeNativeChatState(state),
       targetSessionKey: sessionKey,
     });
+    return;
+  }
+
+  if (event.kind === "agent.event") {
+    const envelope = agentEventEnvelopeFromRaw(event.raw);
+    if (!envelope) {
+      return;
+    }
+    const sessionKey = envelope.session_key || sessionKeyForChatState(state, envelope.chat_id || state.activeChatId);
+    if (!sessionKey) {
+      return;
+    }
+    if (!state.chatRuns.turnsBySession.has(sessionKey)) {
+      const legacyMessages = state.messages.get(sessionKey) ?? [];
+      state.chatRuns.turnsBySession.set(sessionKey, legacyMessagesToTurns(sessionKey, legacyMessages));
+    }
+    const seededTurns = state.chatRuns.turnsBySession.get(sessionKey) ?? [];
+    if (!seededTurns.some((turn) => turn.id === envelope.turn_id)) {
+      const pendingTurn = seededTurns[seededTurns.length - 1];
+      if (pendingTurn && !pendingTurn.finalMessage) {
+        pendingTurn.id = envelope.turn_id;
+      }
+    }
+    reduceAgentEvent(state.chatRuns, { ...envelope, session_key: sessionKey });
+    const turns = state.chatRuns.turnsBySession.get(sessionKey) ?? [];
+    state.messages.set(sessionKey, conversationMessagesToNativeMessages(turnsToConversationMessages(turns)));
+    if (
+      envelope.event_type === "agent.turn.completed"
+      || envelope.event_type === "agent.turn.failed"
+      || envelope.event_type === "agent.turn.interrupted"
+      || envelope.event_type === "message.completed"
+    ) {
+      state.respondingSessionKeys.delete(sessionKey);
+    } else {
+      state.respondingSessionKeys.add(sessionKey);
+    }
     return;
   }
 
@@ -463,6 +510,87 @@ function summarizeChatEvent(event: NormalizedGatewayEvent): Record<string, unkno
     messageId: "messageId" in event ? event.messageId : "",
     text: "text" in event ? summarizeDebugText(event.text) : undefined,
   };
+}
+
+function agentEventEnvelopeFromRaw(raw: Record<string, unknown>): AgentEventEnvelope | null {
+  if (raw.schema_version !== "tinybot.agent_event.v1") {
+    return null;
+  }
+  const eventId = stringValue(raw.event_id);
+  const eventType = stringValue(raw.event_type);
+  const chatId = stringValue(raw.chat_id);
+  const sessionKey = stringValue(raw.session_key);
+  const turnId = stringValue(raw.turn_id);
+  if (!eventId || !eventType || !turnId) {
+    return null;
+  }
+  return {
+    chat_id: chatId,
+    created_at: stringValue(raw.created_at) || new Date().toISOString(),
+    event_id: eventId,
+    event_type: eventType,
+    ...(stringValue(raw.parent_step_id) ? { parent_step_id: stringValue(raw.parent_step_id) } : {}),
+    payload: isRecord(raw.payload) ? raw.payload : {},
+    schema_version: "tinybot.agent_event.v1",
+    sequence: numberValue(raw.sequence) ?? 0,
+    session_key: sessionKey || sessionKeyForChat(chatId),
+    ...(stringValue(raw.step_id) ? { step_id: stringValue(raw.step_id) } : {}),
+    turn_id: turnId,
+  };
+}
+
+function conversationMessagesToNativeMessages(messages: ReturnType<typeof turnsToConversationMessages>): NativeChatMessage[] {
+  return messages.filter((message, index) => {
+    const next = messages[index + 1];
+    return !(
+      message.tone === "assistant"
+      && message.copyable !== true
+      && next?.tone === "assistant"
+      && next.copyable === true
+      && message.body.join("\n") === next.body.join("\n")
+    );
+  }).map((message, index) => ({
+    role: message.tone,
+    content: message.body.join("\n"),
+    reasoningContent: message.reasoningContent ?? "",
+    ...(message.toolActivities?.length ? {
+      toolActivities: message.toolActivities.map((activity) => ({
+        approvalId: activity.approvalId,
+        approvalStatus: activity.approvalStatus,
+        argsText: activity.argsText,
+        id: activity.id,
+        kind: activity.kind,
+        name: activity.name,
+        responseText: activity.responseText,
+        sessionKey: activity.sessionKey,
+        status: activity.status,
+      })),
+    } : {}),
+    ...(message.references.length ? {
+      references: message.references.map((reference) => ({
+        detail: reference.detail,
+        evidenceId: reference.evidenceId,
+        kind: nativeReferenceKind(reference.kind),
+        noteId: reference.noteId,
+        rawLine: reference.rawLine,
+        rawPath: reference.rawPath,
+        scope: reference.scope,
+        sourceLine: reference.sourceLine,
+        sourcePath: reference.sourcePath,
+        sourceText: reference.sourceText,
+        title: reference.title,
+        type: reference.type,
+      })),
+    } : {}),
+    timestamp: message.time,
+    messageId: `agent-run:${index}`,
+  }));
+}
+
+function nativeReferenceKind(value: string): NativeChatReference["kind"] {
+  return value === "browser" || value === "memory" || value === "recent" || value === "reference"
+    ? value
+    : "reference";
 }
 
 function normalizeMessageReferences(message: Record<string, unknown>): NativeChatReference[] {

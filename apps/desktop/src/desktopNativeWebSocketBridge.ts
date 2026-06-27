@@ -104,6 +104,7 @@ class DesktopNativeWebSocket extends EventTarget {
   private readonly activeToolCallDeltas = new Map<string, ActiveToolCallDelta>();
   private readonly completedStreamedRunIds = new Set<string>();
   private readonly completedStreamedRunIdsByChat = new Map<string, string>();
+  private agentEventSequence = 0;
   private attachedChatId?: string;
 
   constructor(options: DesktopNativeWebSocketOptions) {
@@ -379,6 +380,10 @@ class DesktopNativeWebSocket extends EventTarget {
         text,
         is_reasoning: eventName === "agent.reasoning_delta",
       });
+      this.emitAgentEventFrame(run, runId, eventName === "agent.reasoning_delta" ? "reasoning.delta" : "message.delta", {
+        text,
+        visibility: eventName === "agent.reasoning_delta" ? "hidden" : "visible",
+      });
       return;
     }
     if (eventName === "agent.tool_call.delta") {
@@ -404,6 +409,12 @@ class DesktopNativeWebSocket extends EventTarget {
         detail: true,
         hint: true,
       });
+      this.emitAgentEventFrame(run, runId, "tool.call.started", {
+        args_preview: cachedToolCall?.argumentsText ?? "",
+        name: toolName,
+        status: "running",
+        tool_call_id: toolCallId,
+      }, `${runId}:${toolCallId}`);
       return;
     }
     if (eventName === "agent.tool.result") {
@@ -413,6 +424,12 @@ class DesktopNativeWebSocket extends EventTarget {
       this.emitToolProgressFrame(run.chatId, `${runId}:${toolCallId}:result`, toolName, toolCallId, text, {
         result: true,
       });
+      this.emitAgentEventFrame(run, runId, "tool.call.completed", {
+        name: toolName,
+        result_preview: text,
+        status: "completed",
+        tool_call_id: toolCallId,
+      }, `${runId}:${toolCallId}`);
       this.deleteToolCallDelta(runId, toolCallId);
       return;
     }
@@ -435,6 +452,11 @@ class DesktopNativeWebSocket extends EventTarget {
         chat_id: run.chatId,
         ...(approvalId ? { approval_id: approvalId } : {}),
       });
+      this.emitAgentEventFrame(run, runId, "approval.requested", {
+        approval_id: approvalId,
+        title: stringValue(payload.title) || stringValue(payload.message) || "Approval required",
+        tool_call_id: stringValue(payload.toolCallId) || stringValue(payload.tool_call_id),
+      }, approvalId ? `${runId}:approval:${approvalId}` : `${runId}:approval`);
       return;
     }
     if (eventName === "agent.memory_reference") {
@@ -467,6 +489,14 @@ class DesktopNativeWebSocket extends EventTarget {
         source_command: stringValue(payload.sourceCommand) || stringValue(payload.source_command),
         captured_at: payload.capturedAt ?? payload.captured_at ?? null,
       });
+      this.emitAgentEventFrame(run, runId, "artifact.created", {
+        artifact: {
+          id: stringValue(payload.artifactId) || stringValue(payload.artifact_id) || `${runId}:browser-frame`,
+          kind: "browser_snapshot",
+          preview: stringValue(payload.imageUrl) || stringValue(payload.image_url),
+          title: stringValue(payload.sourceCommand) || stringValue(payload.source_command) || "Browser snapshot",
+        },
+      }, `${runId}:browser-frame`);
       return;
     }
     if (eventName === "agent.cancelled") {
@@ -474,6 +504,9 @@ class DesktopNativeWebSocket extends EventTarget {
       this.emitJson({
         event: "interrupted",
         chat_id: run.chatId,
+        cancelled: payload.cancelled !== false,
+      });
+      this.emitAgentEventFrame(run, runId, "agent.turn.interrupted", {
         cancelled: payload.cancelled !== false,
       });
       this.activeRuns.delete(runId);
@@ -490,6 +523,11 @@ class DesktopNativeWebSocket extends EventTarget {
         message_id: run.messageId,
         message: stringValue(payload.message) || stringValue(payload.error) || "agent error",
       });
+      this.emitAgentEventFrame(run, runId, "agent.turn.failed", {
+        error: {
+          message: stringValue(payload.message) || stringValue(payload.error) || "agent error",
+        },
+      });
       return;
     }
     if (eventName === "agent.done") {
@@ -500,6 +538,10 @@ class DesktopNativeWebSocket extends EventTarget {
         message_id: run.messageId,
         reason: stringValue(payload.stopReason) || stringValue(payload.stop_reason) || "stop",
         ...referenceMetadata(payload),
+      });
+      this.emitAgentEventFrame(run, runId, "agent.turn.completed", {
+        reason: stringValue(payload.stopReason) || stringValue(payload.stop_reason) || "stop",
+        usage: isRecord(payload.usage) ? payload.usage : undefined,
       });
       this.activeRuns.delete(runId);
       this.completedStreamedRunIds.add(runId);
@@ -581,6 +623,29 @@ class DesktopNativeWebSocket extends EventTarget {
       ...(flags.hint ? { _tool_hint: true } : {}),
       ...(flags.result ? { _tool_result: true } : {}),
       _tool_name: toolName,
+    });
+  }
+
+  private emitAgentEventFrame(
+    run: ActiveRun,
+    runId: string,
+    eventType: string,
+    payload: Record<string, unknown>,
+    stepId?: string,
+  ): void {
+    const sequence = ++this.agentEventSequence;
+    this.emitJson({
+      event: "agent_event",
+      schema_version: "tinybot.agent_event.v1",
+      event_id: `${runId}:${eventType}:${sequence}`,
+      event_type: eventType,
+      chat_id: run.chatId,
+      session_key: run.sessionId || `websocket:${run.chatId}`,
+      turn_id: runId,
+      ...(stepId ? { step_id: stepId } : {}),
+      sequence,
+      created_at: new Date().toISOString(),
+      payload,
     });
   }
 
