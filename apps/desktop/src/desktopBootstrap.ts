@@ -47,6 +47,11 @@ import {
 } from "./desktopSettingsLocalPreferences";
 import { saveDesktopSettingsConfig, type DesktopSettingsSaveResult } from "./desktopSettingsSave";
 import { buildDesktopTsAgentFormSubmissionInput } from "./desktopTsAgentFormActions";
+import {
+  nativeApprovalRefreshOptions,
+  submitDesktopApprovalAction,
+  summarizeDesktopApprovalResumeResult,
+} from "./desktopApprovalActions";
 import { installDesktopNavigation } from "./desktopNavigation";
 import { applyDesktopWorkbenchRouteState } from "./desktopEntityFocus";
 import {
@@ -1161,11 +1166,23 @@ async function handleNativeInlineApprovalAction(detail: unknown): Promise<void> 
     return;
   }
   try {
-    await submitNativeApprovalAction(approvalId, sessionKey, action);
+    const resumeResult = await submitNativeApprovalAction(approvalId, sessionKey, action);
+    const resumeSummary = summarizeDesktopApprovalResumeResult(resumeResult);
+    const decision = action === "deny" ? "denied" : "approved";
+    const resolvedLocally = nativeWorkbenchRuntime?.resolveApproval(approvalId, decision, sessionKey) ?? false;
+    if (nativeWorkbenchRuntime && resolvedLocally) {
+      updateDesktopNativeChat(document, nativeWorkbenchRuntime.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
+    }
     nativeApprovalTaskOperations.delete(taskId);
     publishNativeTaskCenterItems();
     await refreshNativeApprovalTasks();
-    logDesktopNativeDebug("inlineApproval.complete", { action, approvalId, toolName });
+    logDesktopNativeDebug("inlineApproval.complete", {
+      action,
+      approvalId,
+      resolvedLocally,
+      resume: resumeSummary,
+      toolName,
+    });
   } catch (error) {
     nativeApprovalTaskOperations.set(taskId, {
       id: taskId,
@@ -1192,31 +1209,53 @@ async function submitNativeApprovalAction(
   approvalId: string,
   sessionKey: string,
   action: string,
-): Promise<void> {
-  const approved = action !== "deny";
-  const scope = action === "approveSession" ? "session" : "once";
-  if (nativeAgentRoute === "ts-agent") {
-    await invoke("worker_resume_agent_approval", {
-      input: {
-        sessionId: sessionKey,
+): Promise<unknown> {
+  if (!["approveOnce", "approveSession", "deny"].includes(action)) {
+    return undefined;
+  }
+  const preferNativeWorkerResume = true;
+  logDesktopNativeDebug("approvalAction.route", {
+    action,
+    approvalId,
+    hasSessionKey: Boolean(sessionKey),
+    hasTauriRuntime: hasTauriRuntime(),
+    nativeAgentRoute,
+    preferNativeWorkerResume,
+    sessionKeyPrefix: sessionKey.split(":")[0] || "",
+  });
+  return await submitDesktopApprovalAction({
+    action: action as "approveOnce" | "approveSession" | "deny",
+    approvalId,
+    gatewayTools: gatewayApi.tools,
+    invoke,
+    onGatewayFallback: () => {
+      logDesktopNativeDebug("approvalAction.gatewayFallback", {
+        action,
         approvalId,
-        approved,
-        scope,
-      },
-    });
-    return;
-  }
-  if (!approved) {
-    await gatewayApi.tools.denyApproval(approvalId, {
-      session_key: sessionKey,
-      auto_retry: true,
-    });
-    return;
-  }
-  await gatewayApi.tools.approveApproval(approvalId, {
-    session_key: sessionKey,
-    scope,
-    auto_retry: true,
+      });
+    },
+    onNativeResumeAttempt: () => {
+      logDesktopNativeDebug("approvalAction.nativeResume.start", {
+        action,
+        approvalId,
+      });
+    },
+    onNativeResumeFailed: (error) => {
+      logDesktopNativeDebug("approvalAction.nativeResume.failed", {
+        action,
+        approvalId,
+        error: stringifyError(error),
+      });
+    },
+    onNativeResumeSucceeded: (_context, result) => {
+      logDesktopNativeDebug("approvalAction.nativeResume.complete", {
+        action,
+        approvalId,
+        resume: summarizeDesktopApprovalResumeResult(result),
+      });
+    },
+    preferNativeWorkerResume,
+    sessionKey,
   });
 }
 
@@ -2780,9 +2819,23 @@ function failedGatewayRuntimeStatus(
 }
 
 async function refreshNativeApprovalTasks(): Promise<void> {
-  logDesktopNativeDebug("approvals.refresh.start");
+  const approvalOptions = nativeApprovalRefreshOptions({
+    activeChatId: nativeWorkbenchRuntime?.chat.activeChatId,
+    activeSessionKey: nativeWorkbenchRuntime?.chat.activeSessionKey,
+  });
+  logDesktopNativeDebug("approvals.refresh.start", {
+    activeChatId: nativeWorkbenchRuntime?.chat.activeChatId ?? "",
+    hasSessionKey: Boolean(nativeWorkbenchRuntime?.chat.activeSessionKey),
+    mode: approvalOptions ? "session" : "skipped",
+  });
+  if (!approvalOptions) {
+    logDesktopNativeDebug("approvals.refresh.skipped", {
+      reason: "missing active chat context",
+    });
+    return;
+  }
   try {
-    const payload = await gatewayApi.tools.approvals();
+    const payload = await gatewayApi.tools.approvals(approvalOptions);
     nativeApprovalTaskOperations.clear();
     for (const operation of buildDesktopApprovalTaskOperations(payload)) {
       nativeApprovalTaskOperations.set(operation.id, operation);

@@ -141,6 +141,60 @@ export function setMessages(state: NativeChatState, sessionKey: string, messages
   state.chatRuns.legacyMessagesBySession.set(sessionKey, messages);
 }
 
+export function resolveNativeChatApproval(
+  state: NativeChatState,
+  options: { approvalId: string; decision: "approved" | "denied"; sessionKey: string },
+): boolean {
+  const status = options.decision === "approved" ? "completed" : "failed";
+  const resolutionText = options.decision === "approved" ? "Approved." : "Denied.";
+  let changed = false;
+  const messages = state.messages.get(options.sessionKey) ?? [];
+  for (const message of messages) {
+    if (!message.toolActivities?.length) {
+      continue;
+    }
+    message.toolActivities = message.toolActivities.map((activity) => {
+      if (activity.approvalId !== options.approvalId) {
+        return activity;
+      }
+      changed = true;
+      return {
+        ...activity,
+        approvalStatus: options.decision,
+        responseText: shouldReplaceApprovalPlaceholder(activity.responseText) ? resolutionText : activity.responseText,
+        status,
+      };
+    });
+  }
+  const turns = state.chatRuns.turnsBySession.get(options.sessionKey) ?? [];
+  for (const turn of turns) {
+    for (const step of turn.steps) {
+      if (step.toolCall?.approvalId === options.approvalId) {
+        step.status = status;
+        step.toolCall.approvalStatus = options.decision;
+        if (shouldReplaceApprovalPlaceholder(step.toolCall.resultPreview)) {
+          step.toolCall.resultPreview = resolutionText;
+        }
+        changed = true;
+      }
+      if (step.approval?.approvalId === options.approvalId) {
+        step.status = "completed";
+        step.approval.decision = options.decision;
+        changed = true;
+      }
+    }
+  }
+  if (turns.length && changed) {
+    state.messages.set(options.sessionKey, conversationMessagesToNativeMessages(turnsToConversationMessages(turns)));
+  }
+  return changed;
+}
+
+function shouldReplaceApprovalPlaceholder(value: unknown): boolean {
+  const text = typeof value === "string" ? value.trim() : "";
+  return !text || text === "Waiting for approval.";
+}
+
 export function activateChat(state: NativeChatState, chatId: string) {
   const existing = state.sessions.find((session) => session.chatId === chatId);
   activateSession(state, existing?.key || sessionKeyForChat(chatId), chatId);

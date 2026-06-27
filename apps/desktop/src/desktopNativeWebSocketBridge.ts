@@ -446,7 +446,30 @@ class DesktopNativeWebSocket extends EventTarget {
       const toolCallId = stringValue(payload.toolCallId) || stringValue(payload.tool_call_id) || `${runId}:tool`;
       const toolName = stringValue(payload.toolName) || stringValue(payload.tool_name) || "tool";
       const text = stringValue(payload.content) || stringValue(payload.result) || stringValue(payload.output);
+      const metadata = isRecord(payload.metadata) ? payload.metadata : {};
+      const approvalId = approvalIdFromPayload(payload, metadata);
+      const awaitingApproval = isAwaitingApprovalToolResult(payload, metadata, text);
       const failed = ["failed", "error", "errored"].includes(stringValue(payload.status).toLowerCase());
+      if (awaitingApproval) {
+        if (approvalId) {
+          this.emitJson({
+            event: "approval_pending",
+            chat_id: run.chatId,
+            approval_id: approvalId,
+          });
+        }
+        this.emitAgentEventFrame(run, runId, "approval.requested", {
+          actions: arrayValue(payload.actions ?? metadata.actions),
+          ...(approvalId ? { approval_id: approvalId } : {}),
+          args_preview: approvalArgsPreview(payload, metadata),
+          risk_level: stringValue(payload.riskLevel) || stringValue(payload.risk_level) || stringValue(metadata.riskLevel) || stringValue(metadata.risk_level),
+          status: "approval_required",
+          title: approvalTitle(payload, metadata, toolName),
+          tool_call_id: toolCallId,
+        }, approvalId ? `${runId}:approval:${approvalId}` : `${runId}:approval`);
+        this.deleteToolCallDelta(runId, toolCallId);
+        return;
+      }
       this.emitToolProgressFrame(run.chatId, `${runId}:${toolCallId}:result`, toolName, toolCallId, text, {
         result: true,
       });
@@ -474,6 +497,13 @@ class DesktopNativeWebSocket extends EventTarget {
     }
     if (eventName === "agent.awaiting_approval") {
       const approvalId = stringValue(payload.approvalId) || stringValue(payload.approval_id);
+      const toolCallId = stringValue(payload.toolCallId) || stringValue(payload.tool_call_id) || approvalId;
+      const operation = isRecord(payload.operation) ? payload.operation : {};
+      const toolName = stringValue(payload.toolName)
+        || stringValue(payload.tool_name)
+        || stringValue(operation.toolName)
+        || stringValue(operation.tool_name)
+        || "tool";
       this.emitJson({
         event: "approval_pending",
         chat_id: run.chatId,
@@ -484,8 +514,8 @@ class DesktopNativeWebSocket extends EventTarget {
         approval_id: approvalId,
         args_preview: stringValue(payload.argsPreview) || stringValue(payload.args_preview),
         risk_level: stringValue(payload.riskLevel) || stringValue(payload.risk_level),
-        title: stringValue(payload.title) || stringValue(payload.message) || "Approval required",
-        tool_call_id: stringValue(payload.toolCallId) || stringValue(payload.tool_call_id),
+        title: stringValue(payload.title) || stringValue(payload.message) || `Approval required for ${toolName}`,
+        tool_call_id: toolCallId,
       }, approvalId ? `${runId}:approval:${approvalId}` : `${runId}:approval`);
       return;
     }
@@ -642,6 +672,7 @@ class DesktopNativeWebSocket extends EventTarget {
     toolCallId: string,
     text: string,
     flags: { detail?: boolean; hint?: boolean; result?: boolean },
+    extra: Record<string, unknown> = {},
   ): void {
     this.emitJson({
       event: "message",
@@ -654,6 +685,7 @@ class DesktopNativeWebSocket extends EventTarget {
       ...(flags.hint ? { _tool_hint: true } : {}),
       ...(flags.result ? { _tool_result: true } : {}),
       _tool_name: toolName,
+      ...extra,
     });
   }
 
@@ -781,6 +813,74 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function arrayValue(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
+}
+
+function approvalIdFromPayload(payload: Record<string, unknown>, metadata: Record<string, unknown>): string {
+  return stringValue(payload.approvalId)
+    || stringValue(payload.approval_id)
+    || stringValue(metadata.approvalId)
+    || stringValue(metadata.approval_id)
+    || stringValue(payload.id)
+    || stringValue(metadata.id);
+}
+
+function isAwaitingApprovalToolResult(
+  payload: Record<string, unknown>,
+  metadata: Record<string, unknown>,
+  text: string,
+): boolean {
+  const status = normalizeStatusValue(
+    stringValue(payload.status)
+      || stringValue(payload.stopReason)
+      || stringValue(payload.stop_reason)
+      || stringValue(metadata.status)
+      || stringValue(metadata.stopReason)
+      || stringValue(metadata.stop_reason),
+  );
+  if (["awaiting_approval", "approval_required", "pending_approval", "waiting_approval"].includes(status)) {
+    return true;
+  }
+  return (
+    metadata.awaitingUserInput === true
+    && normalizeStatusValue(stringValue(metadata.stopReason) || stringValue(metadata.stop_reason)) === "awaiting_approval"
+  ) || text.trim().toLowerCase() === "waiting for approval.";
+}
+
+function approvalArgsPreview(payload: Record<string, unknown>, metadata: Record<string, unknown>): string {
+  const explicit = stringValue(payload.argsPreview)
+    || stringValue(payload.args_preview)
+    || stringValue(metadata.argsPreview)
+    || stringValue(metadata.args_preview);
+  if (explicit) {
+    return explicit;
+  }
+  const operation = isRecord(payload.operation) ? payload.operation : isRecord(metadata.operation) ? metadata.operation : {};
+  const args = operation.arguments ?? operation.args;
+  if (args === undefined) {
+    return "";
+  }
+  if (typeof args === "string") {
+    return args;
+  }
+  try {
+    return JSON.stringify(args);
+  } catch {
+    return "";
+  }
+}
+
+function approvalTitle(payload: Record<string, unknown>, metadata: Record<string, unknown>, fallbackToolName: string): string {
+  const operation = isRecord(payload.operation) ? payload.operation : isRecord(metadata.operation) ? metadata.operation : {};
+  const toolName = stringValue(operation.toolName) || stringValue(operation.tool_name) || fallbackToolName;
+  return stringValue(payload.title)
+    || stringValue(payload.message)
+    || stringValue(metadata.title)
+    || stringValue(metadata.message)
+    || `Approval required for ${toolName}`;
+}
+
+function normalizeStatusValue(value: string): string {
+  return value.trim().toLowerCase().replace(/[\s-]+/g, "_");
 }
 
 function isCoworkEventName(eventName: DesktopNativeWebSocketAgentEventName): boolean {

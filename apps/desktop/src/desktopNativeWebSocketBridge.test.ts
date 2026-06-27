@@ -630,6 +630,152 @@ describe("desktop native WebSocket bridge", () => {
     }));
   });
 
+  test("projects tool results awaiting approval as pending approval tool frames", async () => {
+    const handlers = new Map<string, (payload: unknown) => void>();
+    const nativeTransport: NativeTransportApi = {
+      gatewayFrame: vi.fn(),
+      websocketMessage: vi.fn(),
+      dispatchWebsocketMessage: vi.fn(async () => ({
+        transport: {
+          kind: "message",
+          chatId: "chat-native",
+          sessionId: "websocket:chat-native",
+          frames: [],
+        },
+        agent: {
+          runId: "run-approval",
+          stopReason: "awaiting_approval",
+        },
+      })),
+      dispatchChannelInbound: vi.fn(),
+      startChannels: vi.fn(),
+      channelStatus: vi.fn(),
+      stopChannels: vi.fn(),
+    };
+    const socket = createDesktopNativeWebSocket({
+      url: "/ws",
+      nativeTransport,
+      listenToAgentEvent: (eventName, handler) => {
+        handlers.set(eventName, handler);
+      },
+    });
+    const events: Array<Record<string, unknown>> = [];
+    socket.addEventListener("message", (event) => {
+      events.push(JSON.parse(String((event as MessageEvent).data)) as Record<string, unknown>);
+    });
+
+    await flushMicrotasks();
+    socket.send(JSON.stringify({ type: "message", chat_id: "chat-native", content: "hello" }));
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    handlers.get(toDesktopNativeTauriEventName("agent.tool.result"))?.({
+      runId: "run-approval",
+      toolCallId: "call-spawn",
+      toolName: "spawn",
+      content: "Waiting for approval.",
+      metadata: {
+        awaitingUserInput: true,
+        stopReason: "awaiting_approval",
+        approvalId: "approval-1",
+        operation: {
+          toolName: "spawn",
+          arguments: { task: "说一句你好" },
+        },
+      },
+    });
+
+    expect(events).not.toContainEqual(expect.objectContaining({
+      event: "message",
+      message_id: "run-approval:call-spawn:result",
+      _tool_result: true,
+    }));
+    expect(events).toContainEqual({
+      event: "approval_pending",
+      chat_id: "chat-native",
+      approval_id: "approval-1",
+    });
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "agent_event",
+      event_type: "approval.requested",
+      chat_id: "chat-native",
+      turn_id: "run-approval",
+      step_id: "run-approval:approval:approval-1",
+      payload: expect.objectContaining({
+        approval_id: "approval-1",
+        status: "approval_required",
+        tool_call_id: "call-spawn",
+      }),
+    }));
+    expect(events).not.toContainEqual(expect.objectContaining({
+      event: "agent_event",
+      event_type: "tool.call.completed",
+      payload: expect.objectContaining({
+        tool_call_id: "call-spawn",
+      }),
+    }));
+  });
+
+  test("projects later awaiting approval events back onto pending tool result frames", async () => {
+    const handlers = new Map<string, (payload: unknown) => void>();
+    const nativeTransport: NativeTransportApi = {
+      gatewayFrame: vi.fn(),
+      websocketMessage: vi.fn(),
+      dispatchWebsocketMessage: vi.fn(async () => ({
+        transport: {
+          kind: "message",
+          chatId: "chat-native",
+          sessionId: "websocket:chat-native",
+          frames: [],
+        },
+        agent: {
+          runId: "run-approval",
+          stopReason: "awaiting_approval",
+        },
+      })),
+      dispatchChannelInbound: vi.fn(),
+      startChannels: vi.fn(),
+      channelStatus: vi.fn(),
+      stopChannels: vi.fn(),
+    };
+    const socket = createDesktopNativeWebSocket({
+      url: "/ws",
+      nativeTransport,
+      listenToAgentEvent: (eventName, handler) => {
+        handlers.set(eventName, handler);
+      },
+    });
+    const events: Array<Record<string, unknown>> = [];
+    socket.addEventListener("message", (event) => {
+      events.push(JSON.parse(String((event as MessageEvent).data)) as Record<string, unknown>);
+    });
+
+    await flushMicrotasks();
+    socket.send(JSON.stringify({ type: "message", chat_id: "chat-native", content: "hello" }));
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    handlers.get(toDesktopNativeTauriEventName("agent.tool.result"))?.({
+      runId: "run-approval",
+      toolCallId: "call-spawn",
+      toolName: "spawn",
+      content: "Waiting for approval.",
+    });
+    handlers.get(toDesktopNativeTauriEventName("agent.awaiting_approval"))?.({
+      runId: "run-approval",
+      approvalId: "approval-1",
+      argsPreview: "spawn({\"task\":\"说一句你好\"})",
+      toolCallId: "call-spawn",
+      toolName: "spawn",
+    });
+
+    expect(events).not.toContainEqual(expect.objectContaining({
+      event: "message",
+      message_id: "run-approval:call-spawn:result",
+      _tool_result: true,
+    }));
+  });
+
   test("projects TS worker awaiting interaction events into legacy WebUI frames", async () => {
     const handlers = new Map<string, (payload: unknown) => void>();
     const nativeTransport: NativeTransportApi = {

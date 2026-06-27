@@ -372,8 +372,39 @@ export function reduceAgentEvent(state: ChatRunState, event: AgentEventEnvelope)
   }
 
   if (event.event_type === "approval.requested" || event.event_type === "approval.resolved") {
+    const approval = approvalFromPayload(event.payload);
+    if (event.event_type === "approval.requested" && approval.toolCallId) {
+      const existingToolStep = turn.steps.find((step) => step.toolCall?.id === approval.toolCallId);
+      const existingToolCall = existingToolStep?.toolCall;
+      const toolCall: ToolCallState = {
+        ...(existingToolCall ?? {
+          id: approval.toolCallId,
+          name: stringValue(event.payload.name) || "tool",
+        }),
+        approvalId: approval.approvalId,
+        approvalStatus: stringValue(event.payload.approval_status) || "approval_required",
+        argsPreview: existingToolCall?.argsPreview || safeArtifactText(stringValue(event.payload.args_preview)),
+      };
+      if (existingToolStep) {
+        Object.assign(existingToolStep, {
+          completedAt: existingToolStep.completedAt,
+          status: "blocked",
+          title: existingToolStep.title || toolCall.name,
+          toolCall,
+          updatedAt: event.created_at,
+        });
+        return state;
+      }
+      upsertStep(turn, event, {
+        kind: "tool_call",
+        status: "blocked",
+        title: toolCall.name,
+        toolCall,
+      });
+      return state;
+    }
     upsertStep(turn, event, {
-      approval: approvalFromPayload(event.payload),
+      approval,
       kind: "approval",
       status: event.event_type === "approval.resolved" ? "completed" : "blocked",
       title: stringValue(event.payload.title) || "Approval",

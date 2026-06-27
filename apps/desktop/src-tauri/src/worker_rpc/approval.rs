@@ -98,7 +98,7 @@ impl WorkerApprovalRpc {
         let Some(record) = self.pending.get(&params.approval_id).cloned() else {
             return Err(invalid_approval_request("pending approval not found"));
         };
-        if record.session_id.as_deref() != Some(params.session_id.as_str()) {
+        if !same_session_id(record.session_id.as_deref(), &params.session_id) {
             return Err(invalid_approval_request("pending approval not found"));
         }
         self.pending.remove(&params.approval_id);
@@ -142,7 +142,7 @@ impl WorkerApprovalRpc {
         let mut approvals: Vec<Value> = self
             .pending
             .values()
-            .filter(|record| record.session_id.as_deref() == Some(session_id))
+            .filter(|record| same_session_id(record.session_id.as_deref(), session_id))
             .map(ApprovalRecord::to_pending_json)
             .collect();
         approvals.sort_by(|left, right| {
@@ -414,7 +414,7 @@ impl ApprovalRunGrant {
     fn from_record(record: &ApprovalRecord) -> Self {
         Self {
             run_id: record.run_id.clone(),
-            session_id: record.session_id.clone(),
+            session_id: canonical_session_id_option(record.session_id.as_deref()),
             fingerprint: record.fingerprint.clone(),
         }
     }
@@ -423,16 +423,35 @@ impl ApprovalRunGrant {
 impl ApprovalGrant {
     fn once(record: &ApprovalRecord) -> Self {
         Self {
-            session_id: record.session_id.clone(),
+            session_id: canonical_session_id_option(record.session_id.as_deref()),
             fingerprint: record.fingerprint.clone(),
         }
     }
 
     fn session(record: &ApprovalRecord) -> Self {
         Self {
-            session_id: record.session_id.clone(),
+            session_id: canonical_session_id_option(record.session_id.as_deref()),
             fingerprint: record.session_fingerprint.clone(),
         }
+    }
+}
+
+fn same_session_id(left: Option<&str>, right: &str) -> bool {
+    left.map(canonical_session_id).as_deref() == Some(canonical_session_id(right).as_str())
+}
+
+fn canonical_session_id_option(value: Option<&str>) -> Option<String> {
+    value.map(canonical_session_id)
+}
+
+fn canonical_session_id(value: &str) -> String {
+    let Some((channel, id)) = value.split_once(':') else {
+        return value.to_string();
+    };
+    if channel.eq_ignore_ascii_case("websocket") {
+        format!("websocket:{id}")
+    } else {
+        value.to_string()
     }
 }
 
@@ -729,6 +748,124 @@ mod tests {
                 "sessionFingerprint": "write_file:notes/today.md"
             })
         );
+    }
+
+    #[test]
+    fn approval_resolve_matches_websocket_session_key_case_insensitively() {
+        let operation = json!({
+            "toolName": "write_file",
+            "arguments": { "path": "notes/today.md", "contents": "hello" },
+            "toolCallId": "call-1"
+        });
+        let mut approval = approval_rpc();
+        let request_response = approval
+            .request_from_request(&approval_request(
+                "req-request",
+                "run-1",
+                "WebSocket:chat-1",
+                operation,
+                "write_file:notes/today.md",
+                "write_file:notes/today.md",
+            ))
+            .unwrap();
+        let approval_id = request_response["approvalId"].as_str().unwrap().to_string();
+
+        let response = approval
+            .resolve_from_request(&WorkerRequest::new(
+                "req-resolve",
+                "trace-1",
+                "approval.resolve",
+                json!({
+                    "session_id": "websocket:chat-1",
+                    "approval_id": approval_id,
+                    "approved": true,
+                    "scope": "once"
+                }),
+            ))
+            .unwrap();
+
+        assert_eq!(response["status"], "approved");
+        assert_eq!(response["sessionId"], "websocket:chat-1");
+    }
+
+    #[test]
+    fn approval_list_pending_matches_websocket_session_key_case_insensitively() {
+        let operation = json!({
+            "toolName": "write_file",
+            "arguments": { "path": "notes/today.md", "contents": "hello" },
+            "toolCallId": "call-1"
+        });
+        let mut approval = approval_rpc();
+        let request_response = approval
+            .request_from_request(&approval_request(
+                "req-request",
+                "run-1",
+                "WebSocket:chat-1",
+                operation,
+                "write_file:notes/today.md",
+                "write_file:notes/today.md",
+            ))
+            .unwrap();
+        let approval_id = request_response["approvalId"].as_str().unwrap().to_string();
+
+        let response = approval
+            .list_pending_from_request(&WorkerRequest::new(
+                "req-list",
+                "trace-1",
+                "approval.list_pending",
+                json!({ "session_id": "websocket:chat-1" }),
+            ))
+            .unwrap();
+
+        assert_eq!(response["approvals"][0]["id"], approval_id);
+    }
+
+    #[test]
+    fn approval_session_scope_matches_websocket_session_key_case_insensitively() {
+        let operation = json!({
+            "toolName": "write_file",
+            "arguments": { "path": "notes/today.md", "contents": "hello" },
+            "toolCallId": "call-1"
+        });
+        let mut approval = approval_rpc();
+        let request_response = approval
+            .request_from_request(&approval_request(
+                "req-request",
+                "run-1",
+                "WebSocket:chat-1",
+                operation.clone(),
+                "write_file:notes/today.md",
+                "write_file:notes/today.md",
+            ))
+            .unwrap();
+        let approval_id = request_response["approvalId"].as_str().unwrap().to_string();
+        approval
+            .resolve_from_request(&WorkerRequest::new(
+                "req-resolve",
+                "trace-1",
+                "approval.resolve",
+                json!({
+                    "session_id": "websocket:chat-1",
+                    "approval_id": approval_id,
+                    "approved": true,
+                    "scope": "session"
+                }),
+            ))
+            .unwrap();
+
+        let response = approval
+            .request_from_request(&approval_request(
+                "req-request-again",
+                "run-2",
+                "websocket:chat-1",
+                operation,
+                "write_file:notes/today.md",
+                "write_file:notes/today.md",
+            ))
+            .unwrap();
+
+        assert_eq!(response["status"], "approved");
+        assert_eq!(response["scope"], "session");
     }
 
     #[test]
