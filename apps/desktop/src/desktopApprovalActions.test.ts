@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import {
+  gatewayCompatibleApprovalSessionKey,
   nativeApprovalRefreshOptions,
   submitDesktopApprovalAction,
   summarizeDesktopApprovalResumeResult,
@@ -74,10 +75,33 @@ describe("desktop approval actions", () => {
       approvalId: "approval-1",
       approved: false,
       scope: "once",
-      sessionKey: "WebSocket:chat-1",
+      sessionKey: "websocket:chat-1",
     });
     expect(gatewayTools.denyApproval).toHaveBeenCalledWith("approval-1", {
-      session_key: "WebSocket:chat-1",
+      session_key: "websocket:chat-1",
+      auto_retry: true,
+    });
+  });
+
+  test("normalizes synthetic WebSocket approval session keys for gateway-compatible routes", async () => {
+    const gatewayTools = {
+      approveApproval: vi.fn(async () => ({ approved: true })),
+      denyApproval: vi.fn(async () => ({})),
+    };
+
+    await submitDesktopApprovalAction({
+      action: "approveSession",
+      approvalId: "approval-1",
+      gatewayTools,
+      preferNativeWorkerResume: false,
+      sessionKey: "WebSocket:chat-1",
+    });
+
+    expect(gatewayCompatibleApprovalSessionKey("WebSocket:chat-1")).toBe("websocket:chat-1");
+    expect(gatewayCompatibleApprovalSessionKey("ts-agent:chat-1")).toBe("ts-agent:chat-1");
+    expect(gatewayTools.approveApproval).toHaveBeenCalledWith("approval-1", {
+      session_key: "websocket:chat-1",
+      scope: "session",
       auto_retry: true,
     });
   });
@@ -86,7 +110,7 @@ describe("desktop approval actions", () => {
     expect(nativeApprovalRefreshOptions({
       activeChatId: "chat-1",
       activeSessionKey: "WebSocket:chat-1",
-    })).toEqual({ sessionKey: "WebSocket:chat-1" });
+    })).toEqual({ sessionKey: "websocket:chat-1" });
     expect(nativeApprovalRefreshOptions({
       activeChatId: "chat-1",
       activeSessionKey: "",
