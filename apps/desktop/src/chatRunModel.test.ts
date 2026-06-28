@@ -191,6 +191,101 @@ describe("chat run model", () => {
     expect(turns[0].finalMessage?.text).toBe("Tests passed.");
   });
 
+  test("stores delegated trace updates on the child agent state", () => {
+    const state = createChatRunState();
+    reduceAgentEvent(state, {
+      schema_version: "tinybot.agent_event.v1",
+      event_id: "event-turn-start",
+      event_type: "agent.turn.started",
+      chat_id: "chat-1",
+      session_key: "WebSocket:chat-1",
+      turn_id: "turn-1",
+      sequence: 1,
+      created_at: "2026-06-27T04:00:00.000Z",
+      payload: {
+        user_message: { id: "user-1", role: "user", text: "Spawn a greeter" },
+        user_message_id: "user-1",
+      },
+    });
+    reduceAgentEvent(state, {
+      schema_version: "tinybot.agent_event.v1",
+      event_id: "event-delegate-start",
+      event_type: "agent.delegate.started",
+      chat_id: "chat-1",
+      session_key: "WebSocket:chat-1",
+      turn_id: "turn-1",
+      step_id: "step-delegate",
+      sequence: 2,
+      created_at: "2026-06-27T04:00:01.000Z",
+      payload: {
+        delegate_id: "delegate-1",
+        delegate_type: "spawn",
+        task: "Say hello",
+        title: "Greeter",
+        status: "running",
+      },
+    });
+    reduceAgentEvent(state, {
+      schema_version: "tinybot.agent_event.v1",
+      event_id: "event-delegate-trace",
+      event_type: "agent.delegate.trace.updated",
+      chat_id: "chat-1",
+      session_key: "WebSocket:chat-1",
+      turn_id: "turn-1",
+      step_id: "step-delegate",
+      sequence: 3,
+      created_at: "2026-06-27T04:00:02.000Z",
+      payload: {
+        delegate_id: "delegate-1",
+        delegate_type: "spawn",
+        task: "Say hello",
+        title: "Greeter",
+        status: "running",
+        trace: {
+          delegateId: "delegate-1",
+          childRunId: "delegate-1",
+          parentRunId: "parent-run",
+          parentSessionKey: "WebSocket:chat-1",
+          status: "running",
+          steps: [{
+            id: "tool:call-1:completed",
+            kind: "tool_call",
+            status: "completed",
+            title: "say",
+            summary: "Child tool say completed.",
+            toolName: "say",
+            toolCallId: "call-1",
+            resultPreview: "你好",
+            createdAt: "2026-06-27T04:00:02.000Z",
+            updatedAt: "2026-06-27T04:00:02.000Z",
+          }],
+          approvals: [],
+          artifacts: [],
+          updatedAt: "2026-06-27T04:00:02.000Z",
+        },
+      },
+    });
+
+    const delegate = state.delegatedRunsBySession.get("WebSocket:chat-1")?.get("delegate-1");
+    expect(delegate?.trace?.steps).toEqual([expect.objectContaining({
+      id: "tool:call-1:completed",
+      kind: "tool_call",
+      resultPreview: "你好",
+      title: "say",
+    })]);
+    const turns = state.turnsBySession.get("WebSocket:chat-1") ?? [];
+    expect(turns[0].steps.filter((step) => step.kind === "delegate")).toHaveLength(1);
+    const panel = resolveChatInspectorPanel(state, {
+      kind: "delegate",
+      sessionKey: "WebSocket:chat-1",
+      turnId: "turn-1",
+      stepId: "step-delegate",
+      delegateId: "delegate-1",
+    });
+    expect(panel?.body).toContain("say");
+    expect(panel?.body).toContain("你好");
+  });
+
   test("builds legacy conversation messages and keeps final answer copy separate", () => {
     const turns = legacyMessagesToTurns("WebSocket:chat-1", [
       {
@@ -308,6 +403,104 @@ describe("chat run model", () => {
       kind: "delegate",
       status: "unavailable",
       title: "Unavailable",
+    });
+  });
+
+  test("replaces parent spawn tool rows with authoritative delegated run state", () => {
+    const state = createChatRunState();
+    reduceAgentEvent(state, {
+      schema_version: "tinybot.agent_event.v1",
+      event_id: "turn-start",
+      event_type: "agent.turn.started",
+      chat_id: "chat-1",
+      session_key: "WebSocket:chat-1",
+      turn_id: "turn-spawn",
+      sequence: 1,
+      created_at: "2026-06-27T04:10:00.000Z",
+      payload: {
+        user_message: { id: "user-1", role: "user", text: "spawn a subagent" },
+        user_message_id: "user-1",
+      },
+    });
+    reduceAgentEvent(state, {
+      schema_version: "tinybot.agent_event.v1",
+      event_id: "tool-start",
+      event_type: "tool.call.started",
+      chat_id: "chat-1",
+      session_key: "WebSocket:chat-1",
+      turn_id: "turn-spawn",
+      step_id: "turn-spawn:call-spawn",
+      sequence: 2,
+      created_at: "2026-06-27T04:10:01.000Z",
+      payload: {
+        args_preview: "spawn({\"task\":\"say hello\"})",
+        name: "spawn",
+        status: "running",
+        tool_call_id: "call-spawn",
+      },
+    });
+    reduceAgentEvent(state, {
+      schema_version: "tinybot.agent_event.v1",
+      event_id: "delegate-completed",
+      event_type: "agent.delegate.completed",
+      chat_id: "chat-1",
+      session_key: "WebSocket:chat-1",
+      turn_id: "turn-spawn",
+      step_id: "turn-spawn:delegate:delegate-1",
+      sequence: 3,
+      created_at: "2026-06-27T04:10:02.000Z",
+      payload: {
+        delegate_id: "delegate-1",
+        delegate_type: "spawn",
+        final_output: "你好",
+        latest_activity: "child final result",
+        status: "completed",
+        task: "请用中文说一句\"你好\"",
+        title: "打招呼",
+        tool_call_id: "call-spawn",
+        tool_name: "spawn",
+        trace_ref: "trace-1",
+      },
+    });
+
+    const turns = state.turnsBySession.get("WebSocket:chat-1") ?? [];
+    expect(turns[0]?.steps).toHaveLength(1);
+    expect(turns[0]?.steps[0]).toMatchObject({
+      id: "turn-spawn:call-spawn",
+      kind: "delegate",
+      status: "completed",
+      delegate: {
+        finalOutput: "你好",
+        parentToolCallId: "call-spawn",
+        task: "请用中文说一句\"你好\"",
+        toolName: "spawn",
+      },
+    });
+
+    const messages = turnsToConversationMessages(turns);
+    const activity = messages.flatMap((message) => message.toolActivities ?? [])[0];
+    expect(activity).toMatchObject({
+      id: "call-spawn",
+      kind: "result",
+      name: "spawn",
+      responseText: "child final result",
+      status: "completed",
+    });
+    expect(activity?.argsText).toContain("请用中文说一句");
+    expect(activity?.argsText).not.toBe("No delegated task available");
+
+    selectChatInspector(state, {
+      kind: "delegate",
+      delegateId: "delegate-1",
+      sessionKey: "WebSocket:chat-1",
+      stepId: "turn-spawn:call-spawn",
+      turnId: "turn-spawn",
+    });
+    expect(resolveChatInspectorPanel(state)).toMatchObject({
+      body: expect.stringContaining("Trace: trace-1"),
+      kind: "delegate",
+      status: "completed",
+      title: "打招呼",
     });
   });
 

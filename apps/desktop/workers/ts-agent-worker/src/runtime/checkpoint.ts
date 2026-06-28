@@ -87,6 +87,15 @@ export type FormProjection = {
   correlation?: Record<string, unknown>;
 };
 
+export type DelegatedApprovalProjection = {
+  approvalId: string;
+  childCheckpoint: Record<string, unknown>;
+  delegateId?: string;
+  childRunId?: string;
+  childToolCallId?: string;
+  toolName?: string;
+};
+
 export function approvalOperationFromCheckpoint(
   checkpoint: Record<string, unknown>,
   approvalId: string,
@@ -193,6 +202,33 @@ export function canResumeApprovalCheckpoint(checkpoint: Record<string, unknown>,
   } catch {
     return false;
   }
+}
+
+export function delegatedApprovalFromCheckpoint(
+  checkpoint: Record<string, unknown>,
+  approvalId: string,
+): DelegatedApprovalProjection | null {
+  if (!Array.isArray(checkpoint.messages)) {
+    return null;
+  }
+  const messages = parseCheckpointMessages(checkpoint.messages);
+  const approvalToolIndex = findApprovalToolMessageIndex(messages, approvalId);
+  if (approvalToolIndex < 0) {
+    return null;
+  }
+  const metadata = messages[approvalToolIndex].metadata;
+  const childCheckpoint = metadataValue(metadata, "_delegate_child_checkpoint");
+  if (!childCheckpoint) {
+    return null;
+  }
+  return {
+    approvalId,
+    childCheckpoint,
+    delegateId: stringMetadata(metadata, "_delegate_id"),
+    childRunId: stringMetadata(metadata, "_delegate_child_run_id"),
+    childToolCallId: stringMetadata(metadata, "_delegate_child_tool_call_id"),
+    toolName: stringMetadata(metadata, "_delegate_child_tool_name"),
+  };
 }
 
 function resumedSpecFromCheckpoint(
@@ -389,6 +425,16 @@ function parseApprovedOperation(metadata: Record<string, unknown> | undefined): 
 
 function checkpointRunId(checkpoint: Record<string, unknown>): string {
   return checkpointString(checkpoint.runId ?? checkpoint.run_id, "checkpoint.runId");
+}
+
+function metadataValue(metadata: Record<string, unknown> | undefined, key: string): Record<string, unknown> | undefined {
+  const value = metadata?.[key];
+  return isJsonObject(value) ? value : undefined;
+}
+
+function stringMetadata(metadata: Record<string, unknown> | undefined, key: string): string | undefined {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 function checkpointString(value: unknown, field: string): string {

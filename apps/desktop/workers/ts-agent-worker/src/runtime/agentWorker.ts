@@ -77,9 +77,11 @@ import {
 import {
   approvalOperationFromCheckpoint,
   canResumeApprovalCheckpoint,
+  delegatedApprovalFromCheckpoint,
   resumedSpecFromApprovedToolResult,
   resumedSpecFromDeniedApproval,
   resumedSpecFromSubmittedForm,
+  sessionCheckpointFromRunner,
 } from "./checkpoint.ts";
 import type { ContextBridge } from "./contextBridge.ts";
 import { ProviderBackedUserProfileExtractor, type UserProfileExtractor } from "./entityProfile.ts";
@@ -3907,6 +3909,16 @@ export class AgentWorker {
     approval: ApprovalResolutionRequest,
     checkpoint: Record<string, unknown>,
   ): Promise<AgentRunResult> {
+    const delegatedApproval = delegatedApprovalFromCheckpoint(checkpoint, approval.approvalId);
+    if (delegatedApproval) {
+      const delegatedResult = await this.resumeApprovedDelegatedChildCheckpoint(traceId, approval, delegatedApproval.childCheckpoint);
+      return this.runResumedSpec(traceId, resumedSpecFromApprovedToolResult(checkpoint, {
+        sessionId: approval.sessionId,
+        approvalId: approval.approvalId,
+        content: delegatedResult.content,
+        metadata: delegatedResult.metadata,
+      }));
+    }
     const operation = approvalOperationFromCheckpoint(checkpoint, approval.approvalId);
     const toolResult = await this.tools.execute(operation.toolName, operation.arguments, {
       runId: operation.runId,
@@ -3919,6 +3931,27 @@ export class AgentWorker {
       content: toolResult.content,
       ...(toolResult.metadata ? { metadata: toolResult.metadata } : {}),
     }));
+  }
+
+  private async resumeApprovedDelegatedChildCheckpoint(
+    traceId: string,
+    approval: ApprovalResolutionRequest,
+    childCheckpoint: Record<string, unknown>,
+  ): Promise<{ content: string; metadata: Record<string, unknown> }> {
+    const operation = approvalOperationFromCheckpoint(childCheckpoint, approval.approvalId);
+    const approvedToolResult = await this.tools.execute(operation.toolName, operation.arguments, {
+      runId: operation.runId,
+      traceId,
+      sessionId: approval.sessionId,
+    });
+    const childSpec = resumedSpecFromApprovedToolResult(childCheckpoint, {
+      sessionId: approval.sessionId,
+      approvalId: approval.approvalId,
+      content: approvedToolResult.content,
+      ...(approvedToolResult.metadata ? { metadata: approvedToolResult.metadata } : {}),
+    });
+    const result = await this.runDelegatedChildSpec(traceId, childSpec);
+    return delegatedParentToolResultFromChildResult(childSpec, result);
   }
 
   private async resumeSubmittedFormCheckpoint(
@@ -3967,6 +4000,75 @@ export class AgentWorker {
     });
     return result;
   }
+
+  private async runDelegatedChildSpec(traceId: string, spec: AgentRunSpec): Promise<AgentRunResult> {
+    let childCheckpoint: Record<string, unknown> | undefined;
+    const runner = new AgentRunner({
+      provider: this.provider,
+      tools: this.tools,
+      emitEvent: (event) => this.emitRunnerEvent(traceId, event),
+      checkpoint: (nextCheckpoint) => {
+        childCheckpoint = sessionCheckpointFromRunner(spec, nextCheckpoint);
+      },
+    });
+    const result = await runner.run(spec);
+    if (result.stopReason === "awaiting_approval" && childCheckpoint) {
+      result.metadata = {
+        ...(result.metadata ?? {}),
+        _delegate_child_checkpoint: childCheckpoint,
+      };
+    }
+    return result;
+  }
+}
+
+function delegatedParentToolResultFromChildResult(
+  childSpec: AgentRunSpec,
+  result: AgentRunResult,
+): { content: string; metadata: Record<string, unknown> } {
+  const delegateId = childSpec.runId;
+  if (result.stopReason === "awaiting_approval") {
+    const awaiting = result.awaitingInput ?? {};
+    const approvalId = localStringValue(awaiting.approvalId ?? awaiting.approval_id);
+    const operation = isJsonObject(awaiting.operation) ? awaiting.operation : {};
+    return {
+      content: "Waiting for approval.",
+      metadata: {
+        ...awaiting,
+        awaitingUserInput: true,
+        stopReason: "awaiting_approval",
+        ...(approvalId ? { approvalId } : {}),
+        approvalStatus: "approval_required",
+        _delegate_event: true,
+        _delegate_id: delegateId,
+        _delegate_child_run_id: delegateId,
+        _delegate_child_tool_call_id: localStringValue(awaiting.toolCallId ?? awaiting.tool_call_id),
+        _delegate_child_tool_name: localStringValue(operation.toolName ?? operation.tool_name) || localStringValue(awaiting.toolName ?? awaiting.tool_name),
+        _delegate_child_checkpoint: result.metadata?._delegate_child_checkpoint,
+        _delegate_status: "awaiting_approval",
+      },
+    };
+  }
+  const status = result.stopReason === "final_response" ? "completed" : result.error ? "failed" : "completed";
+  const content = result.finalContent || result.error || "Task completed but no final response was generated.";
+  return {
+    content,
+    metadata: {
+      _delegate_event: true,
+      _delegate_id: delegateId,
+      _delegate_child_run_id: delegateId,
+      _delegate_status: status,
+      _delegate_result: {
+        status,
+        summary: content,
+        ...(result.error ? { error: result.error } : {}),
+      },
+    },
+  };
+}
+
+function localStringValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
 }
 
 function findAwaitingFormMetadata(checkpoint: Record<string, unknown>, formId: string): Record<string, unknown> | undefined {

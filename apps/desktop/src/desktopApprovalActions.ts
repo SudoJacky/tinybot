@@ -82,19 +82,20 @@ export function summarizeDesktopApprovalResumeResult(result: unknown): DesktopAp
 export async function submitDesktopApprovalAction(options: SubmitDesktopApprovalActionOptions): Promise<unknown> {
   const approved = options.action !== "deny";
   const scope = options.action === "approveSession" ? "session" : "once";
+  const compatibleSessionKey = gatewayCompatibleApprovalSessionKey(options.sessionKey);
   const context: DesktopApprovalActionContext = {
     action: options.action,
     approvalId: options.approvalId,
     approved,
     scope,
-    sessionKey: options.sessionKey,
+    sessionKey: compatibleSessionKey,
   };
   if (options.preferNativeWorkerResume && options.invoke) {
     try {
       options.onNativeResumeAttempt?.(context);
       const result = await options.invoke("worker_resume_agent_approval", {
         input: {
-          sessionId: options.sessionKey,
+          sessionId: compatibleSessionKey,
           approvalId: options.approvalId,
           approved,
           scope,
@@ -107,7 +108,7 @@ export async function submitDesktopApprovalAction(options: SubmitDesktopApproval
       // Fall through to WebUI/gateway approval routes for non-native approvals.
     }
   }
-  const gatewaySessionKey = gatewayCompatibleApprovalSessionKey(options.sessionKey);
+  const gatewaySessionKey = compatibleSessionKey;
   const gatewayContext = gatewaySessionKey === options.sessionKey
     ? context
     : { ...context, sessionKey: gatewaySessionKey };

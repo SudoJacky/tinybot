@@ -698,6 +698,16 @@ function installNativeTsAgentEventListeners(): void {
     "agent.awaiting_approval",
     "agent.memory_reference",
     "agent.task_progress",
+    "agent.delegate.started",
+    "agent.delegate.running",
+    "agent.delegate.message_queued",
+    "agent.delegate.awaiting_approval",
+    "agent.delegate.tool.approval_required",
+    "agent.delegate.tool.completed",
+    "agent.delegate.trace.updated",
+    "agent.delegate.completed",
+    "agent.delegate.failed",
+    "agent.delegate.closed",
     "heartbeat.delivery",
     "agent.cancelled",
     "agent.done",
@@ -1093,7 +1103,16 @@ function installNativeChatRuntimeActions(): void {
     nativeChatActions().onInterrupt();
   });
   document.addEventListener("desktop-tool-approval-action", (event) => {
-    void handleNativeInlineApprovalAction((event as CustomEvent).detail);
+    const detail = (event as CustomEvent).detail;
+    const record = asRecord(detail);
+    logDesktopNativeDebug("runtime.actions.approvalEvent", {
+      action: typeof record.action === "string" ? record.action : "",
+      approvalId: typeof record.approvalId === "string" ? record.approvalId : "",
+      hasSessionKey: typeof record.sessionKey === "string" && Boolean(record.sessionKey),
+      toolActivityId: typeof record.toolActivityId === "string" ? record.toolActivityId : "",
+      toolName: typeof record.toolName === "string" ? record.toolName : "",
+    });
+    void handleNativeInlineApprovalAction(detail);
   });
   window.addEventListener("tinybot:desktop-route", (event) => {
     const target = (event as CustomEvent<{ href?: unknown }>).detail;
@@ -1170,6 +1189,14 @@ async function handleNativeInlineApprovalAction(detail: unknown): Promise<void> 
     const resumeSummary = summarizeDesktopApprovalResumeResult(resumeResult);
     const decision = action === "deny" ? "denied" : "approved";
     const resolvedLocally = nativeWorkbenchRuntime?.resolveApproval(approvalId, decision, sessionKey) ?? false;
+    logDesktopNativeDebug("inlineApproval.localResolve", {
+      action,
+      approvalId,
+      decision,
+      resolvedLocally,
+      sessionKeyPrefix: sessionKey.split(":")[0] || "",
+      toolName,
+    });
     if (nativeWorkbenchRuntime && resolvedLocally) {
       updateDesktopNativeChat(document, nativeWorkbenchRuntime.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
     }

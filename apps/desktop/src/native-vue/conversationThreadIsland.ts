@@ -89,6 +89,15 @@ interface AgentWorkflowStep {
   title: string;
 }
 
+interface SubagentShelfItem {
+  activity: ToolActivityIslandOptions;
+  key: string;
+  latestActivity: string;
+  statusLabel: string;
+  task: string;
+  title: string;
+}
+
 interface AgentFlowStepProfile {
   kind: AgentFlowStepKind;
   label: string;
@@ -169,6 +178,7 @@ function createConversationThreadApp(state: Ref<ConversationThreadIslandOptions>
       let closePanelTimer: number | null = null;
       let openPanelFrame: number | null = null;
       const selectedTool = computed(() => selectedToolKey.value ? findToolActivity(state.value.messages, selectedToolKey.value) : null);
+      const subagentShelfItems = computed(() => collectSubagentShelfItems(state.value.messages));
       const hasDetailPanelSelection = () => Boolean(selectedTool.value || selectedReference.value || selectedCoworkAgent.value);
       const clearClosePanelTimer = () => {
         if (closePanelTimer !== null && typeof window !== "undefined") {
@@ -257,6 +267,13 @@ function createConversationThreadApp(state: Ref<ConversationThreadIslandOptions>
         selectedToolKey.value = toolActivitySelectionKey(activity);
         openPanel();
         logDesktopNativeDebug("toolDetail.open", summarizeToolActivity(activity));
+      };
+      const openSubagentDetail = (item: SubagentShelfItem) => {
+        selectedReference.value = null;
+        selectedCoworkAgent.value = null;
+        selectedToolKey.value = item.key;
+        openPanel();
+        logDesktopNativeDebug("subagentDetail.open", summarizeToolActivity(item.activity));
       };
       const handleKeydown = (event: KeyboardEvent) => {
         if (event.key === "Escape" && hasDetailPanelSelection()) {
@@ -358,6 +375,7 @@ function createConversationThreadApp(state: Ref<ConversationThreadIslandOptions>
                   "data-rendered-node-count": String(timelineNodes.length),
                   "data-total-node-count": String(nodes.length),
                 }, timelineNodes),
+                renderSubagentShelf(subagentShelfItems.value, selectedToolKey.value, openSubagentDetail),
               ]),
               detailPanel
                 ? h("div", {
@@ -420,6 +438,7 @@ function isDetailPanelPreservingClickTarget(target: EventTarget | null): boolean
     ".desktop-tool-activity-row",
     ".desktop-message-reference-item",
     ".desktop-chat-cowork-agent-row",
+    ".desktop-subagent-shelf",
     ".desktop-agent-ui-form-card",
     ".desktop-agent-flow-step",
   ].join(",")));
@@ -434,18 +453,108 @@ function renderAssistantRun(
     return [];
   }
   const final = run[run.length - 1];
-  const shouldFold = run.length > 1 && hasAssistantFinalAnswer(final.message);
+  const shouldFold = shouldFoldAssistantRun(run);
   if (!shouldFold) {
     const copyable = run.length === 1 && hasAssistantFinalAnswer(final.message);
     return run.map((item) => renderThreadMessage(item.message, item.index, selectedToolKey, copyable, onReferenceInspect));
   }
-  const processSteps = assistantProcessSteps(run);
+  const processSteps = run.length > 1
+    ? assistantProcessSteps(run)
+    : [assistantFinalReasoningStep(final)].filter((item): item is AssistantMessageRunItem => Boolean(item));
   const nodes: VNode[] = [];
   if (processSteps.length) {
     nodes.push(renderAssistantStepGroup(processSteps, selectedToolKey, onReferenceInspect));
   }
   nodes.push(renderThreadMessage(assistantFinalAnswerMessage(final.message), final.index, selectedToolKey, true, onReferenceInspect));
   return nodes;
+}
+
+function collectSubagentShelfItems(messages: ConversationMessageIslandOptions[]): SubagentShelfItem[] {
+  const items = new Map<string, SubagentShelfItem>();
+  for (const message of messages) {
+    for (const activity of message.toolActivities ?? []) {
+      if (activityInspectorKind(activity) !== "delegate") {
+        continue;
+      }
+      const key = toolActivitySelectionKey(activity);
+      const payload = mergedActivityPayload(activity);
+      const status = normalizeToolStatus(activity);
+      items.set(key, {
+        activity,
+        key,
+        latestActivity: activity.responseText || fieldString(payload, ["latest_activity", "latestActivity", "summary", "final_output", "finalOutput"]),
+        statusLabel: getToolStatusLabel(status),
+        task: fieldString(payload, ["task", "message", "prompt", "goal"]) || activity.argsText,
+        title: fieldString(payload, ["task_name", "taskName", "label", "title"]) || activity.name || "subagent",
+      });
+    }
+  }
+  return [...items.values()].sort((left, right) => subagentShelfRank(left) - subagentShelfRank(right)).slice(0, 5);
+}
+
+function subagentShelfRank(item: SubagentShelfItem): number {
+  const normalized = normalizeToolStatus(item.activity).status;
+  if (normalized === "blocked") {
+    return 0;
+  }
+  if (normalized === "running" || normalized === "pending") {
+    return 1;
+  }
+  if (normalized === "failed") {
+    return 2;
+  }
+  return 3;
+}
+
+function renderSubagentShelf(
+  items: SubagentShelfItem[],
+  selectedKey: string,
+  onSelect: (item: SubagentShelfItem) => void,
+): VNode | null {
+  if (!items.length) {
+    return null;
+  }
+  return h("section", {
+    class: "desktop-subagent-shelf",
+    "data-subagent-count": String(items.length),
+    "data-visible-limit": "5",
+    "aria-label": "Subagents",
+  }, [
+    h("div", { class: "desktop-subagent-shelf-list" }, items.map((item) => h("button", {
+      key: item.key,
+      class: "desktop-subagent-shelf-item",
+      "data-subagent-shelf-item": item.key,
+      "aria-selected": String(selectedKey === item.key),
+      onClick: () => onSelect(item),
+      type: "button",
+    }, [
+      h("span", {
+        class: "desktop-tool-activity-status-dot",
+        "data-tool-status-tone": getToolStatusTone(normalizeToolStatus(item.activity)),
+      }),
+      h("span", { class: "desktop-subagent-shelf-title" }, item.title),
+      h("span", { class: "desktop-subagent-shelf-status" }, item.statusLabel),
+      item.latestActivity ? h("small", { class: "desktop-subagent-shelf-activity" }, item.latestActivity) : null,
+    ]))),
+  ]);
+}
+
+function shouldFoldAssistantRun(run: AssistantMessageRunItem[]): boolean {
+  if (!run.length) {
+    return false;
+  }
+  const final = run[run.length - 1];
+  if (!hasAssistantFinalAnswer(final.message)) {
+    return false;
+  }
+  return run.length > 1 || hasAssistantInlineProcess(final.message);
+}
+
+function hasAssistantInlineProcess(message: ConversationMessageIslandOptions): boolean {
+  return Boolean(
+    message.reasoningContent?.trim()
+    || message.toolActivities?.length
+  );
 }
 
 function assistantProcessSteps(run: AssistantMessageRunItem[]): AssistantMessageRunItem[] {
@@ -731,6 +840,21 @@ function renderActivityInspectorPanel(options: {
   const label = getToolStatusLabel(status);
   const tone = getToolStatusTone(status);
   const agentProfile = resolveAgentToolProfile(activity);
+  const showApprovalActions = status.pendingApproval && Boolean(activity.approvalId);
+  if (status.pendingApproval || activity.approvalId) {
+    logDesktopNativeChatDebug("vue.toolDetail.render", {
+      approvalId: activity.approvalId ?? "",
+      approvalStatus: activity.approvalStatus ?? "",
+      id: activity.id,
+      inspectorKind,
+      name: activity.name,
+      pendingApproval: status.pendingApproval,
+      sessionKey: activity.sessionKey ?? "",
+      showApprovalActions,
+      status: activity.status ?? "",
+      toolKind: agentProfile.kind,
+    });
+  }
   return h("aside", {
     "aria-label": inspectorAriaLabel(inspectorKind),
     class: ["desktop-tool-detail-panel", `desktop-${inspectorKind}-detail-panel`].join(" "),
@@ -764,7 +888,7 @@ function renderActivityInspectorPanel(options: {
       h("span", { class: "desktop-tool-activity-status-dot", "data-tool-status-tone": tone }),
       h("span", label),
     ]),
-    inspectorKind === "approval"
+    showApprovalActions
       ? h("section", { class: "desktop-tool-detail-approval-actions", "aria-label": "Tool approval actions" }, [
         renderDetailApprovalButton(activity, "approveOnce", "Approve once"),
         renderDetailApprovalButton(activity, "approveSession", "Allow session"),
@@ -791,6 +915,7 @@ function renderActivityInspectorBody(
   if (inspectorKind === "delegate") {
     return [
       renderAgentToolWorkflowPanel(activity, agentProfile),
+      renderSubagentTracePanel(activity),
       renderToolDetailMeta(activity),
       renderToolDetailText("Task", activity.argsText, "No delegated task available"),
       renderToolDetailText("Latest activity", activity.responseText, "No delegated activity available"),
@@ -804,6 +929,31 @@ function renderActivityInspectorBody(
     renderToolDetailText("stderr", "", "No stderr available"),
     renderToolDetailText("Duration", "", "Duration unavailable"),
   ];
+}
+
+function renderSubagentTracePanel(activity: ToolActivityIslandOptions): VNode | null {
+  const payload = mergedActivityPayload(activity);
+  const trace = isRecord(payload.trace) ? payload.trace : null;
+  const steps = Array.isArray(trace?.steps) ? trace.steps.map((step) => isRecord(step) ? step : null).filter((step): step is Record<string, unknown> => Boolean(step)) : [];
+  if (!steps.length) {
+    return null;
+  }
+  return h("section", { class: "desktop-subagent-trace-panel" }, [
+    h("h4", "Subagent timeline"),
+    h("ol", { class: "desktop-subagent-trace-list" }, steps.map((step, index) => h("li", {
+      class: "desktop-subagent-trace-step",
+      "data-subagent-trace-step-kind": fieldString(step, ["kind"]),
+      key: fieldString(step, ["id"]) || String(index),
+    }, [
+      h("strong", fieldString(step, ["title"]) || fieldString(step, ["kind"]) || "Step"),
+      h("span", { class: "desktop-subagent-trace-status" }, fieldString(step, ["status"])),
+      h("p", [
+        fieldString(step, ["summary"]),
+        fieldString(step, ["resultPreview", "result_preview"]),
+        fieldString(step, ["error"]),
+      ].filter(Boolean).join(" ")),
+    ]))),
+  ]);
 }
 
 function activityInspectorKind(activity: ToolActivityIslandOptions): ActivityInspectorKind {
@@ -1132,12 +1282,33 @@ function dispatchDetailApproval(
   action: "approveOnce" | "approveSession" | "deny",
 ): void {
   if (!activity.approvalId) {
+    logDesktopNativeChatDebug("vue.toolApproval.dispatch.skipped", {
+      action,
+      id: activity.id,
+      name: activity.name,
+      reason: "missing approvalId",
+    });
     return;
   }
   const target = event.currentTarget;
   if (!(target instanceof HTMLElement)) {
+    logDesktopNativeChatDebug("vue.toolApproval.dispatch.skipped", {
+      action,
+      approvalId: activity.approvalId,
+      id: activity.id,
+      name: activity.name,
+      reason: "missing event target",
+    });
     return;
   }
+  logDesktopNativeChatDebug("vue.toolApproval.dispatch", {
+    action,
+    approvalId: activity.approvalId,
+    id: activity.id,
+    name: activity.name || "unknown",
+    runChainItemKey: activity.runChainItemKey ?? "",
+    sessionKey: activity.sessionKey ?? "",
+  });
   target.dispatchEvent(new CustomEvent("desktop-tool-approval-action", {
     bubbles: true,
     detail: {
@@ -1560,7 +1731,13 @@ function installConversationAgentFlowStyles(targetDocument: Document): void {
     }
 
     .desktop-conversation-layout {
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) auto;
+      height: 100%;
+      max-height: 100%;
+      min-height: 0;
       min-width: 0;
+      overflow: hidden;
       transition: transform 320ms cubic-bezier(.2,.8,.2,1), filter 320ms ease;
     }
 
@@ -1570,22 +1747,129 @@ function installConversationAgentFlowStyles(targetDocument: Document): void {
       scroll-behavior: smooth;
     }
 
+    .desktop-subagent-shelf {
+      border-top: 1px solid var(--desktop-flow-muted-border);
+      background: color-mix(in srgb, var(--panel, #fffaf3) 88%, transparent);
+      padding: 8px 12px 10px;
+    }
+
+    .desktop-subagent-shelf-list {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 2px;
+    }
+
+    .desktop-subagent-shelf-item {
+      align-items: center;
+      background: var(--panel-strong, #fffaf7);
+      border: 1px solid var(--desktop-flow-muted-border);
+      border-radius: 8px;
+      color: var(--text, #1e1d1b);
+      cursor: pointer;
+      display: grid;
+      flex: 0 0 min(220px, 52vw);
+      gap: 2px 8px;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      min-height: 46px;
+      padding: 7px 10px;
+      text-align: left;
+    }
+
+    .desktop-subagent-shelf-item[aria-selected="true"] {
+      border-color: color-mix(in srgb, var(--accent, #cc785c) 55%, var(--desktop-flow-muted-border));
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent, #cc785c) 30%, transparent);
+    }
+
+    .desktop-subagent-shelf-title,
+    .desktop-subagent-shelf-activity {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .desktop-subagent-shelf-title {
+      font-weight: 700;
+    }
+
+    .desktop-subagent-shelf-status {
+      color: var(--text-muted, #716b63);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .desktop-subagent-shelf-activity {
+      color: var(--text-muted, #716b63);
+      font-size: 12px;
+      grid-column: 2 / 4;
+    }
+
+    .desktop-subagent-trace-panel {
+      border: 1px solid var(--desktop-flow-muted-border);
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--panel-strong, #fffaf7) 82%, var(--bg-subtle, #f5f0e8));
+      padding: 12px;
+    }
+
+    .desktop-subagent-trace-panel h4 {
+      font-size: 13px;
+      margin: 0 0 10px;
+      text-transform: uppercase;
+      color: var(--text-muted, #716b63);
+    }
+
+    .desktop-subagent-trace-list {
+      display: grid;
+      gap: 8px;
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+
+    .desktop-subagent-trace-step {
+      border-left: 3px solid color-mix(in srgb, var(--accent, #cc785c) 65%, transparent);
+      padding-left: 10px;
+    }
+
+    .desktop-subagent-trace-step strong {
+      display: block;
+      font-size: 14px;
+    }
+
+    .desktop-subagent-trace-status {
+      color: var(--text-muted, #716b63);
+      font-size: 12px;
+      text-transform: capitalize;
+    }
+
+    .desktop-subagent-trace-step p {
+      margin: 4px 0 0;
+      white-space: pre-wrap;
+    }
+
     .desktop-assistant-step-group.desktop-agent-flow-group {
       overflow: hidden;
       border: 1px solid var(--desktop-flow-muted-border);
       border-radius: 14px;
       background: var(--desktop-flow-card-bg);
       box-shadow: 0 12px 32px rgba(20, 20, 19, 0.08);
+      flex: 0 0 auto;
+      min-height: 0;
+      min-width: 0;
       animation: desktopAgentFlowEnter 240ms ease-out both;
     }
 
-    .desktop-agent-flow-summary {
+    .desktop-agent-flow-summary,
+    body.desktop-native-workbench .desktop-agent-flow-summary.desktop-assistant-step-summary {
       align-items: center;
       cursor: pointer;
-      display: flex;
+      display: grid;
       gap: 10px;
+      grid-template-columns: auto minmax(0, auto) auto minmax(0, 1fr) auto;
       list-style: none;
       min-height: 42px;
+      min-width: 0;
       padding: 10px 14px;
       user-select: none;
     }
@@ -1610,15 +1894,38 @@ function installConversationAgentFlowStyles(targetDocument: Document): void {
     }
 
     .desktop-agent-flow-summary-label {
-      margin-inline-start: auto;
       color: var(--text-muted, #6c6a64);
       font-size: 12px;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
-    .desktop-agent-flow-step-list {
+    .desktop-agent-flow-summary .desktop-assistant-step-summary-label,
+    .desktop-agent-flow-summary .desktop-assistant-step-summary-count {
+      min-width: 0;
+      white-space: nowrap;
+    }
+
+    .desktop-agent-flow-summary .desktop-assistant-step-summary-time {
+      color: var(--text-subtle, #8e8b82);
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .desktop-agent-flow-step-list,
+    body.desktop-native-workbench .desktop-agent-flow-step-list.desktop-assistant-step-list {
       display: grid;
       gap: 0;
+      margin: 0;
+      max-height: none;
+      min-height: 0;
+      overflow-y: visible;
       padding: 4px 12px 14px;
+      padding-right: 8px;
     }
 
     .desktop-agent-flow-step {
@@ -1664,6 +1971,7 @@ function installConversationAgentFlowStyles(targetDocument: Document): void {
     .desktop-agent-flow-step-header {
       align-items: center;
       display: flex;
+      flex-wrap: wrap;
       gap: 8px;
       margin: 0 0 6px;
       color: var(--text-muted, #6c6a64);
@@ -1683,6 +1991,7 @@ function installConversationAgentFlowStyles(targetDocument: Document): void {
 
     .desktop-agent-flow-step-title {
       color: var(--text, #141413);
+      min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -1691,6 +2000,15 @@ function installConversationAgentFlowStyles(targetDocument: Document): void {
     .desktop-agent-flow-step-time {
       margin-left: auto;
       color: var(--text-subtle, #8e8b82);
+      white-space: nowrap;
+    }
+
+    .desktop-agent-flow-step-card .desktop-conversation-message,
+    .desktop-agent-flow-step-card .desktop-message-reasoning-body,
+    .desktop-agent-flow-step-card .desktop-tool-activity {
+      max-width: 100%;
+      min-width: 0;
+      overflow-wrap: anywhere;
     }
 
     .desktop-detail-panel-slot {

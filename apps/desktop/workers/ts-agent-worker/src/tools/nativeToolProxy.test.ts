@@ -585,11 +585,6 @@ describe("createNativeTaskTools", () => {
     expect(provider.requests[0]?.options?.tools?.map((tool) => tool.name)).toEqual([
       "read_file",
       "list_dir",
-      "write_file",
-      "edit_file",
-      "delete_file",
-      "exec",
-      "request_approval",
     ]);
     expect(provider.requests[0]?.options?.tools?.map((tool) => tool.name)).not.toContain("task");
     expect(provider.requests[0]?.options?.tools?.map((tool) => tool.name)).not.toContain("cron");
@@ -620,42 +615,51 @@ describe("createNativeSpawnTools", () => {
       },
       { content: "inspection complete", toolCalls: [], stopReason: "stop" },
     ]);
-    const [spawnTool] = createNativeSpawnTools(rpc, {
+    const spawnTools = createNativeSpawnTools(rpc, {
       provider,
       model: "test-model",
       idGenerator: () => "spawn-1",
     });
+    const [spawnTool] = spawnTools;
 
+    expect(spawnTools.map((tool) => tool.name)).toEqual([
+      "spawn",
+      "spawn_agent",
+      "wait_agent",
+      "list_agents",
+      "send_message",
+      "close_agent",
+    ]);
     const result = await spawnTool.execute(
       { task: "Inspect AGENTS.md", label: "Inspect" },
       { runId: "run-1", traceId: "trace-1", sessionId: "desktop:chat-1" },
     );
-    await waitFor(() => rpc.requests.some((request) => request.method === "workspace.read_file"));
-
-    expect(result.content).toBe("Subagent [Inspect] started (id: spawn-1). Running: 1/5");
+    expect(result.content).toBe("inspection complete");
     expect(result.metadata).toMatchObject({
       _background_event: true,
       _background_run_id: "spawn-1",
       _background_label: "Inspect",
-      _background_status: "running",
+      _background_status: "completed",
+      _background_message: "Subagent [Inspect] started (id: spawn-1). Running: 1/5",
     });
     expect(provider.requests[0]?.options?.tools?.map((tool) => tool.name)).toEqual([
       "read_file",
       "list_dir",
-      "write_file",
-      "edit_file",
-      "delete_file",
-      "exec",
-      "request_approval",
     ]);
     expect(provider.requests[0]?.options?.tools?.map((tool) => tool.name)).not.toContain("task");
     expect(provider.requests[0]?.options?.tools?.map((tool) => tool.name)).not.toContain("cron");
     expect(provider.requests[0]?.options?.tools?.map((tool) => tool.name)).not.toContain("spawn");
     expect(provider.requests[0]?.options?.model).toBe("test-model");
+    expect(provider.requests[0]?.messages[0]).toMatchObject({
+      role: "system",
+    });
+    expect(provider.requests[0]?.messages[0]?.content).toContain("Permission profile: read_only");
+    expect(provider.requests[0]?.messages[0]?.content).toContain("Fork policy: no parent conversation turns were forked");
     expect(provider.requests[0]?.messages.at(-1)).toMatchObject({
       role: "user",
-      content: "Inspect AGENTS.md",
     });
+    expect(provider.requests[0]?.messages.at(-1)?.content).toContain("Task name: inspect");
+    expect(provider.requests[0]?.messages.at(-1)?.content).toContain("Inspect AGENTS.md");
     expect(rpc.requests).toEqual([
       {
         traceId: "trace-1",
@@ -680,9 +684,169 @@ describe("createNativeSpawnTools", () => {
       { task: "Use configured model", label: "Configured" },
       { runId: "run-2", traceId: "trace-2", sessionId: "desktop:chat-2" },
     );
-    await waitFor(() => provider.requests.length > 0);
-
     expect(provider.requests[0]?.options?.model).toBe("deepseek-v4-flash");
+  });
+
+  test("packs delegated fork policy into spawned subagent prompts", async () => {
+    const rpc = new FakeRpcClient([]);
+    const provider = new QueueProvider([
+      { content: "packed context used", toolCalls: [], stopReason: "stop" },
+    ]);
+    const spawnAgent = createNativeSpawnTools(rpc, {
+      provider,
+      model: "test-model",
+      idGenerator: () => "delegate-context",
+    }).find((tool) => tool.name === "spawn_agent");
+
+    await spawnAgent?.execute(
+      { task_name: "Recent Context", message: "Use recent context", fork_turns: "3" },
+      { runId: "run-3", traceId: "trace-3", sessionId: "desktop:chat-3" },
+    );
+    await waitFor(() => provider.requests.length === 1);
+
+    expect(provider.requests[0]?.messages[0]?.content).toContain("Fork policy: recent 3 parent turn(s) requested");
+    expect(provider.requests[0]?.messages[0]?.content).toContain("Parent run: run-3");
+    expect(provider.requests[0]?.messages.at(-1)?.content).toContain("Task name: recent_context");
+    expect(provider.requests[0]?.messages.at(-1)?.content).toContain("Use recent context");
+  });
+
+  test("emits delegated child reasoning and message trace events", async () => {
+    const rpc = new FakeRpcClient([]);
+    const provider: ModelProvider = {
+      async complete(_messages, options) {
+        options?.onReasoningDelta?.("thinking about greeting");
+        options?.onContentDelta?.("你好");
+        return { content: "你好", toolCalls: [], stopReason: "stop" };
+      },
+    };
+    const delegatedEvents: Array<{ eventName: string; payload: Record<string, unknown> }> = [];
+    const [spawnTool] = createNativeSpawnTools(rpc, {
+      provider,
+      model: "test-model",
+      idGenerator: () => "delegate-stream",
+      emitDelegatedEvent: (eventName, payload) => delegatedEvents.push({ eventName, payload }),
+    });
+
+    await spawnTool.execute(
+      { task: "Say hello", label: "Greeter" },
+      { runId: "run-stream", traceId: "trace-stream", sessionId: "desktop:chat-stream" },
+    );
+
+    const traceSteps = delegatedEvents
+      .filter((event) => event.eventName === "agent.delegate.trace.updated")
+      .flatMap((event) => {
+        const trace = event.payload.trace as { steps?: unknown[] } | undefined;
+        return trace?.steps ?? [];
+      });
+    expect(traceSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "reasoning",
+        summary: "thinking about greeting",
+      }),
+      expect.objectContaining({
+        kind: "message",
+        summary: "你好",
+      }),
+    ]));
+  });
+
+  test("runs delegated workspace write tools without repeated child approvals", async () => {
+    const rpc = new FakeRpcClient([
+      {
+        path: "notes.md",
+        bytes_written: 5,
+      },
+    ]);
+    const provider = new QueueProvider([
+      {
+        content: "",
+        toolCalls: [{
+          id: "call-write",
+          name: "write_file",
+          argumentsJson: "{\"path\":\"notes.md\",\"content\":\"hello\"}",
+        }],
+        stopReason: "tool_calls",
+      },
+      { content: "wrote notes", toolCalls: [], stopReason: "stop" },
+    ]);
+    const delegatedEvents: Array<{ eventName: string; payload: Record<string, unknown> }> = [];
+    const spawnAgent = createNativeSpawnTools(rpc, {
+      provider,
+      model: "test-model",
+      idGenerator: () => "delegate-write",
+      emitDelegatedEvent: (eventName, payload) => delegatedEvents.push({ eventName, payload }),
+    }).find((tool) => tool.name === "spawn_agent");
+
+    const result = await spawnAgent?.execute(
+      {
+        task_name: "Writer",
+        message: "Write notes",
+        permission_profile: "workspace_write",
+      },
+      { runId: "run-write", traceId: "trace-write", sessionId: "desktop:chat-write" },
+    );
+
+    expect(result?.content).toContain("\"delegateId\": \"delegate-write\"");
+    await waitFor(() => delegatedEvents.some((event) => event.eventName === "agent.delegate.completed"));
+    expect(provider.requests[0]?.options?.tools?.map((tool) => tool.name)).toEqual([
+      "read_file",
+      "list_dir",
+      "write_file",
+      "edit_file",
+      "delete_file",
+    ]);
+    expect(rpc.requests.map((request) => request.method)).toEqual(["workspace.write_file"]);
+    expect(delegatedEvents.map((event) => event.eventName)).not.toContain("agent.delegate.tool.approval_required");
+    expect(delegatedEvents.map((event) => event.eventName)).not.toContain("agent.delegate.awaiting_approval");
+    expect(delegatedEvents.map((event) => event.eventName)).toContain("agent.delegate.trace.updated");
+    expect(delegatedEvents.find((event) => event.eventName === "agent.delegate.trace.updated")?.payload).toMatchObject({
+      delegateId: "delegate-write",
+      childRunId: "delegate-write",
+      trace: {
+        steps: [expect.objectContaining({
+          kind: "tool_call",
+          status: "running",
+          title: "write_file",
+          toolCallId: "call-write",
+        })],
+      },
+    });
+  });
+
+  test("rejects delegated write tools under the default read-only child profile", async () => {
+    const rpc = new FakeRpcClient([]);
+    const provider = new QueueProvider([
+      {
+        content: "",
+        toolCalls: [{
+          id: "call-write",
+          name: "write_file",
+          argumentsJson: "{\"path\":\"notes.md\",\"content\":\"hello\"}",
+        }],
+        stopReason: "tool_calls",
+      },
+    ]);
+    const delegatedEvents: Array<{ eventName: string; payload: Record<string, unknown> }> = [];
+    const [spawnTool] = createNativeSpawnTools(rpc, {
+      provider,
+      model: "test-model",
+      idGenerator: () => "delegate-readonly",
+      emitDelegatedEvent: (eventName, payload) => delegatedEvents.push({ eventName, payload }),
+    });
+
+    const result = await spawnTool.execute(
+      { task: "Write notes", label: "Writer" },
+      { runId: "run-readonly", traceId: "trace-readonly", sessionId: "desktop:chat-readonly" },
+    );
+
+    expect(result.content).toContain("Tool 'write_file' not found");
+    expect(provider.requests[0]?.options?.tools?.map((tool) => tool.name)).toEqual([
+      "read_file",
+      "list_dir",
+    ]);
+    expect(rpc.requests).toEqual([]);
+    expect(delegatedEvents.map((event) => event.eventName)).not.toContain("agent.delegate.tool.approval_required");
+    expect(delegatedEvents.map((event) => event.eventName)).not.toContain("agent.delegate.awaiting_approval");
   });
 });
 

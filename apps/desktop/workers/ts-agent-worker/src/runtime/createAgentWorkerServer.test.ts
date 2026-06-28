@@ -4677,6 +4677,202 @@ describe("createAgentWorkerServer", () => {
     });
   });
 
+  test("resumes delegated child approval through the saved child checkpoint", async () => {
+    const lines: string[] = [];
+    const provider = new QueueProvider([
+      { content: "child final result", toolCalls: [], stopReason: "stop" },
+      { content: "parent received child final", toolCalls: [], stopReason: "stop" },
+    ]);
+    const tools = new ToolRegistry();
+    tools.register({
+      name: "approved_tool",
+      description: "Approved delegated operation",
+      parameters: {
+        type: "object",
+        properties: { value: { type: "string" } },
+        required: ["value"],
+      },
+      execute: async (args) => ({ content: `approved ${String(args.value)}` }),
+    });
+    const server = createAgentWorkerServer({
+      provider,
+      tools,
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+    const childCheckpoint = {
+      runId: "delegate-1",
+      phase: "tools_completed",
+      model: "test-model",
+      maxIterations: 2,
+      stream: false,
+      messages: [
+        { role: "user", content: "child task" },
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [{ id: "approval-call-1", name: "request_approval", argumentsJson: "{}" }],
+        },
+        {
+          role: "tool",
+          content: "Waiting for approval.",
+          toolCallId: "approval-call-1",
+          name: "request_approval",
+          metadata: {
+            awaitingUserInput: true,
+            stopReason: "awaiting_approval",
+            approvalId: "approval-1",
+            operation: {
+              toolName: "approved_tool",
+              arguments: { value: "ok" },
+            },
+          },
+        },
+      ],
+    };
+
+    const resume = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "resume-delegated-approval",
+        trace_id: "trace-delegated-resume",
+        method: "agent.resume_approval",
+        params: {
+          sessionId: "session-1",
+          approvalId: "approval-1",
+          approved: true,
+          scope: "once",
+        },
+      }),
+    );
+
+    await waitFor(() => parsedLines(lines).some((line) => line.method === "approval.resolve"));
+    const approvalRequest = parsedLines(lines).find((message) => message.method === "approval.resolve");
+    await server.handleLine(JSON.stringify({
+      protocol_version: "1",
+      id: approvalRequest?.id,
+      trace_id: "trace-delegated-resume",
+      result: {
+        approvalId: "approval-1",
+        approved: true,
+        scope: "once",
+        status: "approved",
+      },
+    }));
+
+    await waitFor(() => parsedLines(lines).some((line) => line.method === "session.get_checkpoint"));
+    const checkpointRequest = parsedLines(lines).find((message) => message.method === "session.get_checkpoint");
+    await server.handleLine(JSON.stringify({
+      protocol_version: "1",
+      id: checkpointRequest?.id,
+      trace_id: "trace-delegated-resume",
+      result: {
+        runId: "parent-run",
+        phase: "tools_completed",
+        model: "test-model",
+        maxIterations: 2,
+        stream: false,
+        messages: [
+          { role: "user", content: "spawn child" },
+          {
+            role: "assistant",
+            content: "",
+            toolCalls: [{ id: "spawn-call-1", name: "spawn", argumentsJson: "{\"task\":\"child task\"}" }],
+          },
+          {
+            role: "tool",
+            content: "Waiting for approval.",
+            toolCallId: "spawn-call-1",
+            name: "spawn",
+            metadata: {
+              awaitingUserInput: true,
+              stopReason: "awaiting_approval",
+              approvalId: "approval-1",
+              _delegate_id: "delegate-1",
+              _delegate_child_run_id: "delegate-1",
+              _delegate_child_tool_call_id: "approval-call-1",
+              _delegate_child_tool_name: "approved_tool",
+              _delegate_child_checkpoint: childCheckpoint,
+            },
+          },
+        ],
+      },
+    }));
+
+    await waitFor(() => parsedLines(lines).some((line) => line.method === "session.set_checkpoint"));
+    const setCheckpointRequest = parsedLines(lines).find((message) => message.method === "session.set_checkpoint");
+    expect(setCheckpointRequest).toMatchObject({
+      method: "session.set_checkpoint",
+      params: {
+        session_id: "session-1",
+        checkpoint: expect.objectContaining({
+          runId: "parent-run",
+          phase: "final_response",
+        }),
+      },
+    });
+    await server.handleLine(JSON.stringify({
+      protocol_version: "1",
+      id: setCheckpointRequest?.id,
+      trace_id: "trace-delegated-resume",
+      result: { session_id: "session-1" },
+    }));
+
+    await waitFor(() => parsedLines(lines).some((line) => line.method === "session.persist_turn"));
+    const persistRequest = parsedLines(lines).find((message) => message.method === "session.persist_turn");
+    expect(provider.requests[0]).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: "tool",
+        content: "approved ok",
+        toolCallId: "approval-call-1",
+        name: "request_approval",
+      }),
+    ]));
+    expect(provider.requests[1]).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: "tool",
+        content: "child final result",
+        toolCallId: "spawn-call-1",
+        name: "spawn",
+      }),
+    ]));
+    expect(persistRequest).toMatchObject({
+      method: "session.persist_turn",
+      params: {
+        session_id: "session-1",
+        run_id: "parent-run",
+        clear_checkpoint: true,
+        messages: expect.arrayContaining([
+          expect.objectContaining({
+            role: "tool",
+            content: "child final result",
+            tool_call_id: "spawn-call-1",
+            name: "spawn",
+          }),
+        ]),
+      },
+    });
+    await server.handleLine(JSON.stringify({
+      protocol_version: "1",
+      id: persistRequest?.id,
+      trace_id: "trace-delegated-resume",
+      result: { session_id: "session-1", saved_message_count: 4 },
+    }));
+    await respondToMemoryCapture(server, lines, "trace-delegated-resume");
+    await resume;
+
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      protocol_version: "1",
+      id: "resume-delegated-approval",
+      result: {
+        result: {
+          finalContent: "parent received child final",
+          stopReason: "final_response",
+        },
+      },
+    });
+  });
+
   test("submits a form through native session checkpoint and continues the run", async () => {
     const lines: string[] = [];
     const provider = new QueueProvider([{ content: "trip captured", toolCalls: [], stopReason: "stop" }]);

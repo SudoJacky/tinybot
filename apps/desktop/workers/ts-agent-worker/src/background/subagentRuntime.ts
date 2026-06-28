@@ -28,6 +28,7 @@ export interface SubagentRunResult {
   status: SubagentStatus;
   result: string;
   error?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface SubagentCompletion extends SubagentRunResult {
@@ -45,6 +46,8 @@ export interface SubagentSpawnResult {
   runningCount: number;
   queuedCount: number;
 }
+
+export interface SubagentSpawnCompletion extends SubagentSpawnResult, SubagentRunResult {}
 
 export interface SubagentRuntimeOptions {
   maxConcurrent?: number;
@@ -111,6 +114,30 @@ export class SubagentRuntime {
       message: shouldQueue
         ? `Subagent [${label}] queued (id: ${id}). ${queuedCount} waiting, ${runningCount} running.`
         : `Subagent [${label}] started (id: ${id}). Running: ${runningCount}/${this.maxConcurrent}`,
+    };
+  }
+
+  async spawnAndWait(request: SubagentSpawnRequest): Promise<SubagentSpawnCompletion> {
+    let resolveCompletion!: (completion: SubagentCompletion) => void;
+    const completionPromise = new Promise<SubagentCompletion>((resolve) => {
+      resolveCompletion = resolve;
+    });
+    const spawned = await this.spawn({
+      ...request,
+      onComplete: async (completion) => {
+        try {
+          await request.onComplete?.(completion);
+        } finally {
+          resolveCompletion(completion);
+        }
+      },
+    });
+    const completion = await completionPromise;
+    return {
+      ...spawned,
+      status: completion.status,
+      result: completion.result,
+      ...(completion.error ? { error: completion.error } : {}),
     };
   }
 

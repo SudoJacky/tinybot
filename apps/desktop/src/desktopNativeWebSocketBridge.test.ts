@@ -685,9 +685,15 @@ describe("desktop native WebSocket bridge", () => {
       },
     });
 
-    expect(events).not.toContainEqual(expect.objectContaining({
+    expect(events).toContainEqual(expect.objectContaining({
       event: "message",
       message_id: "run-approval:call-spawn:result",
+      status: "blocked",
+      text: "Waiting for approval.",
+      _approval_id: "approval-1",
+      _approval_status: "approval_required",
+      _tool_call_id: "call-spawn",
+      _tool_name: "spawn",
       _tool_result: true,
     }));
     expect(events).toContainEqual({
@@ -713,6 +719,83 @@ describe("desktop native WebSocket bridge", () => {
       payload: expect.objectContaining({
         tool_call_id: "call-spawn",
       }),
+    }));
+  });
+
+  test("projects delegated tool results as delegated events without legacy result frames", async () => {
+    const handlers = new Map<string, (payload: unknown) => void>();
+    const nativeTransport: NativeTransportApi = {
+      gatewayFrame: vi.fn(),
+      websocketMessage: vi.fn(),
+      dispatchWebsocketMessage: vi.fn(async () => ({
+        transport: {
+          kind: "message",
+          chatId: "chat-native",
+          sessionId: "websocket:chat-native",
+          frames: [],
+        },
+        agent: {
+          runId: "run-delegate",
+          stopReason: "completed",
+        },
+      })),
+      dispatchChannelInbound: vi.fn(),
+      startChannels: vi.fn(),
+      channelStatus: vi.fn(),
+      stopChannels: vi.fn(),
+    };
+    const socket = createDesktopNativeWebSocket({
+      url: "/ws",
+      nativeTransport,
+      listenToAgentEvent: (eventName, handler) => {
+        handlers.set(eventName, handler);
+      },
+    });
+    const events: Array<Record<string, unknown>> = [];
+    socket.addEventListener("message", (event) => {
+      events.push(JSON.parse(String((event as MessageEvent).data)) as Record<string, unknown>);
+    });
+
+    await flushMicrotasks();
+    socket.send(JSON.stringify({ type: "message", chat_id: "chat-native", content: "hello" }));
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    handlers.get(toDesktopNativeTauriEventName("agent.tool.start"))?.({
+      runId: "run-delegate",
+      toolCallId: "call-spawn",
+      toolName: "spawn",
+    });
+    handlers.get(toDesktopNativeTauriEventName("agent.tool.result"))?.({
+      runId: "run-delegate",
+      toolCallId: "call-spawn",
+      toolName: "spawn",
+      content: "child final result",
+      metadata: {
+        _delegate_event: true,
+        _delegate_id: "delegate-1",
+        _delegate_label: "打招呼",
+        _delegate_result: { summary: "你好", status: "completed" },
+        _delegate_status: "completed",
+        _delegate_task: "请用中文说一句\"你好\"",
+      },
+    });
+
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "agent_event",
+      event_type: "agent.delegate.completed",
+      turn_id: "run-delegate",
+      payload: expect.objectContaining({
+        delegate_id: "delegate-1",
+        final_output: "你好",
+        task: "请用中文说一句\"你好\"",
+        tool_call_id: "call-spawn",
+        tool_name: "spawn",
+      }),
+    }));
+    expect(events).not.toContainEqual(expect.objectContaining({
+      event: "message",
+      message_id: "run-delegate:call-spawn:result",
     }));
   });
 
@@ -769,9 +852,15 @@ describe("desktop native WebSocket bridge", () => {
       toolName: "spawn",
     });
 
-    expect(events).not.toContainEqual(expect.objectContaining({
+    expect(events).toContainEqual(expect.objectContaining({
       event: "message",
-      message_id: "run-approval:call-spawn:result",
+      message_id: "run-approval:approval:approval-1:result",
+      status: "blocked",
+      text: "Waiting for approval.",
+      _approval_id: "approval-1",
+      _approval_status: "approval_required",
+      _tool_call_id: "call-spawn",
+      _tool_name: "spawn",
       _tool_result: true,
     }));
   });

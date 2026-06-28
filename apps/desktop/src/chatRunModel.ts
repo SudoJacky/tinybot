@@ -54,15 +54,56 @@ export type ToolCallState = {
 
 export type DelegatedAgentState = {
   agentCount?: number;
+  approvalId?: string;
+  approvalPolicy?: string;
+  approvalStatus?: string;
   artifacts?: ArtifactRef[];
+  childRunId?: string;
+  childToolCallId?: string;
   finalOutput?: string;
   id: string;
   latestActivity?: string;
+  operationPreview?: string;
+  parentToolCallId?: string;
+  permissionProfile?: string;
+  reason?: string;
   status: ChatStepStatus;
   task?: string;
   title: string;
+  toolName?: string;
+  trace?: DelegatedAgentTraceState;
+  traceRef?: string;
   type: AgentContextType;
   workflow?: string;
+};
+
+export type DelegatedAgentTraceStep = {
+  approvalId?: string;
+  argsPreview?: string;
+  createdAt?: string;
+  error?: string;
+  id: string;
+  kind: string;
+  resultPreview?: string;
+  status: ChatStepStatus;
+  summary?: string;
+  title: string;
+  toolCallId?: string;
+  toolName?: string;
+  updatedAt?: string;
+};
+
+export type DelegatedAgentTraceState = {
+  approvals?: unknown[];
+  artifacts?: ArtifactRef[];
+  childRunId?: string;
+  delegateId: string;
+  finalMessage?: ChatMessage;
+  parentRunId?: string;
+  parentSessionKey?: string;
+  status: ChatStepStatus;
+  steps: DelegatedAgentTraceStep[];
+  updatedAt?: string;
 };
 
 export type ApprovalState = {
@@ -139,6 +180,7 @@ export type ChatInspectorSelection =
 export type ChatRunState = {
   appliedEventIds: Set<string>;
   artifactsBySession: Map<string, Map<string, ArtifactRef>>;
+  delegatedRunsBySession: Map<string, Map<string, DelegatedAgentState>>;
   legacyMessagesBySession: Map<string, NativeChatMessage[]>;
   selectedInspector: ChatInspectorSelection | null;
   turnsBySession: Map<string, ChatTurn[]>;
@@ -175,6 +217,7 @@ export function createChatRunState(): ChatRunState {
   return {
     appliedEventIds: new Set(),
     artifactsBySession: new Map(),
+    delegatedRunsBySession: new Map(),
     legacyMessagesBySession: new Map(),
     selectedInspector: null,
     turnsBySession: new Map(),
@@ -376,16 +419,15 @@ export function reduceAgentEvent(state: ChatRunState, event: AgentEventEnvelope)
     if (event.event_type === "approval.requested" && approval.toolCallId) {
       const existingToolStep = turn.steps.find((step) => step.toolCall?.id === approval.toolCallId);
       const existingToolCall = existingToolStep?.toolCall;
-      const toolCall: ToolCallState = {
-        ...(existingToolCall ?? {
-          id: approval.toolCallId,
-          name: stringValue(event.payload.name) || "tool",
-        }),
-        approvalId: approval.approvalId,
-        approvalStatus: stringValue(event.payload.approval_status) || "approval_required",
-        argsPreview: existingToolCall?.argsPreview || safeArtifactText(stringValue(event.payload.args_preview)),
-      };
       if (existingToolStep) {
+        const toolCall: ToolCallState = {
+          ...existingToolCall,
+          id: existingToolCall?.id ?? approval.toolCallId,
+          name: existingToolCall?.name ?? (stringValue(event.payload.name) || "tool"),
+          approvalId: approval.approvalId,
+          approvalStatus: stringValue(event.payload.approval_status) || "approval_required",
+          argsPreview: existingToolCall?.argsPreview || safeArtifactText(stringValue(event.payload.args_preview)),
+        };
         Object.assign(existingToolStep, {
           completedAt: existingToolStep.completedAt,
           status: "blocked",
@@ -395,13 +437,6 @@ export function reduceAgentEvent(state: ChatRunState, event: AgentEventEnvelope)
         });
         return state;
       }
-      upsertStep(turn, event, {
-        kind: "tool_call",
-        status: "blocked",
-        title: toolCall.name,
-        toolCall,
-      });
-      return state;
     }
     upsertStep(turn, event, {
       approval,
@@ -422,10 +457,25 @@ export function reduceAgentEvent(state: ChatRunState, event: AgentEventEnvelope)
     return state;
   }
 
-  if (event.event_type === "agent.delegate.started" || event.event_type === "agent.delegate.updated" || event.event_type === "agent.delegate.completed") {
+  if (isDelegatedRunEventType(event.event_type)) {
     const delegate = delegateFromPayload(event.payload);
+    storeDelegatedRun(state, event.session_key, delegate);
     for (const artifact of delegate.artifacts ?? []) {
       storeArtifact(state, event.session_key, artifact);
+    }
+    const parentToolStep = delegate.parentToolCallId
+      ? turn.steps.find((step) => step.kind === "tool_call" && step.toolCall?.id === delegate.parentToolCallId)
+      : undefined;
+    if (parentToolStep) {
+      parentToolStep.kind = "delegate";
+      parentToolStep.delegate = delegate;
+      parentToolStep.toolCall = undefined;
+      parentToolStep.status = delegate.status;
+      parentToolStep.title = delegate.title;
+      parentToolStep.completedAt = delegate.status === "completed" || delegate.status === "failed" || delegate.status === "cancelled"
+        ? event.created_at
+        : parentToolStep.completedAt;
+      return state;
     }
     upsertStep(turn, event, {
       delegate,
@@ -454,6 +504,20 @@ export function reduceAgentEvent(state: ChatRunState, event: AgentEventEnvelope)
   }
 
   return state;
+}
+
+function isDelegatedRunEventType(eventType: string): boolean {
+  return eventType === "agent.delegate.started"
+    || eventType === "agent.delegate.running"
+    || eventType === "agent.delegate.message_queued"
+    || eventType === "agent.delegate.awaiting_approval"
+    || eventType === "agent.delegate.tool.approval_required"
+    || eventType === "agent.delegate.tool.completed"
+    || eventType === "agent.delegate.trace.updated"
+    || eventType === "agent.delegate.updated"
+    || eventType === "agent.delegate.completed"
+    || eventType === "agent.delegate.failed"
+    || eventType === "agent.delegate.closed";
 }
 
 export function turnsToConversationMessages(turns: ChatTurn[]): ConversationMessageIslandOptions[] {
@@ -541,12 +605,13 @@ function stepToToolActivities(step: ChatStep): ConversationMessageIslandOptions[
   }
   if (step.delegate) {
     return [{
-      argsText: step.delegate.task ?? "",
-      id: step.delegate.id,
-      kind: "call",
-      name: `${capitalize(step.delegate.type)}: ${step.delegate.title}`,
+      approvalId: step.delegate.approvalId,
+      approvalStatus: step.delegate.approvalStatus ?? "",
+      argsText: delegatedActivityArgsText(step.delegate),
+      id: step.delegate.parentToolCallId || step.delegate.id,
+      kind: step.status === "completed" || step.status === "failed" ? "result" : "call",
+      name: step.delegate.toolName || step.delegate.type || "delegate",
       responseText: step.delegate.latestActivity ?? step.delegate.finalOutput ?? "",
-      approvalStatus: "",
       status: step.status,
     }];
   }
@@ -601,6 +666,27 @@ function stepsFromLegacyMessage(message: NativeChatMessage, turn: ChatTurn, star
     });
   }
   return steps;
+}
+
+function delegatedActivityArgsText(delegate: DelegatedAgentState): string {
+  const payload = {
+    agent_kind: delegate.type,
+    approval_id: delegate.approvalId,
+    approval_status: delegate.approvalStatus,
+    child_run_id: delegate.childRunId,
+    child_tool_call_id: delegate.childToolCallId,
+    operation_preview: delegate.operationPreview,
+    permission_profile: delegate.permissionProfile,
+    status: delegate.status,
+    task: delegate.task,
+    trace_ref: delegate.traceRef,
+    workflow: delegate.workflow,
+  };
+  try {
+    return JSON.stringify(Object.fromEntries(Object.entries(payload).filter(([, value]) => Boolean(value))));
+  } catch {
+    return delegate.task ?? "";
+  }
 }
 
 function ensureTurn(state: ChatRunState, event: AgentEventEnvelope): ChatTurn {
@@ -698,13 +784,25 @@ function delegateFromPayload(payload: Record<string, unknown>): DelegatedAgentSt
   const type = agentContextType(stringValue(payload.delegate_type));
   return {
     agentCount: Array.isArray(payload.agents) ? payload.agents.length : numberValue(payload.agent_count),
+    approvalId: stringValue(payload.approval_id ?? payload.approvalId),
+    approvalPolicy: stringValue(payload.approval_policy ?? payload.approvalPolicy),
+    approvalStatus: stringValue(payload.approval_status ?? payload.approvalStatus),
     artifacts: artifactArray(payload.artifacts),
+    childRunId: stringValue(payload.child_run_id ?? payload.childRunId),
+    childToolCallId: stringValue(payload.child_tool_call_id ?? payload.childToolCallId),
     finalOutput: stringValue(payload.final_output),
-    id: stringValue(payload.delegate_id) || "delegate",
+    id: stringValue(payload.delegate_id ?? payload.delegateId) || "delegate",
     latestActivity: stringValue(payload.summary ?? payload.latest_activity),
+    operationPreview: safeArtifactText(stringValue(payload.operation_preview ?? payload.operationPreview)),
+    parentToolCallId: stringValue(payload.tool_call_id ?? payload.toolCallId ?? payload.parent_tool_call_id ?? payload.parentToolCallId),
+    permissionProfile: stringValue(payload.permission_profile ?? payload.permissionProfile),
+    reason: stringValue(payload.reason),
     status: statusValue(payload.status) || "running",
     task: stringValue(payload.task),
     title: stringValue(payload.title) || stringValue(payload.task) || "Delegated work",
+    toolName: stringValue(payload.tool_name ?? payload.toolName),
+    trace: delegatedTraceFromPayload(payload.trace),
+    traceRef: stringValue(payload.trace_ref ?? payload.traceRef),
     type,
     workflow: stringValue(payload.workflow),
   };
@@ -743,6 +841,17 @@ function storeArtifact(state: ChatRunState, sessionKey: string, artifact: Artifa
   bucket.set(artifact.id, { ...(bucket.get(artifact.id) ?? {}), ...artifact });
 }
 
+function storeDelegatedRun(state: ChatRunState, sessionKey: string, delegate: DelegatedAgentState): void {
+  const bucket = state.delegatedRunsBySession.get(sessionKey) ?? new Map<string, DelegatedAgentState>();
+  state.delegatedRunsBySession.set(sessionKey, bucket);
+  bucket.set(delegate.id, {
+    ...(bucket.get(delegate.id) ?? {}),
+    ...delegate,
+    artifacts: delegate.artifacts ?? bucket.get(delegate.id)?.artifacts,
+    trace: mergeDelegatedTrace(bucket.get(delegate.id)?.trace, delegate.trace),
+  });
+}
+
 function resolveToolCallInspectorPanel(state: ChatRunState, selection: ChatInspectorSelection): ChatInspectorPanel {
   if (selection.kind !== "tool_call") {
     return unavailablePanel(selection.kind);
@@ -770,7 +879,7 @@ function resolveDelegateInspectorPanel(state: ChatRunState, selection: ChatInspe
     return unavailablePanel(selection.kind);
   }
   const step = findStep(state, selection.sessionKey, selection.turnId, selection.stepId);
-  const delegate = step?.delegate;
+  const delegate = state.delegatedRunsBySession.get(selection.sessionKey)?.get(selection.delegateId) ?? step?.delegate;
   if (!delegate) {
     return unavailablePanel("delegate");
   }
@@ -779,6 +888,14 @@ function resolveDelegateInspectorPanel(state: ChatRunState, selection: ChatInspe
       delegate.task,
       delegate.latestActivity,
       delegate.finalOutput,
+      delegate.traceRef ? `Trace: ${delegate.traceRef}` : "",
+      delegate.permissionProfile ? `Permission: ${delegate.permissionProfile}` : "",
+      delegate.approvalPolicy ? `Approval policy: ${delegate.approvalPolicy}` : "",
+      delegate.approvalId ? `Approval: ${delegate.approvalId} (${delegate.approvalStatus || delegate.status})` : "",
+      delegate.toolName ? `Tool: ${delegate.toolName}` : "",
+      delegate.trace?.steps.length ? delegatedTraceText(delegate.trace) : "",
+      delegate.operationPreview,
+      delegate.reason,
       delegate.artifacts?.map((artifact) => `${artifact.kind}: ${artifact.title}`).join("\n"),
     ].filter(Boolean).join("\n\n"),
     kind: "delegate",
@@ -786,6 +903,106 @@ function resolveDelegateInspectorPanel(state: ChatRunState, selection: ChatInspe
     subtitle: [delegate.type, delegate.workflow, delegate.agentCount ? `${delegate.agentCount} agents` : ""].filter(Boolean).join(" / "),
     title: delegate.title,
   };
+}
+
+function delegatedTraceFromPayload(value: unknown): DelegatedAgentTraceState | undefined {
+  const payload = recordValue(value);
+  if (!Object.keys(payload).length) {
+    return undefined;
+  }
+  const delegateId = stringValue(payload.delegate_id ?? payload.delegateId);
+  if (!delegateId) {
+    return undefined;
+  }
+  return {
+    approvals: Array.isArray(payload.approvals) ? [...payload.approvals] : undefined,
+    artifacts: artifactArray(payload.artifacts),
+    childRunId: stringValue(payload.child_run_id ?? payload.childRunId),
+    delegateId,
+    finalMessage: chatMessageFromTrace(payload.final_message ?? payload.finalMessage),
+    parentRunId: stringValue(payload.parent_run_id ?? payload.parentRunId),
+    parentSessionKey: stringValue(payload.parent_session_key ?? payload.parentSessionKey),
+    status: statusValue(payload.status) || "running",
+    steps: traceStepArray(payload.steps),
+    updatedAt: stringValue(payload.updated_at ?? payload.updatedAt),
+  };
+}
+
+function traceStepArray(value: unknown): DelegatedAgentTraceStep[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((item) => {
+    const payload = recordValue(item);
+    return {
+      approvalId: stringValue(payload.approval_id ?? payload.approvalId),
+      argsPreview: safeArtifactText(stringValue(payload.args_preview ?? payload.argsPreview)),
+      createdAt: stringValue(payload.created_at ?? payload.createdAt),
+      error: safeArtifactText(stringValue(payload.error)),
+      id: stringValue(payload.id) || stableId("trace-step", stringValue(payload.kind), stringValue(payload.title)),
+      kind: stringValue(payload.kind) || "message",
+      resultPreview: safeArtifactText(stringValue(payload.result_preview ?? payload.resultPreview)),
+      status: statusValue(payload.status) || "running",
+      summary: safeArtifactText(stringValue(payload.summary)),
+      title: stringValue(payload.title) || stringValue(payload.kind) || "Trace step",
+      toolCallId: stringValue(payload.tool_call_id ?? payload.toolCallId),
+      toolName: stringValue(payload.tool_name ?? payload.toolName),
+      updatedAt: stringValue(payload.updated_at ?? payload.updatedAt),
+    };
+  });
+}
+
+function chatMessageFromTrace(value: unknown): ChatMessage | undefined {
+  const payload = recordValue(value);
+  const text = stringValue(payload.text ?? payload.content);
+  if (!text) {
+    return undefined;
+  }
+  return {
+    id: stringValue(payload.id) || "child-final",
+    role: "assistant",
+    text,
+    timestamp: stringValue(payload.timestamp ?? payload.created_at ?? payload.createdAt),
+  };
+}
+
+function mergeDelegatedTrace(
+  current: DelegatedAgentTraceState | undefined,
+  next: DelegatedAgentTraceState | undefined,
+): DelegatedAgentTraceState | undefined {
+  if (!next) {
+    return current;
+  }
+  if (!current) {
+    return next;
+  }
+  const steps = [...current.steps];
+  for (const step of next.steps) {
+    const index = steps.findIndex((item) => item.id === step.id);
+    if (index >= 0) {
+      steps[index] = { ...steps[index], ...step };
+    } else {
+      steps.push(step);
+    }
+  }
+  return {
+    ...current,
+    ...next,
+    artifacts: next.artifacts ?? current.artifacts,
+    finalMessage: next.finalMessage ?? current.finalMessage,
+    steps,
+  };
+}
+
+function delegatedTraceText(trace: DelegatedAgentTraceState): string {
+  const lines = trace.steps.map((step, index) => {
+    const detail = [step.summary, step.resultPreview, step.error].filter(Boolean).join(" ");
+    return `${index + 1}. ${step.title} [${step.kind}/${step.status}]${detail ? `\n${detail}` : ""}`;
+  });
+  if (trace.finalMessage?.text) {
+    lines.push(`Final answer\n${trace.finalMessage.text}`);
+  }
+  return lines.join("\n\n");
 }
 
 function resolveApprovalInspectorPanel(state: ChatRunState, selection: ChatInspectorSelection): ChatInspectorPanel {
@@ -919,6 +1136,9 @@ function statusValue(value: unknown): ChatStepStatus | "" {
   if (["pending", "running", "blocked", "completed", "failed", "cancelled"].includes(normalized)) {
     return normalized as ChatStepStatus;
   }
+  if (["awaiting_approval", "approval_required"].includes(normalized)) {
+    return "blocked";
+  }
   if (["complete", "success", "succeeded", "done"].includes(normalized)) {
     return "completed";
   }
@@ -1004,8 +1224,4 @@ function numberValue(value: unknown): number | undefined {
     return Number.isFinite(parsed) ? parsed : undefined;
   }
   return undefined;
-}
-
-function capitalize(value: string): string {
-  return value ? `${value.slice(0, 1).toUpperCase()}${value.slice(1)}` : value;
 }

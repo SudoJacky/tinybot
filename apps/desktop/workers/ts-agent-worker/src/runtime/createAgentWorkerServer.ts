@@ -133,6 +133,12 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
         provider,
         model: defaultModel,
         backgroundRegistry,
+        emitDelegatedEvent: (eventName, payload, traceId) => writeEvent({
+          protocol_version: WORKER_PROTOCOL_VERSION,
+          trace_id: traceId ?? "",
+          event: eventName,
+          payload,
+        }),
       }),
       ...createNativeTaskTools(rpcClient, {
         provider,

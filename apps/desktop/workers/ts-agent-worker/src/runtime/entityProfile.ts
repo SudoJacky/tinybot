@@ -96,21 +96,40 @@ export function mergeUserProfile(current: UserProfile, extracted: UserProfile): 
 }
 
 export function latestUserAssistantTurn(messages: AgentMessage[]): { userMessage: string; assistantMessage: string } | null {
-  const userIndex = messages.map((message) => message.role).lastIndexOf("user");
+  const profileMessages = messages.filter((message) => !isProfileExtractionControlMessage(message));
+  const userIndex = profileMessages.map((message) => message.role).lastIndexOf("user");
   if (userIndex < 0) {
     return null;
   }
   let assistant: AgentMessage | undefined;
-  for (let index = messages.length - 1; index > userIndex; index -= 1) {
-    if (messages[index]?.role === "assistant") {
-      assistant = messages[index];
+  for (let index = profileMessages.length - 1; index > userIndex; index -= 1) {
+    if (profileMessages[index]?.role === "assistant") {
+      assistant = profileMessages[index];
       break;
     }
   }
   return {
-    userMessage: messages[userIndex]?.content ?? "",
+    userMessage: profileMessages[userIndex]?.content ?? "",
     assistantMessage: assistant?.content ?? "",
   };
+}
+
+function isProfileExtractionControlMessage(message: AgentMessage): boolean {
+  if (message.role === "tool") {
+    return true;
+  }
+  const metadata = message.metadata ?? {};
+  if (
+    metadata._delegate_event === true
+    || metadata._task_event === true
+    || metadata._agent_ui_internal === true
+    || metadata._tool_result === true
+    || metadata._approval_status === "approval_required"
+  ) {
+    return true;
+  }
+  const content = message.content.trim();
+  return content === "Waiting for approval." || content === "Approved." || content === "Denied.";
 }
 
 function userProfileFromProviderText(text: string): UserProfile {
