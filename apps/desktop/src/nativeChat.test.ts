@@ -733,6 +733,165 @@ describe("native chat state", () => {
     ]);
   });
 
+  test("restores awaiting approval tool results from persisted metadata", () => {
+    expect(
+      normalizeMessagesPayload({
+        messages: [
+          {
+            role: "tool",
+            content: "Waiting for approval.",
+            tool_call_id: "call-spawn",
+            name: "spawn",
+            metadata: {
+              approvalId: "approval-1",
+              awaitingUserInput: true,
+              stopReason: "awaiting_approval",
+            },
+            timestamp: "2026-06-27T04:00:03Z",
+            message_id: "tool-approval",
+          },
+        ],
+      })[0].toolActivities,
+    ).toEqual([{
+      id: "call-spawn",
+      name: "spawn",
+      argsText: "",
+      responseText: "Waiting for approval.",
+      kind: "result",
+      approvalId: "approval-1",
+      approvalStatus: "approval_required",
+      status: "blocked",
+    }]);
+  });
+
+  test("restores pending delegated approvals from persisted delegated metadata", () => {
+    const messages = normalizeMessagesPayload({
+      messages: [
+        {
+          role: "tool",
+          content: "Waiting for approval.",
+          tool_call_id: "call-spawn",
+          name: "spawn",
+          approvalId: "approval-1",
+          awaitingUserInput: true,
+          stopReason: "awaiting_approval",
+          _delegate_event: true,
+          _delegate_id: "delegate-1",
+          _delegate_status: "awaiting_approval",
+          _delegate_task: "请用中文说一句\"你好\"",
+          timestamp: "2026-06-27T04:00:03Z",
+          message_id: "tool-approval",
+        },
+      ],
+    });
+
+    expect(messages[0].toolActivities).toEqual([expect.objectContaining({
+      id: "call-spawn",
+      name: "spawn",
+      responseText: "Waiting for approval.",
+      kind: "result",
+      approvalId: "approval-1",
+      approvalStatus: "approval_required",
+      status: "blocked",
+    })]);
+    expect(messages[0].toolActivities?.[0]?.argsText).toContain("请用中文说一句");
+  });
+
+  test("restores completed delegated results without losing delegated task details", () => {
+    const messages = normalizeMessagesPayload({
+      messages: [
+        {
+          role: "tool",
+          content: "child final result",
+          tool_call_id: "call-spawn",
+          name: "spawn",
+          _delegate_event: true,
+          _delegate_id: "delegate-1",
+          _delegate_result: { summary: "你好", status: "completed" },
+          _delegate_status: "completed",
+          _delegate_task: "请用中文说一句\"你好\"",
+          _delegate_trace: {
+            steps: [{
+              id: "tool:call-1:completed",
+              kind: "tool_call",
+              status: "completed",
+              title: "say",
+              resultPreview: "child said hello",
+            }],
+          },
+          timestamp: "2026-06-27T04:00:04Z",
+          message_id: "tool-delegate",
+        },
+      ],
+    });
+
+    expect(messages[0].toolActivities).toEqual([expect.objectContaining({
+      id: "call-spawn",
+      name: "spawn",
+      responseText: "child final result",
+      kind: "result",
+      status: "completed",
+    })]);
+    expect(messages[0].toolActivities?.[0]?.argsText).toContain("请用中文说一句");
+    expect(messages[0].toolActivities?.[0]?.argsText).toContain("Spawned agent workflow");
+    expect(messages[0].toolActivities?.[0]?.argsText).toContain("tool:call-1:completed");
+  });
+
+  test("merges pending approval tool result messages into the latest running tool by name", () => {
+    const state = createNativeChatState();
+    activateChat(state, "chat-1");
+    appendUserMessage(state, "Use subagent");
+
+    applyChatEvent(state, {
+      kind: "message.completed",
+      chatId: "chat-1",
+      messageId: "run-1:call-spawn:start",
+      text: "spawn({\"task\":\"say hi\"})",
+      raw: {
+        event: "agent.tool.start",
+        chat_id: "chat-1",
+        content: "spawn({\"task\":\"say hi\"})",
+        message_id: "run-1:call-spawn:start",
+        status: "running",
+        _tool_call_id: "call-spawn",
+        _tool_detail: true,
+        _tool_hint: true,
+        _tool_name: "spawn",
+      },
+    });
+    applyChatEvent(state, {
+      kind: "message.completed",
+      chatId: "chat-1",
+      messageId: "run-1:approval-1:approval",
+      text: "Waiting for approval.",
+      raw: {
+        event: "agent.awaiting_approval",
+        chat_id: "chat-1",
+        content: "Waiting for approval.",
+        message_id: "run-1:approval-1:approval",
+        status: "blocked",
+        _approval_id: "approval-1",
+        _approval_status: "approval_required",
+        _tool_call_id: "approval-1",
+        _tool_name: "spawn",
+        _tool_result: true,
+      },
+    });
+
+    const assistantMessages = state.messages.get(sessionKeyForChat("chat-1"))?.filter((message) => message.role === "assistant") ?? [];
+    expect(assistantMessages).toHaveLength(1);
+    expect(assistantMessages[0].toolActivities).toEqual([{
+      id: "call-spawn",
+      name: "spawn",
+      argsText: "spawn({\"task\":\"say hi\"})",
+      responseText: "Waiting for approval.",
+      kind: "result",
+      approvalId: "approval-1",
+      approvalStatus: "approval_required",
+      status: "blocked",
+    }]);
+  });
+
   test("merges approval requests into the matching tool activity", () => {
     const state = createNativeChatState();
     activateChat(state, "chat-1");
@@ -862,5 +1021,165 @@ describe("native chat state", () => {
       responseText: "Approved.",
       status: "completed",
     })]);
+  });
+
+  test("coalesces resolved approval activities with the original delegated tool call", () => {
+    const state = createNativeChatState();
+    activateChat(state, "chat-1");
+    appendUserMessage(state, "Use subagent");
+
+    applyChatEvent(state, {
+      kind: "message.completed",
+      chatId: "chat-1",
+      messageId: "run-1:call-spawn:start",
+      text: "spawn({\"task\":\"say hi\"})",
+      raw: {
+        event: "agent.tool.start",
+        chat_id: "chat-1",
+        content: "spawn({\"task\":\"say hi\"})",
+        message_id: "run-1:call-spawn:start",
+        status: "running",
+        _tool_call_id: "call-spawn",
+        _tool_detail: true,
+        _tool_hint: true,
+        _tool_name: "spawn",
+      },
+    });
+    applyChatEvent(state, {
+      kind: "message.completed",
+      chatId: "chat-1",
+      messageId: "run-1:approval:approval-1:result",
+      text: "Waiting for approval.",
+      raw: {
+        event: "message",
+        chat_id: "chat-1",
+        content: "Waiting for approval.",
+        message_id: "run-1:approval:approval-1:result",
+        status: "blocked",
+        _approval_id: "approval-1",
+        _approval_status: "approval_required",
+        _tool_call_id: "approval-1",
+        _tool_name: "spawn",
+        _tool_result: true,
+      },
+    });
+    applyChatEvent(state, {
+      kind: "agent.event",
+      chatId: "chat-1",
+      raw: {
+        event: "agent_event",
+        schema_version: "tinybot.agent_event.v1",
+        event_id: "event-approval",
+        event_type: "approval.requested",
+        chat_id: "chat-1",
+        session_key: "WebSocket:chat-1",
+        turn_id: "run-1",
+        step_id: "run-1:approval:approval-1",
+        sequence: 3,
+        created_at: "2026-06-27T04:00:02.000Z",
+        payload: {
+          approval_id: "approval-1",
+          approval_status: "approval_required",
+          args_preview: "",
+          title: "Approval required",
+          tool_call_id: "approval-1",
+        },
+      },
+    });
+
+    expect(resolveNativeChatApproval(state, {
+      approvalId: "approval-1",
+      decision: "approved",
+      sessionKey: "WebSocket:chat-1",
+    })).toBe(true);
+
+    const toolActivities = (state.messages.get(sessionKeyForChat("chat-1")) ?? [])
+      .flatMap((message) => message.toolActivities ?? []);
+    expect(toolActivities).toHaveLength(1);
+    expect(toolActivities[0]).toEqual(expect.objectContaining({
+      approvalId: "approval-1",
+      approvalStatus: "approved",
+      argsText: "spawn({\"task\":\"say hi\"})",
+      name: "spawn",
+      responseText: "Approved.",
+      status: "completed",
+    }));
+  });
+
+  test("merges completed tool results into the locally approved delegated tool call", () => {
+    const state = createNativeChatState();
+    activateChat(state, "chat-1");
+    appendUserMessage(state, "Use subagent");
+
+    applyChatEvent(state, {
+      kind: "message.completed",
+      chatId: "chat-1",
+      messageId: "run-1:call-spawn:start",
+      text: "spawn({\"task\":\"say hi\"})",
+      raw: {
+        event: "agent.tool.start",
+        chat_id: "chat-1",
+        content: "spawn({\"task\":\"say hi\"})",
+        message_id: "run-1:call-spawn:start",
+        status: "running",
+        _tool_call_id: "call-spawn",
+        _tool_detail: true,
+        _tool_hint: true,
+        _tool_name: "spawn",
+      },
+    });
+    applyChatEvent(state, {
+      kind: "message.completed",
+      chatId: "chat-1",
+      messageId: "run-1:approval:approval-1:result",
+      text: "Waiting for approval.",
+      raw: {
+        event: "message",
+        chat_id: "chat-1",
+        content: "Waiting for approval.",
+        message_id: "run-1:approval:approval-1:result",
+        status: "blocked",
+        _approval_id: "approval-1",
+        _approval_status: "approval_required",
+        _tool_call_id: "approval-1",
+        _tool_name: "spawn",
+        _tool_result: true,
+      },
+    });
+
+    expect(resolveNativeChatApproval(state, {
+      approvalId: "approval-1",
+      decision: "approved",
+      sessionKey: "WebSocket:chat-1",
+    })).toBe(true);
+    applyChatEvent(state, {
+      kind: "message.completed",
+      chatId: "chat-1",
+      messageId: "run-1:approval-1:completed",
+      text: "你好",
+      raw: {
+        event: "message",
+        chat_id: "chat-1",
+        content: "你好",
+        message_id: "run-1:approval-1:completed",
+        status: "completed",
+        _tool_call_id: "approval-1",
+        _tool_name: "spawn",
+        _tool_result: true,
+      },
+    });
+
+    const toolActivities = (state.messages.get(sessionKeyForChat("chat-1")) ?? [])
+      .flatMap((message) => message.toolActivities ?? []);
+    expect(toolActivities).toHaveLength(1);
+    expect(toolActivities[0]).toEqual(expect.objectContaining({
+      approvalId: "approval-1",
+      approvalStatus: "approved",
+      argsText: "spawn({\"task\":\"say hi\"})",
+      id: "call-spawn",
+      name: "spawn",
+      responseText: "你好",
+      status: "completed",
+    }));
   });
 });

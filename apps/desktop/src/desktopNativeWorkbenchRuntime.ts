@@ -96,6 +96,16 @@ export type DesktopTsAgentWorkerEventName =
   | "agent.awaiting_approval"
   | "agent.memory_reference"
   | "agent.task_progress"
+  | "agent.delegate.started"
+  | "agent.delegate.running"
+  | "agent.delegate.message_queued"
+  | "agent.delegate.awaiting_approval"
+  | "agent.delegate.tool.approval_required"
+  | "agent.delegate.tool.completed"
+  | "agent.delegate.trace.updated"
+  | "agent.delegate.completed"
+  | "agent.delegate.failed"
+  | "agent.delegate.closed"
   | "heartbeat.delivery"
   | "agent.cancelled"
   | "agent.done"
@@ -398,6 +408,10 @@ export function createDesktopNativeWorkbenchRuntime({
       projectTsAgentTaskProgress(frame, runId, chatId);
       return;
     }
+    if (isDelegatedTsAgentEventName(eventName)) {
+      projectTsAgentDelegatedEvent(eventName, frame, runId, chatId);
+      return;
+    }
     if (eventName === "agent.delta" || eventName === "agent.reasoning_delta") {
       applyChatEvent(chatController.state, {
         kind: "message.delta",
@@ -478,6 +492,19 @@ export function createDesktopNativeWorkbenchRuntime({
       const toolCallId = stringValue(frame.toolCallId ?? frame.tool_call_id) || `${runId}:tool`;
       const toolName = stringValue(frame.toolName ?? frame.tool_name) || "tool";
       const content = stringValue(frame.content ?? frame.result ?? frame.output);
+      const metadata = isRecord(frame.metadata) ? frame.metadata : {};
+      if (metadata._delegate_event === true) {
+        projectTsAgentDelegatedEvent(
+          delegatedEventTypeFromToolMetadata(metadata),
+          delegatePayloadFromTsAgentToolResult(metadata, runId, toolCallId, toolName, content),
+          runId,
+          chatId,
+        );
+        deleteTsAgentToolCallDelta(runId, toolCallId);
+        keepTsAgentRunResponding(chatId);
+        composerState = "sending";
+        return;
+      }
       applyChatEvent(chatController.state, {
         kind: "message.completed",
         chatId,
@@ -559,11 +586,39 @@ export function createDesktopNativeWorkbenchRuntime({
     const approvalId = stringValue(frame.approvalId ?? frame.approval_id);
     if (!approvalId) {
       chatStatus = "TS agent awaiting approval, but approval id is missing.";
+      logDesktopNativeDebug("runtime.tsAgent.awaitingApproval.missingApprovalId", {
+        chatId,
+        runId,
+      });
       return;
     }
     const operation = isRecord(frame.operation) ? frame.operation : {};
     const toolName = stringValue(operation.toolName ?? operation.tool_name ?? frame.toolName ?? frame.tool_name) || "approval";
+    const explicitToolCallId = stringValue(frame.toolCallId ?? frame.tool_call_id)
+      || stringValue(operation.toolCallId ?? operation.tool_call_id);
+    logDesktopNativeDebug("runtime.tsAgent.awaitingApproval.received", {
+      approvalId,
+      chatId,
+      explicitToolCallId,
+      runId,
+      toolName,
+    });
+    const cachedToolCall = findLatestTsAgentToolCallByName(runId, chatId, toolName);
+    const toolCallId = explicitToolCallId
+      || cachedToolCall?.toolCallId
+      || approvalId;
     const content = stringValue(frame.content) || `Approval required: ${toolName}`;
+    logDesktopNativeDebug("runtime.tsAgent.awaitingApproval.project", {
+      approvalId,
+      cachedStatus: cachedToolCall?.status ?? "",
+      chatId,
+      content: summarizeDebugText(content),
+      messageId: `${runId}:${approvalId}:approval`,
+      runId,
+      toolCallId,
+      toolName,
+      usedCachedToolCall: Boolean(!explicitToolCallId && cachedToolCall?.toolCallId),
+    });
     applyChatEvent(chatController.state, {
       kind: "message.completed",
       chatId,
@@ -578,7 +633,7 @@ export function createDesktopNativeWorkbenchRuntime({
         status: "blocked",
         _approval_id: approvalId,
         _approval_status: "approval_required",
-        _tool_call_id: approvalId,
+        _tool_call_id: toolCallId,
         _tool_name: toolName,
         _tool_result: true,
       },
@@ -677,6 +732,97 @@ export function createDesktopNativeWorkbenchRuntime({
     chatStatus = "TS agent memory references updated.";
   }
 
+  function delegatePayloadFromTsAgentToolResult(
+    metadata: Record<string, unknown>,
+    runId: string,
+    toolCallId: string,
+    toolName: string,
+    content: string,
+  ): Record<string, unknown> {
+    const result = isRecord(metadata._delegate_result) ? metadata._delegate_result : {};
+    const status = normalizeDelegatedToolStatus(stringValue(metadata._delegate_status) || stringValue(result.status));
+    return {
+      runId,
+      run_id: runId,
+      delegateId: stringValue(metadata._delegate_id) || stringValue(metadata._background_run_id) || toolCallId,
+      delegate_id: stringValue(metadata._delegate_id) || stringValue(metadata._background_run_id) || toolCallId,
+      delegate_type: "spawn",
+      title: stringValue(metadata._delegate_label) || stringValue(metadata._background_label) || toolName,
+      task: stringValue(metadata._delegate_task) || stringValue(metadata._background_task),
+      status,
+      toolCallId,
+      tool_call_id: toolCallId,
+      latest_activity: content,
+      final_output: stringValue(result.summary) || content,
+      traceRef: stringValue(metadata._delegate_trace_ref),
+      trace_ref: stringValue(metadata._delegate_trace_ref),
+      approval_id: stringValue(metadata.approvalId),
+      approval_status: stringValue(metadata.approvalStatus),
+      child_run_id: stringValue(metadata._delegate_child_run_id),
+      child_tool_call_id: stringValue(metadata._delegate_child_tool_call_id),
+      tool_name: stringValue(metadata._delegate_child_tool_name) || toolName,
+      operation_preview: stringValue(metadata._delegate_operation_preview),
+      workflow: "Spawned agent workflow",
+    };
+  }
+
+  function delegatedEventTypeFromToolMetadata(metadata: Record<string, unknown>): DesktopTsAgentWorkerEventName {
+    const result = isRecord(metadata._delegate_result) ? metadata._delegate_result : {};
+    const status = normalizeDelegatedToolStatus(stringValue(metadata._delegate_status) || stringValue(result.status));
+    if (status === "completed") {
+      return "agent.delegate.completed";
+    }
+    if (status === "failed") {
+      return "agent.delegate.failed";
+    }
+    if (status === "closed" || status === "cancelled") {
+      return "agent.delegate.closed";
+    }
+    if (status === "blocked") {
+      return "agent.delegate.awaiting_approval";
+    }
+    return "agent.delegate.running";
+  }
+
+  function normalizeDelegatedToolStatus(value: string): string {
+    const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+    if (normalized === "approval_required" || normalized === "awaiting_approval") {
+      return "blocked";
+    }
+    return normalized || "running";
+  }
+
+  function projectTsAgentDelegatedEvent(
+    eventName: DesktopTsAgentWorkerEventName,
+    frame: Record<string, unknown>,
+    runId: string,
+    chatId: string,
+  ): void {
+    const sessionKey = sessionKeyForChatState(chatController.state, chatId);
+    const sequence = numberValue(frame.sequence) ?? Date.now();
+    const delegateId = stringValue(frame.delegateId ?? frame.delegate_id) || `${runId}:delegate`;
+    applyChatEvent(chatController.state, {
+      kind: "agent.event",
+      raw: {
+        schema_version: "tinybot.agent_event.v1",
+        event_id: `${runId}:${eventName}:${delegateId}:${sequence}`,
+        event_type: eventName,
+        chat_id: chatId,
+        session_key: sessionKey,
+        turn_id: runId,
+        step_id: `${runId}:delegate:${delegateId}`,
+        sequence,
+        created_at: now?.() ?? new Date().toISOString(),
+        payload: {
+          ...frame,
+          runId,
+          run_id: runId,
+        },
+      },
+    });
+    chatStatus = "TS agent delegated work updated.";
+  }
+
   function completeTsAgentRun(runId: string, chatId: string, completionPayload: Record<string, unknown> = {}): void {
     const preserveCheckpoint = isAwaitingTsAgentStopReason(completionPayload.stopReason ?? completionPayload.stop_reason);
     applyChatEvent(chatController.state, {
@@ -702,6 +848,34 @@ export function createDesktopNativeWorkbenchRuntime({
     for (const [key, value] of activeTsAgentToolCallDeltas.entries()) {
       if (key.startsWith(`${runId}:`) && value.toolCallId === toolCallId) {
         return { argumentsText: value.argumentsText, toolName: value.toolName };
+      }
+    }
+    return null;
+  }
+
+  function findLatestTsAgentToolCallByName(
+    runId: string,
+    chatId: string,
+    toolName: string,
+  ): { status?: string; toolCallId: string } | null {
+    for (const [key, value] of Array.from(activeTsAgentToolCallDeltas.entries()).reverse()) {
+      if (key.startsWith(`${runId}:`) && value.toolName === toolName) {
+        return { status: "delta", toolCallId: value.toolCallId };
+      }
+    }
+    const sessionKey = sessionKeyForChatState(chatController.state, chatId);
+    const messages = sessionKey ? chatController.state.messages.get(sessionKey) ?? [] : [];
+    for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
+      const activities = messages[messageIndex].toolActivities ?? [];
+      for (let activityIndex = activities.length - 1; activityIndex >= 0; activityIndex -= 1) {
+        const activity = activities[activityIndex];
+        if (
+          activity.name === toolName
+          && activity.id
+          && ["", "pending", "running"].includes((activity.status || "").toLowerCase())
+        ) {
+          return { status: activity.status, toolCallId: activity.id };
+        }
       }
     }
     return null;
@@ -902,6 +1076,10 @@ function tsAgentToolCallDeltaKey(runId: string, index: number): string {
 
 function isNativeWebSocketRunId(runId: string): boolean {
   return runId.startsWith("websocket-") || runId.startsWith("openai-chat-");
+}
+
+function isDelegatedTsAgentEventName(eventName: DesktopTsAgentWorkerEventName): boolean {
+  return eventName.startsWith("agent.delegate.");
 }
 
 function isAwaitingTsAgentStopReason(value: unknown): boolean {

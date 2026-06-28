@@ -105,6 +105,27 @@ describe("TaskProviderSubagentExecutor", () => {
     ]);
   });
 
+  test("returns after spawning a task subagent without waiting for completion", async () => {
+    const first = deferred<ModelResponse>();
+    const provider = new QueueProvider([first.promise]);
+    const executor = new TaskProviderSubagentExecutor({
+      provider,
+      model: "test-model",
+      maxConcurrent: 1,
+      timeoutMs: 1000,
+      idGenerator: () => "task-subagent-1",
+    });
+    const completions: Array<{ status: string; result?: string | null }> = [];
+
+    await executor.spawnSubtask(requestFor("a", "Inspect", completions), "trace-1");
+
+    expect(provider.requests).toHaveLength(1);
+    expect(completions).toEqual([]);
+    first.resolve({ content: "inspection complete", toolCalls: [], stopReason: "stop" });
+    await waitFor(() => completions.length === 1);
+    expect(completions).toEqual([{ status: "completed", result: "inspection complete" }]);
+  });
+
   test("runs configured subagent tools through AgentRunner before completing", async () => {
     const provider = new QueueProvider([
       Promise.resolve({

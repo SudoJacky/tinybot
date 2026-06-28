@@ -1379,14 +1379,20 @@ describe("desktop native workbench runtime", () => {
     runtime.submitComposerMessage("Need approval");
     const runId = String((runSpecs[0] as { runId: string }).runId);
 
+    runtime.handleTsAgentWorkerEvent("agent.tool.start", {
+      runId,
+      toolCallId: "call-spawn",
+      toolName: "spawn",
+    });
+
     runtime.handleTsAgentWorkerEvent("agent.awaiting_approval", {
       runId,
       stopReason: "awaiting_approval",
       approvalId: "approval-run-1",
-      content: "Approve write_file",
+      content: "Approve spawn",
       operation: {
-        toolName: "write_file",
-        arguments: { path: "notes/today.md" },
+        toolName: "spawn",
+        arguments: { task: "say hello" },
       },
     });
 
@@ -1396,9 +1402,10 @@ describe("desktop native workbench runtime", () => {
         role: "assistant",
         toolActivities: [
           {
-            id: "approval-run-1",
-            name: "write_file",
-            responseText: "Approve write_file",
+            id: "call-spawn",
+            name: "spawn",
+            argsText: "spawn()",
+            responseText: "Approve spawn",
             kind: "result",
             status: "blocked",
             approvalId: "approval-run-1",
@@ -1463,6 +1470,65 @@ describe("desktop native workbench runtime", () => {
     expect(runtime.chat.responding).toBe(false);
     expect(runtime.chat.composerState).toBe("idle");
     expect(runtime.chat.status).toBe("TS agent awaiting approval.");
+  });
+
+  test("projects delegated TS agent tool results without duplicate spawn tool rows", async () => {
+    const runSpecs: unknown[] = [];
+    const runtime = createDesktopNativeWorkbenchRuntime({
+      api: {
+        listSessions: async () => ({
+          items: [{ key: "WebSocket:chat-ts-delegate", chat_id: "chat-ts-delegate", title: "TS delegate chat" }],
+        }),
+        loadMessages: async () => ({ messages: [] }),
+      },
+      sendSocketMessage: () => undefined,
+      agentRoute: "ts-agent",
+      runTsAgent: async (spec) => {
+        runSpecs.push(spec);
+        return {
+          finalContent: "",
+          stopReason: "completed",
+          messages: [],
+          toolsUsed: ["spawn"],
+        };
+      },
+      now: () => "2026-06-03T08:27:00.000Z",
+    });
+    await runtime.loadInitialChatState();
+    runtime.submitComposerMessage("Spawn a subagent");
+    const runId = String((runSpecs[0] as { runId: string }).runId);
+
+    runtime.handleTsAgentWorkerEvent("agent.tool.start", {
+      runId,
+      toolCallId: "call-spawn",
+      toolName: "spawn",
+    });
+    runtime.handleTsAgentWorkerEvent("agent.tool.result", {
+      runId,
+      toolCallId: "call-spawn",
+      toolName: "spawn",
+      content: "child final result",
+      metadata: {
+        _delegate_event: true,
+        _delegate_id: "delegate-1",
+        _delegate_label: "打招呼",
+        _delegate_result: { summary: "你好", status: "completed" },
+        _delegate_status: "completed",
+        _delegate_task: "请用中文说一句\"你好\"",
+      },
+    });
+
+    const activities = runtime.chat.messages.flatMap((message) => message.toolActivities ?? []);
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toMatchObject({
+      id: "call-spawn",
+      kind: "result",
+      name: "spawn",
+      responseText: "child final result",
+      status: "completed",
+    });
+    expect(activities[0]?.argsText).toContain("请用中文说一句");
+    expect(runtime.chat.status).toBe("TS agent delegated work updated.");
   });
 
   test("projects TS agent task progress events into native chat activities", async () => {

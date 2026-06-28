@@ -24,6 +24,16 @@ export type DesktopNativeWebSocketAgentEventName =
   | "agent.awaiting_approval"
   | "agent.memory_reference"
   | "agent.task_progress"
+  | "agent.delegate.started"
+  | "agent.delegate.running"
+  | "agent.delegate.message_queued"
+  | "agent.delegate.awaiting_approval"
+  | "agent.delegate.tool.approval_required"
+  | "agent.delegate.tool.completed"
+  | "agent.delegate.trace.updated"
+  | "agent.delegate.completed"
+  | "agent.delegate.failed"
+  | "agent.delegate.closed"
   | "agent.browser_frame"
   | "cowork_updated"
   | "cowork_state"
@@ -49,6 +59,16 @@ const AGENT_EVENT_NAMES: DesktopNativeWebSocketAgentEventName[] = [
   "agent.awaiting_approval",
   "agent.memory_reference",
   "agent.task_progress",
+  "agent.delegate.started",
+  "agent.delegate.running",
+  "agent.delegate.message_queued",
+  "agent.delegate.awaiting_approval",
+  "agent.delegate.tool.approval_required",
+  "agent.delegate.tool.completed",
+  "agent.delegate.trace.updated",
+  "agent.delegate.completed",
+  "agent.delegate.failed",
+  "agent.delegate.closed",
   "agent.browser_frame",
   "cowork_updated",
   "cowork_state",
@@ -447,10 +467,31 @@ class DesktopNativeWebSocket extends EventTarget {
       const toolName = stringValue(payload.toolName) || stringValue(payload.tool_name) || "tool";
       const text = stringValue(payload.content) || stringValue(payload.result) || stringValue(payload.output);
       const metadata = isRecord(payload.metadata) ? payload.metadata : {};
+      if (metadata._delegate_event === true) {
+        const delegatedPayload = delegatePayloadFromToolResult(metadata, runId, toolCallId, toolName, text);
+        const delegateId = stringValue(delegatedPayload.delegate_id) || `${runId}:delegate`;
+        this.emitAgentEventFrame(
+          run,
+          runId,
+          delegatedEventTypeFromStatus(stringValue(delegatedPayload.status)),
+          delegatedPayload,
+          `${runId}:delegate:${delegateId}`,
+        );
+        return;
+      }
       const approvalId = approvalIdFromPayload(payload, metadata);
       const awaitingApproval = isAwaitingApprovalToolResult(payload, metadata, text);
       const failed = ["failed", "error", "errored"].includes(stringValue(payload.status).toLowerCase());
       if (awaitingApproval) {
+        this.emitApprovalRequiredToolResultFrame({
+          approvalId,
+          messageId: `${runId}:${toolCallId}:result`,
+          run,
+          runId,
+          text: text || "Waiting for approval.",
+          toolCallId,
+          toolName,
+        });
         if (approvalId) {
           this.emitJson({
             event: "approval_pending",
@@ -504,6 +545,15 @@ class DesktopNativeWebSocket extends EventTarget {
         || stringValue(operation.toolName)
         || stringValue(operation.tool_name)
         || "tool";
+      this.emitApprovalRequiredToolResultFrame({
+        approvalId,
+        messageId: approvalId ? `${runId}:approval:${approvalId}:result` : `${runId}:${toolCallId}:approval:result`,
+        run,
+        runId,
+        text: stringValue(payload.content) || stringValue(payload.text) || "Waiting for approval.",
+        toolCallId,
+        toolName,
+      });
       this.emitJson({
         event: "approval_pending",
         chat_id: run.chatId,
@@ -539,6 +589,11 @@ class DesktopNativeWebSocket extends EventTarget {
       const toolName = stringValue(payload.toolName) || stringValue(payload.tool_name) || "task_progress";
       const planId = stringValue(payload.planId) || stringValue(payload.plan_id) || (isRecord(progress) ? stringValue(progress.plan_id) : "");
       this.emitTaskProgressFrame(run.chatId, `${runId}:${toolCallId}:task-progress`, toolName, toolCallId, progress, planId);
+      return;
+    }
+    if (isDelegatedAgentEventName(eventName)) {
+      const delegateId = stringValue(payload.delegateId) || stringValue(payload.delegate_id) || `${runId}:delegate`;
+      this.emitAgentEventFrame(run, runId, eventName, payload, `${runId}:delegate:${delegateId}`);
       return;
     }
     if (eventName === "agent.browser_frame") {
@@ -689,6 +744,33 @@ class DesktopNativeWebSocket extends EventTarget {
     });
   }
 
+  private emitApprovalRequiredToolResultFrame(options: {
+    approvalId: string;
+    messageId: string;
+    run: ActiveRun;
+    runId: string;
+    text: string;
+    toolCallId: string;
+    toolName: string;
+  }): void {
+    this.emitToolProgressFrame(options.run.chatId, options.messageId, options.toolName, options.toolCallId, options.text, {
+      result: true,
+    }, {
+      ...(options.approvalId ? { _approval_id: options.approvalId } : {}),
+      _approval_status: "approval_required",
+      status: "blocked",
+    });
+    logDesktopNativeDebug("nativeWebSocket.agentEvent.projected", {
+      approvalId: options.approvalId,
+      chatId: options.run.chatId,
+      eventName: "agent.awaiting_approval",
+      messageId: options.messageId,
+      runId: options.runId,
+      toolCallId: options.toolCallId,
+      toolName: options.toolName,
+    });
+  }
+
   private emitTurnStartedFrame(run: ActiveRun, runId: string, frame: Record<string, unknown>): void {
     if (this.startedAgentRunIds.has(runId)) {
       return;
@@ -783,6 +865,68 @@ class DesktopNativeWebSocket extends EventTarget {
       handler.call(this, event);
     }
   }
+}
+
+function isDelegatedAgentEventName(eventName: DesktopNativeWebSocketAgentEventName): boolean {
+  return eventName.startsWith("agent.delegate.");
+}
+
+function delegatePayloadFromToolResult(
+  metadata: Record<string, unknown>,
+  runId: string,
+  toolCallId: string,
+  toolName: string,
+  text: string,
+): Record<string, unknown> {
+  const result = isRecord(metadata._delegate_result) ? metadata._delegate_result : {};
+  const status = normalizeDelegateStatus(stringValue(metadata._delegate_status) || stringValue(result.status));
+  return {
+    runId,
+    run_id: runId,
+    delegateId: stringValue(metadata._delegate_id) || stringValue(metadata._background_run_id) || toolCallId,
+    delegate_id: stringValue(metadata._delegate_id) || stringValue(metadata._background_run_id) || toolCallId,
+    delegate_type: "spawn",
+    title: stringValue(metadata._delegate_label) || stringValue(metadata._background_label) || toolName,
+    task: stringValue(metadata._delegate_task) || stringValue(metadata._background_task),
+    status,
+    toolCallId,
+    tool_call_id: toolCallId,
+    latest_activity: text,
+    final_output: stringValue(result.summary) || text,
+    traceRef: stringValue(metadata._delegate_trace_ref),
+    trace_ref: stringValue(metadata._delegate_trace_ref),
+    approval_id: stringValue(metadata.approvalId),
+    approval_status: stringValue(metadata.approvalStatus),
+    child_run_id: stringValue(metadata._delegate_child_run_id),
+    child_tool_call_id: stringValue(metadata._delegate_child_tool_call_id),
+    tool_name: stringValue(metadata._delegate_child_tool_name) || toolName,
+    operation_preview: stringValue(metadata._delegate_operation_preview),
+    workflow: "Spawned agent workflow",
+  };
+}
+
+function delegatedEventTypeFromStatus(status: string): string {
+  if (status === "completed") {
+    return "agent.delegate.completed";
+  }
+  if (status === "failed") {
+    return "agent.delegate.failed";
+  }
+  if (status === "closed" || status === "cancelled") {
+    return "agent.delegate.closed";
+  }
+  if (status === "awaiting_approval" || status === "blocked") {
+    return "agent.delegate.awaiting_approval";
+  }
+  return "agent.delegate.running";
+}
+
+function normalizeDelegateStatus(value: string): string {
+  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (normalized === "approval_required" || normalized === "awaiting_approval") {
+    return "blocked";
+  }
+  return normalized || "running";
 }
 
 function createClientId(): string {

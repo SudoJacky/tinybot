@@ -124,7 +124,19 @@ export function normalizeMessagesPayload(payload: unknown): NativeChatMessage[] 
       messageId: stringValue(message.message_id),
     };
   });
-  return coalesceToolActivityMessages(messages);
+  const normalized = coalesceToolActivityMessages(messages);
+  const approvalActivities = normalized
+    .flatMap((message) => message.toolActivities ?? [])
+    .filter(isPendingApprovalActivity);
+  if (approvalActivities.length) {
+    logDesktopNativeChatDebug("state.messages.normalize.approvals", {
+      approvalActivities: approvalActivities.map(summarizeNativeToolActivity),
+      approvalCount: approvalActivities.length,
+      messageCount: normalized.length,
+      rawMessageCount: messages.length,
+    });
+  }
+  return normalized;
 }
 
 export function setSessions(state: NativeChatState, sessions: NativeChatSession[]) {
@@ -185,7 +197,7 @@ export function resolveNativeChatApproval(
     }
   }
   if (turns.length && changed) {
-    state.messages.set(options.sessionKey, conversationMessagesToNativeMessages(turnsToConversationMessages(turns)));
+    state.messages.set(options.sessionKey, coalesceToolActivityMessages(conversationMessagesToNativeMessages(turnsToConversationMessages(turns))));
   }
   return changed;
 }
@@ -296,7 +308,7 @@ export function applyChatEvent(state: NativeChatState, event: NormalizedGatewayE
     }
     reduceAgentEvent(state.chatRuns, { ...envelope, session_key: sessionKey });
     const turns = state.chatRuns.turnsBySession.get(sessionKey) ?? [];
-    state.messages.set(sessionKey, conversationMessagesToNativeMessages(turnsToConversationMessages(turns)));
+    state.messages.set(sessionKey, coalesceToolActivityMessages(conversationMessagesToNativeMessages(turnsToConversationMessages(turns))));
     if (
       envelope.event_type === "agent.turn.completed"
       || envelope.event_type === "agent.turn.failed"
@@ -452,16 +464,133 @@ function upsertStreamMessage(
 }
 
 function upsertToolActivityMessage(bucket: NativeChatMessage[], nextActivity: NativeChatToolActivity): boolean {
-  const existingMessage = bucket.find((message) => (
-    Boolean(message.toolActivities?.some((activity) => activity.id === nextActivity.id))
-  ));
-  if (!existingMessage?.toolActivities) {
+  const exactMatch = findToolActivityMatch(bucket, (activity) => activity.id === nextActivity.id);
+  if (exactMatch) {
+    const currentActivity = exactMatch.message.toolActivities?.[exactMatch.index];
+    if (isPendingApprovalActivity(nextActivity) || (currentActivity && isPendingApprovalActivity(currentActivity))) {
+      logDesktopNativeChatDebug("state.toolActivity.upsert.exact", {
+        current: currentActivity ? summarizeNativeToolActivity(currentActivity) : null,
+        next: summarizeNativeToolActivity(nextActivity),
+      });
+    }
+    exactMatch.message.toolActivities = exactMatch.message.toolActivities?.map((activity, index) => (
+      index === exactMatch.index ? mergeToolActivity(activity, nextActivity) : activity
+    ));
+    return true;
+  }
+  const approvalLifecycle = isApprovalLifecycleActivity(nextActivity);
+  const canMergeCompletedApprovalResult = isCompletedToolResultActivity(nextActivity);
+  const fallbackMatch = approvalLifecycle || canMergeCompletedApprovalResult
+    ? findLatestRelatedToolActivity(bucket, nextActivity)
+    : null;
+  if (!fallbackMatch) {
+    if (approvalLifecycle) {
+      logDesktopNativeChatDebug("state.toolActivity.upsert.miss", {
+        next: summarizeNativeToolActivity(nextActivity),
+        reason: "no exact id and no related approval/tool activity",
+      });
+    }
     return false;
   }
-  existingMessage.toolActivities = existingMessage.toolActivities.map((activity) => (
-    activity.id === nextActivity.id ? mergeToolActivity(activity, nextActivity) : activity
+  const currentActivity = fallbackMatch.message.toolActivities?.[fallbackMatch.index];
+  logDesktopNativeChatDebug("state.toolActivity.upsert.fallback", {
+    current: currentActivity ? summarizeNativeToolActivity(currentActivity) : null,
+    next: summarizeNativeToolActivity(nextActivity),
+  });
+  fallbackMatch.message.toolActivities = fallbackMatch.message.toolActivities?.map((activity, index) => (
+    index === fallbackMatch.index ? mergeToolActivity(activity, nextActivity) : activity
   ));
   return true;
+}
+
+function findToolActivityMatch(
+  bucket: NativeChatMessage[],
+  predicate: (activity: NativeChatToolActivity) => boolean,
+): { index: number; message: NativeChatMessage } | null {
+  for (const message of bucket) {
+    const index = message.toolActivities?.findIndex(predicate) ?? -1;
+    if (index >= 0) {
+      return { index, message };
+    }
+  }
+  return null;
+}
+
+function findLatestRelatedToolActivity(
+  bucket: NativeChatMessage[],
+  nextActivity: NativeChatToolActivity,
+): { index: number; message: NativeChatMessage } | null {
+  for (let messageIndex = bucket.length - 1; messageIndex >= 0; messageIndex -= 1) {
+    const message = bucket[messageIndex];
+    const activities = message.toolActivities ?? [];
+    for (let index = activities.length - 1; index >= 0; index -= 1) {
+      const activity = activities[index];
+      if (areRelatedApprovalActivities(activity, nextActivity)) {
+        return { index, message };
+      }
+    }
+  }
+  return null;
+}
+
+function areRelatedApprovalActivities(
+  current: NativeChatToolActivity,
+  next: NativeChatToolActivity,
+): boolean {
+  if (next.approvalId && current.approvalId === next.approvalId) {
+    return true;
+  }
+  if (!next.name || current.name !== next.name) {
+    return false;
+  }
+  const currentStatus = (current.status || "").toLowerCase();
+  return ["", "pending", "running", "blocked"].includes(currentStatus)
+    || isApprovalLifecycleActivity(current);
+}
+
+function isPendingApprovalActivity(activity: NativeChatToolActivity): boolean {
+  return Boolean(
+    activity.approvalId
+    || activity.approvalStatus === "approval_required"
+    || activity.status === "blocked"
+    || activity.responseText.trim() === "Waiting for approval.",
+  );
+}
+
+function isApprovalLifecycleActivity(activity: NativeChatToolActivity): boolean {
+  return Boolean(
+    activity.approvalId
+    || activity.approvalStatus
+    || isApprovalResolutionText(activity.responseText)
+    || isPendingApprovalActivity(activity),
+  );
+}
+
+function isCompletedToolResultActivity(activity: NativeChatToolActivity): boolean {
+  const status = (activity.status || "").toLowerCase();
+  return activity.kind === "result"
+    && !isApprovalLifecycleActivity(activity)
+    && (!status || status === "completed")
+    && Boolean(activity.responseText.trim());
+}
+
+function isApprovalResolutionText(value: string): boolean {
+  const text = value.trim();
+  return text === "Approved." || text === "Denied.";
+}
+
+function summarizeNativeToolActivity(activity: NativeChatToolActivity): Record<string, unknown> {
+  return {
+    approvalId: activity.approvalId ?? "",
+    approvalStatus: activity.approvalStatus ?? "",
+    args: summarizeDebugText(activity.argsText),
+    id: activity.id,
+    kind: activity.kind,
+    name: activity.name,
+    response: summarizeDebugText(activity.responseText),
+    sessionKey: activity.sessionKey ?? "",
+    status: activity.status ?? "",
+  };
 }
 
 function attachMessageReferences(
@@ -531,9 +660,13 @@ function mergeToolActivity(
   current: NativeChatToolActivity,
   next: NativeChatToolActivity,
 ): NativeChatToolActivity {
+  const keepCurrentId = current.id !== next.id
+    && (isApprovalLifecycleActivity(current) || isApprovalLifecycleActivity(next));
   return {
     ...current,
     ...next,
+    id: keepCurrentId ? current.id : next.id || current.id,
+    name: next.name && next.name !== "tool" ? next.name : current.name,
     argsText: next.argsText || current.argsText,
     responseText: next.responseText || current.responseText,
   };
@@ -713,7 +846,17 @@ function normalizeToolActivities(message: Record<string, unknown>): NativeChatTo
   if (!activities.length && (message.role === "tool" || message.role === "progress")) {
     const responseText = textValue(message.content ?? message.text);
     if (responseText) {
-      const status = normalizeToolActivityStatus(message.status ?? message.state ?? message.phase);
+      if (isDelegatedToolMessage(message)) {
+        activities.push(delegatedToolActivityFromMessage(message, responseText));
+        return activities;
+      }
+      const metadata = messageMetadata(message);
+      const awaitingApproval = isAwaitingApprovalMessage(message, responseText);
+      const approvalId = stringValue(message._approval_id ?? message.approval_id ?? metadata.approvalId ?? metadata.approval_id);
+      const approvalStatus = stringValue(message._approval_status ?? message.approval_status)
+        || (awaitingApproval ? "approval_required" : "");
+      const status = normalizeToolActivityStatus(message.status ?? message.state ?? message.phase)
+        || (awaitingApproval ? "blocked" : "");
       const isResult = message.role === "tool" || booleanValue(message._tool_result);
       activities.push({
         id: stringValue(message.tool_call_id ?? message.toolCallId ?? message._tool_call_id) || stringValue(message.message_id) || "tool-result",
@@ -721,8 +864,8 @@ function normalizeToolActivities(message: Record<string, unknown>): NativeChatTo
         argsText: "",
         responseText,
         kind: "result",
-        ...(stringValue(message._approval_id ?? message.approval_id) ? { approvalId: stringValue(message._approval_id ?? message.approval_id) } : {}),
-        ...(stringValue(message._approval_status) ? { approvalStatus: stringValue(message._approval_status) } : {}),
+        ...(approvalId ? { approvalId } : {}),
+        ...(approvalStatus ? { approvalStatus } : {}),
         ...(status || isResult ? { status: status || "completed" } : {}),
       });
     }
@@ -756,18 +899,111 @@ function toolActivityFromMessage(message: Record<string, unknown>): NativeChatTo
   if (!text) {
     return null;
   }
+  if (isDelegatedToolMessage(message)) {
+    return delegatedToolActivityFromMessage(message, text);
+  }
   const isResult = booleanValue(message._tool_result) || message.role === "tool";
-  const status = normalizeToolActivityStatus(message.status ?? message.state ?? message.phase);
+  const metadata = messageMetadata(message);
+  const approvalId = stringValue(message._approval_id ?? message.approval_id ?? metadata.approvalId ?? metadata.approval_id);
+  const awaitingApproval = isAwaitingApprovalMessage(message, text);
+  const approvalStatus = stringValue(message._approval_status ?? message.approval_status)
+    || (awaitingApproval ? "approval_required" : "");
+  const status = normalizeToolActivityStatus(message.status ?? message.state ?? message.phase)
+    || (awaitingApproval ? "blocked" : "");
   return {
     id: stringValue(message.tool_call_id ?? message.toolCallId ?? message._tool_call_id) || stringValue(message.message_id) || (isResult ? "tool-result" : "tool-detail"),
     name: stringValue(message._tool_name ?? message.name) || inferToolNameFromText(text) || "tool",
     argsText: isResult ? "" : text,
     responseText: isResult ? text : "",
     kind: isResult ? "result" : "call",
-    ...(stringValue(message._approval_id ?? message.approval_id) ? { approvalId: stringValue(message._approval_id ?? message.approval_id) } : {}),
-    ...(stringValue(message._approval_status ?? message.approval_status) ? { approvalStatus: stringValue(message._approval_status ?? message.approval_status) } : {}),
+    ...(approvalId ? { approvalId } : {}),
+    ...(approvalStatus ? { approvalStatus } : {}),
     ...(status ? { status } : { status: isResult ? "completed" : "running" }),
   };
+}
+
+function messageMetadata(message: Record<string, unknown>): Record<string, unknown> {
+  return isRecord(message.metadata) ? message.metadata : {};
+}
+
+function isDelegatedToolMessage(message: Record<string, unknown>): boolean {
+  const metadata = messageMetadata(message);
+  return booleanValue(message._delegate_event)
+    || booleanValue(metadata._delegate_event)
+    || "_delegate_task" in message
+    || "_delegate_status" in message
+    || "_delegate_result" in message
+    || "_delegate_trace" in message
+    || "_delegate_task" in metadata
+    || "_delegate_status" in metadata
+    || "_delegate_result" in metadata
+    || "_delegate_trace" in metadata;
+}
+
+function delegatedToolActivityFromMessage(message: Record<string, unknown>, responseText: string): NativeChatToolActivity {
+  const metadata = messageMetadata(message);
+  const result = isRecord(message._delegate_result)
+    ? message._delegate_result
+    : isRecord(metadata._delegate_result)
+      ? metadata._delegate_result
+      : {};
+  const status = normalizeToolActivityStatus(
+    message._delegate_status
+      ?? metadata._delegate_status
+      ?? result.status
+      ?? message.approvalStatus
+      ?? message.approval_status,
+  ) || (isAwaitingApprovalMessage(message, responseText) ? "blocked" : "completed");
+  const approvalId = stringValue(message.approvalId ?? message.approval_id ?? message._approval_id ?? metadata.approvalId ?? metadata.approval_id);
+  const approvalStatus = stringValue(message.approvalStatus ?? message.approval_status ?? message._approval_status ?? metadata.approvalStatus ?? metadata.approval_status)
+    || (status === "blocked" ? "approval_required" : "");
+  return {
+    id: stringValue(message.tool_call_id ?? message.toolCallId ?? message._tool_call_id) || stringValue(message._delegate_id ?? metadata._delegate_id) || "delegate",
+    name: stringValue(message._delegate_child_tool_name ?? metadata._delegate_child_tool_name ?? message._tool_name ?? message.name) || "spawn",
+    argsText: delegatedToolArgsText(message, metadata, status),
+    responseText,
+    kind: "result",
+    ...(approvalId ? { approvalId } : {}),
+    ...(approvalStatus ? { approvalStatus } : {}),
+    status,
+  };
+}
+
+function delegatedToolArgsText(
+  message: Record<string, unknown>,
+  metadata: Record<string, unknown>,
+  status: string,
+): string {
+  const payload = {
+    agent_kind: "spawn",
+    approval_id: stringValue(message.approvalId ?? message.approval_id ?? message._approval_id ?? metadata.approvalId ?? metadata.approval_id),
+    approval_status: stringValue(message.approvalStatus ?? message.approval_status ?? message._approval_status ?? metadata.approvalStatus ?? metadata.approval_status),
+    child_run_id: stringValue(message._delegate_child_run_id ?? metadata._delegate_child_run_id),
+    child_tool_call_id: stringValue(message._delegate_child_tool_call_id ?? metadata._delegate_child_tool_call_id),
+    operation_preview: stringValue(message._delegate_operation_preview ?? metadata._delegate_operation_preview),
+    status,
+    task: stringValue(message._delegate_task ?? metadata._delegate_task ?? message._background_task ?? metadata._background_task),
+    trace: isRecord(message._delegate_trace) ? message._delegate_trace : isRecord(metadata._delegate_trace) ? metadata._delegate_trace : undefined,
+    trace_ref: stringValue(message._delegate_trace_ref ?? metadata._delegate_trace_ref),
+    workflow: "Spawned agent workflow",
+  };
+  try {
+    return JSON.stringify(Object.fromEntries(Object.entries(payload).filter(([, value]) => Boolean(value))));
+  } catch {
+    return payload.task;
+  }
+}
+
+function isAwaitingApprovalMessage(message: Record<string, unknown>, responseText = ""): boolean {
+  const metadata = messageMetadata(message);
+  const metadataApprovalId = stringValue(message.approvalId ?? message.approval_id ?? metadata.approvalId ?? metadata.approval_id);
+  return Boolean(
+    stringValue(message._approval_status ?? message.approval_status) === "approval_required"
+    || stringValue(message.approvalStatus ?? metadata.approvalStatus) === "approval_required"
+    || stringValue(message.stopReason ?? message.stop_reason ?? metadata.stopReason ?? metadata.stop_reason) === "awaiting_approval"
+    || ((message.awaitingUserInput === true || metadata.awaitingUserInput === true) && metadataApprovalId)
+    || responseText.trim() === "Waiting for approval.",
+  );
 }
 
 function shouldSuppressToolActivityContent(message: Record<string, unknown>, activities: NativeChatToolActivity[]): boolean {
@@ -825,7 +1061,7 @@ function normalizeToolActivityStatus(value: unknown): string {
   if (["failed", "failure", "error", "errored"].includes(normalized)) {
     return "failed";
   }
-  if (["blocked", "approval_required", "waiting_approval"].includes(normalized)) {
+  if (["blocked", "approval_required", "awaiting_approval", "pending_approval", "waiting_approval"].includes(normalized)) {
     return "blocked";
   }
   if (["cancelled", "canceled", "interrupted", "stopped"].includes(normalized)) {

@@ -1572,6 +1572,80 @@ describe("WebUI route temporary files", () => {
     expect(progressRequests).toEqual([{ planId: "plan-1", traceId: "trace-messages" }]);
   });
 
+  test("serializes delegated run metadata needed by native desktop session restore", async () => {
+    const sessionProvider: WebuiSessionProvider = {
+      channelName: "websocket",
+      listSessions: () => [],
+      getSessionMessages: () => ({
+        sessionId: "websocket:chat-delegate",
+        messages: [
+          {
+            role: "tool",
+            content: "Waiting for approval.",
+            name: "spawn",
+            tool_call_id: "call-spawn",
+            timestamp: "2026-06-27T04:00:00.000Z",
+            metadata: {
+              approvalId: "approval-1",
+              awaitingUserInput: true,
+              stopReason: "awaiting_approval",
+              _delegate_event: true,
+              _delegate_id: "delegate-1",
+              _delegate_status: "awaiting_approval",
+              _delegate_task: "请用中文说一句\"你好\"",
+              _delegate_child_checkpoint: { messages: ["internal checkpoint must not be serialized"] },
+              _delegate_child_tool_call_id: "child-call-1",
+              _delegate_operation_preview: "request_approval({\"reason\":\"demo\"})",
+            },
+          },
+        ],
+      }),
+    };
+
+    const response = await handleWebuiRouteRequest(
+      {
+        method: "GET",
+        path: "/api/sessions/websocket%3Achat-delegate/messages",
+      },
+      undefined,
+      undefined,
+      sessionProvider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "trace-delegate-messages",
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      key: "websocket:chat-delegate",
+      messages: [{
+        role: "tool",
+        content: "Waiting for approval.",
+        timestamp: "2026-06-27T04:00:00.000Z",
+        name: "spawn",
+        tool_call_id: "call-spawn",
+        approvalId: "approval-1",
+        awaitingUserInput: true,
+        stopReason: "awaiting_approval",
+        _delegate_event: true,
+        _delegate_id: "delegate-1",
+        _delegate_status: "awaiting_approval",
+        _delegate_task: "请用中文说一句\"你好\"",
+        _delegate_child_tool_call_id: "child-call-1",
+        _delegate_operation_preview: "request_approval({\"reason\":\"demo\"})",
+      }],
+    });
+  });
+
   test("restores Agent UI form metadata and hides nested internal form messages", async () => {
     const sessionProvider: WebuiSessionProvider = {
       channelName: "websocket",

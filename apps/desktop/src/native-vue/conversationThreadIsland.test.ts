@@ -198,6 +198,59 @@ describe("conversation thread Vue island", () => {
     expect(host.querySelector(".desktop-cowork-agent-detail-panel")).toBeNull();
   });
 
+  test("renders subagent shelf and opens trace inspector", async () => {
+    const host = document.createElement("section");
+
+    mountConversationThreadIsland(host, {
+      emptyMessage: "",
+      messages: [{
+        author: "Tinybot",
+        body: ["I spawned a greeter."],
+        references: [],
+        time: "10:30 AM",
+        tone: "assistant",
+        toolActivities: [{
+          argsText: JSON.stringify({
+            task: "Say hello",
+            trace: {
+              steps: [{
+                id: "tool:call-1:completed",
+                kind: "tool_call",
+                status: "completed",
+                title: "say",
+                summary: "Child tool say completed.",
+                resultPreview: "你好",
+              }],
+            },
+          }),
+          approvalStatus: "",
+          id: "delegate-1",
+          kind: "result",
+          name: "spawn",
+          responseText: "你好",
+          status: "completed",
+        }],
+      }],
+    });
+    await nextTick();
+    await nextTick();
+
+    const shelf = host.querySelector(".desktop-subagent-shelf");
+    expect(shelf?.getAttribute("data-subagent-count")).toBe("1");
+    expect(shelf?.textContent).toContain("spawn");
+    expect(shelf?.textContent).toContain("Completed");
+
+    shelf?.querySelector<HTMLButtonElement>("[data-subagent-shelf-item]")?.click();
+    await nextTick();
+    await flushDetailPanelOpeningMotion();
+
+    const inspector = host.querySelector(".desktop-delegate-detail-panel");
+    expect(inspector?.getAttribute("aria-label")).toBe("Delegated agent details");
+    expect(inspector?.textContent).toContain("Subagent timeline");
+    expect(inspector?.textContent).toContain("say");
+    expect(inspector?.textContent).toContain("你好");
+  });
+
   test("dispatches memory reference inspection from reference cards", async () => {
     const host = document.createElement("section");
     const inspections: unknown[] = [];
@@ -540,6 +593,61 @@ describe("conversation thread Vue island", () => {
     expect(host.querySelector(".desktop-assistant-step-group .desktop-message-copy-button")).toBeNull();
   });
 
+  test("collapses inline process content restored as one assistant final message", async () => {
+    const host = document.createElement("section");
+
+    mountConversationThreadIsland(host, {
+      emptyMessage: "",
+      messages: [
+        {
+          author: "You",
+          body: ["Use subagent"],
+          references: [],
+          time: "10:31 AM",
+          tone: "user",
+          toolActivities: [],
+        },
+        {
+          author: "Tinybot",
+          body: ["我会等待审批后继续。"],
+          reasoningContent: "The subagent needs approval before it can continue.",
+          references: [],
+          time: "10:32 AM",
+          tone: "assistant",
+          toolActivities: [{
+            approvalId: "approval-1",
+            approvalStatus: "approval_required",
+            argsText: "spawn({\"task\":\"say hi\"})",
+            id: "call-spawn",
+            kind: "result",
+            name: "spawn",
+            responseText: "Waiting for approval.",
+            status: "blocked",
+          }],
+        },
+      ],
+    });
+    await nextTick();
+    await nextTick();
+
+    const summaries = host.querySelectorAll(".desktop-assistant-step-summary");
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]?.textContent).toContain("Processed");
+    expect(summaries[0]?.textContent).toContain("1 step");
+    expect(summaries[0]?.textContent).toContain("1 delegated agent call");
+    const details = host.querySelector<HTMLDetailsElement>(".desktop-assistant-step-group");
+    expect(details?.textContent).toContain("The subagent needs approval");
+    expect(details?.querySelectorAll(".desktop-tool-activity")).toHaveLength(1);
+    const injectedStyles = document.getElementById("desktop-conversation-agent-flow-styles")?.textContent ?? "";
+    expect(injectedStyles).toContain("max-height: none");
+    expect(injectedStyles).toContain("overflow-y: visible");
+    expect(injectedStyles).toContain("minmax(0, auto)");
+    const finalAnswer = Array.from(host.querySelectorAll<HTMLElement>(".desktop-conversation-message"))
+      .find((message) => message.textContent?.includes("我会等待审批后继续。"));
+    expect(finalAnswer?.querySelector(".desktop-message-reasoning-toggle")).toBeNull();
+    expect(finalAnswer?.querySelector(".desktop-tool-activity")).toBeNull();
+  });
+
   test("keeps active assistant work visible until a final answer exists", async () => {
     const host = document.createElement("section");
 
@@ -810,6 +918,65 @@ describe("conversation thread Vue island", () => {
     expect(delegatePanel?.getAttribute("data-inspector-kind")).toBe("delegate");
     expect(delegatePanel?.textContent).toContain("Review implementation");
     expect(delegatePanel?.textContent).toContain("2 agents active");
+  });
+
+  test("shows approval actions for pending delegated tool details", async () => {
+    const host = document.createElement("section");
+    const approvals: unknown[] = [];
+    host.addEventListener("desktop-tool-approval-action", (event) => {
+      approvals.push((event as CustomEvent).detail);
+    });
+
+    mountConversationThreadIsland(host, {
+      emptyMessage: "",
+      messages: [{
+        author: "Tinybot",
+        body: [],
+        references: [],
+        time: "10:31 AM",
+        tone: "assistant",
+        toolActivities: [{
+          approvalId: "approval-spawn",
+          approvalStatus: "approval_required",
+          argsText: "{\"task\":\"say hello\",\"agent_kind\":\"spawn\"}",
+          id: "call-spawn",
+          kind: "result",
+          name: "spawn",
+          responseText: "Waiting for approval.",
+          runChainItemKey: "turn-1:call-spawn",
+          sessionKey: "WebSocket:chat-1",
+          status: "blocked",
+        }],
+      }],
+    });
+    await nextTick();
+    await nextTick();
+
+    host.querySelector<HTMLButtonElement>('[data-desktop-tool-activity-id="call-spawn"] .desktop-tool-activity-row')?.click();
+    await nextTick();
+    await flushDetailPanelOpeningMotion();
+
+    const panel = host.querySelector<HTMLElement>(".desktop-tool-detail-panel");
+    expect(panel?.getAttribute("aria-label")).toBe("Delegated agent details");
+    expect(panel?.getAttribute("data-inspector-kind")).toBe("delegate");
+    expect(panel?.getAttribute("data-agent-call-kind")).toBe("spawn");
+    expect(panel?.textContent).toContain("Pending approval");
+    expect(panel?.textContent).toContain("Spawned agent workflow");
+    expect(Array.from(panel?.querySelectorAll("[data-desktop-approval-action]") ?? []).map((button) => button.getAttribute("data-desktop-approval-action"))).toEqual([
+      "approveOnce",
+      "approveSession",
+      "deny",
+    ]);
+
+    panel?.querySelector<HTMLButtonElement>('[data-desktop-approval-action="approveOnce"]')?.click();
+    expect(approvals).toEqual([{
+      action: "approveOnce",
+      approvalId: "approval-spawn",
+      runChainItemKey: "turn-1:call-spawn",
+      sessionKey: "WebSocket:chat-1",
+      toolActivityId: "call-spawn",
+      toolName: "spawn",
+    }]);
   });
 
   test("windows very large timelines and keeps the latest visible nodes", async () => {

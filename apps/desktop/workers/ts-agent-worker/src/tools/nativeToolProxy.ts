@@ -2,7 +2,13 @@ import type { JsonObject } from "../protocol/messages.ts";
 import { AgentRunner } from "../agent/agentRunner.ts";
 import type { AgentMessage } from "../agent/agentRunSpec.ts";
 import type { BackgroundRunRegistry } from "../background/backgroundRegistryBridge.ts";
-import { createSpawnTool } from "../background/spawnTool.ts";
+import {
+  DelegatedRunManager,
+  type DelegatedContextPack,
+  type DelegatedPermissionProfile,
+  type DelegatedRunEventName,
+} from "../background/delegatedRun.ts";
+import { createDelegatedAgentTools, createSpawnTool } from "../background/spawnTool.ts";
 import { SubagentRuntime, type SubagentRunRequest } from "../background/subagentRuntime.ts";
 import { NativeCronBridge } from "../cron/cronBridge.ts";
 import { createCronTool } from "../cron/cronTool.ts";
@@ -15,6 +21,7 @@ import { TaskPlanner } from "../task/taskPlanner.ts";
 import { TaskProviderSubagentExecutor } from "../task/taskSubagentExecutor.ts";
 import { createTaskTool } from "../task/taskTool.ts";
 import type { TaskProgressPublisher } from "../task/taskRuntime.ts";
+import { sessionCheckpointFromRunner } from "../runtime/checkpoint.ts";
 import type { Tool, ToolContext } from "./tool.ts";
 import { ToolRegistry } from "./toolRegistry.ts";
 
@@ -83,11 +90,11 @@ export function createNativeSpawnTools(
     timeoutMs?: number;
     idGenerator?: () => string;
     backgroundRegistry?: BackgroundRunRegistry;
+    emitDelegatedEvent?: (eventName: DelegatedRunEventName, payload: Record<string, unknown>, traceId?: string) => void;
     maxIterations?: number;
     toolResultBudget?: number;
   },
 ): Tool[] {
-  const tools = createNativeSubagentToolRegistry(rpcClient);
   const runtime = new SubagentRuntime({
     maxConcurrent: options.maxConcurrent,
     timeoutMs: options.timeoutMs,
@@ -97,12 +104,17 @@ export function createNativeSpawnTools(
     runner: (request) => runSpawnedSubagent(request, {
       provider: options.provider,
       model: options.model,
-      tools,
+      rpcClient,
+      emitDelegatedEvent: options.emitDelegatedEvent,
       maxIterations: options.maxIterations,
       toolResultBudget: options.toolResultBudget,
     }),
   });
-  return [createSpawnTool({ runtime })];
+  const manager = new DelegatedRunManager({
+    runtime,
+    emitEvent: (event) => options.emitDelegatedEvent?.(event.eventName, event.payload, event.traceId),
+  });
+  return [createSpawnTool({ manager }), ...createDelegatedAgentTools({ manager })];
 }
 
 export function createNativeTaskTools(
@@ -147,27 +159,49 @@ async function runSpawnedSubagent(
   options: {
     provider: ModelProvider;
     model?: RuntimeModel;
-    tools: ToolRegistry;
+    rpcClient: NativeRpcClient;
+    emitDelegatedEvent?: (eventName: DelegatedRunEventName, payload: Record<string, unknown>, traceId?: string) => void;
     maxIterations?: number;
     toolResultBudget?: number;
   },
 ) {
+  let childSpec: Parameters<AgentRunner["run"]>[0] | undefined;
+  let childCheckpoint: Record<string, unknown> | undefined;
+  const contextPack = delegatedContextPackFromMetadata(request.metadata);
+  const tools = createNativeSubagentToolRegistry(
+    options.rpcClient,
+    contextPack?.runtimePolicy.permissionProfile ?? "read_only",
+  );
   const runner = new AgentRunner({
     provider: options.provider,
-    tools: options.tools,
+    tools,
+    emitEvent: (event) => emitDelegatedChildEvent(request, event, options.emitDelegatedEvent),
+    checkpoint: (checkpoint) => {
+      if (childSpec) {
+        childCheckpoint = sessionCheckpointFromRunner(childSpec, checkpoint);
+      }
+    },
     isCancelled: () => request.signal.aborted,
   });
-  const result = await runner.run({
+  childSpec = {
     runId: request.id,
     traceId: typeof request.metadata?.traceId === "string" ? request.metadata.traceId : undefined,
     sessionId: request.sessionKey,
     messages: spawnedSubagentMessages(request),
     model: await resolveRuntimeModel(options.model),
     maxIterations: options.maxIterations ?? 15,
-    stream: false,
+    stream: true,
     toolResultBudget: options.toolResultBudget,
     failOnToolError: true,
-  });
+  };
+  const result = await runner.run(childSpec);
+  if (result.stopReason === "awaiting_approval") {
+    return {
+      status: "failed",
+      result: "Waiting for approval.",
+      metadata: delegatedAwaitingApprovalMetadata(request, result, childCheckpoint),
+    } as const;
+  }
   if (result.stopReason === "tool_error" || result.stopReason === "error") {
     const error = result.error || result.finalContent || "Error: subagent execution failed.";
     return { status: "failed", result: error, error } as const;
@@ -178,7 +212,336 @@ async function runSpawnedSubagent(
   } as const;
 }
 
-function spawnedSubagentMessages(request: Pick<SubagentRunRequest, "task">): AgentMessage[] {
+function delegatedAwaitingApprovalMetadata(
+  request: SubagentRunRequest,
+  result: Awaited<ReturnType<AgentRunner["run"]>>,
+  childCheckpoint: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const awaiting = result.awaitingInput ?? {};
+  const approvalId = stringValue(awaiting.approvalId ?? awaiting.approval_id);
+  const operation = asObject(awaiting.operation) ?? {};
+  const checkpointTool = approvalToolFromCheckpoint(childCheckpoint, approvalId);
+  return {
+    ...awaiting,
+    awaitingUserInput: true,
+    stopReason: "awaiting_approval",
+    ...(approvalId ? { approvalId } : {}),
+    approvalStatus: "approval_required",
+    _delegate_id: request.id,
+    _delegate_child_run_id: request.id,
+    _delegate_child_tool_call_id: stringValue(awaiting.toolCallId ?? awaiting.tool_call_id) || checkpointTool.toolCallId,
+    _delegate_child_tool_name: stringValue(operation.toolName ?? operation.tool_name) || stringValue(awaiting.toolName ?? awaiting.tool_name) || checkpointTool.toolName,
+    _delegate_child_checkpoint: childCheckpoint,
+    _delegate_operation_preview: approvalArgsPreview(awaiting),
+  };
+}
+
+function approvalToolFromCheckpoint(
+  checkpoint: Record<string, unknown> | undefined,
+  approvalId: string,
+): { toolCallId: string; toolName: string } {
+  const messages = Array.isArray(checkpoint?.messages) ? checkpoint.messages : [];
+  for (const message of messages) {
+    const row = asObject(message);
+    const metadata = asObject(row?.metadata);
+    if (
+      row?.role === "tool"
+      && metadata?.awaitingUserInput === true
+      && metadata?.stopReason === "awaiting_approval"
+      && stringValue(metadata.approvalId ?? metadata.approval_id) === approvalId
+    ) {
+      return {
+        toolCallId: stringValue(row.toolCallId ?? row.tool_call_id),
+        toolName: stringValue(row.name),
+      };
+    }
+  }
+  return { toolCallId: "", toolName: "" };
+}
+
+function emitDelegatedChildEvent(
+  request: SubagentRunRequest,
+  event: { type: string; payload: Record<string, unknown> },
+  emitDelegatedEvent: ((eventName: DelegatedRunEventName, payload: Record<string, unknown>, traceId?: string) => void) | undefined,
+): void {
+  if (!emitDelegatedEvent) {
+    return;
+  }
+  const metadata = request.metadata ?? {};
+  const parentRunId = stringMetadata(metadata, "parentRunId");
+  if (!parentRunId) {
+    return;
+  }
+  const base = {
+    runId: parentRunId,
+    run_id: parentRunId,
+    parentRunId,
+    parent_run_id: parentRunId,
+    parentTurnId: stringMetadata(metadata, "parentTurnId") || parentRunId,
+    parent_turn_id: stringMetadata(metadata, "parentTurnId") || parentRunId,
+    delegateId: request.id,
+    delegate_id: request.id,
+    childRunId: request.id,
+    child_run_id: request.id,
+    childToolCallId: stringValue(event.payload.toolCallId ?? event.payload.tool_call_id),
+    child_tool_call_id: stringValue(event.payload.toolCallId ?? event.payload.tool_call_id),
+    toolName: stringValue(event.payload.toolName ?? event.payload.tool_name),
+    tool_name: stringValue(event.payload.toolName ?? event.payload.tool_name),
+    delegate_type: "spawn",
+    title: request.label,
+    taskName: stringMetadata(metadata, "taskName") || request.label,
+    task_name: stringMetadata(metadata, "taskName") || request.label,
+    task: request.task,
+    traceRef: stringMetadata(metadata, "traceId") || `trace-delegate-${request.id}`,
+    trace_ref: stringMetadata(metadata, "traceId") || `trace-delegate-${request.id}`,
+    workflow: "Spawned agent workflow",
+  };
+  if (event.type === "reasoning_delta" || event.type === "content_delta" || event.type === "tool_call_delta") {
+    const step = delegatedStreamTraceStep(request, event);
+    emitDelegatedEvent("agent.delegate.trace.updated", {
+      ...base,
+      status: "running",
+      latest_activity: step.summary,
+      trace: delegatedTracePayload(base, "running", [step]),
+    }, stringMetadata(metadata, "traceId"));
+    return;
+  }
+  if (event.type !== "tool_start" && event.type !== "tool_result") {
+    return;
+  }
+  if (event.type === "tool_start") {
+    const step = delegatedToolTraceStep(base, {
+      kind: "tool_call",
+      status: "running",
+      title: base.toolName || "tool",
+      argsPreview: safeJsonStringify(event.payload.args ?? {}),
+    });
+    emitDelegatedEvent("agent.delegate.running", {
+      ...base,
+      status: "running",
+      latest_activity: `Child tool ${base.toolName || "tool"} started.`,
+      operation_preview: safeJsonStringify(event.payload.args ?? {}),
+    }, stringMetadata(metadata, "traceId"));
+    emitDelegatedEvent("agent.delegate.trace.updated", {
+      ...base,
+      status: "running",
+      latest_activity: step.summary,
+      trace: delegatedTracePayload(base, "running", [step]),
+    }, stringMetadata(metadata, "traceId"));
+    return;
+  }
+  const resultMetadata = asObject(event.payload.metadata) ?? {};
+  const content = stringValue(event.payload.content ?? event.payload.result ?? event.payload.output);
+  const awaitingApproval = isAwaitingApprovalToolResult(resultMetadata, content);
+  if (awaitingApproval) {
+    const approvalId = stringValue(resultMetadata.approvalId ?? resultMetadata.approval_id);
+    const payload = {
+      ...base,
+      ...(approvalId ? { approvalId, approval_id: approvalId } : {}),
+      status: "blocked",
+      latest_activity: content || "Waiting for approval.",
+      operation_preview: approvalArgsPreview(resultMetadata),
+      reason: stringValue(resultMetadata.reason),
+    };
+    emitDelegatedEvent("agent.delegate.tool.approval_required", payload, stringMetadata(metadata, "traceId"));
+    emitDelegatedEvent("agent.delegate.awaiting_approval", payload, stringMetadata(metadata, "traceId"));
+    emitDelegatedEvent("agent.delegate.trace.updated", {
+      ...payload,
+      trace: delegatedTracePayload(base, "awaiting_approval", [delegatedToolTraceStep(base, {
+        kind: "approval",
+        status: "blocked",
+        title: `${base.toolName || "tool"} approval required`,
+        approvalId,
+        argsPreview: approvalArgsPreview(resultMetadata),
+        resultPreview: content || "Waiting for approval.",
+      })]),
+    }, stringMetadata(metadata, "traceId"));
+    return;
+  }
+  const step = delegatedToolTraceStep(base, {
+    kind: "tool_call",
+    status: "completed",
+    title: base.toolName || "tool",
+    resultPreview: content,
+  });
+  emitDelegatedEvent("agent.delegate.tool.completed", {
+    ...base,
+    status: "running",
+    latest_activity: content,
+    result_preview: content,
+  }, stringMetadata(metadata, "traceId"));
+  emitDelegatedEvent("agent.delegate.trace.updated", {
+    ...base,
+    status: "running",
+    latest_activity: step.summary,
+    trace: delegatedTracePayload(base, "running", [step]),
+  }, stringMetadata(metadata, "traceId"));
+}
+
+function delegatedStreamTraceStep(
+  request: SubagentRunRequest,
+  event: { type: string; payload: Record<string, unknown> },
+): Record<string, unknown> {
+  const now = new Date().toISOString();
+  if (event.type === "reasoning_delta") {
+    const summary = stringValue(event.payload.delta);
+    return {
+      id: `reasoning:${request.id}`,
+      kind: "reasoning",
+      status: "running",
+      title: "Thinking",
+      summary,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+  if (event.type === "tool_call_delta") {
+    const toolCallId = stringValue(event.payload.toolCallId ?? event.payload.tool_call_id ?? event.payload.id) || "tool-call-delta";
+    return {
+      id: `tool-delta:${toolCallId}`,
+      kind: "tool_call",
+      status: "running",
+      title: stringValue(event.payload.toolName ?? event.payload.tool_name ?? event.payload.name) || "Tool call",
+      summary: stringValue(event.payload.delta ?? event.payload.argumentsDelta ?? event.payload.arguments_delta),
+      toolCallId,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+  const summary = stringValue(event.payload.delta);
+  return {
+    id: `message:${request.id}`,
+    kind: "message",
+    status: "running",
+    title: "Assistant message",
+    summary,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function delegatedTracePayload(
+  base: Record<string, string>,
+  status: string,
+  steps: Array<Record<string, unknown>>,
+): Record<string, unknown> {
+  const now = new Date().toISOString();
+  return {
+    delegateId: base.delegateId,
+    delegate_id: base.delegateId,
+    childRunId: base.childRunId,
+    child_run_id: base.childRunId,
+    parentRunId: base.parentRunId,
+    parent_run_id: base.parentRunId,
+    parentSessionKey: "",
+    parent_session_key: "",
+    status,
+    steps,
+    approvals: steps.filter((step) => step.kind === "approval"),
+    artifacts: [],
+    updatedAt: now,
+    updated_at: now,
+  };
+}
+
+function delegatedToolTraceStep(
+  base: Record<string, string>,
+  input: {
+    approvalId?: string;
+    argsPreview?: string;
+    kind: "tool_call" | "approval";
+    resultPreview?: string;
+    status: "running" | "blocked" | "completed";
+    title: string;
+  },
+): Record<string, unknown> {
+  const now = new Date().toISOString();
+  const summary = input.kind === "approval"
+    ? input.resultPreview || "Waiting for approval."
+    : input.status === "running"
+      ? `Child tool ${base.toolName || "tool"} started.`
+      : input.resultPreview || `Child tool ${base.toolName || "tool"} completed.`;
+  return {
+    id: input.approvalId ? `approval:${input.approvalId}` : `tool:${base.childToolCallId}:${input.status}`,
+    kind: input.kind,
+    status: input.status,
+    title: input.title,
+    summary,
+    toolName: base.toolName,
+    toolCallId: base.childToolCallId,
+    approvalId: input.approvalId,
+    argsPreview: input.argsPreview,
+    resultPreview: input.resultPreview,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function isAwaitingApprovalToolResult(metadata: Record<string, unknown>, content: string): boolean {
+  return Boolean(
+    metadata.awaitingUserInput === true && stringValue(metadata.stopReason ?? metadata.stop_reason) === "awaiting_approval"
+    || stringValue(metadata.approvalStatus ?? metadata.approval_status) === "approval_required"
+    || content.trim() === "Waiting for approval.",
+  );
+}
+
+function approvalArgsPreview(metadata: Record<string, unknown>): string {
+  const explicit = stringValue(metadata.argsPreview ?? metadata.args_preview);
+  if (explicit) {
+    return explicit;
+  }
+  const operation = asObject(metadata.operation) ?? {};
+  const args = operation.arguments ?? operation.args;
+  return typeof args === "string" ? args : safeJsonStringify(args ?? {});
+}
+
+function stringMetadata(metadata: Record<string, unknown>, key: string): string | undefined {
+  const value = metadata[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function safeJsonStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function spawnedSubagentMessages(request: Pick<SubagentRunRequest, "task" | "metadata">): AgentMessage[] {
+  const contextPack = delegatedContextPackFromMetadata(request.metadata);
+  if (contextPack) {
+    return [
+      {
+        role: "system",
+        content: [
+          "You are a focused delegated subagent.",
+          "Complete only the assigned delegated task.",
+          "Do not copy raw child trace into the parent response; return a compact result summary.",
+          `Parent run: ${contextPack.parentRunId}`,
+          `Parent turn: ${contextPack.parentTurnId}`,
+          `Permission profile: ${contextPack.runtimePolicy.permissionProfile}`,
+          `Approval policy: ${contextPack.runtimePolicy.approvalPolicy}`,
+          contextPack.runtimePolicy.cwd ? `Working directory: ${contextPack.runtimePolicy.cwd}` : null,
+          contextPack.runtimePolicy.workspace ? `Workspace: ${contextPack.runtimePolicy.workspace}` : null,
+          `Fork policy: ${formatForkPolicy(contextPack.forkTurns)}`,
+          contextPack.outputContract,
+        ].filter((line): line is string => line !== null).join("\n"),
+      },
+      {
+        role: "user",
+        content: [
+          `Task name: ${contextPack.taskName}`,
+          "Delegated task:",
+          contextPack.message,
+        ].join("\n"),
+      },
+    ];
+  }
   return [
     {
       role: "system",
@@ -191,17 +554,68 @@ function spawnedSubagentMessages(request: Pick<SubagentRunRequest, "task">): Age
   ];
 }
 
-function createNativeSubagentToolRegistry(rpcClient: NativeRpcClient): ToolRegistry {
+function delegatedContextPackFromMetadata(metadata: Record<string, unknown> | undefined): DelegatedContextPack | null {
+  const pack = asObject(metadata?.delegatedContextPack);
+  if (!pack || pack.kind !== "delegated_context_pack") {
+    return null;
+  }
+  const runtimePolicy = asObject(pack.runtimePolicy);
+  if (
+    typeof pack.taskName !== "string"
+    || typeof pack.message !== "string"
+    || typeof pack.parentRunId !== "string"
+    || typeof pack.parentTurnId !== "string"
+    || typeof pack.parentSessionKey !== "string"
+    || typeof pack.forkTurns !== "string"
+    || typeof pack.outputContract !== "string"
+    || !runtimePolicy
+    || typeof runtimePolicy.permissionProfile !== "string"
+    || typeof runtimePolicy.approvalPolicy !== "string"
+  ) {
+    return null;
+  }
+  return pack as unknown as DelegatedContextPack;
+}
+
+function formatForkPolicy(forkTurns: DelegatedContextPack["forkTurns"]): string {
+  if (forkTurns === "none") {
+    return "no parent conversation turns were forked";
+  }
+  if (forkTurns === "all") {
+    return "full parent conversation requested";
+  }
+  return `recent ${forkTurns} parent turn(s) requested`;
+}
+
+function createNativeSubagentToolRegistry(
+  rpcClient: NativeRpcClient,
+  permissionProfile: DelegatedPermissionProfile = "read_only",
+): ToolRegistry {
   const registry = new ToolRegistry();
-  for (const tool of [
-    ...createNativeReadOnlyTools(rpcClient),
-    ...createNativeWriteTools(rpcClient),
-    ...createNativeShellTools(rpcClient),
-    ...createNativeApprovalTools(rpcClient),
-  ]) {
-    registry.register(tool);
+  for (const tool of delegatedChildToolsForProfile(rpcClient, permissionProfile)) {
+    registry.register(stripDelegatedChildApproval(tool));
   }
   return registry;
+}
+
+function delegatedChildToolsForProfile(rpcClient: NativeRpcClient, permissionProfile: DelegatedPermissionProfile): Tool[] {
+  const readOnlyTools = createNativeReadOnlyTools(rpcClient);
+  if (permissionProfile === "workspace_write") {
+    return [...readOnlyTools, ...createNativeWriteTools(rpcClient)];
+  }
+  if (
+    permissionProfile === "shell_sandboxed"
+    || permissionProfile === "network_allowlist"
+    || permissionProfile === "full_access"
+  ) {
+    return [...readOnlyTools, ...createNativeWriteTools(rpcClient), ...createNativeShellTools(rpcClient)];
+  }
+  return readOnlyTools;
+}
+
+function stripDelegatedChildApproval(tool: Tool): Tool {
+  const { requiresApproval: _requiresApproval, approvalCategory: _approvalCategory, approvalRisk: _approvalRisk, ...rest } = tool;
+  return rest;
 }
 
 function nativeApprovalContextParams(context: ToolContext): JsonObject {

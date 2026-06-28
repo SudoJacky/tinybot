@@ -29,12 +29,47 @@ describe("desktop approval actions", () => {
         approvalId: "approval-1",
         approved: true,
         scope: "once",
-        sessionId: "WebSocket:chat-1",
+        sessionId: "websocket:chat-1",
       },
     });
     expect(gatewayTools.approveApproval).not.toHaveBeenCalled();
     expect(gatewayTools.denyApproval).not.toHaveBeenCalled();
     expect(result).toBe(resumeResult);
+  });
+
+  test("normalizes synthetic WebSocket approval session keys for native worker resume", async () => {
+    const invoke = vi.fn(async () => ({ sessionId: "websocket:chat-1" }));
+    const gatewayTools = {
+      approveApproval: vi.fn(async () => ({})),
+      denyApproval: vi.fn(async () => ({})),
+    };
+    const onNativeResumeAttempt = vi.fn();
+
+    await submitDesktopApprovalAction({
+      action: "approveOnce",
+      approvalId: "approval-1",
+      gatewayTools,
+      invoke,
+      onNativeResumeAttempt,
+      preferNativeWorkerResume: true,
+      sessionKey: "WebSocket:chat-1",
+    });
+
+    expect(onNativeResumeAttempt).toHaveBeenCalledWith({
+      action: "approveOnce",
+      approvalId: "approval-1",
+      approved: true,
+      scope: "once",
+      sessionKey: "websocket:chat-1",
+    });
+    expect(invoke).toHaveBeenCalledWith("worker_resume_agent_approval", {
+      input: {
+        approvalId: "approval-1",
+        approved: true,
+        scope: "once",
+        sessionId: "websocket:chat-1",
+      },
+    });
   });
 
   test("reports native resume attempts and gateway fallback", async () => {
@@ -67,7 +102,7 @@ describe("desktop approval actions", () => {
       approvalId: "approval-1",
       approved: false,
       scope: "once",
-      sessionKey: "WebSocket:chat-1",
+      sessionKey: "websocket:chat-1",
     });
     expect(onNativeResumeFailed).toHaveBeenCalledWith(error);
     expect(onGatewayFallback).toHaveBeenCalledWith({

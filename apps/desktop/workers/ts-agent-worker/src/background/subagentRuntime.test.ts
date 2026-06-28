@@ -95,6 +95,42 @@ describe("SubagentRuntime", () => {
     expect(runtime.getSessionSubagentIds("desktop:chat-1")).toEqual([]);
   });
 
+  test("spawnAndWait resolves with the subagent final result", async () => {
+    const gate = deferred<string>();
+    const completions: Array<{ id: string; status: string; result: string }> = [];
+    const runtime = new SubagentRuntime({
+      maxConcurrent: 1,
+      timeoutMs: 1000,
+      idGenerator: () => "subagent-wait",
+      runner: async () => ({ status: "completed", result: await gate.promise }),
+    });
+
+    const resultPromise = runtime.spawnAndWait({
+      task: "Say hello",
+      label: "Greeting",
+      sessionKey: "desktop:chat-wait",
+      onComplete: async (completion) => {
+        completions.push({ id: completion.id, status: completion.status, result: completion.result });
+      },
+    });
+    await waitFor(() => runtime.getSessionSubagentIds("desktop:chat-wait").length === 1);
+
+    gate.resolve("你好");
+    const result = await resultPromise;
+
+    expect(result).toMatchObject({
+      id: "subagent-wait",
+      label: "Greeting",
+      queued: false,
+      status: "completed",
+      result: "你好",
+    });
+    expect(completions).toEqual([
+      { id: "subagent-wait", status: "completed", result: "你好" },
+    ]);
+    expect(runtime.getSessionSubagentIds("desktop:chat-wait")).toEqual([]);
+  });
+
   test("reports timed out subagents as failed completions and releases session ownership", async () => {
     const completions: Array<{ status: string; result: string; error?: string }> = [];
     const runtime = new SubagentRuntime({
