@@ -3912,6 +3912,7 @@ export class AgentWorker {
     const delegatedApproval = delegatedApprovalFromCheckpoint(checkpoint, approval.approvalId);
     if (delegatedApproval) {
       const delegatedResult = await this.resumeApprovedDelegatedChildCheckpoint(traceId, approval, delegatedApproval.childCheckpoint);
+      this.emitDelegatedChildResumeEvents(traceId, delegatedResult.content, delegatedResult.metadata);
       return this.runResumedSpec(traceId, resumedSpecFromApprovedToolResult(checkpoint, {
         sessionId: approval.sessionId,
         approvalId: approval.approvalId,
@@ -3951,7 +3952,16 @@ export class AgentWorker {
       ...(approvedToolResult.metadata ? { metadata: approvedToolResult.metadata } : {}),
     });
     const result = await this.runDelegatedChildSpec(traceId, childSpec);
-    return delegatedParentToolResultFromChildResult(childSpec, result);
+    const delegatedResult = delegatedParentToolResultFromChildResult(childSpec, result);
+    return {
+      ...delegatedResult,
+      metadata: {
+        ...delegatedResult.metadata,
+        approvalId: approval.approvalId,
+        approvalStatus: "approved",
+        approved: true,
+      },
+    };
   }
 
   private async resumeSubmittedFormCheckpoint(
@@ -3967,7 +3977,88 @@ export class AgentWorker {
     approval: ApprovalResolutionRequest,
     checkpoint: Record<string, unknown>,
   ): Promise<AgentRunResult> {
+    const delegatedApproval = delegatedApprovalFromCheckpoint(checkpoint, approval.approvalId);
+    if (delegatedApproval) {
+      const delegatedResult = await this.resumeDeniedDelegatedChildCheckpoint(traceId, approval, delegatedApproval.childCheckpoint);
+      this.emitDelegatedChildResumeEvents(traceId, delegatedResult.content, delegatedResult.metadata);
+      return this.runResumedSpec(traceId, resumedSpecFromApprovedToolResult(checkpoint, {
+        sessionId: approval.sessionId,
+        approvalId: approval.approvalId,
+        content: delegatedResult.content,
+        metadata: delegatedResult.metadata,
+      }));
+    }
     return this.runResumedSpec(traceId, resumedSpecFromDeniedApproval(checkpoint, approval));
+  }
+
+  private async resumeDeniedDelegatedChildCheckpoint(
+    traceId: string,
+    approval: ApprovalResolutionRequest,
+    childCheckpoint: Record<string, unknown>,
+  ): Promise<{ content: string; metadata: Record<string, unknown> }> {
+    const childSpec = resumedSpecFromDeniedApproval(childCheckpoint, approval);
+    const result = await this.runDelegatedChildSpec(traceId, childSpec);
+    const delegatedResult = delegatedParentToolResultFromChildResult(childSpec, result);
+    return {
+      ...delegatedResult,
+      metadata: {
+        ...delegatedResult.metadata,
+        approvalId: approval.approvalId,
+        approvalStatus: "denied",
+        approved: false,
+      },
+    };
+  }
+
+  private emitDelegatedChildResumeEvents(
+    traceId: string,
+    content: string,
+    metadata: Record<string, unknown>,
+  ): void {
+    const delegateId = localStringValue(metadata._delegate_id);
+    if (metadata._delegate_event !== true || !delegateId) {
+      return;
+    }
+    const status = localStringValue(metadata._delegate_status) || "completed";
+    const childRunId = localStringValue(metadata._delegate_child_run_id) || delegateId;
+    const approvalId = localStringValue(metadata.approvalId ?? metadata.approval_id);
+    const approvalStatus = localStringValue(metadata.approvalStatus ?? metadata.approval_status);
+    const finalOutput = delegatedResultSummary(metadata, content);
+    const payload = {
+      delegateId,
+      delegate_id: delegateId,
+      childRunId,
+      child_run_id: childRunId,
+      status,
+      finalOutput,
+      final_output: finalOutput,
+      latestActivity: finalOutput,
+      latest_activity: finalOutput,
+      ...(approvalId ? { approvalId, approval_id: approvalId } : {}),
+      ...(approvalStatus ? { approvalStatus, approval_status: approvalStatus } : {}),
+      ...(typeof metadata.approved === "boolean" ? { approved: metadata.approved } : {}),
+      trace: delegatedResumeTracePayload({
+        delegateId,
+        childRunId,
+        status,
+        finalOutput,
+        approvalId,
+        approvalStatus,
+        approved: typeof metadata.approved === "boolean" ? metadata.approved : undefined,
+      }),
+    };
+    this.emitEvent({
+      protocol_version: WORKER_PROTOCOL_VERSION,
+      trace_id: traceId,
+      event: "agent.delegate.trace.updated",
+      payload: withNativePayloadAliases(payload),
+    });
+    this.emitEvent({
+      protocol_version: WORKER_PROTOCOL_VERSION,
+      trace_id: traceId,
+      event: delegatedResumeTerminalEvent(status),
+      payload: withNativePayloadAliases(payload),
+    });
   }
 
   private async runResumedSpec(traceId: string, spec: AgentRunSpec): Promise<AgentRunResult> {
@@ -4051,6 +4142,8 @@ function delegatedParentToolResultFromChildResult(
   }
   const status = result.stopReason === "final_response" ? "completed" : result.error ? "failed" : "completed";
   const content = result.finalContent || result.error || "Task completed but no final response was generated.";
+  const approvalResolution = latestApprovalResolutionFromMessages(result.messages)
+    ?? latestApprovalResolutionFromMessages(childSpec.messages);
   return {
     content,
     metadata: {
@@ -4058,6 +4151,13 @@ function delegatedParentToolResultFromChildResult(
       _delegate_id: delegateId,
       _delegate_child_run_id: delegateId,
       _delegate_status: status,
+      ...(approvalResolution
+        ? {
+          approvalId: approvalResolution.approvalId,
+          approvalStatus: approvalResolution.status,
+          approved: approvalResolution.approved,
+        }
+        : {}),
       _delegate_result: {
         status,
         summary: content,
@@ -4067,8 +4167,116 @@ function delegatedParentToolResultFromChildResult(
   };
 }
 
+function delegatedResultSummary(metadata: Record<string, unknown>, fallback: string): string {
+  const result = isJsonObject(metadata._delegate_result) ? metadata._delegate_result : undefined;
+  return localStringValue(result?.summary)
+    || localStringValue(result?.error)
+    || fallback;
+}
+
+function delegatedResumeTerminalEvent(status: string): string {
+  if (status === "awaiting_approval") {
+    return "agent.delegate.awaiting_approval";
+  }
+  if (status === "failed") {
+    return "agent.delegate.failed";
+  }
+  return "agent.delegate.completed";
+}
+
+function delegatedResumeTracePayload(input: {
+  delegateId: string;
+  childRunId: string;
+  status: string;
+  finalOutput: string;
+  approvalId?: string;
+  approvalStatus?: string;
+  approved?: boolean;
+}): Record<string, unknown> {
+  const now = new Date().toISOString();
+  const steps: Array<Record<string, unknown>> = [];
+  if (input.approvalId) {
+    steps.push({
+      id: `approval:${input.approvalId}`,
+      kind: "approval",
+      status: "completed",
+      title: "Approval resolved",
+      summary: `${approvalResolutionLabel(input.approvalStatus, input.approved)}: ${input.approvalId}`,
+      approvalId: input.approvalId,
+      approval_id: input.approvalId,
+      resultPreview: `${approvalResolutionLabel(input.approvalStatus, input.approved)}.`,
+      result_preview: `${approvalResolutionLabel(input.approvalStatus, input.approved)}.`,
+      createdAt: now,
+      created_at: now,
+      updatedAt: now,
+      updated_at: now,
+    });
+  }
+  if (input.status !== "awaiting_approval") {
+    steps.push({
+      id: `final:${input.delegateId}`,
+      kind: input.status === "failed" ? "error" : "message",
+      status: input.status === "failed" ? "failed" : "completed",
+      title: input.status === "failed" ? "Error" : "Final answer",
+      summary: input.finalOutput,
+      createdAt: now,
+      created_at: now,
+      updatedAt: now,
+      updated_at: now,
+    });
+  }
+  return {
+    delegateId: input.delegateId,
+    delegate_id: input.delegateId,
+    childRunId: input.childRunId,
+    child_run_id: input.childRunId,
+    status: input.status,
+    steps,
+    approvals: steps.filter((step) => step.kind === "approval"),
+    artifacts: [],
+    updatedAt: now,
+    updated_at: now,
+  };
+}
+
+function approvalResolutionLabel(status: string | undefined, approved: boolean | undefined): "Approved" | "Denied" {
+  if (status === "denied" || approved === false) {
+    return "Denied";
+  }
+  return "Approved";
+}
+
 function localStringValue(value: unknown): string {
   return typeof value === "string" ? value : "";
+}
+
+function latestApprovalResolutionFromMessages(
+  messages: AgentMessage[],
+): { approvalId: string; status: "approved" | "denied"; approved: boolean } | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    const metadata = isJsonObject(message.metadata) ? message.metadata : undefined;
+    if (!metadata) {
+      continue;
+    }
+    const status = localStringValue(metadata.status);
+    if (status !== "approved" && status !== "denied") {
+      continue;
+    }
+    if (typeof metadata.approved !== "boolean") {
+      continue;
+    }
+    const approvalId = localStringValue(metadata.approvalId ?? metadata.approval_id);
+    if (!approvalId) {
+      continue;
+    }
+    return {
+      approvalId,
+      status,
+      approved: metadata.approved,
+    };
+  }
+  return undefined;
 }
 
 function findAwaitingFormMetadata(checkpoint: Record<string, unknown>, formId: string): Record<string, unknown> | undefined {

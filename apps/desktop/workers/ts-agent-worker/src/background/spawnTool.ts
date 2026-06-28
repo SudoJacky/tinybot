@@ -1,4 +1,5 @@
 import type { Tool } from "../tools/tool.ts";
+import type { AgentMessage } from "../agent/agentRunSpec.ts";
 import type {
   DelegatedPermissionProfile,
   DelegatedParentContext,
@@ -12,7 +13,7 @@ import type {
 
 export type DelegatedAgentToolManager = Pick<
   DelegatedRunManager,
-  "spawnAgent" | "waitAgent" | "listAgents" | "sendMessage" | "closeAgent"
+  "spawnAgent" | "waitAgent" | "listAgents" | "sendMessage" | "followupTask" | "interruptAgent" | "closeAgent"
 >;
 
 export function createSpawnTool(options: { manager: DelegatedAgentToolManager }): Tool {
@@ -70,6 +71,8 @@ export function createDelegatedAgentTools(options: { manager: DelegatedAgentTool
     createWaitAgentTool(options.manager),
     createListAgentsTool(options.manager),
     createSendMessageTool(options.manager),
+    createFollowupTaskTool(options.manager),
+    createInterruptAgentTool(options.manager),
     createCloseAgentTool(options.manager),
   ];
 }
@@ -87,6 +90,13 @@ function createSpawnAgentTool(manager: DelegatedAgentToolManager): Tool {
         task_name: { type: "string", description: "Short stable task name for identifying the delegated run" },
         message: { type: "string", description: "The task contract/instructions for the delegated agent" },
         label: { type: "string", description: "Optional display label for the delegated run" },
+        agent_type: { type: "string", description: "Optional Codex-compatible agent role hint used as a fallback task name" },
+        model: { type: "string", description: "Optional model override for the delegated run" },
+        reasoning_effort: { type: "string", description: "Optional Codex-compatible reasoning hint recorded in metadata" },
+        fork_context: {
+          type: "boolean",
+          description: "Codex-compatible full-context fork flag. Ignored when fork_turns is provided.",
+        },
         fork_turns: {
           type: "string",
           description: "Parent context fork policy: none, all, or a positive integer string",
@@ -104,16 +114,24 @@ function createSpawnAgentTool(manager: DelegatedAgentToolManager): Tool {
     approvalRisk: "high",
     concurrencySafe: true,
     execute: async (args, context) => {
+      const message = nonEmptyStringArg(args, "message");
+      const label = cleanOptionalString(args.label);
+      const agentType = cleanOptionalString(args.agent_type);
+      const reasoningEffort = cleanOptionalString(args.reasoning_effort);
       const request: SpawnAgentRequest = {
-        taskName: nonEmptyStringArg(args, "task_name"),
-        message: nonEmptyStringArg(args, "message"),
-        label: cleanOptionalString(args.label),
-        forkTurns: forkTurnsArg(args.fork_turns),
+        taskName: requiredSpawnAgentTaskName(args),
+        message,
+        label,
+        forkTurns: forkTurnsArg(args.fork_turns) ?? forkTurnsFromForkContext(args.fork_context),
         permissionProfile: delegatedPermissionProfileArg(args.permission_profile) ?? "read_only",
+        model: cleanOptionalString(args.model),
         metadata: {
           ...(context.traceId ? { traceId: context.traceId } : {}),
           runId: context.runId,
           origin: "spawn_agent_tool",
+          ...(agentType ? { agentType } : {}),
+          ...(reasoningEffort ? { reasoningEffort } : {}),
+          ...(args.fork_context === true ? { forkContext: true } : {}),
         },
       };
       const run = await manager.spawnAgent(request, parentContext(context));
@@ -152,6 +170,9 @@ function createWaitAgentTool(manager: DelegatedAgentToolManager): Tool {
           _delegated_wait: true,
           _delegated_runs: result.runs.map(delegatedRunMetadata),
           _delegated_active: result.active,
+          _delegated_awaiting_approval: result.awaitingApproval,
+          _delegated_completed: delegatedRunIdsByStatus(result, "completed"),
+          _delegated_failed: delegatedRunIdsByStatus(result, "failed"),
           _delegated_timed_out: result.timedOut,
         },
       };
@@ -166,6 +187,7 @@ function createListAgentsTool(manager: DelegatedAgentToolManager): Tool {
     parameters: {
       type: "object",
       properties: {
+        path_prefix: { type: "string", description: "Optional agent path prefix, such as /review" },
         status: { type: "string", description: "Optional delegated run status filter" },
       },
     },
@@ -174,11 +196,13 @@ function createListAgentsTool(manager: DelegatedAgentToolManager): Tool {
     capabilities: ["background.read"],
     execute: async (args, context) => {
       const status = delegatedStatusArg(args.status);
+      const pathPrefix = pathPrefixArg(args.path_prefix);
       const filter: DelegatedRunRegistryListFilter = {
         ...(context.sessionId ? { parentSessionKey: context.sessionId } : {}),
+        ...(pathPrefix ? { pathPrefix } : {}),
         ...(status ? { status } : {}),
       };
-      const runs = manager.listAgents(filter);
+      const runs = await manager.listAgents(filter);
       return {
         content: jsonContent({ delegatedRuns: runs.map(delegatedRunHandle) }),
         metadata: {
@@ -199,18 +223,71 @@ function createSendMessageTool(manager: DelegatedAgentToolManager): Tool {
       properties: {
         target: { type: "string", description: "Delegated run id" },
         message: { type: "string", description: "Message to queue for the delegated agent" },
-        trigger_followup: { type: "boolean", description: "Whether the child should treat the message as follow-up input" },
       },
       required: ["target", "message"],
     },
     capabilities: ["background.write"],
     concurrencySafe: true,
     execute: async (args) => {
-      const run = manager.sendMessage(nonEmptyStringArg(args, "target"), nonEmptyStringArg(args, "message"), {
-        triggerFollowup: optionalBooleanArg(args, "trigger_followup") ?? false,
-      });
+      const run = await manager.sendMessage(
+        nonEmptyStringArg(args, "target"),
+        nonEmptyStringArg(args, "message"),
+      );
       return {
         content: jsonContent({ delegatedRun: delegatedRunHandle(run), queuedMessages: run.messages }),
+        metadata: delegatedRunMetadata(run),
+      };
+    },
+  };
+}
+
+function createFollowupTaskTool(manager: DelegatedAgentToolManager): Tool {
+  return {
+    name: "followup_task",
+    description: [
+      "Send a follow-up instruction to an existing delegated agent and trigger a new child turn.",
+      "Use send_message when you only want to queue a note without running the child.",
+    ].join(" "),
+    parameters: {
+      type: "object",
+      properties: {
+        target: { type: "string", description: "Delegated run id" },
+        message: { type: "string", description: "Follow-up instruction for the delegated agent" },
+      },
+      required: ["target", "message"],
+    },
+    capabilities: ["background.write"],
+    concurrencySafe: true,
+    execute: async (args) => {
+      const run = await manager.followupTask(
+        nonEmptyStringArg(args, "target"),
+        nonEmptyStringArg(args, "message"),
+      );
+      return {
+        content: jsonContent({ delegatedRun: delegatedRunHandle(run), queuedMessages: run.messages }),
+        metadata: delegatedRunMetadata(run),
+      };
+    },
+  };
+}
+
+function createInterruptAgentTool(manager: DelegatedAgentToolManager): Tool {
+  return {
+    name: "interrupt_agent",
+    description: "Interrupt an active delegated agent run without closing its history.",
+    parameters: {
+      type: "object",
+      properties: {
+        target: { type: "string", description: "Delegated run id" },
+      },
+      required: ["target"],
+    },
+    capabilities: ["background.write"],
+    concurrencySafe: true,
+    execute: async (args) => {
+      const run = await manager.interruptAgent(nonEmptyStringArg(args, "target"));
+      return {
+        content: jsonContent({ delegatedRun: delegatedRunHandle(run) }),
         metadata: delegatedRunMetadata(run),
       };
     },
@@ -231,7 +308,7 @@ function createCloseAgentTool(manager: DelegatedAgentToolManager): Tool {
     capabilities: ["background.write"],
     concurrencySafe: true,
     execute: async (args) => {
-      const run = manager.closeAgent(nonEmptyStringArg(args, "target"));
+      const run = await manager.closeAgent(nonEmptyStringArg(args, "target"));
       return {
         content: jsonContent({ delegatedRun: delegatedRunHandle(run) }),
         metadata: delegatedRunMetadata(run),
@@ -280,12 +357,13 @@ function spawnToolResult(run: DelegatedRun) {
   };
 }
 
-function parentContext(context: { runId: string; traceId?: string; sessionId?: string }): DelegatedParentContext {
+function parentContext(context: { runId: string; traceId?: string; sessionId?: string; parentMessages?: AgentMessage[] }): DelegatedParentContext {
   return {
     runId: context.runId,
     turnId: context.runId,
     sessionKey: context.sessionId,
     traceId: context.traceId,
+    parentMessages: context.parentMessages,
     permissionProfile: "full_access",
   };
 }
@@ -305,9 +383,18 @@ function delegatedRunHandle(run: DelegatedRun): Record<string, unknown> {
 function formatWaitAgentResult(result: WaitAgentResult): Record<string, unknown> {
   return {
     delegatedRuns: result.runs.map(delegatedRunHandle),
+    completed: delegatedRunIdsByStatus(result, "completed"),
+    failed: delegatedRunIdsByStatus(result, "failed"),
     active: result.active,
+    awaitingApproval: result.awaitingApproval,
     timedOut: result.timedOut,
   };
+}
+
+function delegatedRunIdsByStatus(result: WaitAgentResult, status: DelegatedRunStatus): string[] {
+  return result.runs
+    .filter((run) => run.status === status)
+    .map((run) => run.delegateId);
 }
 
 function delegatedRunMetadata(run: DelegatedRun): Record<string, unknown> {
@@ -343,6 +430,14 @@ function targetArgs(args: Record<string, unknown>): string[] {
   return allTargets;
 }
 
+function requiredSpawnAgentTaskName(args: Record<string, unknown>): string {
+  const taskName = cleanOptionalString(args.task_name);
+  if (!taskName) {
+    throw new Error("task_name is required for spawn_agent");
+  }
+  return taskName;
+}
+
 function forkTurnsArg(value: unknown): "none" | "all" | `${number}` | undefined {
   const cleaned = cleanOptionalString(value);
   if (!cleaned) {
@@ -355,6 +450,16 @@ function forkTurnsArg(value: unknown): "none" | "all" | `${number}` | undefined 
     return cleaned as `${number}`;
   }
   throw new Error("fork_turns must be none, all, or a positive integer string");
+}
+
+function forkTurnsFromForkContext(value: unknown): "all" | undefined {
+  if (value === undefined || value === false) {
+    return undefined;
+  }
+  if (value === true) {
+    return "all";
+  }
+  throw new Error("fork_context must be a boolean when provided");
 }
 
 function delegatedPermissionProfileArg(value: unknown): DelegatedPermissionProfile | undefined {
@@ -379,6 +484,14 @@ function delegatedStatusArg(value: unknown): DelegatedRunStatus | undefined {
     return cleaned as DelegatedRunStatus;
   }
   throw new Error("status must be a delegated run status");
+}
+
+function pathPrefixArg(value: unknown): string | undefined {
+  const cleaned = cleanOptionalString(value);
+  if (!cleaned) {
+    return undefined;
+  }
+  return cleaned.startsWith("/") ? cleaned : `/${cleaned}`;
 }
 
 function nonEmptyStringArg(args: Record<string, unknown>, key: string): string {

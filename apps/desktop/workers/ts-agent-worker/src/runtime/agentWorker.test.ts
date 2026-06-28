@@ -9579,6 +9579,351 @@ describe("AgentWorker", () => {
     expect(clearedSessions).toEqual(["session-1"]);
   });
 
+  test("resumes delegated child checkpoint before continuing the parent approval", async () => {
+    const writtenFiles: Array<Record<string, unknown>> = [];
+    const appendedMessages: AgentMessage[][] = [];
+    const clearedSessions: string[] = [];
+    const events: WorkerEvent[] = [];
+    const tools = new ToolRegistry();
+    tools.register({
+      name: "write_file",
+      description: "Write a file",
+      parameters: { type: "object" },
+      execute: async (args) => {
+        writtenFiles.push(args);
+        return { content: `wrote ${String(args.path)}` };
+      },
+    });
+    const provider = new QueueProvider([
+      { content: "child completed after write", toolCalls: [], stopReason: "stop" },
+      { content: "parent received child result", toolCalls: [], stopReason: "stop" },
+    ]);
+    const childCheckpoint = {
+      runId: "delegate-1",
+      phase: "tools_completed",
+      model: "test-model",
+      maxIterations: 2,
+      stream: false,
+      messages: [
+        { role: "user", content: "write child file" },
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [{ id: "child-approval-call", name: "request_approval", argumentsJson: "{}" }],
+        },
+        {
+          role: "tool",
+          content: "Waiting for approval.",
+          toolCallId: "child-approval-call",
+          name: "request_approval",
+          metadata: {
+            awaitingUserInput: true,
+            stopReason: "awaiting_approval",
+            approvalId: "approval-1",
+            operation: {
+              toolName: "write_file",
+              arguments: { path: "child.md", content: "hello" },
+            },
+          },
+        },
+      ],
+    };
+    const worker = new AgentWorker({
+      provider,
+      tools,
+      emitEvent: (event) => events.push(event),
+      approvalBridge: {
+        requestApproval: async () => ({}),
+        listPendingApprovals: async () => ({ approvals: [] }),
+        resolveApproval: async (params) => ({
+          approvalId: params.approvalId,
+          approved: params.approved,
+          scope: params.scope,
+          summary: "write_file path=\"child.md\"",
+          status: "approved",
+        }),
+      },
+      sessionBridge: {
+        setCheckpoint: async () => undefined,
+        clearCheckpoint: async (sessionId) => {
+          clearedSessions.push(sessionId);
+        },
+        appendMessages: async (_sessionId, messages) => {
+          appendedMessages.push(messages);
+        },
+        getCheckpoint: async (sessionId) => ({
+          sessionId,
+          runId: "parent-run",
+          phase: "tools_completed",
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+          messages: [
+            { role: "user", content: "spawn writer" },
+            {
+              role: "assistant",
+              content: "",
+              toolCalls: [{ id: "parent-approval-call", name: "request_approval", argumentsJson: "{}" }],
+            },
+            {
+              role: "tool",
+              content: "Waiting for approval.",
+              toolCallId: "parent-approval-call",
+              name: "request_approval",
+              metadata: {
+                awaitingUserInput: true,
+                stopReason: "awaiting_approval",
+                approvalId: "approval-1",
+                _delegate_id: "delegate-1",
+                _delegate_child_run_id: "delegate-1",
+                _delegate_child_tool_call_id: "child-approval-call",
+                _delegate_child_tool_name: "write_file",
+                _delegate_child_checkpoint: childCheckpoint,
+              },
+            },
+          ],
+        }),
+      },
+    });
+
+    const response = await worker.handleRequest(
+      resumeApprovalRequest({
+        sessionId: "session-1",
+        approvalId: "approval-1",
+        approved: true,
+        scope: "once",
+      }),
+    );
+
+    expect(writtenFiles).toEqual([{ path: "child.md", content: "hello" }]);
+    expect(provider.messages[0]).toContainEqual({
+      role: "tool",
+      content: "wrote child.md",
+      toolCallId: "child-approval-call",
+      name: "request_approval",
+    });
+    expect(provider.messages[1]).toContainEqual(expect.objectContaining({
+      role: "tool",
+      content: "child completed after write",
+      toolCallId: "parent-approval-call",
+      name: "request_approval",
+      metadata: expect.objectContaining({
+        _delegate_id: "delegate-1",
+        _delegate_status: "completed",
+        _delegate_result: {
+          status: "completed",
+          summary: "child completed after write",
+        },
+      }),
+    }));
+    expect(response.result).toMatchObject({
+      approval: { approvalId: "approval-1", approved: true, scope: "once", status: "approved" },
+      result: {
+        finalContent: "parent received child result",
+        stopReason: "final_response",
+      },
+    });
+    expect(appendedMessages.at(-1)).toContainEqual(expect.objectContaining({
+      content: "child completed after write",
+      toolCallId: "parent-approval-call",
+      name: "request_approval",
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "agent.delegate.trace.updated",
+      payload: expect.objectContaining({
+        delegateId: "delegate-1",
+        childRunId: "delegate-1",
+        status: "completed",
+        final_output: "child completed after write",
+        approvalId: "approval-1",
+        approvalStatus: "approved",
+        trace: expect.objectContaining({
+          steps: expect.arrayContaining([
+            expect.objectContaining({
+              id: "approval:approval-1",
+              kind: "approval",
+              status: "completed",
+              resultPreview: "Approved.",
+            }),
+            expect.objectContaining({
+              id: "final:delegate-1",
+              kind: "message",
+              status: "completed",
+              summary: "child completed after write",
+            }),
+          ]),
+        }),
+      }),
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "agent.delegate.completed",
+      payload: expect.objectContaining({
+        delegateId: "delegate-1",
+        status: "completed",
+        final_output: "child completed after write",
+      }),
+    }));
+    expect(clearedSessions).toEqual(["session-1"]);
+  });
+
+  test("resumes delegated child checkpoint with denied approval metadata", async () => {
+    const writtenFiles: Array<Record<string, unknown>> = [];
+    const appendedMessages: AgentMessage[][] = [];
+    const clearedSessions: string[] = [];
+    const tools = new ToolRegistry();
+    tools.register({
+      name: "write_file",
+      description: "Write a file",
+      parameters: { type: "object" },
+      execute: async (args) => {
+        writtenFiles.push(args);
+        return { content: `wrote ${String(args.path)}` };
+      },
+    });
+    const provider = new QueueProvider([
+      { content: "child handled denied approval", toolCalls: [], stopReason: "stop" },
+      { content: "parent received denied child result", toolCalls: [], stopReason: "stop" },
+    ]);
+    const childCheckpoint = {
+      runId: "delegate-1",
+      phase: "tools_completed",
+      model: "test-model",
+      maxIterations: 2,
+      stream: false,
+      messages: [
+        { role: "user", content: "write child file" },
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [{ id: "child-approval-call", name: "request_approval", argumentsJson: "{}" }],
+        },
+        {
+          role: "tool",
+          content: "Waiting for approval.",
+          toolCallId: "child-approval-call",
+          name: "request_approval",
+          metadata: {
+            awaitingUserInput: true,
+            stopReason: "awaiting_approval",
+            approvalId: "approval-1",
+            operation: {
+              toolName: "write_file",
+              arguments: { path: "child.md", content: "hello" },
+            },
+          },
+        },
+      ],
+    };
+    const worker = new AgentWorker({
+      provider,
+      tools,
+      emitEvent: () => undefined,
+      approvalBridge: {
+        requestApproval: async () => ({}),
+        listPendingApprovals: async () => ({ approvals: [] }),
+        resolveApproval: async (params) => ({
+          approvalId: params.approvalId,
+          approved: params.approved,
+          scope: params.scope,
+          status: "denied",
+        }),
+      },
+      sessionBridge: {
+        setCheckpoint: async () => undefined,
+        clearCheckpoint: async (sessionId) => {
+          clearedSessions.push(sessionId);
+        },
+        appendMessages: async (_sessionId, messages) => {
+          appendedMessages.push(messages);
+        },
+        getCheckpoint: async (sessionId) => ({
+          sessionId,
+          runId: "parent-run",
+          phase: "tools_completed",
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+          messages: [
+            { role: "user", content: "spawn writer" },
+            {
+              role: "assistant",
+              content: "",
+              toolCalls: [{ id: "parent-approval-call", name: "request_approval", argumentsJson: "{}" }],
+            },
+            {
+              role: "tool",
+              content: "Waiting for approval.",
+              toolCallId: "parent-approval-call",
+              name: "request_approval",
+              metadata: {
+                awaitingUserInput: true,
+                stopReason: "awaiting_approval",
+                approvalId: "approval-1",
+                _delegate_id: "delegate-1",
+                _delegate_child_run_id: "delegate-1",
+                _delegate_child_tool_call_id: "child-approval-call",
+                _delegate_child_tool_name: "write_file",
+                _delegate_child_checkpoint: childCheckpoint,
+              },
+            },
+          ],
+        }),
+      },
+    });
+
+    const response = await worker.handleRequest(
+      resumeApprovalRequest({
+        sessionId: "session-1",
+        approvalId: "approval-1",
+        approved: false,
+        scope: "once",
+      }),
+    );
+
+    expect(writtenFiles).toEqual([]);
+    expect(provider.messages[0]).toContainEqual({
+      role: "tool",
+      content: "Approval denied: approval-1",
+      toolCallId: "child-approval-call",
+      name: "request_approval",
+      metadata: {
+        approvalId: "approval-1",
+        approved: false,
+        status: "denied",
+      },
+    });
+    expect(provider.messages[1]).toContainEqual(expect.objectContaining({
+      role: "tool",
+      content: "child handled denied approval",
+      toolCallId: "parent-approval-call",
+      name: "request_approval",
+      metadata: expect.objectContaining({
+        approvalId: "approval-1",
+        approvalStatus: "denied",
+        approved: false,
+        _delegate_id: "delegate-1",
+        _delegate_status: "completed",
+      }),
+    }));
+    expect(response.result).toMatchObject({
+      approval: { approvalId: "approval-1", approved: false, scope: "once", status: "denied" },
+      result: {
+        finalContent: "parent received denied child result",
+        stopReason: "final_response",
+      },
+    });
+    expect(appendedMessages.at(-1)).toContainEqual(expect.objectContaining({
+      content: "child handled denied approval",
+      toolCallId: "parent-approval-call",
+      name: "request_approval",
+      metadata: expect.objectContaining({
+        approvalStatus: "denied",
+        approved: false,
+      }),
+    }));
+    expect(clearedSessions).toEqual(["session-1"]);
+  });
+
   test("handles backend slash deny by resolving a pending approval", async () => {
     let providerCalls = 0;
     const resolveCalls: Array<{ sessionId: string; approvalId: string; approved: boolean; scope?: string; traceId: string }> = [];

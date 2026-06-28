@@ -76,6 +76,8 @@ import { mountConversationReferenceIsland } from "./native-vue/conversationRefer
 import {
   mountOrUpdateConversationThreadIsland,
   type ConversationCoworkRunOptions,
+  type DelegateArtifactLoadSelection,
+  type DelegateTraceLoadSelection,
 } from "./native-vue/conversationThreadIsland";
 import { mountCoworkActionsIsland } from "./native-vue/coworkActionsIsland";
 import { mountCoworkDataRowIsland } from "./native-vue/coworkDataRowIsland";
@@ -206,6 +208,8 @@ interface DesktopNativeChatActionOptions {
   onComposerSubmit?: (event: DesktopNativeChatComposerSubmitEvent) => void;
   onInterrupt?: () => void;
   onAttachSessionFile?: () => void;
+  onArtifactLoad?: (selection: DelegateArtifactLoadSelection) => Promise<unknown>;
+  onDelegateTraceLoad?: (selection: DelegateTraceLoadSelection) => Promise<unknown>;
   onNewChat?: () => void;
   onDeleteSession?: (event: DesktopNativeChatDeleteSessionEvent) => unknown | Promise<unknown>;
   onPinSession?: (event: DesktopNativeChatPinSessionEvent) => void;
@@ -432,6 +436,7 @@ const desktopPanelFrameEventDocuments = new WeakSet<Document>();
 const desktopChatTimelineContexts = new WeakMap<Document, {
   agentUiActions: DesktopAgentUiFormActionOptions;
   agentUiForms: AgentUiForm[];
+  chatActions: DesktopNativeChatActionOptions;
   coworkActions: DesktopCoworkActionOptions;
   coworkPane: DesktopCoworkPaneModel | null;
 }>();
@@ -469,6 +474,7 @@ export function installDesktopWorkbenchShell({
   desktopChatTimelineContexts.set(targetDocument, {
     agentUiActions,
     agentUiForms,
+    chatActions,
     coworkActions,
     coworkPane,
   });
@@ -708,6 +714,7 @@ function updateDesktopChatTimelineContext(
   patch: Partial<{
     agentUiActions: DesktopAgentUiFormActionOptions;
     agentUiForms: AgentUiForm[];
+    chatActions: DesktopNativeChatActionOptions;
     coworkActions: DesktopCoworkActionOptions;
     coworkPane: DesktopCoworkPaneModel | null;
   }>,
@@ -715,6 +722,7 @@ function updateDesktopChatTimelineContext(
   const current = desktopChatTimelineContexts.get(targetDocument) ?? {
     agentUiActions: {},
     agentUiForms: [],
+    chatActions: {},
     coworkActions: {},
     coworkPane: null,
   };
@@ -728,6 +736,7 @@ export function updateDesktopNativeChat(
   chatActions: DesktopNativeChatActionOptions = {},
 ): void {
   desktopNativeChatModels.set(targetDocument, chat);
+  updateDesktopChatTimelineContext(targetDocument, { chatActions });
   logDesktopNativeChatDebug("shell.update", {
     chat: summarizeDesktopNativeChatForDebug(chat),
     dom: summarizeNativeChatDomForDebug(targetDocument),
@@ -743,7 +752,7 @@ export function updateDesktopNativeChat(
   if (thread) {
     const scrollState = captureConversationThreadScroll(thread);
     if (canMountVueIsland(thread)) {
-      mountConversationThreadVueIsland(thread, conversationThreadOptions(targetDocument, chat));
+      mountConversationThreadVueIsland(thread, conversationThreadMountOptions(targetDocument, conversationThreadOptions(targetDocument, chat)));
     } else {
       const next = createConversationThread(targetDocument, chat);
       thread.replaceChildren(...Array.from(next.children));
@@ -2158,6 +2167,7 @@ function conversationThreadMountOptions(
   const context = desktopChatTimelineContexts.get(targetDocument) ?? {
     agentUiActions: {},
     agentUiForms: [],
+    chatActions: {},
     coworkActions: {},
     coworkPane: null,
   };
@@ -2173,6 +2183,8 @@ function conversationThreadMountOptions(
     onInlineFormSubmit: (form, values) => {
       context.agentUiActions.onAgentUiFormAction?.({ action: "submit", form, values });
     },
+    onArtifactLoad: context.chatActions.onArtifactLoad,
+    onDelegateTraceLoad: context.chatActions.onDelegateTraceLoad,
     onReferenceInspect: (reference) => {
       setRouteStatus(targetDocument, `Inspecting ${reference.kind} reference ${reference.title}`);
     },
@@ -2218,13 +2230,22 @@ function conversationThreadOptions(targetDocument: Document, chat: DesktopNative
       approvalId?: string;
       argsText: string;
       approvalStatus: string;
+      delegatedTrace?: Record<string, unknown>;
+      delegateId?: string;
+      delegateTask?: string;
+      delegateTitle?: string;
+      delegateType?: string;
+      finalOutput?: string;
       id: string;
       kind: "call" | "result";
       name: string;
+      parentRunId?: string;
+      parentTurnId?: string;
       responseText: string;
       runChainItemKey?: string;
       sessionKey?: string;
       status?: string;
+      traceRef?: string;
     }>;
   }>;
 } {
@@ -2244,13 +2265,22 @@ function conversationThreadOptions(targetDocument: Document, chat: DesktopNative
         approvalId: activity.approvalId,
         argsText: activity.argsText || "",
         approvalStatus: activity.approvalStatus || "",
+        delegatedTrace: activity.delegatedTrace,
+        delegateId: activity.delegateId,
+        delegateTask: activity.delegateTask,
+        delegateTitle: activity.delegateTitle,
+        delegateType: activity.delegateType,
+        finalOutput: activity.finalOutput,
         id: activity.id || "",
         kind: activity.kind,
         name: activity.name || "",
+        parentRunId: activity.parentRunId,
+        parentTurnId: activity.parentTurnId,
         responseText: activity.responseText || "",
         runChainItemKey: conversationToolActivityRunChainKey(message, activity),
         sessionKey: activity.sessionKey || chat.activeSessionKey,
         status: activity.status,
+        traceRef: activity.traceRef,
       })),
       references: (message.references ?? []).map((reference) => ({
         detail: reference.detail ?? "",
@@ -2301,16 +2331,27 @@ function mountConversationThreadVueIsland(
         approvalId?: string;
         argsText: string;
         approvalStatus: string;
+        delegatedTrace?: Record<string, unknown>;
+        delegateId?: string;
+        delegateTask?: string;
+        delegateTitle?: string;
+        delegateType?: string;
+        finalOutput?: string;
         id: string;
         kind: "call" | "result";
         name: string;
+        parentRunId?: string;
+        parentTurnId?: string;
         responseText: string;
         runChainItemKey?: string;
         sessionKey?: string;
         status?: string;
+        traceRef?: string;
       }>;
     }>;
     onCoworkAgentInspect?: (selection: { agentId: string; sessionId: string }) => void;
+    onArtifactLoad?: (selection: DelegateArtifactLoadSelection) => Promise<unknown>;
+    onDelegateTraceLoad?: (selection: DelegateTraceLoadSelection) => Promise<unknown>;
     onInlineFormCancel?: (form: AgentUiForm) => void;
     onInlineFormSubmit?: (form: AgentUiForm, values: Record<string, unknown>) => void;
     onReferenceInspect?: (reference: {
@@ -11622,9 +11663,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       min-width: 0;
       min-height: 0;
       width: min(var(--desktop-chat-column-width), 100%);
-      height: 100%;
+      height: auto;
+      max-height: none;
       padding: 18px 0 var(--desktop-composer-reserve);
-      overflow: hidden;
+      overflow: visible;
     }
 
     body.desktop-native-workbench .desktop-conversation-timeline {

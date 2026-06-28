@@ -3,11 +3,13 @@ import {
   applyChatEvent,
   createNativeChatState,
   activateSession,
+  hydrateDelegatedRunsFromTraceEvents,
   normalizeMessagesPayload,
   normalizeSessionsPayload,
   setMessages,
   setSessions,
   sessionKeyForChat,
+  type NativeBackgroundTraceEvent,
   type NativeChatState,
 } from "./nativeChat";
 import { createGatewaySocketMessage, type NormalizedGatewayEvent } from "./gatewayWebSocketClient";
@@ -16,6 +18,9 @@ import { logDesktopNativeDebug, summarizeDebugText } from "./desktopNativeChatDe
 export interface DesktopChatSessionControllerApi {
   listSessions(): Promise<unknown>;
   loadMessages(sessionKey: string): Promise<unknown>;
+  listTraceEvents?: (filter: { sessionKey: string }) => Promise<unknown>;
+  getDelegateTrace?: (filter: { sessionKey: string; delegateId?: string; traceRef?: string }) => Promise<unknown>;
+  getArtifact?: (filter: { sessionKey: string; delegateId?: string; traceRef?: string; artifactId: string }) => Promise<unknown>;
   deleteSession?: (sessionKey: string) => Promise<unknown>;
 }
 
@@ -51,6 +56,8 @@ export interface DesktopChatSessionController {
   interruptActiveChat(): boolean;
   handleGatewayEvent(event: NormalizedGatewayEvent): Promise<ChatGatewayEventResult>;
   loadMessagesForChat(chatId: string): Promise<boolean>;
+  loadDelegateTrace(selection: { sessionKey: string; delegateId?: string; traceRef?: string }): Promise<unknown>;
+  loadArtifact(selection: { sessionKey: string; delegateId?: string; traceRef?: string; artifactId: string }): Promise<unknown>;
 }
 
 export function createDesktopChatSessionController({
@@ -86,6 +93,7 @@ export function createDesktopChatSessionController({
       const payload = await api.loadMessages(sessionKey);
       const messages = normalizeMessagesPayload(payload);
       setMessages(state, sessionKey, messages);
+      await loadTraceEventsForSession(sessionKey);
       state.error = "";
     } catch (error) {
       state.error = error instanceof Error ? error.message : String(error);
@@ -102,6 +110,32 @@ export function createDesktopChatSessionController({
       messageCount: state.messages.get(sessionKey)?.length ?? 0,
       sessionKey,
     });
+  }
+
+  async function loadTraceEventsForSession(sessionKey: string): Promise<void> {
+    if (!api.listTraceEvents) {
+      return;
+    }
+    logDesktopNativeDebug("session.trace.load.start", {
+      ...summarizeSessionState(),
+      sessionKey,
+    });
+    try {
+      const payload = await api.listTraceEvents({ sessionKey });
+      const events = normalizeTraceEventsPayload(payload);
+      hydrateDelegatedRunsFromTraceEvents(state, sessionKey, events);
+      logDesktopNativeDebug("session.trace.load.complete", {
+        ...summarizeSessionState(),
+        eventCount: events.length,
+        sessionKey,
+      });
+    } catch (error) {
+      logDesktopNativeDebug("session.trace.load.failed", {
+        ...summarizeSessionState(),
+        error: error instanceof Error ? error.message : String(error),
+        sessionKey,
+      });
+    }
   }
 
   function startNewChat(): void {
@@ -271,12 +305,53 @@ export function createDesktopChatSessionController({
     const payload = await api.loadMessages(sessionKey);
     const messages = normalizeMessagesPayload(payload);
     setMessages(state, sessionKey, messages);
+    await loadTraceEventsForSession(sessionKey);
     logDesktopNativeDebug("session.messages.loaded", {
       chatId,
       messageCount: messages.length,
       sessionKey,
     });
     return true;
+  }
+
+  async function loadDelegateTrace(selection: { sessionKey: string; delegateId?: string; traceRef?: string }): Promise<unknown> {
+    if (!api.getDelegateTrace) {
+      throw new Error("Delegate trace API is unavailable.");
+    }
+    logDesktopNativeDebug("session.delegateTrace.load.start", {
+      delegateId: selection.delegateId ?? "",
+      sessionKey: selection.sessionKey,
+      traceRef: selection.traceRef ?? "",
+    });
+    const trace = await api.getDelegateTrace(selection);
+    logDesktopNativeDebug("session.delegateTrace.load.complete", {
+      delegateId: selection.delegateId ?? "",
+      hasTrace: Boolean(trace),
+      sessionKey: selection.sessionKey,
+      traceRef: selection.traceRef ?? "",
+    });
+    return trace;
+  }
+
+  async function loadArtifact(selection: { sessionKey: string; delegateId?: string; traceRef?: string; artifactId: string }): Promise<unknown> {
+    if (!api.getArtifact) {
+      throw new Error("Artifact API is unavailable.");
+    }
+    logDesktopNativeDebug("session.artifact.load.start", {
+      artifactId: selection.artifactId,
+      delegateId: selection.delegateId ?? "",
+      sessionKey: selection.sessionKey,
+      traceRef: selection.traceRef ?? "",
+    });
+    const artifact = await api.getArtifact(selection);
+    logDesktopNativeDebug("session.artifact.load.complete", {
+      artifactId: selection.artifactId,
+      delegateId: selection.delegateId ?? "",
+      hasArtifact: Boolean(artifact),
+      sessionKey: selection.sessionKey,
+      traceRef: selection.traceRef ?? "",
+    });
+    return artifact;
   }
 
   function sendActiveChatMessage(content: string, usePersistentRag = true): void {
@@ -294,6 +369,8 @@ export function createDesktopChatSessionController({
     interruptActiveChat,
     handleGatewayEvent,
     loadMessagesForChat,
+    loadDelegateTrace,
+    loadArtifact,
   };
 
   function summarizeSessionState(): Record<string, unknown> {
@@ -304,4 +381,18 @@ export function createDesktopChatSessionController({
       sessionCount: state.sessions.length,
     };
   }
+}
+
+function normalizeTraceEventsPayload(payload: unknown): NativeBackgroundTraceEvent[] {
+  if (Array.isArray(payload)) {
+    return payload.filter(isRecord) as NativeBackgroundTraceEvent[];
+  }
+  if (isRecord(payload) && Array.isArray(payload.events)) {
+    return payload.events.filter(isRecord) as NativeBackgroundTraceEvent[];
+  }
+  return [];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

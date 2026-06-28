@@ -1,6 +1,8 @@
 use crate::config_store::{ConfigPatchBridgeResult, ConfigStore};
 use crate::worker_background::{
-    BackgroundRunCompleteParams, BackgroundRunUpsertParams, WorkerBackgroundRpc,
+    BackgroundRunCompleteParams, BackgroundRunUpsertParams, BackgroundTraceAppendParams,
+    BackgroundTraceGetArtifactParams, BackgroundTraceGetDelegateTraceParams,
+    BackgroundTraceListParams, WorkerBackgroundRpc,
 };
 use crate::worker_capability::CapabilityPolicy;
 use crate::worker_config::WorkerConfigRpc;
@@ -610,6 +612,26 @@ impl WorkerRpcRouter {
             "background.run.complete" => {
                 let params: BackgroundRunCompleteParams = parse_params(request)?;
                 serde_json::to_value(self.background.complete_run(params)?)
+                    .map_err(serialization_error)
+            }
+            "background.trace.append" => {
+                let params: BackgroundTraceAppendParams = parse_params(request)?;
+                serde_json::to_value(self.background.append_trace_event(params)?)
+                    .map_err(serialization_error)
+            }
+            "background.trace.list" => {
+                let params: BackgroundTraceListParams = parse_params(request)?;
+                serde_json::to_value(self.background.list_trace_events(params)?)
+                    .map_err(serialization_error)
+            }
+            "background.trace.get_delegate_trace" => {
+                let params: BackgroundTraceGetDelegateTraceParams = parse_params(request)?;
+                serde_json::to_value(self.background.get_delegate_trace(params)?)
+                    .map_err(serialization_error)
+            }
+            "background.trace.get_artifact" => {
+                let params: BackgroundTraceGetArtifactParams = parse_params(request)?;
+                serde_json::to_value(self.background.get_artifact(params)?)
                     .map_err(serialization_error)
             }
             "mcp.call_tool" => self.mcp.call_tool_from_request(request),
@@ -2810,6 +2832,112 @@ mod tests {
         assert_eq!(
             complete_response.result.as_ref().unwrap()["run"]["completedAtMs"],
             2000
+        );
+
+        let append_trace_response = router.dispatch(&WorkerRequest::new(
+            "req-background-trace-append",
+            "trace-1",
+            "background.trace.append",
+            json!({
+                "event": {
+                    "eventId": "event-1",
+                    "eventType": "agent.delegate.started",
+                    "sessionKey": "desktop:chat-1",
+                    "turnId": "turn-1",
+                    "delegateId": "subagent-1",
+                    "childRunId": "subagent-1",
+                    "traceRef": "trace-1",
+                    "sequence": 1,
+                    "createdAt": "2026-06-28T00:00:00.000Z",
+                    "payload": { "status": "running" }
+                }
+            }),
+        ));
+        assert_eq!(append_trace_response.error, None);
+        assert_eq!(
+            append_trace_response.result.as_ref().unwrap()["event"]["eventId"],
+            "event-1"
+        );
+
+        let list_trace_response = router.dispatch(&WorkerRequest::new(
+            "req-background-trace-list",
+            "trace-1",
+            "background.trace.list",
+            json!({
+                "filter": {
+                    "sessionKey": "desktop:chat-1",
+                    "delegateId": "subagent-1"
+                }
+            }),
+        ));
+        assert_eq!(list_trace_response.error, None);
+        assert_eq!(
+            list_trace_response.result.as_ref().unwrap()["events"][0]["eventType"],
+            "agent.delegate.started"
+        );
+
+        let get_trace_response = router.dispatch(&WorkerRequest::new(
+            "req-background-trace-get",
+            "trace-1",
+            "background.trace.get_delegate_trace",
+            json!({
+                "filter": {
+                    "sessionKey": "desktop:chat-1",
+                    "delegateId": "subagent-1"
+                }
+            }),
+        ));
+        assert_eq!(get_trace_response.error, None);
+        assert_eq!(
+            get_trace_response.result.as_ref().unwrap()["trace"]["status"],
+            "running"
+        );
+        assert_eq!(
+            get_trace_response.result.as_ref().unwrap()["trace"]["events"][0]["eventType"],
+            "agent.delegate.started"
+        );
+
+        let append_artifact_response = router.dispatch(&WorkerRequest::new(
+            "req-background-trace-artifact-append",
+            "trace-1",
+            "background.trace.append",
+            json!({
+                "event": {
+                    "eventId": "event-artifact-1",
+                    "eventType": "child.artifact.created",
+                    "sessionKey": "desktop:chat-1",
+                    "turnId": "turn-1",
+                    "delegateId": "subagent-1",
+                    "childRunId": "subagent-1",
+                    "childStepId": "artifact-1",
+                    "traceRef": "trace-1",
+                    "sequence": 2,
+                    "createdAt": "2026-06-28T00:00:01.000Z",
+                    "payload": {
+                        "artifactId": "artifact-1",
+                        "kind": "diff",
+                        "title": "Patch"
+                    }
+                }
+            }),
+        ));
+        assert_eq!(append_artifact_response.error, None);
+        let get_artifact_response = router.dispatch(&WorkerRequest::new(
+            "req-background-trace-get-artifact",
+            "trace-1",
+            "background.trace.get_artifact",
+            json!({
+                "filter": {
+                    "sessionKey": "desktop:chat-1",
+                    "delegateId": "subagent-1",
+                    "artifactId": "artifact-1"
+                }
+            }),
+        ));
+        assert_eq!(get_artifact_response.error, None);
+        assert_eq!(
+            get_artifact_response.result.as_ref().unwrap()["artifact"]["artifactId"],
+            "artifact-1"
         );
     }
 

@@ -69,6 +69,171 @@ impl WorkerBackgroundRpc {
         Ok(BackgroundRunResult { run: result })
     }
 
+    pub fn append_trace_event(
+        &self,
+        params: BackgroundTraceAppendParams,
+    ) -> Result<BackgroundTraceEventResult, WorkerProtocolError> {
+        self.require(WorkerCapability::BackgroundWrite)?;
+        validate_trace_event(&params.event)?;
+        let mut store = self.read_store()?;
+        match store
+            .trace_events
+            .iter()
+            .position(|event| event.event_id == params.event.event_id)
+        {
+            Some(index) => store.trace_events[index] = params.event.clone(),
+            None => store.trace_events.push(params.event.clone()),
+        }
+        store.trace_events.sort_by(|left, right| {
+            left.sequence
+                .cmp(&right.sequence)
+                .then(left.event_id.cmp(&right.event_id))
+        });
+        self.write_store(&store)?;
+        Ok(BackgroundTraceEventResult {
+            event: params.event,
+        })
+    }
+
+    pub fn list_trace_events(
+        &self,
+        params: BackgroundTraceListParams,
+    ) -> Result<BackgroundTraceEventListResult, WorkerProtocolError> {
+        self.require(WorkerCapability::BackgroundRead)?;
+        let filter = params.filter.unwrap_or_default();
+        let events = self
+            .read_store()?
+            .trace_events
+            .into_iter()
+            .filter(|event| {
+                filter
+                    .session_key
+                    .as_ref()
+                    .map_or(true, |session_key| event.session_key == *session_key)
+            })
+            .filter(|event| {
+                filter.delegate_id.as_ref().map_or(true, |delegate_id| {
+                    event.delegate_id.as_ref() == Some(delegate_id)
+                })
+            })
+            .filter(|event| {
+                filter.trace_ref.as_ref().map_or(true, |trace_ref| {
+                    event.trace_ref.as_ref() == Some(trace_ref)
+                })
+            })
+            .filter(|event| {
+                filter
+                    .event_type
+                    .as_ref()
+                    .map_or(true, |event_type| event.event_type == *event_type)
+            })
+            .filter(|event| {
+                filter.artifact_id.as_ref().map_or(true, |artifact_id| {
+                    trace_event_artifact_id(event).as_deref() == Some(artifact_id)
+                })
+            })
+            .collect();
+        Ok(BackgroundTraceEventListResult { events })
+    }
+
+    pub fn get_delegate_trace(
+        &self,
+        params: BackgroundTraceGetDelegateTraceParams,
+    ) -> Result<BackgroundDelegateTraceResult, WorkerProtocolError> {
+        self.require(WorkerCapability::BackgroundRead)?;
+        let events = self
+            .list_trace_events(BackgroundTraceListParams {
+                filter: Some(params.filter),
+            })?
+            .events;
+        let Some(first) = events.first() else {
+            return Ok(BackgroundDelegateTraceResult {
+                trace: BackgroundDelegateTrace {
+                    session_key: String::new(),
+                    delegate_id: None,
+                    child_run_id: None,
+                    trace_ref: None,
+                    status: None,
+                    final_output: None,
+                    events,
+                    approvals: Vec::new(),
+                    artifacts: Vec::new(),
+                },
+            });
+        };
+        let mut status = None;
+        let mut final_output = None;
+        let mut approvals = Vec::new();
+        let mut artifacts = Vec::new();
+        for event in &events {
+            if let Some(value) = json_string(&event.payload, "status") {
+                status = Some(value);
+            } else if event.event_type.ends_with(".completed") {
+                status = Some("completed".to_string());
+            } else if event.event_type.ends_with(".failed") {
+                status = Some("failed".to_string());
+            } else if event.event_type.ends_with(".requested")
+                || event.event_type.ends_with(".awaiting_approval")
+            {
+                status = Some("awaiting_approval".to_string());
+            }
+            if let Some(value) = json_string(&event.payload, "finalOutput")
+                .or_else(|| json_string(&event.payload, "final_output"))
+                .or_else(|| json_string(&event.payload, "resultPreview"))
+                .or_else(|| json_string(&event.payload, "result_preview"))
+            {
+                final_output = Some(value);
+            }
+            if event.event_type.starts_with("child.approval.")
+                || event.payload.get("approvalId").is_some()
+                || event.payload.get("approval_id").is_some()
+            {
+                approvals.push(event.payload.clone());
+            }
+            if event.event_type.starts_with("child.artifact.")
+                || event.payload.get("artifactId").is_some()
+                || event.payload.get("artifact_id").is_some()
+            {
+                artifacts.push(event.payload.clone());
+            }
+        }
+
+        Ok(BackgroundDelegateTraceResult {
+            trace: BackgroundDelegateTrace {
+                session_key: first.session_key.clone(),
+                delegate_id: events.iter().find_map(|event| event.delegate_id.clone()),
+                child_run_id: events.iter().find_map(|event| event.child_run_id.clone()),
+                trace_ref: events.iter().find_map(|event| event.trace_ref.clone()),
+                status,
+                final_output,
+                events,
+                approvals,
+                artifacts,
+            },
+        })
+    }
+
+    pub fn get_artifact(
+        &self,
+        params: BackgroundTraceGetArtifactParams,
+    ) -> Result<BackgroundTraceArtifactResult, WorkerProtocolError> {
+        self.require(WorkerCapability::BackgroundRead)?;
+        let events = self
+            .list_trace_events(BackgroundTraceListParams {
+                filter: Some(params.filter),
+            })?
+            .events;
+        let artifact = events
+            .iter()
+            .filter(|event| {
+                event.event_type.starts_with("child.artifact.")
+                    || trace_event_artifact_id(event).is_some()
+            })
+            .find_map(trace_event_artifact_payload)
+            .unwrap_or(Value::Null);
+        Ok(BackgroundTraceArtifactResult { artifact })
+    }
+
     fn require(&self, capability: WorkerCapability) -> Result<(), WorkerProtocolError> {
         if self.policy.allows(&capability) {
             return Ok(());
@@ -141,6 +306,8 @@ pub struct BackgroundRunCompleteParams {
 pub struct BackgroundRegistryStore {
     pub version: usize,
     pub runs: Vec<BackgroundRun>,
+    #[serde(default, rename = "traceEvents")]
+    pub trace_events: Vec<BackgroundTraceEvent>,
 }
 
 impl Default for BackgroundRegistryStore {
@@ -148,6 +315,7 @@ impl Default for BackgroundRegistryStore {
         Self {
             version: 1,
             runs: Vec::new(),
+            trace_events: Vec::new(),
         }
     }
 }
@@ -198,6 +366,7 @@ pub enum BackgroundRunSource {
 pub enum BackgroundRunStatus {
     Queued,
     Running,
+    AwaitingApproval,
     Completed,
     Failed,
     Cancelled,
@@ -213,6 +382,88 @@ pub struct BackgroundRunResult {
     pub run: BackgroundRun,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+pub struct BackgroundTraceAppendParams {
+    pub event: BackgroundTraceEvent,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundTraceListFilter {
+    pub session_key: Option<String>,
+    pub delegate_id: Option<String>,
+    pub trace_ref: Option<String>,
+    pub event_type: Option<String>,
+    pub artifact_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct BackgroundTraceListParams {
+    pub filter: Option<BackgroundTraceListFilter>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct BackgroundTraceGetDelegateTraceParams {
+    pub filter: BackgroundTraceListFilter,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct BackgroundTraceGetArtifactParams {
+    pub filter: BackgroundTraceListFilter,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundTraceEvent {
+    pub event_id: String,
+    pub event_type: String,
+    pub session_key: String,
+    pub turn_id: String,
+    pub parent_step_id: Option<String>,
+    pub delegate_id: Option<String>,
+    pub child_run_id: Option<String>,
+    pub child_step_id: Option<String>,
+    pub trace_ref: Option<String>,
+    pub sequence: i64,
+    pub created_at: String,
+    #[serde(default)]
+    pub payload: Value,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct BackgroundTraceEventResult {
+    pub event: BackgroundTraceEvent,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct BackgroundTraceEventListResult {
+    pub events: Vec<BackgroundTraceEvent>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundDelegateTrace {
+    pub session_key: String,
+    pub delegate_id: Option<String>,
+    pub child_run_id: Option<String>,
+    pub trace_ref: Option<String>,
+    pub status: Option<String>,
+    pub final_output: Option<String>,
+    pub events: Vec<BackgroundTraceEvent>,
+    pub approvals: Vec<Value>,
+    pub artifacts: Vec<Value>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct BackgroundDelegateTraceResult {
+    pub trace: BackgroundDelegateTrace,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct BackgroundTraceArtifactResult {
+    pub artifact: Value,
+}
+
 fn validate_run(run: &BackgroundRun) -> Result<(), WorkerProtocolError> {
     if run.id.trim().is_empty() {
         return Err(invalid_background_request("run.id is required"));
@@ -226,6 +477,62 @@ fn validate_run(run: &BackgroundRun) -> Result<(), WorkerProtocolError> {
         return Err(invalid_background_request(
             "run.updatedAtMs must be positive",
         ));
+    }
+    Ok(())
+}
+
+fn json_string(value: &Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .filter(|item| !item.is_empty())
+}
+
+fn trace_event_artifact_id(event: &BackgroundTraceEvent) -> Option<String> {
+    event
+        .child_step_id
+        .clone()
+        .filter(|value| value.starts_with("artifact"))
+        .or_else(|| json_string(&trace_event_artifact_payload(event)?, "artifactId"))
+        .or_else(|| json_string(&trace_event_artifact_payload(event)?, "artifact_id"))
+        .or_else(|| json_string(&trace_event_artifact_payload(event)?, "id"))
+}
+
+fn trace_event_artifact_payload(event: &BackgroundTraceEvent) -> Option<Value> {
+    if let Some(artifact) = event.payload.get("artifact") {
+        return Some(artifact.clone());
+    }
+    if event.event_type.starts_with("child.artifact.")
+        || event.payload.get("artifactId").is_some()
+        || event.payload.get("artifact_id").is_some()
+        || event.payload.get("id").is_some()
+    {
+        return Some(event.payload.clone());
+    }
+    None
+}
+
+fn validate_trace_event(event: &BackgroundTraceEvent) -> Result<(), WorkerProtocolError> {
+    if event.event_id.trim().is_empty() {
+        return Err(invalid_background_request("event.eventId is required"));
+    }
+    if event.event_type.trim().is_empty() {
+        return Err(invalid_background_request("event.eventType is required"));
+    }
+    if event.session_key.trim().is_empty() {
+        return Err(invalid_background_request("event.sessionKey is required"));
+    }
+    if event.turn_id.trim().is_empty() {
+        return Err(invalid_background_request("event.turnId is required"));
+    }
+    if event.sequence <= 0 {
+        return Err(invalid_background_request(
+            "event.sequence must be positive",
+        ));
+    }
+    if event.created_at.trim().is_empty() {
+        return Err(invalid_background_request("event.createdAt is required"));
     }
     Ok(())
 }
@@ -306,6 +613,253 @@ mod tests {
         assert_eq!(run.id, "run-existing");
         assert_eq!(run.status, BackgroundRunStatus::Running);
         assert_eq!(run.metadata["source"], "pre-storage-refactor");
+    }
+
+    #[test]
+    fn upsert_accepts_awaiting_approval_runs() {
+        let root = temp_workspace_root("awaiting-approval-store");
+        let _cleanup = TempWorkspaceCleanup(root.clone());
+        let rpc = WorkerBackgroundRpc::new(
+            root,
+            CapabilityPolicy::new([WorkerCapability::BackgroundWrite]),
+        );
+
+        let result = rpc
+            .upsert_run(BackgroundRunUpsertParams {
+                run: BackgroundRun {
+                    id: "run-awaiting".to_string(),
+                    kind: BackgroundRunKind::Subagent,
+                    source: BackgroundRunSource::Subagent,
+                    status: BackgroundRunStatus::AwaitingApproval,
+                    label: Some("Writer".to_string()),
+                    session_key: Some("desktop:session-1".to_string()),
+                    plan_id: None,
+                    subtask_id: None,
+                    cron_job_id: None,
+                    started_at_ms: 1710000000000,
+                    updated_at_ms: 1710000005000,
+                    completed_at_ms: None,
+                    result: Some("Waiting for approval.".to_string()),
+                    error: None,
+                    metadata: json!({ "stopReason": "awaiting_approval" }),
+                },
+            })
+            .expect("awaiting approval should be a valid non-final background status");
+
+        assert_eq!(result.run.status, BackgroundRunStatus::AwaitingApproval);
+        assert_eq!(result.run.metadata["stopReason"], "awaiting_approval");
+    }
+
+    #[test]
+    fn appends_and_filters_trace_events() {
+        let root = temp_workspace_root("trace-event-store");
+        let _cleanup = TempWorkspaceCleanup(root.clone());
+        let rpc = WorkerBackgroundRpc::new(
+            root.clone(),
+            CapabilityPolicy::new([
+                WorkerCapability::BackgroundRead,
+                WorkerCapability::BackgroundWrite,
+            ]),
+        );
+
+        rpc.append_trace_event(BackgroundTraceAppendParams {
+            event: BackgroundTraceEvent {
+                event_id: "event-1".to_string(),
+                event_type: "agent.delegate.started".to_string(),
+                session_key: "WebSocket:chat-1".to_string(),
+                turn_id: "turn-1".to_string(),
+                parent_step_id: None,
+                delegate_id: Some("delegate-1".to_string()),
+                child_run_id: Some("delegate-1".to_string()),
+                child_step_id: None,
+                trace_ref: Some("trace-delegate-1".to_string()),
+                sequence: 1,
+                created_at: "2026-06-28T00:00:00.000Z".to_string(),
+                payload: json!({ "status": "running" }),
+            },
+        })
+        .expect("trace event append should succeed");
+        rpc.append_trace_event(BackgroundTraceAppendParams {
+            event: BackgroundTraceEvent {
+                event_id: "event-2".to_string(),
+                event_type: "agent.delegate.completed".to_string(),
+                session_key: "WebSocket:chat-2".to_string(),
+                turn_id: "turn-2".to_string(),
+                parent_step_id: None,
+                delegate_id: Some("delegate-2".to_string()),
+                child_run_id: Some("delegate-2".to_string()),
+                child_step_id: None,
+                trace_ref: Some("trace-delegate-2".to_string()),
+                sequence: 2,
+                created_at: "2026-06-28T00:00:01.000Z".to_string(),
+                payload: json!({ "status": "completed" }),
+            },
+        })
+        .expect("second trace event append should succeed");
+
+        let result = rpc
+            .list_trace_events(BackgroundTraceListParams {
+                filter: Some(BackgroundTraceListFilter {
+                    session_key: Some("WebSocket:chat-1".to_string()),
+                    delegate_id: Some("delegate-1".to_string()),
+                    trace_ref: None,
+                    event_type: None,
+                    artifact_id: None,
+                }),
+            })
+            .expect("trace events should list");
+
+        assert_eq!(result.events.len(), 1);
+        assert_eq!(result.events[0].event_id, "event-1");
+        assert_eq!(result.events[0].payload["status"], "running");
+        assert!(
+            std::fs::read_to_string(root.join("background").join("registry.json"))
+                .unwrap()
+                .contains("traceEvents")
+        );
+    }
+
+    #[test]
+    fn reconstructs_delegate_trace_from_journal_events() {
+        let root = temp_workspace_root("delegate-trace-store");
+        let _cleanup = TempWorkspaceCleanup(root.clone());
+        let rpc = WorkerBackgroundRpc::new(
+            root,
+            CapabilityPolicy::new([
+                WorkerCapability::BackgroundRead,
+                WorkerCapability::BackgroundWrite,
+            ]),
+        );
+
+        rpc.append_trace_event(BackgroundTraceAppendParams {
+            event: BackgroundTraceEvent {
+                event_id: "event-1".to_string(),
+                event_type: "agent.delegate.started".to_string(),
+                session_key: "WebSocket:chat-1".to_string(),
+                turn_id: "turn-1".to_string(),
+                parent_step_id: None,
+                delegate_id: Some("delegate-1".to_string()),
+                child_run_id: Some("child-1".to_string()),
+                child_step_id: None,
+                trace_ref: Some("trace-delegate-1".to_string()),
+                sequence: 1,
+                created_at: "2026-06-28T00:00:00.000Z".to_string(),
+                payload: json!({ "status": "running" }),
+            },
+        })
+        .expect("start event should append");
+        rpc.append_trace_event(BackgroundTraceAppendParams {
+            event: BackgroundTraceEvent {
+                event_id: "event-2".to_string(),
+                event_type: "child.approval.resolved".to_string(),
+                session_key: "WebSocket:chat-1".to_string(),
+                turn_id: "turn-1".to_string(),
+                parent_step_id: None,
+                delegate_id: Some("delegate-1".to_string()),
+                child_run_id: Some("child-1".to_string()),
+                child_step_id: Some("approval-1".to_string()),
+                trace_ref: Some("trace-delegate-1".to_string()),
+                sequence: 2,
+                created_at: "2026-06-28T00:00:01.000Z".to_string(),
+                payload: json!({
+                    "approvalId": "approval-1",
+                    "status": "approved",
+                    "toolName": "write_file"
+                }),
+            },
+        })
+        .expect("approval event should append");
+        rpc.append_trace_event(BackgroundTraceAppendParams {
+            event: BackgroundTraceEvent {
+                event_id: "event-3".to_string(),
+                event_type: "agent.delegate.completed".to_string(),
+                session_key: "WebSocket:chat-1".to_string(),
+                turn_id: "turn-1".to_string(),
+                parent_step_id: None,
+                delegate_id: Some("delegate-1".to_string()),
+                child_run_id: Some("child-1".to_string()),
+                child_step_id: None,
+                trace_ref: Some("trace-delegate-1".to_string()),
+                sequence: 3,
+                created_at: "2026-06-28T00:00:02.000Z".to_string(),
+                payload: json!({ "status": "completed", "finalOutput": "Done" }),
+            },
+        })
+        .expect("completed event should append");
+
+        let result = rpc
+            .get_delegate_trace(BackgroundTraceGetDelegateTraceParams {
+                filter: BackgroundTraceListFilter {
+                    session_key: Some("WebSocket:chat-1".to_string()),
+                    delegate_id: Some("delegate-1".to_string()),
+                    trace_ref: None,
+                    event_type: None,
+                    artifact_id: None,
+                },
+            })
+            .expect("delegate trace should reconstruct");
+
+        assert_eq!(result.trace.session_key, "WebSocket:chat-1");
+        assert_eq!(result.trace.delegate_id.as_deref(), Some("delegate-1"));
+        assert_eq!(result.trace.child_run_id.as_deref(), Some("child-1"));
+        assert_eq!(result.trace.trace_ref.as_deref(), Some("trace-delegate-1"));
+        assert_eq!(result.trace.status.as_deref(), Some("completed"));
+        assert_eq!(result.trace.final_output.as_deref(), Some("Done"));
+        assert_eq!(result.trace.events.len(), 3);
+        assert_eq!(result.trace.approvals.len(), 1);
+        assert_eq!(result.trace.approvals[0]["approvalId"], "approval-1");
+    }
+
+    #[test]
+    fn retrieves_artifact_from_trace_journal_events() {
+        let root = temp_workspace_root("trace-artifact-store");
+        let _cleanup = TempWorkspaceCleanup(root.clone());
+        let rpc = WorkerBackgroundRpc::new(
+            root,
+            CapabilityPolicy::new([
+                WorkerCapability::BackgroundRead,
+                WorkerCapability::BackgroundWrite,
+            ]),
+        );
+
+        rpc.append_trace_event(BackgroundTraceAppendParams {
+            event: BackgroundTraceEvent {
+                event_id: "event-artifact".to_string(),
+                event_type: "child.artifact.created".to_string(),
+                session_key: "WebSocket:chat-1".to_string(),
+                turn_id: "turn-1".to_string(),
+                parent_step_id: None,
+                delegate_id: Some("delegate-1".to_string()),
+                child_run_id: Some("child-1".to_string()),
+                child_step_id: Some("artifact-1".to_string()),
+                trace_ref: Some("trace-delegate-1".to_string()),
+                sequence: 1,
+                created_at: "2026-06-28T00:00:00.000Z".to_string(),
+                payload: json!({
+                    "artifactId": "artifact-1",
+                    "kind": "diff",
+                    "title": "Patch",
+                    "content": "--- a/file\n+++ b/file"
+                }),
+            },
+        })
+        .expect("artifact event should append");
+
+        let result = rpc
+            .get_artifact(BackgroundTraceGetArtifactParams {
+                filter: BackgroundTraceListFilter {
+                    session_key: Some("WebSocket:chat-1".to_string()),
+                    delegate_id: Some("delegate-1".to_string()),
+                    trace_ref: None,
+                    event_type: None,
+                    artifact_id: Some("artifact-1".to_string()),
+                },
+            })
+            .expect("artifact should load");
+
+        assert_eq!(result.artifact["artifactId"], "artifact-1");
+        assert_eq!(result.artifact["kind"], "diff");
+        assert_eq!(result.artifact["title"], "Patch");
     }
 
     fn temp_workspace_root(name: &str) -> PathBuf {

@@ -33,6 +33,7 @@ export type DesktopNativeWebSocketAgentEventName =
   | "agent.delegate.trace.updated"
   | "agent.delegate.completed"
   | "agent.delegate.failed"
+  | "agent.delegate.interrupted"
   | "agent.delegate.closed"
   | "agent.browser_frame"
   | "cowork_updated"
@@ -68,6 +69,7 @@ const AGENT_EVENT_NAMES: DesktopNativeWebSocketAgentEventName[] = [
   "agent.delegate.trace.updated",
   "agent.delegate.completed",
   "agent.delegate.failed",
+  "agent.delegate.interrupted",
   "agent.delegate.closed",
   "agent.browser_frame",
   "cowork_updated",
@@ -912,7 +914,10 @@ function delegatedEventTypeFromStatus(status: string): string {
   if (status === "failed") {
     return "agent.delegate.failed";
   }
-  if (status === "closed" || status === "cancelled") {
+  if (status === "cancelled") {
+    return "agent.delegate.interrupted";
+  }
+  if (status === "closed") {
     return "agent.delegate.closed";
   }
   if (status === "awaiting_approval" || status === "blocked") {

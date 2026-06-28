@@ -504,6 +504,40 @@ describe("chat run model", () => {
     });
   });
 
+  test("replays interrupted delegated runs as cancelled steps", () => {
+    const state = createChatRunState();
+    reduceAgentEvent(state, {
+      schema_version: "tinybot.agent_event.v1",
+      event_id: "delegate-interrupted",
+      event_type: "agent.delegate.interrupted",
+      chat_id: "chat-1",
+      session_key: "WebSocket:chat-1",
+      turn_id: "turn-spawn",
+      step_id: "turn-spawn:delegate:delegate-1",
+      sequence: 1,
+      created_at: "2026-06-27T04:10:02.000Z",
+      payload: {
+        delegate_id: "delegate-1",
+        delegate_type: "spawn",
+        latest_activity: "Delegated run interrupted.",
+        status: "cancelled",
+        task: "long review",
+        title: "Long review",
+        trace_ref: "trace-1",
+      },
+    });
+
+    const turns = state.turnsBySession.get("WebSocket:chat-1") ?? [];
+    expect(turns[0]?.steps[0]).toMatchObject({
+      kind: "delegate",
+      status: "cancelled",
+      delegate: {
+        id: "delegate-1",
+        status: "cancelled",
+      },
+    });
+  });
+
   test("replays approval, failure, interruption, form, browser, file diff, and delegate variants", () => {
     const state = createChatRunState();
     const base = {

@@ -237,8 +237,21 @@ describe("conversation thread Vue island", () => {
 
     const shelf = host.querySelector(".desktop-subagent-shelf");
     expect(shelf?.getAttribute("data-subagent-count")).toBe("1");
+    expect(shelf?.getAttribute("data-subagent-shelf-layout")).toBe("stacked-status");
     expect(shelf?.textContent).toContain("spawn");
     expect(shelf?.textContent).toContain("Completed");
+    expect(shelf?.querySelector("[data-subagent-shelf-row]")).toBeTruthy();
+
+    const cssText = document.getElementById("desktop-conversation-agent-flow-styles")?.textContent ?? "";
+    const shelfListRule = cssText.match(/\.desktop-subagent-shelf-list \{([\s\S]*?)\}/)?.[1] ?? "";
+    const shelfItemRule = cssText.match(/\.desktop-subagent-shelf-item \{([\s\S]*?)\}/)?.[1] ?? "";
+    const shelfActivityRule = cssText.match(/\.desktop-subagent-shelf-activity \{([\s\S]*?)\}/)?.[1] ?? "";
+    expect(shelfListRule).toContain("display: grid;");
+    expect(shelfListRule).toContain("overflow-y: auto;");
+    expect(shelfListRule).toContain("overflow-x: hidden;");
+    expect(shelfItemRule).toContain("grid-template-columns: auto minmax(92px, .8fr) max-content minmax(0, 1.2fr);");
+    expect(shelfItemRule).toContain("width: 100%;");
+    expect(shelfActivityRule).not.toContain("grid-column:");
 
     shelf?.querySelector<HTMLButtonElement>("[data-subagent-shelf-item]")?.click();
     await nextTick();
@@ -249,6 +262,425 @@ describe("conversation thread Vue island", () => {
     expect(inspector?.textContent).toContain("Subagent timeline");
     expect(inspector?.textContent).toContain("say");
     expect(inspector?.textContent).toContain("你好");
+  });
+
+  test("groups delegated trace details into transcript tools approvals and context", async () => {
+    const host = document.createElement("section");
+
+    mountConversationThreadIsland(host, {
+      emptyMessage: "",
+      messages: [{
+        author: "Tinybot",
+        body: ["I observed a child agent."],
+        references: [],
+        time: "10:30 AM",
+        tone: "assistant",
+        toolActivities: [{
+          argsText: "Spawn greeter",
+          approvalStatus: "",
+          delegatedTrace: {
+            childRunId: "child-run-1",
+            steps: [
+              {
+                id: "reasoning-1",
+                kind: "reasoning",
+                status: "completed",
+                summary: "The child agent planned a short greeting.",
+                title: "Thinking",
+              },
+              {
+                argsPreview: "{\"text\":\"hello\"}",
+                id: "tool-1",
+                kind: "tool_call",
+                resultPreview: "hello",
+                status: "completed",
+                summary: "Child tool say completed.",
+                title: "say",
+              },
+              {
+                approvalId: "approval-child-1",
+                approvalStatus: "approved",
+                id: "approval-1",
+                kind: "approval",
+                status: "approved",
+                summary: "Child approval was granted.",
+                title: "Approval checkpoint",
+              },
+              {
+                id: "final-1",
+                kind: "message",
+                resultPreview: "hello",
+                status: "completed",
+                title: "Final response",
+              },
+              {
+                id: "artifact-1",
+                kind: "artifact",
+                resultPreview: "notes/hello.md",
+                status: "completed",
+                summary: "Created notes/hello.md",
+                title: "hello.md",
+              },
+            ],
+            artifacts: [{
+              id: "artifact-1",
+              kind: "file",
+              path: "notes/hello.md",
+              summary: "Greeting note",
+            }],
+          },
+          delegateId: "delegate-1",
+          delegateTask: "Say hello",
+          finalOutput: "hello",
+          id: "delegate-1",
+          kind: "result",
+          name: "spawn_agent",
+          responseText: "hello",
+          status: "completed",
+          traceRef: "child-run-1",
+        }],
+      }],
+    });
+    await nextTick();
+    await nextTick();
+
+    host.querySelector<HTMLButtonElement>("[data-subagent-shelf-item]")?.click();
+    await nextTick();
+    await flushDetailPanelOpeningMotion();
+
+    const inspector = host.querySelector(".desktop-delegate-detail-panel");
+    expect(inspector?.textContent).toContain("Subagent timeline");
+    expect(inspector?.textContent).toContain("Transcript");
+    expect(inspector?.textContent).toContain("Tools");
+    expect(inspector?.textContent).toContain("Approvals");
+    expect(inspector?.textContent).toContain("Artifacts");
+    expect(inspector?.textContent).toContain("Raw context");
+    expect(inspector?.textContent).toContain("child-run-1");
+    expect(inspector?.textContent).toContain("hello");
+
+    inspector?.querySelector<HTMLButtonElement>('[data-subagent-observability-tab="transcript"]')?.click();
+    await nextTick();
+    expect(inspector?.querySelector('[data-subagent-observability-tab-panel="transcript"]')?.textContent)
+      .toContain("The child agent planned a short greeting.");
+
+    inspector?.querySelector<HTMLButtonElement>('[data-subagent-observability-tab="approvals"]')?.click();
+    await nextTick();
+    expect(inspector?.querySelector('[data-subagent-observability-tab-panel="approvals"]')?.textContent)
+      .toContain("Child approval was granted.");
+
+    inspector?.querySelector<HTMLButtonElement>('[data-subagent-observability-tab="artifacts"]')?.click();
+    await nextTick();
+    const artifactPanel = inspector?.querySelector('[data-subagent-observability-tab-panel="artifacts"]');
+    expect(artifactPanel?.textContent).toContain("Greeting note");
+    expect(artifactPanel?.textContent).toContain("notes/hello.md");
+  });
+
+  test("lazy loads persisted delegated trace when opening a subagent inspector", async () => {
+    const host = document.createElement("section");
+    const onDelegateTraceLoad = vi.fn(async () => ({
+      delegateId: "delegate-1",
+      traceRef: "child-run-1",
+      events: [{
+        event_id: "child-message-1",
+        event_type: "agent.message",
+        payload: {
+          content: "child said hello",
+        },
+        status: "completed",
+      }],
+    }));
+
+    mountConversationThreadIsland(host, {
+      emptyMessage: "",
+      messages: [{
+        author: "Tinybot",
+        body: ["I spawned a greeter."],
+        references: [],
+        time: "10:30 AM",
+        tone: "assistant",
+        toolActivities: [{
+          argsText: "Say hello",
+          approvalStatus: "",
+          delegateId: "delegate-1",
+          delegateTask: "Say hello",
+          id: "delegate-1",
+          kind: "result",
+          name: "spawn_agent",
+          responseText: "done",
+          sessionKey: "WebSocket:chat-1",
+          status: "completed",
+          traceRef: "child-run-1",
+        }],
+      }],
+      onDelegateTraceLoad,
+    });
+    await nextTick();
+
+    host.querySelector<HTMLButtonElement>("[data-subagent-shelf-item]")?.click();
+    await nextTick();
+    await flushDetailPanelOpeningMotion();
+    await nextTick();
+
+    expect(onDelegateTraceLoad).toHaveBeenCalledWith({
+      activityId: "delegate-1",
+      delegateId: "delegate-1",
+      sessionKey: "WebSocket:chat-1",
+      traceRef: "child-run-1",
+    });
+    const inspector = host.querySelector(".desktop-delegate-detail-panel");
+    expect(inspector?.textContent).toContain("Subagent timeline");
+    inspector?.querySelector<HTMLButtonElement>('[data-subagent-observability-tab="transcript"]')?.click();
+    await nextTick();
+    expect(inspector?.querySelector('[data-subagent-observability-tab-panel="transcript"]')?.textContent)
+      .toContain("child said hello");
+  });
+
+  test("renders subagent observability as switchable inspector tabs", async () => {
+    const host = document.createElement("section");
+
+    mountConversationThreadIsland(host, {
+      emptyMessage: "",
+      messages: [{
+        author: "Tinybot",
+        body: ["I observed a child agent."],
+        references: [],
+        time: "10:30 AM",
+        tone: "assistant",
+        toolActivities: [{
+          argsText: "Spawn greeter",
+          approvalStatus: "approved",
+          delegatedTrace: {
+            childRunId: "child-run-1",
+            steps: [
+              {
+                id: "message-1",
+                kind: "message",
+                resultPreview: "child transcript output",
+                status: "completed",
+                title: "Assistant response",
+              },
+              {
+                argsPreview: "{\"text\":\"hello\"}",
+                id: "tool-1",
+                kind: "tool_call",
+                resultPreview: "tool result output",
+                status: "completed",
+                title: "say",
+              },
+              {
+                approvalId: "approval-child-1",
+                approvalStatus: "approved",
+                id: "approval-1",
+                kind: "approval",
+                status: "approved",
+                title: "Approval checkpoint",
+              },
+            ],
+          },
+          delegateId: "delegate-1",
+          delegateTask: "Say hello",
+          finalOutput: "child transcript output",
+          id: "delegate-1",
+          kind: "result",
+          name: "spawn_agent",
+          responseText: "done",
+          status: "completed",
+          traceRef: "child-run-1",
+        }],
+      }],
+    });
+    await nextTick();
+
+    host.querySelector<HTMLButtonElement>("[data-subagent-shelf-item]")?.click();
+    await nextTick();
+    await flushDetailPanelOpeningMotion();
+
+    const inspector = host.querySelector(".desktop-delegate-detail-panel");
+    const tabs = inspector?.querySelector('[role="tablist"][aria-label="Subagent observability"]');
+    expect(tabs?.textContent).toContain("Overview");
+    expect(tabs?.textContent).toContain("Transcript");
+    expect(tabs?.textContent).toContain("Tools");
+    expect(inspector?.querySelector('[data-subagent-observability-tab-panel="overview"]')?.textContent).toContain("child-run-1");
+
+    inspector?.querySelector<HTMLButtonElement>('[data-subagent-observability-tab="transcript"]')?.click();
+    await nextTick();
+
+    const transcriptPanel = inspector?.querySelector('[data-subagent-observability-tab-panel="transcript"]');
+    expect(transcriptPanel?.textContent).toContain("child transcript output");
+    expect(transcriptPanel?.textContent).not.toContain("tool result output");
+    expect(inspector?.querySelector('[data-subagent-observability-tab-panel="tools"]')).toBeNull();
+  });
+
+  test("lazy loads subagent artifacts from the inspector artifact tab", async () => {
+    const host = document.createElement("section");
+    const onArtifactLoad = vi.fn(async () => ({
+      artifactId: "artifact-1",
+      content: "# Artifact body\n\nchild artifact details",
+      kind: "markdown",
+      title: "hello.md",
+    }));
+
+    mountConversationThreadIsland(host, {
+      emptyMessage: "",
+      messages: [{
+        author: "Tinybot",
+        body: ["I observed a child artifact."],
+        references: [],
+        time: "10:30 AM",
+        tone: "assistant",
+        toolActivities: [{
+          argsText: "Spawn greeter",
+          approvalStatus: "",
+          delegatedTrace: {
+            artifacts: [{
+              id: "artifact-1",
+              kind: "markdown",
+              path: "notes/hello.md",
+              summary: "Greeting note",
+              title: "hello.md",
+            }],
+            childRunId: "child-run-1",
+            steps: [],
+          },
+          delegateId: "delegate-1",
+          delegateTask: "Say hello",
+          id: "delegate-1",
+          kind: "result",
+          name: "spawn_agent",
+          responseText: "done",
+          sessionKey: "WebSocket:chat-1",
+          status: "completed",
+          traceRef: "child-run-1",
+        }],
+      }],
+      onArtifactLoad,
+    });
+    await nextTick();
+
+    host.querySelector<HTMLButtonElement>("[data-subagent-shelf-item]")?.click();
+    await nextTick();
+    await flushDetailPanelOpeningMotion();
+
+    const inspector = host.querySelector(".desktop-delegate-detail-panel");
+    inspector?.querySelector<HTMLButtonElement>('[data-subagent-observability-tab="artifacts"]')?.click();
+    await nextTick();
+
+    inspector?.querySelector<HTMLButtonElement>('[data-subagent-artifact-id="artifact-1"]')?.click();
+    await nextTick();
+    await nextTick();
+
+    expect(onArtifactLoad).toHaveBeenCalledWith({
+      activityId: "delegate-1",
+      artifactId: "artifact-1",
+      delegateId: "delegate-1",
+      sessionKey: "WebSocket:chat-1",
+      traceRef: "child-run-1",
+    });
+    const artifactPanel = inspector?.querySelector('[data-subagent-observability-tab-panel="artifacts"]');
+    expect(artifactPanel?.textContent).toContain("hello.md");
+    expect(artifactPanel?.textContent).toContain("child artifact details");
+  });
+
+  test("keeps expanded agent flow groups from clipping step content", async () => {
+    const host = document.createElement("section");
+
+    mountConversationThreadIsland(host, {
+      emptyMessage: "",
+      messages: [
+        {
+          author: "You",
+          body: ["Use a subagent"],
+          references: [],
+          time: "10:29 AM",
+          tone: "user",
+          toolActivities: [],
+        },
+        {
+          author: "Tinybot",
+          body: [],
+          reasoningContent: "I should create a child agent.",
+          references: [],
+          time: "10:30 AM",
+          tone: "assistant",
+          toolActivities: [],
+        },
+        {
+          author: "Tinybot",
+          body: [],
+          references: [],
+          time: "10:31 AM",
+          tone: "assistant",
+          toolActivities: [{
+            approvalStatus: "",
+            argsText: "{\"task\":\"Say hello\"}",
+            id: "delegate-1",
+            kind: "call",
+            name: "spawn_agent",
+            responseText: "",
+            status: "running",
+          }],
+        },
+        {
+          author: "Tinybot",
+          body: [],
+          references: [],
+          time: "10:32 AM",
+          tone: "assistant",
+          toolActivities: [{
+            approvalStatus: "",
+            argsText: "{\"target\":\"delegate-1\"}",
+            id: "wait-1",
+            kind: "result",
+            name: "wait_agent",
+            responseText: "The child agent returned a detailed result that should remain visible.",
+            status: "completed",
+          }],
+        },
+        {
+          author: "Tinybot",
+          body: ["Done"],
+          references: [],
+          time: "10:33 AM",
+          tone: "assistant",
+          toolActivities: [],
+        },
+      ],
+    });
+    await nextTick();
+    await nextTick();
+
+    const group = host.querySelector<HTMLDetailsElement>(".desktop-agent-flow-group");
+    group!.open = true;
+    group!.dispatchEvent(new Event("toggle"));
+    await nextTick();
+
+    const cssText = document.getElementById("desktop-conversation-agent-flow-styles")?.textContent ?? "";
+    const groupRule = cssText.match(/\.desktop-assistant-step-group\.desktop-agent-flow-group,[\s\S]*?body\.desktop-native-workbench \.desktop-assistant-step-group\.desktop-agent-flow-group \{([\s\S]*?)\}/)?.[1] ?? "";
+    const stepListRule = cssText.match(/\.desktop-agent-flow-step-list,[\s\S]*?body\.desktop-native-workbench \.desktop-agent-flow-step-list\.desktop-assistant-step-list \{([\s\S]*?)\}/)?.[1] ?? "";
+    const firstStep = host.querySelector<HTMLElement>(".desktop-agent-flow-step");
+    const stepList = host.querySelector<HTMLElement>(".desktop-agent-flow-step-list");
+    Object.defineProperty(stepList, "scrollHeight", { configurable: true, value: 480 });
+    group!.dispatchEvent(new Event("toggle"));
+    await nextTick();
+
+    expect(group!.style.getPropertyValue("--desktop-agent-flow-content-height")).toBe("480px");
+    expect(firstStep?.getAttribute("style")).toContain("--desktop-agent-flow-step-index: 0");
+    expect(groupRule).toContain("display: block;");
+    expect(groupRule).toContain("align-self: start;");
+    expect(groupRule).not.toContain("display: grid;");
+    expect(groupRule).not.toContain("grid-template-rows:");
+    expect(groupRule).toContain("overflow: visible;");
+    expect(groupRule).not.toContain("overflow: hidden;");
+    expect(stepListRule).toContain("position: static;");
+    expect(stepListRule).toContain("contain: none;");
+    expect(stepListRule).toContain("transition:");
+    expect(stepListRule).toContain("max-height 300ms");
+    expect(stepListRule).toContain("opacity 220ms");
+    expect(stepListRule).toContain("transform 300ms");
+    expect(cssText).toMatch(/\.desktop-agent-flow-group\[open\] \.desktop-agent-flow-step-list[\s\S]*max-height:\s*var\(--desktop-agent-flow-content-height, 1200px\);/);
+    expect(cssText).toMatch(/\.desktop-agent-flow-group\[open\] \.desktop-agent-flow-step,[\s\S]*body\.desktop-native-workbench \.desktop-agent-flow-group\[open\] \.desktop-agent-flow-step[\s\S]*animation-delay:\s*calc\(var\(--desktop-agent-flow-step-index, 0\) \* 55ms\);/);
+    expect(cssText).toMatch(/\.desktop-agent-flow-step[\s\S]*overflow:\s*visible;/);
+    expect(cssText).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*\.desktop-agent-flow-step-list/);
   });
 
   test("dispatches memory reference inspection from reference cards", async () => {
@@ -587,6 +1019,10 @@ describe("conversation thread Vue island", () => {
     ]);
     const finalAnswer = Array.from(host.querySelectorAll<HTMLElement>(".desktop-conversation-message"))
       .find((message) => message.textContent?.includes("The workspace contains"));
+    const assistantRunGroup = host.querySelector<HTMLElement>(".desktop-assistant-run-group");
+    expect(assistantRunGroup).toBeTruthy();
+    expect(details?.closest(".desktop-assistant-run-group")).toBe(assistantRunGroup);
+    expect(finalAnswer?.closest(".desktop-assistant-run-group")).toBe(assistantRunGroup);
     expect(details && finalAnswer ? details.compareDocumentPosition(finalAnswer) & Node.DOCUMENT_POSITION_FOLLOWING : 0).not.toBe(0);
     expect(finalAnswer?.querySelector(".desktop-message-reasoning-toggle")).toBeNull();
     expect(host.querySelectorAll(".desktop-message-copy-button")).toHaveLength(1);
@@ -639,9 +1075,16 @@ describe("conversation thread Vue island", () => {
     expect(details?.textContent).toContain("The subagent needs approval");
     expect(details?.querySelectorAll(".desktop-tool-activity")).toHaveLength(1);
     const injectedStyles = document.getElementById("desktop-conversation-agent-flow-styles")?.textContent ?? "";
+    expect(injectedStyles).toContain("body.desktop-native-workbench .desktop-conversation-layout");
+    expect(injectedStyles).toContain("height: auto");
     expect(injectedStyles).toContain("max-height: none");
-    expect(injectedStyles).toContain("overflow-y: visible");
+    expect(injectedStyles).toContain("overflow: hidden");
     expect(injectedStyles).toContain("minmax(0, auto)");
+    expect(injectedStyles).toContain("display: flex");
+    expect(injectedStyles).toContain("flex-direction: column");
+    expect(injectedStyles).toContain("flex: 0 0 auto");
+    expect(injectedStyles).toContain("body.desktop-native-workbench .desktop-assistant-step-group.desktop-agent-flow-group");
+    expect(injectedStyles).toContain("body.desktop-native-workbench .desktop-agent-flow-step-card");
     const finalAnswer = Array.from(host.querySelectorAll<HTMLElement>(".desktop-conversation-message"))
       .find((message) => message.textContent?.includes("我会等待审批后继续。"));
     expect(finalAnswer?.querySelector(".desktop-message-reasoning-toggle")).toBeNull();

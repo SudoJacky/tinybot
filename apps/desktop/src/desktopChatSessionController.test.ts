@@ -24,6 +24,116 @@ describe("desktop chat session controller", () => {
     expect(sent).toEqual([{ type: "attach", chat_id: "chat-1" }]);
   });
 
+  test("replays delegated trace events when selecting a persisted native session", async () => {
+    const sent: unknown[] = [];
+    const listTraceEvents = vi.fn(async () => ({
+      events: [{
+        eventId: "trace-event-1",
+        eventType: "agent.delegate.trace.updated",
+        sessionKey: "WebSocket:chat-1",
+        turnId: "turn-restored",
+        stepId: "step-delegate-1",
+        sequence: 1,
+        createdAt: "2026-06-28T04:00:01Z",
+        payload: {
+          delegate_id: "delegate-1",
+          delegate_type: "spawn",
+          final_output: "hello",
+          parent_tool_call_id: "call-spawn",
+          status: "completed",
+          task: "Say hello",
+          title: "Greeter",
+          tool_name: "spawn_agent",
+          trace_ref: "trace-delegate-1",
+          trace: {
+            delegateId: "delegate-1",
+            parentRunId: "run-parent",
+            parentSessionKey: "WebSocket:chat-1",
+            status: "completed",
+            steps: [{
+              id: "message:delegate-1",
+              kind: "message",
+              status: "completed",
+              title: "Assistant message",
+              summary: "hello",
+            }],
+          },
+        },
+      }],
+    }));
+    const controller = createDesktopChatSessionController({
+      api: {
+        listSessions: vi.fn(async () => ({
+          items: [{ key: "WebSocket:chat-1", chat_id: "chat-1", title: "Spawn", updated_at: "2026-06-28T04:00:00Z" }],
+        })),
+        loadMessages: vi.fn(async () => ({
+          messages: [{ role: "user", content: "spawn a subagent", message_id: "m-user" }],
+        })),
+        listTraceEvents,
+      },
+      sendSocketMessage: (message) => sent.push(message),
+    });
+
+    await controller.loadSessions();
+
+    expect(listTraceEvents).toHaveBeenCalledWith({ sessionKey: "WebSocket:chat-1" });
+    const toolActivities = [...(controller.state.messages.get("WebSocket:chat-1") ?? [])]
+      .flatMap((message) => message.toolActivities ?? []);
+    expect(toolActivities).toEqual([
+      expect.objectContaining({
+        delegatedTrace: expect.objectContaining({
+          delegateId: "delegate-1",
+          steps: [expect.objectContaining({ summary: "hello" })],
+        }),
+        delegateId: "delegate-1",
+        delegateTask: "Say hello",
+        delegateTitle: "Greeter",
+        finalOutput: "hello",
+        id: "call-spawn",
+        name: "spawn_agent",
+        status: "completed",
+        traceRef: "trace-delegate-1",
+      }),
+    ]);
+    expect(sent).toEqual([{ type: "attach", chat_id: "chat-1" }]);
+  });
+
+  test("loads a delegated artifact through the trace API", async () => {
+    const getArtifact = vi.fn(async () => ({
+      artifact: {
+        artifactId: "artifact-1",
+        content: "artifact body",
+      },
+    }));
+    const controller = createDesktopChatSessionController({
+      api: {
+        getArtifact,
+        listSessions: vi.fn(async () => ({ items: [] })),
+        loadMessages: vi.fn(async () => ({ messages: [] })),
+      },
+      sendSocketMessage: vi.fn(),
+    });
+
+    await expect(controller.loadArtifact({
+      artifactId: "artifact-1",
+      delegateId: "delegate-1",
+      sessionKey: "WebSocket:chat-1",
+      traceRef: "trace-1",
+    })).resolves.toEqual({
+      artifact: {
+        artifactId: "artifact-1",
+        content: "artifact body",
+      },
+    });
+
+    expect(getArtifact).toHaveBeenCalledWith({
+      artifactId: "artifact-1",
+      delegateId: "delegate-1",
+      sessionKey: "WebSocket:chat-1",
+      traceRef: "trace-1",
+    });
+  });
+
   test("preserves gateway session keys when selecting recent chats with non-WebSocket keys", async () => {
     const sent: unknown[] = [];
     const controller = createDesktopChatSessionController({

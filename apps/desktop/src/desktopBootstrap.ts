@@ -642,6 +642,15 @@ async function loadNativeChatRuntime(): Promise<DesktopNativeWorkbenchRuntime> {
     api: {
       listSessions: () => gatewayApi.sessions.list(),
       loadMessages: (sessionKey) => gatewayApi.sessions.messages(sessionKey),
+      listTraceEvents: agentRoute === "ts-agent"
+        ? (filter) => invoke("worker_background_trace_list", { input: { filter } })
+        : undefined,
+      getDelegateTrace: agentRoute === "ts-agent"
+        ? (filter) => invoke("worker_background_trace_get_delegate_trace", { input: { filter } })
+        : undefined,
+      getArtifact: agentRoute === "ts-agent"
+        ? (filter) => invoke("worker_background_trace_get_artifact", { input: { filter } })
+        : undefined,
       deleteSession: (sessionKey) => gatewayApi.sessions.delete(sessionKey),
     },
     sendSocketMessage: (message) => sendNativeChatSocketMessage(message),
@@ -707,6 +716,7 @@ function installNativeTsAgentEventListeners(): void {
     "agent.delegate.trace.updated",
     "agent.delegate.completed",
     "agent.delegate.failed",
+    "agent.delegate.interrupted",
     "agent.delegate.closed",
     "heartbeat.delivery",
     "agent.cancelled",
@@ -835,6 +845,18 @@ function nativeChatActions() {
     },
     onAttachSessionFile: () => {
       document.getElementById("desktop-session-file-upload")?.click();
+    },
+    onArtifactLoad: (selection: { sessionKey: string; delegateId?: string; traceRef?: string; artifactId: string }) => {
+      if (!nativeWorkbenchRuntime) {
+        return Promise.resolve(null);
+      }
+      return nativeWorkbenchRuntime.loadArtifact(selection);
+    },
+    onDelegateTraceLoad: (selection: { sessionKey: string; delegateId?: string; traceRef?: string }) => {
+      if (!nativeWorkbenchRuntime) {
+        return Promise.resolve(null);
+      }
+      return nativeWorkbenchRuntime.loadDelegateTrace(selection);
     },
     onSelectModel: (model: string) => {
       void selectNativeComposerModel(model);

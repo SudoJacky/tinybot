@@ -1081,6 +1081,73 @@ describe("AgentRunner", () => {
     });
   });
 
+  test("executes the original tool when approval is already allowed", async () => {
+    const provider = new QueueProvider([
+      {
+        content: "",
+        toolCalls: [
+          {
+            id: "call-1",
+            name: "write_file",
+            argumentsJson: "{\"path\":\"notes/today.md\",\"content\":\"hello\"}",
+          },
+        ],
+        stopReason: "tool_calls",
+      },
+      {
+        content: "done",
+        toolCalls: [],
+        stopReason: "stop",
+      },
+    ]);
+    const tools = new ToolRegistry();
+    const executedWrites: Record<string, unknown>[] = [];
+    const approvalRequests: Record<string, unknown>[] = [];
+    tools.register({
+      name: "write_file",
+      description: "Write a file",
+      parameters: { type: "object" },
+      capabilities: ["fs.workspace.write"],
+      requiresApproval: true,
+      execute: async (args) => {
+        executedWrites.push(args);
+        return { content: "written" };
+      },
+    });
+    tools.register({
+      name: "request_approval",
+      description: "Request approval",
+      parameters: { type: "object" },
+      execute: async (args) => {
+        approvalRequests.push(args);
+        return {
+          content: "Allowed.",
+          metadata: {
+            decision: "allow",
+            status: "approved",
+            scope: "session",
+            operation: args.operation,
+          },
+        };
+      },
+    });
+    const runner = new AgentRunner({ provider, tools });
+
+    const result = await runner.run(spec());
+
+    expect(executedWrites).toEqual([{ path: "notes/today.md", content: "hello" }]);
+    expect(approvalRequests).toHaveLength(1);
+    expect(result.stopReason).toBe("final_response");
+    expect(result.finalContent).toBe("done");
+    expect(result.messages).toContainEqual({
+      role: "tool",
+      content: "written",
+      toolCallId: "call-1",
+      name: "write_file",
+      metadata: undefined,
+    });
+  });
+
   test("includes awaiting approval metadata in tool result events", async () => {
     const provider = new QueueProvider([
       {

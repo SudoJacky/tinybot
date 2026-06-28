@@ -4,9 +4,11 @@ import {
   applyChatEvent,
   appendUserMessage,
   createNativeChatState,
+  hydrateDelegatedRunsFromTraceEvents,
   normalizeMessagesPayload,
   normalizeSessionsPayload,
   resolveNativeChatApproval,
+  setMessages,
   sessionKeyForChat,
 } from "./nativeChat";
 
@@ -835,6 +837,158 @@ describe("native chat state", () => {
     expect(messages[0].toolActivities?.[0]?.argsText).toContain("请用中文说一句");
     expect(messages[0].toolActivities?.[0]?.argsText).toContain("Spawned agent workflow");
     expect(messages[0].toolActivities?.[0]?.argsText).toContain("tool:call-1:completed");
+  });
+
+  test("hydrates delegated trace snapshots into chat run state when messages reload", () => {
+    const state = createNativeChatState();
+    const messages = normalizeMessagesPayload({
+      messages: [
+        {
+          role: "user",
+          content: "Spawn a subagent",
+          timestamp: "2026-06-27T04:00:00Z",
+          message_id: "user-1",
+        },
+        {
+          role: "tool",
+          content: "child final result",
+          tool_call_id: "call-spawn",
+          name: "spawn",
+          _delegate_event: true,
+          _delegate_id: "delegate-1",
+          _delegate_label: "Greeter",
+          _delegate_status: "completed",
+          _delegate_task: "Say hello",
+          _delegate_trace_ref: "trace-delegate-1",
+          _delegate_result: { summary: "hello", status: "completed" },
+          _delegate_trace: {
+            delegateId: "delegate-1",
+            childRunId: "delegate-1",
+            parentRunId: "run-1",
+            parentSessionKey: "WebSocket:chat-1",
+            status: "completed",
+            steps: [{
+              id: "message:delegate-1",
+              kind: "message",
+              status: "completed",
+              title: "Assistant message",
+              summary: "hello",
+              createdAt: "2026-06-27T04:00:01Z",
+              updatedAt: "2026-06-27T04:00:01Z",
+            }],
+            approvals: [],
+            artifacts: [],
+            updatedAt: "2026-06-27T04:00:01Z",
+          },
+          timestamp: "2026-06-27T04:00:02Z",
+          message_id: "tool-delegate",
+        },
+      ],
+    });
+
+    setMessages(state, "WebSocket:chat-1", messages);
+
+    const delegate = state.chatRuns.delegatedRunsBySession.get("WebSocket:chat-1")?.get("delegate-1");
+    expect(delegate).toMatchObject({
+      id: "delegate-1",
+      title: "Greeter",
+      task: "Say hello",
+      status: "completed",
+      traceRef: "trace-delegate-1",
+      trace: {
+        steps: [expect.objectContaining({
+          id: "message:delegate-1",
+          summary: "hello",
+        })],
+      },
+    });
+  });
+
+  test("hydrates child trace journal events into delegated run traces", () => {
+    const state = createNativeChatState();
+    const sessionKey = "WebSocket:chat-1";
+    setMessages(state, sessionKey, normalizeMessagesPayload({
+      messages: [
+        {
+          role: "user",
+          content: "Use a subagent",
+          timestamp: "2026-06-27T04:00:00Z",
+          message_id: "user-1",
+        },
+      ],
+    }));
+
+    hydrateDelegatedRunsFromTraceEvents(state, sessionKey, [
+      {
+        eventId: "delegate-1:1:agent.delegate.started",
+        eventType: "agent.delegate.started",
+        sessionKey,
+        turnId: "turn-1",
+        stepId: "delegate-1",
+        traceRef: "trace-delegate-1",
+        sequence: 1,
+        createdAt: "2026-06-27T04:00:01Z",
+        payload: {
+          child_run_id: "delegate-1",
+          delegate_id: "delegate-1",
+          status: "running",
+          task: "Say hello",
+          title: "Greeter",
+          trace_ref: "trace-delegate-1",
+        },
+      },
+      {
+        eventId: "delegate-1:2:child.message.completed:final:delegate-1",
+        eventType: "child.message.completed",
+        sessionKey,
+        turnId: "turn-1",
+        stepId: "delegate-1",
+        traceRef: "trace-delegate-1",
+        sequence: 2,
+        createdAt: "2026-06-27T04:00:02Z",
+        payload: {
+          child_run_id: "delegate-1",
+          child_step_id: "final:delegate-1",
+          delegate_id: "delegate-1",
+          status: "completed",
+          summary: "hello from child",
+          trace_ref: "trace-delegate-1",
+          step: {
+            id: "final:delegate-1",
+            kind: "message",
+            status: "completed",
+            title: "Final answer",
+            summary: "hello from child",
+            resultPreview: "hello from child",
+            createdAt: "2026-06-27T04:00:02Z",
+            updatedAt: "2026-06-27T04:00:02Z",
+          },
+        },
+      },
+    ]);
+
+    const delegate = state.chatRuns.delegatedRunsBySession.get(sessionKey)?.get("delegate-1");
+    expect(delegate).toMatchObject({
+      id: "delegate-1",
+      trace: {
+        steps: [expect.objectContaining({
+          id: "final:delegate-1",
+          kind: "message",
+          status: "completed",
+          summary: "hello from child",
+        })],
+      },
+    });
+    const toolActivities = (state.messages.get(sessionKey) ?? []).flatMap((message) => message.toolActivities ?? []);
+    expect(toolActivities).toContainEqual(expect.objectContaining({
+      delegateId: "delegate-1",
+      delegatedTrace: expect.objectContaining({
+        steps: [expect.objectContaining({
+          id: "final:delegate-1",
+          summary: "hello from child",
+        })],
+      }),
+    }));
   });
 
   test("merges pending approval tool result messages into the latest running tool by name", () => {

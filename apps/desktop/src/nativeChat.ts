@@ -29,12 +29,21 @@ export type NativeChatMessage = {
 
 export type NativeChatToolActivity = {
   approvalId?: string;
+  delegatedTrace?: Record<string, unknown>;
+  delegateId?: string;
+  delegateTitle?: string;
+  delegateTask?: string;
+  delegateType?: string;
+  finalOutput?: string;
   id: string;
   name: string;
   argsText: string;
   responseText: string;
   kind: "call" | "result";
   approvalStatus?: string;
+  parentRunId?: string;
+  parentTurnId?: string;
+  traceRef?: string;
   sessionKey?: string;
   status?: string;
 };
@@ -52,6 +61,25 @@ export type NativeChatReference = {
   evidenceId?: string;
   scope?: string;
   type?: string;
+};
+
+export type NativeBackgroundTraceEvent = {
+  eventId?: string;
+  event_id?: string;
+  eventType?: string;
+  event_type?: string;
+  sessionKey?: string;
+  session_key?: string;
+  turnId?: string;
+  turn_id?: string;
+  stepId?: string;
+  step_id?: string;
+  traceRef?: string;
+  trace_ref?: string;
+  sequence?: number;
+  createdAt?: string;
+  created_at?: string;
+  payload?: Record<string, unknown>;
 };
 
 export type NativeChatState = {
@@ -151,6 +179,231 @@ export function setSessions(state: NativeChatState, sessions: NativeChatSession[
 export function setMessages(state: NativeChatState, sessionKey: string, messages: NativeChatMessage[]) {
   state.messages.set(sessionKey, messages);
   state.chatRuns.legacyMessagesBySession.set(sessionKey, messages);
+  state.chatRuns.turnsBySession.set(sessionKey, legacyMessagesToTurns(sessionKey, messages));
+  hydrateDelegatedRunsFromMessages(state, sessionKey, messages);
+}
+
+export function hydrateDelegatedRunsFromTraceEvents(
+  state: NativeChatState,
+  sessionKey: string,
+  events: NativeBackgroundTraceEvent[],
+): void {
+  if (!events.length) {
+    return;
+  }
+  if (!state.chatRuns.turnsBySession.has(sessionKey)) {
+    const legacyMessages = state.messages.get(sessionKey) ?? [];
+    state.chatRuns.legacyMessagesBySession.set(sessionKey, legacyMessages);
+    state.chatRuns.turnsBySession.set(sessionKey, legacyMessagesToTurns(sessionKey, legacyMessages));
+  }
+  const sortedEvents = [...events].sort((left, right) => (numberValue(left.sequence) ?? 0) - (numberValue(right.sequence) ?? 0));
+  for (const raw of sortedEvents) {
+    const payload = isRecord(raw.payload) ? raw.payload : {};
+    const eventType = stringValue(raw.eventType ?? raw.event_type);
+    const eventSessionKey = stringValue(raw.sessionKey ?? raw.session_key) || sessionKey;
+    if (eventSessionKey !== sessionKey) {
+      continue;
+    }
+    const childTracePayload = eventType.startsWith("child.")
+      ? childTracePayloadFromJournalEvent(raw, payload, eventType, sessionKey)
+      : undefined;
+    const replayEventType = childTracePayload ? "agent.delegate.trace.updated" : eventType;
+    const replayPayload = childTracePayload ?? payload;
+    if (!replayEventType.startsWith("agent.delegate.")) {
+      continue;
+    }
+    reduceAgentEvent(state.chatRuns, {
+      chat_id: state.activeChatId,
+      created_at: stringValue(raw.createdAt ?? raw.created_at) || new Date().toISOString(),
+      event_id: childTracePayload
+        ? `restore:child-trace:${stringValue(raw.eventId ?? raw.event_id) || `${sessionKey}:${eventType}:${numberValue(raw.sequence) ?? 0}`}`
+        : stringValue(raw.eventId ?? raw.event_id) || `restore:trace-event:${sessionKey}:${eventType}:${numberValue(raw.sequence) ?? 0}`,
+      event_type: replayEventType,
+      payload: replayPayload,
+      schema_version: "tinybot.agent_event.v1",
+      sequence: numberValue(raw.sequence) ?? 0,
+      session_key: sessionKey,
+      step_id: stringValue(raw.stepId ?? raw.step_id) || stringValue(replayPayload.step_id ?? replayPayload.stepId) || `trace:${stringValue(raw.traceRef ?? raw.trace_ref) || replayEventType}`,
+      turn_id: stringValue(raw.turnId ?? raw.turn_id) || stringValue(replayPayload.parent_turn_id ?? replayPayload.parentTurnId) || `restore:${sessionKey}`,
+    });
+  }
+  const turns = state.chatRuns.turnsBySession.get(sessionKey) ?? [];
+  state.messages.set(sessionKey, coalesceToolActivityMessages(conversationMessagesToNativeMessages(turnsToConversationMessages(turns))));
+}
+
+function childTracePayloadFromJournalEvent(
+  raw: NativeBackgroundTraceEvent,
+  payload: Record<string, unknown>,
+  eventType: string,
+  sessionKey: string,
+): Record<string, unknown> | undefined {
+  const step = childTraceStepFromJournalPayload(payload, eventType);
+  const delegateId = stringValue(payload.delegate_id ?? payload.delegateId);
+  if (!delegateId || !step) {
+    return undefined;
+  }
+  const childRunId = stringValue(payload.child_run_id ?? payload.childRunId) || delegateId;
+  const traceRef = stringValue(raw.traceRef ?? raw.trace_ref ?? payload.trace_ref ?? payload.traceRef);
+  const runStatus = stringValue(payload.delegate_status ?? payload.delegateStatus ?? payload.status) || "running";
+  const approval = step.kind === "approval"
+    ? {
+      approvalId: step.approvalId,
+      childRunId,
+      childToolCallId: step.toolCallId,
+      delegateId,
+      status: step.resultPreview === "Denied." ? "denied" : step.status === "completed" ? "approved" : "approval_required",
+      toolName: step.toolName,
+    }
+    : undefined;
+  return {
+    ...payload,
+    child_run_id: childRunId,
+    delegate_id: delegateId,
+    parent_session_key: sessionKey,
+    status: runStatus,
+    trace: {
+      approvals: approval?.approvalId ? [approval] : [],
+      artifacts: [],
+      childRunId,
+      delegateId,
+      parentSessionKey: sessionKey,
+      status: runStatus,
+      steps: [step],
+      updatedAt: step.updatedAt || step.createdAt || stringValue(raw.createdAt ?? raw.created_at),
+    },
+    trace_ref: traceRef,
+  };
+}
+
+function childTraceStepFromJournalPayload(
+  payload: Record<string, unknown>,
+  eventType: string,
+): Record<string, unknown> | undefined {
+  const provided = isRecord(payload.step) ? payload.step : undefined;
+  if (provided) {
+    return provided;
+  }
+  const kind = childTraceKind(eventType);
+  if (!kind) {
+    return undefined;
+  }
+  const status = childTraceStatus(eventType, stringValue(payload.step_status ?? payload.stepStatus ?? payload.status));
+  const title = stringValue(payload.title)
+    || stringValue(payload.tool_name ?? payload.toolName)
+    || childTraceTitle(kind, status);
+  const id = stringValue(payload.child_step_id ?? payload.childStepId)
+    || stringValue(payload.tool_call_id ?? payload.toolCallId)
+    || stringValue(payload.approval_id ?? payload.approvalId)
+    || `${kind}:${stringValue(payload.delegate_id ?? payload.delegateId) || "delegate"}`;
+  return {
+    approvalId: stringValue(payload.approval_id ?? payload.approvalId),
+    argsPreview: summarizeDebugText(textValue(payload.args_preview ?? payload.argsPreview)),
+    createdAt: stringValue(payload.created_at ?? payload.createdAt),
+    error: summarizeDebugText(textValue(payload.error)),
+    id,
+    kind,
+    resultPreview: summarizeDebugText(textValue(payload.result_preview ?? payload.resultPreview)),
+    status,
+    summary: summarizeDebugText(textValue(payload.summary)),
+    title,
+    toolCallId: stringValue(payload.tool_call_id ?? payload.toolCallId),
+    toolName: stringValue(payload.tool_name ?? payload.toolName),
+    updatedAt: stringValue(payload.updated_at ?? payload.updatedAt),
+  };
+}
+
+function childTraceKind(eventType: string): string {
+  if (eventType.startsWith("child.reasoning.")) {
+    return "reasoning";
+  }
+  if (eventType.startsWith("child.message.")) {
+    return "message";
+  }
+  if (eventType.startsWith("child.tool.")) {
+    return "tool_call";
+  }
+  if (eventType.startsWith("child.approval.")) {
+    return "approval";
+  }
+  if (eventType.startsWith("child.artifact.")) {
+    return "artifact";
+  }
+  return "";
+}
+
+function childTraceStatus(eventType: string, fallback: string): string {
+  if (eventType.endsWith(".completed") || eventType.endsWith(".resolved") || eventType.endsWith(".created")) {
+    return "completed";
+  }
+  if (eventType.endsWith(".failed")) {
+    return "failed";
+  }
+  if (eventType.endsWith(".requested")) {
+    return "blocked";
+  }
+  return fallback || "running";
+}
+
+function childTraceTitle(kind: string, status: string): string {
+  if (kind === "reasoning") {
+    return status === "completed" ? "Thinking complete" : "Thinking";
+  }
+  if (kind === "message") {
+    return status === "completed" ? "Final answer" : "Assistant message";
+  }
+  if (kind === "tool_call") {
+    return "Tool call";
+  }
+  if (kind === "approval") {
+    return "Approval";
+  }
+  if (kind === "artifact") {
+    return "Artifact";
+  }
+  return "Trace step";
+}
+
+function hydrateDelegatedRunsFromMessages(
+  state: NativeChatState,
+  sessionKey: string,
+  messages: NativeChatMessage[],
+) {
+  let sequence = 0;
+  const turns = state.chatRuns.turnsBySession.get(sessionKey) ?? [];
+  const turnId = turns[turns.length - 1]?.id || `restore:${sessionKey}`;
+  for (const message of messages) {
+    for (const activity of message.toolActivities ?? []) {
+      if (!activity.delegatedTrace) {
+        continue;
+      }
+      const delegateId = activity.delegateId || activity.id;
+      const event: AgentEventEnvelope = {
+        chat_id: "",
+        created_at: message.timestamp || new Date().toISOString(),
+        event_id: `restore:delegate-trace:${sessionKey}:${message.messageId}:${delegateId}:${sequence}`,
+        event_type: "agent.delegate.trace.updated",
+        payload: {
+          delegate_id: delegateId,
+          delegate_type: activity.delegateType || "spawn",
+          final_output: activity.finalOutput,
+          parent_run_id: activity.parentRunId,
+          parent_turn_id: activity.parentTurnId,
+          status: activity.status || "completed",
+          task: activity.delegateTask,
+          title: activity.delegateTitle || activity.name,
+          trace: activity.delegatedTrace,
+          trace_ref: activity.traceRef,
+          workflow: "Spawned agent workflow",
+        },
+        schema_version: "tinybot.agent_event.v1",
+        sequence: sequence += 1,
+        session_key: sessionKey,
+        step_id: `restore:delegate:${delegateId}`,
+        turn_id: turnId,
+      };
+      reduceAgentEvent(state.chatRuns, event);
+    }
+  }
 }
 
 export function resolveNativeChatApproval(
@@ -745,12 +998,21 @@ function conversationMessagesToNativeMessages(messages: ReturnType<typeof turnsT
         approvalId: activity.approvalId,
         approvalStatus: activity.approvalStatus,
         argsText: activity.argsText,
+        delegatedTrace: activity.delegatedTrace,
+        delegateId: activity.delegateId,
+        delegateTask: activity.delegateTask,
+        delegateTitle: activity.delegateTitle,
+        delegateType: activity.delegateType,
+        finalOutput: activity.finalOutput,
         id: activity.id,
         kind: activity.kind,
         name: activity.name,
+        parentRunId: activity.parentRunId,
+        parentTurnId: activity.parentTurnId,
         responseText: activity.responseText,
         sessionKey: activity.sessionKey,
         status: activity.status,
+        traceRef: activity.traceRef,
       })),
     } : {}),
     ...(message.references.length ? {
@@ -942,6 +1204,11 @@ function isDelegatedToolMessage(message: Record<string, unknown>): boolean {
 
 function delegatedToolActivityFromMessage(message: Record<string, unknown>, responseText: string): NativeChatToolActivity {
   const metadata = messageMetadata(message);
+  const delegatedTrace = isRecord(message._delegate_trace)
+    ? message._delegate_trace
+    : isRecord(metadata._delegate_trace)
+      ? metadata._delegate_trace
+      : undefined;
   const result = isRecord(message._delegate_result)
     ? message._delegate_result
     : isRecord(metadata._delegate_result)
@@ -965,6 +1232,15 @@ function delegatedToolActivityFromMessage(message: Record<string, unknown>, resp
     kind: "result",
     ...(approvalId ? { approvalId } : {}),
     ...(approvalStatus ? { approvalStatus } : {}),
+    ...(delegatedTrace ? { delegatedTrace } : {}),
+    delegateId: stringValue(message._delegate_id ?? metadata._delegate_id),
+    delegateTitle: stringValue(message._delegate_label ?? metadata._delegate_label ?? message.title),
+    delegateTask: stringValue(message._delegate_task ?? metadata._delegate_task),
+    delegateType: "spawn",
+    finalOutput: stringValue(message.final_output ?? metadata.final_output),
+    parentRunId: stringValue(message._delegate_parent_run_id ?? metadata._delegate_parent_run_id),
+    parentTurnId: stringValue(message._delegate_parent_turn_id ?? metadata._delegate_parent_turn_id),
+    traceRef: stringValue(message._delegate_trace_ref ?? metadata._delegate_trace_ref),
     status,
   };
 }

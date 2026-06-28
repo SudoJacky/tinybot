@@ -1192,10 +1192,7 @@ mod tests {
             snapshot.effective_public_config["agents"]["defaults"]["model"],
             "deepseek-reasoner"
         );
-        assert_eq!(
-            snapshot.origins["agents.defaults.model"],
-            "default"
-        );
+        assert_eq!(snapshot.origins["agents.defaults.model"], "default");
     }
 
     #[test]
@@ -1412,7 +1409,10 @@ mod tests {
         let store = ConfigStore::load(path, default_snapshot())
             .expect("conflicting aliases should still load for diagnostics");
 
-        assert_eq!(store.diagnostics()[0].code, ConfigDiagnosticCode::AliasConflict);
+        assert_eq!(
+            store.diagnostics()[0].code,
+            ConfigDiagnosticCode::AliasConflict
+        );
         assert!(store.diagnostics()[0]
             .message
             .contains("agents.defaults.maxTokens"));
@@ -1486,17 +1486,16 @@ mod tests {
         let path = fixture.write("config.json", r#"{"gateway":{"port":18790}}"#);
         let blocking_temp_path = path.with_extension("json.tmp");
         fs::create_dir_all(&blocking_temp_path).expect("blocking temp directory should create");
-        let mut store = ConfigStore::from_snapshot(
-            path.clone(),
-            json!({"gateway":{"port":18888}}),
-        );
+        let mut store = ConfigStore::from_snapshot(path.clone(), json!({"gateway":{"port":18888}}));
 
         let error = store
             .save_snapshot()
             .expect_err("temp-file creation failure should be reported");
 
         match error {
-            ConfigStoreError::Io { path: error_path, .. } => assert_eq!(error_path, path),
+            ConfigStoreError::Io {
+                path: error_path, ..
+            } => assert_eq!(error_path, path),
             other => panic!("expected IO error, got {other:?}"),
         }
         let saved = serde_json::from_str::<serde_json::Value>(

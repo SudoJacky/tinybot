@@ -1,4 +1,6 @@
-import type { SubagentRuntime, SubagentSpawnRequest } from "./subagentRuntime.ts";
+import type { AgentMessage } from "../agent/agentRunSpec.ts";
+import type { BackgroundRunReader, BackgroundRunRecord, BackgroundTraceJournal } from "./backgroundRegistryBridge.ts";
+import type { SubagentCompletion, SubagentRuntime, SubagentSpawnRequest } from "./subagentRuntime.ts";
 
 export type DelegatedRunStatus =
   | "created"
@@ -116,6 +118,7 @@ export interface DelegatedRun {
   runningCount: number;
   queuedCount: number;
   startMessage: string;
+  contextPack?: DelegatedContextPack;
   result?: DelegatedRunResult;
   approvalState?: DelegatedApprovalState;
   messages: DelegatedRunMessage[];
@@ -142,6 +145,7 @@ export interface DelegatedParentContext {
   turnId?: string;
   sessionKey?: string;
   traceId?: string;
+  parentMessages?: AgentMessage[];
   model?: string;
   permissionProfile?: DelegatedPermissionProfile;
   approvalPolicy?: string;
@@ -159,6 +163,7 @@ export interface DelegatedContextPack {
   parentTurnId: string;
   parentSessionKey: string;
   forkTurns: "none" | "all" | `${number}`;
+  forkedMessages: AgentMessage[];
   runtimePolicy: {
     model?: string;
     permissionProfile: DelegatedPermissionProfile;
@@ -181,6 +186,7 @@ export type DelegatedRunEventName =
   | "agent.delegate.trace.updated"
   | "agent.delegate.completed"
   | "agent.delegate.failed"
+  | "agent.delegate.interrupted"
   | "agent.delegate.closed";
 
 export interface DelegatedRunEvent {
@@ -194,9 +200,11 @@ export interface WaitAgentResult {
   runs: DelegatedRun[];
   timedOut: string[];
   active: string[];
+  awaitingApproval: string[];
 }
 
 export interface DelegatedRunRegistryListFilter {
+  pathPrefix?: string;
   parentSessionKey?: string;
   parentRunId?: string;
   status?: DelegatedRunStatus;
@@ -242,6 +250,7 @@ export class DelegatedRunRegistry {
     return [...this.runs.values()]
       .filter((run) => !filter.parentSessionKey || run.parentSessionKey === filter.parentSessionKey)
       .filter((run) => !filter.parentRunId || run.parentRunId === filter.parentRunId)
+      .filter((run) => !filter.pathPrefix || run.agentPath.startsWith(filter.pathPrefix))
       .filter((run) => !filter.status || run.status === filter.status)
       .map(cloneRun);
   }
@@ -303,8 +312,10 @@ export class DelegatedRunRegistry {
 }
 
 export interface DelegatedRunManagerOptions {
-  runtime: Pick<SubagentRuntime, "spawn">;
+  runtime: Pick<SubagentRuntime, "spawn" | "runExisting" | "cancel">;
   registry?: DelegatedRunRegistry;
+  runStore?: BackgroundRunReader;
+  traceJournal?: BackgroundTraceJournal;
   emitEvent?: (event: DelegatedRunEvent) => void;
   now?: () => string;
 }
@@ -312,14 +323,19 @@ export interface DelegatedRunManagerOptions {
 const MAX_ACTIVE_DELEGATED_RUNS_PER_PARENT = 8;
 
 export class DelegatedRunManager {
-  private readonly runtime: Pick<SubagentRuntime, "spawn">;
+  private readonly runtime: Pick<SubagentRuntime, "spawn" | "runExisting" | "cancel">;
   private readonly registry: DelegatedRunRegistry;
+  private readonly runStore?: BackgroundRunReader;
+  private readonly traceJournal?: BackgroundTraceJournal;
   private readonly emitEvent: (event: DelegatedRunEvent) => void;
   private readonly now: () => string;
+  private readonly traceSequences = new Map<string, number>();
 
   constructor(options: DelegatedRunManagerOptions) {
     this.runtime = options.runtime;
     this.registry = options.registry ?? new DelegatedRunRegistry();
+    this.runStore = options.runStore;
+    this.traceJournal = options.traceJournal;
     this.emitEvent = options.emitEvent ?? (() => undefined);
     this.now = options.now ?? (() => new Date().toISOString());
   }
@@ -328,6 +344,7 @@ export class DelegatedRunManager {
     const taskName = normalizeTaskName(request.taskName);
     const parentTurnId = parent.turnId ?? parent.runId;
     const parentSessionKey = parent.sessionKey ?? "";
+    await this.restoreRunsFromStore({ parentRunId: parent.runId, parentSessionKey });
     const activeForParent = this.registry.list({ parentRunId: parent.runId })
       .filter((run) => !isFinalDelegatedStatus(run.status)).length;
     if (activeForParent >= MAX_ACTIVE_DELEGATED_RUNS_PER_PARENT) {
@@ -349,6 +366,7 @@ export class DelegatedRunManager {
       parentTurnId,
       parentSessionKey,
       forkTurns,
+      forkedMessages: buildForkedParentMessages(parent.parentMessages ?? [], forkTurns),
       runtimePolicy: {
         model,
         permissionProfile,
@@ -373,55 +391,7 @@ export class DelegatedRunManager {
       label: request.label ?? taskName,
       sessionKey: parent.sessionKey,
       metadata,
-      onComplete: async (completion) => {
-        const approvalState = delegatedApprovalStateFromMetadata(completion.id, completion.metadata);
-        if (approvalState) {
-          const awaiting = this.registry.update(completion.id, {
-            status: "awaiting_approval",
-            approvalState,
-          });
-          this.emitDelegatedEvent("agent.delegate.awaiting_approval", awaiting, {
-            approvalId: approvalState.approvalId,
-            approval_id: approvalState.approvalId,
-            childToolCallId: approvalState.childToolCallId,
-            child_tool_call_id: approvalState.childToolCallId,
-            toolName: approvalState.toolName,
-            tool_name: approvalState.toolName,
-            latest_activity: "Waiting for approval.",
-            operation_preview: approvalState.operationPreview,
-            reason: approvalState.reason,
-            status: "blocked",
-          });
-          return;
-        }
-        const status = completion.status === "completed" ? "completed" : "failed";
-        let completed = this.registry.update(completion.id, {
-          status,
-          result: {
-            status,
-            summary: completion.result,
-            ...(completion.error ? { error: completion.error } : {}),
-          },
-        });
-        completed = this.registry.appendTraceStep(completion.id, {
-          id: `final:${completion.id}`,
-          kind: completion.error ? "error" : "message",
-          status: completion.error ? "failed" : "completed",
-          title: completion.error ? "Error" : "Final answer",
-          summary: completion.error ?? completion.result,
-          error: completion.error,
-          createdAt: this.now(),
-          updatedAt: this.now(),
-        });
-        this.emitDelegatedEvent("agent.delegate.trace.updated", completed, {
-          latest_activity: completion.error ?? completion.result,
-          trace: completed.trace,
-        });
-        this.emitDelegatedEvent(status === "completed" ? "agent.delegate.completed" : "agent.delegate.failed", completed, {
-          final_output: completion.result,
-          latest_activity: completion.error ?? completion.result,
-        });
-      },
+      onComplete: (completion) => this.handleRuntimeCompletion(completion),
     } satisfies SubagentSpawnRequest);
     const createdAt = this.now();
     const run = this.registry.create({
@@ -450,6 +420,7 @@ export class DelegatedRunManager {
       runningCount: spawned.runningCount,
       queuedCount: spawned.queuedCount,
       startMessage: spawned.message,
+      contextPack,
       messages: [],
     });
     this.emitDelegatedEvent("agent.delegate.started", run, { latest_activity: spawned.message });
@@ -460,6 +431,7 @@ export class DelegatedRunManager {
   }
 
   async waitAgent(delegateIds: string[], options: { timeoutMs?: number } = {}): Promise<WaitAgentResult> {
+    await this.restoreRunsFromStore({}, new Set(delegateIds));
     const deadline = options.timeoutMs === undefined ? null : Date.now() + Math.max(0, options.timeoutMs);
     while (true) {
       const runs = delegateIds.map((id) => this.registry.require(id));
@@ -467,23 +439,39 @@ export class DelegatedRunManager {
         .filter((run) => !isFinalDelegatedStatus(run.status) && run.status !== "awaiting_approval")
         .map((run) => run.delegateId);
       if (active.length === 0) {
-        return { runs, active: [], timedOut: [] };
+        return {
+          runs,
+          active: [],
+          timedOut: [],
+          awaitingApproval: runs
+            .filter((run) => run.status === "awaiting_approval")
+            .map((run) => run.delegateId),
+        };
       }
       if (deadline !== null && Date.now() >= deadline) {
-        return { runs, active, timedOut: active };
+        return {
+          runs,
+          active,
+          timedOut: active,
+          awaitingApproval: runs
+            .filter((run) => run.status === "awaiting_approval")
+            .map((run) => run.delegateId),
+        };
       }
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
   }
 
-  listAgents(filter: DelegatedRunRegistryListFilter = {}): DelegatedRun[] {
+  async listAgents(filter: DelegatedRunRegistryListFilter = {}): Promise<DelegatedRun[]> {
+    await this.restoreRunsFromStore(filter);
     return this.registry.list(filter);
   }
 
-  sendMessage(delegateId: string, message: string, options: { triggerFollowup?: boolean } = {}): DelegatedRun {
+  async sendMessage(delegateId: string, message: string, options: { triggerFollowup?: boolean } = {}): Promise<DelegatedRun> {
     if (!message.trim()) {
       throw new Error("delegated message must be non-empty");
     }
+    await this.restoreRunsFromStore({}, new Set([delegateId]));
     const run = this.registry.appendMessage(delegateId, {
       message,
       triggerFollowup: options.triggerFollowup ?? false,
@@ -497,10 +485,133 @@ export class DelegatedRunManager {
     return run;
   }
 
-  closeAgent(delegateId: string): DelegatedRun {
+  async followupTask(delegateId: string, message: string): Promise<DelegatedRun> {
+    if (!message.trim()) {
+      throw new Error("delegated follow-up message must be non-empty");
+    }
+    await this.restoreRunsFromStore({}, new Set([delegateId]));
+    const current = this.registry.require(delegateId);
+    if (current.status === "closed") {
+      throw new Error(`delegated run is closed: ${delegateId}`);
+    }
+    if (!isFinalDelegatedStatus(current.status)) {
+      throw new Error(`delegated run is already active: ${delegateId}`);
+    }
+    const queuedMessage = await this.sendMessage(delegateId, message, { triggerFollowup: true });
+    const contextPack = createDelegatedContextPack({
+      taskName: queuedMessage.taskName,
+      message,
+      parentRunId: queuedMessage.parentRunId,
+      parentTurnId: queuedMessage.parentTurnId,
+      parentSessionKey: queuedMessage.parentSessionKey,
+      forkTurns: queuedMessage.forkTurns,
+      forkedMessages: queuedMessage.contextPack?.forkedMessages.map(cloneAgentMessage) ?? [],
+      runtimePolicy: {
+        model: queuedMessage.model,
+        permissionProfile: queuedMessage.permissionProfile,
+        approvalPolicy: queuedMessage.approvalPolicy,
+        approvalReviewer: queuedMessage.approvalReviewer,
+        cwd: queuedMessage.cwd,
+        workspace: queuedMessage.workspace,
+        toolLimits: queuedMessage.toolLimits,
+      },
+    });
+    const spawned = await this.runtime.runExisting(delegateId, {
+      task: message,
+      label: queuedMessage.label,
+      sessionKey: queuedMessage.parentSessionKey,
+      metadata: {
+        traceId: queuedMessage.traceRef,
+        parentRunId: queuedMessage.parentRunId,
+        parentTurnId: queuedMessage.parentTurnId,
+        origin: "delegated_followup",
+        taskName: queuedMessage.taskName,
+        delegatedContextPack: contextPack,
+      },
+      onComplete: (completion) => this.handleRuntimeCompletion(completion),
+    } satisfies SubagentSpawnRequest);
+    const running = this.registry.update(delegateId, {
+      status: spawned.queued ? "queued" : "running",
+      result: undefined,
+      approvalState: undefined,
+      queued: spawned.queued,
+      runningCount: spawned.runningCount,
+      queuedCount: spawned.queuedCount,
+      startMessage: spawned.message,
+    });
+    this.emitDelegatedEvent("agent.delegate.running", running, {
+      latest_activity: spawned.message,
+      followup: true,
+    });
+    return running;
+  }
+
+  async closeAgent(delegateId: string): Promise<DelegatedRun> {
+    await this.restoreRunsFromStore({}, new Set([delegateId]));
     const run = this.registry.close(delegateId);
     this.emitDelegatedEvent("agent.delegate.closed", run, { latest_activity: run.result?.summary ?? "Delegated run closed." });
     return run;
+  }
+
+  async interruptAgent(delegateId: string): Promise<DelegatedRun> {
+    await this.restoreRunsFromStore({}, new Set([delegateId]));
+    const current = this.registry.require(delegateId);
+    if (isFinalDelegatedStatus(current.status)) {
+      return current;
+    }
+    this.runtime.cancel(delegateId);
+    let interrupted = this.registry.update(delegateId, {
+      status: "cancelled",
+      result: {
+        status: "cancelled",
+        summary: "Delegated run interrupted.",
+      },
+    });
+    interrupted = this.registry.appendTraceStep(delegateId, {
+      id: `interrupted:${delegateId}`,
+      kind: "error",
+      status: "cancelled",
+      title: "Interrupted",
+      summary: "Delegated run interrupted.",
+      createdAt: this.now(),
+      updatedAt: this.now(),
+    });
+    this.emitDelegatedEvent("agent.delegate.trace.updated", interrupted, {
+      latest_activity: "Delegated run interrupted.",
+      trace: interrupted.trace,
+    });
+    this.emitDelegatedEvent("agent.delegate.interrupted", interrupted, {
+      latest_activity: "Delegated run interrupted.",
+    });
+    return interrupted;
+  }
+
+  private async restoreRunsFromStore(
+    filter: DelegatedRunRegistryListFilter = {},
+    delegateIds?: Set<string>,
+  ): Promise<void> {
+    if (!this.runStore) {
+      return;
+    }
+    const records = await this.runStore.listRuns("trace-delegated-run-restore").catch(() => []);
+    for (const record of records) {
+      if (delegateIds && !delegateIds.has(record.id)) {
+        continue;
+      }
+      const current = this.registry.get(record.id);
+      const restored = delegatedRunFromBackgroundRunRecord(record, { orphanedActive: !current });
+      if (!restored || !matchesDelegatedRunFilter(restored, filter)) {
+        continue;
+      }
+      if (current) {
+        this.registry.update(restored.delegateId, {
+          ...restored,
+          messages: current.messages.length ? current.messages : restored.messages,
+        });
+      } else {
+        this.registry.create(restored);
+      }
+    }
   }
 
   appendTraceStep(delegateId: string, step: DelegatedTraceStep): DelegatedRun {
@@ -512,16 +623,202 @@ export class DelegatedRunManager {
     return run;
   }
 
+  private async handleRuntimeCompletion(completion: SubagentCompletion): Promise<void> {
+    const existing = this.registry.get(completion.id);
+    if (existing?.status === "cancelled" || existing?.status === "closed") {
+      return;
+    }
+    const metadataTrace = delegatedTraceFromMetadata(completion.metadata);
+    if (metadataTrace) {
+      this.registry.update(completion.id, { trace: metadataTrace });
+    }
+    const approvalState = delegatedApprovalStateFromMetadata(completion.id, completion.metadata);
+    if (completion.status === "awaiting_approval" || approvalState) {
+      const nextApprovalState = approvalState ?? {
+        approvalId: "",
+        delegateId: completion.id,
+        childRunId: completion.id,
+        childToolCallId: "",
+        toolName: "tool",
+        status: "approval_required",
+      } satisfies DelegatedApprovalState;
+      const awaiting = this.registry.update(completion.id, {
+        status: "awaiting_approval",
+        approvalState: nextApprovalState,
+      });
+      this.emitDelegatedEvent("agent.delegate.awaiting_approval", awaiting, {
+        approvalId: nextApprovalState.approvalId,
+        approval_id: nextApprovalState.approvalId,
+        childToolCallId: nextApprovalState.childToolCallId,
+        child_tool_call_id: nextApprovalState.childToolCallId,
+        toolName: nextApprovalState.toolName,
+        tool_name: nextApprovalState.toolName,
+        latest_activity: "Waiting for approval.",
+        operation_preview: nextApprovalState.operationPreview,
+        reason: nextApprovalState.reason,
+        status: "blocked",
+      });
+      return;
+    }
+    const status = completion.status === "completed" ? "completed" : "failed";
+    const current = this.registry.get(completion.id);
+    if (current?.approvalState?.status === "approval_required") {
+      const resolution = delegatedApprovalResolutionFromMetadata(completion.metadata) ?? "approved";
+      const resolutionLabel = resolution === "denied" ? "Denied" : "Approved";
+      const resolvedApproval: DelegatedApprovalState = {
+        ...current.approvalState,
+        status: resolution,
+      };
+      this.registry.update(completion.id, { approvalState: resolvedApproval });
+      const resolved = this.registry.appendTraceStep(completion.id, {
+        id: `approval:${resolvedApproval.approvalId}`,
+        kind: "approval",
+        status: "completed",
+        title: `${resolvedApproval.toolName || "tool"} approval resolved`,
+        summary: `${resolutionLabel}: ${resolvedApproval.approvalId}`,
+        approvalId: resolvedApproval.approvalId,
+        toolName: resolvedApproval.toolName,
+        toolCallId: resolvedApproval.childToolCallId,
+        resultPreview: `${resolutionLabel}.`,
+        createdAt: this.now(),
+        updatedAt: this.now(),
+      });
+      this.emitDelegatedEvent("agent.delegate.trace.updated", resolved, {
+        latest_activity: `${resolutionLabel}: ${resolvedApproval.approvalId}`,
+        trace: resolved.trace,
+      });
+    }
+    let completed = this.registry.update(completion.id, {
+      status,
+      result: {
+        status,
+        summary: completion.result,
+        ...(completion.error ? { error: completion.error } : {}),
+      },
+    });
+    completed = this.registry.appendTraceStep(completion.id, {
+      id: `final:${completion.id}`,
+      kind: completion.error ? "error" : "message",
+      status: completion.error ? "failed" : "completed",
+      title: completion.error ? "Error" : "Final answer",
+      summary: completion.error ?? completion.result,
+      error: completion.error,
+      createdAt: this.now(),
+      updatedAt: this.now(),
+    });
+    this.emitDelegatedEvent("agent.delegate.trace.updated", completed, {
+      latest_activity: completion.error ?? completion.result,
+      trace: completed.trace,
+    });
+    this.emitDelegatedEvent(status === "completed" ? "agent.delegate.completed" : "agent.delegate.failed", completed, {
+      final_output: completion.result,
+      latest_activity: completion.error ?? completion.result,
+    });
+  }
+
   private emitDelegatedEvent(eventName: DelegatedRunEventName, run: DelegatedRun, extra: Record<string, unknown> = {}): void {
+    const payload = {
+      ...delegatedRunEventPayload(run),
+      ...extra,
+    };
     this.emitEvent({
       eventName,
-      payload: {
-        ...delegatedRunEventPayload(run),
-        ...extra,
-      },
+      payload,
       run,
       traceId: run.traceRef,
     });
+    this.appendTraceJournalEvent(eventName, run, payload);
+  }
+
+  private appendTraceJournalEvent(
+    eventName: DelegatedRunEventName,
+    run: DelegatedRun,
+    payload: Record<string, unknown>,
+  ): void {
+    if (!this.traceJournal) {
+      return;
+    }
+    const sequence = this.nextTraceSequence(run.traceRef || run.delegateId);
+    void this.traceJournal.appendTraceEvent({
+      eventId: `${run.delegateId}:${sequence}:${eventName}`,
+      eventType: eventName,
+      sessionKey: run.parentSessionKey,
+      turnId: run.parentTurnId,
+      delegateId: run.delegateId,
+      childRunId: run.childRunId,
+      traceRef: run.traceRef,
+      sequence,
+      createdAt: this.now(),
+      payload,
+    }, run.traceRef).catch(() => {});
+    this.appendChildTraceJournalEvents(eventName, run, payload);
+  }
+
+  private nextTraceSequence(traceRef: string): number {
+    const next = (this.traceSequences.get(traceRef) ?? 0) + 1;
+    this.traceSequences.set(traceRef, next);
+    return next;
+  }
+
+  private appendChildTraceJournalEvents(
+    eventName: DelegatedRunEventName,
+    run: DelegatedRun,
+    payload: Record<string, unknown>,
+  ): void {
+    if (!this.traceJournal || eventName !== "agent.delegate.trace.updated") {
+      return;
+    }
+    const trace = recordValue(payload.trace);
+    const steps = Array.isArray(trace?.steps)
+      ? trace.steps.filter(isDelegatedTraceStep)
+      : [];
+    for (const step of steps) {
+      const childEventType = childTraceEventType(step);
+      if (childEventType) {
+        this.appendChildTraceJournalEvent(run, step, childEventType);
+      }
+      if (step.kind === "tool_call" && step.argsPreview) {
+        this.appendChildTraceJournalEvent(run, step, "child.tool.arguments.delta");
+      }
+    }
+  }
+
+  private appendChildTraceJournalEvent(
+    run: DelegatedRun,
+    step: DelegatedTraceStep,
+    eventType: string,
+  ): void {
+    if (!this.traceJournal) {
+      return;
+    }
+    const sequence = this.nextTraceSequence(run.traceRef || run.delegateId);
+    void this.traceJournal.appendTraceEvent({
+      eventId: `${run.delegateId}:${sequence}:${eventType}:${step.id}`,
+      eventType,
+      sessionKey: run.parentSessionKey,
+      turnId: run.parentTurnId,
+      delegateId: run.delegateId,
+      childRunId: run.childRunId,
+      childStepId: step.id,
+      traceRef: run.traceRef,
+      sequence,
+      createdAt: step.updatedAt || step.createdAt || this.now(),
+      payload: {
+        ...delegatedRunEventPayload(run),
+        child_step_id: step.id,
+        childStepId: step.id,
+        step,
+        step_kind: step.kind,
+        step_status: step.status,
+        summary: step.summary,
+        tool_call_id: step.toolCallId,
+        tool_name: step.toolName,
+        approval_id: step.approvalId,
+        args_preview: step.argsPreview,
+        result_preview: step.resultPreview,
+        error: step.error,
+      },
+    }, run.traceRef).catch(() => {});
   }
 }
 
@@ -605,13 +902,196 @@ function delegatedApprovalStateFromMetadata(
   };
 }
 
+function delegatedApprovalResolutionFromMetadata(
+  metadata: Record<string, unknown> | undefined,
+): "approved" | "denied" | undefined {
+  if (!metadata) {
+    return undefined;
+  }
+  const status = stringMetadata(metadata, "approvalStatus")
+    ?? stringMetadata(metadata, "approval_status")
+    ?? stringMetadata(metadata, "_delegate_approval_status")
+    ?? stringMetadata(metadata, "status");
+  if (status === "approved" || status === "denied") {
+    return status;
+  }
+  if (metadata.approved === true) {
+    return "approved";
+  }
+  if (metadata.approved === false) {
+    return "denied";
+  }
+  return undefined;
+}
+
+function delegatedRunFromBackgroundRunRecord(
+  record: BackgroundRunRecord,
+  options: { orphanedActive?: boolean } = {},
+): DelegatedRun | undefined {
+  if (record.kind !== "subagent") {
+    return undefined;
+  }
+  const metadata = recordValue(record.metadata) ?? {};
+  const contextPack = delegatedContextPackFromMetadata(metadata);
+  const taskName = normalizeTaskName(
+    stringMetadata(metadata, "taskName")
+      ?? contextPack?.taskName
+      ?? record.label
+      ?? record.id,
+  );
+  const storedStatus = isDelegatedRunStatus(record.status) ? record.status : "running";
+  const status = options.orphanedActive && (storedStatus === "running" || storedStatus === "queued")
+    ? "failed"
+    : storedStatus;
+  const parentRunId = stringMetadata(metadata, "parentRunId") ?? contextPack?.parentRunId ?? "";
+  const parentTurnId = stringMetadata(metadata, "parentTurnId") ?? contextPack?.parentTurnId ?? parentRunId;
+  const parentSessionKey = contextPack?.parentSessionKey ?? record.sessionKey ?? "";
+  const traceRef = stringMetadata(metadata, "traceId") ?? stringMetadata(metadata, "traceRef") ?? `trace-delegate-${record.id}`;
+  const approvalState = delegatedApprovalStateFromMetadata(record.id, metadata) ?? undefined;
+  const trace = delegatedTraceFromMetadata(metadata);
+  return {
+    delegateId: record.id,
+    childRunId: stringMetadata(metadata, "childRunId") ?? stringMetadata(metadata, "_delegate_child_run_id") ?? record.id,
+    taskName,
+    agentPath: `/${taskName}`,
+    parentRunId,
+    parentTurnId,
+    parentSessionKey,
+    label: record.label ?? taskName,
+    task: contextPack?.message ?? stringMetadata(metadata, "task") ?? record.label ?? taskName,
+    status,
+    model: contextPack?.runtimePolicy.model ?? stringMetadata(metadata, "model"),
+    permissionProfile: contextPack?.runtimePolicy.permissionProfile ?? "read_only",
+    approvalPolicy: contextPack?.runtimePolicy.approvalPolicy ?? "ask_on_sensitive_action",
+    approvalReviewer: contextPack?.runtimePolicy.approvalReviewer,
+    cwd: contextPack?.runtimePolicy.cwd,
+    workspace: contextPack?.runtimePolicy.workspace,
+    toolLimits: contextPack?.runtimePolicy.toolLimits,
+    forkTurns: contextPack?.forkTurns ?? "none",
+    traceRef,
+    createdAt: new Date(record.startedAtMs).toISOString(),
+    updatedAt: new Date(record.updatedAtMs).toISOString(),
+    queued: status === "queued",
+    runningCount: 0,
+    queuedCount: 0,
+    startMessage: record.result ?? record.label ?? `Delegated run [${taskName}] restored.`,
+    contextPack,
+    result: finalResultFromBackgroundRunRecord(record, status),
+    approvalState,
+    messages: [],
+    trace,
+  };
+}
+
+function finalResultFromBackgroundRunRecord(
+  record: BackgroundRunRecord,
+  status: DelegatedRunStatus,
+): DelegatedRunResult | undefined {
+  if (status !== "completed" && status !== "failed" && status !== "cancelled") {
+    return undefined;
+  }
+  const orphanedActiveSummary = (
+    status === "failed"
+    && (record.status === "running" || record.status === "queued")
+  )
+    ? `Delegated run ${record.id} was restored from a persisted ${record.status} state, but no live delegated runtime owns it.`
+    : undefined;
+  const summary = orphanedActiveSummary ?? record.result ?? record.error ?? "";
+  return {
+    status,
+    summary,
+    ...(record.error || orphanedActiveSummary ? { error: record.error ?? orphanedActiveSummary } : {}),
+  };
+}
+
+function delegatedContextPackFromMetadata(metadata: Record<string, unknown>): DelegatedContextPack | undefined {
+  const raw = recordValue(metadata.delegatedContextPack);
+  if (!raw || raw.kind !== "delegated_context_pack") {
+    return undefined;
+  }
+  const taskName = stringMetadata(raw, "taskName");
+  const message = stringMetadata(raw, "message");
+  const parentRunId = stringMetadata(raw, "parentRunId");
+  const parentTurnId = stringMetadata(raw, "parentTurnId");
+  const parentSessionKey = stringMetadata(raw, "parentSessionKey");
+  const runtimePolicy = recordValue(raw.runtimePolicy);
+  if (!taskName || !message || !parentRunId || !parentTurnId || !parentSessionKey || !runtimePolicy) {
+    return undefined;
+  }
+  const forkTurns = isForkTurnsValue(raw.forkTurns) ? normalizeForkTurns(raw.forkTurns) : "none";
+  return {
+    kind: "delegated_context_pack",
+    taskName,
+    message,
+    parentRunId,
+    parentTurnId,
+    parentSessionKey,
+    forkTurns,
+    forkedMessages: Array.isArray(raw.forkedMessages)
+      ? raw.forkedMessages.filter(isAgentMessage).map(cloneAgentMessage)
+      : [],
+    runtimePolicy: {
+      model: stringMetadata(runtimePolicy, "model"),
+      permissionProfile: stringMetadata(runtimePolicy, "permissionProfile") ?? "read_only",
+      approvalPolicy: stringMetadata(runtimePolicy, "approvalPolicy") ?? "ask_on_sensitive_action",
+      approvalReviewer: stringMetadata(runtimePolicy, "approvalReviewer"),
+      cwd: stringMetadata(runtimePolicy, "cwd"),
+      workspace: stringMetadata(runtimePolicy, "workspace"),
+      toolLimits: recordValue(runtimePolicy.toolLimits),
+    },
+    outputContract: stringMetadata(raw, "outputContract")
+      ?? "Return only a concise result summary suitable for the parent agent; keep raw trace details behind the trace reference.",
+  };
+}
+
+function isAgentMessage(value: unknown): value is AgentMessage {
+  const message = recordValue(value);
+  return Boolean(
+    message
+    && (message.role === "system" || message.role === "user" || message.role === "assistant" || message.role === "tool")
+    && typeof message.content === "string",
+  );
+}
+
+function matchesDelegatedRunFilter(run: DelegatedRun, filter: DelegatedRunRegistryListFilter): boolean {
+  return (!filter.parentSessionKey || run.parentSessionKey === filter.parentSessionKey)
+    && (!filter.parentRunId || run.parentRunId === filter.parentRunId)
+    && (!filter.pathPrefix || run.agentPath.startsWith(filter.pathPrefix))
+    && (!filter.status || run.status === filter.status);
+}
+
+function isForkTurnsValue(value: unknown): value is "none" | "all" | `${number}` {
+  return value === "none" || value === "all" || (typeof value === "string" && /^[1-9][0-9]*$/.test(value));
+}
+
 function cloneRun(run: DelegatedRun): DelegatedRun {
   return {
     ...run,
     result: run.result ? { ...run.result, artifacts: run.result.artifacts ? [...run.result.artifacts] : undefined } : undefined,
     approvalState: run.approvalState ? { ...run.approvalState } : undefined,
+    contextPack: run.contextPack ? cloneContextPack(run.contextPack) : undefined,
     messages: run.messages.map((message) => ({ ...message })),
     trace: run.trace ? cloneTrace(run.trace) : undefined,
+  };
+}
+
+function cloneContextPack(pack: DelegatedContextPack): DelegatedContextPack {
+  return {
+    ...pack,
+    forkedMessages: pack.forkedMessages.map(cloneAgentMessage),
+    runtimePolicy: {
+      ...pack.runtimePolicy,
+      toolLimits: pack.runtimePolicy.toolLimits ? { ...pack.runtimePolicy.toolLimits } : undefined,
+    },
+  };
+}
+
+function cloneAgentMessage(message: AgentMessage): AgentMessage {
+  return {
+    ...message,
+    toolCalls: message.toolCalls?.map((toolCall) => ({ ...toolCall })),
+    thinkingBlocks: message.thinkingBlocks?.map((block) => ({ ...block })),
+    metadata: message.metadata ? { ...message.metadata } : undefined,
   };
 }
 
@@ -657,6 +1137,137 @@ function createDelegatedContextPack(
     ...input,
     outputContract: "Return only a concise result summary suitable for the parent agent; keep raw trace details behind the trace reference.",
   };
+}
+
+function delegatedTraceFromMetadata(metadata: Record<string, unknown> | undefined): DelegatedRunTrace | undefined {
+  const trace = recordValue(metadata?._delegate_trace);
+  if (!trace) {
+    return undefined;
+  }
+  const steps = Array.isArray(trace.steps)
+    ? trace.steps.filter(isDelegatedTraceStep)
+    : [];
+  return {
+    delegateId: stringMetadata(trace, "delegateId") || stringMetadata(trace, "delegate_id") || "",
+    childRunId: stringMetadata(trace, "childRunId") || stringMetadata(trace, "child_run_id") || "",
+    parentRunId: stringMetadata(trace, "parentRunId") || stringMetadata(trace, "parent_run_id") || "",
+    parentSessionKey: stringMetadata(trace, "parentSessionKey") || stringMetadata(trace, "parent_session_key") || "",
+    status: isDelegatedRunStatus(trace.status) ? trace.status : "running",
+    steps,
+    approvals: Array.isArray(trace.approvals)
+      ? trace.approvals.filter(isDelegatedApprovalState)
+      : [],
+    artifacts: Array.isArray(trace.artifacts) ? trace.artifacts.filter(isRecord) : [],
+    updatedAt: stringMetadata(trace, "updatedAt") || stringMetadata(trace, "updated_at") || new Date().toISOString(),
+  };
+}
+
+function isDelegatedRunStatus(value: unknown): value is DelegatedRunStatus {
+  return value === "created"
+    || value === "queued"
+    || value === "running"
+    || value === "awaiting_approval"
+    || value === "completed"
+    || value === "failed"
+    || value === "cancelled"
+    || value === "closed";
+}
+
+function isDelegatedTraceStep(value: unknown): value is DelegatedTraceStep {
+  const step = recordValue(value);
+  return Boolean(
+    step
+    && typeof step.id === "string"
+    && typeof step.kind === "string"
+    && typeof step.status === "string"
+    && typeof step.title === "string"
+  );
+}
+
+function childTraceEventType(step: DelegatedTraceStep): string | null {
+  if (step.kind === "reasoning") {
+    return step.status === "completed" ? "child.reasoning.completed" : "child.reasoning.delta";
+  }
+  if (step.kind === "message") {
+    return step.status === "completed" ? "child.message.completed" : "child.message.delta";
+  }
+  if (step.kind === "tool_call") {
+    if (step.status === "completed") {
+      return "child.tool.completed";
+    }
+    if (step.status === "failed") {
+      return "child.tool.failed";
+    }
+    return "child.tool.started";
+  }
+  if (step.kind === "approval") {
+    return step.status === "completed" ? "child.approval.resolved" : "child.approval.requested";
+  }
+  if (step.kind === "artifact") {
+    return "child.artifact.created";
+  }
+  return null;
+}
+
+function isDelegatedApprovalState(value: unknown): value is DelegatedApprovalState {
+  const approval = recordValue(value);
+  return Boolean(
+    approval
+    && typeof approval.approvalId === "string"
+    && typeof approval.delegateId === "string"
+    && typeof approval.childRunId === "string"
+    && typeof approval.childToolCallId === "string"
+    && typeof approval.toolName === "string"
+    && typeof approval.status === "string"
+  );
+}
+
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return isRecord(value) ? value : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function buildForkedParentMessages(
+  parentMessages: AgentMessage[],
+  forkTurns: "none" | "all" | `${number}`,
+): AgentMessage[] {
+  if (forkTurns === "none") {
+    return [];
+  }
+  const sanitized = parentMessages
+    .map(sanitizeForkedParentMessage)
+    .filter((message): message is AgentMessage => message !== undefined);
+  if (forkTurns === "all") {
+    return sanitized;
+  }
+  const turnCount = Number.parseInt(forkTurns, 10);
+  if (!Number.isFinite(turnCount) || turnCount <= 0) {
+    return [];
+  }
+  const userTurnIndexes = sanitized
+    .map((message, index) => message.role === "user" ? index : -1)
+    .filter((index) => index >= 0);
+  const keepIndex = userTurnIndexes.length > turnCount
+    ? userTurnIndexes[userTurnIndexes.length - turnCount]
+    : 0;
+  return sanitized.slice(keepIndex);
+}
+
+function sanitizeForkedParentMessage(message: AgentMessage): AgentMessage | undefined {
+  const content = message.content.trim();
+  if (!content) {
+    return undefined;
+  }
+  if (message.role === "system" || message.role === "user") {
+    return { role: message.role, content };
+  }
+  if (message.role === "assistant" && !message.toolCalls?.length && !message.toolCallId && !message.name) {
+    return { role: "assistant", content };
+  }
+  return undefined;
 }
 
 function normalizeForkTurns(value: "none" | "all" | `${number}`): "none" | "all" | `${number}` {

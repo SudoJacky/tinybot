@@ -4349,6 +4349,13 @@ describe("desktop workbench shell", () => {
     expect(styleText).toContain("body.desktop-native-workbench .desktop-conversation-layout {");
     expect(styleText).toContain("display: grid;\n      align-content: start;");
     expect(styleText).toContain("grid-column: 1;\n      grid-row: 2;");
+    const conversationLayoutRule = styleText.match(/body\.desktop-native-workbench \.desktop-conversation-layout \{([\s\S]*?)\n    \}/)?.[1] ?? "";
+    expect(conversationLayoutRule).toContain("height: auto;");
+    expect(conversationLayoutRule).toContain("max-height: none;");
+    expect(conversationLayoutRule).toContain("min-height: 0;");
+    expect(conversationLayoutRule).toContain("overflow: visible;");
+    expect(conversationLayoutRule).not.toContain("height: 100%;");
+    expect(conversationLayoutRule).not.toContain("overflow: hidden;");
     expect(styleText).toContain("body.desktop-native-workbench .desktop-detail-panel-slot {");
     expect(styleText).toContain("position: relative;\n      align-self: stretch;");
     expect(styleText).toContain("box-sizing: border-box;");

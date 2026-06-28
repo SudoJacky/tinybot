@@ -266,6 +266,27 @@ struct WorkerRestoreAgentCheckpointInput {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct WorkerBackgroundTraceListInput {
+    #[serde(default)]
+    filter: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerBackgroundTraceGetDelegateTraceInput {
+    #[serde(default)]
+    filter: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerBackgroundTraceGetArtifactInput {
+    #[serde(default)]
+    filter: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct WorkerSubmitAgentFormInput {
     session_id: String,
     form_id: String,
@@ -575,6 +596,48 @@ fn worker_restore_agent_checkpoint(
     worker_restore_agent_checkpoint_with_options(
         state.inner(),
         input.session_id,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_background_trace_list(
+    input: WorkerBackgroundTraceListInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_background_trace_list_with_options(
+        state.inner(),
+        input,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_background_trace_get_delegate_trace(
+    input: WorkerBackgroundTraceGetDelegateTraceInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_background_trace_get_delegate_trace_with_options(
+        state.inner(),
+        input,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_background_trace_get_artifact(
+    input: WorkerBackgroundTraceGetArtifactInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_background_trace_get_artifact_with_options(
+        state.inner(),
+        input,
         ts_agent_worker_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
@@ -1440,6 +1503,91 @@ fn build_worker_restore_agent_checkpoint_request(
     )
 }
 
+fn worker_background_trace_list_with_options(
+    shared: &SharedGateway,
+    input: WorkerBackgroundTraceListInput,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let client = WorkerClient::experimental(shared);
+    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
+
+    let request =
+        build_worker_background_trace_list_request(next_worker_request_correlation(), input);
+    client.call(&request, timeout, "worker background trace list")
+}
+
+fn build_worker_background_trace_list_request(
+    request_id: WorkerRequestCorrelation,
+    input: WorkerBackgroundTraceListInput,
+) -> WorkerRequest {
+    WorkerRequest::new(
+        request_id.id("background-trace-list"),
+        request_id.trace_id("background-trace-list"),
+        "background.trace.list",
+        serde_json::json!({ "filter": input.filter }),
+    )
+}
+
+fn worker_background_trace_get_delegate_trace_with_options(
+    shared: &SharedGateway,
+    input: WorkerBackgroundTraceGetDelegateTraceInput,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let client = WorkerClient::experimental(shared);
+    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
+
+    let request = build_worker_background_trace_get_delegate_trace_request(
+        next_worker_request_correlation(),
+        input,
+    );
+    client.call(&request, timeout, "worker background delegate trace get")
+}
+
+fn build_worker_background_trace_get_delegate_trace_request(
+    request_id: WorkerRequestCorrelation,
+    input: WorkerBackgroundTraceGetDelegateTraceInput,
+) -> WorkerRequest {
+    WorkerRequest::new(
+        request_id.id("background-trace-get-delegate-trace"),
+        request_id.trace_id("background-trace-get-delegate-trace"),
+        "background.trace.get_delegate_trace",
+        serde_json::json!({ "filter": input.filter }),
+    )
+}
+
+fn worker_background_trace_get_artifact_with_options(
+    shared: &SharedGateway,
+    input: WorkerBackgroundTraceGetArtifactInput,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let client = WorkerClient::experimental(shared);
+    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
+
+    let request = build_worker_background_trace_get_artifact_request(
+        next_worker_request_correlation(),
+        input,
+    );
+    client.call(&request, timeout, "worker background trace artifact get")
+}
+
+fn build_worker_background_trace_get_artifact_request(
+    request_id: WorkerRequestCorrelation,
+    input: WorkerBackgroundTraceGetArtifactInput,
+) -> WorkerRequest {
+    WorkerRequest::new(
+        request_id.id("background-trace-get-artifact"),
+        request_id.trace_id("background-trace-get-artifact"),
+        "background.trace.get_artifact",
+        serde_json::json!({ "filter": input.filter }),
+    )
+}
+
 fn worker_submit_agent_form_with_options(
     shared: &SharedGateway,
     session_id: String,
@@ -1889,6 +2037,9 @@ pub fn run() {
             worker_channel_login,
             worker_cancel_agent,
             worker_restore_agent_checkpoint,
+            worker_background_trace_list,
+            worker_background_trace_get_delegate_trace,
+            worker_background_trace_get_artifact,
             worker_submit_agent_form,
             worker_resume_agent_approval,
             worker_cron_dispatch_due,
@@ -3026,6 +3177,81 @@ mod tests {
     }
 
     #[test]
+    fn worker_background_trace_list_request_wraps_filter_for_ts_worker() {
+        let request = build_worker_background_trace_list_request(
+            test_request_correlation("42"),
+            WorkerBackgroundTraceListInput {
+                filter: serde_json::json!({ "sessionKey": "WebSocket:chat-1" }),
+            },
+        );
+
+        assert_eq!(request.id, "background-trace-list-42");
+        assert_eq!(request.trace_id, "trace-background-trace-list-42");
+        assert_eq!(request.method, "background.trace.list");
+        assert_eq!(
+            request.params,
+            serde_json::json!({ "filter": { "sessionKey": "WebSocket:chat-1" } })
+        );
+    }
+
+    #[test]
+    fn worker_background_trace_get_delegate_trace_request_wraps_filter_for_ts_worker() {
+        let request = build_worker_background_trace_get_delegate_trace_request(
+            test_request_correlation("42"),
+            WorkerBackgroundTraceGetDelegateTraceInput {
+                filter: serde_json::json!({
+                    "sessionKey": "WebSocket:chat-1",
+                    "delegateId": "delegate-1"
+                }),
+            },
+        );
+
+        assert_eq!(request.id, "background-trace-get-delegate-trace-42");
+        assert_eq!(
+            request.trace_id,
+            "trace-background-trace-get-delegate-trace-42"
+        );
+        assert_eq!(request.method, "background.trace.get_delegate_trace");
+        assert_eq!(
+            request.params,
+            serde_json::json!({
+                "filter": {
+                    "sessionKey": "WebSocket:chat-1",
+                    "delegateId": "delegate-1"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn worker_background_trace_get_artifact_request_wraps_filter_for_ts_worker() {
+        let request = build_worker_background_trace_get_artifact_request(
+            test_request_correlation("42"),
+            WorkerBackgroundTraceGetArtifactInput {
+                filter: serde_json::json!({
+                    "sessionKey": "WebSocket:chat-1",
+                    "delegateId": "delegate-1",
+                    "artifactId": "artifact-1"
+                }),
+            },
+        );
+
+        assert_eq!(request.id, "background-trace-get-artifact-42");
+        assert_eq!(request.trace_id, "trace-background-trace-get-artifact-42");
+        assert_eq!(request.method, "background.trace.get_artifact");
+        assert_eq!(
+            request.params,
+            serde_json::json!({
+                "filter": {
+                    "sessionKey": "WebSocket:chat-1",
+                    "delegateId": "delegate-1",
+                    "artifactId": "artifact-1"
+                }
+            })
+        );
+    }
+
+    #[test]
     fn worker_submit_agent_form_request_wraps_form_submission_for_ts_worker() {
         let request = build_worker_submit_agent_form_request(
             test_request_correlation("42"),
@@ -3316,16 +3542,11 @@ mod tests {
                 .expect("config path should have parent"),
         )
         .expect("config directory should create");
-        std::fs::write(
-            &config_path,
-            r#"{"agents":{"defaults":{"model":"gpt-5"}}}"#,
-        )
-        .expect("fixture config should write");
-        let store = crate::config_store::ConfigStore::load(
-            config_path.clone(),
-            serde_json::json!({}),
-        )
-        .expect("custom config should load");
+        std::fs::write(&config_path, r#"{"agents":{"defaults":{"model":"gpt-5"}}}"#)
+            .expect("fixture config should write");
+        let store =
+            crate::config_store::ConfigStore::load(config_path.clone(), serde_json::json!({}))
+                .expect("custom config should load");
 
         let result = apply_config_operations_to_path(
             &config_path,
