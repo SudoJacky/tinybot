@@ -8897,10 +8897,13 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-work-lens-inline {
+      grid-column: 1;
+      grid-row: 3;
+      justify-self: center;
       display: grid;
       gap: 8px;
       min-width: 0;
-      width: 100%;
+      width: min(var(--desktop-chat-column-width), 100%);
     }
 
     body.desktop-native-workbench .desktop-work-lens[data-desktop-work-lens-placement="inline"] {
@@ -11077,7 +11080,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       align-self: stretch;
       display: grid;
       grid-template-columns: minmax(0, 1fr) 0;
-      grid-template-rows: auto minmax(0, 1fr) auto;
+      grid-template-rows: auto minmax(0, 1fr) auto auto;
       column-gap: 0;
       row-gap: 0;
       justify-items: stretch;
@@ -11685,7 +11688,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-detail-panel-slot {
       grid-column: 2;
-      grid-row: 2 / 4;
+      grid-row: 2 / 5;
       position: relative;
       align-self: stretch;
       box-sizing: border-box;
@@ -12702,7 +12705,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-native-composer {
       position: relative;
       grid-column: 1;
-      grid-row: 3;
+      grid-row: 4;
       justify-self: center;
       width: min(var(--desktop-chat-column-width), calc(100% - var(--desktop-chat-composer-gutter)));
       min-height: 0;
