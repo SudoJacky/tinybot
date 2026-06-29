@@ -237,15 +237,32 @@ describe("conversation thread Vue island", () => {
 
     const shelf = host.querySelector(".desktop-subagent-shelf");
     expect(shelf?.getAttribute("data-subagent-count")).toBe("1");
-    expect(shelf?.getAttribute("data-subagent-shelf-layout")).toBe("stacked-status");
+    expect(shelf?.getAttribute("data-subagent-shelf-layout")).toBe("composer-tray");
+    expect(shelf?.getAttribute("data-subagent-shelf-placement")).toBe("composer-adjacent");
+    expect(host.querySelector(".desktop-conversation-layout > .desktop-subagent-shelf")).toBeNull();
+    expect(shelf?.parentElement).toBe(host.querySelector(".desktop-conversation-body-layout"));
+    expect(shelf?.previousElementSibling).toBe(host.querySelector(".desktop-conversation-layout"));
     expect(shelf?.textContent).toContain("spawn");
     expect(shelf?.textContent).toContain("Completed");
     expect(shelf?.querySelector("[data-subagent-shelf-row]")).toBeTruthy();
 
     const cssText = document.getElementById("desktop-conversation-agent-flow-styles")?.textContent ?? "";
+    const layoutRule = cssText.match(/\.desktop-conversation-layout,\n    body\.desktop-native-workbench \.desktop-conversation-layout \{([\s\S]*?)\}/)?.[1] ?? "";
+    const shelfRule = cssText.match(/\.desktop-subagent-shelf \{([\s\S]*?)\}/)?.[1] ?? "";
+    const nativeShelfRule = cssText.match(/body\.desktop-native-workbench \.desktop-subagent-shelf \{([\s\S]*?)\}/)?.[1] ?? "";
     const shelfListRule = cssText.match(/\.desktop-subagent-shelf-list \{([\s\S]*?)\}/)?.[1] ?? "";
     const shelfItemRule = cssText.match(/\.desktop-subagent-shelf-item \{([\s\S]*?)\}/)?.[1] ?? "";
     const shelfActivityRule = cssText.match(/\.desktop-subagent-shelf-activity \{([\s\S]*?)\}/)?.[1] ?? "";
+    expect(layoutRule).toContain("grid-template-rows: minmax(0, 1fr);");
+    expect(layoutRule).not.toContain("grid-row: 1;");
+    expect(layoutRule).not.toContain("grid-column: 1;");
+    expect(shelfRule).toContain("position: sticky;");
+    expect(shelfRule).toContain("bottom: 0;");
+    expect(shelfRule).toContain("border-radius: 18px 18px 0 0;");
+    expect(shelfRule).toContain("justify-self: center;");
+    expect(shelfRule).toContain("z-index: 2;");
+    expect(nativeShelfRule).toContain("grid-row: 3;");
+    expect(nativeShelfRule).toContain("width: min(calc(100% - 72px), calc(var(--desktop-chat-column-width, 920px) - 96px));");
     expect(shelfListRule).toContain("display: grid;");
     expect(shelfListRule).toContain("overflow-y: auto;");
     expect(shelfListRule).toContain("overflow-x: hidden;");

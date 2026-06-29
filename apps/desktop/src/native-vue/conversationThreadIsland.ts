@@ -553,8 +553,8 @@ function createConversationThreadApp(state: Ref<ConversationThreadIslandOptions>
                   "data-rendered-node-count": String(timelineNodes.length),
                   "data-total-node-count": String(nodes.length),
                 }, timelineNodes),
-                renderSubagentShelf(subagentShelfItems.value, selectedToolKey.value, openSubagentDetail),
               ]),
+              renderSubagentShelf(subagentShelfItems.value, selectedToolKey.value, openSubagentDetail),
               detailPanel
                 ? h("div", {
                   class: "desktop-detail-panel-slot",
@@ -699,7 +699,8 @@ function renderSubagentShelf(
   return h("section", {
     class: "desktop-subagent-shelf",
     "data-subagent-count": String(items.length),
-    "data-subagent-shelf-layout": "stacked-status",
+    "data-subagent-shelf-layout": "composer-tray",
+    "data-subagent-shelf-placement": "composer-adjacent",
     "data-visible-limit": "5",
     "aria-label": "Subagents",
   }, [
@@ -2503,6 +2504,7 @@ function installConversationAgentFlowStyles(targetDocument: Document): void {
       --desktop-flow-card-bg: color-mix(in srgb, var(--panel-strong, #faf9f5) 78%, var(--bg-subtle, #f5f0e8));
       display: grid;
       grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: minmax(0, 1fr) auto;
       min-height: 0;
       position: relative;
       gap: 0;
@@ -2511,7 +2513,8 @@ function installConversationAgentFlowStyles(targetDocument: Document): void {
     .desktop-conversation-layout,
     body.desktop-native-workbench .desktop-conversation-layout {
       display: grid;
-      grid-template-rows: minmax(0, auto) auto;
+      align-content: stretch;
+      grid-template-rows: minmax(0, 1fr);
       height: auto;
       max-height: none;
       min-height: 0;
@@ -2528,9 +2531,29 @@ function installConversationAgentFlowStyles(targetDocument: Document): void {
     }
 
     .desktop-subagent-shelf {
-      border-top: 1px solid var(--desktop-flow-muted-border);
+      border: 1px solid var(--desktop-flow-muted-border);
+      border-bottom: 0;
+      border-radius: 18px 18px 0 0;
+      box-shadow: 0 -10px 26px rgba(31, 28, 24, 0.08);
+      box-sizing: border-box;
       background: color-mix(in srgb, var(--panel, #fffaf3) 88%, transparent);
-      padding: 8px 12px 10px;
+      bottom: 0;
+      grid-column: 1;
+      grid-row: 2;
+      justify-self: center;
+      margin: 0 auto -1px;
+      max-width: calc(100% - 32px);
+      min-width: min(320px, calc(100% - 32px));
+      padding: 8px 12px 9px;
+      position: sticky;
+      width: min(calc(100% - 72px), calc(var(--desktop-chat-column-width, 920px) - 96px));
+      z-index: 2;
+    }
+
+    body.desktop-native-workbench .desktop-subagent-shelf {
+      grid-column: 1;
+      grid-row: 3;
+      width: min(calc(100% - 72px), calc(var(--desktop-chat-column-width, 920px) - 96px));
     }
 
     .desktop-subagent-shelf-list {
@@ -2961,6 +2984,8 @@ function installConversationAgentFlowStyles(targetDocument: Document): void {
     }
 
     .desktop-detail-panel-slot {
+      grid-column: 2;
+      grid-row: 1 / span 2;
       min-width: 320px;
       max-width: 100%;
       pointer-events: none;
