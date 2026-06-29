@@ -25,6 +25,9 @@ export const NATIVE_BACKEND_COMMAND_NAMES = [
   "worker_skills_update",
   "worker_skills_delete",
   "worker_skills_validate",
+  "worker_workspace_files",
+  "worker_workspace_file",
+  "worker_workspace_put_file",
 ] as const;
 
 export type NativeBackendCommandName = typeof NATIVE_BACKEND_COMMAND_NAMES[number];

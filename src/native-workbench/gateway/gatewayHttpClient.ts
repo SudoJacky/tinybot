@@ -7,6 +7,7 @@ type ClientOptions = {
   config?: GatewayConfig;
   fetchFn?: FetchFn;
   nativeSkills?: NativeSkillsApi;
+  nativeWorkspace?: NativeWorkspaceApi;
   nativeCowork?: NativeCoworkApi;
   nativeWebui?: NativeWebuiApi;
   tsCoworkRuntime?: TsCoworkRuntimeRollout;
@@ -58,6 +59,12 @@ export type NativeSkillsApi = {
   update: (name: string, body: unknown) => Promise<unknown>;
   delete: (name: string) => Promise<unknown>;
   validate: (name: string) => Promise<unknown>;
+};
+
+export type NativeWorkspaceApi = {
+  files: () => Promise<unknown>;
+  file: (path: string) => Promise<unknown>;
+  putFile: (path: string, body: unknown) => Promise<unknown>;
 };
 
 export type NativeCoworkRouteRequest = {
@@ -643,14 +650,14 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
     },
     workspace: {
       files: () => nativeOrGateway(
-        () => options.nativeWebui?.route({ method: "GET", path: "/api/workspace/files" }),
+        () => options.nativeWorkspace?.files() ?? options.nativeWebui?.route({ method: "GET", path: "/api/workspace/files" }),
         () => request("/api/workspace/files"),
         "webui.workspace.files",
       ),
       file: (path: string) => {
         const routePath = `/api/workspace/files/${encodePathSegment(path)}`;
         return nativeOrGateway(
-          () => options.nativeWebui?.route({ method: "GET", path: routePath }),
+          () => options.nativeWorkspace?.file(path) ?? options.nativeWebui?.route({ method: "GET", path: routePath }),
           () => request(routePath),
           "webui.workspace.file",
         );
@@ -658,7 +665,7 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
       putFile: (path: string, body: unknown) => {
         const routePath = `/api/workspace/files/${encodePathSegment(path)}`;
         return nativeOrGateway(
-          () => options.nativeWebui?.route({ method: "PUT", path: routePath, body }),
+          () => options.nativeWorkspace?.putFile(path, body) ?? options.nativeWebui?.route({ method: "PUT", path: routePath, body }),
           () => request(routePath, jsonRequest("PUT", body)),
           "webui.workspace.putFile",
         );

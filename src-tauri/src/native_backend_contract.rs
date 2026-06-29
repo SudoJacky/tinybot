@@ -30,6 +30,9 @@ pub const NATIVE_TAURI_COMMANDS: &[&str] = &[
     "worker_skills_update",
     "worker_skills_delete",
     "worker_skills_validate",
+    "worker_workspace_files",
+    "worker_workspace_file",
+    "worker_workspace_put_file",
 ];
 
 pub const NATIVE_AGENT_EVENT_NAMES: &[&str] = &[

@@ -125,6 +125,7 @@ import {
 import { createDesktopNativeCoworkApi } from "../native/desktopNativeCowork";
 import { createDesktopNativeSkillsApi } from "../native/desktopNativeSkills";
 import { createDesktopNativeWebuiApi } from "../native/desktopNativeWebui";
+import { createDesktopNativeWorkspaceApi } from "../native/desktopNativeWorkspace";
 import { startDesktopNativeChannelRuntime } from "../native/desktopNativeChannelLifecycle";
 import { createDesktopNativeTransportApi } from "../native/desktopNativeTransport";
 import { toDesktopNativeTauriEventName } from "../native/desktopNativeTauriEvents";
@@ -159,6 +160,7 @@ const gatewayClientOptions: {
   nativeCowork: ReturnType<typeof createDesktopNativeCoworkApi>;
   nativeSkills: ReturnType<typeof createDesktopNativeSkillsApi>;
   nativeWebui: ReturnType<typeof createDesktopNativeWebuiApi>;
+  nativeWorkspace: ReturnType<typeof createDesktopNativeWorkspaceApi>;
   nativeTransport: ReturnType<typeof createDesktopNativeTransportApi>;
   tsCoworkRuntime: TsCoworkRuntimeRollout;
 } = {
@@ -166,6 +168,7 @@ const gatewayClientOptions: {
   nativeCowork: createDesktopNativeCoworkApi({ invoke }),
   nativeSkills: createDesktopNativeSkillsApi({ invoke }),
   nativeWebui: createDesktopNativeWebuiApi({ invoke }),
+  nativeWorkspace: createDesktopNativeWorkspaceApi({ invoke }),
   nativeTransport: createDesktopNativeTransportApi({ invoke }),
   tsCoworkRuntime: DEFAULT_TS_COWORK_RUNTIME_ROLLOUT,
 };

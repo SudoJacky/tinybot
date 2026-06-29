@@ -160,6 +160,19 @@ struct WorkerSkillUpdateInput {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct WorkerWorkspaceFileInput {
+    path: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerWorkspacePutFileInput {
+    path: String,
+    body: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct WorkerCoworkRouteInput {
     method: String,
     path: String,
@@ -436,6 +449,45 @@ fn worker_skills_validate(
     worker_skills_validate_with_options(
         state.inner(),
         input.name,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_workspace_files(state: State<'_, SharedGateway>) -> Result<serde_json::Value, String> {
+    worker_workspace_files_with_options(
+        state.inner(),
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_workspace_file(
+    input: WorkerWorkspaceFileInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_workspace_file_with_options(
+        state.inner(),
+        input.path,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_workspace_put_file(
+    input: WorkerWorkspacePutFileInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_workspace_put_file_with_options(
+        state.inner(),
+        input.path,
+        input.body,
         ts_agent_worker_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
@@ -986,6 +1038,84 @@ fn build_worker_skills_validate_request(
         request_id.trace_id("skills-validate"),
         "skills.webui_validate",
         serde_json::json!({ "name": name }),
+    )
+}
+
+fn worker_workspace_files_with_options(
+    _shared: &SharedGateway,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    let items = call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("workspace-files"),
+            request_id.trace_id("workspace-files"),
+            "workspace.list_files",
+            serde_json::json!({}),
+        ),
+        "worker workspace files",
+    )?;
+    Ok(serde_json::json!({ "items": items }))
+}
+
+fn worker_workspace_file_with_options(
+    _shared: &SharedGateway,
+    path: String,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("workspace-file"),
+            request_id.trace_id("workspace-file"),
+            "workspace.read_file",
+            serde_json::json!({ "path": path, "format": "raw" }),
+        ),
+        "worker workspace file",
+    )
+}
+
+fn worker_workspace_put_file_with_options(
+    _shared: &SharedGateway,
+    path: String,
+    body: serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let contents = body
+        .get("content")
+        .or_else(|| body.get("contents"))
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| "worker workspace put file failed: content is required".to_string())?;
+    let expected_updated_at = body
+        .get("expectedUpdatedAt")
+        .or_else(|| body.get("expected_updated_at"))
+        .and_then(|value| value.as_str());
+    let request_id = next_worker_request_correlation();
+    call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("workspace-put-file"),
+            request_id.trace_id("workspace-put-file"),
+            "workspace.write_file",
+            serde_json::json!({
+                "path": path,
+                "contents": contents,
+                "expected_updated_at": expected_updated_at,
+                "internal_operation": true,
+            }),
+        ),
+        "worker workspace put file",
     )
 }
 
@@ -2037,6 +2167,9 @@ pub fn run() {
             worker_skills_update,
             worker_skills_delete,
             worker_skills_validate,
+            worker_workspace_files,
+            worker_workspace_file,
+            worker_workspace_put_file,
             worker_cowork_route,
             worker_webui_route,
             worker_transport_gateway_frame,
@@ -2859,6 +2992,52 @@ mod tests {
         assert_eq!(result["skills"][0]["name"], "planner");
         assert_eq!(result["skills"][0]["description"], "Plan work");
         assert_eq!(result["skills"][0]["enabled"], true);
+        assert_eq!(
+            lock_runtime(&shared).experimental_worker.status().state,
+            WorkerManagerState::Stopped
+        );
+    }
+
+    #[test]
+    fn worker_workspace_file_commands_use_rust_workspace_without_ts_worker() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("docs/readme.md", "old readme");
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+
+        let files = worker_workspace_files_with_options(
+            &shared,
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("workspace files should be served by Rust workspace state");
+        let file = worker_workspace_file_with_options(
+            &shared,
+            "docs/readme.md".to_string(),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("workspace file should be served by Rust workspace state");
+        let write = worker_workspace_put_file_with_options(
+            &shared,
+            "docs/readme.md".to_string(),
+            serde_json::json!({ "content": "new readme", "expected_updated_at": null }),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("workspace write should be served by Rust workspace state");
+
+        assert_eq!(files["items"][0]["path"], "docs/readme.md");
+        assert_eq!(file["path"], "docs/readme.md");
+        assert_eq!(file["content"], "old readme");
+        assert_eq!(write["path"], "docs/readme.md");
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("docs").join("readme.md"))
+                .expect("written file should read"),
+            "new readme"
+        );
         assert_eq!(
             lock_runtime(&shared).experimental_worker.status().state,
             WorkerManagerState::Stopped

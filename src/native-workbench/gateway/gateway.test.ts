@@ -1043,42 +1043,50 @@ describe("gateway HTTP client", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
-  test("prefers native WebUI workspace file routes when available", async () => {
+  test("prefers native Rust workspace file operations when both native paths are available", async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
     const nativeWebui = {
-      route: vi.fn(async (request: { method: string; path: string; body?: unknown }) => ({
-        native: true,
-        request,
-      })),
+      route: vi.fn(async () => {
+        throw new Error("native WebUI workspace route should not be used");
+      }),
+    };
+    const nativeWorkspace = {
+      files: vi.fn(async () => ({ items: [{ path: "docs/readme.md" }] })),
+      file: vi.fn(async (path: string) => ({ path, content: "# Readme\n" })),
+      putFile: vi.fn(async (path: string, body: unknown) => ({ path, saved: true, body })),
     };
     const client = createGatewayApiClient({
       config: DEFAULT_GATEWAY_CONFIG,
       fetchFn,
       nativeWebui,
+      nativeWorkspace,
     });
 
     await expect(client.workspace.files()).resolves.toEqual({
-      native: true,
-      request: { method: "GET", path: "/api/workspace/files" },
+      items: [{ path: "docs/readme.md" }],
     });
     await expect(client.workspace.file("docs/readme.md")).resolves.toEqual({
-      native: true,
-      request: { method: "GET", path: "/api/workspace/files/docs%2Freadme.md" },
+      path: "docs/readme.md",
+      content: "# Readme\n",
     });
     await expect(client.workspace.putFile("docs/readme.md", {
       content: "# Readme\n",
       expected_updated_at: null,
     })).resolves.toEqual({
-      native: true,
-      request: {
-        method: "PUT",
-        path: "/api/workspace/files/docs%2Freadme.md",
-        body: {
-          content: "# Readme\n",
-          expected_updated_at: null,
-        },
+      path: "docs/readme.md",
+      saved: true,
+      body: {
+        content: "# Readme\n",
+        expected_updated_at: null,
       },
     });
+    expect(nativeWorkspace.files).toHaveBeenCalledTimes(1);
+    expect(nativeWorkspace.file).toHaveBeenCalledWith("docs/readme.md");
+    expect(nativeWorkspace.putFile).toHaveBeenCalledWith("docs/readme.md", {
+      content: "# Readme\n",
+      expected_updated_at: null,
+    });
+    expect(nativeWebui.route).not.toHaveBeenCalled();
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
