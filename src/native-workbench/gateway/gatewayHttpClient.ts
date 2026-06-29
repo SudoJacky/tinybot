@@ -65,6 +65,12 @@ export type NativeSkillsApi = {
 export type NativeSessionsApi = {
   list: () => Promise<unknown>;
   messages: (key: string) => Promise<unknown>;
+  temporaryFiles?: (key: string) => Promise<unknown>;
+  uploadTemporaryFile?: (key: string, body: unknown) => Promise<unknown>;
+  clearTemporaryFiles?: (key: string) => Promise<unknown>;
+  delete?: (key: string) => Promise<unknown>;
+  patch?: (key: string, body: unknown) => Promise<unknown>;
+  clear?: (key: string) => Promise<unknown>;
 };
 
 export type NativeWorkspaceApi = {
@@ -361,7 +367,7 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         "webui.sessions.profile",
       ),
       temporaryFiles: (key: string) => nativeOrGateway(
-        () => options.nativeWebui?.route({
+        () => options.nativeSessions?.temporaryFiles?.(key) ?? options.nativeWebui?.route({
           method: "GET",
           path: `/api/sessions/${encodePathSegment(key)}/temporary-files`,
         }),
@@ -371,7 +377,13 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
       uploadTemporaryFile: (key: string, body: FormData) => nativeOrGateway(
         () => {
           const uploadBody = nativeTemporaryFileUploadBody(body);
-          return options.nativeWebui && uploadBody
+          if (!uploadBody) {
+            return undefined;
+          }
+          if (options.nativeSessions?.uploadTemporaryFile) {
+            return uploadBody.then((payload) => options.nativeSessions?.uploadTemporaryFile?.(key, payload));
+          }
+          return options.nativeWebui
             ? uploadBody.then((payload) => options.nativeWebui?.route({
               method: "POST",
               path: `/api/sessions/${encodePathSegment(key)}/temporary-files`,
@@ -383,7 +395,7 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         "webui.sessions.uploadTemporaryFile",
       ),
       clearTemporaryFiles: (key: string) => nativeOrGateway(
-        () => options.nativeWebui?.route({
+        () => options.nativeSessions?.clearTemporaryFiles?.(key) ?? options.nativeWebui?.route({
           method: "DELETE",
           path: `/api/sessions/${encodePathSegment(key)}/temporary-files`,
         }),
@@ -391,12 +403,12 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         "webui.sessions.clearTemporaryFiles",
       ),
       delete: (key: string) => nativeOrGateway(
-        () => options.nativeWebui?.route({ method: "DELETE", path: `/api/sessions/${encodePathSegment(key)}` }),
+        () => options.nativeSessions?.delete?.(key) ?? options.nativeWebui?.route({ method: "DELETE", path: `/api/sessions/${encodePathSegment(key)}` }),
         () => request(`/api/sessions/${encodePathSegment(key)}`, { method: "DELETE" }),
         "webui.sessions.delete",
       ),
       patch: (key: string, body: unknown) => nativeOrGateway(
-        () => options.nativeWebui?.route({
+        () => options.nativeSessions?.patch?.(key, body) ?? options.nativeWebui?.route({
           method: "PATCH",
           path: `/api/sessions/${encodePathSegment(key)}`,
           body,
@@ -405,7 +417,7 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         "webui.sessions.patch",
       ),
       clear: (key: string) => nativeOrGateway(
-        () => options.nativeWebui?.route({
+        () => options.nativeSessions?.clear?.(key) ?? options.nativeWebui?.route({
           method: "POST",
           path: `/api/sessions/${encodePathSegment(key)}/clear`,
         }),

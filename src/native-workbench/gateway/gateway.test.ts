@@ -710,6 +710,67 @@ describe("gateway HTTP client", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
+  test("prefers native Rust session state mutations when both native paths are available", async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
+    const nativeWebui = {
+      route: vi.fn(async () => {
+        throw new Error("native WebUI session state route should not be used");
+      }),
+    };
+    const nativeSessions = {
+      list: vi.fn(),
+      messages: vi.fn(),
+      temporaryFiles: vi.fn(async (key: string) => ({ key, temporary_files: [{ name: "context.md" }] })),
+      uploadTemporaryFile: vi.fn(async (key: string, body: unknown) => ({ key, uploaded: true, body })),
+      clearTemporaryFiles: vi.fn(async (key: string) => ({ key, cleared: 1 })),
+      delete: vi.fn(async (key: string) => ({ key, deleted: true })),
+      patch: vi.fn(async (key: string, body: unknown) => ({ key, metadata: { pinned: true }, body })),
+      clear: vi.fn(async (key: string) => ({ key, cleared: true })),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeSessions,
+      nativeWebui,
+    });
+    const form = new FormData();
+    form.append("file", new File(["hello native"], "context.md", { type: "text/markdown" }));
+
+    await expect(client.sessions.temporaryFiles("websocket:chat-1")).resolves.toEqual({
+      key: "websocket:chat-1",
+      temporary_files: [{ name: "context.md" }],
+    });
+    await expect(client.sessions.uploadTemporaryFile("websocket:chat-1", form)).resolves.toEqual({
+      key: "websocket:chat-1",
+      uploaded: true,
+      body: {
+        name: "context.md",
+        file_type: "md",
+        content: "hello native",
+        size_bytes: 12,
+      },
+    });
+    await expect(client.sessions.clearTemporaryFiles("websocket:chat-1")).resolves.toEqual({
+      key: "websocket:chat-1",
+      cleared: 1,
+    });
+    await expect(client.sessions.patch("websocket:chat-1", { metadata: { pinned: true } })).resolves.toEqual({
+      key: "websocket:chat-1",
+      metadata: { pinned: true },
+      body: { metadata: { pinned: true } },
+    });
+    await expect(client.sessions.clear("websocket:chat-1")).resolves.toEqual({
+      key: "websocket:chat-1",
+      cleared: true,
+    });
+    await expect(client.sessions.delete("websocket:chat-1")).resolves.toEqual({
+      key: "websocket:chat-1",
+      deleted: true,
+    });
+    expect(nativeWebui.route).not.toHaveBeenCalled();
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
   test("prefers native WebUI session clear route when available", async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
     const nativeWebui = {

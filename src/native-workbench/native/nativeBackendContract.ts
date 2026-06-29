@@ -30,6 +30,12 @@ export const NATIVE_BACKEND_COMMAND_NAMES = [
   "worker_workspace_put_file",
   "worker_sessions_list",
   "worker_session_messages",
+  "worker_session_temporary_files",
+  "worker_session_upload_temporary_file",
+  "worker_session_clear_temporary_files",
+  "worker_session_delete",
+  "worker_session_patch",
+  "worker_session_clear",
 ] as const;
 
 export type NativeBackendCommandName = typeof NATIVE_BACKEND_COMMAND_NAMES[number];

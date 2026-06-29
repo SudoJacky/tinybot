@@ -8,5 +8,11 @@ export function createDesktopNativeSessionsApi(options: { invoke?: TauriInvoke }
   return {
     list: () => invoke("worker_sessions_list"),
     messages: (key: string) => invoke("worker_session_messages", { input: { key } }),
+    temporaryFiles: (key: string) => invoke("worker_session_temporary_files", { input: { key } }),
+    uploadTemporaryFile: (key: string, body: unknown) => invoke("worker_session_upload_temporary_file", { input: { key, body } }),
+    clearTemporaryFiles: (key: string) => invoke("worker_session_clear_temporary_files", { input: { key } }),
+    delete: (key: string) => invoke("worker_session_delete", { input: { key } }),
+    patch: (key: string, body: unknown) => invoke("worker_session_patch", { input: { key, body } }),
+    clear: (key: string) => invoke("worker_session_clear", { input: { key } }),
   };
 }

@@ -35,6 +35,12 @@ pub const NATIVE_TAURI_COMMANDS: &[&str] = &[
     "worker_workspace_put_file",
     "worker_sessions_list",
     "worker_session_messages",
+    "worker_session_temporary_files",
+    "worker_session_upload_temporary_file",
+    "worker_session_clear_temporary_files",
+    "worker_session_delete",
+    "worker_session_patch",
+    "worker_session_clear",
 ];
 
 pub const NATIVE_AGENT_EVENT_NAMES: &[&str] = &[
