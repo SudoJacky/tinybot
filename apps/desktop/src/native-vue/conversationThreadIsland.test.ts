@@ -903,6 +903,68 @@ describe("conversation thread Vue island", () => {
     expect(host.querySelector<HTMLElement>(".desktop-conversation-timeline")?.scrollTop).toBe(420);
   });
 
+  test("does not override user scrolling after a streamed update queues restoration", async () => {
+    const host = document.createElement("section");
+
+    const mounted = mountConversationThreadIsland(host, {
+      emptyMessage: "",
+      messages: [
+        {
+          author: "You",
+          body: ["Stream this"],
+          references: [],
+          time: "10:30 AM",
+          tone: "user",
+          toolActivities: [],
+        },
+        {
+          author: "Tinybot",
+          body: ["first chunk"],
+          references: [],
+          time: "10:30 AM",
+          tone: "assistant",
+          toolActivities: [],
+        },
+      ],
+    });
+    await nextTick();
+    await nextTick();
+
+    const timeline = host.querySelector<HTMLElement>(".desktop-conversation-timeline");
+    expect(timeline).not.toBeNull();
+    Object.defineProperty(timeline, "scrollHeight", { configurable: true, value: 1200 });
+    Object.defineProperty(timeline, "clientHeight", { configurable: true, value: 500 });
+    timeline!.scrollTop = 420;
+
+    mounted.update({
+      emptyMessage: "",
+      messages: [
+        {
+          author: "You",
+          body: ["Stream this"],
+          references: [],
+          time: "10:30 AM",
+          tone: "user",
+          toolActivities: [],
+        },
+        {
+          author: "Tinybot",
+          body: ["first chunk second chunk"],
+          references: [],
+          time: "10:30 AM",
+          tone: "assistant",
+          toolActivities: [],
+        },
+      ],
+    });
+    timeline!.scrollTop = 120;
+    timeline!.dispatchEvent(new Event("scroll"));
+    await nextTick();
+    await nextTick();
+
+    expect(host.querySelector<HTMLElement>(".desktop-conversation-timeline")?.scrollTop).toBe(120);
+  });
+
   test("collapses completed assistant process steps in event order before the final answer", async () => {
     const host = document.createElement("section");
 
@@ -1083,6 +1145,7 @@ describe("conversation thread Vue island", () => {
     expect(injectedStyles).toContain("display: flex");
     expect(injectedStyles).toContain("flex-direction: column");
     expect(injectedStyles).toContain("flex: 0 0 auto");
+    expect(injectedStyles).not.toContain("animation: desktopAgentFlowEnter");
     expect(injectedStyles).toContain("body.desktop-native-workbench .desktop-assistant-step-group.desktop-agent-flow-group");
     expect(injectedStyles).toContain("body.desktop-native-workbench .desktop-agent-flow-step-card");
     const finalAnswer = Array.from(host.querySelectorAll<HTMLElement>(".desktop-conversation-message"))
