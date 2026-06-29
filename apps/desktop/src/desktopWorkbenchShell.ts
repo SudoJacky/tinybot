@@ -11112,6 +11112,9 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-chat-workbench-chrome {
+      grid-column: 1;
+      grid-row: 2;
+      justify-self: center;
       display: grid;
       gap: 12px;
       width: min(var(--desktop-chat-column-width), 100%);

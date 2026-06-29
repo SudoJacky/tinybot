@@ -4341,6 +4341,10 @@ describe("desktop workbench shell", () => {
     expect(styleText).toContain("width: min(var(--desktop-chat-column-width), calc(100% - var(--desktop-chat-composer-gutter)));");
     expect(styleText).toContain("grid-template-columns: minmax(0, 1fr) 0;");
     expect(styleText).toContain("grid-template-rows: auto minmax(0, 1fr) auto;");
+    const emptyChromeRule = styleText.match(/body\.desktop-native-workbench \.desktop-chat-workbench-chrome \{([\s\S]*?)\n    \}/)?.[1] ?? "";
+    expect(emptyChromeRule).toContain("grid-column: 1;");
+    expect(emptyChromeRule).toContain("grid-row: 2;");
+    expect(emptyChromeRule).toContain("justify-self: center;");
     expect(styleText).toContain("body.desktop-native-workbench .desktop-chat-workbench:has(.desktop-conversation-body-layout[data-detail-panel-mode=\"push\"][data-detail-panel-state=\"open\"])");
     expect(styleText).toContain("grid-template-columns 520ms cubic-bezier(0.16, 1, 0.3, 1);");
     expect(styleText).toContain("body.desktop-native-workbench .desktop-conversation-thread {\n      display: contents;");
