@@ -10621,7 +10621,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       align-items: center;
       justify-content: flex-end;
       min-width: 0;
-      overflow: hidden;
+      overflow: visible;
     }
 
     body.desktop-native-workbench .desktop-native-token-orb {
@@ -12758,8 +12758,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       justify-content: flex-end;
       min-height: 38px;
       max-height: none;
-      overflow-x: auto;
-      overflow-y: visible;
+      overflow: visible;
       gap: 10px;
       flex-wrap: nowrap;
       min-width: 0;
@@ -12770,6 +12769,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       display: inline-flex;
       align-items: center;
       justify-content: center;
+      max-width: min(220px, 100%);
       min-height: 34px;
       border: 0;
       border-radius: 999px;
@@ -12779,6 +12779,14 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       font: 600 12px/1.2 var(--font-sans);
       box-shadow: none;
       cursor: pointer;
+      white-space: nowrap;
+    }
+
+    body.desktop-native-workbench .desktop-native-composer-model-label {
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
       white-space: nowrap;
     }
 
