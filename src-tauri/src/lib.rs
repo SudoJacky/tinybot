@@ -351,6 +351,57 @@ struct WorkerTaskPlanSaveInput {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct WorkerKnowledgeDocumentsInput {
+    #[serde(default)]
+    category: Option<String>,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerKnowledgeBodyInput {
+    body: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerKnowledgeDocumentIdInput {
+    doc_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerKnowledgeJobIdInput {
+    job_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerKnowledgeRebuildIndexInput {
+    #[serde(default)]
+    rebuild_type: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerKnowledgeGraphInput {
+    #[serde(default)]
+    doc_id: Option<String>,
+    #[serde(default)]
+    graph_type: Option<String>,
+    #[serde(default)]
+    limit: Option<usize>,
+    #[serde(default)]
+    edge_limit: Option<usize>,
+    #[serde(default)]
+    min_confidence: Option<f64>,
+    #[serde(default)]
+    include_orphans: Option<bool>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct WorkerSubmitAgentFormInput {
     session_id: String,
     form_id: String,
@@ -936,6 +987,114 @@ fn worker_task_plan_delete(
     worker_task_plan_delete_with_options(
         state.inner(),
         input.plan_id,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_knowledge_documents(
+    input: WorkerKnowledgeDocumentsInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_knowledge_documents_with_options(
+        state.inner(),
+        input,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_knowledge_add_document(
+    input: WorkerKnowledgeBodyInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_knowledge_add_document_with_options(
+        state.inner(),
+        input.body,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_knowledge_document(
+    input: WorkerKnowledgeDocumentIdInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_knowledge_document_with_options(
+        state.inner(),
+        input.doc_id,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_knowledge_delete_document(
+    input: WorkerKnowledgeDocumentIdInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_knowledge_delete_document_with_options(
+        state.inner(),
+        input.doc_id,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_knowledge_job(
+    input: WorkerKnowledgeJobIdInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_knowledge_job_with_options(
+        state.inner(),
+        input.job_id,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_knowledge_rebuild_index(
+    input: WorkerKnowledgeRebuildIndexInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_knowledge_rebuild_index_with_options(
+        state.inner(),
+        input.rebuild_type,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_knowledge_stats(state: State<'_, SharedGateway>) -> Result<serde_json::Value, String> {
+    worker_knowledge_stats_with_options(
+        state.inner(),
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_knowledge_graph(
+    input: WorkerKnowledgeGraphInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_knowledge_graph_with_options(
+        state.inner(),
+        input,
         ts_agent_worker_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
@@ -2420,6 +2579,176 @@ fn dispatch_rust_task_request(
         .ok_or_else(|| format!("{context} response missing result"))
 }
 
+fn worker_knowledge_documents_with_options(
+    _shared: &SharedGateway,
+    input: WorkerKnowledgeDocumentsInput,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    dispatch_rust_knowledge_request(
+        workspace_root,
+        config_snapshot,
+        "knowledge-documents",
+        "knowledge.list_documents",
+        serde_json::json!({
+            "category": input.category,
+            "limit": input.limit,
+        }),
+        "worker knowledge documents",
+    )
+}
+
+fn worker_knowledge_add_document_with_options(
+    _shared: &SharedGateway,
+    body: serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    dispatch_rust_knowledge_request(
+        workspace_root,
+        config_snapshot,
+        "knowledge-add-document",
+        "knowledge.add_document",
+        body,
+        "worker knowledge add document",
+    )
+}
+
+fn worker_knowledge_document_with_options(
+    _shared: &SharedGateway,
+    doc_id: String,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    dispatch_rust_knowledge_request(
+        workspace_root,
+        config_snapshot,
+        "knowledge-document",
+        "knowledge.get_document",
+        serde_json::json!({ "doc_id": doc_id }),
+        "worker knowledge document",
+    )
+}
+
+fn worker_knowledge_delete_document_with_options(
+    _shared: &SharedGateway,
+    doc_id: String,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    dispatch_rust_knowledge_request(
+        workspace_root,
+        config_snapshot,
+        "knowledge-delete-document",
+        "knowledge.delete_document",
+        serde_json::json!({ "doc_id": doc_id }),
+        "worker knowledge delete document",
+    )
+}
+
+fn worker_knowledge_job_with_options(
+    _shared: &SharedGateway,
+    job_id: String,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    dispatch_rust_knowledge_request(
+        workspace_root,
+        config_snapshot,
+        "knowledge-job",
+        "knowledge.get_job",
+        serde_json::json!({ "job_id": job_id }),
+        "worker knowledge job",
+    )
+}
+
+fn worker_knowledge_rebuild_index_with_options(
+    _shared: &SharedGateway,
+    rebuild_type: Option<String>,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    dispatch_rust_knowledge_request(
+        workspace_root,
+        config_snapshot,
+        "knowledge-rebuild-index",
+        "knowledge.rebuild_index",
+        serde_json::json!({ "type": rebuild_type }),
+        "worker knowledge rebuild index",
+    )
+}
+
+fn worker_knowledge_stats_with_options(
+    _shared: &SharedGateway,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    dispatch_rust_knowledge_request(
+        workspace_root,
+        config_snapshot,
+        "knowledge-stats",
+        "knowledge.stats",
+        serde_json::json!({}),
+        "worker knowledge stats",
+    )
+}
+
+fn worker_knowledge_graph_with_options(
+    _shared: &SharedGateway,
+    input: WorkerKnowledgeGraphInput,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    dispatch_rust_knowledge_request(
+        workspace_root,
+        config_snapshot,
+        "knowledge-graph",
+        "knowledge.graph",
+        serde_json::json!({
+            "doc_id": input.doc_id,
+            "graph_type": input.graph_type,
+            "limit": input.limit,
+            "edge_limit": input.edge_limit,
+            "min_confidence": input.min_confidence,
+            "include_orphans": input.include_orphans,
+        }),
+        "worker knowledge graph",
+    )
+}
+
+fn dispatch_rust_knowledge_request(
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    request_suffix: &str,
+    method: &str,
+    params: serde_json::Value,
+    context: &str,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    let request = WorkerRequest::new(
+        request_id.id(request_suffix),
+        request_id.trace_id(request_suffix),
+        method,
+        params,
+    );
+    let mut router = experimental_worker_router(workspace_root, config_snapshot);
+    let response = router.dispatch(&request);
+    if let Some(error) = response.error {
+        return Err(format!("{context} returned error: {}", error.message));
+    }
+    response
+        .result
+        .ok_or_else(|| format!("{context} response missing result"))
+}
+
 fn worker_submit_agent_form_with_options(
     shared: &SharedGateway,
     session_id: String,
@@ -2885,6 +3214,14 @@ pub fn run() {
             worker_task_plan_get,
             worker_task_plan_save,
             worker_task_plan_delete,
+            worker_knowledge_documents,
+            worker_knowledge_add_document,
+            worker_knowledge_document,
+            worker_knowledge_delete_document,
+            worker_knowledge_job,
+            worker_knowledge_rebuild_index,
+            worker_knowledge_stats,
+            worker_knowledge_graph,
             worker_submit_agent_form,
             worker_resume_agent_approval,
             worker_cron_dispatch_due,
@@ -4379,6 +4716,110 @@ mod tests {
         assert_eq!(loaded["plan"]["title"], "Move state service");
         assert_eq!(deleted["deleted"], true);
         assert_eq!(missing["plan"], serde_json::Value::Null);
+        assert_eq!(
+            lock_runtime(&shared).experimental_worker.status().state,
+            WorkerManagerState::Stopped
+        );
+    }
+
+    #[test]
+    fn worker_knowledge_state_commands_use_rust_store_without_ts_worker() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+
+        let added = worker_knowledge_add_document_with_options(
+            &shared,
+            serde_json::json!({
+                "name": "Native Knowledge.md",
+                "content": "# Native Knowledge\n\nRust state services own knowledge metadata.\n",
+                "category": "desktop",
+                "tags": ["native", "rust"],
+                "file_type": "md"
+            }),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("knowledge add should use Rust store without starting TS worker");
+        let doc_id = added["document"]["id"]
+            .as_str()
+            .expect("added document should include an id")
+            .to_string();
+        let listed = worker_knowledge_documents_with_options(
+            &shared,
+            WorkerKnowledgeDocumentsInput {
+                category: Some("desktop".to_string()),
+                limit: Some(5),
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("knowledge list should use Rust store without starting TS worker");
+        let document = worker_knowledge_document_with_options(
+            &shared,
+            doc_id.clone(),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("knowledge get should use Rust store without starting TS worker");
+        let stats = worker_knowledge_stats_with_options(
+            &shared,
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("knowledge stats should use Rust store without starting TS worker");
+        let graph = worker_knowledge_graph_with_options(
+            &shared,
+            WorkerKnowledgeGraphInput {
+                doc_id: Some(doc_id.clone()),
+                graph_type: Some("document".to_string()),
+                limit: Some(10),
+                edge_limit: Some(10),
+                min_confidence: None,
+                include_orphans: Some(true),
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("knowledge graph should use Rust store without starting TS worker");
+        let rebuild = worker_knowledge_rebuild_index_with_options(
+            &shared,
+            Some("tree".to_string()),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("knowledge rebuild should use Rust store without starting TS worker");
+        let job = worker_knowledge_job_with_options(
+            &shared,
+            rebuild["id"]
+                .as_str()
+                .expect("rebuild job should include id")
+                .to_string(),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("knowledge job should use Rust store without starting TS worker");
+        let deleted = worker_knowledge_delete_document_with_options(
+            &shared,
+            doc_id.clone(),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("knowledge delete should use Rust store without starting TS worker");
+
+        assert_eq!(listed["documents"][0]["id"], doc_id);
+        assert_eq!(document["document"]["name"], "Native Knowledge.md");
+        assert_eq!(stats["document_count"], 1);
+        assert_eq!(graph["object"], "knowledge_graph");
+        assert_eq!(job["status"], "completed");
+        assert_eq!(deleted["deleted"], true);
         assert_eq!(
             lock_runtime(&shared).experimental_worker.status().state,
             WorkerManagerState::Stopped

@@ -124,6 +124,7 @@ import {
 } from "../gateway/gatewayHttpClient";
 import { createDesktopNativeCoworkApi } from "../native/desktopNativeCowork";
 import { createDesktopNativeConfigApi } from "../native/desktopNativeConfig";
+import { createDesktopNativeKnowledgeApi } from "../native/desktopNativeKnowledge";
 import { createDesktopNativeSessionsApi } from "../native/desktopNativeSessions";
 import { createDesktopNativeSkillsApi } from "../native/desktopNativeSkills";
 import { createDesktopNativeWebuiApi } from "../native/desktopNativeWebui";
@@ -161,6 +162,7 @@ const gatewayClientOptions: {
   config: typeof gatewayConfig;
   nativeConfig: ReturnType<typeof createDesktopNativeConfigApi>;
   nativeCowork: ReturnType<typeof createDesktopNativeCoworkApi>;
+  nativeKnowledge: ReturnType<typeof createDesktopNativeKnowledgeApi>;
   nativeSessions: ReturnType<typeof createDesktopNativeSessionsApi>;
   nativeSkills: ReturnType<typeof createDesktopNativeSkillsApi>;
   nativeWebui: ReturnType<typeof createDesktopNativeWebuiApi>;
@@ -171,6 +173,7 @@ const gatewayClientOptions: {
   config: gatewayConfig,
   nativeConfig: createDesktopNativeConfigApi({ invoke }),
   nativeCowork: createDesktopNativeCoworkApi({ invoke }),
+  nativeKnowledge: createDesktopNativeKnowledgeApi({ invoke }),
   nativeSessions: createDesktopNativeSessionsApi({ invoke }),
   nativeSkills: createDesktopNativeSkillsApi({ invoke }),
   nativeWebui: createDesktopNativeWebuiApi({ invoke }),
