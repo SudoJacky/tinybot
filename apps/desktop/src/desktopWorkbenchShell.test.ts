@@ -532,6 +532,32 @@ describe("desktop workbench shell", () => {
     expect(selections).toEqual(["deepseek-chat"]);
   });
 
+  test("keeps the native composer model menu outside clipped runtime overflow", () => {
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      chat: {
+        sessions: [],
+        activeSessionKey: "",
+        activeChatId: "",
+        messages: [],
+        runtime: { model: "deepseek-v4-flash", modelOptions: ["deepseek-v4-pro", "deepseek-v4-flash"] },
+      },
+    });
+
+    const styleText = targetDocument.head.querySelector("#desktop-workbench-shell-style")?.textContent ?? "";
+    const runtimeRules = Array.from(
+      styleText.matchAll(/body\.desktop-native-workbench \.desktop-native-composer-runtime \{(?<rule>[\s\S]*?)\n    \}/g),
+    ).map((match) => match.groups?.rule ?? "");
+
+    expect(runtimeRules.length).toBeGreaterThan(0);
+    expect(runtimeRules.some((rule) => /overflow(?:-[xy])?:\s*(?:auto|hidden);/.test(rule))).toBe(false);
+    expect(runtimeRules.some((rule) => rule.includes("overflow: visible;"))).toBe(true);
+  });
+
   test("overlays recent chat timestamps and delete actions in the same right slot", () => {
     const targetDocument = new FakeDocument();
 
@@ -884,7 +910,7 @@ describe("desktop workbench shell", () => {
     expect(styleText).toContain("width: 36px;\n      min-width: 36px;\n      height: 36px;\n      min-height: 36px;");
     expect(styleText).toContain(".desktop-native-token-orb {\n      width: 36px;\n      height: 36px;");
     expect(styleText).toContain("min-height: 38px;\n      max-height: none;");
-    expect(styleText).toContain("overflow-y: visible;");
+    expect(styleText).toContain("overflow: visible;");
     expect(styleText).toContain("gap: 10px 18px;");
     expect(styleText).toContain("gap: 16px;");
     expect(styleText).toContain("border-radius: 999px;");
