@@ -1504,18 +1504,20 @@ fn build_worker_restore_agent_checkpoint_request(
 }
 
 fn worker_background_trace_list_with_options(
-    shared: &SharedGateway,
+    _shared: &SharedGateway,
     input: WorkerBackgroundTraceListInput,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
-    timeout: Duration,
+    _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let client = WorkerClient::experimental(shared);
-    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
-
     let request =
         build_worker_background_trace_list_request(next_worker_request_correlation(), input);
-    client.call(&request, timeout, "worker background trace list")
+    dispatch_worker_background_trace_request(
+        workspace_root,
+        config_snapshot,
+        request,
+        "worker background trace list",
+    )
 }
 
 fn build_worker_background_trace_list_request(
@@ -1531,20 +1533,22 @@ fn build_worker_background_trace_list_request(
 }
 
 fn worker_background_trace_get_delegate_trace_with_options(
-    shared: &SharedGateway,
+    _shared: &SharedGateway,
     input: WorkerBackgroundTraceGetDelegateTraceInput,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
-    timeout: Duration,
+    _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let client = WorkerClient::experimental(shared);
-    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
-
     let request = build_worker_background_trace_get_delegate_trace_request(
         next_worker_request_correlation(),
         input,
     );
-    client.call(&request, timeout, "worker background delegate trace get")
+    dispatch_worker_background_trace_request(
+        workspace_root,
+        config_snapshot,
+        request,
+        "worker background delegate trace get",
+    )
 }
 
 fn build_worker_background_trace_get_delegate_trace_request(
@@ -1560,20 +1564,22 @@ fn build_worker_background_trace_get_delegate_trace_request(
 }
 
 fn worker_background_trace_get_artifact_with_options(
-    shared: &SharedGateway,
+    _shared: &SharedGateway,
     input: WorkerBackgroundTraceGetArtifactInput,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
-    timeout: Duration,
+    _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let client = WorkerClient::experimental(shared);
-    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
-
     let request = build_worker_background_trace_get_artifact_request(
         next_worker_request_correlation(),
         input,
     );
-    client.call(&request, timeout, "worker background trace artifact get")
+    dispatch_worker_background_trace_request(
+        workspace_root,
+        config_snapshot,
+        request,
+        "worker background trace artifact get",
+    )
 }
 
 fn build_worker_background_trace_get_artifact_request(
@@ -1586,6 +1592,22 @@ fn build_worker_background_trace_get_artifact_request(
         "background.trace.get_artifact",
         serde_json::json!({ "filter": input.filter }),
     )
+}
+
+fn dispatch_worker_background_trace_request(
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    request: WorkerRequest,
+    context: &str,
+) -> Result<serde_json::Value, String> {
+    let mut router = experimental_worker_router(workspace_root, config_snapshot);
+    let response = router.dispatch(&request);
+    if let Some(error) = response.error {
+        return Err(format!("{context} returned error: {}", error.message));
+    }
+    response
+        .result
+        .ok_or_else(|| format!("{context} response missing result"))
 }
 
 fn worker_submit_agent_form_with_options(
@@ -3177,7 +3199,7 @@ mod tests {
     }
 
     #[test]
-    fn worker_background_trace_list_request_wraps_filter_for_ts_worker() {
+    fn worker_background_trace_list_request_wraps_filter_for_background_rpc() {
         let request = build_worker_background_trace_list_request(
             test_request_correlation("42"),
             WorkerBackgroundTraceListInput {
@@ -3195,7 +3217,52 @@ mod tests {
     }
 
     #[test]
-    fn worker_background_trace_get_delegate_trace_request_wraps_filter_for_ts_worker() {
+    fn worker_background_trace_list_reads_rust_registry_without_ts_worker() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let mut router = experimental_worker_router(fixture.root.clone(), serde_json::json!({}));
+        let append_response = router.dispatch(&WorkerRequest::new(
+            "req-background-trace-append",
+            "trace-1",
+            "background.trace.append",
+            serde_json::json!({
+                "event": {
+                    "eventId": "event-1",
+                    "eventType": "agent.delegate.started",
+                    "sessionKey": "WebSocket:chat-1",
+                    "turnId": "turn-1",
+                    "delegateId": "delegate-1",
+                    "childRunId": "delegate-1",
+                    "traceRef": "trace-ref-1",
+                    "sequence": 1,
+                    "createdAt": "2026-06-29T02:25:30.000Z",
+                    "payload": { "status": "running" }
+                }
+            }),
+        ));
+        assert_eq!(append_response.error, None);
+
+        let result = worker_background_trace_list_with_options(
+            &shared,
+            WorkerBackgroundTraceListInput {
+                filter: serde_json::json!({ "sessionKey": "WebSocket:chat-1" }),
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("trace list should read the Rust background registry without starting TS worker");
+
+        assert_eq!(result["events"][0]["eventId"], "event-1");
+        assert_eq!(result["events"][0]["delegateId"], "delegate-1");
+        assert_eq!(
+            lock_runtime(&shared).experimental_worker.status().state,
+            WorkerManagerState::Stopped
+        );
+    }
+
+    #[test]
+    fn worker_background_trace_get_delegate_trace_request_wraps_filter_for_background_rpc() {
         let request = build_worker_background_trace_get_delegate_trace_request(
             test_request_correlation("42"),
             WorkerBackgroundTraceGetDelegateTraceInput {
@@ -3224,7 +3291,7 @@ mod tests {
     }
 
     #[test]
-    fn worker_background_trace_get_artifact_request_wraps_filter_for_ts_worker() {
+    fn worker_background_trace_get_artifact_request_wraps_filter_for_background_rpc() {
         let request = build_worker_background_trace_get_artifact_request(
             test_request_correlation("42"),
             WorkerBackgroundTraceGetArtifactInput {
