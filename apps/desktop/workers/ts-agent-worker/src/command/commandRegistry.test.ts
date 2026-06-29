@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import { createDefaultCommandRouter } from "./commandRegistry";
 
@@ -105,7 +105,7 @@ describe("createDefaultCommandRouter", () => {
     });
   });
 
-  test("reports dream run failures like Python instead of leaking the bridge error", async () => {
+  test("reports dream run failures like the legacy runtime instead of leaking the bridge error", async () => {
     const router = createDefaultCommandRouter({
       runDream: async () => {
         throw new Error("provider unavailable");
@@ -156,7 +156,7 @@ describe("createDefaultCommandRouter", () => {
     });
   });
 
-  test("formats rich status snapshots with Python-compatible status content", async () => {
+  test("formats rich status snapshots with legacy-compatible status content", async () => {
     const router = createDefaultCommandRouter({
       getStatusSnapshot: () => ({
         activeRunCount: 2,
@@ -290,7 +290,7 @@ describe("createDefaultCommandRouter", () => {
     });
   });
 
-  test("returns Python-compatible usage for malformed approve commands", async () => {
+  test("returns legacy-compatible usage for malformed approve commands", async () => {
     const router = createDefaultCommandRouter();
 
     await expect(router.dispatch("/approve approval-1", { traceId: "trace-1", sessionId: "session-1" })).resolves.toMatchObject({
@@ -338,7 +338,7 @@ describe("createDefaultCommandRouter", () => {
     });
   });
 
-  test("normalizes approve scopes case-insensitively like Python", async () => {
+  test("normalizes approve scopes case-insensitively like the legacy runtime", async () => {
     const calls: unknown[] = [];
     const router = createDefaultCommandRouter({
       resolvePendingApproval: async (request) => {

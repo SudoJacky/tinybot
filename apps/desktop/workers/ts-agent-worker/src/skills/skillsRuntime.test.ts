@@ -1,9 +1,9 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import { SkillsRuntime } from "./skillsRuntime";
 
 describe("SkillsRuntime", () => {
-  test("matches Python skills discovery summary and always-skill filtering", () => {
+  test("matches legacy skills discovery summary and always-skill filtering", () => {
     const runtime = new SkillsRuntime({
       skills: [
         {
@@ -21,7 +21,7 @@ describe("SkillsRuntime", () => {
         },
         {
           name: "planner",
-          path: "tinybot/skills/planner/SKILL.md",
+          path: "apps/desktop/workers/ts-agent-worker/skills/planner/SKILL.md",
           source: "builtin",
           content: [
             "---",
@@ -33,7 +33,7 @@ describe("SkillsRuntime", () => {
         },
         {
           name: "tmux",
-          path: "tinybot/skills/tmux/SKILL.md",
+          path: "apps/desktop/workers/ts-agent-worker/skills/tmux/SKILL.md",
           source: "builtin",
           content: [
             "---",
@@ -51,7 +51,7 @@ describe("SkillsRuntime", () => {
 
     expect(runtime.listSkills({ filterUnavailable: false })).toEqual([
       { name: "planner", path: "workspace/skills/planner/SKILL.md", source: "workspace" },
-      { name: "tmux", path: "tinybot/skills/tmux/SKILL.md", source: "builtin" },
+      { name: "tmux", path: "apps/desktop/workers/ts-agent-worker/skills/tmux/SKILL.md", source: "builtin" },
     ]);
     expect(runtime.getAlwaysSkills(["*"])).toEqual(["planner"]);
     expect(runtime.loadSkillsForContext(["planner"])).toBe("### Skill: planner\n\nPlan from workspace.");
@@ -72,7 +72,7 @@ describe("SkillsRuntime", () => {
         '  <skill available="false">',
         "    <name>tmux</name>",
         "    <description>Terminal &lt;session&gt;</description>",
-        "    <location>tinybot/skills/tmux/SKILL.md</location>",
+        "    <location>apps/desktop/workers/ts-agent-worker/skills/tmux/SKILL.md</location>",
         "    <requires>CLI: tmux, ENV: TMUX_SOCKET</requires>",
         "  </skill>",
         "</skills>",
@@ -80,7 +80,7 @@ describe("SkillsRuntime", () => {
     );
   });
 
-  test("projects Python-compatible WebUI list and detail payloads", () => {
+  test("projects legacy-compatible WebUI list and detail payloads", () => {
     const runtime = new SkillsRuntime({
       skills: [
         {
@@ -99,7 +99,7 @@ describe("SkillsRuntime", () => {
         },
         {
           name: "planner",
-          path: "tinybot/skills/planner/SKILL.md",
+          path: "apps/desktop/workers/ts-agent-worker/skills/planner/SKILL.md",
           source: "builtin",
           content: [
             "---",
@@ -111,7 +111,7 @@ describe("SkillsRuntime", () => {
         },
         {
           name: "tmux",
-          path: "tinybot/skills/tmux/SKILL.md",
+          path: "apps/desktop/workers/ts-agent-worker/skills/tmux/SKILL.md",
           source: "builtin",
           content: [
             "---",
@@ -141,7 +141,7 @@ describe("SkillsRuntime", () => {
         {
           name: "tmux",
           source: "builtin",
-          path: "tinybot/skills/tmux/SKILL.md",
+          path: "apps/desktop/workers/ts-agent-worker/skills/tmux/SKILL.md",
           description: "Terminal session",
           available: false,
           enabled: false,

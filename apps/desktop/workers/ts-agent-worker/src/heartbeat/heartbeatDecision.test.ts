@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import type { AgentMessage } from "../agent/agentRunSpec";
 import type { ModelProvider, ModelRequestOptions, ModelResponse } from "../model/provider";
@@ -22,7 +22,7 @@ class QueueProvider implements ModelProvider {
 }
 
 describe("heartbeat decision", () => {
-  test("asks the provider to choose skip or run with the Python-compatible heartbeat tool", async () => {
+  test("asks the provider to choose skip or run with the legacy-compatible heartbeat tool", async () => {
     const provider = new QueueProvider([{
       content: "",
       stopReason: "tool_calls",

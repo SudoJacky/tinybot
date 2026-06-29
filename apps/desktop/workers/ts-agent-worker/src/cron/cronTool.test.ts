@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import { createCronTool } from "./cronTool";
 import type { CronJob } from "./cronTypes";
@@ -51,7 +51,7 @@ describe("createCronTool", () => {
     });
   });
 
-  test("mirrors Python truthiness for deliver arguments", async () => {
+  test("mirrors legacy truthiness for deliver arguments", async () => {
     const bridge = memoryBridge();
     const tool = createCronTool({ bridge, defaultTimezone: "UTC" });
 
@@ -206,7 +206,7 @@ describe("createCronTool", () => {
     });
   });
 
-  test("formats list timestamps in the schedule timezone like Python", async () => {
+  test("formats list timestamps in the schedule timezone like the legacy runtime", async () => {
     const nextRunAtMs = Date.UTC(2026, 3, 1, 16, 0, 0);
     const tool = createCronTool({
       bridge: memoryBridge([
@@ -234,7 +234,7 @@ describe("createCronTool", () => {
     });
   });
 
-  test("formats protected system jobs like Python", async () => {
+  test("formats protected system jobs like the legacy runtime", async () => {
     const tool = createCronTool({
       bridge: memoryBridge([
         {

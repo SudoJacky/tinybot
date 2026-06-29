@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+﻿use serde::{Deserialize, Serialize};
 use std::{
     collections::VecDeque,
     path::{Path, PathBuf},
@@ -2334,7 +2334,7 @@ mod tests {
                 && skill
                     .get("path")
                     .and_then(serde_json::Value::as_str)
-                    .is_some_and(|path| path.starts_with("tinybot/skills/"))
+                    .is_some_and(|path| path.starts_with("apps/desktop/workers/ts-agent-worker/skills/"))
         }));
     }
 
@@ -2411,11 +2411,11 @@ mod tests {
             &format!(
                 "{}\n",
                 serde_json::json!({
-                    "id": "note-uv-python",
+                    "id": "note-workspace-policy",
                     "scope": "user",
                     "type": "preference",
                     "status": "active",
-                    "content": "Use uv for Python commands.",
+                    "content": "Use workspace command policies.",
                     "priority": 0.8,
                     "confidence": 0.9,
                     "sources": []
@@ -2612,7 +2612,7 @@ mod tests {
     }
 
     #[test]
-    fn cron_model_from_config_defaults_to_python_agent_model() {
+    fn cron_model_from_config_defaults_to_agent_model() {
         assert_eq!(
             cron_model_from_config(&serde_json::json!({})),
             "deepseek-reasoner"
@@ -3455,7 +3455,7 @@ mod tests {
     }
 
     #[test]
-    fn native_config_patch_result_persists_python_compatible_config_file() {
+    fn native_config_patch_result_persists_legacy_compatible_config_file() {
         let fixture = WorkspaceFixture::new();
         let config_path = fixture.root.join(".tinybot").join("config.json");
         let result = apply_config_patch_result_to_path(

@@ -1,4 +1,4 @@
-impl WorkerWorkspaceRpc {
+﻿impl WorkerWorkspaceRpc {
     pub fn list_skills(&self) -> Result<WorkspaceSkillsList, WorkerProtocolError> {
         self.require(WorkerCapability::FsWorkspaceRead)?;
         let root = canonicalize_workspace_root(&self.root)?;
@@ -8,7 +8,7 @@ impl WorkerWorkspaceRpc {
         collect_skill_entries(&root, "skills", "workspace", &mut skills, &mut seen_names)?;
         collect_skill_entries(
             &builtin_skills_root,
-            "tinybot/skills",
+            "apps/desktop/workers/ts-agent-worker/skills",
             "builtin",
             &mut skills,
             &mut seen_names,

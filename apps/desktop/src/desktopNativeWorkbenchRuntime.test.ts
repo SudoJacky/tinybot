@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+﻿import { describe, expect, test, vi } from "vitest";
 import { createDesktopNativeWorkbenchRuntime } from "./desktopNativeWorkbenchRuntime";
 
 describe("desktop native workbench runtime", () => {
@@ -1667,7 +1667,7 @@ describe("desktop native workbench runtime", () => {
       toolName: "search_memory_notes",
       references: [{
         note_id: "note_1",
-        content: "Use uv for Python commands.",
+        content: "Use workspace command policies.",
         file: "memory/notes.jsonl",
         line: 4,
         view_file: "memory/MEMORY.md",
@@ -1685,10 +1685,10 @@ describe("desktop native workbench runtime", () => {
         references: [{
           kind: "memory",
           title: "note_1",
-          detail: "Use uv for Python commands.",
+          detail: "Use workspace command policies.",
           sourcePath: "memory/MEMORY.md",
           sourceLine: 18,
-          sourceText: "Use uv for Python commands.",
+          sourceText: "Use workspace command policies.",
           rawPath: "memory/notes.jsonl",
           rawLine: 4,
           noteId: "note_1",

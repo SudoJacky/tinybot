@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import {
   latestUserAssistantTurn,
@@ -8,14 +8,14 @@ import {
 } from "./entityProfile.ts";
 
 describe("entityProfile", () => {
-  test("matches Python entity extraction signal and duplicate fingerprint semantics", () => {
+  test("matches legacy entity extraction signal and duplicate fingerprint semantics", () => {
     expect(shouldExtractUserProfile("")).toBe(false);
     expect(shouldExtractUserProfile("Please remember my email is ada@example.com")).toBe(true);
     expect(shouldExtractUserProfile("my name is Ada", {})).toBe(true);
     expect(turnFingerprint("  My   Name IS Ada  ")).toBe(turnFingerprint("my name is ada"));
   });
 
-  test("merges scalar profile fields and union-merges list fields like Python", () => {
+  test("merges scalar profile fields and union-merges list fields like the legacy runtime", () => {
     expect(mergeUserProfile(
       {
         name: "Ada",

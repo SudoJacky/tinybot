@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import {
   isSensitiveConfigKey,
@@ -70,7 +70,7 @@ describe("configMasking", () => {
     });
   });
 
-  test("detects sensitive keys using Python and Rust compatible normalization", () => {
+  test("detects sensitive keys using cross-runtime normalization", () => {
     expect(isSensitiveConfigKey("api_key")).toBe(true);
     expect(isSensitiveConfigKey("apiKey")).toBe(true);
     expect(isSensitiveConfigKey("request-token")).toBe(true);

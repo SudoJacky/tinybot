@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 
 import { CoworkMailbox, type CoworkEnvelope } from "./coworkMailbox";
 import { CoworkService, createMemoryCoworkStore } from "./coworkService";
@@ -296,7 +296,7 @@ describe("CoworkMailbox", () => {
     });
   });
 
-  it("refreshes Python-shaped decision metadata after mailbox delivery", async () => {
+  it("refreshes legacy-shaped decision metadata after mailbox delivery", async () => {
     const session = await createTeamSession();
     session.agents.coordinator.inbox = [];
     session.workflow_mode = "team";
@@ -389,7 +389,7 @@ describe("CoworkMailbox", () => {
     });
   });
 
-  it("refreshes Python-shaped agent readiness scores after mailbox delivery", async () => {
+  it("refreshes legacy-shaped agent readiness scores after mailbox delivery", async () => {
     const session = await createTeamSession();
     session.agents.coordinator.inbox = [];
     session.agents.researcher.inbox = ["msg_existing"];

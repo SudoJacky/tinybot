@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 
 import { AgentRunner } from "../agent/agentRunner";
 import type { AgentMessage } from "../agent/agentRunSpec";
@@ -313,7 +313,7 @@ describe("CoworkScheduler", () => {
     ]));
   });
 
-  it("emits Python-compatible budget-exhausted events for non-agent budget stops", async () => {
+  it("emits legacy-compatible budget-exhausted events for non-agent budget stops", async () => {
     const provider = new QueueProvider([{
       content: JSON.stringify({
         status: "done",
@@ -476,7 +476,7 @@ describe("CoworkScheduler", () => {
     })]);
   });
 
-  it("reports idle instead of convergence when the only next agent is self-activation limited like Python", async () => {
+  it("reports idle instead of convergence when the only next agent is self-activation limited like the legacy runtime", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = deterministicIds();
     const service = new CoworkService({
@@ -558,7 +558,7 @@ describe("CoworkScheduler", () => {
     ]));
   });
 
-  it("starts selected agents in the same scheduler round concurrently like Python", async () => {
+  it("starts selected agents in the same scheduler round concurrently like the legacy runtime", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = deterministicIds();
     const service = new CoworkService({
@@ -762,7 +762,7 @@ describe("CoworkScheduler", () => {
     ]));
   });
 
-  it("stops as ready_to_finish after a round when completion is ready and no agents remain active like Python", async () => {
+  it("stops as ready_to_finish after a round when completion is ready and no agents remain active like the legacy runtime", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = deterministicIds();
     const service = new CoworkService({
@@ -839,7 +839,7 @@ describe("CoworkScheduler", () => {
     ]));
   });
 
-  it("limits repeated self-activation after three consecutive agent runs like Python", async () => {
+  it("limits repeated self-activation after three consecutive agent runs like the legacy runtime", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = deterministicIds();
     const service = new CoworkService({
@@ -1001,7 +1001,7 @@ describe("CoworkScheduler", () => {
     })]);
   });
 
-  it("limits generator-verifier scheduler rounds to one agent like Python", async () => {
+  it("limits generator-verifier scheduler rounds to one agent like the legacy runtime", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = deterministicIds();
     const service = new CoworkService({
@@ -1087,7 +1087,7 @@ describe("CoworkScheduler", () => {
     })]);
   });
 
-  it("updates session budget usage between scheduler rounds like Python", async () => {
+  it("updates session budget usage between scheduler rounds like the legacy runtime", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = deterministicIds();
     const service = new CoworkService({
@@ -1156,7 +1156,7 @@ describe("CoworkScheduler", () => {
     expect(saved?.budget_usage).toMatchObject({ rounds: 2, agent_calls: 2 });
   });
 
-  it("reports when an agent round completes the session like Python", async () => {
+  it("reports when an agent round completes the session like the legacy runtime", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = deterministicIds();
     const service = new CoworkService({
@@ -1497,8 +1497,8 @@ describe("CoworkScheduler", () => {
         research: {
           ...session.tasks.research,
           status: "completed",
-          result: "Python reducer behavior documented.",
-          result_data: { answer: "Python reducer behavior documented.", evidence: ["service.py"] },
+          result: "Legacy reducer behavior documented.",
+          result_data: { answer: "Legacy reducer behavior documented.", evidence: ["service.ts"] },
           confidence: 0.8,
         },
         verify: {
@@ -1521,8 +1521,8 @@ describe("CoworkScheduler", () => {
             assigned_agent_id: "researcher",
             source_task_id: "research",
             kind: "fanout",
-            result: { answer: "Python reducer behavior documented." },
-            evidence: ["service.py"],
+            result: { answer: "Legacy reducer behavior documented." },
+            evidence: ["service.ts"],
             risks: [],
             confidence: 0.8,
           },

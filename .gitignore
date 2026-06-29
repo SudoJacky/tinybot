@@ -1,101 +1,42 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
+# Dependencies
+node_modules/
+
+# Build outputs
 dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Virtual Environment
-venv/
-ENV/
-env/
-.env
-.venv
-env.bak/
-venv.bak/
-
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-.DS_Store
-
-# Testing
-.coverage
-htmlcov/
-.tox/
-.nox/
-.pytest_cache/
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
-.pytest_cache/
-output/
-
-# Distribution / packaging
-.Python
 build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Jupyter Notebook
-.ipynb_checkpoints
+target/
+apps/desktop/dist/
+apps/desktop/src-tauri/target/
 
 # Logs
 *.log
 logs/
 log/
 
-# Local development settings
+# Local environment
+.env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
-uv.lock
 
-# Google Cloud specific
-.gcloudignore
-.gcloudignore.local
-
-# Documentation
-docs/_build/
-site/
-
-# Misc
+# IDE and OS files
+.idea/
+.vscode/
+*.swp
+*.swo
 .DS_Store
 Thumbs.db
+
+# Local development state
+.codex
+.claude
+.codebuddy
+.agents
+openspec/
+arch/
+
+# Misc
 *.bak
 *.tmp
 *.temp

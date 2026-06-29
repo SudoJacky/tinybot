@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import { collectChatCompletionStream } from "./streamParser";
 
@@ -157,7 +157,7 @@ describe("collectChatCompletionStream", () => {
     });
   });
 
-  test("splits large streamed tool-call argument deltas like the Python provider", async () => {
+  test("splits large streamed tool-call argument deltas like the legacy provider", async () => {
     const toolArgumentDeltas: Array<{ index: number; deltaText: string; toolName?: string; toolCallId?: string }> = [];
     const largeArguments = "x".repeat(9000);
 
@@ -270,7 +270,7 @@ describe("collectChatCompletionStream", () => {
     });
   });
 
-  test("normalizes cached token usage fields like the Python provider", async () => {
+  test("normalizes cached token usage fields like the legacy provider", async () => {
     const openAIResponse = await collectChatCompletionStream(
       chunks([
         {

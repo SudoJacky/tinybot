@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import { previewBlueprint, validateBlueprint } from "./coworkBlueprint";
 
@@ -36,7 +36,7 @@ describe("cowork blueprint runtime", () => {
     });
   });
 
-  test("reports Python-compatible blueprint diagnostics", () => {
+  test("reports legacy-compatible blueprint diagnostics", () => {
     const result = validateBlueprint({
       goal: "Validate",
       architecture: "mystery",

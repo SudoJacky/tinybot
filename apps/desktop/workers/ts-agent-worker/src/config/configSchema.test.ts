@@ -1,13 +1,13 @@
-import { readFileSync } from "node:fs";
+﻿import { readFileSync } from "node:fs";
 
 import { describe, expect, test } from "vitest";
 
 import { defaultTinybotConfig, parseTinybotConfig, TinybotConfigValidationError } from "./configSchema";
 
 describe("configSchema", () => {
-  test("parses Python default config fixture for canonical core fields", () => {
+  test("parses legacy default config fixture for canonical core fields", () => {
     const raw = JSON.parse(
-      readFileSync(new URL("../../../../../../tests/fixtures/config/default_config.json", import.meta.url), "utf-8"),
+      readFileSync(new URL("./fixtures/default_config.json", import.meta.url), "utf-8"),
     );
 
     const config = parseTinybotConfig(raw);
@@ -16,7 +16,7 @@ describe("configSchema", () => {
     expect(config).toEqual(defaults);
   });
 
-  test("matches Python default config for worker-relevant core fields", () => {
+  test("matches legacy default config for worker-relevant core fields", () => {
     const config = defaultTinybotConfig();
 
     expect(config.agents.defaults).toMatchObject({
@@ -189,7 +189,7 @@ describe("configSchema", () => {
     expect(config.channels.slack).toEqual({ enabled: true, streaming: true });
   });
 
-  test("rejects invalid values that Python validators reject", () => {
+  test("rejects invalid values that legacy validators reject", () => {
     expect(() => parseTinybotConfig({ agents: { defaults: { model: " " } } })).toThrow(TinybotConfigValidationError);
     expect(() => parseTinybotConfig({ agents: { defaults: { temperature: 3 } } })).toThrow(TinybotConfigValidationError);
     expect(() => parseTinybotConfig({ agents: { defaults: { maxToolIterations: 0 } } })).toThrow(TinybotConfigValidationError);

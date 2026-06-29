@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import { EMPTY_FINAL_RESPONSE_MESSAGE } from "../support/runtimeHelpers.ts";
 import {
@@ -2257,7 +2257,7 @@ function diagnosticStage(line: string): string {
 }
 
 describe("WebUI Agent UI form routes", () => {
-  test("ignores invalid values on cancel like Python form cancellation", async () => {
+  test("ignores invalid values on cancel like the legacy runtime form cancellation", async () => {
     const continuations: Array<{ formId: string; sessionId: string; action: string; values: Record<string, unknown> }> = [];
     const agentUiFormProvider: WebuiAgentUiFormProvider = {
       continueForm: (request) => {

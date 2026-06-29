@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import type { AgentMessage } from "../agent/agentRunSpec";
 import { OpenAIProvider } from "./openaiProvider";
@@ -250,7 +250,7 @@ describe("OpenAIProvider", () => {
     ]);
   });
 
-  test("sanitizes empty non-tool-call message content like the Python provider", async () => {
+  test("sanitizes empty non-tool-call message content like the legacy provider", async () => {
     const requests: unknown[] = [];
     const client = {
       chat: {

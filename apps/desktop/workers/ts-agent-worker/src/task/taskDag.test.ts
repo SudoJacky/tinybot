@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import {
   canExecuteSubtask,
@@ -44,7 +44,7 @@ function plan(overrides: Partial<TaskPlanInput> = {}): TaskPlanInput {
 }
 
 describe("taskDag", () => {
-  test("normalizes Python-style task plans while preserving task defaults", () => {
+  test("normalizes legacy-style task plans while preserving task defaults", () => {
     const normalized = normalizeTaskPlan(plan());
 
     expect(normalized.originalRequest).toBe("Move backend runtime to TS");
@@ -63,7 +63,7 @@ describe("taskDag", () => {
     });
   });
 
-  test("validates missing dependencies and dependency cycles like Python TaskManager", () => {
+  test("validates missing dependencies and dependency cycles like legacy TaskManager", () => {
     const missing = validateTaskDag(
       normalizeTaskPlan({
         ...plan(),

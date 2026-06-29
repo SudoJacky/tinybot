@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import type { AgentMessage } from "../agent/agentRunSpec";
 import type { ModelProvider, ModelRequestOptions, ModelResponse } from "../model/provider";
@@ -29,8 +29,8 @@ describe("TaskPlanner", () => {
             subtasks: [
               {
                 id: "inspect",
-                title: "Inspect Python",
-                description: "Read Python implementation",
+                title: "Inspect legacy runtime",
+                description: "Read legacy implementation",
                 dependencies: [],
                 parallel_safe: true,
               },
@@ -76,7 +76,7 @@ describe("TaskPlanner", () => {
       },
     });
     expect(plan.subtasks).toEqual([
-      expect.objectContaining({ id: "inspect", title: "Inspect Python", parallelSafe: true }),
+      expect.objectContaining({ id: "inspect", title: "Inspect legacy runtime", parallelSafe: true }),
       expect.objectContaining({ id: "port", title: "Port runtime", dependencies: ["missing"], parallelSafe: false }),
     ]);
     expect(provider.requests[0]?.messages[1]?.content).toContain("[PLANNING STRATEGY]");

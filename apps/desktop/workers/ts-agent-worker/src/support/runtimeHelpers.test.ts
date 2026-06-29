@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import {
   buildFinalizationRetryMessage,
@@ -12,7 +12,7 @@ import {
 } from "./runtimeHelpers";
 
 describe("runtimeHelpers", () => {
-  test("keeps Python finalization constants stable", () => {
+  test("keeps legacy finalization constants stable", () => {
     expect(EMPTY_FINAL_RESPONSE_MESSAGE).toBe(
       "I completed the tool steps but couldn't produce a final answer. Please try again or narrow the task.",
     );
@@ -48,7 +48,7 @@ describe("runtimeHelpers", () => {
     expect(externalLookupSignature("shell", { command: "date" })).toBeUndefined();
   });
 
-  test("blocks repeated external lookups after the Python retry budget", () => {
+  test("blocks repeated external lookups after the legacy retry budget", () => {
     const seenCounts: Record<string, number> = {};
     const args = { query: "same source" };
 

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import { CommandRouter } from "./commandRouter";
 import type { CommandContext, CommandResult } from "./commandTypes";
@@ -49,7 +49,7 @@ describe("CommandRouter", () => {
     });
   });
 
-  test("requires whole-line matches for exact commands like Python", async () => {
+  test("requires whole-line matches for exact commands like the legacy runtime", async () => {
     const router = new CommandRouter();
     router.exact("/new", handler("exact"));
     router.intercept(handler("fallback"));
@@ -72,7 +72,7 @@ describe("CommandRouter", () => {
     });
   });
 
-  test("requires prefix commands to include arguments like Python", async () => {
+  test("requires prefix commands to include arguments like the legacy runtime", async () => {
     const router = new CommandRouter();
     router.prefix("/approve", handler("approve"));
     router.intercept(handler("fallback"));
@@ -99,7 +99,7 @@ describe("CommandRouter", () => {
     });
   });
 
-  test("runs interceptors in registration order like Python", async () => {
+  test("runs interceptors in registration order like the legacy runtime", async () => {
     const router = new CommandRouter();
     router.intercept(handler("first"));
     router.intercept(handler("second"));

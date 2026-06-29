@@ -4,8 +4,8 @@ import { buildApprovalFingerprint, buildSessionApprovalFingerprint } from "./app
 
 describe("approvalFingerprint", () => {
   test("normalizes exec command whitespace and case for exact fingerprints", () => {
-    expect(buildApprovalFingerprint("exec", { command: "  UV   RUN   PYTEST tests/security -q " }, "shell")).toBe(
-      "exec:uv run pytest tests/security -q",
+    expect(buildApprovalFingerprint("exec", { command: "  NPM   TEST -- security/approvalClassifier.test.ts " }, "shell")).toBe(
+      "exec:npm test -- security/approvalclassifier.test.ts",
     );
   });
 

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import { handleClientWebSocketFrame } from "./clientFrames";
 
@@ -38,7 +38,7 @@ describe("clientFrames", () => {
     });
   });
 
-  test("maps message frames to inbound user messages with Python-compatible metadata", () => {
+  test("maps message frames to inbound user messages with legacy-compatible metadata", () => {
     expect(handleClientWebSocketFrame({
       clientId: "client-1",
       attachedChatId: "chat-1",

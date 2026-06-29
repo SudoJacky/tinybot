@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 import {
   activateChat,
   applyChatEvent,
@@ -147,7 +147,7 @@ describe("native chat state", () => {
             content: "Memory-backed answer",
             _memory_references: [{
               note_id: "note_1",
-              content: "Use uv for Python commands.",
+              content: "Use workspace command policies.",
               file: "memory/notes.jsonl",
               line: 4,
             }],
@@ -166,10 +166,10 @@ describe("native chat state", () => {
       {
         kind: "memory",
         title: "note_1",
-        detail: "Use uv for Python commands.",
+        detail: "Use workspace command policies.",
         sourcePath: "memory/notes.jsonl",
         sourceLine: 4,
-        sourceText: "Use uv for Python commands.",
+        sourceText: "Use workspace command policies.",
         noteId: "note_1",
       },
       {
@@ -241,7 +241,7 @@ describe("native chat state", () => {
             content: "Memory-backed answer",
             _memory_references: [{
               note_id: "note_1",
-              content: "Use uv for Python commands.",
+              content: "Use workspace command policies.",
               file: "memory/notes.jsonl",
               line: 4,
               view_file: "memory/MEMORY.md",
@@ -257,10 +257,10 @@ describe("native chat state", () => {
     ).toEqual([{
       kind: "memory",
       title: "note_1",
-      detail: "Use uv for Python commands.",
+      detail: "Use workspace command policies.",
       sourcePath: "memory/MEMORY.md",
       sourceLine: 18,
-      sourceText: "Use uv for Python commands.",
+      sourceText: "Use workspace command policies.",
       rawPath: "memory/notes.jsonl",
       rawLine: 4,
       noteId: "note_1",
@@ -696,15 +696,15 @@ describe("native chat state", () => {
                 function: { name: "shell", arguments: "npm test" },
               },
               {
-                id: "call-python",
+                id: "call-node",
                 state: "failed",
-                function: { name: "python", arguments: "raise SystemExit(1)" },
+                function: { name: "node", arguments: "raise SystemExit(1)" },
               },
             ],
             tool_results: [
               {
-                tool_call_id: "call-python",
-                name: "python",
+                tool_call_id: "call-node",
+                name: "node",
                 status: "failed",
                 content: "Exit code 1",
               },
@@ -725,8 +725,8 @@ describe("native chat state", () => {
         status: "running",
       },
       {
-        id: "call-python",
-        name: "python",
+        id: "call-node",
+        name: "node",
         argsText: "raise SystemExit(1)",
         responseText: "Exit code 1",
         kind: "result",

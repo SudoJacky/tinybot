@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import { NativeCoworkStoreBridge } from "./coworkStoreBridge";
 import { normalizeCoworkSession, normalizeCoworkStore } from "./coworkSerde";
@@ -41,7 +41,7 @@ const legacySession = {
 };
 
 describe("cowork serde", () => {
-  test("loads a minimal legacy store payload and fills Python-compatible defaults", () => {
+  test("loads a minimal legacy store payload and fills legacy-compatible defaults", () => {
     const store = normalizeCoworkStore({ sessions: [legacySession] });
 
     expect(store.version).toBe(1);
@@ -197,7 +197,7 @@ describe("NativeCoworkStoreBridge", () => {
     await expect(bridge.deleteSession("missing", "trace-delete")).resolves.toBe(false);
   });
 
-  test("normalizes Python event-log records when reading native cowork events", async () => {
+  test("normalizes legacy event-log records when reading native cowork events", async () => {
     const { client } = rpcClient({
       "cowork_store.read_events": {
         events: [{
@@ -224,7 +224,7 @@ describe("NativeCoworkStoreBridge", () => {
     }]);
   });
 
-  test("normalizes Python trace event-log records separately from cowork events", async () => {
+  test("normalizes legacy trace event-log records separately from cowork events", async () => {
     const { client } = rpcClient({
       "cowork_store.read_events": {
         events: [{
@@ -267,7 +267,7 @@ describe("NativeCoworkStoreBridge", () => {
     }]);
   });
 
-  test("normalizes Python agent-step observation records separately from cowork events", async () => {
+  test("normalizes legacy agent-step observation records separately from cowork events", async () => {
     const { client } = rpcClient({
       "cowork_store.read_events": {
         events: [{
@@ -314,7 +314,7 @@ describe("NativeCoworkStoreBridge", () => {
     }]);
   });
 
-  test("normalizes Python tool observation records separately from cowork events", async () => {
+  test("normalizes legacy tool observation records separately from cowork events", async () => {
     const { client } = rpcClient({
       "cowork_store.read_events": {
         events: [{
@@ -359,7 +359,7 @@ describe("NativeCoworkStoreBridge", () => {
     }]);
   });
 
-  test("normalizes Python browser observation records separately from cowork events", async () => {
+  test("normalizes legacy browser observation records separately from cowork events", async () => {
     const { client } = rpcClient({
       "cowork_store.read_events": {
         events: [{

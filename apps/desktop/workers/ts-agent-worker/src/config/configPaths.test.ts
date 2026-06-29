@@ -1,4 +1,4 @@
-import path from "node:path";
+﻿import path from "node:path";
 import { describe, expect, test } from "vitest";
 
 import {
@@ -29,7 +29,7 @@ describe("configPaths", () => {
     });
   });
 
-  test("uses Python-compatible defaults when config path and workspace are omitted", () => {
+  test("uses legacy-compatible defaults when config path and workspace are omitted", () => {
     const homeDir = path.normalize("C:/Users/test");
     const paths = resolveTinybotRuntimePaths({ homeDir: "C:/Users/test" });
 

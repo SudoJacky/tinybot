@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 
 import { createMemoryCoworkStore, CoworkService, type CoworkIdGenerator } from "./coworkService";
 import { coworkInternalToolDefinition, createCoworkInternalTool } from "./coworkInternalTool";
@@ -15,7 +15,7 @@ function deterministicIds(): CoworkIdGenerator {
 }
 
 describe("cowork_internal tool", () => {
-  it("exposes Python-compatible internal mailbox and agent action schema fields", () => {
+  it("exposes legacy-compatible internal mailbox and agent action schema fields", () => {
     const definition = coworkInternalToolDefinition();
     const properties = definition.parameters.properties ?? {};
 
@@ -36,7 +36,7 @@ describe("cowork_internal tool", () => {
     });
   });
 
-  it("adds unassigned internal tasks to the shared pool like Python", async () => {
+  it("adds unassigned internal tasks to the shared pool like the legacy runtime", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = deterministicIds();
     const service = new CoworkService({
@@ -70,14 +70,14 @@ describe("cowork_internal tool", () => {
     const result = await tool.execute({
       action: "add_task",
       title: "Review parity",
-      description: "Review TS/Python behavior",
+      description: "Review TS/legacy behavior",
     }, { runId: "run-1", traceId: "trace-add" });
 
     const saved = await store.readSnapshot(session.id, "trace-read");
     const taskId = String(result.metadata?.task_id ?? "");
     expect(saved?.tasks[taskId]).toMatchObject({
       title: "Review parity",
-      description: "Review TS/Python behavior",
+      description: "Review TS/legacy behavior",
       assigned_agent_id: null,
     });
     expect(saved?.agents.lead.status).toBe(before?.agents.lead.status);
@@ -90,7 +90,7 @@ describe("cowork_internal tool", () => {
     });
   });
 
-  it("rejects assigning completed internal tasks like Python", async () => {
+  it("rejects assigning completed internal tasks like the legacy runtime", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = deterministicIds();
     const service = new CoworkService({
@@ -152,7 +152,7 @@ describe("cowork_internal tool", () => {
     expect(Object.keys(saved?.messages ?? {})).toEqual(Object.keys(before?.messages ?? {}));
   });
 
-  it("assigns pending internal tasks without emitting extra messages like Python", async () => {
+  it("assigns pending internal tasks without emitting extra messages like the legacy runtime", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = deterministicIds();
     const service = new CoworkService({
@@ -349,7 +349,7 @@ describe("cowork_internal tool", () => {
     });
   });
 
-  it("honors Python agent_id alias when retiring another agent", async () => {
+  it("honors legacy agent_id alias when retiring another agent", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = deterministicIds();
     const service = new CoworkService({
@@ -411,7 +411,7 @@ describe("cowork_internal tool", () => {
     });
   });
 
-  it("uses content as the spawned agent goal when goal is omitted like Python", async () => {
+  it("uses content as the spawned agent goal when goal is omitted like the legacy runtime", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = deterministicIds();
     const service = new CoworkService({
@@ -468,7 +468,7 @@ describe("cowork_internal tool", () => {
     });
   });
 
-  it("delivers internal messages through the Python-style mailbox lifecycle", async () => {
+  it("delivers internal messages through the legacy-style mailbox lifecycle", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = deterministicIds();
     const service = new CoworkService({
@@ -570,7 +570,7 @@ describe("cowork_internal tool", () => {
     });
   });
 
-  it("infers reply context for internal replies to pending mailbox requests like Python", async () => {
+  it("infers reply context for internal replies to pending mailbox requests like the legacy runtime", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = deterministicIds();
     const service = new CoworkService({

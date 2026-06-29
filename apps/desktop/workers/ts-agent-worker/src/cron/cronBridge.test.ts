@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import { NativeCronBridge } from "./cronBridge";
 
@@ -61,7 +61,7 @@ describe("NativeCronBridge", () => {
     ]);
   });
 
-  test("preserves Python-shaped run history when normalizing listed jobs", async () => {
+  test("preserves legacy-shaped run history when normalizing listed jobs", async () => {
     const rpc = new FakeRpc([
       {
         jobs: [

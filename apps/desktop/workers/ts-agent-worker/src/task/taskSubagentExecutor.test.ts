@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import type { AgentMessage } from "../agent/agentRunSpec";
 import type { ModelProvider, ModelRequestOptions, ModelResponse } from "../model/provider";
@@ -31,7 +31,7 @@ function plan(): TaskPlan {
       {
         id: "a",
         title: "Inspect",
-        description: "Inspect Python",
+        description: "Inspect legacy runtime",
         status: "in_progress",
         dependencies: [],
         parallelSafe: true,

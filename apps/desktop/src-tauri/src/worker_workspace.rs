@@ -14,16 +14,9 @@ const IGNORED_DIRS: &[&str] = &[
     ".git",
     ".codegraph",
     "node_modules",
-    "__pycache__",
-    ".venv",
-    "venv",
     "target",
     "dist",
     "build",
-    ".tox",
-    ".mypy_cache",
-    ".pytest_cache",
-    ".ruff_cache",
 ];
 
 #[derive(Clone, Debug)]

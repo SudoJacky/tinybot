@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 import { NativeSessionBridge } from "./sessionBridge";
 
 describe("NativeSessionBridge", () => {
@@ -897,7 +897,7 @@ describe("NativeSessionBridge", () => {
     });
   });
 
-  test("persists Python-readable checkpoint message aliases", async () => {
+  test("persists legacy-readable checkpoint message aliases", async () => {
     const requests: Array<{ traceId: string; method: string; params: Record<string, unknown> }> = [];
     const bridge = new NativeSessionBridge({
       request: async (traceId, method, params) => {

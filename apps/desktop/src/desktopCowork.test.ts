@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 import {
   buildDesktopCoworkActionRequest,
   buildDesktopCoworkCockpitView,
@@ -195,7 +195,7 @@ describe("desktop Cowork helpers", () => {
     });
   });
 
-  test("builds branch rows from Python snapshot branches when branch_results is absent", () => {
+  test("builds branch rows from legacy snapshot branches when branch_results is absent", () => {
     const view = buildDesktopCoworkCockpitView({
       ...session,
       current_branch_id: "branch-b",

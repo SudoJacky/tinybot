@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+﻿import { describe, expect, test, vi } from "vitest";
 
 import type { AgentMessage } from "../agent/agentRunSpec";
 import { MessageBus } from "../bus/messageBus";
@@ -860,7 +860,7 @@ describe("AgentWorker", () => {
     ]);
   });
 
-  test("serves Python-compatible WebUI skills route errors through TS worker RPC", async () => {
+  test("serves legacy-compatible WebUI skills route errors through TS worker RPC", async () => {
     const calls: Array<{ type: string; traceId: string; name?: string; body?: unknown }> = [];
     const worker = new AgentWorker({
       provider: new QueueProvider([]),
@@ -1491,7 +1491,7 @@ describe("AgentWorker", () => {
     });
   });
 
-  test("ignores camelCase OpenAI-compatible sessionId like Python", async () => {
+  test("ignores camelCase OpenAI-compatible sessionId like the legacy runtime", async () => {
     const firstCompletion = deferred<ModelResponse>();
     let providerCalls = 0;
     const provider: ModelProvider = {
@@ -1546,7 +1546,7 @@ describe("AgentWorker", () => {
     expect(providerCalls).toBe(2);
   });
 
-  test("stringifies object OpenAI-compatible session ids like Python", async () => {
+  test("stringifies object OpenAI-compatible session ids like the legacy runtime", async () => {
     const firstCompletion = deferred<ModelResponse>();
     let providerCalls = 0;
     const provider: ModelProvider = {
@@ -1759,7 +1759,7 @@ describe("AgentWorker", () => {
     ]);
   });
 
-  test("returns Python-compatible provider models invalid body errors", async () => {
+  test("returns legacy-compatible provider models invalid body errors", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),
       tools: new ToolRegistry(),
@@ -2216,7 +2216,7 @@ describe("AgentWorker", () => {
     ]]);
   });
 
-  test("returns Python-shaped Agent UI form events from checkpoint metadata", async () => {
+  test("returns legacy-shaped Agent UI form events from checkpoint metadata", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([{ content: "resumed", toolCalls: [], stopReason: "stop" }]),
       tools: new ToolRegistry(),
@@ -3625,7 +3625,7 @@ describe("AgentWorker", () => {
     ]);
   });
 
-  test("returns Python-compatible Knowledge API error envelopes through TS worker RPC", async () => {
+  test("returns legacy-compatible Knowledge API error envelopes through TS worker RPC", async () => {
     const calls: string[] = [];
     const workerWithoutKnowledge = new AgentWorker({
       provider: new QueueProvider([]),
@@ -3750,7 +3750,7 @@ describe("AgentWorker", () => {
     });
   });
 
-  test("wraps Knowledge API provider failures as Python-compatible server errors", async () => {
+  test("wraps Knowledge API provider failures as legacy-compatible server errors", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),
       tools: new ToolRegistry(),
@@ -3855,7 +3855,7 @@ describe("AgentWorker", () => {
     });
   });
 
-  test("maps Knowledge API document ValueError failures to Python-compatible invalid requests", async () => {
+  test("maps Knowledge API document ValueError failures to legacy-compatible invalid requests", async () => {
     const valueError = (message: string) => {
       const error = new Error(message);
       error.name = "ValueError";
@@ -4376,7 +4376,7 @@ describe("AgentWorker", () => {
     ]);
   });
 
-  test("returns Python-compatible cowork route unavailable errors", async () => {
+  test("returns legacy-compatible cowork route unavailable errors", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),
       tools: new ToolRegistry(),
@@ -4461,7 +4461,7 @@ describe("AgentWorker", () => {
     });
   });
 
-  test("emits Python-compatible WebUI cowork update events for websocket-origin sessions", async () => {
+  test("emits legacy-compatible WebUI cowork update events for websocket-origin sessions", async () => {
     const emitted: WorkerEvent[] = [];
     const coworkService = new CoworkService({
       store: createMemoryCoworkStore(),
@@ -4529,7 +4529,7 @@ describe("AgentWorker", () => {
     ]));
   });
 
-  test("preserves Python-compatible direct blueprint default goals", async () => {
+  test("preserves legacy-compatible direct blueprint default goals", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),
       tools: new ToolRegistry(),
@@ -4607,7 +4607,7 @@ describe("AgentWorker", () => {
     });
   });
 
-  test("auto-runs direct cowork create_session RPCs with Python-compatible limits", async () => {
+  test("auto-runs direct cowork create_session RPCs with legacy-compatible limits", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = (() => {
       const counters = new Map<string, number>();
@@ -4651,7 +4651,7 @@ describe("AgentWorker", () => {
     expect(runSpan?.input_ref).toBe("max_rounds=2, max_agents=2, max_agent_calls=3");
   });
 
-  test("routes Python-compatible cowork API requests through the injected CoworkService", async () => {
+  test("routes legacy-compatible cowork API requests through the injected CoworkService", async () => {
     const coworkService = new CoworkService({
       store: createMemoryCoworkStore(),
       now: () => "2026-06-12T08:00:00.000Z",
@@ -4893,7 +4893,7 @@ describe("AgentWorker", () => {
     });
   });
 
-  test("filters cowork session list with Python-compatible include_completed aliases and trimmed origin chat ids", async () => {
+  test("filters cowork session list with legacy-compatible include_completed aliases and trimmed origin chat ids", async () => {
     const store = createMemoryCoworkStore();
     const coworkService = new CoworkService({
       store,
@@ -4940,7 +4940,7 @@ describe("AgentWorker", () => {
     expect(items.map((session) => session.id)).toEqual([active.id, completed.id]);
   });
 
-  test("accepts Python route architecture aliases when creating cowork sessions", async () => {
+  test("accepts legacy route architecture aliases when creating cowork sessions", async () => {
     const coworkService = new CoworkService({
       store: createMemoryCoworkStore(),
       now: () => "2026-06-12T08:00:00.000Z",
@@ -5010,7 +5010,7 @@ describe("AgentWorker", () => {
     });
   });
 
-  test("returns Python-compatible create-session route error when goal is missing", async () => {
+  test("returns legacy-compatible create-session route error when goal is missing", async () => {
     const coworkService = new CoworkService({
       store: createMemoryCoworkStore(),
       now: () => "2026-06-12T08:00:00.000Z",
@@ -5098,7 +5098,7 @@ describe("AgentWorker", () => {
     });
   });
 
-  test("returns Python-compatible create-session route error for non-object bodies", async () => {
+  test("returns legacy-compatible create-session route error for non-object bodies", async () => {
     const coworkService = new CoworkService({
       store: createMemoryCoworkStore(),
       now: () => "2026-06-12T08:00:00.000Z",
@@ -5132,7 +5132,7 @@ describe("AgentWorker", () => {
     });
   });
 
-  test("auto-runs cowork sessions created through the Python-compatible route when requested", async () => {
+  test("auto-runs cowork sessions created through the legacy-compatible route when requested", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = (() => {
       const counters = new Map<string, number>();
@@ -5185,7 +5185,7 @@ describe("AgentWorker", () => {
     });
   });
 
-  test("accepts Python blueprint create auto-run rounds alias", async () => {
+  test("accepts legacy blueprint create auto-run rounds alias", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = (() => {
       const counters = new Map<string, number>();
@@ -5234,7 +5234,7 @@ describe("AgentWorker", () => {
     expect(runSpan?.input_ref).toBe("max_rounds=2, max_agents=2, max_agent_calls=3");
   });
 
-  test("accepts Python-compatible truthy strings for create-session auto-run flags", async () => {
+  test("accepts legacy-compatible truthy strings for create-session auto-run flags", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = (() => {
       const counters = new Map<string, number>();
@@ -5300,7 +5300,7 @@ describe("AgentWorker", () => {
     expect(snakeRunSpan?.input_ref).toBe("max_rounds=1, max_agents=3, max_agent_calls=30");
   });
 
-  test("routes Python-compatible cowork run requests through the injected CoworkScheduler", async () => {
+  test("routes legacy-compatible cowork run requests through the injected CoworkScheduler", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = (() => {
       const counters = new Map<string, number>();
@@ -5372,7 +5372,7 @@ describe("AgentWorker", () => {
     });
   });
 
-  test("accepts Python route parallel_width alias for cowork run max agents", async () => {
+  test("accepts legacy route parallel_width alias for cowork run max agents", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = (() => {
       const counters = new Map<string, number>();
@@ -5417,7 +5417,7 @@ describe("AgentWorker", () => {
     expect(runSpan?.input_ref).toContain("max_agents=2");
   });
 
-  test("accepts Python-compatible numeric strings for cowork run route limits", async () => {
+  test("accepts legacy-compatible numeric strings for cowork run route limits", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = (() => {
       const counters = new Map<string, number>();
@@ -5485,7 +5485,7 @@ describe("AgentWorker", () => {
     expect(zeroLimitRunSpan?.input_ref).toBe("max_rounds=2, max_agents=3, max_agent_calls=30");
   });
 
-  test("accepts Python-compatible truthy strings for cowork run route flags", async () => {
+  test("accepts legacy-compatible truthy strings for cowork run route flags", async () => {
     const store = createMemoryCoworkStore();
     const idGenerator = (() => {
       const counters = new Map<string, number>();
@@ -6614,7 +6614,7 @@ describe("AgentWorker", () => {
     });
   });
 
-  test("returns Python-sized scheduler decision history from the cowork trace route", async () => {
+  test("returns legacy-sized scheduler decision history from the cowork trace route", async () => {
     const store = createMemoryCoworkStore();
     const coworkService = new CoworkService({
       store,
@@ -6653,7 +6653,7 @@ describe("AgentWorker", () => {
     expect(decisions.at(-1)?.id).toBe("decision_81");
   });
 
-  test("returns Python-shaped empty scheduler queues for non-swarm sessions", async () => {
+  test("returns legacy-shaped empty scheduler queues for non-swarm sessions", async () => {
     const store = createMemoryCoworkStore();
     const coworkService = new CoworkService({
       store,
@@ -6700,7 +6700,7 @@ describe("AgentWorker", () => {
     });
   });
 
-  test("defaults malformed Python agent-activity route limits before clamping", async () => {
+  test("defaults malformed legacy agent-activity route limits before clamping", async () => {
     const store = createMemoryCoworkStore();
     const coworkService = new CoworkService({
       store,
@@ -6756,7 +6756,7 @@ describe("AgentWorker", () => {
     });
   });
 
-  test("returns Python-compatible status codes for cowork route errors", async () => {
+  test("returns legacy-compatible status codes for cowork route errors", async () => {
     const store = createMemoryCoworkStore();
     const coworkService = new CoworkService({
       store,
@@ -7749,7 +7749,7 @@ describe("AgentWorker", () => {
     });
   });
 
-  test("honors Python reviewer_agent_id precedence over blank reviewerAgentId on task review routes", async () => {
+  test("honors legacy reviewer_agent_id precedence over blank reviewerAgentId on task review routes", async () => {
     const store = createMemoryCoworkStore();
     const coworkService = new CoworkService({
       store,
@@ -7805,7 +7805,7 @@ describe("AgentWorker", () => {
     });
   });
 
-  test("honors Python target_architecture precedence over blank targetArchitecture on branch derive routes", async () => {
+  test("honors legacy target_architecture precedence over blank targetArchitecture on branch derive routes", async () => {
     const store = createMemoryCoworkStore();
     const coworkService = new CoworkService({
       store,
@@ -7859,7 +7859,7 @@ describe("AgentWorker", () => {
     });
   });
 
-  test("honors Python result_id precedence over blank resultId on branch final-result routes", async () => {
+  test("honors legacy result_id precedence over blank resultId on branch final-result routes", async () => {
     const store = createMemoryCoworkStore();
     const coworkService = new CoworkService({
       store,
@@ -7917,7 +7917,7 @@ describe("AgentWorker", () => {
     });
   });
 
-  test("honors Python branch_ids precedence over blank branchIds on final-result merge routes", async () => {
+  test("honors legacy branch_ids precedence over blank branchIds on final-result merge routes", async () => {
     const store = createMemoryCoworkStore();
     const coworkService = new CoworkService({
       store,
@@ -8916,7 +8916,7 @@ describe("AgentWorker", () => {
     }));
   });
 
-  test("preserves inbound message metadata on backend slash command results like Python", async () => {
+  test("preserves inbound message metadata on backend slash command results like the legacy runtime", async () => {
     const provider = new QueueProvider([{ content: "unused", toolCalls: [], stopReason: "stop" }]);
     const worker = new AgentWorker({
       provider,

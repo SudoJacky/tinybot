@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import { NativeSkillsBridge } from "./skillsBridge";
 import type { JsonObject } from "../protocol/messages";
@@ -49,14 +49,14 @@ describe("NativeSkillsBridge", () => {
     ]);
   });
 
-  test("allows workspace skill creation to override a builtin skill name like Python", async () => {
+  test("allows workspace skill creation to override a builtin skill name like the legacy runtime", async () => {
     const rpcClient = new FakeRpcClient({
       "skills.list": [
         {
           skills: [
             {
               name: "planner",
-              path: "tinybot/skills/planner/SKILL.md",
+              path: "apps/desktop/workers/ts-agent-worker/skills/planner/SKILL.md",
               source: "builtin",
               content: "---\nname: planner\ndescription: Builtin\n---\nBuiltin.",
             },
@@ -101,7 +101,7 @@ describe("NativeSkillsBridge", () => {
     ]);
   });
 
-  test("coerces create name description and always fields like Python", async () => {
+  test("coerces create name description and always fields like the legacy runtime", async () => {
     const rpcClient = new FakeRpcClient({
       "skills.list": [
         { skills: [] },
@@ -145,7 +145,7 @@ describe("NativeSkillsBridge", () => {
     ]);
   });
 
-  test("cleans up truthy non-string create content failures like Python", async () => {
+  test("cleans up truthy non-string create content failures like the legacy runtime", async () => {
     const rpcClient = new FakeRpcClient({
       "skills.list": [
         { skills: [] },
@@ -183,7 +183,7 @@ describe("NativeSkillsBridge", () => {
           skills: [
             {
               name: "builtin-plan",
-              path: "tinybot/skills/builtin-plan/SKILL.md",
+              path: "apps/desktop/workers/ts-agent-worker/skills/builtin-plan/SKILL.md",
               source: "builtin",
               content: "---\nname: builtin-plan\ndescription: Builtin\n---\nBuiltin.",
             },
@@ -207,7 +207,7 @@ describe("NativeSkillsBridge", () => {
     ]);
   });
 
-  test("wraps workspace skill delete failures like Python", async () => {
+  test("wraps workspace skill delete failures like the legacy runtime", async () => {
     const rpcClient = new FakeRpcClient({
       "skills.list": [
         {
@@ -241,7 +241,7 @@ describe("NativeSkillsBridge", () => {
     ]);
   });
 
-  test("rejects non-string update content before writing like Python", async () => {
+  test("rejects non-string update content before writing like the legacy runtime", async () => {
     const rpcClient = new FakeRpcClient({
       "workspace.read_file": [
         {
@@ -263,7 +263,7 @@ describe("NativeSkillsBridge", () => {
     ]);
   });
 
-  test("coerces no-frontmatter update description and always fields like Python", async () => {
+  test("coerces no-frontmatter update description and always fields like the legacy runtime", async () => {
     const rpcClient = new FakeRpcClient({
       "workspace.read_file": [
         {
@@ -302,7 +302,7 @@ describe("NativeSkillsBridge", () => {
     ]);
   });
 
-  test("treats frontmatter without a closing newline as legacy content like Python", async () => {
+  test("treats frontmatter without a closing newline as legacy content like the legacy runtime", async () => {
     const rpcClient = new FakeRpcClient({
       "workspace.read_file": [
         {
@@ -349,7 +349,7 @@ describe("NativeSkillsBridge", () => {
     ]);
   });
 
-  test("allows skill root symlinks during validation like Python WebUI routes", async () => {
+  test("allows skill root symlinks during validation like the legacy runtime WebUI routes", async () => {
     const rpcClient = new FakeRpcClient({
       "workspace.list_dir": [
         {
@@ -375,7 +375,7 @@ describe("NativeSkillsBridge", () => {
     });
   });
 
-  test("rejects missing skill validation before reading files like Python", async () => {
+  test("rejects missing skill validation before reading files like the legacy runtime", async () => {
     const rpcClient = new FakeRpcClient({
       "workspace.list_dir": [
         new Error("path not found"),
@@ -396,7 +396,7 @@ describe("NativeSkillsBridge", () => {
     ]);
   });
 
-  test("returns invalid validation when a skill directory lacks SKILL.md like Python", async () => {
+  test("returns invalid validation when a skill directory lacks SKILL.md like the legacy runtime", async () => {
     const rpcClient = new FakeRpcClient({
       "workspace.list_dir": [
         {

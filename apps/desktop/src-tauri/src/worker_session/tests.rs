@@ -1,4 +1,4 @@
-#[cfg(test)]
+﻿#[cfg(test)]
 mod tests {
     use super::*;
     use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
@@ -767,7 +767,7 @@ mod tests {
     }
 
     #[test]
-    fn trim_session_zero_clears_session_like_python_retain_suffix() {
+    fn trim_session_zero_clears_session_like_legacy_retain_suffix() {
         let mut session = session_fixture();
         session.extra = json!({
             "messages": [
@@ -1083,7 +1083,7 @@ mod tests {
     }
 
     #[test]
-    fn upload_temporary_file_adds_python_shaped_session_document() {
+    fn upload_temporary_file_adds_legacy_shaped_session_document() {
         let mut session = session_fixture();
         session.session_id = "websocket:chat-1".to_string();
         let mut rpc = WorkerSessionRpc::new(

@@ -1,4 +1,4 @@
-// @vitest-environment happy-dom
+﻿// @vitest-environment happy-dom
 
 import { readFileSync } from "node:fs";
 import { describe, expect, test, vi } from "vitest";
@@ -761,7 +761,7 @@ describe("conversation thread Vue island", () => {
         author: "Tinybot",
         body: ["I used memory."],
         references: [{
-          detail: "Use uv for Python commands.",
+          detail: "Use workspace command policies.",
           kind: "memory",
           noteId: "note_1",
           rawLine: 4,
@@ -769,7 +769,7 @@ describe("conversation thread Vue island", () => {
           scope: "project",
           sourceLine: 18,
           sourcePath: "memory/MEMORY.md",
-          sourceText: "Use uv for Python commands.",
+          sourceText: "Use workspace command policies.",
           title: "note_1",
           type: "instruction",
         }],
@@ -792,7 +792,7 @@ describe("conversation thread Vue island", () => {
     expect(panel?.textContent).toContain("instruction");
     const highlighted = panel?.querySelector<HTMLElement>(".desktop-reference-source-line.highlighted");
     expect(highlighted?.getAttribute("data-line")).toBe("18");
-    expect(highlighted?.textContent).toContain("Use uv for Python commands.");
+    expect(highlighted?.textContent).toContain("Use workspace command policies.");
   });
 
   test("updates streamed messages without remounting the thread root", async () => {

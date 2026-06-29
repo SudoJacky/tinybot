@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import { createTaskTool } from "./taskTool";
 import type { TaskPlanContext } from "./taskPlanner";
@@ -81,7 +81,7 @@ describe("createTaskTool", () => {
     });
   });
 
-  test("renders Python-compatible plan summary details", async () => {
+  test("renders legacy-compatible plan summary details", async () => {
     const plan = basePlan();
     plan.createdAt = "2026-06-12T08:15:30.000Z";
     plan.context = { dag_errors: ["missing dependency"] };
@@ -133,7 +133,7 @@ describe("createTaskTool", () => {
     });
   });
 
-  test("returns Python-compatible dependency warnings after adding a subtask", async () => {
+  test("returns legacy-compatible dependency warnings after adding a subtask", async () => {
     const tool = createTaskTool({ store: memoryBridge([basePlan()]), idGenerator: () => "new-dag" });
 
     await expect(tool.execute({
@@ -147,7 +147,7 @@ describe("createTaskTool", () => {
     });
   });
 
-  test("returns Python-compatible validation and not-found errors", async () => {
+  test("returns legacy-compatible validation and not-found errors", async () => {
     const tool = createTaskTool({ store: memoryBridge([]) });
 
     await expect(tool.execute({ action: "progress" }, context)).resolves.toEqual({
@@ -182,7 +182,7 @@ describe("createTaskTool", () => {
     });
   });
 
-  test("preserves Python resume guards for completed and executing plans", async () => {
+  test("preserves legacy resume guards for completed and executing plans", async () => {
     const completed = basePlan();
     completed.status = "completed";
     completed.subtasks[1] = {
@@ -227,7 +227,7 @@ describe("createTaskTool", () => {
     expect(spawned).toEqual([]);
   });
 
-  test("preserves Python resume guards before spawning ready subtasks", async () => {
+  test("preserves legacy resume guards before spawning ready subtasks", async () => {
     const dagError = basePlan();
     dagError.id = "dag-error";
     dagError.status = "planning";
@@ -324,7 +324,7 @@ describe("createTaskTool", () => {
             {
               id: "a",
               title: "Inspect",
-              description: "Inspect Python",
+              description: "Inspect legacy runtime",
               status: "pending",
               dependencies: [],
               parallelSafe: true,
@@ -371,7 +371,7 @@ describe("createTaskTool", () => {
               {
                 id: "a",
                 title: "Inspect",
-                description: "Inspect Python",
+                description: "Inspect legacy runtime",
                 status: "pending",
                 dependencies: [],
                 parallelSafe: true,
@@ -417,7 +417,7 @@ describe("createTaskTool", () => {
             {
               id: "a",
               title: "Inspect",
-              description: "Inspect Python",
+              description: "Inspect legacy runtime",
               status: "pending",
               dependencies: [],
               parallelSafe: true,
@@ -449,7 +449,7 @@ describe("createTaskTool", () => {
     expect(spawned).toEqual(["a"]);
   });
 
-  test("mirrors Python truthiness for task boolean arguments", async () => {
+  test("mirrors legacy truthiness for task boolean arguments", async () => {
     const spawned: string[] = [];
     const tool = createTaskTool({
       store: memoryBridge([]),
@@ -466,7 +466,7 @@ describe("createTaskTool", () => {
             {
               id: "a",
               title: "Inspect",
-              description: "Inspect Python",
+              description: "Inspect legacy runtime",
               status: "pending",
               dependencies: [],
               parallelSafe: true,

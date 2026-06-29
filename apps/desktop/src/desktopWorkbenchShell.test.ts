@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test, vi } from "vitest";
+﻿import { afterEach, describe, expect, test, vi } from "vitest";
 import { buildDesktopCoworkCockpitView, buildDesktopCoworkSessionRows } from "./desktopCowork";
 import { buildDesktopKnowledgePaneModel } from "./desktopKnowledgeTraceability";
 import { buildDesktopRunChainItems } from "./desktopRunChainInspector";
@@ -1856,7 +1856,7 @@ describe("desktop workbench shell", () => {
             type: "function",
             function: {
               name: "shell",
-              arguments: "{\"command\":\"python scripts/build_index.py\"}",
+              arguments: "{\"command\":\"node scripts/build-index.mjs\"}",
             },
           },
         ],
@@ -1880,7 +1880,7 @@ describe("desktop workbench shell", () => {
               {
                 approvalId: "approval-1",
                 approvalStatus: "approval_required",
-                argsText: "python scripts/build_index.py",
+                argsText: "node scripts/build-index.mjs",
                 id: "call-shell",
                 kind: "call",
                 name: "shell",
@@ -1905,7 +1905,7 @@ describe("desktop workbench shell", () => {
     expect(approvalCard?.getAttribute("data-desktop-chat-region")).toBe("approval-card");
     expect(approvalCard?.textContent).toContain("Approval required");
     expect(approvalCard?.textContent).toContain("shell");
-    expect(approvalCard?.textContent).toContain("python scripts/build_index.py");
+    expect(approvalCard?.textContent).toContain("node scripts/build-index.mjs");
     expect(toolActivity?.getAttribute("data-desktop-tool-status")).toBe("blocked");
     expect(toolActivity?.querySelector(".desktop-tool-activity-status-label")?.textContent).toBe("Pending approval");
     expect(toolActivity?.querySelector(".desktop-tool-activity-status-dot")?.getAttribute("data-tool-status-tone")).toBe("pending");

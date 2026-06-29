@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import type { AgentMessage } from "../agent/agentRunSpec";
 import type { ModelProvider, ModelRequestOptions, ModelResponse } from "../model/provider";
@@ -327,7 +327,7 @@ describe("ProviderBackedDreamBridge", () => {
     expect(provider.requests[0]?.options?.model).toBe("deepseek-v4-flash");
   });
 
-  test("accepts a single provider JSON operation object like Python Dream", async () => {
+  test("accepts a single provider JSON operation object like legacy Dream", async () => {
     const { client, calls } = sequenceRpcClient([
       {
         content: "Dream deferred 1 legacy history record(s) for provider-backed memory extraction.",
@@ -393,7 +393,7 @@ describe("ProviderBackedDreamBridge", () => {
     });
   });
 
-  test("ignores provider JSON operations with unsupported actions like Python Dream", async () => {
+  test("ignores provider JSON operations with unsupported actions like legacy Dream", async () => {
     const { client, calls } = sequenceRpcClient([
       {
         content: "Dream deferred 1 conversation evidence record(s) for provider-backed memory extraction.",
@@ -461,7 +461,7 @@ describe("ProviderBackedDreamBridge", () => {
     });
   });
 
-  test("coerces unsupported provider note type and scope like Python Dream", async () => {
+  test("coerces unsupported provider note type and scope like legacy Dream", async () => {
     const { client, calls } = sequenceRpcClient([
       {
         content: "Dream deferred 1 conversation evidence record(s) for provider-backed memory extraction.",

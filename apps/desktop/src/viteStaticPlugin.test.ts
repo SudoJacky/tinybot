@@ -10,12 +10,10 @@ import {
 const webuiRoot = path.resolve(__dirname, "../../../webui");
 
 describe("desktop WebUI static routing", () => {
-  test("resolves docs and asset routes from the root WebUI", () => {
+  test("resolves docs index and asset routes from the root WebUI", () => {
     expect(resolveWebuiStaticFile(webuiRoot, "/docs")).toBe(path.join(webuiRoot, "docs", "index.html"));
     expect(resolveWebuiStaticFile(webuiRoot, "/docs/")).toBe(path.join(webuiRoot, "docs", "index.html"));
-    expect(resolveWebuiStaticFile(webuiRoot, "/docs/config.html")).toBe(
-      path.join(webuiRoot, "docs", "config.html"),
-    );
+    expect(resolveWebuiStaticFile(webuiRoot, "/docs/config.html")).toBeNull();
     expect(resolveWebuiStaticFile(webuiRoot, "/assets/src/main.js")).toBe(
       path.join(webuiRoot, "assets", "src", "main.js"),
     );
@@ -43,36 +41,16 @@ describe("desktop WebUI static routing", () => {
     expect(contentType("assets/logo.svg")).toBe("image/svg+xml");
   });
 
-  test("resolves and bundles every docs page route with local docs assets", () => {
-    const docsPages = [
-      "cli.html",
-      "config.html",
-      "gateway.html",
-      "index.html",
-      "knowledge.html",
-      "providers.html",
-      "quickstart.html",
-      "skills.html",
-      "tasks.html",
-      "tools.html",
-      "webui.html",
-    ];
-
-    for (const page of docsPages) {
-      const expectedFile = path.join(webuiRoot, "docs", page);
-      const routeName = path.basename(page, ".html");
-      const extensionlessRoute = routeName === "index" ? "/docs" : `/docs/${routeName}`;
-
-      expect(resolveWebuiStaticFile(webuiRoot, extensionlessRoute)).toBe(expectedFile);
-      expect(resolveWebuiStaticFile(webuiRoot, `/docs/${page}`)).toBe(expectedFile);
-    }
+  test("resolves and bundles the docs index with local docs assets", () => {
+    const expectedFile = path.join(webuiRoot, "docs", "index.html");
+    expect(resolveWebuiStaticFile(webuiRoot, "/docs")).toBe(expectedFile);
+    expect(resolveWebuiStaticFile(webuiRoot, "/docs/index.html")).toBe(expectedFile);
+    expect(resolveWebuiStaticFile(webuiRoot, "/docs/index")).toBe(expectedFile);
 
     const bundleFiles = collectWebuiStaticBundleFiles(webuiRoot).map((file) => file.fileName);
     expect(bundleFiles).toEqual(
       expect.arrayContaining([
         "docs/index.html",
-        "docs/quickstart",
-        "docs/quickstart.html",
         "assets/styles.css",
         "assets/styles/components/desktop-settings.css",
         "assets/docs-styles.css",
@@ -81,6 +59,7 @@ describe("desktop WebUI static routing", () => {
       ]),
     );
     expect(bundleFiles).not.toContain("docs");
+    expect(bundleFiles.some((file) => file.startsWith("docs/") && file !== "docs/index.html")).toBe(false);
     expect(bundleFiles.some((file) => /\.test\.[cm]?js$/i.test(file) || /\.test\.mjs$/i.test(file))).toBe(false);
   });
 });

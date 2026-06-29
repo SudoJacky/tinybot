@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import { NativeContextBridge } from "./contextBridge";
 import type { AgentRunInput } from "../agent/contextTypes";
@@ -479,7 +479,7 @@ describe("NativeContextBridge", () => {
           },
           {
             name: "tmux",
-            path: "tinybot/skills/tmux/SKILL.md",
+            path: "apps/desktop/workers/ts-agent-worker/skills/tmux/SKILL.md",
             source: "builtin",
             content: [
               "---",

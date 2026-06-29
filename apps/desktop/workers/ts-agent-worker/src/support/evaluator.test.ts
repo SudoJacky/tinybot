@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import {
   buildEvaluatorMessages,
@@ -29,7 +29,7 @@ describe("evaluator", () => {
     ]);
   });
 
-  test("exposes the Python-compatible evaluate_notification tool schema", () => {
+  test("exposes the legacy-compatible evaluate_notification tool schema", () => {
     expect(EVALUATE_NOTIFICATION_TOOL).toMatchObject({
       type: "function",
       function: {

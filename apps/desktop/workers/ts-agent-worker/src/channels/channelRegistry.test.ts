@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import {
   builtinChannelDescriptors,
@@ -7,7 +7,7 @@ import {
 } from "./channelRegistry.ts";
 
 describe("channelRegistry", () => {
-  test("lists built-in channel descriptors without relying on Python entry points", () => {
+  test("lists built-in channel descriptors without relying on legacy entry points", () => {
     expect(builtinChannelDescriptors().map((descriptor) => descriptor.name)).toEqual([
       "websocket",
       "feishu",
@@ -26,7 +26,7 @@ describe("channelRegistry", () => {
     });
   });
 
-  test("exposes Python-compatible default config payloads for onboarding", () => {
+  test("exposes legacy-compatible default config payloads for onboarding", () => {
     expect(selectChannelDefaultConfigs()).toMatchObject({
       websocket: {
         enabled: false,

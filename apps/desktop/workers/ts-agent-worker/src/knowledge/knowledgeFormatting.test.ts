@@ -1,9 +1,9 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import { formatKnowledgeQueryResults, normalizeKnowledgeQueryResults } from "./knowledgeFormatting.ts";
 
 describe("knowledgeFormatting", () => {
-  test("formats Python-compatible traceability sections after source content", () => {
+  test("formats legacy-compatible traceability sections after source content", () => {
     const results = normalizeKnowledgeQueryResults([
       {
         id: "chunk-1",

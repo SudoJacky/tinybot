@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import { RUNTIME_CONTEXT_TAG } from "../agent/contextBuilder.ts";
 import { persistedSessionMessages } from "./persistedMessages.ts";
@@ -18,7 +18,7 @@ describe("persistedSessionMessages", () => {
     ]);
   });
 
-  test("deduplicates persisted user assistant and tool messages by Python session keys", () => {
+  test("deduplicates persisted user assistant and tool messages by legacy session keys", () => {
     expect(persistedSessionMessages([
       { role: "user", content: "Repeat this" },
       { role: "user", content: "Repeat this" },

@@ -1,6 +1,5 @@
 const SAFE_EXEC_PATTERNS = [
   /^\s*git\s+(status|diff|log|show|branch|rev-parse|ls-files)(?:\s+[\w./\\:@{}=,+~^*-]+)*\s*$/,
-  /^\s*uv\s+run\s+(pytest|ruff|mypy)(?:\s+[\w./\\:@{}=,+~^*-]+)*\s*$/,
 ];
 
 const SHELL_CONTROL_CHARS = new Set([";", "&", "|", "<", ">", "\n", "\r", "`"]);

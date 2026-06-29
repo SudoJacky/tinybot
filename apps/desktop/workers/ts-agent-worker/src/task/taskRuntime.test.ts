@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import { TaskRuntime } from "./taskRuntime";
 import type { TaskPlan } from "./taskTypes";
@@ -64,7 +64,7 @@ function memoryBridge(initialPlans: TaskPlan[]) {
 }
 
 describe("TaskRuntime", () => {
-  test("returns Python-shaped progress through the store bridge", async () => {
+  test("returns legacy-shaped progress through the store bridge", async () => {
     const { bridge } = memoryBridge([basePlan()]);
     const runtime = new TaskRuntime({ store: bridge });
 
@@ -89,7 +89,7 @@ describe("TaskRuntime", () => {
     expect(saves.map((plan) => plan.status)).toEqual(["paused", "failed"]);
   });
 
-  test("pauses executing plans like Python by resetting in-progress subtasks", async () => {
+  test("pauses executing plans like the legacy runtime by resetting in-progress subtasks", async () => {
     const plan = basePlan();
     plan.currentSubtaskIds = ["b"];
     plan.subtasks[1].status = "in_progress";
@@ -137,7 +137,7 @@ describe("TaskRuntime", () => {
     });
   });
 
-  test("cancels plans like Python by skipping unfinished subtasks", async () => {
+  test("cancels plans like the legacy runtime by skipping unfinished subtasks", async () => {
     const plan = basePlan();
     plan.currentSubtaskIds = ["b"];
     plan.subtasks[1].status = "in_progress";
@@ -231,7 +231,7 @@ describe("TaskRuntime", () => {
     expect(saves.at(-1)?.status).toBe("completed");
   });
 
-  test("truncates manually updated subtask results like Python", async () => {
+  test("truncates manually updated subtask results like the legacy runtime", async () => {
     const { bridge, saves } = memoryBridge([basePlan()]);
     const runtime = new TaskRuntime({
       store: bridge,
@@ -417,7 +417,7 @@ describe("TaskRuntime", () => {
     });
   });
 
-  test("builds Python-compatible completed context for spawned subtasks", async () => {
+  test("builds legacy-compatible completed context for spawned subtasks", async () => {
     const plan = basePlan();
     plan.status = "planning";
     plan.subtasks = [

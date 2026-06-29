@@ -1,9 +1,9 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import { buildStatusContent } from "./statusFormatter";
 
 describe("statusFormatter", () => {
-  test("builds Python-compatible runtime status content", () => {
+  test("builds legacy-compatible runtime status content", () => {
     expect(buildStatusContent({
       version: "1.2.3",
       model: "gpt-4.1-mini",

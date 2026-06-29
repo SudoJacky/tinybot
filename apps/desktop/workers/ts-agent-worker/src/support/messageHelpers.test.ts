@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import {
   buildAssistantMessage,
@@ -24,7 +24,7 @@ describe("messageHelpers", () => {
     );
   });
 
-  test("truncates text with the Python suffix", () => {
+  test("truncates text with the legacy suffix", () => {
     expect(truncateText("abcdef", 3)).toBe("abc\n... (truncated)");
     expect(truncateText("abcdef", 0)).toBe("abcdef");
     expect(truncateText("abc", 5)).toBe("abc");

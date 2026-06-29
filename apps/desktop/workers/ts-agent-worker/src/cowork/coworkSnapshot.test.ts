@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import { buildDesktopCoworkCockpitView, buildDesktopCoworkSessionRows } from "../../../../src/desktopCowork";
 import { normalizeCoworkSession } from "./coworkSerde";
@@ -267,7 +267,7 @@ describe("cowork session snapshot", () => {
     expect(snapshot.large_swarm_summary.workstreams).toHaveLength(8);
   });
 
-  test("preserves Python large swarm workstream order for equal-sized groups", () => {
+  test("preserves legacy large swarm workstream order for equal-sized groups", () => {
     const workUnits = Array.from({ length: 40 }, (_, index) => {
       const value = index + 1;
       const groupId = value <= 20 ? "zeta_stream" : "alpha_stream";
@@ -296,7 +296,7 @@ describe("cowork session snapshot", () => {
     ]);
   });
 
-  test("treats truthy swarm gate required configuration like Python", () => {
+  test("treats truthy swarm gate required configuration like the legacy runtime", () => {
     const snapshot = coworkSessionSnapshot(normalizeCoworkSession({
       ...rawSession,
       id: "cw-swarm-gate-required",
@@ -316,7 +316,7 @@ describe("cowork session snapshot", () => {
     });
   });
 
-  test("preserves Python blocking evaluation id placeholders", () => {
+  test("preserves legacy blocking evaluation id placeholders", () => {
     const snapshot = coworkSessionSnapshot(normalizeCoworkSession({
       ...rawSession,
       id: "cw-swarm-evaluation-ids",
@@ -337,7 +337,7 @@ describe("cowork session snapshot", () => {
     });
   });
 
-  test("treats truthy swarm final deliverable readiness like Python", () => {
+  test("treats truthy swarm final deliverable readiness like the legacy runtime", () => {
     const snapshot = coworkSessionSnapshot(normalizeCoworkSession({
       ...rawSession,
       id: "cw-swarm-final-ready",
@@ -356,7 +356,7 @@ describe("cowork session snapshot", () => {
     });
   });
 
-  test("projects Python-compatible swarm scheduler queues and metrics", () => {
+  test("projects legacy-compatible swarm scheduler queues and metrics", () => {
     const snapshot = coworkSessionSnapshot(normalizeCoworkSession({
       ...rawSession,
       id: "cw-swarm-queues",
@@ -465,7 +465,7 @@ describe("cowork session snapshot", () => {
     });
   });
 
-  test("projects Python-compatible swarm trace width and empty reducer coverage metrics", () => {
+  test("projects legacy-compatible swarm trace width and empty reducer coverage metrics", () => {
     const snapshot = coworkSessionSnapshot(normalizeCoworkSession({
       ...rawSession,
       id: "cw-swarm-trace-width",
@@ -581,7 +581,7 @@ describe("cowork session snapshot", () => {
     });
   });
 
-  test("matches Python critical path depth for cyclic swarm dependencies", () => {
+  test("matches legacy critical path depth for cyclic swarm dependencies", () => {
     const snapshot = coworkSessionSnapshot(normalizeCoworkSession({
       ...rawSession,
       id: "cw-swarm-cycle-depth",

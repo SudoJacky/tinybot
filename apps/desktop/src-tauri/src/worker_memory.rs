@@ -1,4 +1,4 @@
-use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
+﻿use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_protocol::{WorkerProtocolError, WorkerRequest};
 use crate::worker_rpc::protocol::parse_params;
 use crate::worker_storage::{
@@ -3114,7 +3114,7 @@ mod tests {
                     "turn_id": "turn_1",
                     "session_key": "desktop:session-1",
                     "role": "user",
-                    "content": "Remember that I prefer uv for Python commands.",
+                    "content": "Remember that I prefer workspace command policies.",
                     "timestamp": "2026-06-12T03:00:00Z",
                     "message_index": 1,
                     "cursor": 3
@@ -3155,7 +3155,7 @@ mod tests {
         let notes = fixture.read("memory/notes.jsonl");
         assert!(notes.contains("\"capture_origin\":\"dream\""));
         assert!(notes.contains("\"evidence_ids\":[\"ev_1\"]"));
-        assert!(notes.contains("Remember that I prefer uv for Python commands."));
+        assert!(notes.contains("Remember that I prefer workspace command policies."));
     }
 
     #[test]
@@ -3715,7 +3715,7 @@ mod tests {
             "trace-1",
             "memory.save",
             json!({
-                "content": "Use pytest for TS worker tests.",
+                "content": "Use npm test for TS worker tests.",
                 "note_type": "instruction",
                 "scope": "assistant",
                 "priority": 0.6,
@@ -3820,7 +3820,7 @@ mod tests {
             .contains("\"status\":\"rejected\""));
         assert!(!fixture
             .read("SOUL.md")
-            .contains("Use pytest for TS worker tests."));
+            .contains("Use npm test for TS worker tests."));
         assert!(!fixture
             .read("SOUL.md")
             .contains("Use vitest for TS worker tests."));

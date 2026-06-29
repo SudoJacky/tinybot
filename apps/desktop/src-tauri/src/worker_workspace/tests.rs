@@ -1,4 +1,4 @@
-#[cfg(test)]
+﻿#[cfg(test)]
 mod tests {
     use super::*;
     use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
@@ -151,11 +151,11 @@ mod tests {
             "---\nname: planner\ndescription: Workspace planner\n---\nWorkspace body",
         );
         fixture.write_outside(
-            "tinybot/skills/planner/SKILL.md",
+            "apps/desktop/workers/ts-agent-worker/skills/planner/SKILL.md",
             "---\nname: planner\ndescription: Builtin planner\n---\nBuiltin body",
         );
         fixture.write_outside(
-            "tinybot/skills/tmux/SKILL.md",
+            "apps/desktop/workers/ts-agent-worker/skills/tmux/SKILL.md",
             "---\nname: tmux\ndescription: Terminal sessions\n---\nTmux body",
         );
         let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_policy())
@@ -179,7 +179,7 @@ mod tests {
                 (
                     "tmux".to_string(),
                     "builtin".to_string(),
-                    "tinybot/skills/tmux/SKILL.md".to_string()
+                    "apps/desktop/workers/ts-agent-worker/skills/tmux/SKILL.md".to_string()
                 )
             ]
         );

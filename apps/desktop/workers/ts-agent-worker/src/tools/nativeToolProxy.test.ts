@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import type { JsonObject } from "../protocol/messages";
 import type { AgentMessage } from "../agent/agentRunSpec";
@@ -498,7 +498,7 @@ describe("createNativeMemoryTools", () => {
           scope: "assistant",
           type: "instruction",
           status: "active",
-          content: "Use pytest for TS worker tests.",
+          content: "Use npm test for TS worker tests.",
         },
         locations: {
           file: "memory/notes.jsonl",
@@ -513,7 +513,7 @@ describe("createNativeMemoryTools", () => {
           scope: "assistant",
           type: "instruction",
           status: "rejected",
-          content: "Use pytest for TS worker tests.",
+          content: "Use npm test for TS worker tests.",
         },
         views_refreshed: true,
       },
@@ -605,7 +605,7 @@ describe("createNativeTaskTools", () => {
       { plan },
       { plan },
       { plan: inProgressPlan },
-      { path: "AGENTS.md", content: "Use UV for Python." },
+      { path: "AGENTS.md", content: "Use workspace command policies." },
       { plan: inProgressPlan },
       { plan: completedPlan },
     ]);
@@ -651,7 +651,7 @@ describe("createNativeTaskTools", () => {
 
 describe("createNativeSpawnTools", () => {
   test("runs spawned subagents through an isolated AgentRunner tool registry", async () => {
-    const rpc = new FakeRpcClient([{ path: "AGENTS.md", content: "1| Use UV for Python." }]);
+    const rpc = new FakeRpcClient([{ path: "AGENTS.md", content: "1| Use workspace command policies." }]);
     const provider = new QueueProvider([
       {
         content: "",

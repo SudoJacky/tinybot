@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+﻿import { describe, expect, test, vi } from "vitest";
 
 import type { AgentRunResult, AgentRunSpec } from "../agent/agentRunSpec";
 import type { ModelProvider, ModelRequestOptions, ModelResponse } from "../model/provider";
@@ -115,7 +115,7 @@ describe("HeartbeatRuntime", () => {
     });
   });
 
-  test("uses the Python-compatible evaluator by default before notifying", async () => {
+  test("uses the legacy-compatible evaluator by default before notifying", async () => {
     const notifyExternal = vi.fn();
     const provider = new QueueProvider([
       heartbeatDecision("Report routine heartbeat status."),

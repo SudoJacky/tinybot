@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+﻿import { describe, expect, test, vi } from "vitest";
 
 import type { AgentMessage } from "../agent/agentRunSpec";
 import type { ModelProvider, ModelRequestOptions, ModelResponse } from "../model/provider";
@@ -4024,7 +4024,7 @@ describe("createAgentWorkerServer", () => {
     });
   });
 
-  test("preserves OpenAI-compatible multimodal empty text parts like Python", async () => {
+  test("preserves OpenAI-compatible multimodal empty text parts like the legacy runtime", async () => {
     const lines: string[] = [];
     const provider = new QueueProvider([{ content: "empty text handled", toolCalls: [], stopReason: "stop" }]);
     const server = createAgentWorkerServer({

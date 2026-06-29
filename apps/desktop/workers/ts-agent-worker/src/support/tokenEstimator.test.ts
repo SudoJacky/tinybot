@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import {
   applyReasoningRiskBuffer,
@@ -10,7 +10,7 @@ import {
 } from "./tokenEstimator";
 
 describe("tokenEstimator", () => {
-  test("resolves Python model encoding hints", () => {
+  test("resolves model encoding hints", () => {
     expect(resolveEncodingName("gpt-4.1-mini")).toBe("o200k_base");
     expect(resolveEncodingName("openai/gpt-5")).toBe("o200k_base");
     expect(resolveEncodingName("claude-3-5-sonnet")).toBe("cl100k_base");

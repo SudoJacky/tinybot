@@ -1,10 +1,10 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import { normalizeTaskPlan } from "./taskDag";
 import { taskProgressPayload } from "./taskProgress";
 
 describe("taskProgressPayload", () => {
-  test("matches the Python TaskManager progress summary shape", () => {
+  test("matches the legacy TaskManager progress summary shape", () => {
     const plan = normalizeTaskPlan({
       id: "plan-1",
       title: "Backend migration",

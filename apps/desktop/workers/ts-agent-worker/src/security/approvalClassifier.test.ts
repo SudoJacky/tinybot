@@ -30,16 +30,16 @@ describe("approvalClassifier", () => {
   });
 
   test("allows low-risk exec commands without shell control operators", () => {
-    expect(classifyToolCall({ toolName: "exec", args: { command: "uv run pytest tests/security -q" } })).toEqual({
+    expect(classifyToolCall({ toolName: "exec", args: { command: "git status --short" } })).toEqual({
       action: "allow",
     });
   });
 
-  test("requires approval for direct Python test commands", () => {
+  test("requires approval for direct test runner commands", () => {
     expectRequiresApproval(
       classifyToolCall({
         toolName: "exec",
-        args: { command: "python -m pytest tests/security -q" },
+        args: { command: "npm test -- security/approvalClassifier.test.ts" },
       }),
       { action: "require_approval", category: "shell", risk: "high" },
     );
@@ -49,7 +49,7 @@ describe("approvalClassifier", () => {
     expectRequiresApproval(
       classifyToolCall({
         toolName: "exec",
-        args: { command: "uv run pytest tests/security -q; Remove-Item secret.txt" },
+        args: { command: "git status --short; Remove-Item secret.txt" },
       }),
       { action: "require_approval", category: "shell", risk: "high" },
     );

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 
 import { AgentRunner } from "../agent/agentRunner";
 import type { AgentMessage } from "../agent/agentRunSpec";
@@ -150,7 +150,7 @@ describe("CoworkAgentRuntime", () => {
     expect(selection.candidateScores).toEqual({ lead: 28 });
   });
 
-  it("orders team ready agents by Python readiness scores before applying the limit", async () => {
+  it("orders team ready agents by legacy readiness scores before applying the limit", async () => {
     const provider = new QueueProvider([]);
     const seeded = await seedRuntime(provider);
     const session = await seeded.store.readSnapshot("cw_1", "test");
@@ -185,7 +185,7 @@ describe("CoworkAgentRuntime", () => {
     });
   });
 
-  it("selects agents with pending reply mailbox records even when inbox is empty like Python", async () => {
+  it("selects agents with pending reply mailbox records even when inbox is empty like the legacy runtime", async () => {
     const provider = new QueueProvider([]);
     const seeded = await seedRuntime(provider);
     const session = await seeded.store.readSnapshot("cw_1", "test");
@@ -220,7 +220,7 @@ describe("CoworkAgentRuntime", () => {
     expect(selection.candidateScores).toEqual({ lead: 100 });
   });
 
-  it("expires overdue mailbox records before selecting ready agents like Python", async () => {
+  it("expires overdue mailbox records before selecting ready agents like the legacy runtime", async () => {
     const provider = new QueueProvider([]);
     const seeded = await seedRuntime(provider);
     const session = await seeded.store.readSnapshot("cw_1", "test");
@@ -269,7 +269,7 @@ describe("CoworkAgentRuntime", () => {
     ]));
   });
 
-  it("escalates stale mailbox blockers before selecting ready agents like Python", async () => {
+  it("escalates stale mailbox blockers before selecting ready agents like the legacy runtime", async () => {
     const provider = new QueueProvider([]);
     const seeded = await seedRuntime(provider);
     const session = await seeded.store.readSnapshot("cw_1", "test");
@@ -792,7 +792,7 @@ describe("CoworkAgentRuntime", () => {
     ]));
   });
 
-  it("persists failed agent and task state when the runner raises like Python", async () => {
+  it("persists failed agent and task state when the runner raises like the legacy runtime", async () => {
     const provider = new QueueProvider([]);
     const seeded = await seedRuntime(provider);
 
@@ -2797,7 +2797,7 @@ describe("CoworkAgentRuntime", () => {
             action: "spawn_agent",
             role: "Researcher",
             goal: "Research TS cowork stream hooks",
-            responsibilities: ["Find the Python hook flow", "Report risks"],
+            responsibilities: ["Find the legacy hook flow", "Report risks"],
             tools: ["read_file", "cowork_internal"],
             subscriptions: ["research"],
             team_id: "migration",
@@ -2841,7 +2841,7 @@ describe("CoworkAgentRuntime", () => {
       name: "Researcher",
       role: "Researcher",
       goal: "Research TS cowork stream hooks",
-      responsibilities: ["Find the Python hook flow", "Report risks"],
+      responsibilities: ["Find the legacy hook flow", "Report risks"],
       tools: ["read_file", "cowork_internal"],
       subscriptions: ["research"],
       parent_agent_id: "lead",
@@ -3036,7 +3036,7 @@ describe("CoworkAgentRuntime", () => {
             tasks: [
               {
                 title: "Collect evidence",
-                description: "Find the Python behavior.",
+                description: "Find the legacy behavior.",
                 assigned_agent_id: "researcher",
               },
               {

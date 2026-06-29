@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import { MessageBus } from "./messageBus.ts";
 import { sessionKeyOf, type InboundMessage, type OutboundMessage } from "./messageTypes.ts";
@@ -28,7 +28,7 @@ function outbound(overrides: Partial<OutboundMessage> = {}): OutboundMessage {
 }
 
 describe("MessageBus", () => {
-  test("derives Python-compatible session keys", () => {
+  test("derives legacy-compatible session keys", () => {
     expect(sessionKeyOf(inbound())).toBe("websocket:chat-1");
     expect(sessionKeyOf(inbound({ sessionKeyOverride: "thread:42" }))).toBe("thread:42");
     expect(sessionKeyOf(inbound({ sessionKeyOverride: "" }))).toBe("websocket:chat-1");

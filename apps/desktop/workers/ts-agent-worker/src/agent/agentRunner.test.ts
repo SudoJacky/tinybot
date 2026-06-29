@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 import { readFileSync } from "node:fs";
 
 import { AgentRunner } from "./agentRunner";
@@ -75,7 +75,7 @@ type ParityFixture = {
 function loadParityFixture(fixtureName: string): ParityFixture {
   return JSON.parse(
     readFileSync(
-      new URL(`../../../../../../tests/fixtures/agent_runner_parity/${fixtureName}`, import.meta.url),
+      new URL(`./fixtures/runner_parity/${fixtureName}`, import.meta.url),
       "utf8",
     ),
   ) as ParityFixture;
@@ -472,7 +472,7 @@ describe("AgentRunner", () => {
     "tool_integer_string_cast_then_final.json",
     "tool_array_integer_string_cast_then_final.json",
   ])(
-    "matches the shared Python parity fixture %s",
+    "matches the shared legacy parity fixture %s",
     async (fixtureName) => {
       const fixture = loadParityFixture(fixtureName);
       const provider = new QueueProvider(

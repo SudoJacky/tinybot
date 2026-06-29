@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import { SubagentRuntime, type SubagentRunRequest } from "./subagentRuntime";
 
@@ -11,7 +11,7 @@ function deferred<T>() {
 }
 
 describe("SubagentRuntime", () => {
-  test("uses Python-compatible default concurrency before queueing subagents", async () => {
+  test("uses legacy-compatible default concurrency before queueing subagents", async () => {
     const started: string[] = [];
     const runtime = new SubagentRuntime({
       timeoutMs: 1000,
@@ -60,7 +60,7 @@ describe("SubagentRuntime", () => {
     });
 
     const first = await runtime.spawn({
-      task: "Inspect Python task runtime",
+      task: "Inspect legacy task runtime",
       label: "Inspect",
       sessionKey: "desktop:chat-1",
       metadata: { planId: "plan-1", subtaskId: "a" },
@@ -337,7 +337,7 @@ describe("SubagentRuntime", () => {
     });
 
     await runtime.spawn({
-      task: "Inspect Python task runtime",
+      task: "Inspect legacy task runtime",
       label: "Inspect",
       sessionKey: "desktop:chat-5",
       metadata: { planId: "plan-1", subtaskId: "a" },

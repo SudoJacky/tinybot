@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import { extractRetryAfterSeconds, withProviderRetry } from "./providerRetry";
 
@@ -49,13 +49,13 @@ describe("providerRetry", () => {
     expect(extractRetryAfterSeconds({ response: { text: "Please try again in 9 seconds." } })).toBe(9);
   });
 
-  test("normalizes retry-after body units like the Python provider", () => {
+  test("normalizes retry-after body units like the legacy provider", () => {
     expect(extractRetryAfterSeconds({ response: { text: "retry after 1500 ms" } })).toBe(2);
     expect(extractRetryAfterSeconds({ response: { text: "wait 2 minutes before retry" } })).toBe(120);
     expect(extractRetryAfterSeconds({ response: { text: "{\"retry_after\": 3}" } })).toBe(3);
   });
 
-  test("extracts retry-after from HTTP-date headers like the Python provider", () => {
+  test("extracts retry-after from HTTP-date headers like the legacy provider", () => {
     const seconds = extractRetryAfterSeconds({
       headers: { "retry-after": "Wed, 21 Oct 2099 07:28:00 GMT" },
     });

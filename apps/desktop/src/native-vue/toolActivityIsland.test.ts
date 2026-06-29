@@ -1,4 +1,4 @@
-// @vitest-environment happy-dom
+﻿// @vitest-environment happy-dom
 
 import { describe, expect, test } from "vitest";
 import { mountToolActivityIsland } from "./toolActivityIsland";
@@ -89,7 +89,7 @@ describe("tool activity Vue island", () => {
 
     mountToolActivityIsland(host, {
       approvalId: "approval-1",
-      argsText: "python scripts/build_index.py",
+      argsText: "node scripts/build-index.mjs",
       approvalStatus: "approval_required",
       id: "call-shell",
       kind: "call",
@@ -109,7 +109,7 @@ describe("tool activity Vue island", () => {
     expect(card?.getAttribute("data-desktop-chat-region")).toBe("approval-card");
     expect(card?.textContent).toContain("Approval required");
     expect(card?.textContent).toContain("shell");
-    expect(card?.textContent).toContain("python scripts/build_index.py");
+    expect(card?.textContent).toContain("node scripts/build-index.mjs");
     expect(Array.from(card?.querySelectorAll(".desktop-tool-approval-action") ?? []).map((action) => action.textContent)).toEqual([
       "Approve once",
       "Allow session",

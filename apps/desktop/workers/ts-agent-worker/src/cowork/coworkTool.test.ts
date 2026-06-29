@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 
 import type { AgentMessage } from "../agent/agentRunSpec";
 import type { ModelProvider, ModelRequestOptions, ModelResponse } from "../model/provider";
@@ -111,7 +111,7 @@ describe("createCoworkTool", () => {
     expect(provider.options[0].toolChoice).toMatchObject({ type: "function", function: { name: "submit_cowork_team" } });
   });
 
-  it("wraps non-swarm planner tasks into the Python leader-start task", async () => {
+  it("wraps non-swarm planner tasks into the legacy leader-start task", async () => {
     const service = serviceWithStore();
     const provider = new QueueProvider([{
       content: "",
@@ -123,7 +123,7 @@ describe("createCoworkTool", () => {
           title: "Planner Session",
           agents: [{ id: "lead", name: "Lead", role: "Coordinator", goal: "Plan", responsibilities: ["Coordinate"] }],
           tasks: [
-            { id: "research", title: "Research gap", description: "Compare Python behavior", assigned_agent_id: "lead" },
+            { id: "research", title: "Research gap", description: "Compare legacy behavior", assigned_agent_id: "lead" },
             { id: "patch", title: "Patch runtime", description: "Update TS facade", assigned_agent_id: "lead" },
           ],
         }),
@@ -146,7 +146,7 @@ describe("createCoworkTool", () => {
       dependencies: [],
     });
     expect(session?.tasks.lead_start.description).toContain("Goal: Coordinate TS planner migration");
-    expect(session?.tasks.lead_start.description).toContain("- Research gap: Compare Python behavior");
+    expect(session?.tasks.lead_start.description).toContain("- Research gap: Compare legacy behavior");
     expect(session?.tasks.lead_start.description).toContain("- Patch runtime: Update TS facade");
     expect(session?.blueprint).toMatchObject({
       schema_version: "cowork.blueprint.v1",
@@ -158,7 +158,7 @@ describe("createCoworkTool", () => {
     });
   });
 
-  it("preserves planner tasks for swarm cowork starts like Python", async () => {
+  it("preserves planner tasks for swarm cowork starts like the legacy runtime", async () => {
     const service = serviceWithStore();
     const provider = new QueueProvider([{
       content: "",
@@ -170,7 +170,7 @@ describe("createCoworkTool", () => {
           title: "Swarm Session",
           agents: [{ id: "lead", name: "Lead", role: "Coordinator", goal: "Plan", responsibilities: ["Coordinate"] }],
           tasks: [
-            { id: "research", title: "Research gap", description: "Compare Python behavior", assigned_agent_id: "lead" },
+            { id: "research", title: "Research gap", description: "Compare legacy behavior", assigned_agent_id: "lead" },
             { id: "patch", title: "Patch runtime", description: "Update TS facade", assigned_agent_id: "lead" },
           ],
         }),
@@ -284,7 +284,7 @@ describe("createCoworkTool", () => {
     expect(snapshot?.run_metrics).toHaveLength(1);
   });
 
-  it("rejects scheduler limits outside the Python cowork tool integer schema", () => {
+  it("rejects scheduler limits outside the legacy cowork tool integer schema", () => {
     const registry = new ToolRegistry();
     registry.register(createCoworkTool({ service: serviceWithStore() }));
 
@@ -323,7 +323,7 @@ describe("createCoworkTool", () => {
     });
   });
 
-  it("rejects workflow modes outside the Python cowork tool schema", () => {
+  it("rejects workflow modes outside the legacy cowork tool schema", () => {
     const registry = new ToolRegistry();
     registry.register(createCoworkTool({ service: serviceWithStore() }));
 

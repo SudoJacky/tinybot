@@ -1,4 +1,4 @@
-use crate::config_store::{ConfigPatchBridgeResult, ConfigStore};
+﻿use crate::config_store::{ConfigPatchBridgeResult, ConfigStore};
 use crate::worker_background::{
     BackgroundRunCompleteParams, BackgroundRunUpsertParams, BackgroundTraceAppendParams,
     BackgroundTraceGetArtifactParams, BackgroundTraceGetDelegateTraceParams,
@@ -949,7 +949,7 @@ fn is_rag_candidate_path(path: &str, collection: Option<&str>) -> bool {
     let lower = path.to_ascii_lowercase();
     [
         ".md", ".mdx", ".txt", ".rst", ".adoc", ".json", ".toml", ".yaml", ".yml", ".ts", ".tsx",
-        ".js", ".jsx", ".rs", ".py",
+        ".js", ".jsx", ".rs",
     ]
     .iter()
     .any(|extension| lower.ends_with(extension))
@@ -1161,11 +1161,11 @@ mod tests {
             "---\nname: planner\ndescription: Workspace planner\n---\nWorkspace body",
         );
         fixture.write(
-            "tinybot/skills/planner/SKILL.md",
+            "apps/desktop/workers/ts-agent-worker/skills/planner/SKILL.md",
             "---\nname: planner\ndescription: Builtin planner\n---\nBuiltin body",
         );
         fixture.write(
-            "tinybot/skills/tmux/SKILL.md",
+            "apps/desktop/workers/ts-agent-worker/skills/tmux/SKILL.md",
             "---\nname: tmux\ndescription: Terminal sessions\n---\nTmux body",
         );
         let mut router = WorkerRpcRouter::new(
@@ -1193,7 +1193,7 @@ mod tests {
                     },
                     {
                         "name": "tmux",
-                        "path": "tinybot/skills/tmux/SKILL.md",
+                        "path": "apps/desktop/workers/ts-agent-worker/skills/tmux/SKILL.md",
                         "source": "builtin",
                         "content": "---\nname: tmux\ndescription: Terminal sessions\n---\nTmux body"
                     }

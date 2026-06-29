@@ -238,12 +238,9 @@ fn shell_command(command: &str) -> Command {
 fn guard_command(command: &str, working_dir: &Path, workspace_root: &Path) -> Option<String> {
     let lower = command.trim().to_ascii_lowercase();
     if lower.contains("rm -rf node_modules")
-        || lower.contains("rm -rf __pycache__")
-        || lower.contains("rm -rf .pytest_cache")
         || lower.contains("rm -rf dist")
         || lower.contains("rm -rf build")
         || lower.contains("rm -rf target")
-        || lower.contains("rm -rf .ruff_cache")
     {
         return None;
     }
