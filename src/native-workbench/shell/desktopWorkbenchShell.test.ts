@@ -18,7 +18,7 @@ import {
   updateDesktopTaskCenterItems,
   updateDesktopToolsSkillsPane,
 } from "./desktopWorkbenchShell";
-import type { GatewayRuntimeStatus } from "../gateway/desktopGatewayStartup";
+import { DEFAULT_NATIVE_BACKEND_COMMAND, type GatewayRuntimeStatus } from "../gateway/desktopGatewayStartup";
 import type { NativeChatMessage, NativeChatSession } from "../chat/nativeChat";
 
 class FakeElement {
@@ -1018,7 +1018,7 @@ describe("desktop workbench shell", () => {
         http_ok: true,
         gateway_http: "http://127.0.0.1:18790",
         gateway_ws: "ws://127.0.0.1:18790/ws",
-        command: "node workers/ts-agent-worker/src/index.ts",
+        command: DEFAULT_NATIVE_BACKEND_COMMAND,
         port: 18790,
         repo_root: "D:/code/tinybot/tinybot",
         logs: [],
@@ -1159,7 +1159,7 @@ describe("desktop workbench shell", () => {
         http_ok: true,
         gateway_http: "http://127.0.0.1:18790",
         gateway_ws: "ws://127.0.0.1:18790/ws",
-        command: "node workers/ts-agent-worker/src/index.ts",
+        command: DEFAULT_NATIVE_BACKEND_COMMAND,
         repo_root: "D:/code/tinybot/tinybot",
         log_path: "C:/Users/me/AppData/Local/tinybot/logs/native-backend.log",
         log_tail: [
@@ -1225,7 +1225,7 @@ describe("desktop workbench shell", () => {
         http_ok: true,
         gateway_http: "http://127.0.0.1:18790",
         gateway_ws: "ws://127.0.0.1:18790/ws",
-        command: "node workers/ts-agent-worker/src/index.ts",
+        command: DEFAULT_NATIVE_BACKEND_COMMAND,
         repo_root: "D:/code/tinybot/tinybot",
         log_path: "C:/Users/me/AppData/Local/tinybot/logs/native-backend.log",
         logs: ["gateway ready", "knowledge upload accepted", "graph extraction streamed"],
@@ -1260,7 +1260,7 @@ describe("desktop workbench shell", () => {
       http_ok: true,
       gateway_http: "http://127.0.0.1:18790",
       gateway_ws: "ws://127.0.0.1:18790/ws",
-      command: "node workers/ts-agent-worker/src/index.ts",
+      command: DEFAULT_NATIVE_BACKEND_COMMAND,
       repo_root: "D:/code/tinybot/tinybot",
       logs: ["gateway ready"],
       last_error: null,
@@ -2719,7 +2719,7 @@ describe("desktop workbench shell", () => {
         http_ok: true,
         gateway_http: "http://127.0.0.1:18790",
         gateway_ws: "ws://127.0.0.1:18790/ws",
-        command: "node workers/ts-agent-worker/src/index.ts",
+        command: DEFAULT_NATIVE_BACKEND_COMMAND,
         port: 18790,
         repo_root: "D:/Code/tinybot/tinybot",
         logs: ["stdout: ready"],
@@ -2733,12 +2733,12 @@ describe("desktop workbench shell", () => {
     expect(runtime?.querySelectorAll(".desktop-gateway-runtime-row").map((row) => row.textContent)).toEqual([
       "State: Running",
       "Owner: Shell-owned",
-      "Command: node workers/ts-agent-worker/src/index.ts",
+      `Command: ${DEFAULT_NATIVE_BACKEND_COMMAND}`,
       "Port: 18790",
       "Repo root: D:/Code/tinybot/tinybot",
       "Recent logs: stdout: ready",
       "Last error: No recent error",
-      "Exit policy: Keep native TS backend running after exit",
+      "Exit policy: Keep TS compatibility worker running after exit",
     ]);
   });
 
@@ -3704,7 +3704,7 @@ describe("desktop workbench shell", () => {
         http_ok: true,
         gateway_http: "http://127.0.0.1:18790",
         gateway_ws: "ws://127.0.0.1:18790/ws",
-        command: "node workers/ts-agent-worker/src/index.ts",
+        command: DEFAULT_NATIVE_BACKEND_COMMAND,
         port: 18790,
         repo_root: "D:/Code/tinybot/tinybot",
         logs: ["stdout: ready"],
@@ -3735,7 +3735,7 @@ describe("desktop workbench shell", () => {
     runtime?.querySelector('[data-desktop-gateway-action="openLogs"]')?.click();
 
     expect(actionEvents).toEqual(["stop", "restart", "keepRunningOnExit"]);
-    expect(copied[0]).toContain("Command: node workers/ts-agent-worker/src/index.ts");
+    expect(copied[0]).toContain(`Command: ${DEFAULT_NATIVE_BACKEND_COMMAND}`);
     expect(copied[0]).toContain("stdout: ready");
     expect(targetDocument.body.querySelector('[data-workbench-region="inspector"]')?.textContent).toContain("Gateway Logs");
     expect(targetDocument.body.querySelector('[data-workbench-region="inspector"]')?.textContent).toContain("stdout: ready");

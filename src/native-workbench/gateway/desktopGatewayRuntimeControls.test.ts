@@ -4,6 +4,7 @@ import {
   buildDesktopGatewayRuntimeRows,
   runDesktopGatewayRuntimeCommand,
 } from "./desktopGatewayRuntimeControls";
+import { DEFAULT_NATIVE_BACKEND_COMMAND } from "./desktopGatewayStartup";
 import type { GatewayRuntimeStatus } from "./desktopGatewayStartup";
 
 describe("desktop gateway runtime controls", () => {
@@ -14,7 +15,7 @@ describe("desktop gateway runtime controls", () => {
       http_ok: false,
       gateway_http: "http://127.0.0.1:18790",
       gateway_ws: "ws://127.0.0.1:18790/ws",
-      command: "node workers/ts-agent-worker/src/index.ts",
+      command: DEFAULT_NATIVE_BACKEND_COMMAND,
       port: 18790,
       repo_root: "D:/Code/tinybot/tinybot",
       logs: ["stdout: booting", "stderr: warning", "stdout: listening"],
@@ -25,12 +26,12 @@ describe("desktop gateway runtime controls", () => {
     expect(buildDesktopGatewayRuntimeRows(status, "http://127.0.0.1:18790")).toEqual([
       { label: "State", value: "Starting" },
       { label: "Owner", value: "Shell-owned" },
-      { label: "Command", value: "node workers/ts-agent-worker/src/index.ts" },
+      { label: "Command", value: DEFAULT_NATIVE_BACKEND_COMMAND },
       { label: "Port", value: "18790" },
       { label: "Repo root", value: "D:/Code/tinybot/tinybot" },
       { label: "Recent logs", value: "stdout: booting\nstderr: warning\nstdout: listening" },
       { label: "Last error", value: "HTTP 503" },
-      { label: "Exit policy", value: "Stop native TS backend on exit" },
+      { label: "Exit policy", value: "Stop TS compatibility worker on exit" },
     ]);
   });
 
@@ -41,7 +42,7 @@ describe("desktop gateway runtime controls", () => {
       http_ok: true,
       gateway_http: "http://127.0.0.1:18790",
       gateway_ws: "ws://127.0.0.1:18790/ws",
-      command: "node workers/ts-agent-worker/src/index.ts",
+      command: DEFAULT_NATIVE_BACKEND_COMMAND,
       port: 18790,
       repo_root: "D:/Code/tinybot/tinybot",
       logs: ["external gateway reachable"],
@@ -81,7 +82,7 @@ describe("desktop gateway runtime controls", () => {
       http_ok: true,
       gateway_http: "http://127.0.0.1:18790",
       gateway_ws: "ws://127.0.0.1:18790/ws",
-      command: "node workers/ts-agent-worker/src/index.ts",
+      command: DEFAULT_NATIVE_BACKEND_COMMAND,
       port: 18790,
       repo_root: "D:/Code/tinybot/tinybot",
       logs: [],
@@ -107,14 +108,14 @@ describe("desktop gateway runtime controls", () => {
     expect(commands).toEqual(["stop_gateway", "start_gateway"]);
   });
 
-  test("toggles native TS backend exit policy through a persisted runtime command", async () => {
+  test("toggles TS compatibility worker exit policy through a persisted runtime command", async () => {
     const status: GatewayRuntimeStatus = {
       state: "running",
       owner: "shell",
       http_ok: true,
       gateway_http: "http://127.0.0.1:18790",
       gateway_ws: "ws://127.0.0.1:18790/ws",
-      command: "node workers/ts-agent-worker/src/index.ts",
+      command: DEFAULT_NATIVE_BACKEND_COMMAND,
       port: 18790,
       repo_root: "D:/Code/tinybot/tinybot",
       logs: [],
@@ -149,7 +150,7 @@ describe("desktop gateway runtime controls", () => {
       http_ok: false,
       gateway_http: "http://127.0.0.1:18790",
       gateway_ws: "ws://127.0.0.1:18790/ws",
-      command: "node workers/ts-agent-worker/src/index.ts",
+      command: DEFAULT_NATIVE_BACKEND_COMMAND,
       port: 18790,
       repo_root: "D:/Code/tinybot/tinybot",
       logs: [],
@@ -175,7 +176,7 @@ describe("desktop gateway runtime controls", () => {
       http_ok: true,
       gateway_http: "http://127.0.0.1:18790",
       gateway_ws: "ws://127.0.0.1:18790/ws",
-      command: "node workers/ts-agent-worker/src/index.ts",
+      command: DEFAULT_NATIVE_BACKEND_COMMAND,
       port: 18790,
       repo_root: "D:/Code/tinybot/tinybot",
       logs: [],
@@ -194,8 +195,8 @@ describe("desktop gateway runtime controls", () => {
     };
 
     expect(buildDesktopGatewayRuntimeRows(status, "http://127.0.0.1:18790")).toEqual(expect.arrayContaining([
-      { label: "Worker", value: "Running via stdio" },
-      { label: "Worker diagnostics", value: "stdout: worker ready\nstderr: worker warning" },
+      { label: "Rust backend", value: "Running via stdio" },
+      { label: "Rust diagnostics", value: "stdout: worker ready\nstderr: worker warning" },
     ]));
     expect(buildDesktopGatewayRuntimeActions(status).map((action) => action.id)).toEqual([
       "copyDiagnostics",

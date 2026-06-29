@@ -2,6 +2,7 @@
 
 import { describe, expect, test } from "vitest";
 import { mountGatewayRuntimeIsland } from "./gatewayRuntimeIsland";
+import { DEFAULT_NATIVE_BACKEND_COMMAND } from "../../gateway/desktopGatewayStartup";
 import type { GatewayRuntimeStatus } from "../../gateway/desktopGatewayStartup";
 
 describe("gateway runtime Vue island", () => {
@@ -14,7 +15,7 @@ describe("gateway runtime Vue island", () => {
       http_ok: true,
       gateway_http: "http://127.0.0.1:18790",
       gateway_ws: "ws://127.0.0.1:18790/ws",
-      command: "node workers/ts-agent-worker/src/index.ts",
+      command: DEFAULT_NATIVE_BACKEND_COMMAND,
       port: 18790,
       repo_root: "D:/Code/tinybot/tinybot",
       logs: ["stdout: ready"],
@@ -34,12 +35,12 @@ describe("gateway runtime Vue island", () => {
     expect(Array.from(host.querySelectorAll("[data-desktop-gateway-runtime-row]")).map((row) => row.textContent)).toEqual([
       "StateRunning",
       "OwnerShell-owned",
-      "Commandnode workers/ts-agent-worker/src/index.ts",
+      `Command${DEFAULT_NATIVE_BACKEND_COMMAND}`,
       "Port18790",
       "Repo rootD:/Code/tinybot/tinybot",
       "Recent logsstdout: ready",
       "Last errorNo recent error",
-      "Exit policyStop native TS backend on exit",
+      "Exit policyStop TS compatibility worker on exit",
     ]);
 
     host.querySelector<HTMLButtonElement>('[data-desktop-gateway-action="stop"]')?.click();

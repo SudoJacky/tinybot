@@ -1,4 +1,4 @@
-import type { GatewayRuntimeStatus } from "./desktopGatewayStartup";
+import { DEFAULT_NATIVE_BACKEND_COMMAND, type GatewayRuntimeStatus } from "./desktopGatewayStartup";
 
 export interface DesktopGatewayRuntimeRow {
   label: string;
@@ -51,7 +51,7 @@ export function buildDesktopGatewayRuntimeRows(
   return [
     { label: "State", value: formatState(status?.state ?? "running") },
     { label: "Owner", value: formatOwner(status?.owner ?? "external") },
-    { label: "Command", value: status?.command || "node workers/ts-agent-worker/src/index.ts" },
+    { label: "Command", value: status?.command || DEFAULT_NATIVE_BACKEND_COMMAND },
     { label: "Port", value: formatPort(status?.port, gatewayHttp) },
     { label: "Repo root", value: status?.repo_root || "Unknown" },
     { label: "Recent logs", value: logs.length ? logs.join("\n") : "No recent logs" },
@@ -155,15 +155,15 @@ function workerRows(status: GatewayRuntimeStatus | null): DesktopGatewayRuntimeR
   }
   const diagnostics = (worker.diagnostics ?? []).slice(-4);
   return [
-    { label: "Worker", value: formatWorkerState(worker.state, worker.transport_mode) },
+    { label: "Rust backend", value: formatWorkerState(worker.state, worker.transport_mode) },
     {
-      label: "Worker diagnostics",
+      label: "Rust diagnostics",
       value: diagnostics.length
         ? diagnostics.map((line) => `${line.stream}: ${line.line}`).join("\n")
-        : "No worker diagnostics",
+        : "No Rust diagnostics",
     },
-    ...(worker.last_error ? [{ label: "Worker error", value: worker.last_error }] : []),
-    ...(worker.recovery_hint ? [{ label: "Worker recovery", value: worker.recovery_hint }] : []),
+    ...(worker.last_error ? [{ label: "Rust backend error", value: worker.last_error }] : []),
+    ...(worker.recovery_hint ? [{ label: "Rust recovery", value: worker.recovery_hint }] : []),
   ];
 }
 
@@ -184,7 +184,7 @@ function formatExitPolicy(policy: GatewayRuntimeStatus["exit_policy"], owner: Ga
     return "External gateway is not managed by desktop";
   }
   if (policy === "keep_running") {
-    return "Keep native TS backend running after exit";
+    return "Keep TS compatibility worker running after exit";
   }
-  return "Stop native TS backend on exit";
+  return "Stop TS compatibility worker on exit";
 }

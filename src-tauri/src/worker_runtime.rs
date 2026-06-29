@@ -28,6 +28,18 @@ pub struct WorkerRuntimeStatus {
 }
 
 impl WorkerRuntimeStatus {
+    pub fn rust_backend_active(diagnostics: Vec<WorkerDiagnosticLine>) -> Self {
+        Self {
+            state: WorkerRuntimeState::Running,
+            backend_kind: NativeBackendKind::Rust,
+            compatibility_worker: None,
+            transport_mode: None,
+            diagnostics,
+            last_error: None,
+            recovery_hint: None,
+        }
+    }
+
     pub fn stopped() -> Self {
         Self {
             state: WorkerRuntimeState::Stopped,
@@ -111,6 +123,23 @@ mod tests {
         assert_eq!(status.transport_mode, None);
         assert!(status.diagnostics.is_empty());
         assert!(status.last_error.is_none());
+    }
+
+    #[test]
+    fn rust_backend_active_reports_no_compatibility_worker() {
+        let status = WorkerRuntimeStatus::rust_backend_active(vec![WorkerDiagnosticLine::new(
+            "stdout",
+            "rust backend ready",
+        )]);
+
+        assert_eq!(status.state, WorkerRuntimeState::Running);
+        assert_eq!(status.backend_kind, NativeBackendKind::Rust);
+        assert!(status.compatibility_worker.is_none());
+        assert_eq!(status.transport_mode, None);
+        assert_eq!(
+            status.diagnostics,
+            vec![WorkerDiagnosticLine::new("stdout", "rust backend ready")]
+        );
     }
 
     #[test]

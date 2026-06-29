@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { AGENT_UI_EVENT_TYPES, createAgentUiEventState, normalizeAgentUiEvents, reduceAgentUiEventState } from "../agent-ui/agentUiEvents";
+import { DEFAULT_NATIVE_BACKEND_COMMAND } from "../gateway/desktopGatewayStartup";
 import type { GatewayRuntimeStatus } from "../gateway/desktopGatewayStartup";
 import {
   buildDesktopAgentUiApprovalTaskOperations,
@@ -73,7 +74,7 @@ describe("desktop task center source projections", () => {
       http_ok: false,
       gateway_http: "http://127.0.0.1:18790",
       gateway_ws: "ws://127.0.0.1:18790/ws",
-      command: "node workers/ts-agent-worker/src/index.ts",
+      command: DEFAULT_NATIVE_BACKEND_COMMAND,
       repo_root: "D:/Code/tinybot/tinybot",
       logs: ["booting"],
       last_error: null,
@@ -84,7 +85,7 @@ describe("desktop task center source projections", () => {
       id: "gateway:startup",
       title: "Start Tinybot gateway",
       status: "starting",
-      detail: "shell / node workers/ts-agent-worker/src/index.ts",
+      detail: `shell / ${DEFAULT_NATIVE_BACKEND_COMMAND}`,
       canonical: { module: "gateway", href: "/api/status" },
       diagnostics: "booting",
       retryable: false,
@@ -94,7 +95,7 @@ describe("desktop task center source projections", () => {
       id: "gateway:restart",
       title: "Restart Tinybot gateway",
       status: "failed",
-      detail: "none / node workers/ts-agent-worker/src/index.ts",
+      detail: `none / ${DEFAULT_NATIVE_BACKEND_COMMAND}`,
       canonical: { module: "gateway", href: "/api/status" },
       diagnostics: "port occupied",
       retryable: true,

@@ -532,7 +532,7 @@ describe("gateway HTTP client", () => {
       document: vi.fn(async (documentId: string) => ({ document: { id: documentId } })),
       deleteDocument: vi.fn(async (documentId: string) => ({ deleted: true, doc_id: documentId })),
       job: vi.fn(async (jobId: string) => ({ id: jobId, status: "completed" })),
-      rebuildIndex: vi.fn(async (type: string) => ({ id: `kjob_rebuild_${type}`, status: "completed" })),
+      rebuildIndex: vi.fn(async (type?: string) => ({ id: `kjob_rebuild_${type ?? "all"}`, status: "completed" })),
       stats: vi.fn(async () => ({ document_count: 1 })),
       graph: vi.fn(async (options: unknown) => ({ object: "knowledge_graph", options })),
     };

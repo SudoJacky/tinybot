@@ -4,7 +4,7 @@ import { configFromEditorSnapshot, createDesktopNativeConfigApi } from "./deskto
 
 describe("desktop native config API", () => {
   test("loads effective public config through the Rust config editor snapshot", async () => {
-    const invoke = vi.fn(async () => ({
+    const invokeMock = vi.fn(async () => ({
       revision: "hash:new",
       effectivePublicConfig: { agents: { defaults: { provider: "openai" } } },
       origins: { "agents.defaults.provider": "file" },
@@ -12,6 +12,7 @@ describe("desktop native config API", () => {
       secretPresence: { "providers.openai.api_key": true },
       configPath: "D:/home/.tinybot/config.json",
     }));
+    const invoke = invokeMock as unknown as <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
     const api = createDesktopNativeConfigApi({ invoke });
 
     await expect(api.get()).resolves.toEqual({
@@ -25,7 +26,7 @@ describe("desktop native config API", () => {
         secretPresence: { "providers.openai.api_key": true },
       },
     });
-    expect(invoke).toHaveBeenCalledWith("get_config_editor_snapshot");
+    expect(invokeMock).toHaveBeenCalledWith("get_config_editor_snapshot");
   });
 
   test("uses snake case snapshot fields for compatibility", () => {

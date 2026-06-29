@@ -4,7 +4,8 @@ import { createDesktopNativeKnowledgeApi } from "./desktopNativeKnowledge";
 
 describe("desktop native knowledge API", () => {
   test("maps knowledge state calls to Rust Tauri commands", async () => {
-    const invoke = vi.fn(async (command: string, args?: Record<string, unknown>) => ({ command, args }));
+    const invokeMock = vi.fn(async (command: string, args?: Record<string, unknown>) => ({ command, args }));
+    const invoke = invokeMock as unknown as <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
     const api = createDesktopNativeKnowledgeApi({ invoke });
 
     await expect(api.documents({ category: "desktop", limit: 5 })).resolves.toEqual({

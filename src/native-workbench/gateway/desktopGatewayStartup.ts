@@ -31,6 +31,8 @@ export type DesktopWorkerRuntimeStatus = {
   recovery_hint?: string | null;
 };
 
+export const DEFAULT_NATIVE_BACKEND_COMMAND = "Tauri Rust backend";
+
 type BootstrapResult = { ok: true } | { ok: false; error: string };
 
 export type GatewayStartupDeps = {

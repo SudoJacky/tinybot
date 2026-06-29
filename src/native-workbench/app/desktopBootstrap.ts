@@ -18,7 +18,7 @@ import {
 import { installDesktopCommandPalette, type DesktopCommandPaletteInput } from "../command/desktopCommandPalette";
 import { installDesktopMenuCommandRouting } from "../command/desktopCommandNavigation";
 import type { GatewayRuntimeStatus } from "../gateway/desktopGatewayStartup";
-import { ensureGatewayReady } from "../gateway/desktopGatewayStartup";
+import { DEFAULT_NATIVE_BACKEND_COMMAND, ensureGatewayReady } from "../gateway/desktopGatewayStartup";
 import { installDesktopGatewayBridge } from "../gateway/desktopGatewayBridge";
 import {
   buildDesktopKnowledgeDocumentRows,
@@ -2871,7 +2871,7 @@ function failedGatewayRuntimeStatus(
     http_ok: false,
     gateway_http: previousStatus?.gateway_http ?? gatewayConfig.httpBaseUrl,
     gateway_ws: previousStatus?.gateway_ws ?? gatewayConfig.wsUrl,
-    command: previousStatus?.command ?? "node workers/ts-agent-worker/src/index.ts",
+    command: previousStatus?.command ?? DEFAULT_NATIVE_BACKEND_COMMAND,
     port: previousStatus?.port ?? 18790,
     repo_root: previousStatus?.repo_root ?? "",
     logs: [...(previousStatus?.logs ?? []), `error: ${message}`].slice(-12),

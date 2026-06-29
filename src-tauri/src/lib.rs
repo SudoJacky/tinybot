@@ -53,7 +53,7 @@ use crate::desktop_files::{pick_upload_file, reveal_workspace_file, save_export_
 use crate::desktop_gateway::{
     gateway_exit_policy_preference_path, gateway_status, load_gateway_exit_policy,
     native_backend_log_path, set_gateway_keep_running, start_gateway, stop_gateway,
-    stop_owned_gateway,
+    stop_owned_gateway, ts_compatibility_worker_enabled,
 };
 use crate::desktop_heartbeat::{
     start_worker_heartbeat_runtime_with_options, stop_worker_heartbeat_runtime_with_options,
@@ -431,16 +431,15 @@ struct WorkerResumeAgentApprovalInput {
 
 #[tauri::command]
 fn worker_probe_status() -> WorkerRuntimeStatus {
-    WorkerRuntimeStatus::running(
-        crate::worker_protocol::WorkerTransportMode::Stdio,
-        vec![crate::worker_protocol::WorkerDiagnosticLine::new(
+    WorkerRuntimeStatus::rust_backend_active(vec![
+        crate::worker_protocol::WorkerDiagnosticLine::new(
             "stdout",
             format!(
-                "worker protocol {}",
+                "rust backend protocol {}",
                 crate::worker_protocol::WORKER_PROTOCOL_VERSION
             ),
-        )],
-    )
+        ),
+    ])
 }
 
 #[tauri::command]
@@ -3765,15 +3764,22 @@ pub fn run() {
             });
             drop(runtime);
             start_worker_cron_timer(&setup_state);
-            if let Err(error) = start_worker_heartbeat_runtime_with_options(
-                &setup_state,
-                ts_agent_worker_workspace_root(),
-                experimental_worker_config_snapshot(),
-                Duration::from_secs(10),
-            ) {
+            if ts_compatibility_worker_enabled() {
+                if let Err(error) = start_worker_heartbeat_runtime_with_options(
+                    &setup_state,
+                    ts_agent_worker_workspace_root(),
+                    experimental_worker_config_snapshot(),
+                    Duration::from_secs(10),
+                ) {
+                    push_log(
+                        &setup_state,
+                        &format!("TS compatibility heartbeat start failed: {error}"),
+                    );
+                }
+            } else {
                 push_log(
                     &setup_state,
-                    &format!("native heartbeat start failed: {error}"),
+                    "Rust backend startup skipped TS compatibility heartbeat",
                 );
             }
             Ok(())
@@ -3847,16 +3853,18 @@ pub fn run() {
         .on_window_event(move |_window, event| {
             if matches!(event, WindowEvent::CloseRequested { .. }) {
                 stop_worker_cron_timer(&close_state);
-                if let Err(error) = stop_worker_heartbeat_runtime_with_options(
-                    &close_state,
-                    ts_agent_worker_workspace_root(),
-                    experimental_worker_config_snapshot(),
-                    Duration::from_secs(10),
-                ) {
-                    push_log(
+                if ts_compatibility_worker_enabled() {
+                    if let Err(error) = stop_worker_heartbeat_runtime_with_options(
                         &close_state,
-                        &format!("native heartbeat stop failed: {error}"),
-                    );
+                        ts_agent_worker_workspace_root(),
+                        experimental_worker_config_snapshot(),
+                        Duration::from_secs(10),
+                    ) {
+                        push_log(
+                            &close_state,
+                            &format!("TS compatibility heartbeat stop failed: {error}"),
+                        );
+                    }
                 }
                 let _ = stop_owned_gateway(&close_state, false);
             }
@@ -3897,7 +3905,7 @@ mod tests {
     }
 
     #[test]
-    fn close_shutdown_stops_native_ts_backend_child() {
+    fn close_shutdown_stops_ts_compatibility_worker_child() {
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
         {
             let runtime = lock_runtime(&shared);
@@ -3907,7 +3915,7 @@ mod tests {
                 .expect("test worker should start");
         }
 
-        stop_owned_gateway(&shared, false).expect("native TS backend child should stop");
+        stop_owned_gateway(&shared, false).expect("TS compatibility worker child should stop");
 
         let runtime = lock_runtime(&shared);
         assert_eq!(
@@ -3917,28 +3925,36 @@ mod tests {
         assert!(runtime
             .logs
             .iter()
-            .any(|line| line == "stopped native TS backend"));
+            .any(|line| line == "stopped TS compatibility worker"));
     }
 
     #[test]
-    fn gateway_status_uses_ts_worker_manager_for_native_backend() {
+    fn start_gateway_defaults_to_rust_backend_without_ts_worker() {
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
-        let worker = {
-            let runtime = lock_runtime(&shared);
-            runtime.experimental_worker.clone()
-        };
-        worker
-            .start(test_gateway_short_worker_spec("gateway-status-worker"))
-            .expect("test worker should start");
 
-        let status = current_status(&shared);
+        let status = crate::desktop_gateway::start_gateway_with_options(&shared, false)
+            .expect("Rust backend startup should not require TS worker");
 
         assert_eq!(status.owner, "shell");
         assert_eq!(status.state, "running");
+        assert_eq!(status.command, "Tauri Rust backend");
+        assert_eq!(
+            status.worker_runtime.state,
+            crate::worker_runtime::WorkerRuntimeState::Running
+        );
+        assert!(status.worker_runtime.compatibility_worker.is_none());
+        assert_eq!(
+            lock_runtime(&shared).experimental_worker.status().state,
+            WorkerManagerState::Stopped
+        );
+        assert!(lock_runtime(&shared)
+            .logs
+            .iter()
+            .any(|line| line == "Rust native backend active; TS compatibility worker disabled"));
     }
 
     #[test]
-    fn gateway_status_reflects_running_worker_runtime() {
+    fn gateway_status_reflects_running_ts_compatibility_worker_runtime() {
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
         let worker = {
             let runtime = lock_runtime(&shared);
@@ -3961,7 +3977,7 @@ mod tests {
     }
 
     #[test]
-    fn gateway_status_reports_ts_worker_diagnostics() {
+    fn gateway_status_reports_ts_compatibility_worker_diagnostics() {
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
         let ts_worker = {
             let runtime = lock_runtime(&shared);
@@ -3991,7 +4007,7 @@ mod tests {
 
         assert!(log_text.contains("ts native backend"));
         assert!(diagnostic_text.contains("ts native backend"));
-        assert_eq!(status.command, "node workers/ts-agent-worker/src/index.ts");
+        assert_eq!(status.command, "Tauri Rust backend");
     }
 
     #[test]
@@ -6080,7 +6096,7 @@ mod tests {
             http_ok: true,
             gateway_http: "http://127.0.0.1:18790",
             gateway_ws: "ws://127.0.0.1:18790/ws",
-            command: "node workers/ts-agent-worker/src/index.ts",
+            command: "Tauri Rust backend",
             port: 18790,
             repo_root: "/repo".to_string(),
             log_path: "/logs/native-backend.log".to_string(),
@@ -6150,11 +6166,12 @@ mod tests {
         let value = serde_json::to_value(status).expect("worker probe status should serialize");
 
         assert_eq!(value["state"], "running");
-        assert_eq!(value["transport_mode"], "stdio");
+        assert!(value["transport_mode"].is_null());
+        assert!(value.get("compatibility_worker").is_none());
         assert_eq!(
             value["diagnostics"][0]["line"],
             format!(
-                "worker protocol {}",
+                "rust backend protocol {}",
                 crate::worker_protocol::WORKER_PROTOCOL_VERSION
             )
         );
