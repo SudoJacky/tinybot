@@ -15,6 +15,7 @@ pub mod desktop_gateway;
 pub mod desktop_heartbeat;
 pub mod desktop_logging;
 pub mod desktop_menu;
+pub mod native_backend_contract;
 pub mod worker_background;
 pub mod worker_capability;
 pub mod worker_client;

@@ -128,6 +128,7 @@ import { createDesktopNativeWebuiApi } from "../native/desktopNativeWebui";
 import { startDesktopNativeChannelRuntime } from "../native/desktopNativeChannelLifecycle";
 import { createDesktopNativeTransportApi } from "../native/desktopNativeTransport";
 import { toDesktopNativeTauriEventName } from "../native/desktopNativeTauriEvents";
+import { normalizeNativeBackendEventPayload } from "../native/nativeBackendContract";
 import { normalizeSessionsPayload } from "../chat/nativeChat";
 import {
   flushGatewaySocketQueue,
@@ -293,7 +294,7 @@ async function bootDesktopWebUi(): Promise<void> {
       nativeWebui: gatewayClientOptions.nativeWebui,
       resolveNativeWebSocketSessionExists,
       listenToNativeAgentEvent: (eventName, handler) => listen(toDesktopNativeTauriEventName(eventName), (event) => {
-        handler(event.payload);
+        handler(normalizeNativeBackendEventPayload(event.payload));
       }),
     });
     installWebUiRenderGlobals();
@@ -733,7 +734,7 @@ function handleNativeTsAgentWorkerEvent(eventName: DesktopTsAgentWorkerEventName
   if (!nativeWorkbenchRuntime) {
     return;
   }
-  nativeWorkbenchRuntime.handleTsAgentWorkerEvent(eventName, payload);
+  nativeWorkbenchRuntime.handleTsAgentWorkerEvent(eventName, normalizeNativeBackendEventPayload(payload));
   updateDesktopNativeChat(document, nativeWorkbenchRuntime.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
 }
 
