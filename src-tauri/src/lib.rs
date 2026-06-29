@@ -830,16 +830,17 @@ fn build_worker_run_agent_input_request(
 }
 
 fn worker_skills_list_with_options(
-    shared: &SharedGateway,
+    _shared: &SharedGateway,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
-    timeout: Duration,
+    _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let client = WorkerClient::experimental(shared);
-    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
-
-    let request = build_worker_skills_list_request(next_worker_request_correlation());
-    client.call(&request, timeout, "worker skills list")
+    call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        build_worker_skills_list_request(next_worker_request_correlation()),
+        "worker skills list",
+    )
 }
 
 fn build_worker_skills_list_request(request_id: WorkerRequestCorrelation) -> WorkerRequest {
@@ -852,17 +853,18 @@ fn build_worker_skills_list_request(request_id: WorkerRequestCorrelation) -> Wor
 }
 
 fn worker_skills_detail_with_options(
-    shared: &SharedGateway,
+    _shared: &SharedGateway,
     name: String,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
-    timeout: Duration,
+    _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let client = WorkerClient::experimental(shared);
-    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
-
-    let request = build_worker_skills_detail_request(next_worker_request_correlation(), name);
-    client.call(&request, timeout, "worker skills detail")
+    call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        build_worker_skills_detail_request(next_worker_request_correlation(), name),
+        "worker skills detail",
+    )
 }
 
 fn build_worker_skills_detail_request(
@@ -878,19 +880,17 @@ fn build_worker_skills_detail_request(
 }
 
 fn worker_skills_create_with_options(
-    shared: &SharedGateway,
+    _shared: &SharedGateway,
     body: serde_json::Value,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
-    timeout: Duration,
+    _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    send_skills_worker_request(
-        shared,
+    call_rust_state_service(
         workspace_root,
         config_snapshot,
         build_worker_skills_create_request(next_worker_request_correlation(), body),
-        timeout,
-        "create",
+        "worker skills create",
     )
 }
 
@@ -907,20 +907,18 @@ fn build_worker_skills_create_request(
 }
 
 fn worker_skills_update_with_options(
-    shared: &SharedGateway,
+    _shared: &SharedGateway,
     name: String,
     body: serde_json::Value,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
-    timeout: Duration,
+    _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    send_skills_worker_request(
-        shared,
+    call_rust_state_service(
         workspace_root,
         config_snapshot,
         build_worker_skills_update_request(next_worker_request_correlation(), name, body),
-        timeout,
-        "update",
+        "worker skills update",
     )
 }
 
@@ -938,19 +936,17 @@ fn build_worker_skills_update_request(
 }
 
 fn worker_skills_delete_with_options(
-    shared: &SharedGateway,
+    _shared: &SharedGateway,
     name: String,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
-    timeout: Duration,
+    _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    send_skills_worker_request(
-        shared,
+    call_rust_state_service(
         workspace_root,
         config_snapshot,
         build_worker_skills_delete_request(next_worker_request_correlation(), name),
-        timeout,
-        "delete",
+        "worker skills delete",
     )
 }
 
@@ -967,19 +963,17 @@ fn build_worker_skills_delete_request(
 }
 
 fn worker_skills_validate_with_options(
-    shared: &SharedGateway,
+    _shared: &SharedGateway,
     name: String,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
-    timeout: Duration,
+    _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    send_skills_worker_request(
-        shared,
+    call_rust_state_service(
         workspace_root,
         config_snapshot,
         build_worker_skills_validate_request(next_worker_request_correlation(), name),
-        timeout,
-        "validate",
+        "worker skills validate",
     )
 }
 
@@ -1436,17 +1430,20 @@ fn sanitize_worker_run_id_part(value: &str) -> String {
     }
 }
 
-fn send_skills_worker_request(
-    shared: &SharedGateway,
+fn call_rust_state_service(
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     request: WorkerRequest,
-    timeout: Duration,
-    action: &str,
+    label: &str,
 ) -> Result<serde_json::Value, String> {
-    let client = WorkerClient::experimental(shared);
-    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
-    client.call(&request, timeout, &format!("worker skills {action}"))
+    let mut router = experimental_worker_router(workspace_root, config_snapshot);
+    let response = router.dispatch(&request);
+    if let Some(error) = response.error {
+        return Err(format!("{label} failed: {}", error.message));
+    }
+    response
+        .result
+        .ok_or_else(|| format!("{label} failed: missing response result"))
 }
 
 fn worker_cancel_agent_with_options(
@@ -2777,7 +2774,7 @@ mod tests {
     }
 
     #[test]
-    fn worker_skills_requests_target_ts_webui_skill_methods() {
+    fn worker_skills_requests_target_rust_webui_skill_methods() {
         let list_request = build_worker_skills_list_request(test_request_correlation("42"));
         let detail_request = build_worker_skills_detail_request(
             test_request_correlation("43"),
@@ -2839,6 +2836,32 @@ mod tests {
         assert_eq!(
             validate_request.params,
             serde_json::json!({ "name": "planner/phase" })
+        );
+    }
+
+    #[test]
+    fn worker_skills_list_reads_rust_workspace_without_ts_worker() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write(
+            "skills/planner/SKILL.md",
+            "---\nname: planner\ndescription: Plan work\n---\nPlan.",
+        );
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+
+        let result = worker_skills_list_with_options(
+            &shared,
+            fixture.root.clone(),
+            serde_json::json!({ "skills": { "enabled": ["planner"] } }),
+            Duration::from_millis(10),
+        )
+        .expect("skills list should be served by Rust workspace state");
+
+        assert_eq!(result["skills"][0]["name"], "planner");
+        assert_eq!(result["skills"][0]["description"], "Plan work");
+        assert_eq!(result["skills"][0]["enabled"], true);
+        assert_eq!(
+            lock_runtime(&shared).experimental_worker.status().state,
+            WorkerManagerState::Stopped
         );
     }
 

@@ -3,7 +3,7 @@ import { describe, expect, test, vi } from "vitest";
 import { createDesktopNativeSkillsApi } from "./desktopNativeSkills";
 
 describe("desktop native skills API", () => {
-  test("loads skills list and detail through TS worker Tauri commands", async () => {
+  test("loads and mutates skills through Rust state Tauri commands", async () => {
     const invoke = vi.fn(async (command: string, args?: Record<string, unknown>) => ({
       command,
       args,
