@@ -63,7 +63,8 @@ use crate::desktop_menu::{
     install_desktop_application_menu, is_desktop_menu_command, DesktopMenuCommandPayload,
 };
 use crate::worker_agent_runtime::{
-    resolve_native_agent_runtime_mode, run_native_agent_turn, NativeAgentRuntimeMode,
+    resolve_native_agent_runtime_mode, run_native_agent_turn_with_services, NativeAgentRuntimeMode,
+    NativeAgentRuntimeServices,
 };
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_client::WorkerClient;
@@ -102,6 +103,7 @@ const NATIVE_BACKEND_LOG_TAIL_LINES: usize = 100;
 
 struct GatewayRuntime {
     experimental_worker: WorkerManager,
+    native_agent_runtime: NativeAgentRuntimeServices,
     logs: VecDeque<String>,
     persistent_log_path: PathBuf,
     last_error: Option<String>,
@@ -115,6 +117,7 @@ impl Default for GatewayRuntime {
     fn default() -> Self {
         Self {
             experimental_worker: WorkerManager::new(200),
+            native_agent_runtime: NativeAgentRuntimeServices::default(),
             logs: VecDeque::with_capacity(200),
             persistent_log_path: native_backend_log_path(),
             last_error: None,
@@ -871,7 +874,12 @@ fn worker_cancel_agent(
     input: WorkerCancelAgentInput,
     state: State<'_, SharedGateway>,
 ) -> Result<serde_json::Value, String> {
-    worker_cancel_agent_with_options(state.inner(), input.run_id, Duration::from_secs(10))
+    worker_cancel_agent_with_options(
+        state.inner(),
+        input.run_id,
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
 }
 
 #[tauri::command]
@@ -1250,7 +1258,11 @@ fn worker_run_agent_with_options(
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
     if resolve_native_agent_runtime_mode(&spec, &config_snapshot) == NativeAgentRuntimeMode::Rust {
-        return run_native_agent_turn(spec);
+        let services = {
+            let runtime = lock_runtime(shared);
+            runtime.native_agent_runtime.clone()
+        };
+        return run_native_agent_turn_with_services(&services, spec);
     }
 
     let client = WorkerClient::experimental(shared);
@@ -2979,8 +2991,19 @@ fn call_rust_state_service(
 fn worker_cancel_agent_with_options(
     shared: &SharedGateway,
     run_id: String,
+    config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    if resolve_native_agent_runtime_mode(&serde_json::json!({}), &config_snapshot)
+        == NativeAgentRuntimeMode::Rust
+    {
+        let services = {
+            let runtime = lock_runtime(shared);
+            runtime.native_agent_runtime.clone()
+        };
+        return Ok(services.cancel(&run_id));
+    }
+
     let client = WorkerClient::experimental(shared);
     client.require_running()?;
 
@@ -3007,6 +3030,16 @@ fn worker_restore_agent_checkpoint_with_options(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    if resolve_native_agent_runtime_mode(&serde_json::json!({}), &config_snapshot)
+        == NativeAgentRuntimeMode::Rust
+    {
+        let services = {
+            let runtime = lock_runtime(shared);
+            runtime.native_agent_runtime.clone()
+        };
+        return Ok(services.restore_checkpoint(&session_id));
+    }
+
     let client = WorkerClient::experimental(shared);
     client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
 
@@ -3656,11 +3689,16 @@ fn experimental_worker_router_with_runtime_restart(
 }
 
 fn experimental_worker_workspace_root() -> PathBuf {
-    repo_root()
-        .join("apps")
-        .join("desktop")
-        .join("workers")
-        .join("ts-worker-fixture")
+    let root = repo_root();
+    let current_layout = root.join("workers").join("ts-worker-fixture");
+    if current_layout.exists() {
+        current_layout
+    } else {
+        root.join("apps")
+            .join("desktop")
+            .join("workers")
+            .join("ts-worker-fixture")
+    }
 }
 
 fn ts_agent_worker_workspace_root() -> PathBuf {
@@ -3800,11 +3838,12 @@ fn lock_runtime(shared: &SharedGateway) -> std::sync::MutexGuard<'_, GatewayRunt
 }
 
 fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(|path| path.parent())
-        .and_then(|path| path.parent())
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    manifest_dir
+        .ancestors()
+        .find(|path| path.join("workers").join("ts-agent-worker").exists())
         .map(PathBuf::from)
+        .or_else(|| manifest_dir.parent().map(PathBuf::from))
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
@@ -4422,6 +4461,58 @@ mod tests {
         assert_eq!(result["finalContent"], "Echo: hello rust");
         assert_eq!(result["events"][0]["eventName"], "agent.delta");
         assert_eq!(result["events"][1]["eventName"], "agent.done");
+        assert_eq!(
+            lock_runtime(&shared).experimental_worker.status().state,
+            WorkerManagerState::Stopped
+        );
+    }
+
+    #[test]
+    fn worker_rust_agent_restore_and_cancel_use_native_runtime_state() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let rust_config = serde_json::json!({
+            "desktop": { "nativeAgentRuntime": "rust" }
+        });
+
+        let awaiting = worker_run_agent_with_options(
+            &shared,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-approval",
+                "sessionId": "WebSocket:chat-approval",
+                "metadata": {
+                    "fakeAwaitingApproval": {
+                        "approvalId": "approval-1",
+                        "toolName": "workspace.write_file"
+                    }
+                }
+            }),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("Rust runtime should create an approval checkpoint");
+        let restored = worker_restore_agent_checkpoint_with_options(
+            &shared,
+            "WebSocket:chat-approval".to_string(),
+            fixture.root.clone(),
+            rust_config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("Rust runtime should restore checkpoints without TS worker");
+        let cancelled = worker_cancel_agent_with_options(
+            &shared,
+            "run-cancel".to_string(),
+            rust_config,
+            Duration::from_millis(10),
+        )
+        .expect("Rust runtime should cancel without TS worker");
+
+        assert_eq!(awaiting["stopReason"], "awaiting_approval");
+        assert_eq!(restored["runtime"], "rust");
+        assert_eq!(restored["checkpoint"]["phase"], "awaiting_approval");
+        assert_eq!(cancelled["events"][0]["eventName"], "agent.cancelled");
         assert_eq!(
             lock_runtime(&shared).experimental_worker.status().state,
             WorkerManagerState::Stopped

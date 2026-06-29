@@ -78,6 +78,13 @@ export type DesktopTsAgentRunResult = {
   messages?: DesktopTsAgentMessage[];
   toolsUsed?: string[];
   error?: string;
+  events?: DesktopTsAgentRunResultEvent[];
+};
+
+export type DesktopTsAgentRunResultEvent = {
+  eventName?: DesktopTsAgentWorkerEventName | string;
+  event_name?: DesktopTsAgentWorkerEventName | string;
+  payload?: unknown;
 };
 
 export type DesktopTsAgentRestoreCheckpointResult = {
@@ -314,6 +321,7 @@ export function createDesktopNativeWorkbenchRuntime({
     }
     try {
       const result = await runTsAgent(spec);
+      const projectedTerminalEvent = projectTsAgentRunResultEvents(result);
       const streamMessageExists = chatController.state.streamMessageKeys.has(spec.runId);
       if (!streamMessageExists && result.finalContent.trim()) {
         applyChatEvent(chatController.state, {
@@ -331,9 +339,11 @@ export function createDesktopNativeWorkbenchRuntime({
           },
         });
       }
-      completeTsAgentRun(spec.runId, chatId, { stopReason: result.stopReason });
-      composerState = "idle";
-      chatStatus = result.error ? `TS agent stopped: ${result.error}` : tsAgentStatusForStopReason(result.stopReason);
+      if (!projectedTerminalEvent) {
+        completeTsAgentRun(spec.runId, chatId, { stopReason: result.stopReason });
+        composerState = "idle";
+        chatStatus = result.error ? `TS agent stopped: ${result.error}` : tsAgentStatusForStopReason(result.stopReason);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       applyChatEvent(chatController.state, { kind: "error", message, raw: { event: "error", message } });
@@ -341,6 +351,24 @@ export function createDesktopNativeWorkbenchRuntime({
       composerState = "idle";
       chatStatus = `TS agent failed: ${message}`;
     }
+  }
+
+  function projectTsAgentRunResultEvents(result: DesktopTsAgentRunResult): boolean {
+    let projectedTerminalEvent = false;
+    for (const event of Array.isArray(result.events) ? result.events : []) {
+      if (!isRecord(event)) {
+        continue;
+      }
+      const eventName = stringValue(event.eventName ?? event.event_name);
+      if (!eventName) {
+        continue;
+      }
+      handleTsAgentWorkerEvent(eventName as DesktopTsAgentWorkerEventName, event.payload ?? {});
+      if (eventName === "agent.done" || eventName === "agent.cancelled" || eventName === "agent.error") {
+        projectedTerminalEvent = true;
+      }
+    }
+    return projectedTerminalEvent;
   }
 
   function handleTsAgentWorkerEvent(eventName: DesktopTsAgentWorkerEventName, payload: unknown): void {
