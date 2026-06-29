@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, VecDeque},
@@ -22,6 +24,7 @@ pub mod worker_capability;
 pub mod worker_client;
 pub mod worker_config;
 pub mod worker_connection;
+pub mod worker_cowork_runtime;
 pub mod worker_cron;
 pub mod worker_diagnostics;
 pub mod worker_knowledge;
@@ -64,6 +67,7 @@ use crate::worker_agent_runtime::{
 };
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_client::WorkerClient;
+use crate::worker_cowork_runtime::WorkerCoworkRuntime;
 use crate::worker_manager::{
     WorkerCommandSpec, WorkerManager, WorkerManagerEvent, WorkerManagerState,
 };
@@ -1855,11 +1859,82 @@ fn worker_cowork_route_with_options(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    if let Some(response) = worker_cowork_rust_route_with_options(&input, workspace_root.clone()) {
+        return response;
+    }
+
     let client = WorkerClient::experimental(shared);
     client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
 
     let request = build_worker_cowork_route_request(next_worker_request_correlation(), input);
     client.call(&request, timeout, "worker cowork route")
+}
+
+fn worker_cowork_rust_route_with_options(
+    input: &WorkerCoworkRouteInput,
+    workspace_root: PathBuf,
+) -> Option<Result<serde_json::Value, String>> {
+    let method = input.method.to_ascii_uppercase();
+    let (path, path_query) = split_webui_route_path(&input.path);
+    let mut query = path_query;
+    if let Some(input_query) = input.query.as_ref().and_then(serde_json::Value::as_object) {
+        for (key, value) in input_query {
+            if let Some(value) = value.as_str() {
+                query.insert(key.clone(), value.to_string());
+            }
+        }
+    }
+    let runtime = WorkerCoworkRuntime::new(workspace_root);
+    let result = match (method.as_str(), path.as_str()) {
+        ("GET", "/api/cowork/sessions") => Some(
+            runtime.list_sessions(
+                query
+                    .get("include_completed")
+                    .is_some_and(|value| matches!(value.as_str(), "1" | "true")),
+            ),
+        ),
+        ("POST", "/api/cowork/sessions") => Some(
+            runtime.create_session(input.body.clone().unwrap_or_else(|| serde_json::json!({}))),
+        ),
+        _ => worker_cowork_rust_dynamic_route(&runtime, &method, &path),
+    };
+
+    result.map(|result| {
+        result
+            .map(|body| webui_route_response(200, body, "rust", "cowork"))
+            .or_else(|error| {
+                Ok(webui_route_response(
+                    500,
+                    serde_json::json!({ "error": { "message": error } }),
+                    "rust",
+                    "cowork",
+                ))
+            })
+    })
+}
+
+fn worker_cowork_rust_dynamic_route(
+    runtime: &WorkerCoworkRuntime,
+    method: &str,
+    path: &str,
+) -> Option<Result<serde_json::Value, String>> {
+    let rest = path.strip_prefix("/api/cowork/sessions/")?;
+    let mut parts = rest.split('/').map(percent_decode).collect::<Vec<_>>();
+    if parts.is_empty() || parts[0].is_empty() {
+        return None;
+    }
+    let session_id = parts.remove(0);
+    if method == "GET" && parts.is_empty() {
+        return Some(runtime.get_session(&session_id).map(|session| {
+            session.unwrap_or_else(|| serde_json::json!({ "error": "cowork session not found" }))
+        }));
+    }
+    if method == "GET" && parts.len() == 1 {
+        return Some(runtime.session_view(&session_id, &parts[0]).map(|view| {
+            view.unwrap_or_else(|| serde_json::json!({ "error": "cowork session not found" }))
+        }));
+    }
+    None
 }
 
 fn build_worker_cowork_route_request(
@@ -4840,6 +4915,67 @@ mod tests {
                 "body": { "reason": "Retry" },
                 "query": { "limit": "5" }
             })
+        );
+    }
+
+    #[test]
+    fn worker_cowork_route_serves_rust_sessions_without_ts_worker() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+
+        let created = worker_cowork_route_with_options(
+            &shared,
+            WorkerCoworkRouteInput {
+                method: "POST".to_string(),
+                path: "/api/cowork/sessions".to_string(),
+                body: Some(serde_json::json!({
+                    "goal": "Plan the Rust migration",
+                    "title": "Rust migration"
+                })),
+                query: None,
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("Cowork create route should be Rust-owned");
+        let session_id = created["body"]["id"]
+            .as_str()
+            .expect("created cowork session should include id")
+            .to_string();
+        let listed = worker_cowork_route_with_options(
+            &shared,
+            WorkerCoworkRouteInput {
+                method: "GET".to_string(),
+                path: "/api/cowork/sessions".to_string(),
+                body: None,
+                query: Some(serde_json::json!({ "include_completed": "true" })),
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("Cowork list route should be Rust-owned");
+        let trace = worker_cowork_route_with_options(
+            &shared,
+            WorkerCoworkRouteInput {
+                method: "GET".to_string(),
+                path: format!("/api/cowork/sessions/{session_id}/trace"),
+                body: None,
+                query: None,
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("Cowork trace route should be Rust-owned");
+
+        assert_eq!(created["headers"]["x-tinybot-route-owner"], "rust");
+        assert_eq!(listed["body"]["sessions"][0]["id"], session_id);
+        assert_eq!(trace["body"]["events"][0]["type"], "session.created");
+        assert_eq!(
+            lock_runtime(&shared).experimental_worker.status().state,
+            WorkerManagerState::Stopped
         );
     }
 
