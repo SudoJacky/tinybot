@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { DEFAULT_GATEWAY_CONFIG, resolveGatewayConfig } from "./gatewayConfig";
+import { DEFAULT_GATEWAY_CONFIG, resolveGatewayConfig } from "./native-workbench/gateway/gatewayConfig";
 import {
   DEFAULT_TS_COWORK_RUNTIME_ROLLOUT,
   checkGatewayHealth,
@@ -7,10 +7,10 @@ import {
   resolveTsCoworkRuntimeRollout,
   type GatewayHealth,
   type TsCoworkRuntimeRollout,
-} from "./gatewayHttpClient";
-import { createDesktopNativeCoworkApi } from "./desktopNativeCowork";
-import { createDesktopNativeSkillsApi } from "./desktopNativeSkills";
-import { createDesktopNativeWebuiApi } from "./desktopNativeWebui";
+} from "./native-workbench/gateway/gatewayHttpClient";
+import { createDesktopNativeCoworkApi } from "./native-workbench/native/desktopNativeCowork";
+import { createDesktopNativeSkillsApi } from "./native-workbench/native/desktopNativeSkills";
+import { createDesktopNativeWebuiApi } from "./native-workbench/native/desktopNativeWebui";
 import {
   AGENT_UI_FORM_STATUSES,
   buildAgentUiFormCancelRequest,
@@ -22,37 +22,37 @@ import {
   validateAgentUiFormValues,
   type AgentUiForm,
   type AgentUiFormField,
-} from "./agentUiEvents";
+} from "./native-workbench/agent-ui/agentUiEvents";
 import {
   flushGatewaySocketQueue,
   openGatewaySocket,
   sendGatewaySocketJson,
   type NormalizedGatewayEvent,
-} from "./gatewayWebSocketClient";
-import { resolveGatewayStatusView } from "./gatewayStatusView";
-import { createDesktopChatSessionController } from "./desktopChatSessionController";
-import { type NativeChatMessage } from "./nativeChat";
+} from "./native-workbench/gateway/gatewayWebSocketClient";
+import { resolveGatewayStatusView } from "./native-workbench/gateway/gatewayStatusView";
+import { createDesktopChatSessionController } from "./native-workbench/chat/desktopChatSessionController";
+import { type NativeChatMessage } from "./native-workbench/chat/nativeChat";
 import {
   buildDesktopSecretField,
   buildDesktopSettingsFormState,
   validateDesktopSettingsForm,
   type DesktopProviderCatalogItem,
-} from "./desktopSettingsProviders";
+} from "./native-workbench/settings/desktopSettingsProviders";
 import {
   buildDesktopKnowledgeDocumentRows,
   buildDesktopKnowledgeReadinessView,
-} from "./desktopKnowledgeTraceability";
+} from "./native-workbench/knowledge/desktopKnowledgeTraceability";
 import {
   buildDesktopSkillRows,
   buildDesktopToolRows,
   buildDesktopToolsConfigHint,
-} from "./desktopToolsSkills";
+} from "./native-workbench/tools-skills/desktopToolsSkills";
 import {
   buildDesktopCoworkCockpitView,
   buildDesktopCoworkSessionRows,
-} from "./desktopCowork";
-import { buildDesktopGatewayRuntimeRows } from "./desktopGatewayRuntimeControls";
-import type { GatewayRuntimeStatus } from "./desktopGatewayStartup";
+} from "./native-workbench/cowork/desktopCowork";
+import { buildDesktopGatewayRuntimeRows } from "./native-workbench/gateway/desktopGatewayRuntimeControls";
+import type { GatewayRuntimeStatus } from "./native-workbench/gateway/desktopGatewayStartup";
 
 type DesktopStatus = {
   app_name: string;

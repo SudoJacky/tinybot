@@ -1,6 +1,9 @@
 ﻿import { describe, expect, test } from "vitest";
 
-import { buildDesktopCoworkCockpitView, buildDesktopCoworkSessionRows } from "../../../../src/desktopCowork";
+import {
+  buildDesktopCoworkCockpitView,
+  buildDesktopCoworkSessionRows,
+} from "../../../../src/native-workbench/cowork/desktopCowork";
 import { normalizeCoworkSession } from "./coworkSerde";
 import { coworkSessionSnapshot } from "./coworkSnapshot";
 
