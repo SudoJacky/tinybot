@@ -13,14 +13,23 @@ export interface ToolActivityIslandOptions {
   approvalId?: string;
   argsText: string;
   approvalStatus: string;
+  delegatedTrace?: Record<string, unknown>;
+  delegateId?: string;
+  delegateTask?: string;
+  delegateTitle?: string;
+  delegateType?: string;
+  finalOutput?: string;
   id: string;
   kind: "call" | "result";
   name: string;
+  parentRunId?: string;
+  parentTurnId?: string;
   responseText: string;
   runChainItemKey?: string;
   selected?: boolean;
   sessionKey?: string;
   status?: string;
+  traceRef?: string;
 }
 
 export interface MountedToolActivityIsland {
@@ -200,13 +209,22 @@ function openToolDetails(
         approvalId: options.approvalId,
         approvalStatus: options.approvalStatus,
         argsText: options.argsText,
+        delegatedTrace: options.delegatedTrace,
+        delegateId: options.delegateId,
+        delegateTask: options.delegateTask,
+        delegateTitle: options.delegateTitle,
+        delegateType: options.delegateType,
+        finalOutput: options.finalOutput,
         id: options.id,
         kind: options.kind,
         name: options.name,
+        parentRunId: options.parentRunId,
+        parentTurnId: options.parentTurnId,
         responseText: options.responseText,
         runChainItemKey: options.runChainItemKey,
         sessionKey: options.sessionKey,
         status: options.status,
+        traceRef: options.traceRef,
       },
       normalizedStatus: status,
     },

@@ -2,10 +2,13 @@ import type { ApprovalCategory, ApprovalRisk } from "../security/approvalTypes.t
 
 export type JsonSchema = Record<string, unknown>;
 
+import type { AgentMessage } from "../agent/agentRunSpec.ts";
+
 export type ToolContext = {
   runId: string;
   traceId?: string;
   sessionId?: string;
+  parentMessages?: AgentMessage[];
 };
 
 export type ToolResult = {

@@ -365,6 +365,65 @@ describe("SubagentRuntime", () => {
       { id: "subagent-2", status: "completed", result: "implementation complete" },
     ]);
   });
+
+  test("records awaiting approval subagents without completing them as failed", async () => {
+    const upserts: Array<{ id: string; status: string; result?: string | null; stopReason?: unknown }> = [];
+    const completes: Array<{ id: string; status: string; result: string }> = [];
+    const runtime = new SubagentRuntime({
+      idGenerator: () => "subagent-approval",
+      nowMs: (() => {
+        let now = 2000;
+        return () => {
+          now += 1;
+          return now;
+        };
+      })(),
+      registry: {
+        upsertRun: async (run) => {
+          upserts.push({
+            id: run.id,
+            status: run.status,
+            result: run.result,
+            stopReason: run.metadata?.stopReason,
+          });
+        },
+        completeRun: async (completion) => {
+          completes.push({
+            id: completion.runId,
+            status: completion.status,
+            result: completion.result ?? "",
+          });
+        },
+      },
+      runner: async () => ({
+        status: "awaiting_approval",
+        result: "Waiting for approval.",
+        metadata: {
+          awaitingUserInput: true,
+          stopReason: "awaiting_approval",
+          approvalId: "approval-1",
+        },
+      }),
+    });
+
+    await runtime.spawn({
+      task: "Write notes",
+      label: "Writer",
+      sessionKey: "desktop:chat-approval",
+    });
+    await waitFor(() => upserts.some((run) => run.status === "awaiting_approval"));
+
+    expect(upserts).toEqual([
+      { id: "subagent-approval", status: "running", result: undefined, stopReason: undefined },
+      {
+        id: "subagent-approval",
+        status: "awaiting_approval",
+        result: "Waiting for approval.",
+        stopReason: "awaiting_approval",
+      },
+    ]);
+    expect(completes).toEqual([]);
+  });
 });
 
 async function waitFor(condition: () => boolean, attempts = 20): Promise<void> {

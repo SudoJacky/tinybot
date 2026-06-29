@@ -517,6 +517,7 @@ function isDelegatedRunEventType(eventType: string): boolean {
     || eventType === "agent.delegate.updated"
     || eventType === "agent.delegate.completed"
     || eventType === "agent.delegate.failed"
+    || eventType === "agent.delegate.interrupted"
     || eventType === "agent.delegate.closed";
 }
 
@@ -608,11 +609,19 @@ function stepToToolActivities(step: ChatStep): ConversationMessageIslandOptions[
       approvalId: step.delegate.approvalId,
       approvalStatus: step.delegate.approvalStatus ?? "",
       argsText: delegatedActivityArgsText(step.delegate),
+      delegatedTrace: step.delegate.trace as Record<string, unknown> | undefined,
+      delegateId: step.delegate.id,
+      delegateTask: step.delegate.task,
+      delegateTitle: step.delegate.title,
+      delegateType: step.delegate.type,
+      finalOutput: step.delegate.finalOutput,
       id: step.delegate.parentToolCallId || step.delegate.id,
       kind: step.status === "completed" || step.status === "failed" ? "result" : "call",
       name: step.delegate.toolName || step.delegate.type || "delegate",
+      parentRunId: step.delegate.trace?.parentRunId,
       responseText: step.delegate.latestActivity ?? step.delegate.finalOutput ?? "",
       status: step.status,
+      traceRef: step.delegate.traceRef,
     }];
   }
   if (step.artifacts?.length) {

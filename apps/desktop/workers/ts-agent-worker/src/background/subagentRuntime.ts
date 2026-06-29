@@ -5,7 +5,7 @@ import type {
   BackgroundRunStatus,
 } from "./backgroundRegistryBridge.ts";
 
-export type SubagentStatus = "completed" | "failed";
+export type SubagentStatus = "completed" | "failed" | "awaiting_approval";
 
 export interface SubagentSpawnRequest {
   task: string;
@@ -93,6 +93,14 @@ export class SubagentRuntime {
 
   async spawn(request: SubagentSpawnRequest): Promise<SubagentSpawnResult> {
     const id = this.idGenerator();
+    return this.startRequest(id, request);
+  }
+
+  async runExisting(id: string, request: SubagentSpawnRequest): Promise<SubagentSpawnResult> {
+    return this.startRequest(id, request);
+  }
+
+  private startRequest(id: string, request: SubagentSpawnRequest): SubagentSpawnResult {
     const label = request.label || shortLabel(request.task);
     const queued: QueuedSubagent = { request, id, label, controller: new AbortController() };
     this.trackSession(request.sessionKey, id);
@@ -138,6 +146,7 @@ export class SubagentRuntime {
       status: completion.status,
       result: completion.result,
       ...(completion.error ? { error: completion.error } : {}),
+      ...(completion.metadata ? { metadata: completion.metadata } : {}),
     };
   }
 
@@ -159,6 +168,10 @@ export class SubagentRuntime {
 
   cancelPlan(planId: string): number {
     return this.cancelWhere((entry) => entry.request.metadata?.planId === planId);
+  }
+
+  cancel(id: string): boolean {
+    return this.cancelWhere((entry) => entry.id === id) > 0;
   }
 
   private start(entry: QueuedSubagent): void {
@@ -283,6 +296,10 @@ export class SubagentRuntime {
   }
 
   private recordCompletion(entry: QueuedSubagent, result: SubagentRunResult): void {
+    if (result.status === "awaiting_approval") {
+      this.recordAwaitingApproval(entry, result);
+      return;
+    }
     const completion: BackgroundRunCompletion = {
       runId: entry.id,
       status: completionStatus(entry, result),
@@ -291,6 +308,28 @@ export class SubagentRuntime {
       error: result.error ?? null,
     };
     void this.registry?.completeRun(completion, traceIdFor(entry)).catch(() => {});
+  }
+
+  private recordAwaitingApproval(entry: QueuedSubagent, result: SubagentRunResult): void {
+    const now = this.nowMs();
+    void this.registry?.upsertRun({
+      id: entry.id,
+      kind: "subagent",
+      source: this.source,
+      status: "awaiting_approval",
+      label: entry.label,
+      sessionKey: entry.request.sessionKey,
+      planId: stringMetadata(entry.request.metadata, "planId"),
+      subtaskId: stringMetadata(entry.request.metadata, "subtaskId"),
+      startedAtMs: now,
+      updatedAtMs: now,
+      result: result.result,
+      error: result.error ?? null,
+      metadata: {
+        ...(entry.request.metadata ?? {}),
+        ...(result.metadata ?? {}),
+      },
+    }, traceIdFor(entry)).catch(() => {});
   }
 }
 
@@ -309,6 +348,9 @@ function completionStatus(
 ): Extract<BackgroundRunStatus, "completed" | "failed" | "cancelled"> {
   if (entry.controller.signal.aborted) {
     return "cancelled";
+  }
+  if (result.status === "awaiting_approval") {
+    return "failed";
   }
   return result.status;
 }

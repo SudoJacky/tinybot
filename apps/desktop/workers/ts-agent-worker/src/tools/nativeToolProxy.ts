@@ -1,7 +1,7 @@
 import type { JsonObject } from "../protocol/messages.ts";
 import { AgentRunner } from "../agent/agentRunner.ts";
 import type { AgentMessage } from "../agent/agentRunSpec.ts";
-import type { BackgroundRunRegistry } from "../background/backgroundRegistryBridge.ts";
+import type { BackgroundRunReader, BackgroundRunRegistry, BackgroundTraceJournal } from "../background/backgroundRegistryBridge.ts";
 import {
   DelegatedRunManager,
   type DelegatedContextPack,
@@ -112,6 +112,8 @@ export function createNativeSpawnTools(
   });
   const manager = new DelegatedRunManager({
     runtime,
+    runStore: isBackgroundRunReader(options.backgroundRegistry) ? options.backgroundRegistry : undefined,
+    traceJournal: isBackgroundTraceJournal(options.backgroundRegistry) ? options.backgroundRegistry : undefined,
     emitEvent: (event) => options.emitDelegatedEvent?.(event.eventName, event.payload, event.traceId),
   });
   return [createSpawnTool({ manager }), ...createDelegatedAgentTools({ manager })];
@@ -167,6 +169,7 @@ async function runSpawnedSubagent(
 ) {
   let childSpec: Parameters<AgentRunner["run"]>[0] | undefined;
   let childCheckpoint: Record<string, unknown> | undefined;
+  const childTraceSteps: Array<Record<string, unknown>> = [];
   const contextPack = delegatedContextPackFromMetadata(request.metadata);
   const tools = createNativeSubagentToolRegistry(
     options.rpcClient,
@@ -175,7 +178,7 @@ async function runSpawnedSubagent(
   const runner = new AgentRunner({
     provider: options.provider,
     tools,
-    emitEvent: (event) => emitDelegatedChildEvent(request, event, options.emitDelegatedEvent),
+    emitEvent: (event) => emitDelegatedChildEvent(request, event, options.emitDelegatedEvent, childTraceSteps),
     checkpoint: (checkpoint) => {
       if (childSpec) {
         childCheckpoint = sessionCheckpointFromRunner(childSpec, checkpoint);
@@ -197,25 +200,52 @@ async function runSpawnedSubagent(
   const result = await runner.run(childSpec);
   if (result.stopReason === "awaiting_approval") {
     return {
-      status: "failed",
+      status: "awaiting_approval",
       result: "Waiting for approval.",
-      metadata: delegatedAwaitingApprovalMetadata(request, result, childCheckpoint),
+      metadata: delegatedAwaitingApprovalMetadata(
+        request,
+        result,
+        childCheckpoint,
+        delegatedTracePayload(delegatedTraceBase(request), "awaiting_approval", childTraceSteps),
+      ),
     } as const;
   }
   if (result.stopReason === "tool_error" || result.stopReason === "error") {
     const error = result.error || result.finalContent || "Error: subagent execution failed.";
-    return { status: "failed", result: error, error } as const;
+    upsertDelegatedTraceStep(childTraceSteps, delegatedFinalTraceStep(request, "failed", error));
+    return {
+      status: "failed",
+      result: error,
+      error,
+      metadata: {
+        _delegate_trace: delegatedTracePayload(delegatedTraceBase(request), "failed", childTraceSteps),
+      },
+    } as const;
   }
+  const finalResult = result.finalContent || "Task completed but no final response was generated.";
+  upsertDelegatedTraceStep(childTraceSteps, delegatedFinalTraceStep(request, "completed", finalResult));
   return {
     status: "completed",
-    result: result.finalContent || "Task completed but no final response was generated.",
+    result: finalResult,
+    metadata: {
+      _delegate_trace: delegatedTracePayload(delegatedTraceBase(request), "completed", childTraceSteps),
+    },
   } as const;
+}
+
+function isBackgroundRunReader(value: BackgroundRunRegistry | undefined): value is BackgroundRunRegistry & BackgroundRunReader {
+  return Boolean(value && "listRuns" in value && typeof value.listRuns === "function");
+}
+
+function isBackgroundTraceJournal(value: BackgroundRunRegistry | undefined): value is BackgroundRunRegistry & BackgroundTraceJournal {
+  return Boolean(value && "appendTraceEvent" in value && typeof value.appendTraceEvent === "function");
 }
 
 function delegatedAwaitingApprovalMetadata(
   request: SubagentRunRequest,
   result: Awaited<ReturnType<AgentRunner["run"]>>,
   childCheckpoint: Record<string, unknown> | undefined,
+  trace: Record<string, unknown>,
 ): Record<string, unknown> {
   const awaiting = result.awaitingInput ?? {};
   const approvalId = stringValue(awaiting.approvalId ?? awaiting.approval_id);
@@ -233,6 +263,7 @@ function delegatedAwaitingApprovalMetadata(
     _delegate_child_tool_name: stringValue(operation.toolName ?? operation.tool_name) || stringValue(awaiting.toolName ?? awaiting.tool_name) || checkpointTool.toolName,
     _delegate_child_checkpoint: childCheckpoint,
     _delegate_operation_preview: approvalArgsPreview(awaiting),
+    _delegate_trace: trace,
   };
 }
 
@@ -263,6 +294,7 @@ function emitDelegatedChildEvent(
   request: SubagentRunRequest,
   event: { type: string; payload: Record<string, unknown> },
   emitDelegatedEvent: ((eventName: DelegatedRunEventName, payload: Record<string, unknown>, traceId?: string) => void) | undefined,
+  traceSteps?: Array<Record<string, unknown>>,
 ): void {
   if (!emitDelegatedEvent) {
     return;
@@ -298,11 +330,12 @@ function emitDelegatedChildEvent(
   };
   if (event.type === "reasoning_delta" || event.type === "content_delta" || event.type === "tool_call_delta") {
     const step = delegatedStreamTraceStep(request, event);
+    upsertDelegatedTraceStep(traceSteps, step);
     emitDelegatedEvent("agent.delegate.trace.updated", {
       ...base,
       status: "running",
       latest_activity: step.summary,
-      trace: delegatedTracePayload(base, "running", [step]),
+      trace: delegatedTracePayload(base, "running", traceSteps ?? [step]),
     }, stringMetadata(metadata, "traceId"));
     return;
   }
@@ -316,6 +349,7 @@ function emitDelegatedChildEvent(
       title: base.toolName || "tool",
       argsPreview: safeJsonStringify(event.payload.args ?? {}),
     });
+    upsertDelegatedTraceStep(traceSteps, step);
     emitDelegatedEvent("agent.delegate.running", {
       ...base,
       status: "running",
@@ -343,18 +377,20 @@ function emitDelegatedChildEvent(
       operation_preview: approvalArgsPreview(resultMetadata),
       reason: stringValue(resultMetadata.reason),
     };
+    const step = delegatedToolTraceStep(base, {
+      kind: "approval",
+      status: "blocked",
+      title: `${base.toolName || "tool"} approval required`,
+      approvalId,
+      argsPreview: approvalArgsPreview(resultMetadata),
+      resultPreview: content || "Waiting for approval.",
+    });
+    upsertDelegatedTraceStep(traceSteps, step);
     emitDelegatedEvent("agent.delegate.tool.approval_required", payload, stringMetadata(metadata, "traceId"));
     emitDelegatedEvent("agent.delegate.awaiting_approval", payload, stringMetadata(metadata, "traceId"));
     emitDelegatedEvent("agent.delegate.trace.updated", {
       ...payload,
-      trace: delegatedTracePayload(base, "awaiting_approval", [delegatedToolTraceStep(base, {
-        kind: "approval",
-        status: "blocked",
-        title: `${base.toolName || "tool"} approval required`,
-        approvalId,
-        argsPreview: approvalArgsPreview(resultMetadata),
-        resultPreview: content || "Waiting for approval.",
-      })]),
+      trace: delegatedTracePayload(base, "awaiting_approval", [step]),
     }, stringMetadata(metadata, "traceId"));
     return;
   }
@@ -364,6 +400,7 @@ function emitDelegatedChildEvent(
     title: base.toolName || "tool",
     resultPreview: content,
   });
+  upsertDelegatedTraceStep(traceSteps, step);
   emitDelegatedEvent("agent.delegate.tool.completed", {
     ...base,
     status: "running",
@@ -444,6 +481,75 @@ function delegatedTracePayload(
   };
 }
 
+function delegatedTraceBase(request: SubagentRunRequest): Record<string, string> {
+  const metadata = request.metadata ?? {};
+  const parentRunId = stringMetadata(metadata, "parentRunId") || "";
+  return {
+    delegateId: request.id,
+    childRunId: request.id,
+    parentRunId,
+    parentSessionKey: request.sessionKey ?? "",
+  };
+}
+
+function upsertDelegatedTraceStep(
+  steps: Array<Record<string, unknown>> | undefined,
+  step: Record<string, unknown>,
+): void {
+  if (!steps) {
+    return;
+  }
+  const id = stringValue(step.id);
+  const index = id ? steps.findIndex((item) => stringValue(item.id) === id) : -1;
+  if (index >= 0) {
+    steps[index] = mergeDelegatedTraceStep(steps[index], step);
+  } else {
+    steps.push(step);
+  }
+}
+
+function mergeDelegatedTraceStep(
+  current: Record<string, unknown>,
+  next: Record<string, unknown>,
+): Record<string, unknown> {
+  const kind = stringValue(next.kind);
+  const currentStatus = stringValue(current.status);
+  const nextStatus = stringValue(next.status);
+  const currentSummary = stringValue(current.summary);
+  const nextSummary = stringValue(next.summary);
+  const shouldAppendStreamingSummary = Boolean(
+    nextSummary
+    && currentStatus === "running"
+    && nextStatus === "running"
+    && (kind === "reasoning" || kind === "message" || kind === "tool_call")
+  );
+  return {
+    ...current,
+    ...next,
+    ...(shouldAppendStreamingSummary
+      ? { summary: `${currentSummary}${nextSummary}` }
+      : {}),
+  };
+}
+
+function delegatedFinalTraceStep(
+  request: SubagentRunRequest,
+  status: "completed" | "failed",
+  summary: string,
+): Record<string, unknown> {
+  const now = new Date().toISOString();
+  return {
+    id: `final:${request.id}`,
+    kind: status === "failed" ? "error" : "message",
+    status,
+    title: status === "failed" ? "Error" : "Final answer",
+    summary,
+    error: status === "failed" ? summary : undefined,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
 function delegatedToolTraceStep(
   base: Record<string, string>,
   input: {
@@ -515,6 +621,7 @@ function safeJsonStringify(value: unknown): string {
 function spawnedSubagentMessages(request: Pick<SubagentRunRequest, "task" | "metadata">): AgentMessage[] {
   const contextPack = delegatedContextPackFromMetadata(request.metadata);
   if (contextPack) {
+    const forkedMessages = Array.isArray(contextPack.forkedMessages) ? contextPack.forkedMessages : [];
     return [
       {
         role: "system",
@@ -532,6 +639,7 @@ function spawnedSubagentMessages(request: Pick<SubagentRunRequest, "task" | "met
           contextPack.outputContract,
         ].filter((line): line is string => line !== null).join("\n"),
       },
+      ...forkedMessages.map(cloneAgentMessage),
       {
         role: "user",
         content: [
@@ -552,6 +660,15 @@ function spawnedSubagentMessages(request: Pick<SubagentRunRequest, "task" | "met
     },
     { role: "user", content: request.task },
   ];
+}
+
+function cloneAgentMessage(message: AgentMessage): AgentMessage {
+  return {
+    ...message,
+    toolCalls: message.toolCalls?.map((toolCall) => ({ ...toolCall })),
+    thinkingBlocks: message.thinkingBlocks?.map((block) => ({ ...block })),
+    metadata: message.metadata ? { ...message.metadata } : undefined,
+  };
 }
 
 function delegatedContextPackFromMetadata(metadata: Record<string, unknown> | undefined): DelegatedContextPack | null {
@@ -592,8 +709,11 @@ function createNativeSubagentToolRegistry(
   permissionProfile: DelegatedPermissionProfile = "read_only",
 ): ToolRegistry {
   const registry = new ToolRegistry();
+  for (const tool of createNativeApprovalTools(rpcClient)) {
+    registry.register(tool);
+  }
   for (const tool of delegatedChildToolsForProfile(rpcClient, permissionProfile)) {
-    registry.register(stripDelegatedChildApproval(tool));
+    registry.register(tool);
   }
   return registry;
 }
@@ -611,11 +731,6 @@ function delegatedChildToolsForProfile(rpcClient: NativeRpcClient, permissionPro
     return [...readOnlyTools, ...createNativeWriteTools(rpcClient), ...createNativeShellTools(rpcClient)];
   }
   return readOnlyTools;
-}
-
-function stripDelegatedChildApproval(tool: Tool): Tool {
-  const { requiresApproval: _requiresApproval, approvalCategory: _approvalCategory, approvalRisk: _approvalRisk, ...rest } = tool;
-  return rest;
 }
 
 function nativeApprovalContextParams(context: ToolContext): JsonObject {
@@ -952,18 +1067,30 @@ function createRequestApprovalTool(rpcClient: NativeRpcClient): Tool {
       }
       const result = asObject(await rpcClient.request(requireTraceId(context.traceId), "approval.request", params)) ?? {};
       const { content: rawContent, ...rawMetadata } = result;
-      const metadata = {
-        awaitingUserInput: true,
-        stopReason: "awaiting_approval",
-        operation: asObject(rawMetadata.operation) ?? operation,
-        ...rawMetadata,
-      };
+      const metadata = approvalRequestAlreadyAllowed(rawMetadata)
+        ? {
+          operation: asObject(rawMetadata.operation) ?? operation,
+          ...rawMetadata,
+        }
+        : {
+          awaitingUserInput: true,
+          stopReason: "awaiting_approval",
+          operation: asObject(rawMetadata.operation) ?? operation,
+          ...rawMetadata,
+        };
       return {
         content: asString(rawContent) ?? "Waiting for approval.",
         metadata,
       };
     },
   };
+}
+
+function approvalRequestAlreadyAllowed(metadata: Record<string, unknown>): boolean {
+  return metadata.decision === "allow"
+    || metadata.status === "approved"
+    || metadata.approvalStatus === "approved"
+    || metadata.approved === true;
 }
 
 function createSearchMemoryNotesTool(rpcClient: NativeRpcClient): Tool {

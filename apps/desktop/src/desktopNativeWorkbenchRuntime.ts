@@ -105,6 +105,7 @@ export type DesktopTsAgentWorkerEventName =
   | "agent.delegate.trace.updated"
   | "agent.delegate.completed"
   | "agent.delegate.failed"
+  | "agent.delegate.interrupted"
   | "agent.delegate.closed"
   | "heartbeat.delivery"
   | "agent.cancelled"
@@ -124,6 +125,8 @@ export interface DesktopNativeWorkbenchRuntime {
   setPersistentRag(enabled: boolean): void;
   submitComposerMessage(content: string, usePersistentRag?: boolean): ChatSubmitResult;
   interruptActiveChat(): boolean;
+  loadDelegateTrace(selection: { sessionKey: string; delegateId?: string; traceRef?: string }): Promise<unknown>;
+  loadArtifact(selection: { sessionKey: string; delegateId?: string; traceRef?: string; artifactId: string }): Promise<unknown>;
   resolveApproval(approvalId: string, decision: "approved" | "denied", sessionKey?: string): boolean;
   handleGatewayEvent(event: NormalizedGatewayEvent): Promise<void>;
   handleTsAgentWorkerEvent(eventName: DesktopTsAgentWorkerEventName, payload: unknown): void;
@@ -775,7 +778,10 @@ export function createDesktopNativeWorkbenchRuntime({
     if (status === "failed") {
       return "agent.delegate.failed";
     }
-    if (status === "closed" || status === "cancelled") {
+    if (status === "cancelled") {
+      return "agent.delegate.interrupted";
+    }
+    if (status === "closed") {
       return "agent.delegate.closed";
     }
     if (status === "blocked") {
@@ -926,6 +932,14 @@ export function createDesktopNativeWorkbenchRuntime({
     return interrupted;
   }
 
+  async function loadDelegateTrace(selection: { sessionKey: string; delegateId?: string; traceRef?: string }): Promise<unknown> {
+    return chatController.loadDelegateTrace(selection);
+  }
+
+  async function loadArtifact(selection: { sessionKey: string; delegateId?: string; traceRef?: string; artifactId: string }): Promise<unknown> {
+    return chatController.loadArtifact(selection);
+  }
+
   async function handleGatewayEvent(event: NormalizedGatewayEvent): Promise<void> {
     logDesktopNativeDebug("runtime.gatewayEvent.start", summarizeGatewayEvent(event));
     if (event.kind === "usage") {
@@ -1023,6 +1037,8 @@ export function createDesktopNativeWorkbenchRuntime({
     setPersistentRag,
     submitComposerMessage,
     interruptActiveChat,
+    loadDelegateTrace,
+    loadArtifact,
     resolveApproval(approvalId: string, decision: "approved" | "denied", sessionKey = chatController.state.activeSessionKey) {
       return resolveNativeChatApproval(chatController.state, { approvalId, decision, sessionKey });
     },

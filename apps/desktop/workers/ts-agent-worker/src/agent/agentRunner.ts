@@ -130,10 +130,16 @@ export class AgentRunner {
                   runId: spec.runId,
                   traceId: spec.traceId,
                   sessionId: spec.sessionId,
+                  parentMessages: messages.map(cloneMessage),
                 };
-                result = prepared.tool.requiresApproval
-                  ? await this.requestToolApproval(prepared.tool, prepared.args, context)
-                  : await prepared.tool.execute(prepared.args, context);
+                if (prepared.tool.requiresApproval) {
+                  const approvalResult = await this.requestToolApproval(prepared.tool, prepared.args, context);
+                  result = approvalAllowsToolExecution(approvalResult)
+                    ? await prepared.tool.execute(prepared.args, context)
+                    : approvalResult;
+                } else {
+                  result = await prepared.tool.execute(prepared.args, context);
+                }
               } catch (error) {
                 if (spec.failOnToolError) {
                   const finalContent = `Error: ${errorName(error)}: ${errorMessage(error)}`;
@@ -541,6 +547,17 @@ function normalizeAwaitingStopReason(value: unknown): "awaiting_user_input" | "a
     return value;
   }
   return "awaiting_user_input";
+}
+
+function approvalAllowsToolExecution(result: ToolResult): boolean {
+  const metadata = result.metadata;
+  if (!metadata) {
+    return false;
+  }
+  return metadata.decision === "allow"
+    || metadata.status === "approved"
+    || metadata.approvalStatus === "approved"
+    || metadata.approved === true;
 }
 
 function snipHistory(spec: AgentRunSpec, messages: AgentMessage[]): AgentMessage[] {

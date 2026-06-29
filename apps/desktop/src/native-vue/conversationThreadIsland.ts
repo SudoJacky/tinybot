@@ -22,9 +22,22 @@ export interface ConversationThreadIslandOptions {
   inlineForms?: AgentUiForm[];
   messages: ConversationMessageIslandOptions[];
   onCoworkAgentInspect?: (selection: { agentId: string; sessionId: string }) => void;
+  onArtifactLoad?: (selection: DelegateArtifactLoadSelection) => Promise<unknown>;
+  onDelegateTraceLoad?: (selection: DelegateTraceLoadSelection) => Promise<unknown>;
   onInlineFormCancel?: (form: AgentUiForm) => void;
   onInlineFormSubmit?: (form: AgentUiForm, values: Record<string, unknown>) => void;
   onReferenceInspect?: (reference: ConversationReferenceIslandOptions) => void;
+}
+
+export interface DelegateTraceLoadSelection {
+  activityId: string;
+  delegateId?: string;
+  sessionKey: string;
+  traceRef?: string;
+}
+
+export interface DelegateArtifactLoadSelection extends DelegateTraceLoadSelection {
+  artifactId: string;
 }
 
 export interface ConversationCoworkRunOptions {
@@ -68,6 +81,7 @@ interface ConversationTimelineScrollState {
 type DetailPanelState = "closed" | "opening" | "open" | "closing";
 type AgentToolKind = "tool" | "spawn" | "subagent" | "cowork" | "team";
 type AgentFlowStepKind = "thinking" | "tool" | "spawn" | "subagent" | "cowork" | "team" | "response";
+type SubagentObservabilityTab = "overview" | "timeline" | "transcript" | "tools" | "approvals" | "artifacts" | "raw";
 
 interface AssistantMessageRunItem {
   index: number;
@@ -89,6 +103,14 @@ interface AgentWorkflowStep {
   title: string;
 }
 
+interface SubagentTraceStep {
+  id: string;
+  kind: string;
+  raw: Record<string, unknown>;
+  status: string;
+  title: string;
+}
+
 interface SubagentShelfItem {
   activity: ToolActivityIslandOptions;
   key: string;
@@ -102,6 +124,18 @@ interface AgentFlowStepProfile {
   kind: AgentFlowStepKind;
   label: string;
   title: string;
+}
+
+interface DelegateTraceLoadState {
+  error: string;
+  loading: boolean;
+  trace: Record<string, unknown> | null;
+}
+
+interface DelegateArtifactLoadState {
+  artifact: Record<string, unknown> | null;
+  error: string;
+  loading: boolean;
 }
 
 const mountedConversationThreads = new WeakMap<HTMLElement, MountedConversationThreadIsland>();
@@ -171,13 +205,29 @@ function createConversationThreadApp(state: Ref<ConversationThreadIslandOptions>
       const selectedToolKey = ref("");
       const selectedReference = ref<ConversationReferenceIslandOptions | null>(null);
       const selectedCoworkAgent = ref<SelectedCoworkAgent | null>(null);
+      const selectedSubagentTraceTab = ref<SubagentObservabilityTab>("overview");
       const detailPanelState = ref<DetailPanelState>("closed");
+      const delegateArtifactLoads = ref(new Map<string, DelegateArtifactLoadState>());
+      const delegateTraceLoads = ref(new Map<string, DelegateTraceLoadState>());
       const panelWidth = ref(50);
       const overlayMode = ref(isToolDetailOverlayMode());
       const reducedMotion = ref(prefersReducedMotion());
       let closePanelTimer: number | null = null;
       let openPanelFrame: number | null = null;
-      const selectedTool = computed(() => selectedToolKey.value ? findToolActivity(state.value.messages, selectedToolKey.value) : null);
+      const selectedTool = computed(() => {
+        const activity = selectedToolKey.value ? findToolActivity(state.value.messages, selectedToolKey.value) : null;
+        if (!activity) {
+          return null;
+        }
+        const loaded = delegateTraceLoads.value.get(delegateTraceLoadKey(activity));
+        if (!loaded?.trace) {
+          return activity;
+        }
+        return {
+          ...activity,
+          delegatedTrace: loaded.trace,
+        };
+      });
       const subagentShelfItems = computed(() => collectSubagentShelfItems(state.value.messages));
       const hasDetailPanelSelection = () => Boolean(selectedTool.value || selectedReference.value || selectedCoworkAgent.value);
       const clearClosePanelTimer = () => {
@@ -265,6 +315,8 @@ function createConversationThreadApp(state: Ref<ConversationThreadIslandOptions>
         selectedReference.value = null;
         selectedCoworkAgent.value = null;
         selectedToolKey.value = toolActivitySelectionKey(activity);
+        selectedSubagentTraceTab.value = "overview";
+        requestDelegateTraceLoad(activity);
         openPanel();
         logDesktopNativeDebug("toolDetail.open", summarizeToolActivity(activity));
       };
@@ -272,8 +324,121 @@ function createConversationThreadApp(state: Ref<ConversationThreadIslandOptions>
         selectedReference.value = null;
         selectedCoworkAgent.value = null;
         selectedToolKey.value = item.key;
+        selectedSubagentTraceTab.value = "overview";
+        requestDelegateTraceLoad(item.activity);
         openPanel();
         logDesktopNativeDebug("subagentDetail.open", summarizeToolActivity(item.activity));
+      };
+      const requestDelegateTraceLoad = (activity: ToolActivityIslandOptions) => {
+        if (!state.value.onDelegateTraceLoad || activityInspectorKind(activity) !== "delegate") {
+          return;
+        }
+        const selection = delegateTraceLoadSelection(activity);
+        if (!selection) {
+          return;
+        }
+        const key = delegateTraceLoadKey(activity);
+        const current = delegateTraceLoads.value.get(key);
+        if (current?.loading || current?.trace) {
+          return;
+        }
+        delegateTraceLoads.value = new Map(delegateTraceLoads.value).set(key, {
+          error: "",
+          loading: true,
+          trace: null,
+        });
+        logDesktopNativeDebug("subagentTrace.load.start", {
+          activityId: selection.activityId,
+          delegateId: selection.delegateId ?? "",
+          sessionKey: selection.sessionKey,
+          traceRef: selection.traceRef ?? "",
+        });
+        state.value.onDelegateTraceLoad(selection).then((payload) => {
+          const trace = normalizeLoadedDelegateTrace(payload);
+          delegateTraceLoads.value = new Map(delegateTraceLoads.value).set(key, {
+            error: "",
+            loading: false,
+            trace,
+          });
+          logDesktopNativeDebug("subagentTrace.load.complete", {
+            activityId: selection.activityId,
+            delegateId: selection.delegateId ?? "",
+            hasTrace: Boolean(trace),
+            sessionKey: selection.sessionKey,
+            traceRef: selection.traceRef ?? "",
+          });
+        }).catch((error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          delegateTraceLoads.value = new Map(delegateTraceLoads.value).set(key, {
+            error: message,
+            loading: false,
+            trace: null,
+          });
+          logDesktopNativeDebug("subagentTrace.load.failed", {
+            activityId: selection.activityId,
+            delegateId: selection.delegateId ?? "",
+            error: message,
+            sessionKey: selection.sessionKey,
+            traceRef: selection.traceRef ?? "",
+          });
+        });
+      };
+      const requestDelegateArtifactLoad = (activity: ToolActivityIslandOptions, artifactId: string) => {
+        if (!state.value.onArtifactLoad || activityInspectorKind(activity) !== "delegate") {
+          return;
+        }
+        const selection = delegateArtifactLoadSelection(activity, artifactId);
+        if (!selection) {
+          return;
+        }
+        const key = delegateArtifactLoadKey(activity, artifactId);
+        const current = delegateArtifactLoads.value.get(key);
+        if (current?.loading || current?.artifact) {
+          return;
+        }
+        delegateArtifactLoads.value = new Map(delegateArtifactLoads.value).set(key, {
+          artifact: null,
+          error: "",
+          loading: true,
+        });
+        logDesktopNativeDebug("subagentArtifact.load.start", {
+          activityId: selection.activityId,
+          artifactId: selection.artifactId,
+          delegateId: selection.delegateId ?? "",
+          sessionKey: selection.sessionKey,
+          traceRef: selection.traceRef ?? "",
+        });
+        state.value.onArtifactLoad(selection).then((payload) => {
+          const artifact = normalizeLoadedArtifact(payload);
+          delegateArtifactLoads.value = new Map(delegateArtifactLoads.value).set(key, {
+            artifact,
+            error: "",
+            loading: false,
+          });
+          logDesktopNativeDebug("subagentArtifact.load.complete", {
+            activityId: selection.activityId,
+            artifactId: selection.artifactId,
+            delegateId: selection.delegateId ?? "",
+            hasArtifact: Boolean(artifact),
+            sessionKey: selection.sessionKey,
+            traceRef: selection.traceRef ?? "",
+          });
+        }).catch((error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          delegateArtifactLoads.value = new Map(delegateArtifactLoads.value).set(key, {
+            artifact: null,
+            error: message,
+            loading: false,
+          });
+          logDesktopNativeDebug("subagentArtifact.load.failed", {
+            activityId: selection.activityId,
+            artifactId: selection.artifactId,
+            delegateId: selection.delegateId ?? "",
+            error: message,
+            sessionKey: selection.sessionKey,
+            traceRef: selection.traceRef ?? "",
+          });
+        });
       };
       const handleKeydown = (event: KeyboardEvent) => {
         if (event.key === "Escape" && hasDetailPanelSelection()) {
@@ -308,6 +473,7 @@ function createConversationThreadApp(state: Ref<ConversationThreadIslandOptions>
           const detailPanel = selectedTool.value
             ? renderActivityInspectorPanel({
               activity: selectedTool.value,
+              artifactLoads: delegateArtifactLoads.value,
               mode: overlayMode.value ? "overlay" : "push",
               motionState: detailPanelState.value,
               onClose: closePanel,
@@ -318,6 +484,15 @@ function createConversationThreadApp(state: Ref<ConversationThreadIslandOptions>
                   widthPercent: panelWidth.value,
                 });
               },
+              onSubagentTraceTabChange: (tab) => {
+                selectedSubagentTraceTab.value = tab;
+              },
+              onSubagentArtifactLoad: (artifactId) => {
+                if (selectedTool.value) {
+                  requestDelegateArtifactLoad(selectedTool.value, artifactId);
+                }
+              },
+              subagentTraceTab: selectedSubagentTraceTab.value,
             })
             : selectedReference.value
               ? renderReferenceDetailPanel({
@@ -466,7 +641,11 @@ function renderAssistantRun(
     nodes.push(renderAssistantStepGroup(processSteps, selectedToolKey, onReferenceInspect));
   }
   nodes.push(renderThreadMessage(assistantFinalAnswerMessage(final.message), final.index, selectedToolKey, true, onReferenceInspect));
-  return nodes;
+  return [h("div", {
+    key: `assistant-run:${run[0]?.index ?? final.index}`,
+    class: "desktop-assistant-run-group",
+    "data-desktop-chat-region": "assistant-run",
+  }, nodes)];
 }
 
 function collectSubagentShelfItems(messages: ConversationMessageIslandOptions[]): SubagentShelfItem[] {
@@ -517,6 +696,7 @@ function renderSubagentShelf(
   return h("section", {
     class: "desktop-subagent-shelf",
     "data-subagent-count": String(items.length),
+    "data-subagent-shelf-layout": "stacked-status",
     "data-visible-limit": "5",
     "aria-label": "Subagents",
   }, [
@@ -524,6 +704,7 @@ function renderSubagentShelf(
       key: item.key,
       class: "desktop-subagent-shelf-item",
       "data-subagent-shelf-item": item.key,
+      "data-subagent-shelf-row": "status",
       "aria-selected": String(selectedKey === item.key),
       onClick: () => onSelect(item),
       type: "button",
@@ -612,6 +793,7 @@ function renderAssistantStepGroup(
     "data-agent-flow-tool-count": String(flowSummary.toolCount),
     "data-agent-flow-delegated-count": String(flowSummary.delegatedCount),
     "data-desktop-chat-region": "assistant-intermediate-steps",
+    onToggle: syncAgentFlowExpansionHeight,
   }, [
     h("summary", { class: "desktop-assistant-step-summary desktop-agent-flow-summary" }, [
       h("span", { class: "desktop-assistant-step-summary-label" }, "Processed"),
@@ -629,6 +811,18 @@ function renderAssistantStepGroup(
       onReferenceInspect,
     ))),
   ]);
+}
+
+function syncAgentFlowExpansionHeight(event: Event): void {
+  const group = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+  if (!group) {
+    return;
+  }
+  const stepList = group.querySelector<HTMLElement>(".desktop-agent-flow-step-list");
+  if (!stepList) {
+    return;
+  }
+  group.style.setProperty("--desktop-agent-flow-content-height", `${Math.max(0, stepList.scrollHeight)}px`);
 }
 
 function summarizeAssistantAgentFlow(items: AssistantMessageRunItem[]): { delegatedCount: number; label: string; toolCount: number } {
@@ -665,6 +859,7 @@ function renderAgentFlowStep(
     class: "desktop-agent-flow-step",
     "data-agent-flow-step-kind": profile.kind,
     "data-agent-flow-step-index": String(position + 1),
+    style: { "--desktop-agent-flow-step-index": String(position) },
   }, [
     h("div", { class: "desktop-agent-flow-step-rail", "aria-hidden": "true" }, [
       h("span", { class: "desktop-agent-flow-step-node" }, String(position + 1)),
@@ -829,10 +1024,14 @@ function renderInlineAgentUiForm(options: ConversationThreadIslandOptions, form:
 
 function renderActivityInspectorPanel(options: {
   activity: ToolActivityIslandOptions;
+  artifactLoads: Map<string, DelegateArtifactLoadState>;
   mode: "overlay" | "push";
   motionState: DetailPanelState;
   onClose: () => void;
   onResize: (nextWidth: number) => void;
+  onSubagentArtifactLoad: (artifactId: string) => void;
+  onSubagentTraceTabChange: (tab: SubagentObservabilityTab) => void;
+  subagentTraceTab: SubagentObservabilityTab;
 }) {
   const { activity } = options;
   const inspectorKind = activityInspectorKind(activity);
@@ -895,13 +1094,24 @@ function renderActivityInspectorPanel(options: {
         renderDetailApprovalButton(activity, "deny", "Deny"),
       ])
       : null,
-    h("div", { class: "desktop-tool-detail-body" }, renderActivityInspectorBody(activity, inspectorKind)),
+    h("div", { class: "desktop-tool-detail-body" }, renderActivityInspectorBody(
+      activity,
+      options.artifactLoads,
+      inspectorKind,
+      options.onSubagentArtifactLoad,
+      options.subagentTraceTab,
+      options.onSubagentTraceTabChange,
+    )),
   ]);
 }
 
 function renderActivityInspectorBody(
   activity: ToolActivityIslandOptions,
+  artifactLoads: Map<string, DelegateArtifactLoadState>,
   inspectorKind: ActivityInspectorKind,
+  onSubagentArtifactLoad: (artifactId: string) => void,
+  subagentTraceTab: SubagentObservabilityTab,
+  onSubagentTraceTabChange: (tab: SubagentObservabilityTab) => void,
 ): Array<VNode | null> {
   const agentProfile = resolveAgentToolProfile(activity);
   if (inspectorKind === "artifact") {
@@ -915,7 +1125,7 @@ function renderActivityInspectorBody(
   if (inspectorKind === "delegate") {
     return [
       renderAgentToolWorkflowPanel(activity, agentProfile),
-      renderSubagentTracePanel(activity),
+      renderSubagentTracePanel(activity, artifactLoads, subagentTraceTab, onSubagentTraceTabChange, onSubagentArtifactLoad),
       renderToolDetailMeta(activity),
       renderToolDetailText("Task", activity.argsText, "No delegated task available"),
       renderToolDetailText("Latest activity", activity.responseText, "No delegated activity available"),
@@ -931,29 +1141,567 @@ function renderActivityInspectorBody(
   ];
 }
 
-function renderSubagentTracePanel(activity: ToolActivityIslandOptions): VNode | null {
+const SUBAGENT_OBSERVABILITY_TABS: Array<{ id: SubagentObservabilityTab; label: string }> = [
+  { id: "overview", label: "Overview" },
+  { id: "timeline", label: "Timeline" },
+  { id: "transcript", label: "Transcript" },
+  { id: "tools", label: "Tools" },
+  { id: "approvals", label: "Approvals" },
+  { id: "artifacts", label: "Artifacts" },
+  { id: "raw", label: "Raw" },
+];
+
+function renderSubagentTracePanel(
+  activity: ToolActivityIslandOptions,
+  artifactLoads: Map<string, DelegateArtifactLoadState>,
+  selectedTab: SubagentObservabilityTab,
+  onTabChange: (tab: SubagentObservabilityTab) => void,
+  onArtifactLoad: (artifactId: string) => void,
+): VNode | null {
   const payload = mergedActivityPayload(activity);
-  const trace = isRecord(payload.trace) ? payload.trace : null;
-  const steps = Array.isArray(trace?.steps) ? trace.steps.map((step) => isRecord(step) ? step : null).filter((step): step is Record<string, unknown> => Boolean(step)) : [];
-  if (!steps.length) {
+  const trace = delegatedTraceRecord(activity, payload);
+  const steps = subagentTraceSteps(trace);
+  const artifactSteps = subagentArtifactTraceSteps(trace, steps);
+  if (!steps.length && !artifactSteps.length) {
     return null;
   }
-  return h("section", { class: "desktop-subagent-trace-panel" }, [
+  const transcriptSteps = steps.filter(isTranscriptTraceStep);
+  const toolSteps = steps.filter(isToolTraceStep);
+  const approvalSteps = [
+    ...steps.filter(isApprovalTraceStep),
+    ...syntheticApprovalTraceSteps(activity, payload, steps),
+  ];
+  const tabContent = renderSubagentTraceTabPanel({
+    activity,
+    approvalSteps,
+    artifactSteps,
+    artifactLoads,
+    onArtifactLoad,
+    payload,
+    selectedTab,
+    steps,
+    toolSteps,
+    trace,
+    transcriptSteps,
+  });
+  return h("section", { class: "desktop-subagent-trace-panel desktop-subagent-observability-panel" }, [
     h("h4", "Subagent timeline"),
-    h("ol", { class: "desktop-subagent-trace-list" }, steps.map((step, index) => h("li", {
-      class: "desktop-subagent-trace-step",
-      "data-subagent-trace-step-kind": fieldString(step, ["kind"]),
-      key: fieldString(step, ["id"]) || String(index),
-    }, [
-      h("strong", fieldString(step, ["title"]) || fieldString(step, ["kind"]) || "Step"),
-      h("span", { class: "desktop-subagent-trace-status" }, fieldString(step, ["status"])),
-      h("p", [
-        fieldString(step, ["summary"]),
-        fieldString(step, ["resultPreview", "result_preview"]),
-        fieldString(step, ["error"]),
-      ].filter(Boolean).join(" ")),
-    ]))),
+    h("div", {
+      "aria-label": "Subagent observability",
+      class: "desktop-subagent-observability-tabs",
+      role: "tablist",
+    }, SUBAGENT_OBSERVABILITY_TABS.map((tab) => h("button", {
+      "aria-selected": String(selectedTab === tab.id),
+      class: "desktop-subagent-observability-tab",
+      "data-subagent-observability-tab": tab.id,
+      onClick: () => onTabChange(tab.id),
+      role: "tab",
+      type: "button",
+    }, tab.label))),
+    tabContent,
   ]);
+}
+
+function renderSubagentTraceTabPanel(options: {
+  activity: ToolActivityIslandOptions;
+  approvalSteps: SubagentTraceStep[];
+  artifactSteps: SubagentTraceStep[];
+  artifactLoads: Map<string, DelegateArtifactLoadState>;
+  onArtifactLoad: (artifactId: string) => void;
+  payload: Record<string, unknown>;
+  selectedTab: SubagentObservabilityTab;
+  steps: SubagentTraceStep[];
+  toolSteps: SubagentTraceStep[];
+  trace: Record<string, unknown> | null;
+  transcriptSteps: SubagentTraceStep[];
+}): VNode {
+  const { activity, approvalSteps, artifactSteps, artifactLoads, onArtifactLoad, payload, selectedTab, steps, toolSteps, trace, transcriptSteps } = options;
+  const content = {
+    approvals: renderSubagentTraceSection("Approvals", "Approval checkpoints seen inside the child run.", "approvals", approvalSteps),
+    artifacts: renderSubagentArtifactSection(activity, artifactSteps, artifactLoads, onArtifactLoad),
+    overview: renderSubagentTraceOverview(activity, payload, trace, {
+      approvals: approvalSteps.length,
+      artifacts: artifactSteps.length,
+      timeline: steps.length,
+      tools: toolSteps.length,
+      transcript: transcriptSteps.length,
+    }),
+    raw: renderSubagentTraceRaw(payload, trace),
+    timeline: renderSubagentTraceSection("Timeline", "Ordered child-agent events.", "timeline", steps),
+    tools: renderSubagentTraceSection("Tools", "Child tool calls and returned observations.", "tools", toolSteps),
+    transcript: renderSubagentTraceSection("Transcript", "Reasoning summaries and assistant output.", "transcript", transcriptSteps),
+  } satisfies Record<SubagentObservabilityTab, VNode>;
+  return h("div", {
+    class: "desktop-subagent-observability-tab-panel",
+    "data-subagent-observability-tab-panel": selectedTab,
+    role: "tabpanel",
+  }, [content[selectedTab]]);
+}
+
+function renderSubagentTraceOverview(
+  activity: ToolActivityIslandOptions,
+  payload: Record<string, unknown>,
+  trace: Record<string, unknown> | null,
+  counts: Record<"approvals" | "artifacts" | "timeline" | "tools" | "transcript", number>,
+): VNode {
+  return h("section", {
+    class: "desktop-subagent-trace-section desktop-subagent-trace-overview-section",
+    "data-subagent-observability-section": "overview",
+  }, [
+    h("header", { class: "desktop-subagent-trace-section-header" }, [
+      h("strong", "Overview"),
+      h("span", "Child run identifiers, result, and recorded trace counts."),
+    ]),
+    h("dl", { class: "desktop-subagent-trace-overview-metrics" }, [
+      ["Timeline", counts.timeline],
+      ["Transcript", counts.transcript],
+      ["Tools", counts.tools],
+      ["Approvals", counts.approvals],
+      ["Artifacts", counts.artifacts],
+    ].flatMap(([label, value]) => [
+      h("dt", String(label)),
+      h("dd", String(value)),
+    ])),
+    renderSubagentTraceContext(activity, payload, trace),
+  ]);
+}
+
+function renderSubagentTraceRaw(payload: Record<string, unknown>, trace: Record<string, unknown> | null): VNode {
+  return h("section", {
+    class: "desktop-subagent-trace-section desktop-subagent-trace-raw-section",
+    "data-subagent-observability-section": "raw",
+  }, [
+    h("header", { class: "desktop-subagent-trace-section-header" }, [
+      h("strong", "Raw"),
+      h("span", "Normalized trace payload for debugging."),
+    ]),
+    h("pre", { class: "desktop-subagent-trace-raw" }, formatMaybeJson(JSON.stringify({
+      payload,
+      trace,
+    }))),
+  ]);
+}
+
+function delegatedTraceRecord(activity: ToolActivityIslandOptions, payload: Record<string, unknown>): Record<string, unknown> | null {
+  if (isRecord(activity.delegatedTrace)) {
+    return activity.delegatedTrace;
+  }
+  for (const key of ["_delegate_trace", "delegateTrace", "trace"]) {
+    const value = payload[key];
+    if (isRecord(value)) {
+      return value;
+    }
+    if (Array.isArray(value)) {
+      return { steps: value };
+    }
+  }
+  return null;
+}
+
+function delegateTraceLoadSelection(activity: ToolActivityIslandOptions): DelegateTraceLoadSelection | null {
+  if (!activity.sessionKey?.trim()) {
+    return null;
+  }
+  const payload = mergedActivityPayload(activity);
+  const delegateId = activity.delegateId || fieldString(payload, ["delegate_id", "delegateId", "task_name", "taskName"]);
+  const traceRef = activity.traceRef || fieldString(payload, ["trace_ref", "traceRef", "child_run_id", "childRunId"]);
+  return {
+    activityId: activity.id,
+    delegateId: delegateId || undefined,
+    sessionKey: activity.sessionKey,
+    traceRef: traceRef || undefined,
+  };
+}
+
+function delegateTraceLoadKey(activity: ToolActivityIslandOptions): string {
+  const selection = delegateTraceLoadSelection(activity);
+  if (!selection) {
+    return toolActivitySelectionKey(activity);
+  }
+  return [
+    selection.sessionKey,
+    selection.delegateId || "",
+    selection.traceRef || "",
+    selection.activityId,
+  ].join(":");
+}
+
+function delegateArtifactLoadSelection(activity: ToolActivityIslandOptions, artifactId: string): DelegateArtifactLoadSelection | null {
+  const base = delegateTraceLoadSelection(activity);
+  if (!base || !artifactId.trim()) {
+    return null;
+  }
+  return {
+    ...base,
+    artifactId,
+  };
+}
+
+function delegateArtifactLoadKey(activity: ToolActivityIslandOptions, artifactId: string): string {
+  return `${delegateTraceLoadKey(activity)}:${artifactId}`;
+}
+
+function normalizeLoadedDelegateTrace(payload: unknown): Record<string, unknown> | null {
+  const trace = isRecord(payload) && isRecord(payload.trace) ? payload.trace : payload;
+  if (!isRecord(trace)) {
+    return null;
+  }
+  const steps = Array.isArray(trace.steps)
+    ? trace.steps
+    : Array.isArray(trace.events)
+      ? trace.events.map(delegateTraceEventToStep)
+      : [];
+  return { ...trace, steps };
+}
+
+function normalizeLoadedArtifact(payload: unknown): Record<string, unknown> | null {
+  const artifact = isRecord(payload) && isRecord(payload.artifact) ? payload.artifact : payload;
+  return isRecord(artifact) ? artifact : null;
+}
+
+function delegateTraceEventToStep(event: unknown, index: number): unknown {
+  if (!isRecord(event)) {
+    return event;
+  }
+  const payload = isRecord(event.payload) ? event.payload : {};
+  return {
+    ...event,
+    argsPreview: previewFromKeys(payload, ["arguments", "args", "input", "operation", "task"]),
+    id: fieldString(event, ["event_id", "eventId", "id"]) || `event-${index + 1}`,
+    kind: fieldString(event, ["event_type", "eventType", "kind", "type"]) || "event",
+    resultPreview: previewFromKeys(payload, ["result", "output", "content", "text", "final_output", "finalOutput"]),
+    status: fieldString(event, ["status", "state", "phase"]),
+    summary: previewFromKeys(payload, ["summary", "content", "text", "message", "output", "result"]),
+    title: fieldString(event, ["title", "name", "tool_name", "toolName", "label"])
+      || fieldString(event, ["event_type", "eventType", "kind", "type"])
+      || `Event ${index + 1}`,
+  };
+}
+
+function subagentTraceSteps(trace: Record<string, unknown> | null): SubagentTraceStep[] {
+  const rawSteps = Array.isArray(trace?.steps) ? trace?.steps : [];
+  return rawSteps
+    .map((step, index) => subagentTraceStepFromUnknown(step, index))
+    .filter((step): step is SubagentTraceStep => Boolean(step));
+}
+
+function subagentTraceStepFromUnknown(value: unknown, index: number): SubagentTraceStep | null {
+  if (typeof value === "string") {
+    return {
+      id: `trace-step-${index}`,
+      kind: "message",
+      raw: { summary: value },
+      status: "",
+      title: `Step ${index + 1}`,
+    };
+  }
+  if (!isRecord(value)) {
+    return null;
+  }
+  const kind = fieldString(value, ["kind", "type", "event"]) || "event";
+  return {
+    id: fieldString(value, ["id", "step_id", "stepId"]) || `trace-step-${index}`,
+    kind,
+    raw: value,
+    status: fieldString(value, ["status", "state", "phase"]),
+    title: fieldString(value, ["title", "name", "toolName", "tool_name", "label"]) || kind || `Step ${index + 1}`,
+  };
+}
+
+function renderSubagentTraceSection(
+  title: string,
+  description: string,
+  section: "timeline" | "transcript" | "tools" | "approvals" | "artifacts",
+  steps: SubagentTraceStep[],
+): VNode {
+  return h("section", {
+    class: "desktop-subagent-trace-section",
+    "data-subagent-observability-section": section,
+  }, [
+    h("header", { class: "desktop-subagent-trace-section-header" }, [
+      h("strong", title),
+      h("span", description),
+    ]),
+    steps.length
+      ? h("ol", { class: "desktop-subagent-trace-list" }, steps.map((step, index) => renderSubagentTraceStep(step, index)))
+      : h("p", { class: "desktop-subagent-trace-empty" }, emptySubagentTraceSectionLabel(section)),
+  ]);
+}
+
+function renderSubagentArtifactSection(
+  activity: ToolActivityIslandOptions,
+  steps: SubagentTraceStep[],
+  artifactLoads: Map<string, DelegateArtifactLoadState>,
+  onArtifactLoad: (artifactId: string) => void,
+): VNode {
+  return h("section", {
+    class: "desktop-subagent-trace-section desktop-subagent-artifact-section",
+    "data-subagent-observability-section": "artifacts",
+  }, [
+    h("header", { class: "desktop-subagent-trace-section-header" }, [
+      h("strong", "Artifacts"),
+      h("span", "Files and outputs produced by the child run."),
+    ]),
+    steps.length
+      ? h("ol", { class: "desktop-subagent-trace-list" }, steps.map((step, index) => renderSubagentArtifactStep(
+        activity,
+        step,
+        index,
+        artifactLoads,
+        onArtifactLoad,
+      )))
+      : h("p", { class: "desktop-subagent-trace-empty" }, emptySubagentTraceSectionLabel("artifacts")),
+  ]);
+}
+
+function renderSubagentArtifactStep(
+  activity: ToolActivityIslandOptions,
+  step: SubagentTraceStep,
+  index: number,
+  artifactLoads: Map<string, DelegateArtifactLoadState>,
+  onArtifactLoad: (artifactId: string) => void,
+): VNode {
+  const artifactId = subagentArtifactId(step) || step.id || `artifact-${index + 1}`;
+  const loadState = artifactLoads.get(delegateArtifactLoadKey(activity, artifactId));
+  return h("li", {
+    class: "desktop-subagent-trace-step desktop-subagent-artifact-step",
+    "data-subagent-trace-step-kind": step.kind,
+    key: step.id || String(index),
+  }, [
+    h("div", { class: "desktop-subagent-artifact-heading" }, [
+      h("div", { class: "desktop-subagent-trace-step-heading" }, [
+        h("strong", step.title || artifactId || "Artifact"),
+        step.kind ? h("span", { class: "desktop-subagent-trace-kind" }, step.kind) : null,
+        step.status ? h("span", { class: "desktop-subagent-trace-status" }, step.status) : null,
+      ]),
+      h("button", {
+        class: "desktop-subagent-artifact-load",
+        "data-subagent-artifact-id": artifactId,
+        disabled: loadState?.loading === true,
+        onClick: () => onArtifactLoad(artifactId),
+        type: "button",
+      }, loadState?.artifact ? "Refresh" : loadState?.loading ? "Loading" : "Open"),
+    ]),
+    h("p", subagentTraceStepPreview(step)),
+    renderSubagentTraceStepMeta(step),
+    renderSubagentArtifactLoadState(loadState),
+  ]);
+}
+
+function renderSubagentArtifactLoadState(loadState: DelegateArtifactLoadState | undefined): VNode | null {
+  if (!loadState) {
+    return null;
+  }
+  if (loadState.loading) {
+    return h("p", { class: "desktop-subagent-artifact-loading" }, "Loading artifact...");
+  }
+  if (loadState.error) {
+    return h("p", { class: "desktop-subagent-artifact-error" }, loadState.error);
+  }
+  if (!loadState.artifact) {
+    return null;
+  }
+  return h("pre", { class: "desktop-subagent-artifact-preview" }, artifactPreview(loadState.artifact));
+}
+
+function artifactPreview(artifact: Record<string, unknown>): string {
+  return previewFromKeys(artifact, ["content", "text", "body", "preview", "result", "output"])
+    || formatMaybeJson(JSON.stringify(artifact));
+}
+
+function subagentArtifactId(step: SubagentTraceStep): string {
+  return fieldString(step.raw, ["artifactId", "artifact_id", "id", "path", "uri", "file", "filename"]);
+}
+
+function renderSubagentTraceStep(step: SubagentTraceStep, index: number): VNode {
+  return h("li", {
+    class: "desktop-subagent-trace-step",
+    "data-subagent-trace-step-kind": step.kind,
+    key: step.id || String(index),
+  }, [
+    h("div", { class: "desktop-subagent-trace-step-heading" }, [
+      h("strong", step.title || "Step"),
+      step.kind ? h("span", { class: "desktop-subagent-trace-kind" }, step.kind) : null,
+      step.status ? h("span", { class: "desktop-subagent-trace-status" }, step.status) : null,
+    ]),
+    h("p", subagentTraceStepPreview(step)),
+    renderSubagentTraceStepMeta(step),
+  ]);
+}
+
+function renderSubagentTraceStepMeta(step: SubagentTraceStep): VNode | null {
+  const rows: Array<[string, string]> = [
+    ["Args", previewFromKeys(step.raw, ["argsPreview", "args_preview", "arguments", "args", "input"])],
+    ["Result", previewFromKeys(step.raw, ["resultPreview", "result_preview", "result", "output", "observation", "final_output", "finalOutput"])],
+    ["Error", previewFromKeys(step.raw, ["error", "errorMessage", "error_message"])],
+    ["Approval", previewFromKeys(step.raw, ["approvalId", "approval_id", "approvalStatus", "approval_status"])],
+  ].filter((entry): entry is [string, string] => Boolean(entry[1]));
+  if (!rows.length) {
+    return null;
+  }
+  return h("dl", { class: "desktop-subagent-trace-step-meta" }, rows.flatMap(([label, value]) => [
+    h("dt", label),
+    h("dd", value),
+  ]));
+}
+
+function renderSubagentTraceContext(
+  activity: ToolActivityIslandOptions,
+  payload: Record<string, unknown>,
+  trace: Record<string, unknown> | null,
+): VNode {
+  const rows: Array<[string, string]> = [
+    ["Delegate", activity.delegateTitle || activity.delegateId || fieldString(payload, ["delegate_id", "delegateId", "task_name", "taskName"])],
+    ["Task", activity.delegateTask || fieldString(payload, ["task", "message", "prompt", "goal"])],
+    ["Trace", activity.traceRef || fieldString(trace ?? {}, ["trace_ref", "traceRef", "child_run_id", "childRunId", "run_id", "runId"])],
+    ["Final output", activity.finalOutput || fieldString(payload, ["final_output", "finalOutput"]) || activity.responseText],
+  ].filter((entry): entry is [string, string] => Boolean(entry[1]?.trim()));
+  return h("section", {
+    class: "desktop-subagent-trace-section desktop-subagent-trace-context-section",
+    "data-subagent-observability-section": "context",
+  }, [
+    h("header", { class: "desktop-subagent-trace-section-header" }, [
+      h("strong", "Raw context"),
+      h("span", "Stable identifiers and final values for debugging."),
+    ]),
+    rows.length
+      ? h("dl", { class: "desktop-subagent-trace-context" }, rows.flatMap(([label, value]) => [
+        h("dt", label),
+        h("dd", summarizeWorkflowText(sanitizeTextPreview(value))),
+      ]))
+      : h("p", { class: "desktop-subagent-trace-empty" }, "No delegated context was returned."),
+  ]);
+}
+
+function subagentTraceStepPreview(step: SubagentTraceStep): string {
+  return [
+    previewFromKeys(step.raw, ["summary", "message", "content", "text", "detail"]),
+    previewFromKeys(step.raw, ["resultPreview", "result_preview", "result", "output", "observation", "final_output", "finalOutput"]),
+    previewFromKeys(step.raw, ["error", "errorMessage", "error_message"]),
+  ].filter(Boolean).filter((value, index, values) => values.indexOf(value) === index).join(" ");
+}
+
+function previewFromKeys(payload: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = valuePreview(payload[key]);
+    if (value) {
+      return value;
+    }
+  }
+  return "";
+}
+
+function valuePreview(value: unknown): string {
+  if (typeof value === "string") {
+    return summarizeWorkflowText(sanitizeTextPreview(value));
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value) || isRecord(value)) {
+    try {
+      return summarizeWorkflowText(sanitizeTextPreview(JSON.stringify(value)));
+    } catch (error) {
+      return "";
+    }
+  }
+  return "";
+}
+
+function isTranscriptTraceStep(step: SubagentTraceStep): boolean {
+  const kind = step.kind.toLowerCase();
+  return ["reasoning", "message", "assistant_message", "assistant", "content", "final"].some((value) => kind.includes(value));
+}
+
+function isToolTraceStep(step: SubagentTraceStep): boolean {
+  const kind = step.kind.toLowerCase();
+  return kind.includes("tool") || Boolean(previewFromKeys(step.raw, ["toolName", "tool_name", "args", "arguments"]));
+}
+
+function isApprovalTraceStep(step: SubagentTraceStep): boolean {
+  const kind = step.kind.toLowerCase();
+  return kind.includes("approval")
+    || Boolean(previewFromKeys(step.raw, ["approvalId", "approval_id", "approvalStatus", "approval_status"]))
+    || step.status === "approval_required";
+}
+
+function isArtifactTraceStep(step: SubagentTraceStep): boolean {
+  const kind = step.kind.toLowerCase();
+  return kind.includes("artifact")
+    || Boolean(previewFromKeys(step.raw, ["artifactId", "artifact_id", "path", "uri", "file", "filename"]));
+}
+
+function subagentArtifactTraceSteps(
+  trace: Record<string, unknown> | null,
+  steps: SubagentTraceStep[],
+): SubagentTraceStep[] {
+  const artifactSteps = steps.filter(isArtifactTraceStep);
+  const artifacts = Array.isArray(trace?.artifacts) ? trace.artifacts.filter(isRecord) : [];
+  if (!artifacts.length) {
+    return artifactSteps;
+  }
+  const byId = new Map(artifactSteps.map((step) => [step.id, step]));
+  for (const artifact of artifacts) {
+    const id = fieldString(artifact, ["id", "artifactId", "artifact_id", "path", "uri", "file", "filename"]);
+    if (!id) {
+      continue;
+    }
+    const existing = byId.get(id);
+    byId.set(id, artifactTraceStepFromRecord(artifact, existing));
+  }
+  return [...byId.values()];
+}
+
+function artifactTraceStepFromRecord(
+  artifact: Record<string, unknown>,
+  existing: SubagentTraceStep | undefined,
+): SubagentTraceStep {
+  const path = fieldString(artifact, ["path", "uri", "file", "filename"]);
+  const summary = fieldString(artifact, ["summary", "title", "name", "description", "kind"]) || path;
+  return {
+    id: fieldString(artifact, ["id", "artifactId", "artifact_id"]) || existing?.id || path || "artifact",
+    kind: fieldString(artifact, ["kind", "type"]) || existing?.kind || "artifact",
+    raw: {
+      ...(existing?.raw ?? {}),
+      ...artifact,
+      ...(path ? { resultPreview: path } : {}),
+      ...(summary ? { summary } : {}),
+    },
+    status: fieldString(artifact, ["status", "state", "phase"]) || existing?.status || "",
+    title: fieldString(artifact, ["title", "name"]) || existing?.title || path || summary || "Artifact",
+  };
+}
+
+function syntheticApprovalTraceSteps(
+  activity: ToolActivityIslandOptions,
+  payload: Record<string, unknown>,
+  existingSteps: SubagentTraceStep[],
+): SubagentTraceStep[] {
+  const approvalId = activity.approvalId || fieldString(payload, ["approvalId", "approval_id"]);
+  if (!approvalId || existingSteps.some((step) => previewFromKeys(step.raw, ["approvalId", "approval_id"]) === approvalId)) {
+    return [];
+  }
+  return [{
+    id: approvalId,
+    kind: "approval",
+    raw: {
+      approvalId,
+      approvalStatus: activity.approvalStatus || fieldString(payload, ["approvalStatus", "approval_status"]),
+      summary: activity.responseText || "Waiting for approval.",
+    },
+    status: activity.approvalStatus || activity.status || "approval_required",
+    title: "Approval checkpoint",
+  }];
+}
+
+function emptySubagentTraceSectionLabel(section: "timeline" | "transcript" | "tools" | "approvals" | "artifacts"): string {
+  return {
+    approvals: "No child approval checkpoint has been recorded.",
+    artifacts: "No child artifacts have been recorded.",
+    timeline: "No child timeline events have been recorded.",
+    tools: "No child tool calls have been recorded.",
+    transcript: "No child transcript messages have been recorded.",
+  }[section];
 }
 
 function activityInspectorKind(activity: ToolActivityIslandOptions): ActivityInspectorKind {
@@ -1730,18 +2478,20 @@ function installConversationAgentFlowStyles(targetDocument: Document): void {
       gap: 0;
     }
 
-    .desktop-conversation-layout {
+    .desktop-conversation-layout,
+    body.desktop-native-workbench .desktop-conversation-layout {
       display: grid;
-      grid-template-rows: minmax(0, 1fr) auto;
-      height: 100%;
-      max-height: 100%;
+      grid-template-rows: minmax(0, auto) auto;
+      height: auto;
+      max-height: none;
       min-height: 0;
       min-width: 0;
-      overflow: hidden;
+      overflow: visible;
       transition: transform 320ms cubic-bezier(.2,.8,.2,1), filter 320ms ease;
     }
 
-    .desktop-conversation-timeline {
+    .desktop-conversation-timeline,
+    body.desktop-native-workbench .desktop-conversation-timeline {
       min-height: 0;
       overflow: auto;
       scroll-behavior: smooth;
@@ -1754,10 +2504,12 @@ function installConversationAgentFlowStyles(targetDocument: Document): void {
     }
 
     .desktop-subagent-shelf-list {
-      display: flex;
-      gap: 8px;
-      overflow-x: auto;
-      padding-bottom: 2px;
+      display: grid;
+      gap: 6px;
+      max-height: 178px;
+      overflow-x: hidden;
+      overflow-y: auto;
+      padding: 0 2px 0 0;
     }
 
     .desktop-subagent-shelf-item {
@@ -1768,12 +2520,12 @@ function installConversationAgentFlowStyles(targetDocument: Document): void {
       color: var(--text, #1e1d1b);
       cursor: pointer;
       display: grid;
-      flex: 0 0 min(220px, 52vw);
-      gap: 2px 8px;
-      grid-template-columns: auto minmax(0, 1fr) auto;
-      min-height: 46px;
-      padding: 7px 10px;
+      gap: 8px;
+      grid-template-columns: auto minmax(92px, .8fr) max-content minmax(0, 1.2fr);
+      min-height: 38px;
+      padding: 7px 9px;
       text-align: left;
+      width: 100%;
     }
 
     .desktop-subagent-shelf-item[aria-selected="true"] {
@@ -1802,7 +2554,6 @@ function installConversationAgentFlowStyles(targetDocument: Document): void {
     .desktop-subagent-shelf-activity {
       color: var(--text-muted, #716b63);
       font-size: 12px;
-      grid-column: 2 / 4;
     }
 
     .desktop-subagent-trace-panel {
@@ -1819,6 +2570,70 @@ function installConversationAgentFlowStyles(targetDocument: Document): void {
       color: var(--text-muted, #716b63);
     }
 
+    .desktop-subagent-observability-panel {
+      display: grid;
+      gap: 12px;
+    }
+
+    .desktop-subagent-observability-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .desktop-subagent-observability-tab {
+      background: var(--panel-strong, #fffaf7);
+      border: 1px solid var(--desktop-flow-muted-border);
+      border-radius: 999px;
+      color: var(--text-muted, #716b63);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1.2;
+      padding: 5px 9px;
+    }
+
+    .desktop-subagent-observability-tab[aria-selected="true"] {
+      background: color-mix(in srgb, var(--accent, #cc785c) 13%, var(--panel-strong, #fffaf7));
+      border-color: color-mix(in srgb, var(--accent, #cc785c) 45%, var(--desktop-flow-muted-border));
+      color: var(--text, #1e1d1b);
+    }
+
+    .desktop-subagent-observability-tab-panel {
+      min-width: 0;
+    }
+
+    .desktop-subagent-trace-section {
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .desktop-subagent-trace-section + .desktop-subagent-trace-section {
+      border-top: 1px solid color-mix(in srgb, var(--desktop-flow-muted-border) 72%, transparent);
+      padding-top: 10px;
+    }
+
+    .desktop-subagent-trace-section-header {
+      display: grid;
+      gap: 2px;
+    }
+
+    .desktop-subagent-trace-section-header strong {
+      font-size: 13px;
+    }
+
+    .desktop-subagent-trace-section-header span,
+    .desktop-subagent-trace-empty {
+      color: var(--text-muted, #716b63);
+      font-size: 12px;
+    }
+
+    .desktop-subagent-trace-empty {
+      margin: 0;
+    }
+
     .desktop-subagent-trace-list {
       display: grid;
       gap: 8px;
@@ -1830,26 +2645,97 @@ function installConversationAgentFlowStyles(targetDocument: Document): void {
     .desktop-subagent-trace-step {
       border-left: 3px solid color-mix(in srgb, var(--accent, #cc785c) 65%, transparent);
       padding-left: 10px;
+      min-width: 0;
+    }
+
+    .desktop-subagent-trace-step-heading {
+      align-items: baseline;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      min-width: 0;
     }
 
     .desktop-subagent-trace-step strong {
-      display: block;
       font-size: 14px;
+      min-width: 0;
+      overflow-wrap: anywhere;
     }
 
+    .desktop-subagent-trace-kind,
     .desktop-subagent-trace-status {
       color: var(--text-muted, #716b63);
       font-size: 12px;
       text-transform: capitalize;
     }
 
+    .desktop-subagent-trace-kind {
+      border: 1px solid var(--desktop-flow-muted-border);
+      border-radius: 999px;
+      padding: 1px 6px;
+    }
+
     .desktop-subagent-trace-step p {
       margin: 4px 0 0;
+      overflow-wrap: anywhere;
       white-space: pre-wrap;
     }
 
-    .desktop-assistant-step-group.desktop-agent-flow-group {
-      overflow: hidden;
+    .desktop-subagent-trace-step-meta,
+    .desktop-subagent-trace-context,
+    .desktop-subagent-trace-overview-metrics {
+      display: grid;
+      gap: 4px 8px;
+      grid-template-columns: max-content minmax(0, 1fr);
+      margin: 8px 0 0;
+    }
+
+    .desktop-subagent-trace-step-meta dt,
+    .desktop-subagent-trace-context dt,
+    .desktop-subagent-trace-overview-metrics dt {
+      color: var(--text-muted, #716b63);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .desktop-subagent-trace-step-meta dd,
+    .desktop-subagent-trace-context dd,
+    .desktop-subagent-trace-overview-metrics dd {
+      margin: 0;
+      min-width: 0;
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+    }
+
+    .desktop-subagent-trace-raw {
+      background: #1f1d1a;
+      border-radius: 8px;
+      color: #f8f2e8;
+      font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+      font-size: 12px;
+      margin: 0;
+      max-height: 320px;
+      overflow: auto;
+      padding: 10px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .desktop-assistant-run-group,
+    body.desktop-native-workbench .desktop-assistant-run-group {
+      display: grid;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .desktop-assistant-step-group.desktop-agent-flow-group,
+    body.desktop-native-workbench .desktop-assistant-step-group.desktop-agent-flow-group {
+      align-self: start;
+      display: block;
+      box-sizing: border-box;
+      height: auto;
+      max-height: none;
+      overflow: visible;
       border: 1px solid var(--desktop-flow-muted-border);
       border-radius: 14px;
       background: var(--desktop-flow-card-bg);
@@ -1918,21 +2804,51 @@ function installConversationAgentFlowStyles(targetDocument: Document): void {
 
     .desktop-agent-flow-step-list,
     body.desktop-native-workbench .desktop-agent-flow-step-list.desktop-assistant-step-list {
-      display: grid;
+      display: flex;
+      flex-direction: column;
       gap: 0;
+      height: auto;
       margin: 0;
-      max-height: none;
+      max-height: 0;
       min-height: 0;
-      overflow-y: visible;
+      opacity: 0;
+      overflow: hidden;
       padding: 4px 12px 14px;
       padding-right: 8px;
+      position: static;
+      contain: none;
+      transform: translateY(-8px);
+      transition:
+        max-height 300ms cubic-bezier(.2, .8, .2, 1),
+        opacity 220ms ease,
+        transform 300ms cubic-bezier(.2, .8, .2, 1);
+      will-change: max-height, opacity, transform;
     }
 
-    .desktop-agent-flow-step {
+    .desktop-agent-flow-group[open] .desktop-agent-flow-step-list,
+    body.desktop-native-workbench .desktop-agent-flow-group[open] .desktop-agent-flow-step-list.desktop-assistant-step-list {
+      max-height: var(--desktop-agent-flow-content-height, 1200px);
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .desktop-agent-flow-step,
+    body.desktop-native-workbench .desktop-agent-flow-step {
       display: grid;
+      flex: 0 0 auto;
       grid-template-columns: 30px minmax(0, 1fr);
+      height: auto;
+      max-height: none;
       min-width: 0;
+      opacity: 0;
+      overflow: visible;
+      transform: translateY(-8px);
+    }
+
+    .desktop-agent-flow-group[open] .desktop-agent-flow-step,
+    body.desktop-native-workbench .desktop-agent-flow-group[open] .desktop-agent-flow-step {
       animation: desktopAgentFlowStepIn 260ms ease both;
+      animation-delay: calc(var(--desktop-agent-flow-step-index, 0) * 55ms);
     }
 
     .desktop-agent-flow-step-rail {
@@ -1963,8 +2879,12 @@ function installConversationAgentFlowStyles(targetDocument: Document): void {
       background: linear-gradient(var(--desktop-flow-muted-border), transparent);
     }
 
-    .desktop-agent-flow-step-card {
+    .desktop-agent-flow-step-card,
+    body.desktop-native-workbench .desktop-agent-flow-step-card {
+      height: auto;
+      max-height: none;
       min-width: 0;
+      overflow: visible;
       padding: 8px 0 10px;
     }
 
@@ -2161,8 +3081,8 @@ function installConversationAgentFlowStyles(targetDocument: Document): void {
     }
 
     @keyframes desktopAgentFlowStepIn {
-      from { opacity: 0; transform: translateX(-6px); }
-      to { opacity: 1; transform: translateX(0); }
+      from { opacity: 0; transform: translateY(-8px); }
+      to { opacity: 1; transform: translateY(0); }
     }
 
     @keyframes desktopToolDetailSlideIn {
@@ -2178,11 +3098,19 @@ function installConversationAgentFlowStyles(targetDocument: Document): void {
     @media (prefers-reduced-motion: reduce) {
       .desktop-conversation-layout,
       .desktop-agent-flow-summary::before,
+      .desktop-agent-flow-step-list,
       .desktop-agent-flow-step,
       .desktop-tool-detail-panel[data-tool-detail-motion] {
         animation: none !important;
         scroll-behavior: auto !important;
         transition: none !important;
+      }
+
+      .desktop-agent-flow-group[open] .desktop-agent-flow-step-list,
+      .desktop-agent-flow-group[open] .desktop-agent-flow-step {
+        max-height: none !important;
+        opacity: 1 !important;
+        transform: none !important;
       }
     }
   `;

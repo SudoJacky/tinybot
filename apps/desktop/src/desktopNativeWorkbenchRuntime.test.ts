@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { createDesktopNativeWorkbenchRuntime } from "./desktopNativeWorkbenchRuntime";
 
 describe("desktop native workbench runtime", () => {
@@ -40,6 +40,41 @@ describe("desktop native workbench runtime", () => {
     expect(runtime.chat.status).toBe("Loaded 1 session from gateway.");
     expect(runtime.chat.responding).toBe(false);
     expect(sentSocketMessages).toContainEqual({ type: "attach", chat_id: "chat-live" });
+  });
+
+  test("loads delegated artifacts through the native chat runtime", async () => {
+    const getArtifact = vi.fn(async () => ({
+      artifact: {
+        artifactId: "artifact-1",
+        content: "artifact body",
+      },
+    }));
+    const runtime = createDesktopNativeWorkbenchRuntime({
+      api: {
+        getArtifact,
+        listSessions: async () => ({ items: [] }),
+        loadMessages: async () => ({ messages: [] }),
+      },
+      sendSocketMessage: vi.fn(),
+    });
+
+    await expect(runtime.loadArtifact({
+      artifactId: "artifact-1",
+      delegateId: "delegate-1",
+      sessionKey: "WebSocket:chat-1",
+      traceRef: "trace-1",
+    })).resolves.toEqual({
+      artifact: {
+        artifactId: "artifact-1",
+        content: "artifact body",
+      },
+    });
+    expect(getArtifact).toHaveBeenCalledWith({
+      artifactId: "artifact-1",
+      delegateId: "delegate-1",
+      sessionKey: "WebSocket:chat-1",
+      traceRef: "trace-1",
+    });
   });
 
   test("selects a native chat session, reloads messages, and reattaches the gateway socket", async () => {
