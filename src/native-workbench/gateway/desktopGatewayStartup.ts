@@ -1,4 +1,5 @@
 import type { GatewayConfig } from "./gatewayConfig";
+import type { NativeBackendCompatibilityWorkerStatus, NativeBackendKind } from "../native/nativeBackendContract";
 
 export type GatewayRuntimeStatus = {
   state: "running" | "starting" | "offline" | "failed";
@@ -22,6 +23,8 @@ export type GatewayRuntimeStatus = {
 
 export type DesktopWorkerRuntimeStatus = {
   state: "stopped" | "starting" | "running" | "failed" | "incompatible" | string;
+  backend_kind?: NativeBackendKind | string;
+  compatibility_worker?: NativeBackendCompatibilityWorkerStatus | null;
   transport_mode?: "stdio" | "local_pipe" | string | null;
   diagnostics?: Array<{ stream: string; line: string }>;
   last_error?: string | null;

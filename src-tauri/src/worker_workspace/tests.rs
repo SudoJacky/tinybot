@@ -423,7 +423,7 @@ mod tests {
     fn delete_file_refuses_workspace_root_and_requires_recursive_for_nonempty_dirs() {
         let fixture = WorkspaceFixture::new();
         fixture.write("notes/today.md", "hello");
-        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), write_policy());
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_write_policy());
 
         let root_error = rpc
             .delete_file(".", true)
@@ -442,12 +442,98 @@ mod tests {
         assert!(!fixture.root.join("notes").exists());
     }
 
+    #[test]
+    fn webui_skill_lifecycle_runs_in_rust_workspace_service() {
+        let fixture = WorkspaceFixture::new();
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_write_policy());
+
+        let created = rpc
+            .webui_create_skill(serde_json::json!({
+                "name": " Review Work! ",
+                "description": "Review changes",
+                "content": "Check diffs.",
+                "always": true,
+                "resources": ["scripts", "references", "invalid", "assets", "scripts"],
+            }))
+            .expect("skill should create");
+
+        assert_eq!(created["created"], true);
+        assert_eq!(created["name"], "review-work");
+        assert_eq!(created["path"], "skills/review-work/SKILL.md");
+        assert!(fixture.root.join("skills/review-work/scripts").is_dir());
+        assert!(fixture.root.join("skills/review-work/references").is_dir());
+        assert!(fixture.root.join("skills/review-work/assets").is_dir());
+
+        let listed = rpc
+            .webui_list_skills(Some(vec!["review-work".to_string()]))
+            .expect("skills should list");
+        assert_eq!(listed["skills"][0]["name"], "review-work");
+        assert_eq!(listed["skills"][0]["enabled"], true);
+        assert_eq!(listed["skills"][0]["always"], true);
+
+        let detail = rpc
+            .webui_skill_detail("review-work")
+            .expect("skill detail should load");
+        assert_eq!(detail["name"], "review-work");
+        assert_eq!(detail["content"], "# Review Work\n\nCheck diffs.");
+        assert_eq!(detail["metadata"]["description"], "Review changes");
+
+        let updated = rpc
+            .webui_update_skill(
+                "review-work",
+                serde_json::json!({
+                    "description": "Updated review",
+                    "content": "Review the changed files.",
+                    "always": false,
+                }),
+            )
+            .expect("skill should update");
+        assert_eq!(updated["updated"], true);
+
+        let validated = rpc
+            .webui_validate_skill("review-work")
+            .expect("skill should validate");
+        assert_eq!(validated["valid"], true);
+        assert_eq!(validated["message"], "Skill is valid");
+
+        let deleted = rpc
+            .webui_delete_skill("review-work")
+            .expect("skill should delete");
+        assert_eq!(deleted["deleted"], true);
+        assert!(!fixture.root.join("skills/review-work").exists());
+    }
+
+    #[test]
+    fn webui_skill_delete_rejects_builtin_skills() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write_outside(
+            "workers/ts-agent-worker/skills/planner/SKILL.md",
+            "---\nname: planner\ndescription: Builtin planner\n---\nBuiltin body",
+        );
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_write_policy())
+            .with_builtin_skills_root(fixture.outside.clone());
+
+        let error = rpc
+            .webui_delete_skill("planner")
+            .expect_err("builtin skill should not delete");
+
+        assert_eq!(error.message, "cannot delete builtin skills");
+        assert_eq!(error.details["status"], 403);
+    }
+
     fn read_policy() -> CapabilityPolicy {
         CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead])
     }
 
     fn write_policy() -> CapabilityPolicy {
         CapabilityPolicy::new([WorkerCapability::FsWorkspaceWrite])
+    }
+
+    fn read_write_policy() -> CapabilityPolicy {
+        CapabilityPolicy::new([
+            WorkerCapability::FsWorkspaceRead,
+            WorkerCapability::FsWorkspaceWrite,
+        ])
     }
 
     struct WorkspaceFixture {

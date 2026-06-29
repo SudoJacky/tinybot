@@ -1,0 +1,69 @@
+import { describe, expect, test } from "vitest";
+import {
+  isNativeBackendEventEnvelope,
+  NATIVE_BACKEND_AGENT_EVENT_NAMES,
+  NATIVE_BACKEND_COMMAND_NAMES,
+  normalizeNativeBackendEventPayload,
+  type NativeBackendRuntimeStatus,
+} from "./nativeBackendContract";
+
+describe("native backend contract", () => {
+  test("keeps the existing Tauri command names as compatibility entry points", () => {
+    expect(NATIVE_BACKEND_COMMAND_NAMES).toEqual(expect.arrayContaining([
+      "worker_run_agent",
+      "worker_cancel_agent",
+      "worker_restore_agent_checkpoint",
+      "worker_submit_agent_form",
+      "worker_resume_agent_approval",
+    ]));
+  });
+
+  test("covers Rust-owned agent events consumed by native surfaces", () => {
+    expect(NATIVE_BACKEND_AGENT_EVENT_NAMES).toEqual(expect.arrayContaining([
+      "agent.delta",
+      "agent.awaiting_form",
+      "agent.awaiting_approval",
+      "agent.delegate.trace.updated",
+      "agent.browser_frame",
+      "heartbeat.delivery",
+      "diagnostics.log",
+      "worker.status",
+    ]));
+  });
+
+  test("normalizes Rust event envelopes while preserving legacy payloads", () => {
+    const payload = { runId: "run-1", delta: "hello" };
+    const envelope = {
+      sessionId: "WebSocket:chat-1",
+      runId: "run-1",
+      traceId: "trace-1",
+      eventName: "agent.delta",
+      timestamp: "2026-06-29T14:30:00.000Z",
+      source: "compatibility_worker",
+      payload,
+    } as const;
+
+    expect(isNativeBackendEventEnvelope(envelope)).toBe(true);
+    expect(normalizeNativeBackendEventPayload(envelope)).toBe(payload);
+    expect(normalizeNativeBackendEventPayload(payload)).toBe(payload);
+  });
+
+  test("models Rust ownership with optional TS compatibility worker state", () => {
+    const status: NativeBackendRuntimeStatus = {
+      backendKind: "rust",
+      backendLabel: "rust",
+      compatibilityWorker: {
+        kind: "ts_agent_worker",
+        state: "running",
+        transportMode: "stdio",
+        diagnostics: [{ stream: "stdout", line: "worker ready" }],
+        lastError: null,
+        delegatedCapabilities: ["agent.run", "agent.cancel"],
+      },
+    };
+
+    expect(status.backendKind).toBe("rust");
+    expect(status.compatibilityWorker?.state).toBe("running");
+    expect(status.compatibilityWorker?.delegatedCapabilities).toContain("agent.run");
+  });
+});

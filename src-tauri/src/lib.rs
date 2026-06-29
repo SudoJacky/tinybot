@@ -15,6 +15,7 @@ pub mod desktop_gateway;
 pub mod desktop_heartbeat;
 pub mod desktop_logging;
 pub mod desktop_menu;
+pub mod native_backend_contract;
 pub mod worker_background;
 pub mod worker_capability;
 pub mod worker_client;
@@ -154,6 +155,39 @@ struct WorkerSkillCreateInput {
 #[serde(rename_all = "camelCase")]
 struct WorkerSkillUpdateInput {
     name: String,
+    body: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerWorkspaceFileInput {
+    path: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerWorkspacePutFileInput {
+    path: String,
+    body: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerSessionInput {
+    key: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerSessionPatchInput {
+    key: String,
+    body: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerSessionTemporaryFileUploadInput {
+    key: String,
     body: serde_json::Value,
 }
 
@@ -435,6 +469,155 @@ fn worker_skills_validate(
     worker_skills_validate_with_options(
         state.inner(),
         input.name,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_workspace_files(state: State<'_, SharedGateway>) -> Result<serde_json::Value, String> {
+    worker_workspace_files_with_options(
+        state.inner(),
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_workspace_file(
+    input: WorkerWorkspaceFileInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_workspace_file_with_options(
+        state.inner(),
+        input.path,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_workspace_put_file(
+    input: WorkerWorkspacePutFileInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_workspace_put_file_with_options(
+        state.inner(),
+        input.path,
+        input.body,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_sessions_list(state: State<'_, SharedGateway>) -> Result<serde_json::Value, String> {
+    worker_sessions_list_with_options(
+        state.inner(),
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_session_messages(
+    input: WorkerSessionInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_session_messages_with_options(
+        state.inner(),
+        input.key,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_session_temporary_files(
+    input: WorkerSessionInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_session_temporary_files_with_options(
+        state.inner(),
+        input.key,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_session_upload_temporary_file(
+    input: WorkerSessionTemporaryFileUploadInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_session_upload_temporary_file_with_options(
+        state.inner(),
+        input.key,
+        input.body,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_session_clear_temporary_files(
+    input: WorkerSessionInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_session_clear_temporary_files_with_options(
+        state.inner(),
+        input.key,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_session_delete(
+    input: WorkerSessionInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_session_delete_with_options(
+        state.inner(),
+        input.key,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_session_patch(
+    input: WorkerSessionPatchInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_session_patch_with_options(
+        state.inner(),
+        input.key,
+        input.body,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_session_clear(
+    input: WorkerSessionInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_session_clear_with_options(
+        state.inner(),
+        input.key,
         ts_agent_worker_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
@@ -829,16 +1012,17 @@ fn build_worker_run_agent_input_request(
 }
 
 fn worker_skills_list_with_options(
-    shared: &SharedGateway,
+    _shared: &SharedGateway,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
-    timeout: Duration,
+    _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let client = WorkerClient::experimental(shared);
-    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
-
-    let request = build_worker_skills_list_request(next_worker_request_correlation());
-    client.call(&request, timeout, "worker skills list")
+    call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        build_worker_skills_list_request(next_worker_request_correlation()),
+        "worker skills list",
+    )
 }
 
 fn build_worker_skills_list_request(request_id: WorkerRequestCorrelation) -> WorkerRequest {
@@ -851,17 +1035,18 @@ fn build_worker_skills_list_request(request_id: WorkerRequestCorrelation) -> Wor
 }
 
 fn worker_skills_detail_with_options(
-    shared: &SharedGateway,
+    _shared: &SharedGateway,
     name: String,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
-    timeout: Duration,
+    _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let client = WorkerClient::experimental(shared);
-    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
-
-    let request = build_worker_skills_detail_request(next_worker_request_correlation(), name);
-    client.call(&request, timeout, "worker skills detail")
+    call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        build_worker_skills_detail_request(next_worker_request_correlation(), name),
+        "worker skills detail",
+    )
 }
 
 fn build_worker_skills_detail_request(
@@ -877,19 +1062,17 @@ fn build_worker_skills_detail_request(
 }
 
 fn worker_skills_create_with_options(
-    shared: &SharedGateway,
+    _shared: &SharedGateway,
     body: serde_json::Value,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
-    timeout: Duration,
+    _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    send_skills_worker_request(
-        shared,
+    call_rust_state_service(
         workspace_root,
         config_snapshot,
         build_worker_skills_create_request(next_worker_request_correlation(), body),
-        timeout,
-        "create",
+        "worker skills create",
     )
 }
 
@@ -906,20 +1089,18 @@ fn build_worker_skills_create_request(
 }
 
 fn worker_skills_update_with_options(
-    shared: &SharedGateway,
+    _shared: &SharedGateway,
     name: String,
     body: serde_json::Value,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
-    timeout: Duration,
+    _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    send_skills_worker_request(
-        shared,
+    call_rust_state_service(
         workspace_root,
         config_snapshot,
         build_worker_skills_update_request(next_worker_request_correlation(), name, body),
-        timeout,
-        "update",
+        "worker skills update",
     )
 }
 
@@ -937,19 +1118,17 @@ fn build_worker_skills_update_request(
 }
 
 fn worker_skills_delete_with_options(
-    shared: &SharedGateway,
+    _shared: &SharedGateway,
     name: String,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
-    timeout: Duration,
+    _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    send_skills_worker_request(
-        shared,
+    call_rust_state_service(
         workspace_root,
         config_snapshot,
         build_worker_skills_delete_request(next_worker_request_correlation(), name),
-        timeout,
-        "delete",
+        "worker skills delete",
     )
 }
 
@@ -966,19 +1145,17 @@ fn build_worker_skills_delete_request(
 }
 
 fn worker_skills_validate_with_options(
-    shared: &SharedGateway,
+    _shared: &SharedGateway,
     name: String,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
-    timeout: Duration,
+    _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    send_skills_worker_request(
-        shared,
+    call_rust_state_service(
         workspace_root,
         config_snapshot,
         build_worker_skills_validate_request(next_worker_request_correlation(), name),
-        timeout,
-        "validate",
+        "worker skills validate",
     )
 }
 
@@ -992,6 +1169,357 @@ fn build_worker_skills_validate_request(
         "skills.webui_validate",
         serde_json::json!({ "name": name }),
     )
+}
+
+fn worker_workspace_files_with_options(
+    _shared: &SharedGateway,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    let items = call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("workspace-files"),
+            request_id.trace_id("workspace-files"),
+            "workspace.list_files",
+            serde_json::json!({}),
+        ),
+        "worker workspace files",
+    )?;
+    Ok(serde_json::json!({ "items": items }))
+}
+
+fn worker_workspace_file_with_options(
+    _shared: &SharedGateway,
+    path: String,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("workspace-file"),
+            request_id.trace_id("workspace-file"),
+            "workspace.read_file",
+            serde_json::json!({ "path": path, "format": "raw" }),
+        ),
+        "worker workspace file",
+    )
+}
+
+fn worker_workspace_put_file_with_options(
+    _shared: &SharedGateway,
+    path: String,
+    body: serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let contents = body
+        .get("content")
+        .or_else(|| body.get("contents"))
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| "worker workspace put file failed: content is required".to_string())?;
+    let expected_updated_at = body
+        .get("expectedUpdatedAt")
+        .or_else(|| body.get("expected_updated_at"))
+        .and_then(|value| value.as_str());
+    let request_id = next_worker_request_correlation();
+    call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("workspace-put-file"),
+            request_id.trace_id("workspace-put-file"),
+            "workspace.write_file",
+            serde_json::json!({
+                "path": path,
+                "contents": contents,
+                "expected_updated_at": expected_updated_at,
+                "internal_operation": true,
+            }),
+        ),
+        "worker workspace put file",
+    )
+}
+
+fn worker_sessions_list_with_options(
+    _shared: &SharedGateway,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    let sessions = call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("sessions-list"),
+            request_id.trace_id("sessions-list"),
+            "session.list_metadata",
+            serde_json::json!({}),
+        ),
+        "worker sessions list",
+    )?;
+    let items = sessions
+        .as_array()
+        .ok_or_else(|| "worker sessions list failed: response was not an array".to_string())?
+        .iter()
+        .map(webui_session_item)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(serde_json::json!({ "items": items }))
+}
+
+fn worker_session_messages_with_options(
+    _shared: &SharedGateway,
+    key: String,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    let mut history = call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("session-messages"),
+            request_id.trace_id("session-messages"),
+            "session.get_history",
+            serde_json::json!({ "session_id": key, "limit": 500 }),
+        ),
+        "worker session messages",
+    )?;
+    let object = history
+        .as_object_mut()
+        .ok_or_else(|| "worker session messages failed: response was not an object".to_string())?;
+    let session_id = object
+        .get("session_id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    object.insert(
+        "key".to_string(),
+        serde_json::Value::String(session_id.clone()),
+    );
+    object.insert(
+        "chat_id".to_string(),
+        serde_json::Value::String(session_chat_id_from_key(&session_id)),
+    );
+    Ok(history)
+}
+
+fn worker_session_temporary_files_with_options(
+    _shared: &SharedGateway,
+    key: String,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    let mut result = call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("session-temporary-files"),
+            request_id.trace_id("session-temporary-files"),
+            "knowledge.session_list",
+            serde_json::json!({ "session_id": key }),
+        ),
+        "worker session temporary files",
+    )?;
+    add_session_key_fields(&mut result)?;
+    Ok(result)
+}
+
+fn worker_session_upload_temporary_file_with_options(
+    _shared: &SharedGateway,
+    key: String,
+    body: serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("session-upload-temporary-file"),
+            request_id.trace_id("session-upload-temporary-file"),
+            "session.temporary_file.upload",
+            serde_json::json!({
+                "session_id": key,
+                "name": body.get("name").and_then(serde_json::Value::as_str).unwrap_or_default(),
+                "file_type": body.get("file_type")
+                    .or_else(|| body.get("fileType"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default(),
+                "content": body.get("content").and_then(serde_json::Value::as_str).unwrap_or_default(),
+                "size_bytes": body.get("size_bytes")
+                    .or_else(|| body.get("sizeBytes"))
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or_default(),
+            }),
+        ),
+        "worker session temporary file upload",
+    )
+}
+
+fn worker_session_clear_temporary_files_with_options(
+    _shared: &SharedGateway,
+    key: String,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    let mut result = call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("session-clear-temporary-files"),
+            request_id.trace_id("session-clear-temporary-files"),
+            "knowledge.session_clear",
+            serde_json::json!({ "session_id": key }),
+        ),
+        "worker session temporary files clear",
+    )?;
+    add_session_key_fields(&mut result)?;
+    Ok(result)
+}
+
+fn worker_session_delete_with_options(
+    _shared: &SharedGateway,
+    key: String,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    let mut result = call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("session-delete"),
+            request_id.trace_id("session-delete"),
+            "session.delete",
+            serde_json::json!({ "session_id": key }),
+        ),
+        "worker session delete",
+    )?;
+    add_session_key_fields(&mut result)?;
+    Ok(result)
+}
+
+fn worker_session_patch_with_options(
+    _shared: &SharedGateway,
+    key: String,
+    body: serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let metadata = body
+        .get("metadata")
+        .cloned()
+        .unwrap_or_else(|| body.clone());
+    let request_id = next_worker_request_correlation();
+    let session = call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("session-patch"),
+            request_id.trace_id("session-patch"),
+            "session.patch_metadata",
+            serde_json::json!({ "session_id": key, "metadata": metadata }),
+        ),
+        "worker session patch",
+    )?;
+    webui_session_item(&session)
+}
+
+fn worker_session_clear_with_options(
+    _shared: &SharedGateway,
+    key: String,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    let mut result = call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("session-clear"),
+            request_id.trace_id("session-clear"),
+            "session.clear",
+            serde_json::json!({ "session_id": key }),
+        ),
+        "worker session clear",
+    )?;
+    add_session_key_fields(&mut result)?;
+    Ok(result)
+}
+
+fn webui_session_item(session: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let mut item = session
+        .as_object()
+        .cloned()
+        .ok_or_else(|| "worker sessions list failed: session item was not an object".to_string())?;
+    let session_id = item
+        .get("session_id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    item.insert(
+        "key".to_string(),
+        serde_json::Value::String(session_id.clone()),
+    );
+    item.insert(
+        "chat_id".to_string(),
+        serde_json::Value::String(session_chat_id_from_key(&session_id)),
+    );
+    if let Some(metadata) = item
+        .get("extra")
+        .and_then(|extra| extra.get("metadata"))
+        .cloned()
+    {
+        item.insert("metadata".to_string(), metadata);
+    }
+    Ok(serde_json::Value::Object(item))
+}
+
+fn add_session_key_fields(value: &mut serde_json::Value) -> Result<(), String> {
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| "worker session operation failed: response was not an object".to_string())?;
+    let session_id = object
+        .get("session_id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    object.insert(
+        "key".to_string(),
+        serde_json::Value::String(session_id.clone()),
+    );
+    object.insert(
+        "chat_id".to_string(),
+        serde_json::Value::String(session_chat_id_from_key(&session_id)),
+    );
+    Ok(())
+}
+
+fn session_chat_id_from_key(key: &str) -> String {
+    key.split_once(':')
+        .map(|(_, chat_id)| chat_id)
+        .unwrap_or(key)
+        .to_string()
 }
 
 fn worker_cowork_route_with_options(
@@ -1435,17 +1963,20 @@ fn sanitize_worker_run_id_part(value: &str) -> String {
     }
 }
 
-fn send_skills_worker_request(
-    shared: &SharedGateway,
+fn call_rust_state_service(
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     request: WorkerRequest,
-    timeout: Duration,
-    action: &str,
+    label: &str,
 ) -> Result<serde_json::Value, String> {
-    let client = WorkerClient::experimental(shared);
-    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
-    client.call(&request, timeout, &format!("worker skills {action}"))
+    let mut router = experimental_worker_router(workspace_root, config_snapshot);
+    let response = router.dispatch(&request);
+    if let Some(error) = response.error {
+        return Err(format!("{label} failed: {}", error.message));
+    }
+    response
+        .result
+        .ok_or_else(|| format!("{label} failed: missing response result"))
 }
 
 fn worker_cancel_agent_with_options(
@@ -2039,6 +2570,17 @@ pub fn run() {
             worker_skills_update,
             worker_skills_delete,
             worker_skills_validate,
+            worker_workspace_files,
+            worker_workspace_file,
+            worker_workspace_put_file,
+            worker_sessions_list,
+            worker_session_messages,
+            worker_session_temporary_files,
+            worker_session_upload_temporary_file,
+            worker_session_clear_temporary_files,
+            worker_session_delete,
+            worker_session_patch,
+            worker_session_clear,
             worker_cowork_route,
             worker_webui_route,
             worker_transport_gateway_frame,
@@ -2776,7 +3318,7 @@ mod tests {
     }
 
     #[test]
-    fn worker_skills_requests_target_ts_webui_skill_methods() {
+    fn worker_skills_requests_target_rust_webui_skill_methods() {
         let list_request = build_worker_skills_list_request(test_request_correlation("42"));
         let detail_request = build_worker_skills_detail_request(
             test_request_correlation("43"),
@@ -2838,6 +3380,229 @@ mod tests {
         assert_eq!(
             validate_request.params,
             serde_json::json!({ "name": "planner/phase" })
+        );
+    }
+
+    #[test]
+    fn worker_skills_list_reads_rust_workspace_without_ts_worker() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write(
+            "skills/planner/SKILL.md",
+            "---\nname: planner\ndescription: Plan work\n---\nPlan.",
+        );
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+
+        let result = worker_skills_list_with_options(
+            &shared,
+            fixture.root.clone(),
+            serde_json::json!({ "skills": { "enabled": ["planner"] } }),
+            Duration::from_millis(10),
+        )
+        .expect("skills list should be served by Rust workspace state");
+
+        assert_eq!(result["skills"][0]["name"], "planner");
+        assert_eq!(result["skills"][0]["description"], "Plan work");
+        assert_eq!(result["skills"][0]["enabled"], true);
+        assert_eq!(
+            lock_runtime(&shared).experimental_worker.status().state,
+            WorkerManagerState::Stopped
+        );
+    }
+
+    #[test]
+    fn worker_workspace_file_commands_use_rust_workspace_without_ts_worker() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("docs/readme.md", "old readme");
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+
+        let files = worker_workspace_files_with_options(
+            &shared,
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("workspace files should be served by Rust workspace state");
+        let file = worker_workspace_file_with_options(
+            &shared,
+            "docs/readme.md".to_string(),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("workspace file should be served by Rust workspace state");
+        let write = worker_workspace_put_file_with_options(
+            &shared,
+            "docs/readme.md".to_string(),
+            serde_json::json!({ "content": "new readme", "expected_updated_at": null }),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("workspace write should be served by Rust workspace state");
+
+        assert_eq!(files["items"][0]["path"], "docs/readme.md");
+        assert_eq!(file["path"], "docs/readme.md");
+        assert_eq!(file["content"], "old readme");
+        assert_eq!(write["path"], "docs/readme.md");
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("docs").join("readme.md"))
+                .expect("written file should read"),
+            "new readme"
+        );
+        assert_eq!(
+            lock_runtime(&shared).experimental_worker.status().state,
+            WorkerManagerState::Stopped
+        );
+    }
+
+    #[test]
+    fn worker_session_read_commands_use_rust_session_store_without_ts_worker() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write(
+            "sessions/store.json",
+            &serde_json::json!({
+                "version": 1,
+                "sessions": [{
+                    "session_id": "websocket:chat-1",
+                    "title": "Native session",
+                    "workspace_dir": "D:/Code/py/tinybot",
+                    "created_at": "2026-06-29T08:00:00Z",
+                    "updated_at": "2026-06-29T08:30:00Z",
+                    "extra": {
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": "Use Rust state",
+                                "message_id": "msg-1",
+                                "timestamp": "2026-06-29T08:00:01Z"
+                            }
+                        ]
+                    }
+                }]
+            })
+            .to_string(),
+        );
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+
+        let sessions = worker_sessions_list_with_options(
+            &shared,
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("session list should be served by Rust session state");
+        let messages = worker_session_messages_with_options(
+            &shared,
+            "websocket:chat-1".to_string(),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("session messages should be served by Rust session state");
+
+        assert_eq!(sessions["items"][0]["key"], "websocket:chat-1");
+        assert_eq!(sessions["items"][0]["chat_id"], "chat-1");
+        assert_eq!(sessions["items"][0]["title"], "Native session");
+        assert_eq!(messages["key"], "websocket:chat-1");
+        assert_eq!(messages["chat_id"], "chat-1");
+        assert_eq!(messages["messages"][0]["content"], "Use Rust state");
+        assert_eq!(
+            lock_runtime(&shared).experimental_worker.status().state,
+            WorkerManagerState::Stopped
+        );
+    }
+
+    #[test]
+    fn worker_session_write_commands_use_rust_session_store_without_ts_worker() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write(
+            "sessions/store.json",
+            &serde_json::json!({
+                "version": 1,
+                "sessions": [{
+                    "session_id": "websocket:chat-1",
+                    "title": "Native session",
+                    "workspace_dir": "D:/Code/py/tinybot",
+                    "created_at": "2026-06-29T08:00:00Z",
+                    "updated_at": "2026-06-29T08:30:00Z",
+                    "extra": {
+                        "messages": [{ "role": "user", "content": "Keep this" }],
+                        "metadata": { "pinned": false }
+                    }
+                }]
+            })
+            .to_string(),
+        );
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+
+        let uploaded = worker_session_upload_temporary_file_with_options(
+            &shared,
+            "websocket:chat-1".to_string(),
+            serde_json::json!({
+                "name": "context.md",
+                "file_type": "md",
+                "content": "hello native",
+                "size_bytes": 12
+            }),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("temporary upload should be served by Rust session state");
+        let temporary_files = worker_session_temporary_files_with_options(
+            &shared,
+            "websocket:chat-1".to_string(),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("temporary file list should be served by Rust session state");
+        let patch = worker_session_patch_with_options(
+            &shared,
+            "websocket:chat-1".to_string(),
+            serde_json::json!({ "metadata": { "pinned": true } }),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("session patch should be served by Rust session state");
+        let cleared_files = worker_session_clear_temporary_files_with_options(
+            &shared,
+            "websocket:chat-1".to_string(),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("temporary file clear should be served by Rust session state");
+        let cleared_session = worker_session_clear_with_options(
+            &shared,
+            "websocket:chat-1".to_string(),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("session clear should be served by Rust session state");
+        let deleted = worker_session_delete_with_options(
+            &shared,
+            "websocket:chat-1".to_string(),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("session delete should be served by Rust session state");
+
+        assert_eq!(uploaded["name"], "context.md");
+        assert_eq!(temporary_files["key"], "websocket:chat-1");
+        assert_eq!(temporary_files["temporary_files"][0]["name"], "context.md");
+        assert_eq!(patch["key"], "websocket:chat-1");
+        assert_eq!(patch["metadata"]["pinned"], true);
+        assert_eq!(cleared_files["cleared"], 1);
+        assert_eq!(cleared_session["messages_before"], 1);
+        assert_eq!(deleted["key"], "websocket:chat-1");
+        assert_eq!(deleted["deleted"], true);
+        assert_eq!(
+            lock_runtime(&shared).experimental_worker.status().state,
+            WorkerManagerState::Stopped
         );
     }
 

@@ -259,6 +259,31 @@ impl WorkerRpcRouter {
             "skills.list" => {
                 serde_json::to_value(self.workspace.list_skills()?).map_err(serialization_error)
             }
+            "skills.webui_list" => self
+                .workspace
+                .webui_list_skills(enabled_skills_from_snapshot(
+                    &self.config.snapshot_public()?.value,
+                )),
+            "skills.webui_detail" => {
+                let params: SkillNameParams = parse_params(request)?;
+                self.workspace.webui_skill_detail(&params.name)
+            }
+            "skills.webui_create" => {
+                let params: SkillCreateParams = parse_params(request)?;
+                self.workspace.webui_create_skill(params.body)
+            }
+            "skills.webui_update" => {
+                let params: SkillUpdateParams = parse_params(request)?;
+                self.workspace.webui_update_skill(&params.name, params.body)
+            }
+            "skills.webui_delete" => {
+                let params: SkillNameParams = parse_params(request)?;
+                self.workspace.webui_delete_skill(&params.name)
+            }
+            "skills.webui_validate" => {
+                let params: SkillNameParams = parse_params(request)?;
+                self.workspace.webui_validate_skill(&params.name)
+            }
             "config.get" => {
                 let params: PathParams = parse_params(request)?;
                 serde_json::to_value(self.config.get(&params.path)?).map_err(serialization_error)
@@ -756,6 +781,22 @@ struct WriteFileParams {
 }
 
 #[derive(Deserialize)]
+struct SkillNameParams {
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct SkillCreateParams {
+    body: Value,
+}
+
+#[derive(Deserialize)]
+struct SkillUpdateParams {
+    name: String,
+    body: Value,
+}
+
+#[derive(Deserialize)]
 struct ShellExecuteRequestParams {
     command: String,
     #[serde(default)]
@@ -894,6 +935,19 @@ where
             )));
         }
     })
+}
+
+fn enabled_skills_from_snapshot(snapshot: &Value) -> Option<Vec<String>> {
+    snapshot
+        .get("skills")
+        .and_then(|value| value.get("enabled"))
+        .and_then(|value| value.as_array())
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|value| value.as_str().map(str::to_string))
+                .collect()
+        })
 }
 
 fn serialization_error(error: serde_json::Error) -> crate::worker_protocol::WorkerProtocolError {

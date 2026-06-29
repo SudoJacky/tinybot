@@ -123,11 +123,14 @@ import {
   type TsCoworkRuntimeRollout,
 } from "../gateway/gatewayHttpClient";
 import { createDesktopNativeCoworkApi } from "../native/desktopNativeCowork";
+import { createDesktopNativeSessionsApi } from "../native/desktopNativeSessions";
 import { createDesktopNativeSkillsApi } from "../native/desktopNativeSkills";
 import { createDesktopNativeWebuiApi } from "../native/desktopNativeWebui";
+import { createDesktopNativeWorkspaceApi } from "../native/desktopNativeWorkspace";
 import { startDesktopNativeChannelRuntime } from "../native/desktopNativeChannelLifecycle";
 import { createDesktopNativeTransportApi } from "../native/desktopNativeTransport";
 import { toDesktopNativeTauriEventName } from "../native/desktopNativeTauriEvents";
+import { normalizeNativeBackendEventPayload } from "../native/nativeBackendContract";
 import { normalizeSessionsPayload } from "../chat/nativeChat";
 import {
   flushGatewaySocketQueue,
@@ -156,15 +159,19 @@ const gatewayConfig = resolveGatewayConfig(DEFAULT_GATEWAY_CONFIG);
 const gatewayClientOptions: {
   config: typeof gatewayConfig;
   nativeCowork: ReturnType<typeof createDesktopNativeCoworkApi>;
+  nativeSessions: ReturnType<typeof createDesktopNativeSessionsApi>;
   nativeSkills: ReturnType<typeof createDesktopNativeSkillsApi>;
   nativeWebui: ReturnType<typeof createDesktopNativeWebuiApi>;
+  nativeWorkspace: ReturnType<typeof createDesktopNativeWorkspaceApi>;
   nativeTransport: ReturnType<typeof createDesktopNativeTransportApi>;
   tsCoworkRuntime: TsCoworkRuntimeRollout;
 } = {
   config: gatewayConfig,
   nativeCowork: createDesktopNativeCoworkApi({ invoke }),
+  nativeSessions: createDesktopNativeSessionsApi({ invoke }),
   nativeSkills: createDesktopNativeSkillsApi({ invoke }),
   nativeWebui: createDesktopNativeWebuiApi({ invoke }),
+  nativeWorkspace: createDesktopNativeWorkspaceApi({ invoke }),
   nativeTransport: createDesktopNativeTransportApi({ invoke }),
   tsCoworkRuntime: DEFAULT_TS_COWORK_RUNTIME_ROLLOUT,
 };
@@ -293,7 +300,7 @@ async function bootDesktopWebUi(): Promise<void> {
       nativeWebui: gatewayClientOptions.nativeWebui,
       resolveNativeWebSocketSessionExists,
       listenToNativeAgentEvent: (eventName, handler) => listen(toDesktopNativeTauriEventName(eventName), (event) => {
-        handler(event.payload);
+        handler(normalizeNativeBackendEventPayload(event.payload));
       }),
     });
     installWebUiRenderGlobals();
@@ -733,7 +740,7 @@ function handleNativeTsAgentWorkerEvent(eventName: DesktopTsAgentWorkerEventName
   if (!nativeWorkbenchRuntime) {
     return;
   }
-  nativeWorkbenchRuntime.handleTsAgentWorkerEvent(eventName, payload);
+  nativeWorkbenchRuntime.handleTsAgentWorkerEvent(eventName, normalizeNativeBackendEventPayload(payload));
   updateDesktopNativeChat(document, nativeWorkbenchRuntime.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
 }
 

@@ -6,7 +6,9 @@ type FetchFn = typeof fetch;
 type ClientOptions = {
   config?: GatewayConfig;
   fetchFn?: FetchFn;
+  nativeSessions?: NativeSessionsApi;
   nativeSkills?: NativeSkillsApi;
+  nativeWorkspace?: NativeWorkspaceApi;
   nativeCowork?: NativeCoworkApi;
   nativeWebui?: NativeWebuiApi;
   tsCoworkRuntime?: TsCoworkRuntimeRollout;
@@ -58,6 +60,23 @@ export type NativeSkillsApi = {
   update: (name: string, body: unknown) => Promise<unknown>;
   delete: (name: string) => Promise<unknown>;
   validate: (name: string) => Promise<unknown>;
+};
+
+export type NativeSessionsApi = {
+  list: () => Promise<unknown>;
+  messages: (key: string) => Promise<unknown>;
+  temporaryFiles?: (key: string) => Promise<unknown>;
+  uploadTemporaryFile?: (key: string, body: unknown) => Promise<unknown>;
+  clearTemporaryFiles?: (key: string) => Promise<unknown>;
+  delete?: (key: string) => Promise<unknown>;
+  patch?: (key: string, body: unknown) => Promise<unknown>;
+  clear?: (key: string) => Promise<unknown>;
+};
+
+export type NativeWorkspaceApi = {
+  files: () => Promise<unknown>;
+  file: (path: string) => Promise<unknown>;
+  putFile: (path: string, body: unknown) => Promise<unknown>;
 };
 
 export type NativeCoworkRouteRequest = {
@@ -333,12 +352,12 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
     },
     sessions: {
       list: () => nativeOrGateway(
-        () => options.nativeWebui?.route({ method: "GET", path: "/api/sessions" }),
+        () => options.nativeSessions?.list() ?? options.nativeWebui?.route({ method: "GET", path: "/api/sessions" }),
         () => request("/api/sessions"),
         "webui.sessions.list",
       ),
       messages: (key: string) => nativeOrGateway(
-        () => options.nativeWebui?.route({ method: "GET", path: `/api/sessions/${encodePathSegment(key)}/messages` }),
+        () => options.nativeSessions?.messages(key) ?? options.nativeWebui?.route({ method: "GET", path: `/api/sessions/${encodePathSegment(key)}/messages` }),
         () => request(`/api/sessions/${encodePathSegment(key)}/messages`),
         "webui.sessions.messages",
       ),
@@ -348,7 +367,7 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         "webui.sessions.profile",
       ),
       temporaryFiles: (key: string) => nativeOrGateway(
-        () => options.nativeWebui?.route({
+        () => options.nativeSessions?.temporaryFiles?.(key) ?? options.nativeWebui?.route({
           method: "GET",
           path: `/api/sessions/${encodePathSegment(key)}/temporary-files`,
         }),
@@ -358,7 +377,13 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
       uploadTemporaryFile: (key: string, body: FormData) => nativeOrGateway(
         () => {
           const uploadBody = nativeTemporaryFileUploadBody(body);
-          return options.nativeWebui && uploadBody
+          if (!uploadBody) {
+            return undefined;
+          }
+          if (options.nativeSessions?.uploadTemporaryFile) {
+            return uploadBody.then((payload) => options.nativeSessions?.uploadTemporaryFile?.(key, payload));
+          }
+          return options.nativeWebui
             ? uploadBody.then((payload) => options.nativeWebui?.route({
               method: "POST",
               path: `/api/sessions/${encodePathSegment(key)}/temporary-files`,
@@ -370,7 +395,7 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         "webui.sessions.uploadTemporaryFile",
       ),
       clearTemporaryFiles: (key: string) => nativeOrGateway(
-        () => options.nativeWebui?.route({
+        () => options.nativeSessions?.clearTemporaryFiles?.(key) ?? options.nativeWebui?.route({
           method: "DELETE",
           path: `/api/sessions/${encodePathSegment(key)}/temporary-files`,
         }),
@@ -378,12 +403,12 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         "webui.sessions.clearTemporaryFiles",
       ),
       delete: (key: string) => nativeOrGateway(
-        () => options.nativeWebui?.route({ method: "DELETE", path: `/api/sessions/${encodePathSegment(key)}` }),
+        () => options.nativeSessions?.delete?.(key) ?? options.nativeWebui?.route({ method: "DELETE", path: `/api/sessions/${encodePathSegment(key)}` }),
         () => request(`/api/sessions/${encodePathSegment(key)}`, { method: "DELETE" }),
         "webui.sessions.delete",
       ),
       patch: (key: string, body: unknown) => nativeOrGateway(
-        () => options.nativeWebui?.route({
+        () => options.nativeSessions?.patch?.(key, body) ?? options.nativeWebui?.route({
           method: "PATCH",
           path: `/api/sessions/${encodePathSegment(key)}`,
           body,
@@ -392,7 +417,7 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         "webui.sessions.patch",
       ),
       clear: (key: string) => nativeOrGateway(
-        () => options.nativeWebui?.route({
+        () => options.nativeSessions?.clear?.(key) ?? options.nativeWebui?.route({
           method: "POST",
           path: `/api/sessions/${encodePathSegment(key)}/clear`,
         }),
@@ -455,47 +480,47 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
     },
     skills: {
       list: () => nativeOrGateway(
-        () => options.nativeWebui?.route({ method: "GET", path: "/api/skills" }) ?? options.nativeSkills?.list(),
+        () => options.nativeSkills?.list() ?? options.nativeWebui?.route({ method: "GET", path: "/api/skills" }),
         () => request("/api/skills"),
         "skills.list",
       ),
       detail: (name: string) => nativeOrGateway(
-        () => options.nativeWebui?.route({
+        () => options.nativeSkills?.detail(name) ?? options.nativeWebui?.route({
           method: "GET",
           path: `/api/skills/${encodePathSegment(name)}`,
-        }) ?? options.nativeSkills?.detail(name),
+        }),
         () => request(`/api/skills/${encodePathSegment(name)}`),
         "skills.detail",
       ),
       create: (body: unknown) => nativeOrGateway(
-        () => options.nativeWebui?.route({ method: "POST", path: "/api/skills", body })
-          ?? options.nativeSkills?.create(body),
+        () => options.nativeSkills?.create(body)
+          ?? options.nativeWebui?.route({ method: "POST", path: "/api/skills", body }),
         () => request("/api/skills", jsonRequest("POST", body)),
         "skills.create",
       ),
       update: (name: string, body: unknown) =>
         nativeOrGateway(
-          () => options.nativeWebui?.route({
+          () => options.nativeSkills?.update(name, body) ?? options.nativeWebui?.route({
             method: "PATCH",
             path: `/api/skills/${encodePathSegment(name)}`,
             body,
-          }) ?? options.nativeSkills?.update(name, body),
+          }),
           () => request(`/api/skills/${encodePathSegment(name)}`, jsonRequest("PATCH", body)),
           "skills.update",
         ),
       delete: (name: string) => nativeOrGateway(
-        () => options.nativeWebui?.route({
+        () => options.nativeSkills?.delete(name) ?? options.nativeWebui?.route({
           method: "DELETE",
           path: `/api/skills/${encodePathSegment(name)}`,
-        }) ?? options.nativeSkills?.delete(name),
+        }),
         () => request(`/api/skills/${encodePathSegment(name)}`, { method: "DELETE" }),
         "skills.delete",
       ),
       validate: (name: string) => nativeOrGateway(
-        () => options.nativeWebui?.route({
+        () => options.nativeSkills?.validate(name) ?? options.nativeWebui?.route({
           method: "POST",
           path: `/api/skills/${encodePathSegment(name)}/validate`,
-        }) ?? options.nativeSkills?.validate(name),
+        }),
         () => request(`/api/skills/${encodePathSegment(name)}/validate`, { method: "POST" }),
         "skills.validate",
       ),
@@ -643,14 +668,14 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
     },
     workspace: {
       files: () => nativeOrGateway(
-        () => options.nativeWebui?.route({ method: "GET", path: "/api/workspace/files" }),
+        () => options.nativeWorkspace?.files() ?? options.nativeWebui?.route({ method: "GET", path: "/api/workspace/files" }),
         () => request("/api/workspace/files"),
         "webui.workspace.files",
       ),
       file: (path: string) => {
         const routePath = `/api/workspace/files/${encodePathSegment(path)}`;
         return nativeOrGateway(
-          () => options.nativeWebui?.route({ method: "GET", path: routePath }),
+          () => options.nativeWorkspace?.file(path) ?? options.nativeWebui?.route({ method: "GET", path: routePath }),
           () => request(routePath),
           "webui.workspace.file",
         );
@@ -658,7 +683,7 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
       putFile: (path: string, body: unknown) => {
         const routePath = `/api/workspace/files/${encodePathSegment(path)}`;
         return nativeOrGateway(
-          () => options.nativeWebui?.route({ method: "PUT", path: routePath, body }),
+          () => options.nativeWorkspace?.putFile(path, body) ?? options.nativeWebui?.route({ method: "PUT", path: routePath, body }),
           () => request(routePath, jsonRequest("PUT", body)),
           "webui.workspace.putFile",
         );

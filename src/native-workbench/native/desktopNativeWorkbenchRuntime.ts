@@ -23,6 +23,7 @@ import {
   type NativeChatMessage,
   type NativeChatReference,
 } from "../chat/nativeChat";
+import type { NativeBackendCompatibilityWorkerEventName } from "./nativeBackendContract";
 
 export interface DesktopNativeWorkbenchRuntimeOptions {
   api: DesktopChatSessionControllerApi;
@@ -84,33 +85,7 @@ export type DesktopTsAgentRestoreCheckpointResult = {
   checkpoint?: Record<string, unknown> | null;
 };
 
-export type DesktopTsAgentWorkerEventName =
-  | "agent.delta"
-  | "agent.reasoning_delta"
-  | "agent.tool_call.delta"
-  | "agent.tool.start"
-  | "agent.tool.result"
-  | "agent.usage"
-  | "agent.checkpoint"
-  | "agent.awaiting_form"
-  | "agent.awaiting_approval"
-  | "agent.memory_reference"
-  | "agent.task_progress"
-  | "agent.delegate.started"
-  | "agent.delegate.running"
-  | "agent.delegate.message_queued"
-  | "agent.delegate.awaiting_approval"
-  | "agent.delegate.tool.approval_required"
-  | "agent.delegate.tool.completed"
-  | "agent.delegate.trace.updated"
-  | "agent.delegate.completed"
-  | "agent.delegate.failed"
-  | "agent.delegate.interrupted"
-  | "agent.delegate.closed"
-  | "heartbeat.delivery"
-  | "agent.cancelled"
-  | "agent.done"
-  | "agent.error";
+export type DesktopTsAgentWorkerEventName = NativeBackendCompatibilityWorkerEventName;
 
 export interface DesktopNativeWorkbenchRuntime {
   readonly chat: DesktopNativeChatModel;

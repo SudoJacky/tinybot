@@ -652,39 +652,52 @@ describe("gateway HTTP client", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
-  test("prefers native WebUI session list route when available", async () => {
+  test("prefers native Rust session list when both native paths are available", async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
     const nativeWebui = {
-      route: vi.fn(async (request: { method: string; path: string; body?: unknown }) => ({
+      route: vi.fn(async () => {
+        throw new Error("native WebUI session list route should not be used");
+      }),
+    };
+    const nativeSessions = {
+      list: vi.fn(async () => ({
         items: [{ key: "websocket:chat-1", chat_id: "chat-1", title: "Native session" }],
-        request,
       })),
+      messages: vi.fn(),
     };
     const client = createGatewayApiClient({
       config: DEFAULT_GATEWAY_CONFIG,
       fetchFn,
+      nativeSessions,
       nativeWebui,
     });
 
     await expect(client.sessions.list()).resolves.toMatchObject({
       items: [{ key: "websocket:chat-1", chat_id: "chat-1", title: "Native session" }],
     });
-    expect(nativeWebui.route).toHaveBeenCalledWith({ method: "GET", path: "/api/sessions" });
+    expect(nativeSessions.list).toHaveBeenCalledTimes(1);
+    expect(nativeWebui.route).not.toHaveBeenCalled();
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
-  test("prefers native WebUI session messages route when available", async () => {
+  test("prefers native Rust session messages when both native paths are available", async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
     const nativeWebui = {
-      route: vi.fn(async (request: { method: string; path: string; body?: unknown }) => ({
-        key: "websocket:chat-1",
+      route: vi.fn(async () => {
+        throw new Error("native WebUI session messages route should not be used");
+      }),
+    };
+    const nativeSessions = {
+      list: vi.fn(),
+      messages: vi.fn(async (key: string) => ({
+        key,
         messages: [{ role: "user", content: "Native history" }],
-        request,
       })),
     };
     const client = createGatewayApiClient({
       config: DEFAULT_GATEWAY_CONFIG,
       fetchFn,
+      nativeSessions,
       nativeWebui,
     });
 
@@ -692,10 +705,69 @@ describe("gateway HTTP client", () => {
       key: "websocket:chat-1",
       messages: [{ role: "user", content: "Native history" }],
     });
-    expect(nativeWebui.route).toHaveBeenCalledWith({
-      method: "GET",
-      path: "/api/sessions/websocket%3Achat-1/messages",
+    expect(nativeSessions.messages).toHaveBeenCalledWith("websocket:chat-1");
+    expect(nativeWebui.route).not.toHaveBeenCalled();
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  test("prefers native Rust session state mutations when both native paths are available", async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
+    const nativeWebui = {
+      route: vi.fn(async () => {
+        throw new Error("native WebUI session state route should not be used");
+      }),
+    };
+    const nativeSessions = {
+      list: vi.fn(),
+      messages: vi.fn(),
+      temporaryFiles: vi.fn(async (key: string) => ({ key, temporary_files: [{ name: "context.md" }] })),
+      uploadTemporaryFile: vi.fn(async (key: string, body: unknown) => ({ key, uploaded: true, body })),
+      clearTemporaryFiles: vi.fn(async (key: string) => ({ key, cleared: 1 })),
+      delete: vi.fn(async (key: string) => ({ key, deleted: true })),
+      patch: vi.fn(async (key: string, body: unknown) => ({ key, metadata: { pinned: true }, body })),
+      clear: vi.fn(async (key: string) => ({ key, cleared: true })),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeSessions,
+      nativeWebui,
     });
+    const form = new FormData();
+    form.append("file", new File(["hello native"], "context.md", { type: "text/markdown" }));
+
+    await expect(client.sessions.temporaryFiles("websocket:chat-1")).resolves.toEqual({
+      key: "websocket:chat-1",
+      temporary_files: [{ name: "context.md" }],
+    });
+    await expect(client.sessions.uploadTemporaryFile("websocket:chat-1", form)).resolves.toEqual({
+      key: "websocket:chat-1",
+      uploaded: true,
+      body: {
+        name: "context.md",
+        file_type: "md",
+        content: "hello native",
+        size_bytes: 12,
+      },
+    });
+    await expect(client.sessions.clearTemporaryFiles("websocket:chat-1")).resolves.toEqual({
+      key: "websocket:chat-1",
+      cleared: 1,
+    });
+    await expect(client.sessions.patch("websocket:chat-1", { metadata: { pinned: true } })).resolves.toEqual({
+      key: "websocket:chat-1",
+      metadata: { pinned: true },
+      body: { metadata: { pinned: true } },
+    });
+    await expect(client.sessions.clear("websocket:chat-1")).resolves.toEqual({
+      key: "websocket:chat-1",
+      cleared: true,
+    });
+    await expect(client.sessions.delete("websocket:chat-1")).resolves.toEqual({
+      key: "websocket:chat-1",
+      deleted: true,
+    });
+    expect(nativeWebui.route).not.toHaveBeenCalled();
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
@@ -925,21 +997,16 @@ describe("gateway HTTP client", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
-  test("prefers native WebUI skills read routes when available", async () => {
+  test("prefers native Rust skills read operations when both native paths are available", async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
     const nativeWebui = {
-      route: vi.fn(async (request: { method: string; path: string; body?: unknown }) => ({
-        native: true,
-        request,
-      })),
+      route: vi.fn(async () => {
+        throw new Error("native WebUI skills route should not be used");
+      }),
     };
     const nativeSkills = {
-      list: vi.fn(async () => {
-        throw new Error("legacy native skills should not be used");
-      }),
-      detail: vi.fn(async () => {
-        throw new Error("legacy native skills should not be used");
-      }),
+      list: vi.fn(async () => ({ skills: [{ name: "planner" }] })),
+      detail: vi.fn(async (name: string) => ({ name, content: "Plan." })),
       create: vi.fn(async () => ({})),
       update: vi.fn(async () => ({})),
       delete: vi.fn(async () => ({})),
@@ -952,44 +1019,28 @@ describe("gateway HTTP client", () => {
       nativeSkills,
     });
 
-    await expect(client.skills.list()).resolves.toEqual({
-      native: true,
-      request: { method: "GET", path: "/api/skills" },
-    });
-    await expect(client.skills.detail("planner/phase")).resolves.toEqual({
-      native: true,
-      request: { method: "GET", path: "/api/skills/planner%2Fphase" },
-    });
-    expect(nativeWebui.route).toHaveBeenCalledWith({ method: "GET", path: "/api/skills" });
-    expect(nativeWebui.route).toHaveBeenCalledWith({ method: "GET", path: "/api/skills/planner%2Fphase" });
-    expect(nativeSkills.list).not.toHaveBeenCalled();
-    expect(nativeSkills.detail).not.toHaveBeenCalled();
+    await expect(client.skills.list()).resolves.toEqual({ skills: [{ name: "planner" }] });
+    await expect(client.skills.detail("planner/phase")).resolves.toEqual({ name: "planner/phase", content: "Plan." });
+    expect(nativeSkills.list).toHaveBeenCalledTimes(1);
+    expect(nativeSkills.detail).toHaveBeenCalledWith("planner/phase");
+    expect(nativeWebui.route).not.toHaveBeenCalled();
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
-  test("prefers native WebUI skills mutation routes when available", async () => {
+  test("prefers native Rust skills mutation operations when both native paths are available", async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
     const nativeWebui = {
-      route: vi.fn(async (request: { method: string; path: string; body?: unknown }) => ({
-        native: true,
-        request,
-      })),
+      route: vi.fn(async () => {
+        throw new Error("native WebUI skills route should not be used");
+      }),
     };
     const nativeSkills = {
       list: vi.fn(async () => ({})),
       detail: vi.fn(async () => ({})),
-      create: vi.fn(async () => {
-        throw new Error("legacy native skills should not be used");
-      }),
-      update: vi.fn(async () => {
-        throw new Error("legacy native skills should not be used");
-      }),
-      delete: vi.fn(async () => {
-        throw new Error("legacy native skills should not be used");
-      }),
-      validate: vi.fn(async () => {
-        throw new Error("legacy native skills should not be used");
-      }),
+      create: vi.fn(async (body: unknown) => ({ created: true, body })),
+      update: vi.fn(async (name: string, body: unknown) => ({ updated: true, name, body })),
+      delete: vi.fn(async (name: string) => ({ deleted: true, name })),
+      validate: vi.fn(async (name: string) => ({ name, valid: true })),
     };
     const client = createGatewayApiClient({
       config: DEFAULT_GATEWAY_CONFIG,
@@ -999,25 +1050,27 @@ describe("gateway HTTP client", () => {
     });
 
     await expect(client.skills.create({ name: "planner", content: "Plan." })).resolves.toEqual({
-      native: true,
-      request: { method: "POST", path: "/api/skills", body: { name: "planner", content: "Plan." } },
+      created: true,
+      body: { name: "planner", content: "Plan." },
     });
     await expect(client.skills.update("planner/phase", { content: "Updated." })).resolves.toEqual({
-      native: true,
-      request: { method: "PATCH", path: "/api/skills/planner%2Fphase", body: { content: "Updated." } },
+      updated: true,
+      name: "planner/phase",
+      body: { content: "Updated." },
     });
     await expect(client.skills.delete("planner/phase")).resolves.toEqual({
-      native: true,
-      request: { method: "DELETE", path: "/api/skills/planner%2Fphase" },
+      deleted: true,
+      name: "planner/phase",
     });
     await expect(client.skills.validate("planner/phase")).resolves.toEqual({
-      native: true,
-      request: { method: "POST", path: "/api/skills/planner%2Fphase/validate" },
+      name: "planner/phase",
+      valid: true,
     });
-    expect(nativeSkills.create).not.toHaveBeenCalled();
-    expect(nativeSkills.update).not.toHaveBeenCalled();
-    expect(nativeSkills.delete).not.toHaveBeenCalled();
-    expect(nativeSkills.validate).not.toHaveBeenCalled();
+    expect(nativeSkills.create).toHaveBeenCalledWith({ name: "planner", content: "Plan." });
+    expect(nativeSkills.update).toHaveBeenCalledWith("planner/phase", { content: "Updated." });
+    expect(nativeSkills.delete).toHaveBeenCalledWith("planner/phase");
+    expect(nativeSkills.validate).toHaveBeenCalledWith("planner/phase");
+    expect(nativeWebui.route).not.toHaveBeenCalled();
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
@@ -1062,42 +1115,50 @@ describe("gateway HTTP client", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
-  test("prefers native WebUI workspace file routes when available", async () => {
+  test("prefers native Rust workspace file operations when both native paths are available", async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
     const nativeWebui = {
-      route: vi.fn(async (request: { method: string; path: string; body?: unknown }) => ({
-        native: true,
-        request,
-      })),
+      route: vi.fn(async () => {
+        throw new Error("native WebUI workspace route should not be used");
+      }),
+    };
+    const nativeWorkspace = {
+      files: vi.fn(async () => ({ items: [{ path: "docs/readme.md" }] })),
+      file: vi.fn(async (path: string) => ({ path, content: "# Readme\n" })),
+      putFile: vi.fn(async (path: string, body: unknown) => ({ path, saved: true, body })),
     };
     const client = createGatewayApiClient({
       config: DEFAULT_GATEWAY_CONFIG,
       fetchFn,
       nativeWebui,
+      nativeWorkspace,
     });
 
     await expect(client.workspace.files()).resolves.toEqual({
-      native: true,
-      request: { method: "GET", path: "/api/workspace/files" },
+      items: [{ path: "docs/readme.md" }],
     });
     await expect(client.workspace.file("docs/readme.md")).resolves.toEqual({
-      native: true,
-      request: { method: "GET", path: "/api/workspace/files/docs%2Freadme.md" },
+      path: "docs/readme.md",
+      content: "# Readme\n",
     });
     await expect(client.workspace.putFile("docs/readme.md", {
       content: "# Readme\n",
       expected_updated_at: null,
     })).resolves.toEqual({
-      native: true,
-      request: {
-        method: "PUT",
-        path: "/api/workspace/files/docs%2Freadme.md",
-        body: {
-          content: "# Readme\n",
-          expected_updated_at: null,
-        },
+      path: "docs/readme.md",
+      saved: true,
+      body: {
+        content: "# Readme\n",
+        expected_updated_at: null,
       },
     });
+    expect(nativeWorkspace.files).toHaveBeenCalledTimes(1);
+    expect(nativeWorkspace.file).toHaveBeenCalledWith("docs/readme.md");
+    expect(nativeWorkspace.putFile).toHaveBeenCalledWith("docs/readme.md", {
+      content: "# Readme\n",
+      expected_updated_at: null,
+    });
+    expect(nativeWebui.route).not.toHaveBeenCalled();
     expect(fetchFn).not.toHaveBeenCalled();
   });
 

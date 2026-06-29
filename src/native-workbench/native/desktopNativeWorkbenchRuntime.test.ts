@@ -1,5 +1,6 @@
 ﻿import { describe, expect, test, vi } from "vitest";
 import { createDesktopNativeWorkbenchRuntime } from "./desktopNativeWorkbenchRuntime";
+import { normalizeNativeBackendEventPayload } from "./nativeBackendContract";
 
 describe("desktop native workbench runtime", () => {
   test("loads gateway sessions and exposes a live chat model for the native shell", async () => {
@@ -595,6 +596,63 @@ describe("desktop native workbench runtime", () => {
     expect(runtime.chat.responding).toBe(false);
     expect(runtime.chat.composerState).toBe("idle");
     expect(runtime.chat.status).toBe("TS agent response received.");
+  });
+
+  test("projects Rust native backend event envelopes into the active native chat", async () => {
+    let resolveRun: ((value: {
+      finalContent: string;
+      stopReason: string;
+      messages: never[];
+      toolsUsed: never[];
+    }) => void) | undefined;
+    const runPromise = new Promise<{
+      finalContent: string;
+      stopReason: string;
+      messages: never[];
+      toolsUsed: never[];
+    }>((resolve) => {
+      resolveRun = resolve;
+    });
+    const runSpecs: unknown[] = [];
+    const runtime = createDesktopNativeWorkbenchRuntime({
+      api: {
+        listSessions: async () => ({
+          items: [{ key: "WebSocket:chat-rust", chat_id: "chat-rust", title: "Rust route" }],
+        }),
+        loadMessages: async () => ({ messages: [] }),
+      },
+      sendSocketMessage: () => undefined,
+      agentRoute: "ts-agent",
+      runTsAgent: async (spec) => {
+        runSpecs.push(spec);
+        return runPromise;
+      },
+      now: () => "2026-06-29T14:30:00.000Z",
+    });
+    await runtime.loadInitialChatState();
+
+    runtime.submitComposerMessage("Stream through Rust envelope");
+    const runId = String((runSpecs[0] as { runId: string }).runId);
+    const envelope = {
+      sessionId: "WebSocket:chat-rust",
+      runId,
+      traceId: "trace-rust-1",
+      eventName: "agent.delta",
+      timestamp: "2026-06-29T14:30:01.000Z",
+      source: "compatibility_worker",
+      payload: { runId, delta: "rust-owned contract" },
+    } as const;
+
+    runtime.handleTsAgentWorkerEvent(envelope.eventName, normalizeNativeBackendEventPayload(envelope));
+    runtime.handleTsAgentWorkerEvent("agent.done", { runId, stopReason: "final_response" });
+    resolveRun?.({ finalContent: "", stopReason: "final_response", messages: [], toolsUsed: [] });
+    await runPromise;
+    await Promise.resolve();
+
+    expect(runtime.chat.messages).toMatchObject([
+      { role: "user", content: "Stream through Rust envelope" },
+      { role: "assistant", content: "rust-owned contract", messageId: runId },
+    ]);
   });
 
   test("accepts snake_case run metadata from TS agent worker events", async () => {

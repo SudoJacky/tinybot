@@ -1,6 +1,7 @@
 import type { NativeTransportApi, NativeTransportWebSocketDispatchRequest } from "./desktopNativeTransport";
 import { logDesktopNativeDebug, summarizeDebugText } from "./desktopNativeChatDebug";
 import { toDesktopNativeTauriEventName } from "./desktopNativeTauriEvents";
+import type { NativeBackendWebSocketAgentEventName } from "./nativeBackendContract";
 
 export type DesktopNativeWebSocketOptions = {
   url: string | URL;
@@ -13,36 +14,12 @@ export type DesktopNativeWebSocketOptions = {
 };
 
 type Listener = (event: Event) => void;
-export type DesktopNativeWebSocketAgentEventName =
-  | "agent.delta"
-  | "agent.reasoning_delta"
-  | "agent.tool_call.delta"
-  | "agent.tool.start"
-  | "agent.tool.result"
-  | "agent.usage"
-  | "agent.awaiting_form"
-  | "agent.awaiting_approval"
-  | "agent.memory_reference"
-  | "agent.task_progress"
-  | "agent.delegate.started"
-  | "agent.delegate.running"
-  | "agent.delegate.message_queued"
-  | "agent.delegate.awaiting_approval"
-  | "agent.delegate.tool.approval_required"
-  | "agent.delegate.tool.completed"
-  | "agent.delegate.trace.updated"
-  | "agent.delegate.completed"
-  | "agent.delegate.failed"
-  | "agent.delegate.interrupted"
-  | "agent.delegate.closed"
-  | "agent.browser_frame"
+type DesktopNativeCoworkEventName =
   | "cowork_updated"
   | "cowork_state"
   | "cowork_stream"
-  | "cowork_mailbox_stream"
-  | "agent.cancelled"
-  | "agent.done"
-  | "agent.error";
+  | "cowork_mailbox_stream";
+export type DesktopNativeWebSocketAgentEventName = NativeBackendWebSocketAgentEventName | DesktopNativeCoworkEventName;
 export type DesktopNativeWebSocketAgentEventHandler = (payload: unknown) => void;
 export type DesktopNativeWebSocketAgentEventListener = (
   eventName: string,
