@@ -2018,6 +2018,7 @@ fn worker_webui_rust_route_with_options(
             config_snapshot.clone(),
             timeout,
         )),
+        ("GET", "/api/approvals") => Some(Ok(native_webui_approvals_body(&query))),
         ("POST", "/api/skills") => Some(worker_skills_create_with_options(
             shared,
             body,
@@ -2273,6 +2274,24 @@ fn worker_webui_rust_dynamic_route(
             _ => None,
         };
     }
+    if let Some(approval_id) = webui_approval_route_id(path, "/approve") {
+        if method == "POST" {
+            return Some(Ok(native_webui_approval_resolution_body(
+                approval_id,
+                body,
+                true,
+            )));
+        }
+    }
+    if let Some(approval_id) = webui_approval_route_id(path, "/deny") {
+        if method == "POST" {
+            return Some(Ok(native_webui_approval_resolution_body(
+                approval_id,
+                body,
+                false,
+            )));
+        }
+    }
     if let Some(doc_id) = webui_path_param(path, "/v1/knowledge/documents/") {
         return match method {
             "GET" => Some(worker_knowledge_document_with_options(
@@ -2347,6 +2366,48 @@ fn worker_webui_config_body(
         "worker webui config",
     )?;
     Ok(snapshot.get("value").cloned().unwrap_or(snapshot))
+}
+
+fn native_webui_approvals_body(query: &HashMap<String, String>) -> serde_json::Value {
+    let session_key = query
+        .get("session_key")
+        .or_else(|| query.get("chat_id"))
+        .cloned()
+        .unwrap_or_default();
+    serde_json::json!({
+        "session_key": session_key,
+        "approvals": [],
+        "source": "rust",
+    })
+}
+
+fn native_webui_approval_resolution_body(
+    approval_id: String,
+    body: &serde_json::Value,
+    approved: bool,
+) -> serde_json::Value {
+    let session_key = body
+        .get("session_key")
+        .or_else(|| body.get("sessionId"))
+        .or_else(|| body.get("session_id"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let scope = body
+        .get("scope")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("once");
+    serde_json::json!({
+        "ok": false,
+        "status": "not_found",
+        "approvalId": approval_id,
+        "approved": approved,
+        "scope": scope,
+        "session_key": session_key,
+        "source": "rust",
+        "error": {
+            "message": "pending approval not found",
+        },
+    })
 }
 
 fn webui_route_response(
@@ -2446,6 +2507,15 @@ fn webui_skill_item_name(path: &str) -> Option<String> {
     Some(percent_decode(rest))
 }
 
+fn webui_approval_route_id(path: &str, suffix: &str) -> Option<String> {
+    let rest = path.strip_prefix("/api/approvals/")?;
+    let approval_id = rest.strip_suffix(suffix)?;
+    if approval_id.is_empty() || approval_id.contains('/') {
+        return None;
+    }
+    Some(percent_decode(approval_id))
+}
+
 fn webui_path_param(path: &str, prefix: &str) -> Option<String> {
     let rest = path.strip_prefix(prefix)?;
     if rest.is_empty() || rest.contains('/') {
@@ -2492,12 +2562,10 @@ fn is_delegated_webui_route(method: &str, path: &str) -> bool {
             | ("PATCH", "/api/config")
             | ("GET", "/api/providers")
             | ("POST", "/api/provider-models")
-            | ("GET", "/api/approvals")
             | ("POST", "/v1/knowledge/query")
             | ("POST", "/v1/knowledge/graph/extract")
             | ("GET", "/v1/knowledge/graphrag")
-    ) || path.starts_with("/api/approvals/")
-        || path.starts_with("/api/agent-ui/")
+    ) || path.starts_with("/api/agent-ui/")
         || path.starts_with("/api/cowork/")
 }
 
@@ -5072,6 +5140,35 @@ mod tests {
             Duration::from_millis(10),
         )
         .expect("knowledge route should be Rust-owned");
+        let approvals = worker_webui_route_with_options(
+            &shared,
+            WorkerWebuiRouteInput {
+                method: "GET".to_string(),
+                path: "/api/approvals?session_key=websocket%3Achat-1".to_string(),
+                headers: None,
+                body: None,
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("approvals list route should be Rust-owned");
+        let approval_resolution = worker_webui_route_with_options(
+            &shared,
+            WorkerWebuiRouteInput {
+                method: "POST".to_string(),
+                path: "/api/approvals/approval%2F1/approve".to_string(),
+                headers: None,
+                body: Some(serde_json::json!({
+                    "session_key": "websocket:chat-1",
+                    "scope": "session"
+                })),
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("approval resolution route should be Rust-owned");
 
         assert_eq!(bootstrap["status"], 200);
         assert_eq!(bootstrap["headers"]["x-tinybot-route-owner"], "rust");
@@ -5081,6 +5178,16 @@ mod tests {
         assert_eq!(sessions["body"]["items"][0]["title"], "Route session");
         assert_eq!(workspace_file["body"]["content"], "hello route");
         assert_eq!(knowledge["body"]["document"]["name"], "Route Knowledge.md");
+        assert_eq!(approvals["headers"]["x-tinybot-route-owner"], "rust");
+        assert_eq!(approvals["headers"]["x-tinybot-route-group"], "approvals");
+        assert_eq!(approvals["body"]["session_key"], "websocket:chat-1");
+        assert_eq!(
+            approval_resolution["headers"]["x-tinybot-route-owner"],
+            "rust"
+        );
+        assert_eq!(approval_resolution["body"]["approvalId"], "approval/1");
+        assert_eq!(approval_resolution["body"]["approved"], true);
+        assert_eq!(approval_resolution["body"]["status"], "not_found");
         assert_eq!(
             lock_runtime(&shared).experimental_worker.status().state,
             WorkerManagerState::Stopped
