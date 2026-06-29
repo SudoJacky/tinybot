@@ -1907,7 +1907,21 @@ fn worker_cowork_rust_route_with_options(
         ("POST", "/api/cowork/sessions") => Some(
             runtime.create_session(input.body.clone().unwrap_or_else(|| serde_json::json!({}))),
         ),
-        _ => worker_cowork_rust_dynamic_route(&runtime, &method, &path),
+        ("POST", "/api/cowork/blueprints/validate") => Some(runtime.validate_blueprint(
+            input.body.clone().unwrap_or_else(|| serde_json::json!({})),
+            false,
+        )),
+        ("POST", "/api/cowork/blueprints/preview") => Some(runtime.validate_blueprint(
+            input.body.clone().unwrap_or_else(|| serde_json::json!({})),
+            true,
+        )),
+        _ => worker_cowork_rust_dynamic_route(
+            &runtime,
+            &method,
+            &path,
+            input.body.clone().unwrap_or_else(|| serde_json::json!({})),
+            &query,
+        ),
     };
 
     result.map(|result| {
@@ -1928,6 +1942,8 @@ fn worker_cowork_rust_dynamic_route(
     runtime: &WorkerCoworkRuntime,
     method: &str,
     path: &str,
+    body: serde_json::Value,
+    query: &HashMap<String, String>,
 ) -> Option<Result<serde_json::Value, String>> {
     let rest = path.strip_prefix("/api/cowork/sessions/")?;
     let mut parts = rest.split('/').map(percent_decode).collect::<Vec<_>>();
@@ -1944,6 +1960,66 @@ fn worker_cowork_rust_dynamic_route(
         return Some(runtime.session_view(&session_id, &parts[0]).map(|view| {
             view.unwrap_or_else(|| serde_json::json!({ "error": "cowork session not found" }))
         }));
+    }
+    if method == "DELETE" && parts.is_empty() {
+        return Some(runtime.delete_session(&session_id));
+    }
+    if method == "POST" && parts.len() == 1 {
+        return match parts[0].as_str() {
+            "run" => Some(runtime.run_session(&session_id, body)),
+            "budget" => Some(runtime.update_budget(&session_id, body)),
+            "pause" | "resume" | "emergency-stop" => {
+                Some(runtime.session_action(&session_id, &parts[0], body))
+            }
+            "messages" => Some(runtime.append_message(&session_id, body)),
+            "tasks" => Some(runtime.add_task(&session_id, body)),
+            _ => None,
+        };
+    }
+    if method == "PATCH" && parts.len() == 1 && parts[0] == "budget" {
+        return Some(runtime.update_budget(&session_id, body));
+    }
+    if method == "GET" && parts.len() == 3 && parts[0] == "agents" && parts[2] == "activity" {
+        let limit = query
+            .get("limit")
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(50);
+        return Some(runtime.agent_activity(&session_id, &parts[1], limit));
+    }
+    if method == "GET" && parts.len() == 2 && parts[0] == "observations" {
+        return Some(runtime.observation(&session_id, &parts[1]));
+    }
+    if method == "POST" && parts.len() == 3 && parts[0] == "tasks" {
+        return Some(runtime.task_action(&session_id, &parts[1], &parts[2], body));
+    }
+    if method == "POST" && parts.len() == 3 && parts[0] == "work-units" {
+        return Some(runtime.work_unit_action(&session_id, &parts[1], &parts[2], body));
+    }
+    if method == "POST" && parts.len() == 3 && parts[0] == "branches" && parts[2] == "select" {
+        return Some(runtime.select_branch(&session_id, &parts[1], body));
+    }
+    if method == "POST" && parts.len() == 3 && parts[0] == "branches" && parts[2] == "derive" {
+        return Some(runtime.derive_branch(&session_id, Some(&parts[1]), body));
+    }
+    if method == "POST" && parts.len() == 2 && parts[0] == "branches" && parts[1] == "derive" {
+        return Some(runtime.derive_branch(&session_id, None, body));
+    }
+    if method == "POST"
+        && parts.len() == 4
+        && parts[0] == "branches"
+        && parts[2] == "result"
+        && parts[3] == "select-final"
+    {
+        return Some(runtime.select_branch_result(&session_id, &parts[1], body));
+    }
+    if method == "POST" && parts.len() == 2 && parts[0] == "branch-results" && parts[1] == "merge" {
+        return Some(runtime.merge_branch_results(&session_id, body));
+    }
+    if method == "POST" && parts.len() == 2 && parts[0] == "final-result" && parts[1] == "select" {
+        return Some(runtime.select_final_result(&session_id, body));
+    }
+    if method == "POST" && parts.len() == 2 && parts[0] == "final-result" && parts[1] == "merge" {
+        return Some(runtime.merge_final_result(&session_id, body));
     }
     None
 }
@@ -5144,10 +5220,83 @@ mod tests {
             Duration::from_millis(10),
         )
         .expect("Cowork trace route should be Rust-owned");
+        let run = worker_cowork_route_with_options(
+            &shared,
+            WorkerCoworkRouteInput {
+                method: "POST".to_string(),
+                path: format!("/api/cowork/sessions/{session_id}/run"),
+                body: Some(serde_json::json!({ "delegateId": "delegate-rust" })),
+                query: None,
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("Cowork run route should be Rust-owned");
+        let task = worker_cowork_route_with_options(
+            &shared,
+            WorkerCoworkRouteInput {
+                method: "POST".to_string(),
+                path: format!("/api/cowork/sessions/{session_id}/tasks"),
+                body: Some(serde_json::json!({ "id": "task-rust", "title": "Rust task" })),
+                query: None,
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("Cowork task route should be Rust-owned");
+        let budget = worker_cowork_route_with_options(
+            &shared,
+            WorkerCoworkRouteInput {
+                method: "PATCH".to_string(),
+                path: format!("/api/cowork/sessions/{session_id}/budget"),
+                body: Some(serde_json::json!({ "max_spawned_agents": 1 })),
+                query: None,
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("Cowork budget route should be Rust-owned");
+        let activity = worker_cowork_route_with_options(
+            &shared,
+            WorkerCoworkRouteInput {
+                method: "GET".to_string(),
+                path: format!("/api/cowork/sessions/{session_id}/agents/delegate-rust/activity"),
+                body: None,
+                query: Some(serde_json::json!({ "limit": "10" })),
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("Cowork agent activity route should be Rust-owned");
+        let blueprint = worker_cowork_route_with_options(
+            &shared,
+            WorkerCoworkRouteInput {
+                method: "POST".to_string(),
+                path: "/api/cowork/blueprints/validate".to_string(),
+                body: Some(serde_json::json!({ "title": "Rust blueprint" })),
+                query: None,
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("Cowork blueprint route should be Rust-owned");
 
         assert_eq!(created["headers"]["x-tinybot-route-owner"], "rust");
         assert_eq!(listed["body"]["sessions"][0]["id"], session_id);
         assert_eq!(trace["body"]["events"][0]["type"], "session.created");
+        assert_eq!(
+            run["body"]["agents"]["delegate-rust"]["status"],
+            "completed"
+        );
+        assert_eq!(task["body"]["id"], "task-rust");
+        assert_eq!(budget["body"]["budget_limits"]["max_spawned_agents"], 1);
+        assert_eq!(activity["body"]["agent_id"], "delegate-rust");
+        assert_eq!(blueprint["body"]["valid"], true);
         assert_eq!(
             lock_runtime(&shared).experimental_worker.status().state,
             WorkerManagerState::Stopped
