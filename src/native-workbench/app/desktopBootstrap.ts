@@ -18,7 +18,7 @@ import {
 import { installDesktopCommandPalette, type DesktopCommandPaletteInput } from "../command/desktopCommandPalette";
 import { installDesktopMenuCommandRouting } from "../command/desktopCommandNavigation";
 import type { GatewayRuntimeStatus } from "../gateway/desktopGatewayStartup";
-import { ensureGatewayReady } from "../gateway/desktopGatewayStartup";
+import { DEFAULT_NATIVE_BACKEND_COMMAND, ensureGatewayReady } from "../gateway/desktopGatewayStartup";
 import { installDesktopGatewayBridge } from "../gateway/desktopGatewayBridge";
 import {
   buildDesktopKnowledgeDocumentRows,
@@ -123,6 +123,8 @@ import {
   type TsCoworkRuntimeRollout,
 } from "../gateway/gatewayHttpClient";
 import { createDesktopNativeCoworkApi } from "../native/desktopNativeCowork";
+import { createDesktopNativeConfigApi } from "../native/desktopNativeConfig";
+import { createDesktopNativeKnowledgeApi } from "../native/desktopNativeKnowledge";
 import { createDesktopNativeSessionsApi } from "../native/desktopNativeSessions";
 import { createDesktopNativeSkillsApi } from "../native/desktopNativeSkills";
 import { createDesktopNativeWebuiApi } from "../native/desktopNativeWebui";
@@ -158,7 +160,9 @@ import { resolveDesktopAgentRoute } from "../../desktopAgentRoute";
 const gatewayConfig = resolveGatewayConfig(DEFAULT_GATEWAY_CONFIG);
 const gatewayClientOptions: {
   config: typeof gatewayConfig;
+  nativeConfig: ReturnType<typeof createDesktopNativeConfigApi>;
   nativeCowork: ReturnType<typeof createDesktopNativeCoworkApi>;
+  nativeKnowledge: ReturnType<typeof createDesktopNativeKnowledgeApi>;
   nativeSessions: ReturnType<typeof createDesktopNativeSessionsApi>;
   nativeSkills: ReturnType<typeof createDesktopNativeSkillsApi>;
   nativeWebui: ReturnType<typeof createDesktopNativeWebuiApi>;
@@ -167,7 +171,9 @@ const gatewayClientOptions: {
   tsCoworkRuntime: TsCoworkRuntimeRollout;
 } = {
   config: gatewayConfig,
+  nativeConfig: createDesktopNativeConfigApi({ invoke }),
   nativeCowork: createDesktopNativeCoworkApi({ invoke }),
+  nativeKnowledge: createDesktopNativeKnowledgeApi({ invoke }),
   nativeSessions: createDesktopNativeSessionsApi({ invoke }),
   nativeSkills: createDesktopNativeSkillsApi({ invoke }),
   nativeWebui: createDesktopNativeWebuiApi({ invoke }),
@@ -2865,7 +2871,7 @@ function failedGatewayRuntimeStatus(
     http_ok: false,
     gateway_http: previousStatus?.gateway_http ?? gatewayConfig.httpBaseUrl,
     gateway_ws: previousStatus?.gateway_ws ?? gatewayConfig.wsUrl,
-    command: previousStatus?.command ?? "node workers/ts-agent-worker/src/index.ts",
+    command: previousStatus?.command ?? DEFAULT_NATIVE_BACKEND_COMMAND,
     port: previousStatus?.port ?? 18790,
     repo_root: previousStatus?.repo_root ?? "",
     logs: [...(previousStatus?.logs ?? []), `error: ${message}`].slice(-12),

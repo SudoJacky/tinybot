@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && npm run typecheck:worker && vite build",
+    "build": "tsc && vite build",
     "test": "vitest run",
     "typecheck:worker": "tsc -p workers/ts-agent-worker/tsconfig.json && node scripts/verify-ts-worker-runtime.mjs",
     "preview": "vite preview",

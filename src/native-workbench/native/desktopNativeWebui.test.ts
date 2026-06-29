@@ -52,6 +52,10 @@ describe("desktop native WebUI API", () => {
     const invoke = vi.fn(async (_command: string, _args?: unknown) => ({
       status: 200,
       body: { ok: true },
+      headers: {
+        "x-tinybot-route-group": "tools",
+        "x-tinybot-route-owner": "rust",
+      },
     }));
     const times = [100, 123.45];
     const api = createDesktopNativeWebuiApi({
@@ -69,6 +73,8 @@ describe("desktop native WebUI API", () => {
       durationMs: 23.5,
       method: "GET",
       path: "/api/tools",
+      routeGroup: "tools",
+      routeOwner: "rust",
       status: 200,
     });
   });

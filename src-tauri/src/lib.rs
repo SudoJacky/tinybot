@@ -1,6 +1,8 @@
+#![recursion_limit = "256"]
+
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     path::{Path, PathBuf},
     sync::{atomic::AtomicBool, Arc, Mutex},
     thread,
@@ -16,11 +18,13 @@ pub mod desktop_heartbeat;
 pub mod desktop_logging;
 pub mod desktop_menu;
 pub mod native_backend_contract;
+pub mod worker_agent_runtime;
 pub mod worker_background;
 pub mod worker_capability;
 pub mod worker_client;
 pub mod worker_config;
 pub mod worker_connection;
+pub mod worker_cowork_runtime;
 pub mod worker_cron;
 pub mod worker_diagnostics;
 pub mod worker_knowledge;
@@ -49,7 +53,7 @@ use crate::desktop_files::{pick_upload_file, reveal_workspace_file, save_export_
 use crate::desktop_gateway::{
     gateway_exit_policy_preference_path, gateway_status, load_gateway_exit_policy,
     native_backend_log_path, set_gateway_keep_running, start_gateway, stop_gateway,
-    stop_owned_gateway,
+    stop_owned_gateway, ts_compatibility_worker_enabled,
 };
 use crate::desktop_heartbeat::{
     start_worker_heartbeat_runtime_with_options, stop_worker_heartbeat_runtime_with_options,
@@ -58,8 +62,13 @@ use crate::desktop_logging::append_native_backend_log_line;
 use crate::desktop_menu::{
     install_desktop_application_menu, is_desktop_menu_command, DesktopMenuCommandPayload,
 };
+use crate::worker_agent_runtime::{
+    resolve_native_agent_runtime_mode, run_native_agent_turn_with_services, NativeAgentRuntimeMode,
+    NativeAgentRuntimeServices,
+};
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_client::WorkerClient;
+use crate::worker_cowork_runtime::WorkerCoworkRuntime;
 use crate::worker_manager::{
     WorkerCommandSpec, WorkerManager, WorkerManagerEvent, WorkerManagerState,
 };
@@ -94,6 +103,7 @@ const NATIVE_BACKEND_LOG_TAIL_LINES: usize = 100;
 
 struct GatewayRuntime {
     experimental_worker: WorkerManager,
+    native_agent_runtime: NativeAgentRuntimeServices,
     logs: VecDeque<String>,
     persistent_log_path: PathBuf,
     last_error: Option<String>,
@@ -107,6 +117,7 @@ impl Default for GatewayRuntime {
     fn default() -> Self {
         Self {
             experimental_worker: WorkerManager::new(200),
+            native_agent_runtime: NativeAgentRuntimeServices::default(),
             logs: VecDeque::with_capacity(200),
             persistent_log_path: native_backend_log_path(),
             last_error: None,
@@ -187,6 +198,13 @@ struct WorkerSessionPatchInput {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct WorkerSessionTemporaryFileUploadInput {
+    key: String,
+    body: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerSessionTaskProgressInput {
     key: String,
     body: serde_json::Value,
 }
@@ -319,6 +337,82 @@ struct WorkerBackgroundTraceGetArtifactInput {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct WorkerBackgroundTraceAppendInput {
+    event: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerTaskPlanListInput {
+    #[serde(default)]
+    include_completed: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerTaskPlanIdInput {
+    plan_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerTaskPlanSaveInput {
+    plan: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerKnowledgeDocumentsInput {
+    #[serde(default)]
+    category: Option<String>,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerKnowledgeBodyInput {
+    body: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerKnowledgeDocumentIdInput {
+    doc_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerKnowledgeJobIdInput {
+    job_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerKnowledgeRebuildIndexInput {
+    #[serde(default)]
+    rebuild_type: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerKnowledgeGraphInput {
+    #[serde(default)]
+    doc_id: Option<String>,
+    #[serde(default)]
+    graph_type: Option<String>,
+    #[serde(default)]
+    limit: Option<usize>,
+    #[serde(default)]
+    edge_limit: Option<usize>,
+    #[serde(default)]
+    min_confidence: Option<f64>,
+    #[serde(default)]
+    include_orphans: Option<bool>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct WorkerSubmitAgentFormInput {
     session_id: String,
     form_id: String,
@@ -340,16 +434,15 @@ struct WorkerResumeAgentApprovalInput {
 
 #[tauri::command]
 fn worker_probe_status() -> WorkerRuntimeStatus {
-    WorkerRuntimeStatus::running(
-        crate::worker_protocol::WorkerTransportMode::Stdio,
-        vec![crate::worker_protocol::WorkerDiagnosticLine::new(
+    WorkerRuntimeStatus::rust_backend_active(vec![
+        crate::worker_protocol::WorkerDiagnosticLine::new(
             "stdout",
             format!(
-                "worker protocol {}",
+                "rust backend protocol {}",
                 crate::worker_protocol::WORKER_PROTOCOL_VERSION
             ),
-        )],
-    )
+        ),
+    ])
 }
 
 #[tauri::command]
@@ -625,6 +718,21 @@ fn worker_session_clear(
 }
 
 #[tauri::command]
+fn worker_session_task_progress(
+    input: WorkerSessionTaskProgressInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_session_task_progress_with_options(
+        state.inner(),
+        input.key,
+        input.body,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
 fn worker_cowork_route(
     input: WorkerCoworkRouteInput,
     state: State<'_, SharedGateway>,
@@ -766,7 +874,12 @@ fn worker_cancel_agent(
     input: WorkerCancelAgentInput,
     state: State<'_, SharedGateway>,
 ) -> Result<serde_json::Value, String> {
-    worker_cancel_agent_with_options(state.inner(), input.run_id, Duration::from_secs(10))
+    worker_cancel_agent_with_options(
+        state.inner(),
+        input.run_id,
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
 }
 
 #[tauri::command]
@@ -817,6 +930,184 @@ fn worker_background_trace_get_artifact(
     state: State<'_, SharedGateway>,
 ) -> Result<serde_json::Value, String> {
     worker_background_trace_get_artifact_with_options(
+        state.inner(),
+        input,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_background_trace_append(
+    input: WorkerBackgroundTraceAppendInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_background_trace_append_with_options(
+        state.inner(),
+        input,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_task_plan_list(
+    input: WorkerTaskPlanListInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_task_plan_list_with_options(
+        state.inner(),
+        input,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_task_plan_get(
+    input: WorkerTaskPlanIdInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_task_plan_get_with_options(
+        state.inner(),
+        input.plan_id,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_task_plan_save(
+    input: WorkerTaskPlanSaveInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_task_plan_save_with_options(
+        state.inner(),
+        input.plan,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_task_plan_delete(
+    input: WorkerTaskPlanIdInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_task_plan_delete_with_options(
+        state.inner(),
+        input.plan_id,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_knowledge_documents(
+    input: WorkerKnowledgeDocumentsInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_knowledge_documents_with_options(
+        state.inner(),
+        input,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_knowledge_add_document(
+    input: WorkerKnowledgeBodyInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_knowledge_add_document_with_options(
+        state.inner(),
+        input.body,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_knowledge_document(
+    input: WorkerKnowledgeDocumentIdInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_knowledge_document_with_options(
+        state.inner(),
+        input.doc_id,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_knowledge_delete_document(
+    input: WorkerKnowledgeDocumentIdInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_knowledge_delete_document_with_options(
+        state.inner(),
+        input.doc_id,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_knowledge_job(
+    input: WorkerKnowledgeJobIdInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_knowledge_job_with_options(
+        state.inner(),
+        input.job_id,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_knowledge_rebuild_index(
+    input: WorkerKnowledgeRebuildIndexInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_knowledge_rebuild_index_with_options(
+        state.inner(),
+        input.rebuild_type,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_knowledge_stats(state: State<'_, SharedGateway>) -> Result<serde_json::Value, String> {
+    worker_knowledge_stats_with_options(
+        state.inner(),
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_knowledge_graph(
+    input: WorkerKnowledgeGraphInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_knowledge_graph_with_options(
         state.inner(),
         input,
         ts_agent_worker_workspace_root(),
@@ -966,6 +1257,14 @@ fn worker_run_agent_with_options(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    if resolve_native_agent_runtime_mode(&spec, &config_snapshot) == NativeAgentRuntimeMode::Rust {
+        let services = {
+            let runtime = lock_runtime(shared);
+            runtime.native_agent_runtime.clone()
+        };
+        return run_native_agent_turn_with_services(&services, spec);
+    }
+
     let client = WorkerClient::experimental(shared);
     client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
 
@@ -1467,6 +1766,48 @@ fn worker_session_clear_with_options(
     Ok(result)
 }
 
+fn worker_session_task_progress_with_options(
+    _shared: &SharedGateway,
+    key: String,
+    body: serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let plan_id = body
+        .get("planId")
+        .or_else(|| body.get("plan_id"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let progress = body
+        .get("progress")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    let content = body
+        .get("content")
+        .or_else(|| body.get("message"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("Task progress updated.");
+    let request_id = next_worker_request_correlation();
+    let session = call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("session-task-progress"),
+            request_id.trace_id("session-task-progress"),
+            "session.task_progress.upsert",
+            serde_json::json!({
+                "session_id": key,
+                "plan_id": plan_id,
+                "progress": progress,
+                "content": content,
+            }),
+        ),
+        "worker session task progress",
+    )?;
+    webui_session_item(&session)
+}
+
 fn webui_session_item(session: &serde_json::Value) -> Result<serde_json::Value, String> {
     let mut item = session
         .as_object()
@@ -1529,11 +1870,158 @@ fn worker_cowork_route_with_options(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    if let Some(response) = worker_cowork_rust_route_with_options(&input, workspace_root.clone()) {
+        return response;
+    }
+
     let client = WorkerClient::experimental(shared);
     client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
 
     let request = build_worker_cowork_route_request(next_worker_request_correlation(), input);
     client.call(&request, timeout, "worker cowork route")
+}
+
+fn worker_cowork_rust_route_with_options(
+    input: &WorkerCoworkRouteInput,
+    workspace_root: PathBuf,
+) -> Option<Result<serde_json::Value, String>> {
+    let method = input.method.to_ascii_uppercase();
+    let (path, path_query) = split_webui_route_path(&input.path);
+    let mut query = path_query;
+    if let Some(input_query) = input.query.as_ref().and_then(serde_json::Value::as_object) {
+        for (key, value) in input_query {
+            if let Some(value) = value.as_str() {
+                query.insert(key.clone(), value.to_string());
+            }
+        }
+    }
+    let runtime = WorkerCoworkRuntime::new(workspace_root);
+    let result = match (method.as_str(), path.as_str()) {
+        ("GET", "/api/cowork/sessions") => Some(
+            runtime.list_sessions(
+                query
+                    .get("include_completed")
+                    .is_some_and(|value| matches!(value.as_str(), "1" | "true")),
+            ),
+        ),
+        ("POST", "/api/cowork/sessions") => Some(
+            runtime.create_session(input.body.clone().unwrap_or_else(|| serde_json::json!({}))),
+        ),
+        ("POST", "/api/cowork/blueprints/validate") => Some(runtime.validate_blueprint(
+            input.body.clone().unwrap_or_else(|| serde_json::json!({})),
+            false,
+        )),
+        ("POST", "/api/cowork/blueprints/preview") => Some(runtime.validate_blueprint(
+            input.body.clone().unwrap_or_else(|| serde_json::json!({})),
+            true,
+        )),
+        _ => worker_cowork_rust_dynamic_route(
+            &runtime,
+            &method,
+            &path,
+            input.body.clone().unwrap_or_else(|| serde_json::json!({})),
+            &query,
+        ),
+    };
+
+    result.map(|result| {
+        result
+            .map(|body| webui_route_response(200, body, "rust", "cowork"))
+            .or_else(|error| {
+                Ok(webui_route_response(
+                    500,
+                    serde_json::json!({ "error": { "message": error } }),
+                    "rust",
+                    "cowork",
+                ))
+            })
+    })
+}
+
+fn worker_cowork_rust_dynamic_route(
+    runtime: &WorkerCoworkRuntime,
+    method: &str,
+    path: &str,
+    body: serde_json::Value,
+    query: &HashMap<String, String>,
+) -> Option<Result<serde_json::Value, String>> {
+    let rest = path.strip_prefix("/api/cowork/sessions/")?;
+    let mut parts = rest.split('/').map(percent_decode).collect::<Vec<_>>();
+    if parts.is_empty() || parts[0].is_empty() {
+        return None;
+    }
+    let session_id = parts.remove(0);
+    if method == "GET" && parts.is_empty() {
+        return Some(runtime.get_session(&session_id).map(|session| {
+            session.unwrap_or_else(|| serde_json::json!({ "error": "cowork session not found" }))
+        }));
+    }
+    if method == "GET" && parts.len() == 1 {
+        return Some(runtime.session_view(&session_id, &parts[0]).map(|view| {
+            view.unwrap_or_else(|| serde_json::json!({ "error": "cowork session not found" }))
+        }));
+    }
+    if method == "DELETE" && parts.is_empty() {
+        return Some(runtime.delete_session(&session_id));
+    }
+    if method == "POST" && parts.len() == 1 {
+        return match parts[0].as_str() {
+            "run" => Some(runtime.run_session(&session_id, body)),
+            "budget" => Some(runtime.update_budget(&session_id, body)),
+            "pause" | "resume" | "emergency-stop" => {
+                Some(runtime.session_action(&session_id, &parts[0], body))
+            }
+            "messages" => Some(runtime.append_message(&session_id, body)),
+            "tasks" => Some(runtime.add_task(&session_id, body)),
+            _ => None,
+        };
+    }
+    if method == "PATCH" && parts.len() == 1 && parts[0] == "budget" {
+        return Some(runtime.update_budget(&session_id, body));
+    }
+    if method == "GET" && parts.len() == 3 && parts[0] == "agents" && parts[2] == "activity" {
+        let limit = query
+            .get("limit")
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(50);
+        return Some(runtime.agent_activity(&session_id, &parts[1], limit));
+    }
+    if method == "GET" && parts.len() == 2 && parts[0] == "observations" {
+        return Some(runtime.observation(&session_id, &parts[1]));
+    }
+    if method == "POST" && parts.len() == 3 && parts[0] == "tasks" {
+        return Some(runtime.task_action(&session_id, &parts[1], &parts[2], body));
+    }
+    if method == "POST" && parts.len() == 3 && parts[0] == "work-units" {
+        return Some(runtime.work_unit_action(&session_id, &parts[1], &parts[2], body));
+    }
+    if method == "POST" && parts.len() == 3 && parts[0] == "branches" && parts[2] == "select" {
+        return Some(runtime.select_branch(&session_id, &parts[1], body));
+    }
+    if method == "POST" && parts.len() == 3 && parts[0] == "branches" && parts[2] == "derive" {
+        return Some(runtime.derive_branch(&session_id, Some(&parts[1]), body));
+    }
+    if method == "POST" && parts.len() == 2 && parts[0] == "branches" && parts[1] == "derive" {
+        return Some(runtime.derive_branch(&session_id, None, body));
+    }
+    if method == "POST"
+        && parts.len() == 4
+        && parts[0] == "branches"
+        && parts[2] == "result"
+        && parts[3] == "select-final"
+    {
+        return Some(runtime.select_branch_result(&session_id, &parts[1], body));
+    }
+    if method == "POST" && parts.len() == 2 && parts[0] == "branch-results" && parts[1] == "merge" {
+        return Some(runtime.merge_branch_results(&session_id, body));
+    }
+    if method == "POST" && parts.len() == 2 && parts[0] == "final-result" && parts[1] == "select" {
+        return Some(runtime.select_final_result(&session_id, body));
+    }
+    if method == "POST" && parts.len() == 2 && parts[0] == "final-result" && parts[1] == "merge" {
+        return Some(runtime.merge_final_result(&session_id, body));
+    }
+    None
 }
 
 fn build_worker_cowork_route_request(
@@ -1565,11 +2053,608 @@ fn worker_webui_route_with_options(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    if let Some(response) = worker_webui_rust_route_with_options(
+        shared,
+        &input,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+        timeout,
+    )? {
+        return Ok(response);
+    }
+
     let client = WorkerClient::experimental(shared);
     client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
 
     let request = build_worker_webui_route_request(next_worker_request_correlation(), input);
     client.call(&request, timeout, "worker webui route")
+}
+
+fn worker_webui_rust_route_with_options(
+    shared: &SharedGateway,
+    input: &WorkerWebuiRouteInput,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<Option<serde_json::Value>, String> {
+    let method = input.method.to_ascii_uppercase();
+    let (path, query) = split_webui_route_path(&input.path);
+    let body = input.body.clone().unwrap_or(serde_json::Value::Null);
+
+    let result = match (method.as_str(), path.as_str()) {
+        ("GET", "/health") => Some(Ok(serde_json::json!({
+            "ok": true,
+            "status": "ok",
+            "runtime": "native-rust"
+        }))),
+        ("GET", "/webui/bootstrap") => Some(Ok(native_webui_bootstrap_body())),
+        ("POST", "/webui/refresh-token") => Some(Ok(native_webui_bootstrap_body())),
+        ("GET", "/api/status") => Some(Ok(native_webui_status_body(shared))),
+        ("GET", "/api/config") => Some(worker_webui_config_body(
+            workspace_root.clone(),
+            config_snapshot.clone(),
+        )),
+        ("GET", "/api/sessions") => Some(worker_sessions_list_with_options(
+            shared,
+            workspace_root.clone(),
+            config_snapshot.clone(),
+            timeout,
+        )),
+        ("GET", "/api/skills") => Some(worker_skills_list_with_options(
+            shared,
+            workspace_root.clone(),
+            config_snapshot.clone(),
+            timeout,
+        )),
+        ("GET", "/api/approvals") => Some(Ok(native_webui_approvals_body(&query))),
+        ("POST", "/api/skills") => Some(worker_skills_create_with_options(
+            shared,
+            body,
+            workspace_root.clone(),
+            config_snapshot.clone(),
+            timeout,
+        )),
+        ("GET", "/api/workspace/files") => Some(worker_workspace_files_with_options(
+            shared,
+            workspace_root.clone(),
+            config_snapshot.clone(),
+            timeout,
+        )),
+        ("GET", "/v1/knowledge/documents") => Some(worker_knowledge_documents_with_options(
+            shared,
+            WorkerKnowledgeDocumentsInput {
+                category: query.get("category").cloned(),
+                limit: query
+                    .get("limit")
+                    .and_then(|value| value.parse::<usize>().ok()),
+            },
+            workspace_root.clone(),
+            config_snapshot.clone(),
+            timeout,
+        )),
+        ("POST", "/v1/knowledge/documents") => Some(worker_knowledge_add_document_with_options(
+            shared,
+            body,
+            workspace_root.clone(),
+            config_snapshot.clone(),
+            timeout,
+        )),
+        ("POST", "/v1/knowledge/documents/upload") => {
+            Some(worker_knowledge_add_document_with_options(
+                shared,
+                body,
+                workspace_root.clone(),
+                config_snapshot.clone(),
+                timeout,
+            ))
+        }
+        ("GET", "/v1/knowledge/stats") => Some(worker_knowledge_stats_with_options(
+            shared,
+            workspace_root.clone(),
+            config_snapshot.clone(),
+            timeout,
+        )),
+        ("POST", "/v1/knowledge/rebuild-index") => {
+            Some(worker_knowledge_rebuild_index_with_options(
+                shared,
+                query.get("type").cloned(),
+                workspace_root.clone(),
+                config_snapshot.clone(),
+                timeout,
+            ))
+        }
+        ("GET", "/v1/knowledge/graph") => Some(worker_knowledge_graph_with_options(
+            shared,
+            WorkerKnowledgeGraphInput {
+                doc_id: query.get("doc_id").cloned(),
+                graph_type: query.get("graph_type").cloned(),
+                limit: query
+                    .get("limit")
+                    .and_then(|value| value.parse::<usize>().ok()),
+                edge_limit: query
+                    .get("edge_limit")
+                    .and_then(|value| value.parse::<usize>().ok()),
+                min_confidence: query
+                    .get("min_confidence")
+                    .and_then(|value| value.parse::<f64>().ok()),
+                include_orphans: query
+                    .get("include_orphans")
+                    .and_then(|value| value.parse::<bool>().ok()),
+            },
+            workspace_root.clone(),
+            config_snapshot.clone(),
+            timeout,
+        )),
+        _ => worker_webui_rust_dynamic_route(
+            shared,
+            &method,
+            &path,
+            &body,
+            workspace_root.clone(),
+            config_snapshot.clone(),
+            timeout,
+        ),
+    };
+
+    match result {
+        Some(Ok(body)) => Ok(Some(webui_route_response(
+            200,
+            body,
+            "rust",
+            webui_route_group(&path),
+        ))),
+        Some(Err(error)) => Ok(Some(webui_route_response(
+            500,
+            serde_json::json!({ "error": { "message": error } }),
+            "rust",
+            webui_route_group(&path),
+        ))),
+        None if is_delegated_webui_route(&method, &path) => Ok(None),
+        None => Ok(Some(webui_route_response(
+            404,
+            serde_json::json!({
+                "error": {
+                    "message": "webui control route unavailable",
+                },
+                "method": method,
+                "path": path,
+                "route": format!("{} {}", method, path),
+            }),
+            "unsupported",
+            webui_route_group(&path),
+        ))),
+    }
+}
+
+fn worker_webui_rust_dynamic_route(
+    shared: &SharedGateway,
+    method: &str,
+    path: &str,
+    body: &serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Option<Result<serde_json::Value, String>> {
+    if let Some(key) = webui_session_route_key(path, "/messages") {
+        if method == "GET" {
+            return Some(worker_session_messages_with_options(
+                shared,
+                key,
+                workspace_root,
+                config_snapshot,
+                timeout,
+            ));
+        }
+    }
+    if let Some(key) = webui_session_route_key(path, "/temporary-files") {
+        return match method {
+            "GET" => Some(worker_session_temporary_files_with_options(
+                shared,
+                key,
+                workspace_root,
+                config_snapshot,
+                timeout,
+            )),
+            "POST" => Some(worker_session_upload_temporary_file_with_options(
+                shared,
+                key,
+                body.clone(),
+                workspace_root,
+                config_snapshot,
+                timeout,
+            )),
+            "DELETE" => Some(worker_session_clear_temporary_files_with_options(
+                shared,
+                key,
+                workspace_root,
+                config_snapshot,
+                timeout,
+            )),
+            _ => None,
+        };
+    }
+    if let Some(key) = webui_session_route_key(path, "/clear") {
+        if method == "POST" {
+            return Some(worker_session_clear_with_options(
+                shared,
+                key,
+                workspace_root,
+                config_snapshot,
+                timeout,
+            ));
+        }
+    }
+    if let Some(key) = webui_session_item_key(path) {
+        return match method {
+            "PATCH" => Some(worker_session_patch_with_options(
+                shared,
+                key,
+                body.clone(),
+                workspace_root,
+                config_snapshot,
+                timeout,
+            )),
+            "DELETE" => Some(worker_session_delete_with_options(
+                shared,
+                key,
+                workspace_root,
+                config_snapshot,
+                timeout,
+            )),
+            _ => None,
+        };
+    }
+    if let Some(path) = webui_workspace_file_path(path) {
+        return match method {
+            "GET" => Some(worker_workspace_file_with_options(
+                shared,
+                path,
+                workspace_root,
+                config_snapshot,
+                timeout,
+            )),
+            "PUT" => Some(worker_workspace_put_file_with_options(
+                shared,
+                path,
+                body.clone(),
+                workspace_root,
+                config_snapshot,
+                timeout,
+            )),
+            _ => None,
+        };
+    }
+    if let Some(name) = webui_skill_route_name(path, "/validate") {
+        if method == "POST" {
+            return Some(worker_skills_validate_with_options(
+                shared,
+                name,
+                workspace_root,
+                config_snapshot,
+                timeout,
+            ));
+        }
+    }
+    if let Some(name) = webui_skill_item_name(path) {
+        return match method {
+            "GET" => Some(worker_skills_detail_with_options(
+                shared,
+                name,
+                workspace_root,
+                config_snapshot,
+                timeout,
+            )),
+            "PATCH" => Some(worker_skills_update_with_options(
+                shared,
+                name,
+                body.clone(),
+                workspace_root,
+                config_snapshot,
+                timeout,
+            )),
+            "DELETE" => Some(worker_skills_delete_with_options(
+                shared,
+                name,
+                workspace_root,
+                config_snapshot,
+                timeout,
+            )),
+            _ => None,
+        };
+    }
+    if let Some(approval_id) = webui_approval_route_id(path, "/approve") {
+        if method == "POST" {
+            return Some(Ok(native_webui_approval_resolution_body(
+                approval_id,
+                body,
+                true,
+            )));
+        }
+    }
+    if let Some(approval_id) = webui_approval_route_id(path, "/deny") {
+        if method == "POST" {
+            return Some(Ok(native_webui_approval_resolution_body(
+                approval_id,
+                body,
+                false,
+            )));
+        }
+    }
+    if let Some(doc_id) = webui_path_param(path, "/v1/knowledge/documents/") {
+        return match method {
+            "GET" => Some(worker_knowledge_document_with_options(
+                shared,
+                doc_id,
+                workspace_root,
+                config_snapshot,
+                timeout,
+            )),
+            "DELETE" => Some(worker_knowledge_delete_document_with_options(
+                shared,
+                doc_id,
+                workspace_root,
+                config_snapshot,
+                timeout,
+            )),
+            _ => None,
+        };
+    }
+    if let Some(job_id) = webui_path_param(path, "/v1/knowledge/jobs/") {
+        if method == "GET" {
+            return Some(worker_knowledge_job_with_options(
+                shared,
+                job_id,
+                workspace_root,
+                config_snapshot,
+                timeout,
+            ));
+        }
+    }
+    None
+}
+
+fn native_webui_bootstrap_body() -> serde_json::Value {
+    serde_json::json!({
+        "token": "native-rust-local",
+        "ws_path": "/ws",
+        "refresh_token_path": "/webui/refresh-token",
+        "token_ttl_s": 300,
+    })
+}
+
+fn native_webui_status_body(shared: &SharedGateway) -> serde_json::Value {
+    let status = lock_runtime(shared).experimental_worker.status();
+    serde_json::json!({
+        "channels": {
+            "websocket": {
+                "enabled": true,
+                "running": matches!(status.state, WorkerManagerState::Running | WorkerManagerState::Starting)
+            }
+        },
+        "native_backend": status,
+        "provider": serde_json::Value::Null,
+        "model": serde_json::Value::Null,
+    })
+}
+
+fn worker_webui_config_body(
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    let snapshot = call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("webui-config"),
+            request_id.trace_id("webui-config"),
+            "config.snapshot_public",
+            serde_json::json!({}),
+        ),
+        "worker webui config",
+    )?;
+    Ok(snapshot.get("value").cloned().unwrap_or(snapshot))
+}
+
+fn native_webui_approvals_body(query: &HashMap<String, String>) -> serde_json::Value {
+    let session_key = query
+        .get("session_key")
+        .or_else(|| query.get("chat_id"))
+        .cloned()
+        .unwrap_or_default();
+    serde_json::json!({
+        "session_key": session_key,
+        "approvals": [],
+        "source": "rust",
+    })
+}
+
+fn native_webui_approval_resolution_body(
+    approval_id: String,
+    body: &serde_json::Value,
+    approved: bool,
+) -> serde_json::Value {
+    let session_key = body
+        .get("session_key")
+        .or_else(|| body.get("sessionId"))
+        .or_else(|| body.get("session_id"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let scope = body
+        .get("scope")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("once");
+    serde_json::json!({
+        "ok": false,
+        "status": "not_found",
+        "approvalId": approval_id,
+        "approved": approved,
+        "scope": scope,
+        "session_key": session_key,
+        "source": "rust",
+        "error": {
+            "message": "pending approval not found",
+        },
+    })
+}
+
+fn webui_route_response(
+    status: u16,
+    body: serde_json::Value,
+    owner: &str,
+    route_group: &str,
+) -> serde_json::Value {
+    serde_json::json!({
+        "status": status,
+        "body": body,
+        "headers": {
+            "x-tinybot-route-owner": owner,
+            "x-tinybot-route-group": route_group,
+        }
+    })
+}
+
+fn split_webui_route_path(path: &str) -> (String, HashMap<String, String>) {
+    let (path_only, query) = path.split_once('?').unwrap_or((path, ""));
+    let mut params = HashMap::new();
+    for pair in query.split('&').filter(|pair| !pair.is_empty()) {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        params.insert(percent_decode(key), percent_decode(value));
+    }
+    (path_only.to_string(), params)
+}
+
+fn percent_decode(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut output = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'%' if index + 2 < bytes.len() => {
+                let hex = &input[index + 1..index + 3];
+                if let Ok(value) = u8::from_str_radix(hex, 16) {
+                    output.push(value);
+                    index += 3;
+                    continue;
+                }
+                output.push(bytes[index]);
+                index += 1;
+            }
+            b'+' => {
+                output.push(b' ');
+                index += 1;
+            }
+            byte => {
+                output.push(byte);
+                index += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&output).to_string()
+}
+
+fn webui_session_route_key(path: &str, suffix: &str) -> Option<String> {
+    let rest = path.strip_prefix("/api/sessions/")?;
+    let key = rest.strip_suffix(suffix)?;
+    if key.is_empty() || key.contains('/') {
+        return None;
+    }
+    Some(percent_decode(key))
+}
+
+fn webui_session_item_key(path: &str) -> Option<String> {
+    let rest = path.strip_prefix("/api/sessions/")?;
+    if rest.is_empty() || rest.contains('/') {
+        return None;
+    }
+    Some(percent_decode(rest))
+}
+
+fn webui_workspace_file_path(path: &str) -> Option<String> {
+    let rest = path.strip_prefix("/api/workspace/files/")?;
+    if rest.is_empty() {
+        return None;
+    }
+    Some(percent_decode(rest))
+}
+
+fn webui_skill_route_name(path: &str, suffix: &str) -> Option<String> {
+    let rest = path.strip_prefix("/api/skills/")?;
+    let name = rest.strip_suffix(suffix)?;
+    if name.is_empty() || name.contains('/') {
+        return None;
+    }
+    Some(percent_decode(name))
+}
+
+fn webui_skill_item_name(path: &str) -> Option<String> {
+    let rest = path.strip_prefix("/api/skills/")?;
+    if rest.is_empty() || rest.contains('/') {
+        return None;
+    }
+    Some(percent_decode(rest))
+}
+
+fn webui_approval_route_id(path: &str, suffix: &str) -> Option<String> {
+    let rest = path.strip_prefix("/api/approvals/")?;
+    let approval_id = rest.strip_suffix(suffix)?;
+    if approval_id.is_empty() || approval_id.contains('/') {
+        return None;
+    }
+    Some(percent_decode(approval_id))
+}
+
+fn webui_path_param(path: &str, prefix: &str) -> Option<String> {
+    let rest = path.strip_prefix(prefix)?;
+    if rest.is_empty() || rest.contains('/') {
+        return None;
+    }
+    Some(percent_decode(rest))
+}
+
+fn webui_route_group(path: &str) -> &'static str {
+    if path == "/health" {
+        "health"
+    } else if path.starts_with("/webui/") {
+        "bootstrap"
+    } else if path == "/api/status" {
+        "status"
+    } else if path == "/api/config" {
+        "config"
+    } else if path.starts_with("/api/sessions") {
+        "sessions"
+    } else if path.starts_with("/api/workspace") {
+        "workspace"
+    } else if path.starts_with("/api/skills") {
+        "skills"
+    } else if path.starts_with("/v1/knowledge") {
+        "knowledge"
+    } else if path.starts_with("/api/cowork") {
+        "cowork"
+    } else if path.starts_with("/api/approvals") {
+        "approvals"
+    } else if path.starts_with("/api/agent-ui") {
+        "agent-ui"
+    } else if path.starts_with("/v1/") {
+        "openai"
+    } else {
+        "unsupported"
+    }
+}
+
+fn is_delegated_webui_route(method: &str, path: &str) -> bool {
+    matches!(
+        (method, path),
+        ("GET", "/v1/models")
+            | ("POST", "/v1/chat/completions")
+            | ("PATCH", "/api/config")
+            | ("GET", "/api/providers")
+            | ("POST", "/api/provider-models")
+            | ("POST", "/v1/knowledge/query")
+            | ("POST", "/v1/knowledge/graph/extract")
+            | ("GET", "/v1/knowledge/graphrag")
+    ) || path.starts_with("/api/agent-ui/")
+        || path.starts_with("/api/cowork/")
 }
 
 fn worker_webui_route_timeout(input: &WorkerWebuiRouteInput) -> Duration {
@@ -1982,8 +3067,19 @@ fn call_rust_state_service(
 fn worker_cancel_agent_with_options(
     shared: &SharedGateway,
     run_id: String,
+    config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    if resolve_native_agent_runtime_mode(&serde_json::json!({}), &config_snapshot)
+        == NativeAgentRuntimeMode::Rust
+    {
+        let services = {
+            let runtime = lock_runtime(shared);
+            runtime.native_agent_runtime.clone()
+        };
+        return Ok(services.cancel(&run_id));
+    }
+
     let client = WorkerClient::experimental(shared);
     client.require_running()?;
 
@@ -2010,6 +3106,16 @@ fn worker_restore_agent_checkpoint_with_options(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    if resolve_native_agent_runtime_mode(&serde_json::json!({}), &config_snapshot)
+        == NativeAgentRuntimeMode::Rust
+    {
+        let services = {
+            let runtime = lock_runtime(shared);
+            runtime.native_agent_runtime.clone()
+        };
+        return Ok(services.restore_checkpoint(&session_id));
+    }
+
     let client = WorkerClient::experimental(shared);
     client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
 
@@ -2123,12 +3229,304 @@ fn build_worker_background_trace_get_artifact_request(
     )
 }
 
+fn worker_background_trace_append_with_options(
+    _shared: &SharedGateway,
+    input: WorkerBackgroundTraceAppendInput,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    let request = WorkerRequest::new(
+        request_id.id("background-trace-append"),
+        request_id.trace_id("background-trace-append"),
+        "background.trace.append",
+        serde_json::json!({ "event": input.event }),
+    );
+    dispatch_worker_background_trace_request(
+        workspace_root,
+        config_snapshot,
+        request,
+        "worker background trace append",
+    )
+}
+
 fn dispatch_worker_background_trace_request(
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     request: WorkerRequest,
     context: &str,
 ) -> Result<serde_json::Value, String> {
+    let mut router = experimental_worker_router(workspace_root, config_snapshot);
+    let response = router.dispatch(&request);
+    if let Some(error) = response.error {
+        return Err(format!("{context} returned error: {}", error.message));
+    }
+    response
+        .result
+        .ok_or_else(|| format!("{context} response missing result"))
+}
+
+fn worker_task_plan_list_with_options(
+    _shared: &SharedGateway,
+    input: WorkerTaskPlanListInput,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    dispatch_rust_task_request(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("task-plan-list"),
+            request_id.trace_id("task-plan-list"),
+            "task.plan.list",
+            serde_json::json!({ "include_completed": input.include_completed }),
+        ),
+        "worker task plan list",
+    )
+}
+
+fn worker_task_plan_get_with_options(
+    _shared: &SharedGateway,
+    plan_id: String,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    dispatch_rust_task_request(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("task-plan-get"),
+            request_id.trace_id("task-plan-get"),
+            "task.plan.get",
+            serde_json::json!({ "plan_id": plan_id }),
+        ),
+        "worker task plan get",
+    )
+}
+
+fn worker_task_plan_save_with_options(
+    _shared: &SharedGateway,
+    plan: serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    dispatch_rust_task_request(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("task-plan-save"),
+            request_id.trace_id("task-plan-save"),
+            "task.plan.save",
+            serde_json::json!({ "plan": plan }),
+        ),
+        "worker task plan save",
+    )
+}
+
+fn worker_task_plan_delete_with_options(
+    _shared: &SharedGateway,
+    plan_id: String,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    dispatch_rust_task_request(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("task-plan-delete"),
+            request_id.trace_id("task-plan-delete"),
+            "task.plan.delete",
+            serde_json::json!({ "plan_id": plan_id }),
+        ),
+        "worker task plan delete",
+    )
+}
+
+fn dispatch_rust_task_request(
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    request: WorkerRequest,
+    context: &str,
+) -> Result<serde_json::Value, String> {
+    let mut router = experimental_worker_router(workspace_root, config_snapshot);
+    let response = router.dispatch(&request);
+    if let Some(error) = response.error {
+        return Err(format!("{context} returned error: {}", error.message));
+    }
+    response
+        .result
+        .ok_or_else(|| format!("{context} response missing result"))
+}
+
+fn worker_knowledge_documents_with_options(
+    _shared: &SharedGateway,
+    input: WorkerKnowledgeDocumentsInput,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    dispatch_rust_knowledge_request(
+        workspace_root,
+        config_snapshot,
+        "knowledge-documents",
+        "knowledge.list_documents",
+        serde_json::json!({
+            "category": input.category,
+            "limit": input.limit,
+        }),
+        "worker knowledge documents",
+    )
+}
+
+fn worker_knowledge_add_document_with_options(
+    _shared: &SharedGateway,
+    body: serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    dispatch_rust_knowledge_request(
+        workspace_root,
+        config_snapshot,
+        "knowledge-add-document",
+        "knowledge.add_document",
+        body,
+        "worker knowledge add document",
+    )
+}
+
+fn worker_knowledge_document_with_options(
+    _shared: &SharedGateway,
+    doc_id: String,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    dispatch_rust_knowledge_request(
+        workspace_root,
+        config_snapshot,
+        "knowledge-document",
+        "knowledge.get_document",
+        serde_json::json!({ "doc_id": doc_id }),
+        "worker knowledge document",
+    )
+}
+
+fn worker_knowledge_delete_document_with_options(
+    _shared: &SharedGateway,
+    doc_id: String,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    dispatch_rust_knowledge_request(
+        workspace_root,
+        config_snapshot,
+        "knowledge-delete-document",
+        "knowledge.delete_document",
+        serde_json::json!({ "doc_id": doc_id }),
+        "worker knowledge delete document",
+    )
+}
+
+fn worker_knowledge_job_with_options(
+    _shared: &SharedGateway,
+    job_id: String,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    dispatch_rust_knowledge_request(
+        workspace_root,
+        config_snapshot,
+        "knowledge-job",
+        "knowledge.get_job",
+        serde_json::json!({ "job_id": job_id }),
+        "worker knowledge job",
+    )
+}
+
+fn worker_knowledge_rebuild_index_with_options(
+    _shared: &SharedGateway,
+    rebuild_type: Option<String>,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    dispatch_rust_knowledge_request(
+        workspace_root,
+        config_snapshot,
+        "knowledge-rebuild-index",
+        "knowledge.rebuild_index",
+        serde_json::json!({ "type": rebuild_type }),
+        "worker knowledge rebuild index",
+    )
+}
+
+fn worker_knowledge_stats_with_options(
+    _shared: &SharedGateway,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    dispatch_rust_knowledge_request(
+        workspace_root,
+        config_snapshot,
+        "knowledge-stats",
+        "knowledge.stats",
+        serde_json::json!({}),
+        "worker knowledge stats",
+    )
+}
+
+fn worker_knowledge_graph_with_options(
+    _shared: &SharedGateway,
+    input: WorkerKnowledgeGraphInput,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    dispatch_rust_knowledge_request(
+        workspace_root,
+        config_snapshot,
+        "knowledge-graph",
+        "knowledge.graph",
+        serde_json::json!({
+            "doc_id": input.doc_id,
+            "graph_type": input.graph_type,
+            "limit": input.limit,
+            "edge_limit": input.edge_limit,
+            "min_confidence": input.min_confidence,
+            "include_orphans": input.include_orphans,
+        }),
+        "worker knowledge graph",
+    )
+}
+
+fn dispatch_rust_knowledge_request(
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    request_suffix: &str,
+    method: &str,
+    params: serde_json::Value,
+    context: &str,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    let request = WorkerRequest::new(
+        request_id.id(request_suffix),
+        request_id.trace_id(request_suffix),
+        method,
+        params,
+    );
     let mut router = experimental_worker_router(workspace_root, config_snapshot);
     let response = router.dispatch(&request);
     if let Some(error) = response.error {
@@ -2323,6 +3721,8 @@ fn experimental_worker_router(
             WorkerCapability::CronRun,
             WorkerCapability::BackgroundRead,
             WorkerCapability::BackgroundWrite,
+            WorkerCapability::TaskRead,
+            WorkerCapability::TaskWrite,
             WorkerCapability::McpCall,
             WorkerCapability::ChannelConnector,
             WorkerCapability::SessionMetadataRead,
@@ -2365,11 +3765,16 @@ fn experimental_worker_router_with_runtime_restart(
 }
 
 fn experimental_worker_workspace_root() -> PathBuf {
-    repo_root()
-        .join("apps")
-        .join("desktop")
-        .join("workers")
-        .join("ts-worker-fixture")
+    let root = repo_root();
+    let current_layout = root.join("workers").join("ts-worker-fixture");
+    if current_layout.exists() {
+        current_layout
+    } else {
+        root.join("apps")
+            .join("desktop")
+            .join("workers")
+            .join("ts-worker-fixture")
+    }
 }
 
 fn ts_agent_worker_workspace_root() -> PathBuf {
@@ -2509,11 +3914,12 @@ fn lock_runtime(shared: &SharedGateway) -> std::sync::MutexGuard<'_, GatewayRunt
 }
 
 fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(|path| path.parent())
-        .and_then(|path| path.parent())
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    manifest_dir
+        .ancestors()
+        .find(|path| path.join("workers").join("ts-agent-worker").exists())
         .map(PathBuf::from)
+        .or_else(|| manifest_dir.parent().map(PathBuf::from))
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
@@ -2541,15 +3947,22 @@ pub fn run() {
             });
             drop(runtime);
             start_worker_cron_timer(&setup_state);
-            if let Err(error) = start_worker_heartbeat_runtime_with_options(
-                &setup_state,
-                ts_agent_worker_workspace_root(),
-                experimental_worker_config_snapshot(),
-                Duration::from_secs(10),
-            ) {
+            if ts_compatibility_worker_enabled() {
+                if let Err(error) = start_worker_heartbeat_runtime_with_options(
+                    &setup_state,
+                    ts_agent_worker_workspace_root(),
+                    experimental_worker_config_snapshot(),
+                    Duration::from_secs(10),
+                ) {
+                    push_log(
+                        &setup_state,
+                        &format!("TS compatibility heartbeat start failed: {error}"),
+                    );
+                }
+            } else {
                 push_log(
                     &setup_state,
-                    &format!("native heartbeat start failed: {error}"),
+                    "Rust backend startup skipped TS compatibility heartbeat",
                 );
             }
             Ok(())
@@ -2581,6 +3994,7 @@ pub fn run() {
             worker_session_delete,
             worker_session_patch,
             worker_session_clear,
+            worker_session_task_progress,
             worker_cowork_route,
             worker_webui_route,
             worker_transport_gateway_frame,
@@ -2596,6 +4010,19 @@ pub fn run() {
             worker_background_trace_list,
             worker_background_trace_get_delegate_trace,
             worker_background_trace_get_artifact,
+            worker_background_trace_append,
+            worker_task_plan_list,
+            worker_task_plan_get,
+            worker_task_plan_save,
+            worker_task_plan_delete,
+            worker_knowledge_documents,
+            worker_knowledge_add_document,
+            worker_knowledge_document,
+            worker_knowledge_delete_document,
+            worker_knowledge_job,
+            worker_knowledge_rebuild_index,
+            worker_knowledge_stats,
+            worker_knowledge_graph,
             worker_submit_agent_form,
             worker_resume_agent_approval,
             worker_cron_dispatch_due,
@@ -2609,16 +4036,18 @@ pub fn run() {
         .on_window_event(move |_window, event| {
             if matches!(event, WindowEvent::CloseRequested { .. }) {
                 stop_worker_cron_timer(&close_state);
-                if let Err(error) = stop_worker_heartbeat_runtime_with_options(
-                    &close_state,
-                    ts_agent_worker_workspace_root(),
-                    experimental_worker_config_snapshot(),
-                    Duration::from_secs(10),
-                ) {
-                    push_log(
+                if ts_compatibility_worker_enabled() {
+                    if let Err(error) = stop_worker_heartbeat_runtime_with_options(
                         &close_state,
-                        &format!("native heartbeat stop failed: {error}"),
-                    );
+                        ts_agent_worker_workspace_root(),
+                        experimental_worker_config_snapshot(),
+                        Duration::from_secs(10),
+                    ) {
+                        push_log(
+                            &close_state,
+                            &format!("TS compatibility heartbeat stop failed: {error}"),
+                        );
+                    }
                 }
                 let _ = stop_owned_gateway(&close_state, false);
             }
@@ -2659,7 +4088,7 @@ mod tests {
     }
 
     #[test]
-    fn close_shutdown_stops_native_ts_backend_child() {
+    fn close_shutdown_stops_ts_compatibility_worker_child() {
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
         {
             let runtime = lock_runtime(&shared);
@@ -2669,7 +4098,7 @@ mod tests {
                 .expect("test worker should start");
         }
 
-        stop_owned_gateway(&shared, false).expect("native TS backend child should stop");
+        stop_owned_gateway(&shared, false).expect("TS compatibility worker child should stop");
 
         let runtime = lock_runtime(&shared);
         assert_eq!(
@@ -2679,28 +4108,36 @@ mod tests {
         assert!(runtime
             .logs
             .iter()
-            .any(|line| line == "stopped native TS backend"));
+            .any(|line| line == "stopped TS compatibility worker"));
     }
 
     #[test]
-    fn gateway_status_uses_ts_worker_manager_for_native_backend() {
+    fn start_gateway_defaults_to_rust_backend_without_ts_worker() {
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
-        let worker = {
-            let runtime = lock_runtime(&shared);
-            runtime.experimental_worker.clone()
-        };
-        worker
-            .start(test_gateway_short_worker_spec("gateway-status-worker"))
-            .expect("test worker should start");
 
-        let status = current_status(&shared);
+        let status = crate::desktop_gateway::start_gateway_with_options(&shared, false)
+            .expect("Rust backend startup should not require TS worker");
 
         assert_eq!(status.owner, "shell");
         assert_eq!(status.state, "running");
+        assert_eq!(status.command, "Tauri Rust backend");
+        assert_eq!(
+            status.worker_runtime.state,
+            crate::worker_runtime::WorkerRuntimeState::Running
+        );
+        assert!(status.worker_runtime.compatibility_worker.is_none());
+        assert_eq!(
+            lock_runtime(&shared).experimental_worker.status().state,
+            WorkerManagerState::Stopped
+        );
+        assert!(lock_runtime(&shared)
+            .logs
+            .iter()
+            .any(|line| line == "Rust native backend active; TS compatibility worker disabled"));
     }
 
     #[test]
-    fn gateway_status_reflects_running_worker_runtime() {
+    fn gateway_status_reflects_running_ts_compatibility_worker_runtime() {
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
         let worker = {
             let runtime = lock_runtime(&shared);
@@ -2723,7 +4160,7 @@ mod tests {
     }
 
     #[test]
-    fn gateway_status_reports_ts_worker_diagnostics() {
+    fn gateway_status_reports_ts_compatibility_worker_diagnostics() {
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
         let ts_worker = {
             let runtime = lock_runtime(&shared);
@@ -2753,7 +4190,7 @@ mod tests {
 
         assert!(log_text.contains("ts native backend"));
         assert!(diagnostic_text.contains("ts native backend"));
-        assert_eq!(status.command, "node workers/ts-agent-worker/src/index.ts");
+        assert_eq!(status.command, "Tauri Rust backend");
     }
 
     #[test]
@@ -3074,6 +4511,88 @@ mod tests {
         assert_eq!(request.trace_id, "trace-agent-run-42");
         assert_eq!(request.method, "agent.run");
         assert_eq!(request.params, serde_json::json!({ "spec": agent_spec }));
+    }
+
+    #[test]
+    fn worker_run_agent_uses_rust_runtime_when_selected_without_ts_worker() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+
+        let result = worker_run_agent_with_options(
+            &shared,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-rust-1",
+                "sessionId": "websocket:chat-1",
+                "stream": true,
+                "messages": [{ "role": "user", "content": "hello rust" }]
+            }),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("Rust runtime should run deterministic fake provider");
+
+        assert_eq!(result["runtime"], "rust");
+        assert_eq!(result["finalContent"], "Echo: hello rust");
+        assert_eq!(result["events"][0]["eventName"], "agent.delta");
+        assert_eq!(result["events"][1]["eventName"], "agent.done");
+        assert_eq!(
+            lock_runtime(&shared).experimental_worker.status().state,
+            WorkerManagerState::Stopped
+        );
+    }
+
+    #[test]
+    fn worker_rust_agent_restore_and_cancel_use_native_runtime_state() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let rust_config = serde_json::json!({
+            "desktop": { "nativeAgentRuntime": "rust" }
+        });
+
+        let awaiting = worker_run_agent_with_options(
+            &shared,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-approval",
+                "sessionId": "WebSocket:chat-approval",
+                "metadata": {
+                    "fakeAwaitingApproval": {
+                        "approvalId": "approval-1",
+                        "toolName": "workspace.write_file"
+                    }
+                }
+            }),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("Rust runtime should create an approval checkpoint");
+        let restored = worker_restore_agent_checkpoint_with_options(
+            &shared,
+            "WebSocket:chat-approval".to_string(),
+            fixture.root.clone(),
+            rust_config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("Rust runtime should restore checkpoints without TS worker");
+        let cancelled = worker_cancel_agent_with_options(
+            &shared,
+            "run-cancel".to_string(),
+            rust_config,
+            Duration::from_millis(10),
+        )
+        .expect("Rust runtime should cancel without TS worker");
+
+        assert_eq!(awaiting["stopReason"], "awaiting_approval");
+        assert_eq!(restored["runtime"], "rust");
+        assert_eq!(restored["checkpoint"]["phase"], "awaiting_approval");
+        assert_eq!(cancelled["events"][0]["eventName"], "agent.cancelled");
+        assert_eq!(
+            lock_runtime(&shared).experimental_worker.status().state,
+            WorkerManagerState::Stopped
+        );
     }
 
     #[test]
@@ -3582,6 +5101,19 @@ mod tests {
             Duration::from_millis(10),
         )
         .expect("session clear should be served by Rust session state");
+        let progress = worker_session_task_progress_with_options(
+            &shared,
+            "websocket:chat-1".to_string(),
+            serde_json::json!({
+                "planId": "plan-1",
+                "progress": { "completed": 1, "total": 2 },
+                "content": "Half done"
+            }),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("task progress should be served by Rust session state");
         let deleted = worker_session_delete_with_options(
             &shared,
             "websocket:chat-1".to_string(),
@@ -3598,6 +5130,11 @@ mod tests {
         assert_eq!(patch["metadata"]["pinned"], true);
         assert_eq!(cleared_files["cleared"], 1);
         assert_eq!(cleared_session["messages_before"], 1);
+        assert_eq!(progress["key"], "websocket:chat-1");
+        assert_eq!(
+            progress["extra"]["messages"][0]["_task_progress"]["completed"],
+            1
+        );
         assert_eq!(deleted["key"], "websocket:chat-1");
         assert_eq!(deleted["deleted"], true);
         assert_eq!(
@@ -3629,6 +5166,317 @@ mod tests {
                 "body": { "reason": "Retry" },
                 "query": { "limit": "5" }
             })
+        );
+    }
+
+    #[test]
+    fn worker_cowork_route_serves_rust_sessions_without_ts_worker() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+
+        let created = worker_cowork_route_with_options(
+            &shared,
+            WorkerCoworkRouteInput {
+                method: "POST".to_string(),
+                path: "/api/cowork/sessions".to_string(),
+                body: Some(serde_json::json!({
+                    "goal": "Plan the Rust migration",
+                    "title": "Rust migration"
+                })),
+                query: None,
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("Cowork create route should be Rust-owned");
+        let session_id = created["body"]["id"]
+            .as_str()
+            .expect("created cowork session should include id")
+            .to_string();
+        let listed = worker_cowork_route_with_options(
+            &shared,
+            WorkerCoworkRouteInput {
+                method: "GET".to_string(),
+                path: "/api/cowork/sessions".to_string(),
+                body: None,
+                query: Some(serde_json::json!({ "include_completed": "true" })),
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("Cowork list route should be Rust-owned");
+        let trace = worker_cowork_route_with_options(
+            &shared,
+            WorkerCoworkRouteInput {
+                method: "GET".to_string(),
+                path: format!("/api/cowork/sessions/{session_id}/trace"),
+                body: None,
+                query: None,
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("Cowork trace route should be Rust-owned");
+        let run = worker_cowork_route_with_options(
+            &shared,
+            WorkerCoworkRouteInput {
+                method: "POST".to_string(),
+                path: format!("/api/cowork/sessions/{session_id}/run"),
+                body: Some(serde_json::json!({ "delegateId": "delegate-rust" })),
+                query: None,
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("Cowork run route should be Rust-owned");
+        let task = worker_cowork_route_with_options(
+            &shared,
+            WorkerCoworkRouteInput {
+                method: "POST".to_string(),
+                path: format!("/api/cowork/sessions/{session_id}/tasks"),
+                body: Some(serde_json::json!({ "id": "task-rust", "title": "Rust task" })),
+                query: None,
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("Cowork task route should be Rust-owned");
+        let budget = worker_cowork_route_with_options(
+            &shared,
+            WorkerCoworkRouteInput {
+                method: "PATCH".to_string(),
+                path: format!("/api/cowork/sessions/{session_id}/budget"),
+                body: Some(serde_json::json!({ "max_spawned_agents": 1 })),
+                query: None,
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("Cowork budget route should be Rust-owned");
+        let activity = worker_cowork_route_with_options(
+            &shared,
+            WorkerCoworkRouteInput {
+                method: "GET".to_string(),
+                path: format!("/api/cowork/sessions/{session_id}/agents/delegate-rust/activity"),
+                body: None,
+                query: Some(serde_json::json!({ "limit": "10" })),
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("Cowork agent activity route should be Rust-owned");
+        let blueprint = worker_cowork_route_with_options(
+            &shared,
+            WorkerCoworkRouteInput {
+                method: "POST".to_string(),
+                path: "/api/cowork/blueprints/validate".to_string(),
+                body: Some(serde_json::json!({ "title": "Rust blueprint" })),
+                query: None,
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("Cowork blueprint route should be Rust-owned");
+
+        assert_eq!(created["headers"]["x-tinybot-route-owner"], "rust");
+        assert_eq!(listed["body"]["sessions"][0]["id"], session_id);
+        assert_eq!(trace["body"]["events"][0]["type"], "session.created");
+        assert_eq!(
+            run["body"]["agents"]["delegate-rust"]["status"],
+            "completed"
+        );
+        assert_eq!(task["body"]["id"], "task-rust");
+        assert_eq!(budget["body"]["budget_limits"]["max_spawned_agents"], 1);
+        assert_eq!(activity["body"]["agent_id"], "delegate-rust");
+        assert_eq!(blueprint["body"]["valid"], true);
+        assert_eq!(
+            lock_runtime(&shared).experimental_worker.status().state,
+            WorkerManagerState::Stopped
+        );
+    }
+
+    #[test]
+    fn worker_webui_route_serves_rust_owned_state_routes_without_ts_worker() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("docs/readme.md", "hello route");
+        fixture.write(
+            "sessions/store.json",
+            &serde_json::json!({
+                "version": 1,
+                "sessions": [{
+                    "session_id": "websocket:chat-1",
+                    "title": "Route session",
+                    "workspace_dir": "D:/Code/py/tinybot",
+                    "created_at": "2026-06-29T08:00:00Z",
+                    "updated_at": "2026-06-29T08:30:00Z",
+                    "extra": { "messages": [{ "role": "user", "content": "route" }] }
+                }]
+            })
+            .to_string(),
+        );
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+
+        let bootstrap = worker_webui_route_with_options(
+            &shared,
+            WorkerWebuiRouteInput {
+                method: "GET".to_string(),
+                path: "/webui/bootstrap".to_string(),
+                headers: None,
+                body: None,
+            },
+            fixture.root.clone(),
+            serde_json::json!({ "agents": { "defaults": { "provider": "auto" } } }),
+            Duration::from_millis(10),
+        )
+        .expect("bootstrap route should be Rust-owned");
+        let sessions = worker_webui_route_with_options(
+            &shared,
+            WorkerWebuiRouteInput {
+                method: "GET".to_string(),
+                path: "/api/sessions".to_string(),
+                headers: None,
+                body: None,
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("session route should be Rust-owned");
+        let workspace_file = worker_webui_route_with_options(
+            &shared,
+            WorkerWebuiRouteInput {
+                method: "GET".to_string(),
+                path: "/api/workspace/files/docs%2Freadme.md".to_string(),
+                headers: None,
+                body: None,
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("workspace route should be Rust-owned");
+        let knowledge = worker_webui_route_with_options(
+            &shared,
+            WorkerWebuiRouteInput {
+                method: "POST".to_string(),
+                path: "/v1/knowledge/documents".to_string(),
+                headers: None,
+                body: Some(serde_json::json!({
+                    "name": "Route Knowledge.md",
+                    "content": "# Route Knowledge\n\nRust owns route metadata.\n",
+                    "file_type": "md"
+                })),
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("knowledge route should be Rust-owned");
+        let approvals = worker_webui_route_with_options(
+            &shared,
+            WorkerWebuiRouteInput {
+                method: "GET".to_string(),
+                path: "/api/approvals?session_key=websocket%3Achat-1".to_string(),
+                headers: None,
+                body: None,
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("approvals list route should be Rust-owned");
+        let approval_resolution = worker_webui_route_with_options(
+            &shared,
+            WorkerWebuiRouteInput {
+                method: "POST".to_string(),
+                path: "/api/approvals/approval%2F1/approve".to_string(),
+                headers: None,
+                body: Some(serde_json::json!({
+                    "session_key": "websocket:chat-1",
+                    "scope": "session"
+                })),
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("approval resolution route should be Rust-owned");
+
+        assert_eq!(bootstrap["status"], 200);
+        assert_eq!(bootstrap["headers"]["x-tinybot-route-owner"], "rust");
+        assert!(bootstrap["body"]["token"]
+            .as_str()
+            .is_some_and(|token| !token.is_empty()));
+        assert_eq!(sessions["body"]["items"][0]["title"], "Route session");
+        assert_eq!(workspace_file["body"]["content"], "hello route");
+        assert_eq!(knowledge["body"]["document"]["name"], "Route Knowledge.md");
+        assert_eq!(approvals["headers"]["x-tinybot-route-owner"], "rust");
+        assert_eq!(approvals["headers"]["x-tinybot-route-group"], "approvals");
+        assert_eq!(approvals["body"]["session_key"], "websocket:chat-1");
+        assert_eq!(
+            approval_resolution["headers"]["x-tinybot-route-owner"],
+            "rust"
+        );
+        assert_eq!(approval_resolution["body"]["approvalId"], "approval/1");
+        assert_eq!(approval_resolution["body"]["approved"], true);
+        assert_eq!(approval_resolution["body"]["status"], "not_found");
+        assert_eq!(
+            lock_runtime(&shared).experimental_worker.status().state,
+            WorkerManagerState::Stopped
+        );
+    }
+
+    #[test]
+    fn worker_webui_route_classifies_delegated_and_unsupported_routes_without_ts_worker() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+
+        let delegated = worker_webui_rust_route_with_options(
+            &shared,
+            &WorkerWebuiRouteInput {
+                method: "POST".to_string(),
+                path: "/v1/chat/completions".to_string(),
+                headers: None,
+                body: Some(serde_json::json!({ "messages": [] })),
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("delegated classification should not fail");
+        let unsupported = worker_webui_route_with_options(
+            &shared,
+            WorkerWebuiRouteInput {
+                method: "GET".to_string(),
+                path: "/api/not-a-route".to_string(),
+                headers: None,
+                body: None,
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("unsupported route should return a structured response");
+
+        assert!(delegated.is_none());
+        assert_eq!(unsupported["status"], 404);
+        assert_eq!(
+            unsupported["headers"]["x-tinybot-route-owner"],
+            "unsupported"
+        );
+        assert_eq!(unsupported["body"]["method"], "GET");
+        assert_eq!(unsupported["body"]["path"], "/api/not-a-route");
+        assert_eq!(
+            lock_runtime(&shared).experimental_worker.status().state,
+            WorkerManagerState::Stopped
         );
     }
 
@@ -3967,13 +5815,10 @@ mod tests {
     fn worker_background_trace_list_reads_rust_registry_without_ts_worker() {
         let fixture = WorkspaceFixture::new();
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
-        let mut router = experimental_worker_router(fixture.root.clone(), serde_json::json!({}));
-        let append_response = router.dispatch(&WorkerRequest::new(
-            "req-background-trace-append",
-            "trace-1",
-            "background.trace.append",
-            serde_json::json!({
-                "event": {
+        let append = worker_background_trace_append_with_options(
+            &shared,
+            WorkerBackgroundTraceAppendInput {
+                event: serde_json::json!({
                     "eventId": "event-1",
                     "eventType": "agent.delegate.started",
                     "sessionKey": "WebSocket:chat-1",
@@ -3984,10 +5829,15 @@ mod tests {
                     "sequence": 1,
                     "createdAt": "2026-06-29T02:25:30.000Z",
                     "payload": { "status": "running" }
-                }
-            }),
-        ));
-        assert_eq!(append_response.error, None);
+                }),
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect(
+            "trace append should write the Rust background registry without starting TS worker",
+        );
 
         let result = worker_background_trace_list_with_options(
             &shared,
@@ -4000,8 +5850,180 @@ mod tests {
         )
         .expect("trace list should read the Rust background registry without starting TS worker");
 
+        assert_eq!(append["event"]["eventId"], "event-1");
         assert_eq!(result["events"][0]["eventId"], "event-1");
         assert_eq!(result["events"][0]["delegateId"], "delegate-1");
+        assert_eq!(
+            lock_runtime(&shared).experimental_worker.status().state,
+            WorkerManagerState::Stopped
+        );
+    }
+
+    #[test]
+    fn worker_task_plan_commands_use_rust_store_without_ts_worker() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let plan = serde_json::json!({
+            "id": "plan-1",
+            "title": "Move state service",
+            "status": "active",
+            "subtasks": [
+                { "id": "task-1", "title": "Persist through Rust", "status": "done" }
+            ]
+        });
+
+        let saved = worker_task_plan_save_with_options(
+            &shared,
+            plan.clone(),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("task plan save should use Rust task store without starting TS worker");
+        let listed = worker_task_plan_list_with_options(
+            &shared,
+            WorkerTaskPlanListInput {
+                include_completed: false,
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("task plan list should use Rust task store without starting TS worker");
+        let loaded = worker_task_plan_get_with_options(
+            &shared,
+            "plan-1".to_string(),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("task plan get should use Rust task store without starting TS worker");
+        let deleted = worker_task_plan_delete_with_options(
+            &shared,
+            "plan-1".to_string(),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("task plan delete should use Rust task store without starting TS worker");
+        let missing = worker_task_plan_get_with_options(
+            &shared,
+            "plan-1".to_string(),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("deleted task plan lookup should still be served by Rust task store");
+
+        assert_eq!(saved["plan"], plan);
+        assert_eq!(listed["plans"][0]["id"], "plan-1");
+        assert_eq!(loaded["plan"]["title"], "Move state service");
+        assert_eq!(deleted["deleted"], true);
+        assert_eq!(missing["plan"], serde_json::Value::Null);
+        assert_eq!(
+            lock_runtime(&shared).experimental_worker.status().state,
+            WorkerManagerState::Stopped
+        );
+    }
+
+    #[test]
+    fn worker_knowledge_state_commands_use_rust_store_without_ts_worker() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+
+        let added = worker_knowledge_add_document_with_options(
+            &shared,
+            serde_json::json!({
+                "name": "Native Knowledge.md",
+                "content": "# Native Knowledge\n\nRust state services own knowledge metadata.\n",
+                "category": "desktop",
+                "tags": ["native", "rust"],
+                "file_type": "md"
+            }),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("knowledge add should use Rust store without starting TS worker");
+        let doc_id = added["document"]["id"]
+            .as_str()
+            .expect("added document should include an id")
+            .to_string();
+        let listed = worker_knowledge_documents_with_options(
+            &shared,
+            WorkerKnowledgeDocumentsInput {
+                category: Some("desktop".to_string()),
+                limit: Some(5),
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("knowledge list should use Rust store without starting TS worker");
+        let document = worker_knowledge_document_with_options(
+            &shared,
+            doc_id.clone(),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("knowledge get should use Rust store without starting TS worker");
+        let stats = worker_knowledge_stats_with_options(
+            &shared,
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("knowledge stats should use Rust store without starting TS worker");
+        let graph = worker_knowledge_graph_with_options(
+            &shared,
+            WorkerKnowledgeGraphInput {
+                doc_id: Some(doc_id.clone()),
+                graph_type: Some("document".to_string()),
+                limit: Some(10),
+                edge_limit: Some(10),
+                min_confidence: None,
+                include_orphans: Some(true),
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("knowledge graph should use Rust store without starting TS worker");
+        let rebuild = worker_knowledge_rebuild_index_with_options(
+            &shared,
+            Some("tree".to_string()),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("knowledge rebuild should use Rust store without starting TS worker");
+        let job = worker_knowledge_job_with_options(
+            &shared,
+            rebuild["id"]
+                .as_str()
+                .expect("rebuild job should include id")
+                .to_string(),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("knowledge job should use Rust store without starting TS worker");
+        let deleted = worker_knowledge_delete_document_with_options(
+            &shared,
+            doc_id.clone(),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("knowledge delete should use Rust store without starting TS worker");
+
+        assert_eq!(listed["documents"][0]["id"], doc_id);
+        assert_eq!(document["document"]["name"], "Native Knowledge.md");
+        assert_eq!(stats["document_count"], 1);
+        assert_eq!(graph["object"], "knowledge_graph");
+        assert_eq!(job["status"], "completed");
+        assert_eq!(deleted["deleted"], true);
         assert_eq!(
             lock_runtime(&shared).experimental_worker.status().state,
             WorkerManagerState::Stopped
@@ -4421,7 +6443,7 @@ mod tests {
             http_ok: true,
             gateway_http: "http://127.0.0.1:18790",
             gateway_ws: "ws://127.0.0.1:18790/ws",
-            command: "node workers/ts-agent-worker/src/index.ts",
+            command: "Tauri Rust backend",
             port: 18790,
             repo_root: "/repo".to_string(),
             log_path: "/logs/native-backend.log".to_string(),
@@ -4491,11 +6513,12 @@ mod tests {
         let value = serde_json::to_value(status).expect("worker probe status should serialize");
 
         assert_eq!(value["state"], "running");
-        assert_eq!(value["transport_mode"], "stdio");
+        assert!(value["transport_mode"].is_null());
+        assert!(value.get("compatibility_worker").is_none());
         assert_eq!(
             value["diagnostics"][0]["line"],
             format!(
-                "worker protocol {}",
+                "rust backend protocol {}",
                 crate::worker_protocol::WORKER_PROTOCOL_VERSION
             )
         );

@@ -1,4 +1,5 @@
 import type { AgentUiState } from "../agent-ui/agentUiEvents";
+import { DEFAULT_NATIVE_BACKEND_COMMAND } from "../gateway/desktopGatewayStartup";
 import type { GatewayRuntimeStatus } from "../gateway/desktopGatewayStartup";
 import type { DesktopTaskSourceOperation } from "./desktopTaskCenter";
 
@@ -52,7 +53,7 @@ export function buildDesktopGatewayTaskOperation(
     : status?.state === "running" || status === null
       ? "completed"
       : status?.state || "starting";
-  const command = status?.command || "node workers/ts-agent-worker/src/index.ts";
+  const command = status?.command || DEFAULT_NATIVE_BACKEND_COMMAND;
   const owner = status?.owner || "external";
   const diagnostics = status?.last_error || (status?.logs ?? []).slice(-4).join("\n");
   return {

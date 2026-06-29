@@ -455,28 +455,28 @@ describe("gateway HTTP client", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
-  test("prefers native WebUI config routes when available", async () => {
+  test("prefers native Rust config read and native WebUI config patch when available", async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
+    const nativeConfig = {
+      get: vi.fn(async () => ({
+        agents: { defaults: { provider: "dashscope", model: "qwen-max" } },
+      })),
+    };
     const nativeWebui = {
-      route: vi.fn(async (request: { method: string; path: string; body?: unknown }) => request.method === "PATCH"
-        ? {
-            config: { agents: { defaults: { provider: "openrouter", model: "openai/gpt-4o-mini" } } },
-            request,
-          }
-        : {
-            agents: { defaults: { provider: "dashscope", model: "qwen-max" } },
-            request,
-          }),
+      route: vi.fn(async (request: { method: string; path: string; body?: unknown }) => ({
+        config: { agents: { defaults: { provider: "openrouter", model: "openai/gpt-4o-mini" } } },
+        request,
+      })),
     };
     const client = createGatewayApiClient({
       config: DEFAULT_GATEWAY_CONFIG,
       fetchFn,
+      nativeConfig,
       nativeWebui,
     });
 
     await expect(client.config.get()).resolves.toEqual({
       agents: { defaults: { provider: "dashscope", model: "qwen-max" } },
-      request: { method: "GET", path: "/api/config" },
     });
     await expect(client.config.patch({
       agents: { defaults: { provider: "openrouter", model: "openai/gpt-4o-mini" } },
@@ -488,7 +488,7 @@ describe("gateway HTTP client", () => {
         body: { agents: { defaults: { provider: "openrouter", model: "openai/gpt-4o-mini" } } },
       },
     });
-    expect(nativeWebui.route).toHaveBeenCalledWith({ method: "GET", path: "/api/config" });
+    expect(nativeConfig.get).toHaveBeenCalledTimes(1);
     expect(nativeWebui.route).toHaveBeenCalledWith({
       method: "PATCH",
       path: "/api/config",
@@ -516,6 +516,50 @@ describe("gateway HTTP client", () => {
       request: { method: "GET", path: "/api/providers" },
     });
     expect(nativeWebui.route).toHaveBeenCalledWith({ method: "GET", path: "/api/providers" });
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  test("prefers native Rust knowledge state routes when available", async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
+    const nativeWebui = {
+      route: vi.fn(async () => {
+        throw new Error("native WebUI knowledge route should not be used");
+      }),
+    };
+    const nativeKnowledge = {
+      documents: vi.fn(async (options: unknown) => ({ documents: [{ id: "doc-1" }], options })),
+      addDocument: vi.fn(async (body: unknown) => ({ document: { id: "doc-2" }, body })),
+      document: vi.fn(async (documentId: string) => ({ document: { id: documentId } })),
+      deleteDocument: vi.fn(async (documentId: string) => ({ deleted: true, doc_id: documentId })),
+      job: vi.fn(async (jobId: string) => ({ id: jobId, status: "completed" })),
+      rebuildIndex: vi.fn(async (type?: string) => ({ id: `kjob_rebuild_${type ?? "all"}`, status: "completed" })),
+      stats: vi.fn(async () => ({ document_count: 1 })),
+      graph: vi.fn(async (options: unknown) => ({ object: "knowledge_graph", options })),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeKnowledge,
+      nativeWebui,
+    });
+
+    await expect(client.knowledge.documents({ category: "desktop", limit: 5 })).resolves.toEqual({
+      documents: [{ id: "doc-1" }],
+      options: { category: "desktop", limit: 5 },
+    });
+    await expect(client.knowledge.addDocument({ name: "notes.md" })).resolves.toMatchObject({
+      document: { id: "doc-2" },
+    });
+    await expect(client.knowledge.document("doc-1")).resolves.toEqual({ document: { id: "doc-1" } });
+    await expect(client.knowledge.deleteDocument("doc-1")).resolves.toEqual({ deleted: true, doc_id: "doc-1" });
+    await expect(client.knowledge.job("kjob-1")).resolves.toEqual({ id: "kjob-1", status: "completed" });
+    await expect(client.knowledge.rebuildIndex("tree")).resolves.toEqual({ id: "kjob_rebuild_tree", status: "completed" });
+    await expect(client.knowledge.stats()).resolves.toEqual({ document_count: 1 });
+    await expect(client.knowledge.graph({ graphType: "document" })).resolves.toEqual({
+      object: "knowledge_graph",
+      options: { graphType: "document" },
+    });
+    expect(nativeWebui.route).not.toHaveBeenCalled();
     expect(fetchFn).not.toHaveBeenCalled();
   });
 

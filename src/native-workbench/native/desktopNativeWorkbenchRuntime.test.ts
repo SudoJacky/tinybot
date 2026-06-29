@@ -655,6 +655,79 @@ describe("desktop native workbench runtime", () => {
     ]);
   });
 
+  test("replays Rust native run result events through the frontend event projector", async () => {
+    const runSpecs: unknown[] = [];
+    const runtime = createDesktopNativeWorkbenchRuntime({
+      api: {
+        listSessions: async () => ({
+          items: [{ key: "WebSocket:chat-rust-result", chat_id: "chat-rust-result", title: "Rust result route" }],
+        }),
+        loadMessages: async () => ({ messages: [] }),
+      },
+      sendSocketMessage: () => undefined,
+      agentRoute: "ts-agent",
+      runTsAgent: async (spec) => {
+        runSpecs.push(spec);
+        return {
+          finalContent: "rust final should not duplicate",
+          stopReason: "final_response",
+          messages: [],
+          toolsUsed: ["workspace.read_file"],
+          events: [
+            {
+              eventName: "agent.delta",
+              payload: { runId: spec.runId, sessionId: spec.sessionId, delta: "rust answer" },
+            },
+            {
+              eventName: "agent.tool_call.delta",
+              payload: {
+                runId: spec.runId,
+                sessionId: spec.sessionId,
+                toolCallId: "call-read",
+                toolName: "workspace.read_file",
+                argumentsDelta: "{\"path\":\"README.md\"}",
+              },
+            },
+            {
+              eventName: "agent.tool.result",
+              payload: {
+                runId: spec.runId,
+                sessionId: spec.sessionId,
+                toolCallId: "call-read",
+                toolName: "workspace.read_file",
+                content: "README",
+              },
+            },
+            {
+              eventName: "agent.done",
+              payload: { runId: spec.runId, sessionId: spec.sessionId, stopReason: "final_response" },
+            },
+          ],
+        };
+      },
+      now: () => "2026-06-29T14:31:00.000Z",
+    });
+    await runtime.loadInitialChatState();
+
+    runtime.submitComposerMessage("Run Rust result events");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const runId = String((runSpecs[0] as { runId: string }).runId);
+    expect(runtime.chat.messages[0]).toMatchObject({ role: "user", content: "Run Rust result events" });
+    expect(runtime.chat.messages.find((message) => message.messageId === runId)).toMatchObject({
+      role: "assistant",
+      content: "rust answer",
+      messageId: runId,
+    });
+    expect(runtime.chat.messages.some((message) => (
+      message.toolActivities?.some((activity) => activity.responseText === "README")
+    ))).toBe(true);
+    expect(runtime.chat.responding).toBe(false);
+    expect(runtime.chat.composerState).toBe("idle");
+    expect(runtime.chat.status).toBe("TS agent response received.");
+  });
+
   test("accepts snake_case run metadata from TS agent worker events", async () => {
     let resolveRun: ((value: {
       finalContent: string;

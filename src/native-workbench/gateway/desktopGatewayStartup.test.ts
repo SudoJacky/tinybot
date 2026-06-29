@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import { ensureGatewayReady, type GatewayRuntimeStatus } from "./desktopGatewayStartup";
+import { DEFAULT_NATIVE_BACKEND_COMMAND, ensureGatewayReady, type GatewayRuntimeStatus } from "./desktopGatewayStartup";
 import { DEFAULT_GATEWAY_CONFIG } from "./gatewayConfig";
 
 function status(owner: GatewayRuntimeStatus["owner"], state: GatewayRuntimeStatus["state"], httpOk: boolean): GatewayRuntimeStatus {
@@ -9,7 +9,7 @@ function status(owner: GatewayRuntimeStatus["owner"], state: GatewayRuntimeStatu
     http_ok: httpOk,
     gateway_http: DEFAULT_GATEWAY_CONFIG.httpBaseUrl,
     gateway_ws: DEFAULT_GATEWAY_CONFIG.wsUrl,
-    command: "node workers/ts-agent-worker/src/index.ts",
+    command: DEFAULT_NATIVE_BACKEND_COMMAND,
     repo_root: "D:/Code/tinybot/tinybot",
     logs: [],
     last_error: null,
@@ -73,7 +73,7 @@ describe("desktop gateway startup", () => {
     ).rejects.toThrow("Tauri runtime commands are unavailable: connect ECONNREFUSED");
   });
 
-  test("starts the native TS worker when Tauri reports no running backend", async () => {
+  test("starts the Rust backend when Tauri reports no running backend", async () => {
     const offline = status("none", "offline", false);
     const running = status("shell", "running", false);
     const invoke = vi.fn(async (command: string) => {
@@ -116,7 +116,7 @@ describe("desktop gateway startup", () => {
     expect(invoke.mock.calls.map((call) => call[0])).toEqual(["gateway_status", "start_gateway"]);
   });
 
-  test("does not wait for HTTP bootstrap readiness after starting the native TS worker", async () => {
+  test("does not wait for HTTP bootstrap readiness after starting the Rust backend", async () => {
     const offline = status("none", "offline", false);
     const running = status("shell", "running", true);
     const invoke = vi.fn(async (command: string) => {
@@ -142,11 +142,11 @@ describe("desktop gateway startup", () => {
     expect(invoke.mock.calls.map((call) => call[0])).toEqual(["gateway_status", "start_gateway"]);
   });
 
-  test("reports native TS worker startup errors", async () => {
+  test("reports Rust backend startup errors", async () => {
     const invoke = vi
       .fn()
       .mockResolvedValueOnce(status("none", "offline", false))
-      .mockRejectedValueOnce(new Error("TS worker failed"));
+      .mockRejectedValueOnce(new Error("Rust backend failed"));
 
     await expect(
       ensureGatewayReady(DEFAULT_GATEWAY_CONFIG, {
@@ -154,6 +154,6 @@ describe("desktop gateway startup", () => {
         invoke,
         hasTauriRuntime: () => true,
       }),
-    ).rejects.toThrow("TS worker failed");
+    ).rejects.toThrow("Rust backend failed");
   });
 });

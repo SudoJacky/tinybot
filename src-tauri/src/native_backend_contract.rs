@@ -14,6 +14,19 @@ pub const NATIVE_TAURI_COMMANDS: &[&str] = &[
     "worker_background_trace_list",
     "worker_background_trace_get_delegate_trace",
     "worker_background_trace_get_artifact",
+    "worker_background_trace_append",
+    "worker_task_plan_list",
+    "worker_task_plan_get",
+    "worker_task_plan_save",
+    "worker_task_plan_delete",
+    "worker_knowledge_documents",
+    "worker_knowledge_add_document",
+    "worker_knowledge_document",
+    "worker_knowledge_delete_document",
+    "worker_knowledge_job",
+    "worker_knowledge_rebuild_index",
+    "worker_knowledge_stats",
+    "worker_knowledge_graph",
     "worker_webui_route",
     "worker_cowork_route",
     "worker_transport_gateway_frame",
@@ -41,6 +54,7 @@ pub const NATIVE_TAURI_COMMANDS: &[&str] = &[
     "worker_session_delete",
     "worker_session_patch",
     "worker_session_clear",
+    "worker_session_task_progress",
 ];
 
 pub const NATIVE_AGENT_EVENT_NAMES: &[&str] = &[

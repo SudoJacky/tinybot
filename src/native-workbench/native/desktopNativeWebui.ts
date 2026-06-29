@@ -13,6 +13,8 @@ export function createDesktopNativeWebuiApi(options: { invoke: InvokeFn; now?: (
       logDesktopNativeDebug("nativeWebui.route.complete", {
         ...summarizeRouteRequest(request),
         durationMs: roundedDuration(now() - startedAt),
+        routeGroup: response.headers?.["x-tinybot-route-group"],
+        routeOwner: response.headers?.["x-tinybot-route-owner"],
         status: response.status,
       });
       return response;
