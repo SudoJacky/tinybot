@@ -16,6 +16,7 @@ pub mod desktop_heartbeat;
 pub mod desktop_logging;
 pub mod desktop_menu;
 pub mod native_backend_contract;
+pub mod worker_agent_runtime;
 pub mod worker_background;
 pub mod worker_capability;
 pub mod worker_client;
@@ -57,6 +58,9 @@ use crate::desktop_heartbeat::{
 use crate::desktop_logging::append_native_backend_log_line;
 use crate::desktop_menu::{
     install_desktop_application_menu, is_desktop_menu_command, DesktopMenuCommandPayload,
+};
+use crate::worker_agent_runtime::{
+    resolve_native_agent_runtime_mode, run_native_agent_turn, NativeAgentRuntimeMode,
 };
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_client::WorkerClient;
@@ -1242,6 +1246,10 @@ fn worker_run_agent_with_options(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    if resolve_native_agent_runtime_mode(&spec, &config_snapshot) == NativeAgentRuntimeMode::Rust {
+        return run_native_agent_turn(spec);
+    }
+
     let client = WorkerClient::experimental(shared);
     client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
 
@@ -4229,6 +4237,36 @@ mod tests {
         assert_eq!(request.trace_id, "trace-agent-run-42");
         assert_eq!(request.method, "agent.run");
         assert_eq!(request.params, serde_json::json!({ "spec": agent_spec }));
+    }
+
+    #[test]
+    fn worker_run_agent_uses_rust_runtime_when_selected_without_ts_worker() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+
+        let result = worker_run_agent_with_options(
+            &shared,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-rust-1",
+                "sessionId": "websocket:chat-1",
+                "stream": true,
+                "messages": [{ "role": "user", "content": "hello rust" }]
+            }),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("Rust runtime should run deterministic fake provider");
+
+        assert_eq!(result["runtime"], "rust");
+        assert_eq!(result["finalContent"], "Echo: hello rust");
+        assert_eq!(result["events"][0]["eventName"], "agent.delta");
+        assert_eq!(result["events"][1]["eventName"], "agent.done");
+        assert_eq!(
+            lock_runtime(&shared).experimental_worker.status().state,
+            WorkerManagerState::Stopped
+        );
     }
 
     #[test]
