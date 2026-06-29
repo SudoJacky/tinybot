@@ -3,22 +3,22 @@ import type { MessageBus, MessageBusWarning } from "../bus/messageBus.ts";
 import { isJsonObject } from "../protocol/messages.ts";
 import type { ChannelAdapter } from "./channelManager.ts";
 
-export type PythonBridgeParseOptions = {
+export type LegacyBridgeParseOptions = {
   now?: () => string;
 };
 
-export type PythonBridgeOutboundJson = Record<string, unknown>;
+export type LegacyBridgeOutboundJson = Record<string, unknown>;
 
-export type PythonChannelBridgeDeliver = (message: PythonBridgeOutboundJson) => Promise<void> | void;
+export type LegacyChannelBridgeDeliver = (message: LegacyBridgeOutboundJson) => Promise<void> | void;
 
-export type PythonChannelBridgeAdapterOptions = {
+export type LegacyChannelBridgeAdapterOptions = {
   name: string;
   displayName?: string;
   supportsStreaming?: boolean;
-  deliver: PythonChannelBridgeDeliver;
+  deliver: LegacyChannelBridgeDeliver;
 };
 
-export type PythonChannelBridgeDiagnostic =
+export type LegacyChannelBridgeDiagnostic =
   | {
     kind: "invalid_inbound";
     error: string;
@@ -37,30 +37,30 @@ export type PythonChannelBridgeDiagnostic =
     timestamp: string;
   };
 
-export type PythonChannelBridgeOptions = PythonBridgeParseOptions & {
+export type LegacyChannelBridgeOptions = LegacyBridgeParseOptions & {
   bus: MessageBus;
 };
 
-export class PythonChannelBridge {
+export class LegacyChannelBridge {
   private readonly bus: MessageBus;
-  private readonly parseOptions: PythonBridgeParseOptions;
-  private readonly bridgeDiagnostics: PythonChannelBridgeDiagnostic[] = [];
+  private readonly parseOptions: LegacyBridgeParseOptions;
+  private readonly bridgeDiagnostics: LegacyChannelBridgeDiagnostic[] = [];
   private seenBusWarnings = 0;
 
-  constructor(options: PythonChannelBridgeOptions) {
+  constructor(options: LegacyChannelBridgeOptions) {
     this.bus = options.bus;
     this.parseOptions = { now: options.now };
     this.seenBusWarnings = options.bus.stats().warnings.length;
   }
 
-  diagnostics(): PythonChannelBridgeDiagnostic[] {
+  diagnostics(): LegacyChannelBridgeDiagnostic[] {
     return this.bridgeDiagnostics.map((diagnostic) => ({ ...diagnostic }));
   }
 
   async ingestInbound(value: unknown): Promise<{ ok: true } | { ok: false; error: string }> {
     let message: InboundMessage;
     try {
-      message = parsePythonBridgeInboundMessage(value, this.parseOptions);
+      message = parseLegacyBridgeInboundMessage(value, this.parseOptions);
     } catch (error) {
       const message = errorMessage(error);
       this.bridgeDiagnostics.push({ kind: "invalid_inbound", error: message });
@@ -98,17 +98,17 @@ export class PythonChannelBridge {
   }
 }
 
-export function parsePythonBridgeInboundMessage(
+export function parseLegacyBridgeInboundMessage(
   value: unknown,
-  options: PythonBridgeParseOptions = {},
+  options: LegacyBridgeParseOptions = {},
 ): InboundMessage {
   if (!isJsonObject(value)) {
-    throw new Error("python channel bridge message must be an object");
+    throw new Error("legacy channel bridge message must be an object");
   }
-  const channel = requiredString(value, "channel", "channel", "python channel bridge message.channel");
-  const senderId = requiredString(value, "senderId", "sender_id", "python channel bridge message.senderId");
-  const chatId = requiredString(value, "chatId", "chat_id", "python channel bridge message.chatId");
-  const content = requiredString(value, "content", "content", "python channel bridge message.content");
+  const channel = requiredString(value, "channel", "channel", "legacy channel bridge message.channel");
+  const senderId = requiredString(value, "senderId", "sender_id", "legacy channel bridge message.senderId");
+  const chatId = requiredString(value, "chatId", "chat_id", "legacy channel bridge message.chatId");
+  const content = requiredString(value, "content", "content", "legacy channel bridge message.content");
   return {
     channel,
     senderId,
@@ -124,7 +124,7 @@ export function parsePythonBridgeInboundMessage(
   };
 }
 
-export function toPythonBridgeOutboundMessage(message: OutboundMessage): Record<string, unknown> {
+export function toLegacyBridgeOutboundMessage(message: OutboundMessage): Record<string, unknown> {
   return {
     channel: message.channel,
     chat_id: message.chatId,
@@ -135,14 +135,14 @@ export function toPythonBridgeOutboundMessage(message: OutboundMessage): Record<
   };
 }
 
-export function createPythonChannelBridgeAdapter(options: PythonChannelBridgeAdapterOptions): ChannelAdapter {
+export function createLegacyChannelBridgeAdapter(options: LegacyChannelBridgeAdapterOptions): ChannelAdapter {
   const deliverOutbound = async (message: OutboundMessage): Promise<void> => {
-    await options.deliver(toPythonBridgeOutboundMessage(message));
+    await options.deliver(toLegacyBridgeOutboundMessage(message));
   };
 
   return {
     name: options.name,
-    displayName: options.displayName ?? `${options.name} Python Bridge`,
+    displayName: options.displayName ?? `${options.name} Legacy Bridge`,
     supportsStreaming: options.supportsStreaming ?? true,
     send: deliverOutbound,
     sendDelta: async (chatId, delta, metadata) => {

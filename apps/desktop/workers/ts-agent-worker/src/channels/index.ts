@@ -32,17 +32,17 @@ export {
   type ChannelRuntimeRunAgent,
 } from "./channelRuntime.ts";
 export {
-  createPythonChannelBridgeAdapter,
-  parsePythonBridgeInboundMessage,
-  PythonChannelBridge,
-  toPythonBridgeOutboundMessage,
-  type PythonChannelBridgeDiagnostic,
-  type PythonChannelBridgeOptions,
-  type PythonBridgeOutboundJson,
-  type PythonBridgeParseOptions,
-  type PythonChannelBridgeAdapterOptions,
-  type PythonChannelBridgeDeliver,
-} from "./pythonChannelBridge.ts";
+  createLegacyChannelBridgeAdapter,
+  parseLegacyBridgeInboundMessage,
+  LegacyChannelBridge,
+  toLegacyBridgeOutboundMessage,
+  type LegacyChannelBridgeDiagnostic,
+  type LegacyChannelBridgeOptions,
+  type LegacyBridgeOutboundJson,
+  type LegacyBridgeParseOptions,
+  type LegacyChannelBridgeAdapterOptions,
+  type LegacyChannelBridgeDeliver,
+} from "./legacyChannelBridge.ts";
 export {
   builtinChannelDescriptors,
   channelDescriptorByName,

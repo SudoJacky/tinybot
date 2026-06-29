@@ -128,7 +128,7 @@ mod tests {
                     {
                         "session_id": "desktop:existing-session",
                         "title": "Existing desktop session",
-                        "workspace_dir": "D:/Code/py/tinybot",
+                        "workspace_dir": "D:/Code/tinybot/tinybot",
                         "created_at": "2026-06-01T09:00:00Z",
                         "updated_at": "2026-06-01T09:05:00Z",
                         "extra": {

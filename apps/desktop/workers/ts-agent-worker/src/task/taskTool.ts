@@ -192,7 +192,7 @@ async function resumeResult(runtime: TaskRuntime, args: Record<string, unknown>,
   const dagErrors = dagErrorsFor(plan);
   if (dagErrors.length > 0) {
     return {
-      content: `Cannot execute plan due to dependency errors: ${formatPythonList(dagErrors)}\nUse 'add_subtask' or 'remove_subtask' to fix the plan.`,
+      content: `Cannot execute plan due to dependency errors: ${formatDisplayList(dagErrors)}\nUse 'add_subtask' or 'remove_subtask' to fix the plan.`,
     };
   }
   if (isPlanBlocked(plan)) {
@@ -305,7 +305,7 @@ async function addSubtaskResult(runtime: TaskRuntime, args: Record<string, unkno
   const plan = await runtime.getPlan(planId, traceId(context));
   const dagErrors = plan ? dagErrorsFor(plan) : [];
   const warning = dagErrors.length > 0
-    ? `\nWarning: New dependency issues: ${formatPythonList(dagErrors)}`
+    ? `\nWarning: New dependency issues: ${formatDisplayList(dagErrors)}`
     : "";
   return { content: `Added subtask '${subtask.title}' (id: ${subtask.id}) to plan ${planId}.${warning}` };
 }
@@ -359,7 +359,7 @@ function formatPlanSummary(plan: TaskPlan): string {
   }
   const dagErrors = dagErrorsFor(plan);
   if (dagErrors.length > 0) {
-    lines.push(`⚠️ DAG Errors: ${formatPythonList(dagErrors)}`);
+    lines.push(`⚠️ DAG Errors: ${formatDisplayList(dagErrors)}`);
   }
   lines.push(
     `Progress: ${progress.completed}/${progress.total} completed, ${progress.in_progress} in progress, ${progress.pending} pending, ${progress.failed} failed`,
@@ -434,7 +434,7 @@ function formatCreatedAt(createdAt: string | null | undefined): string {
   return createdAt.slice(0, 16);
 }
 
-function formatPythonList(values: unknown[]): string {
+function formatDisplayList(values: unknown[]): string {
   return `[${values.map((value) => {
     if (typeof value === "string") {
       return `'${value.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;

@@ -162,7 +162,6 @@ function workerRows(status: GatewayRuntimeStatus | null): DesktopGatewayRuntimeR
         ? diagnostics.map((line) => `${line.stream}: ${line.line}`).join("\n")
         : "No worker diagnostics",
     },
-    { label: "Gateway compatibility", value: worker.gateway_compatibility_available ? "Available" : "Unavailable" },
     ...(worker.last_error ? [{ label: "Worker error", value: worker.last_error }] : []),
     ...(worker.recovery_hint ? [{ label: "Worker recovery", value: worker.recovery_hint }] : []),
   ];

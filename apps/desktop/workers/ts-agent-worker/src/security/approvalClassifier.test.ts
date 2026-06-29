@@ -35,6 +35,16 @@ describe("approvalClassifier", () => {
     });
   });
 
+  test("requires approval for direct Python test commands", () => {
+    expectRequiresApproval(
+      classifyToolCall({
+        toolName: "exec",
+        args: { command: "python -m pytest tests/security -q" },
+      }),
+      { action: "require_approval", category: "shell", risk: "high" },
+    );
+  });
+
   test("requires approval when a low-risk exec command contains shell control operators", () => {
     expectRequiresApproval(
       classifyToolCall({

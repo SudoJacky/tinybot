@@ -59,7 +59,7 @@ describe("desktop task center projection", () => {
           id: "gateway:start",
           title: "Start Tinybot gateway",
           status: "starting",
-          detail: "uv run tinybot gateway",
+          detail: "node workers/ts-agent-worker/src/index.ts",
           canonical: { module: "gateway", href: "/api/status" },
         },
       ],

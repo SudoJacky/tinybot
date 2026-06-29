@@ -399,7 +399,7 @@ describe("NativeSessionBridge", () => {
           {
             session_id: "websocket:chat-1",
             title: "Chat one",
-            workspace_dir: "D:/Code/py/tinybot",
+            workspace_dir: "D:/Code/tinybot/tinybot",
             created_at: "2026-06-13T08:00:00.000Z",
             updated_at: "2026-06-13T09:00:00.000Z",
             extra: { messages: [{ role: "user", content: "Hello" }] },

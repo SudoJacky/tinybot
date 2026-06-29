@@ -87,7 +87,6 @@ function defaultDesktopConfig(): DesktopConfig {
       mutations: true,
       scheduler: true,
       swarm: true,
-      fallbackToPython: false,
     },
   };
 }
@@ -357,7 +356,6 @@ function parseDesktop(input: JsonRecord | undefined, defaults: DesktopConfig): D
       mutations: booleanValue(read(rolloutInput, "mutations"), defaults.tsCoworkRuntime.mutations),
       scheduler: booleanValue(read(rolloutInput, "scheduler"), defaults.tsCoworkRuntime.scheduler),
       swarm: booleanValue(read(rolloutInput, "swarm"), defaults.tsCoworkRuntime.swarm),
-      fallbackToPython: booleanValue(read(rolloutInput, "fallbackToPython", "fallback_to_python"), defaults.tsCoworkRuntime.fallbackToPython),
     },
   };
 }

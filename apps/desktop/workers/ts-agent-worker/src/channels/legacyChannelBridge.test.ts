@@ -1,17 +1,17 @@
 import { describe, expect, test } from "vitest";
 
 import {
-  createPythonChannelBridgeAdapter,
-  parsePythonBridgeInboundMessage,
-  PythonChannelBridge,
-  toPythonBridgeOutboundMessage,
+  createLegacyChannelBridgeAdapter,
+  parseLegacyBridgeInboundMessage,
+  LegacyChannelBridge,
+  toLegacyBridgeOutboundMessage,
 } from "./index.ts";
 import { MessageBus } from "../bus/messageBus.ts";
 import { ChannelManager } from "./channelManager.ts";
 
-describe("pythonChannelBridge", () => {
-  test("normalizes Python channel inbound JSON without dropping bridge fields", () => {
-    const message = parsePythonBridgeInboundMessage({
+describe("legacyChannelBridge", () => {
+  test("normalizes legacy channel inbound JSON without dropping bridge fields", () => {
+    const message = parseLegacyBridgeInboundMessage({
       channel: "feishu",
       sender_id: "ou_1",
       chat_id: "oc_1",
@@ -41,7 +41,7 @@ describe("pythonChannelBridge", () => {
   });
 
   test("accepts camelCase bridge aliases and defaults missing optional fields", () => {
-    const message = parsePythonBridgeInboundMessage({
+    const message = parseLegacyBridgeInboundMessage({
       channel: "dingtalk",
       senderId: "user-1",
       chatId: "group:1",
@@ -61,8 +61,8 @@ describe("pythonChannelBridge", () => {
     });
   });
 
-  test("projects outbound messages back to Python bridge JSON", () => {
-    expect(toPythonBridgeOutboundMessage({
+  test("projects outbound messages back to legacy bridge JSON", () => {
+    expect(toLegacyBridgeOutboundMessage({
       channel: "weixin",
       chatId: "wx-chat",
       content: "done",
@@ -85,11 +85,11 @@ describe("pythonChannelBridge", () => {
     });
   });
 
-  test("adapts ChannelManager outbound delivery to Python bridge JSON", async () => {
+  test("adapts ChannelManager outbound delivery to legacy bridge JSON", async () => {
     const delivered: Array<Record<string, unknown>> = [];
-    const bridge = createPythonChannelBridgeAdapter({
+    const bridge = createLegacyChannelBridgeAdapter({
       name: "feishu",
-      displayName: "Feishu Python Bridge",
+      displayName: "Feishu Legacy Bridge",
       deliver: async (message) => {
         delivered.push(message);
       },
@@ -150,16 +150,16 @@ describe("pythonChannelBridge", () => {
   });
 
   test("rejects malformed inbound bridge JSON with field-specific messages", () => {
-    expect(() => parsePythonBridgeInboundMessage({
+    expect(() => parseLegacyBridgeInboundMessage({
       channel: "feishu",
       sender_id: "ou_1",
       content: "hello",
-    })).toThrow("python channel bridge message.chatId must be a string");
+    })).toThrow("legacy channel bridge message.chatId must be a string");
   });
 
-  test("ingests Python inbound JSON into the TS bus and records queue pressure diagnostics", async () => {
+  test("ingests legacy inbound JSON into the TS bus and records queue pressure diagnostics", async () => {
     const bus = new MessageBus({ warningThreshold: 0, now: () => "2026-06-13T04:00:00.000Z" });
-    const bridge = new PythonChannelBridge({
+    const bridge = new LegacyChannelBridge({
       bus,
       now: () => "2026-06-13T04:00:00.000Z",
     });
@@ -196,7 +196,7 @@ describe("pythonChannelBridge", () => {
 
   test("captures malformed and closed-bus inbound failures without throwing into the host", async () => {
     const bus = new MessageBus();
-    const bridge = new PythonChannelBridge({ bus });
+    const bridge = new LegacyChannelBridge({ bus });
 
     await expect(bridge.ingestInbound({
       channel: "feishu",
@@ -204,7 +204,7 @@ describe("pythonChannelBridge", () => {
       content: "hello",
     })).resolves.toEqual({
       ok: false,
-      error: "python channel bridge message.chatId must be a string",
+      error: "legacy channel bridge message.chatId must be a string",
     });
 
     bus.close();
@@ -222,7 +222,7 @@ describe("pythonChannelBridge", () => {
     expect(bridge.diagnostics()).toEqual([
       {
         kind: "invalid_inbound",
-        error: "python channel bridge message.chatId must be a string",
+        error: "legacy channel bridge message.chatId must be a string",
       },
       {
         kind: "bus_closed",

@@ -51,7 +51,6 @@ describe("configSchema", () => {
       mutations: true,
       scheduler: true,
       swarm: true,
-      fallbackToPython: false,
     });
     expect(config.tools).toMatchObject({
       restrictToWorkspace: true,
@@ -97,7 +96,6 @@ describe("configSchema", () => {
           mutations: true,
           scheduler: false,
           swarm: false,
-          fallback_to_python: true,
         },
       },
     });
@@ -120,7 +118,6 @@ describe("configSchema", () => {
       mutations: true,
       scheduler: false,
       swarm: false,
-      fallbackToPython: true,
     });
     expect(Object.keys(config.agents.defaults)).toContain("activeProfile");
     expect(Object.keys(config.agents.defaults)).not.toContain("active_profile");

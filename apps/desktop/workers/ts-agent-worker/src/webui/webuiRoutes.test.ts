@@ -83,7 +83,7 @@ describe("WebUI OpenAI-compatible routes", () => {
     expect(String(response.body)).toContain("data: [DONE]");
   });
 
-  test("retries empty chat completions once before returning the Python fallback", async () => {
+  test("retries empty chat completions once before returning the compatibility fallback", async () => {
     const completions: Array<{ content: string; sessionKey: string; traceId: string; timeoutSeconds: number }> = [];
     const configProvider: WebuiConfigProvider = {
       getConfig: () => ({

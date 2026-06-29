@@ -117,7 +117,6 @@ export type TsCoworkRuntimeConfig = {
   mutations: boolean;
   scheduler: boolean;
   swarm: boolean;
-  fallbackToPython: boolean;
 };
 
 export type HeartbeatConfig = {

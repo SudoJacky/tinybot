@@ -92,7 +92,6 @@ const NATIVE_BACKEND_LOG_MAX_BYTES: u64 = 5 * 1024 * 1024;
 const NATIVE_BACKEND_LOG_TAIL_LINES: usize = 100;
 
 struct GatewayRuntime {
-    worker: WorkerManager,
     experimental_worker: WorkerManager,
     logs: VecDeque<String>,
     persistent_log_path: PathBuf,
@@ -106,7 +105,6 @@ struct GatewayRuntime {
 impl Default for GatewayRuntime {
     fn default() -> Self {
         Self {
-            worker: WorkerManager::new(200),
             experimental_worker: WorkerManager::new(200),
             logs: VecDeque::with_capacity(200),
             persistent_log_path: native_backend_log_path(),
@@ -2006,12 +2004,6 @@ pub fn run() {
             let app_handle = app.handle().clone();
             let log_state = setup_state.clone();
             let runtime = lock_runtime(&setup_state);
-            runtime.worker.set_event_sink(move |event| {
-                record_worker_manager_event_for_logs(&log_state, &event);
-                emit_worker_manager_frontend_event(&app_handle, event);
-            });
-            let app_handle = app.handle().clone();
-            let log_state = setup_state.clone();
             runtime.experimental_worker.set_event_sink(move |event| {
                 record_worker_manager_event_for_logs(&log_state, &event);
                 emit_worker_manager_frontend_event(&app_handle, event);
@@ -2186,22 +2178,15 @@ mod tests {
             status.worker_runtime.transport_mode,
             Some(crate::worker_protocol::WorkerTransportMode::Stdio)
         );
-        assert!(!status.worker_runtime.gateway_compatibility_available);
     }
 
     #[test]
-    fn gateway_status_reports_ts_worker_diagnostics_instead_of_legacy_gateway_logs() {
+    fn gateway_status_reports_ts_worker_diagnostics() {
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
-        let (legacy_worker, ts_worker) = {
+        let ts_worker = {
             let runtime = lock_runtime(&shared);
-            (runtime.worker.clone(), runtime.experimental_worker.clone())
+            runtime.experimental_worker.clone()
         };
-        legacy_worker
-            .start(test_logging_sleep_worker_spec(
-                "tinybot-gateway",
-                "legacy python backend",
-            ))
-            .expect("legacy worker should start");
         ts_worker
             .start(test_logging_sleep_worker_spec(
                 "ts-agent-worker",
@@ -2225,14 +2210,12 @@ mod tests {
             .join("\n");
 
         assert!(log_text.contains("ts native backend"));
-        assert!(!log_text.contains("legacy python backend"));
         assert!(diagnostic_text.contains("ts native backend"));
-        assert!(!diagnostic_text.contains("legacy python backend"));
         assert_eq!(status.command, "node workers/ts-agent-worker/src/index.ts");
     }
 
     #[test]
-    fn worker_echo_agent_uses_experimental_worker_without_starting_gateway_worker() {
+    fn worker_echo_agent_uses_ts_agent_worker() {
         let fixture = WorkspaceFixture::new();
         fixture.write("AGENTS.md", "agents");
         fixture.write("notes/today.md", "hello command");
@@ -2253,7 +2236,6 @@ mod tests {
         assert_eq!(result.workspace_file_count, 2);
 
         let runtime = lock_runtime(&shared);
-        assert_eq!(runtime.worker.status().state, WorkerManagerState::Stopped);
         assert_eq!(
             runtime.experimental_worker.status().state,
             WorkerManagerState::Running
@@ -3369,7 +3351,6 @@ mod tests {
     #[test]
     fn gateway_status_exposes_port_and_exit_policy() {
         let shared = Arc::new(Mutex::new(GatewayRuntime {
-            worker: WorkerManager::new(200),
             experimental_worker: WorkerManager::new(200),
             logs: VecDeque::with_capacity(200),
             last_error: None,
@@ -3686,18 +3667,13 @@ mod tests {
             bootstrap_status: "ready".to_string(),
             response_class: Some("tinybot-bootstrap".to_string()),
             recovery_hint: None,
-            worker_runtime: crate::worker_runtime::WorkerRuntimeStatus::compatibility_fallback(
-                true,
-            ),
+            worker_runtime: crate::worker_runtime::WorkerRuntimeStatus::stopped(),
         };
 
         let value = serde_json::to_value(status).expect("status should serialize");
 
         assert_eq!(value["worker_runtime"]["state"], "stopped");
-        assert_eq!(
-            value["worker_runtime"]["gateway_compatibility_available"],
-            true
-        );
+        assert!(value["worker_runtime"]["transport_mode"].is_null());
     }
 
     #[test]

@@ -5,9 +5,9 @@ import { MessageBus } from "../bus/messageBus.ts";
 import type { ChannelManagerStatus } from "../channels/channelManager.ts";
 import { ChannelRuntime } from "../channels/channelRuntime.ts";
 import {
-  parsePythonBridgeInboundMessage,
-  toPythonBridgeOutboundMessage,
-} from "../channels/pythonChannelBridge.ts";
+  parseLegacyBridgeInboundMessage,
+  toLegacyBridgeOutboundMessage,
+} from "../channels/legacyChannelBridge.ts";
 import { createDefaultCommandRouter } from "../command/commandRegistry.ts";
 import type { CommandRouter } from "../command/commandRouter.ts";
 import type {
@@ -826,7 +826,7 @@ export class AgentWorker {
     traceId: string,
     options: { allowRoundsAlias?: boolean } = {},
   ): Promise<CoworkSession> {
-    const autoRun = pythonRouteAnyBoolParam(body, "autoRun", "auto_run");
+    const autoRun = routeAnyTruthyParam(body, "autoRun", "auto_run");
     if (!autoRun || !this.coworkScheduler) {
       return session;
     }
@@ -896,7 +896,7 @@ export class AgentWorker {
       if (!isJsonObject(route.body)) {
         return invalidCoworkJsonBodyRouteResponse();
       }
-      const content = pythonRouteTextParam(body, "content", "content");
+      const content = routeTextParam(body, "content", "content");
       if (!content) {
         return { status: 400, body: { error: "content is required" } };
       }
@@ -954,7 +954,7 @@ export class AgentWorker {
       if (!isJsonObject(route.body)) {
         return invalidCoworkJsonBodyRouteResponse();
       }
-      const title = pythonRouteTextParam(body, "title", "title");
+      const title = routeTextParam(body, "title", "title");
       if (!title) {
         return { status: 400, body: { error: "title is required" } };
       }
@@ -1150,7 +1150,7 @@ export class AgentWorker {
         traceId,
         sessionId: params.sessionId,
         branchIds: params.branchIds,
-        summary: pythonRouteTextParam(body, "summary", "summary"),
+        summary: routeTextParam(body, "summary", "summary"),
       });
       return this.coworkFinalResultRouteResponse(result);
     }
@@ -1187,7 +1187,7 @@ export class AgentWorker {
         traceId,
         sessionId: params.sessionId,
         branchIds: params.branchIds,
-        summary: pythonRouteTextParam(body, "summary", "summary"),
+        summary: routeTextParam(body, "summary", "summary"),
       });
       return this.coworkFinalResultRouteResponse(result);
     }
@@ -1241,7 +1241,7 @@ export class AgentWorker {
       };
     }
     if (resource === "emergency-stop") {
-      const reason = pythonRouteTextParam(body, "reason", "reason");
+      const reason = routeTextParam(body, "reason", "reason");
       const result = await this.coworkService.emergencyStopSession({ traceId, sessionId, reason });
       return {
         status: 200,
@@ -1304,8 +1304,8 @@ export class AgentWorker {
     const taskId = segments[3];
     const action = segments[4];
     if (action === "assign") {
-      const agentId = pythonRouteTextParam(body, "assignedAgentId", "assigned_agent_id")
-        || pythonRouteTextParam(body, "agentId", "agent_id");
+      const agentId = routeTextParam(body, "assignedAgentId", "assigned_agent_id")
+        || routeTextParam(body, "agentId", "agent_id");
       const result = await this.coworkService.assignTask({
         traceId,
         sessionId,
@@ -3245,7 +3245,7 @@ export class AgentWorker {
         result: {
           dispatched,
           outboundMessages,
-          outbound_messages: outboundMessages.map(toPythonBridgeOutboundMessage),
+          outbound_messages: outboundMessages.map(toLegacyBridgeOutboundMessage),
           diagnostics: runtime.diagnostics(),
         },
       };
@@ -4838,7 +4838,7 @@ function parseCoworkBlueprintParams(
   return {
     blueprint: params.blueprint,
     policy: isJsonObject(params.policy) ? params.policy : undefined,
-    defaultGoal: pythonRouteTextParam(params, "defaultGoal", "default_goal"),
+    defaultGoal: routeTextParam(params, "defaultGoal", "default_goal"),
   };
 }
 
@@ -4960,9 +4960,9 @@ function coworkAddTaskRouteBody(
   return {
     session_id: sessionId,
     title,
-    description: pythonRouteTextParam(body, "description", "description"),
-    assigned_agent_id: pythonRouteTextParam(body, "assigned_agent_id", "assigned_agent_id")
-      || pythonRouteTextParam(body, "assignedAgentId", "assignedAgentId"),
+    description: routeTextParam(body, "description", "description"),
+    assigned_agent_id: routeTextParam(body, "assigned_agent_id", "assigned_agent_id")
+      || routeTextParam(body, "assignedAgentId", "assignedAgentId"),
     dependencies: body.dependencies || [],
   };
 }
@@ -4978,8 +4978,8 @@ function coworkTaskReviewRouteBody(
     task_id: taskId,
   };
   if (Object.prototype.hasOwnProperty.call(body, "reviewer_agent_id") || Object.prototype.hasOwnProperty.call(body, "reviewerAgentId")) {
-    const reviewerAgentId = pythonRouteTextParam(body, "reviewer_agent_id", "reviewer_agent_id")
-      || pythonRouteTextParam(body, "reviewerAgentId", "reviewerAgentId");
+    const reviewerAgentId = routeTextParam(body, "reviewer_agent_id", "reviewer_agent_id")
+      || routeTextParam(body, "reviewerAgentId", "reviewerAgentId");
     routeBody.reviewer_agent_id = reviewerAgentId;
     routeBody.reviewerAgentId = reviewerAgentId;
   }
@@ -4996,8 +4996,8 @@ function setRouteTextParam(
   if (!Object.prototype.hasOwnProperty.call(source, camelKey) && !Object.prototype.hasOwnProperty.call(source, snakeKey)) {
     return;
   }
-  const value = pythonRouteTextParam(source, snakeKey, snakeKey)
-    || pythonRouteTextParam(source, camelKey, camelKey);
+  const value = routeTextParam(source, snakeKey, snakeKey)
+    || routeTextParam(source, camelKey, camelKey);
   target[targetKey] = value;
   target[camelKey] = value;
 }
@@ -5010,8 +5010,8 @@ function routeTextParamIfPresent(
   if (!Object.prototype.hasOwnProperty.call(source, camelKey) && !Object.prototype.hasOwnProperty.call(source, snakeKey)) {
     return undefined;
   }
-  return pythonRouteTextParam(source, snakeKey, snakeKey)
-    || pythonRouteTextParam(source, camelKey, camelKey);
+  return routeTextParam(source, snakeKey, snakeKey)
+    || routeTextParam(source, camelKey, camelKey);
 }
 
 function unavailableCoworkRouteResponse(): CoworkRouteResponse {
@@ -5090,13 +5090,13 @@ function parseCoworkCreateSessionParams(params: Record<string, unknown> | undefi
       runtimeState: isJsonObject(params.runtimeState) ? params.runtimeState : isJsonObject(params.runtime_state) ? params.runtime_state : undefined,
     };
   }
-  const goal = pythonRouteTextParam(params, "goal", "goal");
+  const goal = routeTextParam(params, "goal", "goal");
   if (!goal) {
     throw new Error("cowork.create_session requires params.goal or params.blueprint");
   }
   return {
     goal,
-    title: pythonRouteTextParam(params, "title", "title"),
+    title: routeTextParam(params, "title", "title"),
     workflowMode: firstTruthyStringParam(
       params,
       ["architecture", "architecture"],
@@ -5124,18 +5124,18 @@ function parseCoworkSendMessageParams(params: Record<string, unknown> | undefine
     throw new Error("cowork.send_message requires object params");
   }
   const sessionId = stringParam(params, "sessionId", "session_id");
-  const content = pythonRouteTextParam(params, "content", "content");
+  const content = routeTextParam(params, "content", "content");
   if (!sessionId || !content) {
     throw new Error("cowork.send_message requires params.session_id and params.content");
   }
   return {
     sessionId,
-    senderId: pythonRouteTextParam(params, "senderId", "sender_id") || "user",
+    senderId: routeTextParam(params, "senderId", "sender_id") || "user",
     recipientIds: stringListParam(params, "recipientIds", "recipient_ids"),
     content,
-    threadId: pythonRouteTextParam(params, "threadId", "thread_id"),
-    topic: pythonRouteTextParam(params, "topic", "topic"),
-    eventType: pythonRouteTextParam(params, "eventType", "event_type"),
+    threadId: routeTextParam(params, "threadId", "thread_id"),
+    topic: routeTextParam(params, "topic", "topic"),
+    eventType: routeTextParam(params, "eventType", "event_type"),
     wakeRecipients: booleanParam(params, "wakeRecipients", "wake_recipients"),
   };
 }
@@ -5157,22 +5157,22 @@ function parseCoworkAddTaskParams(params: Record<string, unknown> | undefined): 
     throw new Error("cowork.add_task requires object params");
   }
   const sessionId = stringParam(params, "sessionId", "session_id");
-  const title = pythonRouteTextParam(params, "title", "title");
+  const title = routeTextParam(params, "title", "title");
   if (!sessionId || !title) {
     throw new Error("cowork.add_task requires params.session_id and params.title");
   }
   return {
     sessionId,
     title,
-    description: pythonRouteTextParam(params, "description", "description"),
-    assignedAgentId: pythonRouteTextParam(params, "assignedAgentId", "assigned_agent_id"),
+    description: routeTextParam(params, "description", "description"),
+    assignedAgentId: routeTextParam(params, "assignedAgentId", "assigned_agent_id"),
     dependencies: stringListParam(params, "dependencies", "dependencies"),
     priority: numberParam(params, "priority", "priority"),
-    expectedOutput: pythonRouteTextParam(params, "expectedOutput", "expected_output"),
+    expectedOutput: routeTextParam(params, "expectedOutput", "expected_output"),
     reviewRequired: booleanParam(params, "reviewRequired", "review_required"),
     reviewerAgentIds: stringListParam(params, "reviewerAgentIds", "reviewer_agent_ids"),
-    fanoutGroupId: pythonRouteTextParam(params, "fanoutGroupId", "fanout_group_id"),
-    mergeTaskId: pythonRouteTextParam(params, "mergeTaskId", "merge_task_id"),
+    fanoutGroupId: routeTextParam(params, "fanoutGroupId", "fanout_group_id"),
+    mergeTaskId: routeTextParam(params, "mergeTaskId", "merge_task_id"),
   };
 }
 
@@ -5185,9 +5185,9 @@ function parseCoworkAssignTaskParams(params: Record<string, unknown> | undefined
     throw new Error("cowork.assign_task requires object params");
   }
   const sessionId = stringParam(params, "sessionId", "session_id");
-  const taskId = pythonRouteTextParam(params, "taskId", "task_id");
-  const agentId = pythonRouteTextParam(params, "agentId", "agent_id")
-    || pythonRouteTextParam(params, "assignedAgentId", "assigned_agent_id");
+  const taskId = routeTextParam(params, "taskId", "task_id");
+  const agentId = routeTextParam(params, "agentId", "agent_id")
+    || routeTextParam(params, "assignedAgentId", "assigned_agent_id");
   if (!sessionId || !taskId || !agentId) {
     throw new Error("cowork.assign_task requires params.session_id, params.task_id, and params.assigned_agent_id");
   }
@@ -5203,14 +5203,14 @@ function parseCoworkTaskMutationParams(params: Record<string, unknown> | undefin
     throw new Error(`${method} requires object params`);
   }
   const sessionId = stringParam(params, "sessionId", "session_id");
-  const taskId = pythonRouteTextParam(params, "taskId", "task_id");
+  const taskId = routeTextParam(params, "taskId", "task_id");
   if (!sessionId || !taskId) {
     throw new Error(`${method} requires params.session_id and params.task_id`);
   }
   return {
     sessionId,
     taskId,
-    reviewerAgentId: pythonRouteTextParam(params, "reviewerAgentId", "reviewer_agent_id"),
+    reviewerAgentId: routeTextParam(params, "reviewerAgentId", "reviewer_agent_id"),
   };
 }
 
@@ -5223,14 +5223,14 @@ function parseCoworkWorkUnitActionParams(params: Record<string, unknown> | undef
     throw new Error(`${method} requires object params`);
   }
   const sessionId = stringParam(params, "sessionId", "session_id");
-  const workUnitId = pythonRouteTextParam(params, "workUnitId", "work_unit_id");
+  const workUnitId = routeTextParam(params, "workUnitId", "work_unit_id");
   if (!sessionId || !workUnitId) {
     throw new Error(`${method} requires params.session_id and params.work_unit_id`);
   }
   return {
     sessionId,
     workUnitId,
-    reason: pythonRouteTextParam(params, "reason", "reason"),
+    reason: routeTextParam(params, "reason", "reason"),
   };
 }
 
@@ -5247,7 +5247,7 @@ function parseCoworkEmergencyStopParams(params: Record<string, unknown> | undefi
   }
   return {
     sessionId,
-    reason: pythonRouteTextParam(params, "reason", "reason"),
+    reason: routeTextParam(params, "reason", "reason"),
   };
 }
 
@@ -5274,8 +5274,8 @@ function parseCoworkRunSessionParams(params: Record<string, unknown> | undefined
     maxRounds: numberParam(params, "maxRounds", "max_rounds"),
     maxAgents,
     maxAgentCalls: positiveNumberParam(params, "maxAgentCalls", "max_agent_calls"),
-    runUntilIdle: pythonRouteAnyBoolParam(params, "runUntilIdle", "run_until_idle"),
-    stopOnBlocker: pythonRouteAnyBoolParam(params, "stopOnBlocker", "stop_on_blocker"),
+    runUntilIdle: routeAnyTruthyParam(params, "runUntilIdle", "run_until_idle"),
+    stopOnBlocker: routeAnyTruthyParam(params, "stopOnBlocker", "stop_on_blocker"),
   };
 }
 
@@ -5303,7 +5303,7 @@ function firstTruthyStringParam(params: Record<string, unknown> | undefined, ...
     return undefined;
   }
   for (const [camelKey, snakeKey] of keys) {
-    const value = pythonRouteTextParam(params, camelKey, snakeKey);
+    const value = routeTextParam(params, camelKey, snakeKey);
     if (value) {
       return value;
     }
@@ -5319,7 +5319,7 @@ function parseCoworkBranchParams(params: Record<string, unknown> | undefined, me
     throw new Error(`${method} requires object params`);
   }
   const sessionId = stringParam(params, "sessionId", "session_id");
-  const branchId = pythonRouteTextParam(params, "branchId", "branch_id");
+  const branchId = routeTextParam(params, "branchId", "branch_id");
   if (!sessionId || !branchId) {
     throw new Error(`${method} requires params.session_id and params.branch_id`);
   }
@@ -5343,13 +5343,13 @@ function parseCoworkDeriveBranchParams(params: Record<string, unknown> | undefin
   }
   return {
     sessionId,
-    sourceBranchId: pythonRouteTextParam(params, "sourceBranchId", "source_branch_id"),
-    targetArchitecture: pythonRouteTextParam(params, "targetArchitecture", "target_architecture")
-      || pythonRouteTextParam(params, "architecture", "architecture"),
-    reason: pythonRouteTextParam(params, "reason", "reason")
-      || pythonRouteTextParam(params, "derivationReason", "derivation_reason"),
-    title: pythonRouteTextParam(params, "title", "title"),
-    inheritedContextSummary: pythonRouteTextParam(params, "inheritedContextSummary", "inherited_context_summary"),
+    sourceBranchId: routeTextParam(params, "sourceBranchId", "source_branch_id"),
+    targetArchitecture: routeTextParam(params, "targetArchitecture", "target_architecture")
+      || routeTextParam(params, "architecture", "architecture"),
+    reason: routeTextParam(params, "reason", "reason")
+      || routeTextParam(params, "derivationReason", "derivation_reason"),
+    title: routeTextParam(params, "title", "title"),
+    inheritedContextSummary: routeTextParam(params, "inheritedContextSummary", "inherited_context_summary"),
   };
 }
 
@@ -5361,7 +5361,7 @@ function parseCoworkSelectBranchResultParams(params: Record<string, unknown> | u
   const parsed = parseCoworkBranchParams(params, "cowork.select_branch_result");
   return {
     ...parsed,
-    resultId: isJsonObject(params) ? pythonRouteTextParam(params, "resultId", "result_id") : undefined,
+    resultId: isJsonObject(params) ? routeTextParam(params, "resultId", "result_id") : undefined,
   };
 }
 
@@ -5381,7 +5381,7 @@ function parseCoworkMergeBranchResultsParams(params: Record<string, unknown> | u
   return {
     sessionId,
     branchIds,
-    summary: pythonRouteTextParam(params, "summary", "summary"),
+    summary: routeTextParam(params, "summary", "summary"),
   };
 }
 
@@ -5397,8 +5397,8 @@ function parseCoworkDeliverEnvelopeParams(params: Record<string, unknown> | unde
   if (!sessionId || !isJsonObject(rawEnvelope)) {
     throw new Error("cowork.deliver_envelope requires params.session_id and params.envelope");
   }
-  const senderId = pythonRouteTextParam(rawEnvelope, "senderId", "sender_id");
-  const content = pythonRouteTextParam(rawEnvelope, "content", "content");
+  const senderId = routeTextParam(rawEnvelope, "senderId", "sender_id");
+  const content = routeTextParam(rawEnvelope, "content", "content");
   if (!senderId || !content) {
     throw new Error("cowork.deliver_envelope requires params.envelope.sender_id and params.envelope.content");
   }
@@ -5406,29 +5406,29 @@ function parseCoworkDeliverEnvelopeParams(params: Record<string, unknown> | unde
     sender_id: senderId,
     content,
     recipient_ids: stringListParam(rawEnvelope, "recipientIds", "recipient_ids"),
-    visibility: pythonRouteTextParam(rawEnvelope, "visibility", "visibility"),
-    kind: pythonRouteTextParam(rawEnvelope, "kind", "kind"),
-    topic: pythonRouteTextParam(rawEnvelope, "topic", "topic"),
-    event_type: pythonRouteTextParam(rawEnvelope, "eventType", "event_type"),
-    request_type: pythonRouteTextParam(rawEnvelope, "requestType", "request_type"),
-    thread_id: pythonRouteTextParam(rawEnvelope, "threadId", "thread_id"),
+    visibility: routeTextParam(rawEnvelope, "visibility", "visibility"),
+    kind: routeTextParam(rawEnvelope, "kind", "kind"),
+    topic: routeTextParam(rawEnvelope, "topic", "topic"),
+    event_type: routeTextParam(rawEnvelope, "eventType", "event_type"),
+    request_type: routeTextParam(rawEnvelope, "requestType", "request_type"),
+    thread_id: routeTextParam(rawEnvelope, "threadId", "thread_id"),
     requires_reply: booleanParam(rawEnvelope, "requiresReply", "requires_reply"),
     priority: numberParam(rawEnvelope, "priority", "priority"),
     deadline_round: numberParam(rawEnvelope, "deadlineRound", "deadline_round"),
-    correlation_id: pythonRouteTextParam(rawEnvelope, "correlationId", "correlation_id"),
-    lineage_id: pythonRouteTextParam(rawEnvelope, "lineageId", "lineage_id"),
-    reply_to_envelope_id: pythonRouteTextParam(rawEnvelope, "replyToEnvelopeId", "reply_to_envelope_id"),
-    caused_by_envelope_id: pythonRouteTextParam(rawEnvelope, "causedByEnvelopeId", "caused_by_envelope_id"),
+    correlation_id: routeTextParam(rawEnvelope, "correlationId", "correlation_id"),
+    lineage_id: routeTextParam(rawEnvelope, "lineageId", "lineage_id"),
+    reply_to_envelope_id: routeTextParam(rawEnvelope, "replyToEnvelopeId", "reply_to_envelope_id"),
+    caused_by_envelope_id: routeTextParam(rawEnvelope, "causedByEnvelopeId", "caused_by_envelope_id"),
     expected_output_schema: isJsonObject(rawEnvelope.expectedOutputSchema)
       ? rawEnvelope.expectedOutputSchema
       : isJsonObject(rawEnvelope.expected_output_schema)
         ? rawEnvelope.expected_output_schema
         : undefined,
-    blocking_task_id: pythonRouteTextParam(rawEnvelope, "blockingTaskId", "blocking_task_id"),
+    blocking_task_id: routeTextParam(rawEnvelope, "blockingTaskId", "blocking_task_id"),
     escalate_after_rounds: numberParam(rawEnvelope, "escalateAfterRounds", "escalate_after_rounds"),
     wake_recipients: booleanParam(rawEnvelope, "wakeRecipients", "wake_recipients"),
-    tool_call_id: pythonRouteTextParam(rawEnvelope, "toolCallId", "tool_call_id"),
-    draft_id: pythonRouteTextParam(rawEnvelope, "draftId", "draft_id"),
+    tool_call_id: routeTextParam(rawEnvelope, "toolCallId", "tool_call_id"),
+    draft_id: routeTextParam(rawEnvelope, "draftId", "draft_id"),
   };
   return { sessionId, envelope };
 }
@@ -5441,7 +5441,7 @@ function parseCoworkMailboxAgentParams(params: Record<string, unknown> | undefin
     throw new Error(`${method} requires object params`);
   }
   const sessionId = stringParam(params, "sessionId", "session_id");
-  const agentId = pythonRouteTextParam(params, "agentId", "agent_id");
+  const agentId = routeTextParam(params, "agentId", "agent_id");
   if (!sessionId || !agentId) {
     throw new Error(`${method} requires params.session_id and params.agent_id`);
   }
@@ -5457,7 +5457,7 @@ function parseCoworkAgentActivityParams(params: Record<string, unknown> | undefi
     throw new Error("cowork.get_agent_activity requires object params");
   }
   const sessionId = stringParam(params, "sessionId", "session_id");
-  const agentId = pythonRouteTextParam(params, "agentId", "agent_id");
+  const agentId = routeTextParam(params, "agentId", "agent_id");
   if (!sessionId || !agentId) {
     throw new Error("cowork.get_agent_activity requires params.session_id and params.agent_id");
   }
@@ -5477,15 +5477,15 @@ function parseCoworkObservationDetailParams(params: Record<string, unknown> | un
     throw new Error("cowork.get_observation_detail requires object params");
   }
   const sessionId = stringParam(params, "sessionId", "session_id");
-  const detailId = pythonRouteTextParam(params, "detailId", "detail_id");
+  const detailId = routeTextParam(params, "detailId", "detail_id");
   if (!sessionId || !detailId) {
     throw new Error("cowork.get_observation_detail requires params.session_id and params.detail_id");
   }
   return {
     sessionId,
     detailId,
-    requesterAgentId: pythonRouteTextParam(params, "requesterAgentId", "requester_agent_id")
-      || pythonRouteTextParam(params, "agentId", "agent_id"),
+    requesterAgentId: routeTextParam(params, "requesterAgentId", "requester_agent_id")
+      || routeTextParam(params, "agentId", "agent_id"),
   };
 }
 
@@ -5620,7 +5620,7 @@ function parseChannelDispatchInboundMessage(params: Record<string, unknown> | un
   if (!isJsonObject(params) || !isJsonObject(params.message)) {
     throw new Error("channel.dispatch_inbound requires object params.message");
   }
-  return parsePythonBridgeInboundMessage(params.message);
+  return parseLegacyBridgeInboundMessage(params.message);
 }
 
 function parseChannelLoginRequest(params: Record<string, unknown> | undefined): ChannelLoginRequest {
@@ -5749,7 +5749,7 @@ function booleanParam(params: Record<string, unknown>, camelKey: string, snakeKe
   return typeof value === "boolean" ? value : undefined;
 }
 
-function pythonRouteBoolParam(params: Record<string, unknown>, camelKey: string, snakeKey: string): boolean | undefined {
+function routeTruthyParam(params: Record<string, unknown>, camelKey: string, snakeKey: string): boolean | undefined {
   const value = params[camelKey] ?? params[snakeKey];
   if (value === undefined) {
     return undefined;
@@ -5775,13 +5775,13 @@ function pythonRouteBoolParam(params: Record<string, unknown>, camelKey: string,
   return true;
 }
 
-function pythonRouteAnyBoolParam(params: Record<string, unknown>, ...keys: string[]): boolean {
-  return keys.some((key) => pythonRouteBoolParam(params, key, key) === true);
+function routeAnyTruthyParam(params: Record<string, unknown>, ...keys: string[]): boolean {
+  return keys.some((key) => routeTruthyParam(params, key, key) === true);
 }
 
-function pythonRouteTextParam(params: Record<string, unknown>, camelKey: string, snakeKey: string): string {
+function routeTextParam(params: Record<string, unknown>, camelKey: string, snakeKey: string): string {
   const value = params[camelKey] ?? params[snakeKey];
-  if (pythonRouteBoolParam({ value }, "value", "value") !== true) {
+  if (routeTruthyParam({ value }, "value", "value") !== true) {
     return "";
   }
   if (typeof value === "string") {

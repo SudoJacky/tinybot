@@ -18,7 +18,6 @@ export type TsCoworkRuntimeRollout = {
   mutations?: boolean;
   scheduler?: boolean;
   swarm?: boolean;
-  fallbackToPython?: boolean;
 };
 
 export const DEFAULT_TS_COWORK_RUNTIME_ROLLOUT: Required<TsCoworkRuntimeRollout> = {
@@ -27,7 +26,6 @@ export const DEFAULT_TS_COWORK_RUNTIME_ROLLOUT: Required<TsCoworkRuntimeRollout>
   mutations: true,
   scheduler: true,
   swarm: true,
-  fallbackToPython: false,
 };
 
 export function resolveTsCoworkRuntimeRollout(config: unknown): Required<TsCoworkRuntimeRollout> {
@@ -42,10 +40,6 @@ export function resolveTsCoworkRuntimeRollout(config: unknown): Required<TsCowor
     mutations: booleanValue(rollout?.mutations, DEFAULT_TS_COWORK_RUNTIME_ROLLOUT.mutations),
     scheduler: booleanValue(rollout?.scheduler, DEFAULT_TS_COWORK_RUNTIME_ROLLOUT.scheduler),
     swarm: booleanValue(rollout?.swarm, DEFAULT_TS_COWORK_RUNTIME_ROLLOUT.swarm),
-    fallbackToPython: booleanValue(
-      rollout?.fallbackToPython ?? rollout?.fallback_to_python,
-      DEFAULT_TS_COWORK_RUNTIME_ROLLOUT.fallbackToPython,
-    ),
   };
 }
 
@@ -964,28 +958,27 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
 
 function coworkNativeOrGateway(
   nativeCowork: NativeCoworkApi | undefined,
-  rollout: TsCoworkRuntimeRollout | undefined,
+  _rollout: TsCoworkRuntimeRollout | undefined,
   request: (path: string, init?: RequestInit) => Promise<unknown>,
   method: string,
   path: string,
   body: unknown,
   label: string,
 ): Promise<unknown> {
-  const effectiveRollout = { ...DEFAULT_TS_COWORK_RUNTIME_ROLLOUT, ...(rollout ?? {}) };
   const nativeRequest = nativeCoworkRouteRequest(method, path, body);
   const gatewayInit = method === "GET"
     ? undefined
     : body === undefined
       ? { method }
       : jsonRequest(method, body);
-  if (!coworkRouteEnabledByRollout(method, path, body, effectiveRollout)) {
+  if (!nativeCowork) {
     return request(path, gatewayInit);
   }
   return nativeOrGateway(
-    () => nativeCowork?.route(nativeRequest),
+    () => nativeCowork.route(nativeRequest),
     () => request(path, gatewayInit),
     label,
-    effectiveRollout.fallbackToPython,
+    false,
   );
 }
 
@@ -998,227 +991,6 @@ function nativeCoworkRouteRequest(method: string, path: string, body: unknown): 
     ...(Object.keys(query).length ? { query } : {}),
     ...(body === undefined ? {} : { body }),
   };
-}
-
-function coworkRouteEnabledByRollout(
-  method: string,
-  path: string,
-  body: unknown,
-  rollout: TsCoworkRuntimeRollout | undefined,
-): boolean {
-  if (!rollout) {
-    return true;
-  }
-  if (rollout.enabled === false) {
-    return false;
-  }
-  if (autoRunCoworkCreateRoute(method, path, body) && swarmCoworkCreateRoute(method, path, body)) {
-    return rollout.scheduler !== false && rollout.swarm !== false;
-  }
-  const group = coworkRouteGroup(method, path, body);
-  return rollout[group] !== false;
-}
-
-function coworkRouteGroup(method: string, path: string, body: unknown): "readOnlySnapshot" | "mutations" | "scheduler" | "swarm" {
-  if (method === "GET") {
-    return "readOnlySnapshot";
-  }
-  if (/\/api\/cowork\/blueprints\/(?:validate|preview)(?:$|\?)/.test(path)) {
-    return "readOnlySnapshot";
-  }
-  if (swarmCoworkRunRoute(method, path, body)) {
-    return "swarm";
-  }
-  if (/\/api\/cowork\/sessions\/[^/]+\/run(?:$|\?)/.test(path)) {
-    return "scheduler";
-  }
-  if (autoRunCoworkCreateRoute(method, path, body)) {
-    return "scheduler";
-  }
-  if (swarmCoworkCreateRoute(method, path, body)) {
-    return "swarm";
-  }
-  if (recipientlessCoworkMessageRoute(method, path, body)) {
-    return "swarm";
-  }
-  if (swarmBranchDeriveRoute(method, path, body)) {
-    return "swarm";
-  }
-  if (
-    path.includes("/work-units/")
-    || path.includes("/branch-results/")
-    || path.includes("/final-result/")
-    || swarmBranchSelectRoute(method, path, body)
-    || swarmBranchResultSelectRoute(method, path, body)
-  ) {
-    return "swarm";
-  }
-  return "mutations";
-}
-
-function autoRunCoworkCreateRoute(method: string, path: string, body: unknown): boolean {
-  if (method !== "POST" || !/\/api\/cowork\/sessions(?:$|\?)/.test(path)) {
-    return false;
-  }
-  const payload = asRecord(body);
-  return pythonTruthyJsonValue(payload?.autoRun) || pythonTruthyJsonValue(payload?.auto_run);
-}
-
-function swarmCoworkCreateRoute(method: string, path: string, body: unknown): boolean {
-  if (method !== "POST" || !/\/api\/cowork\/sessions(?:$|\?)/.test(path)) {
-    return false;
-  }
-  const payload = asRecord(body);
-  const blueprint = asRecord(payload?.blueprint);
-  const mode = blueprint
-    ? firstPythonTruthyTextValue(
-      blueprint.architecture,
-      blueprint.workflow_mode,
-      blueprint.workflowMode,
-      blueprint.mode,
-    )
-    : firstPythonTruthyTextValue(
-      payload?.architecture,
-      payload?.workflowMode,
-      payload?.workflow_mode,
-      payload?.mode,
-    );
-  return isSwarmMode(mode);
-}
-
-function swarmCoworkRunRoute(method: string, path: string, body: unknown): boolean {
-  if (method !== "POST" || !/\/api\/cowork\/sessions\/[^/]+\/run(?:$|\?)/.test(path)) {
-    return false;
-  }
-  const payload = asRecord(body);
-  const mode = firstPythonTruthyTextValue(
-    payload?.architecture,
-    payload?.workflowMode,
-    payload?.workflow_mode,
-    payload?.mode,
-  );
-  return isSwarmMode(mode);
-}
-
-function recipientlessCoworkMessageRoute(method: string, path: string, body: unknown): boolean {
-  if (method !== "POST" || !/\/api\/cowork\/sessions\/[^/]+\/messages(?:$|\?)/.test(path)) {
-    return false;
-  }
-  const payload = asRecord(body);
-  const recipients = payload?.recipientIds ?? payload?.recipient_ids;
-  if (coworkRecipientList(recipients).length > 0) {
-    return false;
-  }
-  const mode = firstPythonTruthyTextValue(
-    payload?.architecture,
-    payload?.workflowMode,
-    payload?.workflow_mode,
-    payload?.mode,
-  );
-  return mode ? isSwarmMode(mode) : true;
-}
-
-function swarmBranchDeriveRoute(method: string, path: string, body: unknown): boolean {
-  if (
-    method !== "POST"
-    || !/\/api\/cowork\/sessions\/[^/]+\/branches(?:\/[^/]+)?\/derive(?:$|\?)/.test(path)
-  ) {
-    return false;
-  }
-  const payload = asRecord(body);
-  const targetArchitecture = firstPythonTruthyTextValue(
-    payload?.targetArchitecture,
-    payload?.target_architecture,
-    payload?.architecture,
-  );
-  return isSwarmMode(targetArchitecture);
-}
-
-function swarmBranchSelectRoute(method: string, path: string, body: unknown): boolean {
-  if (method !== "POST" || !/\/api\/cowork\/sessions\/[^/]+\/branches\/[^/]+\/select(?:$|\?)/.test(path)) {
-    return false;
-  }
-  const payload = asRecord(body);
-  const architecture = firstPythonTruthyTextValue(
-    payload?.architecture,
-    payload?.workflowMode,
-    payload?.workflow_mode,
-    payload?.mode,
-  );
-  return architecture ? isSwarmMode(architecture) : true;
-}
-
-function swarmBranchResultSelectRoute(method: string, path: string, body: unknown): boolean {
-  if (method !== "POST" || !/\/api\/cowork\/sessions\/[^/]+\/branches\/[^/]+\/result\/select-final(?:$|\?)/.test(path)) {
-    return false;
-  }
-  const payload = asRecord(body);
-  const architecture = firstPythonTruthyTextValue(
-    payload?.architecture,
-    payload?.workflowMode,
-    payload?.workflow_mode,
-    payload?.mode,
-  );
-  return architecture ? isSwarmMode(architecture) : true;
-}
-
-function isSwarmMode(value: unknown): boolean {
-  return typeof value === "string" && value.trim().toLowerCase().replace(/-/g, "_") === "swarm";
-}
-
-function pythonTruthyJsonValue(value: unknown): boolean {
-  if (value === null || value === undefined) {
-    return false;
-  }
-  if (typeof value === "boolean") {
-    return value;
-  }
-  if (typeof value === "number") {
-    return value !== 0 && Number.isFinite(value);
-  }
-  if (typeof value === "string") {
-    return value.length > 0;
-  }
-  if (Array.isArray(value)) {
-    return value.length > 0;
-  }
-  if (typeof value === "object") {
-    return Object.keys(value).length > 0;
-  }
-  return true;
-}
-
-function firstPythonTruthyTextValue(...values: unknown[]): string {
-  for (const value of values) {
-    const text = pythonTextValue(value);
-    if (text) {
-      return text;
-    }
-  }
-  return "";
-}
-
-function pythonTextValue(value: unknown): string {
-  if (!pythonTruthyJsonValue(value)) {
-    return "";
-  }
-  if (typeof value === "string") {
-    return value.trim();
-  }
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? String(value).trim() : "";
-  }
-  return String(value).trim();
-}
-
-function coworkRecipientList(value: unknown): string[] {
-  if (typeof value === "string") {
-    return value.replace(/\n/g, ",").split(",").map((item) => item.trim()).filter(Boolean);
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => String(item).trim()).filter(Boolean);
-  }
-  return [];
 }
 
 async function bootstrapGateway(

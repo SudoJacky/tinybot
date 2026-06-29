@@ -223,7 +223,7 @@ export class SubagentRuntime {
         ...result,
       });
     } catch {
-      // Match Python SubagentManager: callback failures must not wedge cleanup or queued work.
+      // Callback failures must not wedge cleanup or queued work.
     }
     this.startNext();
   }

@@ -352,7 +352,7 @@ function formatFormSubmissionContent(submission: FormProjection): string {
   if (submission.action === "cancelled") {
     return `Agent UI form \`${submission.formId}\` was cancelled by the user for ${formTitle}.`;
   }
-  return `Agent UI form \`${submission.formId}\` was submitted for ${formTitle}.\n\nStructured values:\n\`\`\`json\n${formatPythonJsonValue(submission.values)}\n\`\`\``;
+  return `Agent UI form \`${submission.formId}\` was submitted for ${formTitle}.\n\nStructured values:\n\`\`\`json\n${formatStructuredJsonValue(submission.values)}\n\`\`\``;
 }
 
 function assertFormCorrelationMatches(
@@ -380,15 +380,15 @@ function stringCorrelationValue(value: unknown): string | undefined {
   return normalized.length > 0 ? normalized : undefined;
 }
 
-function formatPythonJsonValue(value: unknown): string {
+function formatStructuredJsonValue(value: unknown): string {
   if (value === null) {
     return "null";
   }
   if (Array.isArray(value)) {
-    return `[${value.map((item) => item === undefined ? "null" : formatPythonJsonValue(item)).join(", ")}]`;
+    return `[${value.map((item) => item === undefined ? "null" : formatStructuredJsonValue(item)).join(", ")}]`;
   }
   if (isJsonObject(value)) {
-    return formatPythonJsonObject(value);
+    return formatStructuredJsonObject(value);
   }
   if (typeof value === "string" || typeof value === "boolean") {
     return JSON.stringify(value);
@@ -399,7 +399,7 @@ function formatPythonJsonValue(value: unknown): string {
   return "null";
 }
 
-function formatPythonJsonObject(value: Record<string, unknown>): string {
+function formatStructuredJsonObject(value: Record<string, unknown>): string {
   const entries = Object.entries(value)
     .filter(([, entryValue]) => (
       entryValue !== undefined &&
@@ -408,7 +408,7 @@ function formatPythonJsonObject(value: Record<string, unknown>): string {
     ))
     .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
   return `{${entries
-    .map(([key, entryValue]) => `${JSON.stringify(key)}: ${formatPythonJsonValue(entryValue)}`)
+    .map(([key, entryValue]) => `${JSON.stringify(key)}: ${formatStructuredJsonValue(entryValue)}`)
     .join(", ")}}`;
 }
 

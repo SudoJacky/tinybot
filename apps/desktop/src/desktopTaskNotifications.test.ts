@@ -48,7 +48,7 @@ describe("desktop task notifications", () => {
           id: "gateway:startup",
           title: "Start Tinybot gateway",
           status: "failed",
-          detail: "shell / uv run tinybot gateway",
+          detail: "shell / node workers/ts-agent-worker/src/index.ts",
           diagnostics: "port occupied",
           retryable: true,
           canonical: { module: "gateway", href: "/api/status" },

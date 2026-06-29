@@ -28,7 +28,7 @@ export class NativeSkillsBridge implements SkillsBridge {
   }
 
   async createWebuiSkill(body: Record<string, unknown>, traceId: string): Promise<unknown> {
-    const name = normalizeSkillName(pythonTruthyString(body.name) ?? "");
+    const name = normalizeSkillName(truthyString(body.name) ?? "");
     if (!name) {
       throw new NativeWebuiSkillError("name is required", 400);
     }
@@ -40,7 +40,7 @@ export class NativeSkillsBridge implements SkillsBridge {
       throw new NativeWebuiSkillError(`skill '${name}' already exists`, 409);
     }
     const description = body.description === undefined ? `Custom skill: ${name}` : String(body.description);
-    const always = pythonTruthy(body.always);
+    const always = jsonTruthy(body.always);
     const path = skillFilePath(name);
     try {
       const content = createSkillBodyContent(body.content, always);
@@ -158,7 +158,7 @@ export class NativeSkillsBridge implements SkillsBridge {
         internal_operation: true,
       });
     } catch {
-      // Match Python's best-effort cleanup: creation still reports the original error.
+      // Best-effort cleanup keeps reporting the original creation error.
     }
   }
 }
@@ -220,7 +220,7 @@ function updateSkillContent(currentContent: string, name: string, body: Record<s
   } else {
     frontmatterLines.push(`name: ${name}`);
     frontmatterLines.push(`description: ${body.description === undefined ? name : String(body.description)}`);
-    if (pythonTruthy(body.always)) {
+    if (jsonTruthy(body.always)) {
       frontmatterLines.push("always: true");
     }
   }
@@ -380,21 +380,21 @@ function createSkillBodyContent(value: unknown, always: boolean): string {
   if (value === undefined || typeof value === "string") {
     return value ?? "";
   }
-  if (!pythonTruthy(value)) {
+  if (!jsonTruthy(value)) {
     return "";
   }
   const itemIndex = always ? 8 : 7;
-  throw new TypeError(`sequence item ${itemIndex}: expected str instance, ${pythonTypeName(value)} found`);
+  throw new TypeError(`sequence item ${itemIndex}: expected str instance, ${compatTypeName(value)} found`);
 }
 
 function updateSkillBodyContent(value: unknown): string {
   if (typeof value === "string") {
     return value;
   }
-  throw new TypeError(`can only concatenate str (not "${pythonTypeName(value)}") to str`);
+  throw new TypeError(`can only concatenate str (not "${compatTypeName(value)}") to str`);
 }
 
-function pythonTypeName(value: unknown): string {
+function compatTypeName(value: unknown): string {
   if (value === null) {
     return "NoneType";
   }
@@ -416,11 +416,11 @@ function pythonTypeName(value: unknown): string {
   return typeof value;
 }
 
-function pythonTruthyString(value: unknown): string | undefined {
-  return pythonTruthy(value) ? String(value) : undefined;
+function truthyString(value: unknown): string | undefined {
+  return jsonTruthy(value) ? String(value) : undefined;
 }
 
-function pythonTruthy(value: unknown): boolean {
+function jsonTruthy(value: unknown): boolean {
   if (value === undefined || value === null || value === false || value === 0 || value === "") {
     return false;
   }

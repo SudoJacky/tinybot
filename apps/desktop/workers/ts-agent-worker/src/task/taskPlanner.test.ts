@@ -49,7 +49,7 @@ describe("TaskPlanner", () => {
     const planner = new TaskPlanner({
       provider,
       model: "test-model",
-      workspace: "D:/Code/py/tinybot",
+      workspace: "D:/Code/tinybot/tinybot",
       planIdGenerator: () => "plan-1",
       now: () => "2026-06-12T00:00:00.000Z",
       planningStrategy: () => "[PLANNING STRATEGY]\nUse prior workflow.",
@@ -80,7 +80,7 @@ describe("TaskPlanner", () => {
       expect.objectContaining({ id: "port", title: "Port runtime", dependencies: ["missing"], parallelSafe: false }),
     ]);
     expect(provider.requests[0]?.messages[1]?.content).toContain("[PLANNING STRATEGY]");
-    expect(provider.requests[0]?.messages[1]?.content).toContain("Workspace: D:/Code/py/tinybot");
+    expect(provider.requests[0]?.messages[1]?.content).toContain("Workspace: D:/Code/tinybot/tinybot");
     expect(provider.requests[0]?.options?.tools?.[0]?.name).toBe("submit_plan");
     expect(provider.requests[0]?.options?.toolChoice).toEqual({ type: "function", function: { name: "submit_plan" } });
   });

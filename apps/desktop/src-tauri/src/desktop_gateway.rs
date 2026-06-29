@@ -276,12 +276,11 @@ pub(crate) fn current_status(shared: &SharedGateway) -> GatewayRuntimeStatus {
         bootstrap_status: probe.bootstrap_status(),
         response_class: probe.response_class(),
         recovery_hint: probe.recovery_hint(),
-        worker_runtime: gateway_worker_runtime_status(http_ok, &worker_status),
+        worker_runtime: gateway_worker_runtime_status(&worker_status),
     }
 }
 
 fn gateway_worker_runtime_status(
-    gateway_available: bool,
     worker_status: &crate::worker_manager::WorkerManagerStatus,
 ) -> WorkerRuntimeStatus {
     match worker_status.state {
@@ -298,7 +297,7 @@ fn gateway_worker_runtime_status(
         WorkerManagerState::Stopped
         | WorkerManagerState::Starting
         | WorkerManagerState::Stopping => {
-            WorkerRuntimeStatus::compatibility_fallback(gateway_available)
+            WorkerRuntimeStatus::stopped()
         }
     }
 }
@@ -383,25 +382,20 @@ fn http_response_body(response: &str) -> &str {
 }
 
 pub(crate) fn stop_owned_gateway(shared: &SharedGateway, explicit: bool) -> Result<(), String> {
-    let (worker, experimental_worker) = {
+    let experimental_worker = {
         let runtime = lock_runtime(shared);
         if !explicit && runtime.keep_background {
-            let worker = runtime.worker.clone();
             drop(runtime);
-            let _ = worker.stop();
             push_log(shared, "leaving native TS backend running in background");
             return Ok(());
         }
-        (runtime.worker.clone(), runtime.experimental_worker.clone())
+        runtime.experimental_worker.clone()
     };
 
     let was_running = experimental_worker.status().state == WorkerManagerState::Running;
-    worker
-        .stop()
-        .map_err(|error| format!("failed to stop gateway: {error:?}"))?;
     experimental_worker
         .stop()
-        .map_err(|error| format!("failed to stop experimental worker: {error:?}"))?;
+        .map_err(|error| format!("failed to stop native TS backend: {error:?}"))?;
     if was_running {
         let mut runtime = lock_runtime(shared);
         append_log(&mut runtime, "stopped native TS backend");

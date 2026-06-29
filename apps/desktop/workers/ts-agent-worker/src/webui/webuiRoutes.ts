@@ -955,18 +955,18 @@ function parseOpenAiChatRequest(
   if (!isJsonObject(messages[0]) || messages[0].role !== "user") {
     return { ok: false, message: "Only a single user message is supported" };
   }
-  const requestedModel = pythonTruthy(body.model) ? pythonFormatString(body.model) : undefined;
+  const requestedModel = jsonTruthy(body.model) ? compatFormatString(body.model) : undefined;
   if (requestedModel && requestedModel !== configuredModel) {
     return { ok: false, message: `Only configured model '${configuredModel}' is available` };
   }
   const content = openAiMessageContent(messages[0].content);
-  const sessionId = pythonTruthy(body.session_id) ? pythonFormatString(body.session_id) : undefined;
+  const sessionId = jsonTruthy(body.session_id) ? compatFormatString(body.session_id) : undefined;
   return {
     ok: true,
     content,
     sessionKey: sessionId ? `api:${sessionId}` : "api:default",
     model: configuredModel,
-    stream: pythonTruthy(body.stream),
+    stream: jsonTruthy(body.stream),
   };
 }
 
@@ -1032,14 +1032,14 @@ function openAiMessageContent(content: unknown): string {
   return "";
 }
 
-function pythonFormatString(value: unknown): string {
+function compatFormatString(value: unknown): string {
   if (typeof value === "string") {
     return value;
   }
-  return pythonRepr(value);
+  return compatRepr(value);
 }
 
-function pythonRepr(value: unknown): string {
+function compatRepr(value: unknown): string {
   if (value === null || value === undefined) {
     return "None";
   }
@@ -1053,15 +1053,15 @@ function pythonRepr(value: unknown): string {
     return String(value);
   }
   if (Array.isArray(value)) {
-    return `[${value.map(pythonRepr).join(", ")}]`;
+    return `[${value.map(compatRepr).join(", ")}]`;
   }
   if (isJsonObject(value)) {
-    return `{${Object.entries(value).map(([key, item]) => `${pythonRepr(key)}: ${pythonRepr(item)}`).join(", ")}}`;
+    return `{${Object.entries(value).map(([key, item]) => `${compatRepr(key)}: ${compatRepr(item)}`).join(", ")}}`;
   }
   return String(value);
 }
 
-function pythonTruthy(value: unknown): boolean {
+function jsonTruthy(value: unknown): boolean {
   if (value === undefined || value === null || value === false) {
     return false;
   }

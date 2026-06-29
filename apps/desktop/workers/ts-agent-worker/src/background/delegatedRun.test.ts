@@ -48,7 +48,7 @@ describe("DelegatedRunManager", () => {
       sessionKey: "WebSocket:chat-1",
       traceId: "trace-parent",
       model: "test-model",
-      cwd: "D:/Code/py/tinybot",
+      cwd: "D:/Code/tinybot/tinybot",
     });
 
     expect(run).toMatchObject({
@@ -65,7 +65,7 @@ describe("DelegatedRunManager", () => {
       model: "test-model",
       permissionProfile: "read_only",
       approvalPolicy: "ask_on_sensitive_action",
-      cwd: "D:/Code/py/tinybot",
+      cwd: "D:/Code/tinybot/tinybot",
       forkTurns: "none",
       traceRef: "trace-parent",
       createdAt: "2026-06-27T12:00:00.000Z",
@@ -95,7 +95,7 @@ describe("DelegatedRunManager", () => {
             model: "test-model",
             permissionProfile: "read_only",
             approvalPolicy: "ask_on_sensitive_action",
-            cwd: "D:/Code/py/tinybot",
+            cwd: "D:/Code/tinybot/tinybot",
           },
         },
       },

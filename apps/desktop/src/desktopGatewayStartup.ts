@@ -26,7 +26,6 @@ export type DesktopWorkerRuntimeStatus = {
   diagnostics?: Array<{ stream: string; line: string }>;
   last_error?: string | null;
   recovery_hint?: string | null;
-  gateway_compatibility_available?: boolean;
 };
 
 type BootstrapResult = { ok: true } | { ok: false; error: string };

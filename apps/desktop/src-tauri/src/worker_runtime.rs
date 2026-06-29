@@ -18,7 +18,6 @@ pub struct WorkerRuntimeStatus {
     pub diagnostics: Vec<WorkerDiagnosticLine>,
     pub last_error: Option<String>,
     pub recovery_hint: Option<String>,
-    pub gateway_compatibility_available: bool,
 }
 
 impl WorkerRuntimeStatus {
@@ -29,7 +28,6 @@ impl WorkerRuntimeStatus {
             diagnostics: Vec::new(),
             last_error: None,
             recovery_hint: None,
-            gateway_compatibility_available: false,
         }
     }
 
@@ -40,10 +38,9 @@ impl WorkerRuntimeStatus {
             diagnostics: Vec::new(),
             last_error: Some(error.into()),
             recovery_hint: Some(
-                "Managed worker startup failed; keep using the existing gateway compatibility path or retry worker startup."
+                "Managed worker startup failed; retry native TS worker startup."
                     .to_string(),
             ),
-            gateway_compatibility_available: false,
         }
     }
 
@@ -57,14 +54,6 @@ impl WorkerRuntimeStatus {
             diagnostics,
             last_error: None,
             recovery_hint: None,
-            gateway_compatibility_available: false,
-        }
-    }
-
-    pub fn compatibility_fallback(gateway_available: bool) -> Self {
-        Self {
-            gateway_compatibility_available: gateway_available,
-            ..Self::stopped()
         }
     }
 }
@@ -97,7 +86,7 @@ mod tests {
             .recovery_hint
             .as_deref()
             .expect("failed worker should expose recovery hint")
-            .contains("existing gateway"));
+            .contains("retry native TS worker startup"));
     }
 
     #[test]
@@ -115,12 +104,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn compatibility_fallback_status_keeps_gateway_available() {
-        let status = WorkerRuntimeStatus::compatibility_fallback(true);
-
-        assert_eq!(status.state, WorkerRuntimeState::Stopped);
-        assert!(status.gateway_compatibility_available);
-        assert!(status.recovery_hint.is_none());
-    }
 }

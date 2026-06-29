@@ -996,7 +996,7 @@ describe("desktop workbench shell", () => {
         http_ok: true,
         gateway_http: "http://127.0.0.1:18790",
         gateway_ws: "ws://127.0.0.1:18790/ws",
-        command: "uv run tinybot gateway",
+        command: "node workers/ts-agent-worker/src/index.ts",
         port: 18790,
         repo_root: "D:/code/tinybot/tinybot",
         logs: [],
@@ -1137,7 +1137,7 @@ describe("desktop workbench shell", () => {
         http_ok: true,
         gateway_http: "http://127.0.0.1:18790",
         gateway_ws: "ws://127.0.0.1:18790/ws",
-        command: "tinybot gateway",
+        command: "node workers/ts-agent-worker/src/index.ts",
         repo_root: "D:/code/tinybot/tinybot",
         log_path: "C:/Users/me/AppData/Local/tinybot/logs/native-backend.log",
         log_tail: [
@@ -1203,7 +1203,7 @@ describe("desktop workbench shell", () => {
         http_ok: true,
         gateway_http: "http://127.0.0.1:18790",
         gateway_ws: "ws://127.0.0.1:18790/ws",
-        command: "tinybot gateway",
+        command: "node workers/ts-agent-worker/src/index.ts",
         repo_root: "D:/code/tinybot/tinybot",
         log_path: "C:/Users/me/AppData/Local/tinybot/logs/native-backend.log",
         logs: ["gateway ready", "knowledge upload accepted", "graph extraction streamed"],
@@ -1238,7 +1238,7 @@ describe("desktop workbench shell", () => {
       http_ok: true,
       gateway_http: "http://127.0.0.1:18790",
       gateway_ws: "ws://127.0.0.1:18790/ws",
-      command: "tinybot gateway",
+      command: "node workers/ts-agent-worker/src/index.ts",
       repo_root: "D:/code/tinybot/tinybot",
       logs: ["gateway ready"],
       last_error: null,
@@ -2697,9 +2697,9 @@ describe("desktop workbench shell", () => {
         http_ok: true,
         gateway_http: "http://127.0.0.1:18790",
         gateway_ws: "ws://127.0.0.1:18790/ws",
-        command: "uv run tinybot gateway",
+        command: "node workers/ts-agent-worker/src/index.ts",
         port: 18790,
-        repo_root: "D:/Code/py/tinybot",
+        repo_root: "D:/Code/tinybot/tinybot",
         logs: ["stdout: ready"],
         last_error: null,
         exit_policy: "keep_running",
@@ -2711,9 +2711,9 @@ describe("desktop workbench shell", () => {
     expect(runtime?.querySelectorAll(".desktop-gateway-runtime-row").map((row) => row.textContent)).toEqual([
       "State: Running",
       "Owner: Shell-owned",
-      "Command: uv run tinybot gateway",
+      "Command: node workers/ts-agent-worker/src/index.ts",
       "Port: 18790",
-      "Repo root: D:/Code/py/tinybot",
+      "Repo root: D:/Code/tinybot/tinybot",
       "Recent logs: stdout: ready",
       "Last error: No recent error",
       "Exit policy: Keep native TS backend running after exit",
@@ -3682,9 +3682,9 @@ describe("desktop workbench shell", () => {
         http_ok: true,
         gateway_http: "http://127.0.0.1:18790",
         gateway_ws: "ws://127.0.0.1:18790/ws",
-        command: "uv run tinybot gateway",
+        command: "node workers/ts-agent-worker/src/index.ts",
         port: 18790,
-        repo_root: "D:/Code/py/tinybot",
+        repo_root: "D:/Code/tinybot/tinybot",
         logs: ["stdout: ready"],
         last_error: null,
         exit_policy: "stop_on_exit",
@@ -3713,7 +3713,7 @@ describe("desktop workbench shell", () => {
     runtime?.querySelector('[data-desktop-gateway-action="openLogs"]')?.click();
 
     expect(actionEvents).toEqual(["stop", "restart", "keepRunningOnExit"]);
-    expect(copied[0]).toContain("Command: uv run tinybot gateway");
+    expect(copied[0]).toContain("Command: node workers/ts-agent-worker/src/index.ts");
     expect(copied[0]).toContain("stdout: ready");
     expect(targetDocument.body.querySelector('[data-workbench-region="inspector"]')?.textContent).toContain("Gateway Logs");
     expect(targetDocument.body.querySelector('[data-workbench-region="inspector"]')?.textContent).toContain("stdout: ready");

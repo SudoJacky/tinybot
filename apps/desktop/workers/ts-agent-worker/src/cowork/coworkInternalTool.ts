@@ -110,7 +110,7 @@ export function coworkInternalToolDefinition(): ToolDefinition {
         },
         agent_id: {
           type: "string",
-          description: "Python-compatible retire_agent target alias.",
+          description: "Retire-agent target alias.",
         },
         dependencies: {
           type: "array",
@@ -127,7 +127,7 @@ export function coworkInternalToolDefinition(): ToolDefinition {
         },
         reason: {
           type: "string",
-          description: "Python-compatible reason fallback for spawn/retire actions.",
+          description: "Reason fallback for spawn/retire actions.",
         },
         status: {
           type: "string",

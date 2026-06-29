@@ -10,14 +10,14 @@ function status(owner: GatewayRuntimeStatus["owner"], state: GatewayRuntimeStatu
     gateway_http: DEFAULT_GATEWAY_CONFIG.httpBaseUrl,
     gateway_ws: DEFAULT_GATEWAY_CONFIG.wsUrl,
     command: "node workers/ts-agent-worker/src/index.ts",
-    repo_root: "D:/Code/py/tinybot",
+    repo_root: "D:/Code/tinybot/tinybot",
     logs: [],
     last_error: null,
   };
 }
 
 describe("desktop gateway startup", () => {
-  test("uses gateway_status for native Tauri startup without probing the Python gateway", async () => {
+  test("uses gateway_status for native Tauri startup without probing HTTP bootstrap", async () => {
     const reachable = status("shell", "running", true);
     const fetchFn = vi.fn();
     const invoke = vi.fn(async () => reachable);
@@ -116,7 +116,7 @@ describe("desktop gateway startup", () => {
     expect(invoke.mock.calls.map((call) => call[0])).toEqual(["gateway_status", "start_gateway"]);
   });
 
-  test("does not wait for Python bootstrap readiness after starting the native TS worker", async () => {
+  test("does not wait for HTTP bootstrap readiness after starting the native TS worker", async () => {
     const offline = status("none", "offline", false);
     const running = status("shell", "running", true);
     const invoke = vi.fn(async (command: string) => {

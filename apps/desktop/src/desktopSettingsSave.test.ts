@@ -2,7 +2,7 @@ import { describe, expect, test, vi } from "vitest";
 import { saveDesktopSettingsConfig } from "./desktopSettingsSave";
 
 describe("desktop settings native save bridge", () => {
-  test("saves through native config patch before the Python gateway fallback", async () => {
+  test("saves through native config patch before the HTTP config fallback", async () => {
     const currentConfig = {
       agents: { defaults: { model: "gpt-4.1-mini", provider: "openai" } },
     };
@@ -35,7 +35,7 @@ describe("desktop settings native save bridge", () => {
     expect(applyGatewayConfigPatch).not.toHaveBeenCalled();
   });
 
-  test("falls back to the Python gateway PATCH when the native host action is unavailable", async () => {
+  test("falls back to HTTP config PATCH when the native host action is unavailable", async () => {
     const currentConfig = {
       agents: { defaults: { model: "gpt-4.1-mini", provider: "openai" } },
     };
