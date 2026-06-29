@@ -74,6 +74,7 @@ export interface MountedConversationThreadIsland {
 
 interface ConversationTimelineScrollState {
   bottomOffset: number;
+  scrollVersion: number;
   scrollTop: number;
   wasNearBottom: boolean;
 }
@@ -143,6 +144,8 @@ const DETAIL_PANEL_MOTION_MS = 560;
 const TIMELINE_EAGER_NODE_LIMIT = 300;
 type ActivityInspectorKind = "approval" | "artifact" | "delegate" | "tool_call";
 const CONVERSATION_AGENT_FLOW_STYLE_ID = "desktop-conversation-agent-flow-styles";
+const CONVERSATION_TIMELINE_SCROLL_VERSION_ATTR = "data-desktop-user-scroll-version";
+const CONVERSATION_TIMELINE_SCROLL_TRACKING_ATTR = "data-desktop-scroll-tracking";
 const AGENT_WORKFLOW_STEP_LIMIT = 8;
 
 export function mountOrUpdateConversationThreadIsland(
@@ -2357,10 +2360,12 @@ function captureConversationTimelineScroll(host: HTMLElement): ConversationTimel
   if (!timeline) {
     return null;
   }
+  ensureConversationTimelineScrollTracking(timeline);
   const scrollTop = Number(timeline.scrollTop || 0);
   const bottomOffset = Math.max(0, Number(timeline.scrollHeight || 0) - scrollTop - Number(timeline.clientHeight || 0));
   return {
     bottomOffset,
+    scrollVersion: conversationTimelineScrollVersion(timeline),
     scrollTop,
     wasNearBottom: bottomOffset < 24,
   };
@@ -2395,6 +2400,10 @@ function restoreConversationTimelineScroll(
   if (!timeline) {
     return;
   }
+  ensureConversationTimelineScrollTracking(timeline);
+  if (conversationTimelineScrollVersion(timeline) !== scrollState.scrollVersion) {
+    return;
+  }
   if (scrollState.wasNearBottom) {
     timeline.scrollTop = boundedConversationTimelineScrollTop(
       timeline,
@@ -2403,6 +2412,27 @@ function restoreConversationTimelineScroll(
     return;
   }
   timeline.scrollTop = boundedConversationTimelineScrollTop(timeline, scrollState.scrollTop);
+}
+
+function ensureConversationTimelineScrollTracking(timeline: HTMLElement): void {
+  if (!timeline.hasAttribute(CONVERSATION_TIMELINE_SCROLL_VERSION_ATTR)) {
+    timeline.setAttribute(CONVERSATION_TIMELINE_SCROLL_VERSION_ATTR, "0");
+  }
+  if (timeline.getAttribute(CONVERSATION_TIMELINE_SCROLL_TRACKING_ATTR) === "true") {
+    return;
+  }
+  timeline.setAttribute(CONVERSATION_TIMELINE_SCROLL_TRACKING_ATTR, "true");
+  timeline.addEventListener("scroll", () => {
+    timeline.setAttribute(
+      CONVERSATION_TIMELINE_SCROLL_VERSION_ATTR,
+      String(conversationTimelineScrollVersion(timeline) + 1),
+    );
+  });
+}
+
+function conversationTimelineScrollVersion(timeline: HTMLElement): number {
+  const version = Number(timeline.getAttribute(CONVERSATION_TIMELINE_SCROLL_VERSION_ATTR) || "0");
+  return Number.isFinite(version) ? version : 0;
 }
 
 function conversationTimelineScrollElement(host: HTMLElement): HTMLElement | null {
@@ -2743,7 +2773,6 @@ function installConversationAgentFlowStyles(targetDocument: Document): void {
       flex: 0 0 auto;
       min-height: 0;
       min-width: 0;
-      animation: desktopAgentFlowEnter 240ms ease-out both;
     }
 
     .desktop-agent-flow-summary,
