@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     path::{Path, PathBuf},
     sync::{atomic::AtomicBool, Arc, Mutex},
     thread,
@@ -1883,11 +1883,540 @@ fn worker_webui_route_with_options(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    if let Some(response) = worker_webui_rust_route_with_options(
+        shared,
+        &input,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+        timeout,
+    )? {
+        return Ok(response);
+    }
+
     let client = WorkerClient::experimental(shared);
     client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
 
     let request = build_worker_webui_route_request(next_worker_request_correlation(), input);
     client.call(&request, timeout, "worker webui route")
+}
+
+fn worker_webui_rust_route_with_options(
+    shared: &SharedGateway,
+    input: &WorkerWebuiRouteInput,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<Option<serde_json::Value>, String> {
+    let method = input.method.to_ascii_uppercase();
+    let (path, query) = split_webui_route_path(&input.path);
+    let body = input.body.clone().unwrap_or(serde_json::Value::Null);
+
+    let result = match (method.as_str(), path.as_str()) {
+        ("GET", "/health") => Some(Ok(serde_json::json!({
+            "ok": true,
+            "status": "ok",
+            "runtime": "native-rust"
+        }))),
+        ("GET", "/webui/bootstrap") => Some(Ok(native_webui_bootstrap_body())),
+        ("POST", "/webui/refresh-token") => Some(Ok(native_webui_bootstrap_body())),
+        ("GET", "/api/status") => Some(Ok(native_webui_status_body(shared))),
+        ("GET", "/api/config") => Some(worker_webui_config_body(
+            workspace_root.clone(),
+            config_snapshot.clone(),
+        )),
+        ("GET", "/api/sessions") => Some(worker_sessions_list_with_options(
+            shared,
+            workspace_root.clone(),
+            config_snapshot.clone(),
+            timeout,
+        )),
+        ("GET", "/api/skills") => Some(worker_skills_list_with_options(
+            shared,
+            workspace_root.clone(),
+            config_snapshot.clone(),
+            timeout,
+        )),
+        ("POST", "/api/skills") => Some(worker_skills_create_with_options(
+            shared,
+            body,
+            workspace_root.clone(),
+            config_snapshot.clone(),
+            timeout,
+        )),
+        ("GET", "/api/workspace/files") => Some(worker_workspace_files_with_options(
+            shared,
+            workspace_root.clone(),
+            config_snapshot.clone(),
+            timeout,
+        )),
+        ("GET", "/v1/knowledge/documents") => Some(worker_knowledge_documents_with_options(
+            shared,
+            WorkerKnowledgeDocumentsInput {
+                category: query.get("category").cloned(),
+                limit: query
+                    .get("limit")
+                    .and_then(|value| value.parse::<usize>().ok()),
+            },
+            workspace_root.clone(),
+            config_snapshot.clone(),
+            timeout,
+        )),
+        ("POST", "/v1/knowledge/documents") => Some(worker_knowledge_add_document_with_options(
+            shared,
+            body,
+            workspace_root.clone(),
+            config_snapshot.clone(),
+            timeout,
+        )),
+        ("POST", "/v1/knowledge/documents/upload") => {
+            Some(worker_knowledge_add_document_with_options(
+                shared,
+                body,
+                workspace_root.clone(),
+                config_snapshot.clone(),
+                timeout,
+            ))
+        }
+        ("GET", "/v1/knowledge/stats") => Some(worker_knowledge_stats_with_options(
+            shared,
+            workspace_root.clone(),
+            config_snapshot.clone(),
+            timeout,
+        )),
+        ("POST", "/v1/knowledge/rebuild-index") => {
+            Some(worker_knowledge_rebuild_index_with_options(
+                shared,
+                query.get("type").cloned(),
+                workspace_root.clone(),
+                config_snapshot.clone(),
+                timeout,
+            ))
+        }
+        ("GET", "/v1/knowledge/graph") => Some(worker_knowledge_graph_with_options(
+            shared,
+            WorkerKnowledgeGraphInput {
+                doc_id: query.get("doc_id").cloned(),
+                graph_type: query.get("graph_type").cloned(),
+                limit: query
+                    .get("limit")
+                    .and_then(|value| value.parse::<usize>().ok()),
+                edge_limit: query
+                    .get("edge_limit")
+                    .and_then(|value| value.parse::<usize>().ok()),
+                min_confidence: query
+                    .get("min_confidence")
+                    .and_then(|value| value.parse::<f64>().ok()),
+                include_orphans: query
+                    .get("include_orphans")
+                    .and_then(|value| value.parse::<bool>().ok()),
+            },
+            workspace_root.clone(),
+            config_snapshot.clone(),
+            timeout,
+        )),
+        _ => worker_webui_rust_dynamic_route(
+            shared,
+            &method,
+            &path,
+            &body,
+            workspace_root.clone(),
+            config_snapshot.clone(),
+            timeout,
+        ),
+    };
+
+    match result {
+        Some(Ok(body)) => Ok(Some(webui_route_response(
+            200,
+            body,
+            "rust",
+            webui_route_group(&path),
+        ))),
+        Some(Err(error)) => Ok(Some(webui_route_response(
+            500,
+            serde_json::json!({ "error": { "message": error } }),
+            "rust",
+            webui_route_group(&path),
+        ))),
+        None if is_delegated_webui_route(&method, &path) => Ok(None),
+        None => Ok(Some(webui_route_response(
+            404,
+            serde_json::json!({
+                "error": {
+                    "message": "webui control route unavailable",
+                },
+                "method": method,
+                "path": path,
+                "route": format!("{} {}", method, path),
+            }),
+            "unsupported",
+            webui_route_group(&path),
+        ))),
+    }
+}
+
+fn worker_webui_rust_dynamic_route(
+    shared: &SharedGateway,
+    method: &str,
+    path: &str,
+    body: &serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Option<Result<serde_json::Value, String>> {
+    if let Some(key) = webui_session_route_key(path, "/messages") {
+        if method == "GET" {
+            return Some(worker_session_messages_with_options(
+                shared,
+                key,
+                workspace_root,
+                config_snapshot,
+                timeout,
+            ));
+        }
+    }
+    if let Some(key) = webui_session_route_key(path, "/temporary-files") {
+        return match method {
+            "GET" => Some(worker_session_temporary_files_with_options(
+                shared,
+                key,
+                workspace_root,
+                config_snapshot,
+                timeout,
+            )),
+            "POST" => Some(worker_session_upload_temporary_file_with_options(
+                shared,
+                key,
+                body.clone(),
+                workspace_root,
+                config_snapshot,
+                timeout,
+            )),
+            "DELETE" => Some(worker_session_clear_temporary_files_with_options(
+                shared,
+                key,
+                workspace_root,
+                config_snapshot,
+                timeout,
+            )),
+            _ => None,
+        };
+    }
+    if let Some(key) = webui_session_route_key(path, "/clear") {
+        if method == "POST" {
+            return Some(worker_session_clear_with_options(
+                shared,
+                key,
+                workspace_root,
+                config_snapshot,
+                timeout,
+            ));
+        }
+    }
+    if let Some(key) = webui_session_item_key(path) {
+        return match method {
+            "PATCH" => Some(worker_session_patch_with_options(
+                shared,
+                key,
+                body.clone(),
+                workspace_root,
+                config_snapshot,
+                timeout,
+            )),
+            "DELETE" => Some(worker_session_delete_with_options(
+                shared,
+                key,
+                workspace_root,
+                config_snapshot,
+                timeout,
+            )),
+            _ => None,
+        };
+    }
+    if let Some(path) = webui_workspace_file_path(path) {
+        return match method {
+            "GET" => Some(worker_workspace_file_with_options(
+                shared,
+                path,
+                workspace_root,
+                config_snapshot,
+                timeout,
+            )),
+            "PUT" => Some(worker_workspace_put_file_with_options(
+                shared,
+                path,
+                body.clone(),
+                workspace_root,
+                config_snapshot,
+                timeout,
+            )),
+            _ => None,
+        };
+    }
+    if let Some(name) = webui_skill_route_name(path, "/validate") {
+        if method == "POST" {
+            return Some(worker_skills_validate_with_options(
+                shared,
+                name,
+                workspace_root,
+                config_snapshot,
+                timeout,
+            ));
+        }
+    }
+    if let Some(name) = webui_skill_item_name(path) {
+        return match method {
+            "GET" => Some(worker_skills_detail_with_options(
+                shared,
+                name,
+                workspace_root,
+                config_snapshot,
+                timeout,
+            )),
+            "PATCH" => Some(worker_skills_update_with_options(
+                shared,
+                name,
+                body.clone(),
+                workspace_root,
+                config_snapshot,
+                timeout,
+            )),
+            "DELETE" => Some(worker_skills_delete_with_options(
+                shared,
+                name,
+                workspace_root,
+                config_snapshot,
+                timeout,
+            )),
+            _ => None,
+        };
+    }
+    if let Some(doc_id) = webui_path_param(path, "/v1/knowledge/documents/") {
+        return match method {
+            "GET" => Some(worker_knowledge_document_with_options(
+                shared,
+                doc_id,
+                workspace_root,
+                config_snapshot,
+                timeout,
+            )),
+            "DELETE" => Some(worker_knowledge_delete_document_with_options(
+                shared,
+                doc_id,
+                workspace_root,
+                config_snapshot,
+                timeout,
+            )),
+            _ => None,
+        };
+    }
+    if let Some(job_id) = webui_path_param(path, "/v1/knowledge/jobs/") {
+        if method == "GET" {
+            return Some(worker_knowledge_job_with_options(
+                shared,
+                job_id,
+                workspace_root,
+                config_snapshot,
+                timeout,
+            ));
+        }
+    }
+    None
+}
+
+fn native_webui_bootstrap_body() -> serde_json::Value {
+    serde_json::json!({
+        "token": "native-rust-local",
+        "ws_path": "/ws",
+        "refresh_token_path": "/webui/refresh-token",
+        "token_ttl_s": 300,
+    })
+}
+
+fn native_webui_status_body(shared: &SharedGateway) -> serde_json::Value {
+    let status = lock_runtime(shared).experimental_worker.status();
+    serde_json::json!({
+        "channels": {
+            "websocket": {
+                "enabled": true,
+                "running": matches!(status.state, WorkerManagerState::Running | WorkerManagerState::Starting)
+            }
+        },
+        "native_backend": status,
+        "provider": serde_json::Value::Null,
+        "model": serde_json::Value::Null,
+    })
+}
+
+fn worker_webui_config_body(
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    let snapshot = call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("webui-config"),
+            request_id.trace_id("webui-config"),
+            "config.snapshot_public",
+            serde_json::json!({}),
+        ),
+        "worker webui config",
+    )?;
+    Ok(snapshot.get("value").cloned().unwrap_or(snapshot))
+}
+
+fn webui_route_response(
+    status: u16,
+    body: serde_json::Value,
+    owner: &str,
+    route_group: &str,
+) -> serde_json::Value {
+    serde_json::json!({
+        "status": status,
+        "body": body,
+        "headers": {
+            "x-tinybot-route-owner": owner,
+            "x-tinybot-route-group": route_group,
+        }
+    })
+}
+
+fn split_webui_route_path(path: &str) -> (String, HashMap<String, String>) {
+    let (path_only, query) = path.split_once('?').unwrap_or((path, ""));
+    let mut params = HashMap::new();
+    for pair in query.split('&').filter(|pair| !pair.is_empty()) {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        params.insert(percent_decode(key), percent_decode(value));
+    }
+    (path_only.to_string(), params)
+}
+
+fn percent_decode(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut output = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'%' if index + 2 < bytes.len() => {
+                let hex = &input[index + 1..index + 3];
+                if let Ok(value) = u8::from_str_radix(hex, 16) {
+                    output.push(value);
+                    index += 3;
+                    continue;
+                }
+                output.push(bytes[index]);
+                index += 1;
+            }
+            b'+' => {
+                output.push(b' ');
+                index += 1;
+            }
+            byte => {
+                output.push(byte);
+                index += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&output).to_string()
+}
+
+fn webui_session_route_key(path: &str, suffix: &str) -> Option<String> {
+    let rest = path.strip_prefix("/api/sessions/")?;
+    let key = rest.strip_suffix(suffix)?;
+    if key.is_empty() || key.contains('/') {
+        return None;
+    }
+    Some(percent_decode(key))
+}
+
+fn webui_session_item_key(path: &str) -> Option<String> {
+    let rest = path.strip_prefix("/api/sessions/")?;
+    if rest.is_empty() || rest.contains('/') {
+        return None;
+    }
+    Some(percent_decode(rest))
+}
+
+fn webui_workspace_file_path(path: &str) -> Option<String> {
+    let rest = path.strip_prefix("/api/workspace/files/")?;
+    if rest.is_empty() {
+        return None;
+    }
+    Some(percent_decode(rest))
+}
+
+fn webui_skill_route_name(path: &str, suffix: &str) -> Option<String> {
+    let rest = path.strip_prefix("/api/skills/")?;
+    let name = rest.strip_suffix(suffix)?;
+    if name.is_empty() || name.contains('/') {
+        return None;
+    }
+    Some(percent_decode(name))
+}
+
+fn webui_skill_item_name(path: &str) -> Option<String> {
+    let rest = path.strip_prefix("/api/skills/")?;
+    if rest.is_empty() || rest.contains('/') {
+        return None;
+    }
+    Some(percent_decode(rest))
+}
+
+fn webui_path_param(path: &str, prefix: &str) -> Option<String> {
+    let rest = path.strip_prefix(prefix)?;
+    if rest.is_empty() || rest.contains('/') {
+        return None;
+    }
+    Some(percent_decode(rest))
+}
+
+fn webui_route_group(path: &str) -> &'static str {
+    if path == "/health" {
+        "health"
+    } else if path.starts_with("/webui/") {
+        "bootstrap"
+    } else if path == "/api/status" {
+        "status"
+    } else if path == "/api/config" {
+        "config"
+    } else if path.starts_with("/api/sessions") {
+        "sessions"
+    } else if path.starts_with("/api/workspace") {
+        "workspace"
+    } else if path.starts_with("/api/skills") {
+        "skills"
+    } else if path.starts_with("/v1/knowledge") {
+        "knowledge"
+    } else if path.starts_with("/api/cowork") {
+        "cowork"
+    } else if path.starts_with("/api/approvals") {
+        "approvals"
+    } else if path.starts_with("/api/agent-ui") {
+        "agent-ui"
+    } else if path.starts_with("/v1/") {
+        "openai"
+    } else {
+        "unsupported"
+    }
+}
+
+fn is_delegated_webui_route(method: &str, path: &str) -> bool {
+    matches!(
+        (method, path),
+        ("GET", "/v1/models")
+            | ("POST", "/v1/chat/completions")
+            | ("PATCH", "/api/config")
+            | ("GET", "/api/providers")
+            | ("POST", "/api/provider-models")
+            | ("GET", "/api/approvals")
+            | ("POST", "/v1/knowledge/query")
+            | ("POST", "/v1/knowledge/graph/extract")
+            | ("GET", "/v1/knowledge/graphrag")
+    ) || path.starts_with("/api/approvals/")
+        || path.starts_with("/api/agent-ui/")
+        || path.starts_with("/api/cowork/")
 }
 
 fn worker_webui_route_timeout(input: &WorkerWebuiRouteInput) -> Duration {
@@ -4273,6 +4802,144 @@ mod tests {
                 "body": { "reason": "Retry" },
                 "query": { "limit": "5" }
             })
+        );
+    }
+
+    #[test]
+    fn worker_webui_route_serves_rust_owned_state_routes_without_ts_worker() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("docs/readme.md", "hello route");
+        fixture.write(
+            "sessions/store.json",
+            &serde_json::json!({
+                "version": 1,
+                "sessions": [{
+                    "session_id": "websocket:chat-1",
+                    "title": "Route session",
+                    "workspace_dir": "D:/Code/py/tinybot",
+                    "created_at": "2026-06-29T08:00:00Z",
+                    "updated_at": "2026-06-29T08:30:00Z",
+                    "extra": { "messages": [{ "role": "user", "content": "route" }] }
+                }]
+            })
+            .to_string(),
+        );
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+
+        let bootstrap = worker_webui_route_with_options(
+            &shared,
+            WorkerWebuiRouteInput {
+                method: "GET".to_string(),
+                path: "/webui/bootstrap".to_string(),
+                headers: None,
+                body: None,
+            },
+            fixture.root.clone(),
+            serde_json::json!({ "agents": { "defaults": { "provider": "auto" } } }),
+            Duration::from_millis(10),
+        )
+        .expect("bootstrap route should be Rust-owned");
+        let sessions = worker_webui_route_with_options(
+            &shared,
+            WorkerWebuiRouteInput {
+                method: "GET".to_string(),
+                path: "/api/sessions".to_string(),
+                headers: None,
+                body: None,
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("session route should be Rust-owned");
+        let workspace_file = worker_webui_route_with_options(
+            &shared,
+            WorkerWebuiRouteInput {
+                method: "GET".to_string(),
+                path: "/api/workspace/files/docs%2Freadme.md".to_string(),
+                headers: None,
+                body: None,
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("workspace route should be Rust-owned");
+        let knowledge = worker_webui_route_with_options(
+            &shared,
+            WorkerWebuiRouteInput {
+                method: "POST".to_string(),
+                path: "/v1/knowledge/documents".to_string(),
+                headers: None,
+                body: Some(serde_json::json!({
+                    "name": "Route Knowledge.md",
+                    "content": "# Route Knowledge\n\nRust owns route metadata.\n",
+                    "file_type": "md"
+                })),
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("knowledge route should be Rust-owned");
+
+        assert_eq!(bootstrap["status"], 200);
+        assert_eq!(bootstrap["headers"]["x-tinybot-route-owner"], "rust");
+        assert!(bootstrap["body"]["token"]
+            .as_str()
+            .is_some_and(|token| !token.is_empty()));
+        assert_eq!(sessions["body"]["items"][0]["title"], "Route session");
+        assert_eq!(workspace_file["body"]["content"], "hello route");
+        assert_eq!(knowledge["body"]["document"]["name"], "Route Knowledge.md");
+        assert_eq!(
+            lock_runtime(&shared).experimental_worker.status().state,
+            WorkerManagerState::Stopped
+        );
+    }
+
+    #[test]
+    fn worker_webui_route_classifies_delegated_and_unsupported_routes_without_ts_worker() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+
+        let delegated = worker_webui_rust_route_with_options(
+            &shared,
+            &WorkerWebuiRouteInput {
+                method: "POST".to_string(),
+                path: "/v1/chat/completions".to_string(),
+                headers: None,
+                body: Some(serde_json::json!({ "messages": [] })),
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("delegated classification should not fail");
+        let unsupported = worker_webui_route_with_options(
+            &shared,
+            WorkerWebuiRouteInput {
+                method: "GET".to_string(),
+                path: "/api/not-a-route".to_string(),
+                headers: None,
+                body: None,
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("unsupported route should return a structured response");
+
+        assert!(delegated.is_none());
+        assert_eq!(unsupported["status"], 404);
+        assert_eq!(
+            unsupported["headers"]["x-tinybot-route-owner"],
+            "unsupported"
+        );
+        assert_eq!(unsupported["body"]["method"], "GET");
+        assert_eq!(unsupported["body"]["path"], "/api/not-a-route");
+        assert_eq!(
+            lock_runtime(&shared).experimental_worker.status().state,
+            WorkerManagerState::Stopped
         );
     }
 
