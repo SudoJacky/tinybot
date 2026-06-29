@@ -4340,7 +4340,15 @@ describe("desktop workbench shell", () => {
     expect(styleText).toContain("width: min(var(--desktop-chat-column-width), 100%);");
     expect(styleText).toContain("width: min(var(--desktop-chat-column-width), calc(100% - var(--desktop-chat-composer-gutter)));");
     expect(styleText).toContain("grid-template-columns: minmax(0, 1fr) 0;");
-    expect(styleText).toContain("grid-template-rows: auto minmax(0, 1fr) auto;");
+    expect(styleText).toContain("grid-template-rows: auto minmax(0, 1fr) auto auto;");
+    const emptyChromeRule = styleText.match(/body\.desktop-native-workbench \.desktop-chat-workbench-chrome \{([\s\S]*?)\n    \}/)?.[1] ?? "";
+    expect(emptyChromeRule).toContain("grid-column: 1;");
+    expect(emptyChromeRule).toContain("grid-row: 2;");
+    expect(emptyChromeRule).toContain("justify-self: center;");
+    const inlineWorkLensRule = styleText.match(/body\.desktop-native-workbench \.desktop-work-lens-inline \{([\s\S]*?)\n    \}/)?.[1] ?? "";
+    expect(inlineWorkLensRule).toContain("grid-column: 1;");
+    expect(inlineWorkLensRule).toContain("grid-row: 3;");
+    expect(inlineWorkLensRule).toContain("justify-self: center;");
     expect(styleText).toContain("body.desktop-native-workbench .desktop-chat-workbench:has(.desktop-conversation-body-layout[data-detail-panel-mode=\"push\"][data-detail-panel-state=\"open\"])");
     expect(styleText).toContain("grid-template-columns 520ms cubic-bezier(0.16, 1, 0.3, 1);");
     expect(styleText).toContain("body.desktop-native-workbench .desktop-conversation-thread {\n      display: contents;");
@@ -4360,8 +4368,8 @@ describe("desktop workbench shell", () => {
     expect(styleText).toContain("position: relative;\n      align-self: stretch;");
     expect(styleText).toContain("box-sizing: border-box;");
     expect(styleText).toContain("padding-bottom: var(--desktop-chat-composer-bottom-offset);");
-    expect(styleText).toContain("grid-column: 2;\n      grid-row: 2 / 4;");
-    expect(styleText).toContain("grid-column: 1;\n      grid-row: 3;\n      justify-self: center;");
+    expect(styleText).toContain("grid-column: 2;\n      grid-row: 2 / 5;");
+    expect(styleText).toContain("grid-column: 1;\n      grid-row: 4;\n      justify-self: center;");
     expect(styleText).toContain("margin: 0 auto var(--desktop-chat-composer-bottom-offset);");
     expect(styleText).toContain("body.desktop-native-workbench .desktop-detail-panel-slot[data-detail-panel-state=\"closing\"] {");
     expect(styleText).toContain("body.desktop-native-workbench .desktop-tool-detail-panel {\n      position: relative;");
