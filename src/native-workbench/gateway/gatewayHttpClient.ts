@@ -6,6 +6,7 @@ type FetchFn = typeof fetch;
 type ClientOptions = {
   config?: GatewayConfig;
   fetchFn?: FetchFn;
+  nativeConfig?: NativeConfigApi;
   nativeSessions?: NativeSessionsApi;
   nativeSkills?: NativeSkillsApi;
   nativeWorkspace?: NativeWorkspaceApi;
@@ -71,6 +72,11 @@ export type NativeSessionsApi = {
   delete?: (key: string) => Promise<unknown>;
   patch?: (key: string, body: unknown) => Promise<unknown>;
   clear?: (key: string) => Promise<unknown>;
+  upsertTaskProgress?: (key: string, body: unknown) => Promise<unknown>;
+};
+
+export type NativeConfigApi = {
+  get: () => Promise<unknown>;
 };
 
 export type NativeWorkspaceApi = {
@@ -427,7 +433,7 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
     },
     config: {
       get: () => nativeOrGateway(
-        () => options.nativeWebui?.route({ method: "GET", path: "/api/config" }),
+        () => options.nativeConfig?.get() ?? options.nativeWebui?.route({ method: "GET", path: "/api/config" }),
         () => request("/api/config"),
         "webui.config.get",
       ),

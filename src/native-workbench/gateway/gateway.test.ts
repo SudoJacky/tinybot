@@ -455,28 +455,28 @@ describe("gateway HTTP client", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
-  test("prefers native WebUI config routes when available", async () => {
+  test("prefers native Rust config read and native WebUI config patch when available", async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
+    const nativeConfig = {
+      get: vi.fn(async () => ({
+        agents: { defaults: { provider: "dashscope", model: "qwen-max" } },
+      })),
+    };
     const nativeWebui = {
-      route: vi.fn(async (request: { method: string; path: string; body?: unknown }) => request.method === "PATCH"
-        ? {
-            config: { agents: { defaults: { provider: "openrouter", model: "openai/gpt-4o-mini" } } },
-            request,
-          }
-        : {
-            agents: { defaults: { provider: "dashscope", model: "qwen-max" } },
-            request,
-          }),
+      route: vi.fn(async (request: { method: string; path: string; body?: unknown }) => ({
+        config: { agents: { defaults: { provider: "openrouter", model: "openai/gpt-4o-mini" } } },
+        request,
+      })),
     };
     const client = createGatewayApiClient({
       config: DEFAULT_GATEWAY_CONFIG,
       fetchFn,
+      nativeConfig,
       nativeWebui,
     });
 
     await expect(client.config.get()).resolves.toEqual({
       agents: { defaults: { provider: "dashscope", model: "qwen-max" } },
-      request: { method: "GET", path: "/api/config" },
     });
     await expect(client.config.patch({
       agents: { defaults: { provider: "openrouter", model: "openai/gpt-4o-mini" } },
@@ -488,7 +488,7 @@ describe("gateway HTTP client", () => {
         body: { agents: { defaults: { provider: "openrouter", model: "openai/gpt-4o-mini" } } },
       },
     });
-    expect(nativeWebui.route).toHaveBeenCalledWith({ method: "GET", path: "/api/config" });
+    expect(nativeConfig.get).toHaveBeenCalledTimes(1);
     expect(nativeWebui.route).toHaveBeenCalledWith({
       method: "PATCH",
       path: "/api/config",

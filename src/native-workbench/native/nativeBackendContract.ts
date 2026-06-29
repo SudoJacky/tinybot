@@ -9,6 +9,11 @@ export const NATIVE_BACKEND_COMMAND_NAMES = [
   "worker_background_trace_list",
   "worker_background_trace_get_delegate_trace",
   "worker_background_trace_get_artifact",
+  "worker_background_trace_append",
+  "worker_task_plan_list",
+  "worker_task_plan_get",
+  "worker_task_plan_save",
+  "worker_task_plan_delete",
   "worker_webui_route",
   "worker_cowork_route",
   "worker_transport_gateway_frame",
@@ -36,6 +41,7 @@ export const NATIVE_BACKEND_COMMAND_NAMES = [
   "worker_session_delete",
   "worker_session_patch",
   "worker_session_clear",
+  "worker_session_task_progress",
 ] as const;
 
 export type NativeBackendCommandName = typeof NATIVE_BACKEND_COMMAND_NAMES[number];

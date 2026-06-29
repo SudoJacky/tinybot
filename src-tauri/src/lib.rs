@@ -193,6 +193,13 @@ struct WorkerSessionTemporaryFileUploadInput {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct WorkerSessionTaskProgressInput {
+    key: String,
+    body: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct WorkerCoworkRouteInput {
     method: String,
     path: String,
@@ -315,6 +322,31 @@ struct WorkerBackgroundTraceGetDelegateTraceInput {
 struct WorkerBackgroundTraceGetArtifactInput {
     #[serde(default)]
     filter: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerBackgroundTraceAppendInput {
+    event: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerTaskPlanListInput {
+    #[serde(default)]
+    include_completed: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerTaskPlanIdInput {
+    plan_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerTaskPlanSaveInput {
+    plan: serde_json::Value,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -625,6 +657,21 @@ fn worker_session_clear(
 }
 
 #[tauri::command]
+fn worker_session_task_progress(
+    input: WorkerSessionTaskProgressInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_session_task_progress_with_options(
+        state.inner(),
+        input.key,
+        input.body,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
 fn worker_cowork_route(
     input: WorkerCoworkRouteInput,
     state: State<'_, SharedGateway>,
@@ -819,6 +866,76 @@ fn worker_background_trace_get_artifact(
     worker_background_trace_get_artifact_with_options(
         state.inner(),
         input,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_background_trace_append(
+    input: WorkerBackgroundTraceAppendInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_background_trace_append_with_options(
+        state.inner(),
+        input,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_task_plan_list(
+    input: WorkerTaskPlanListInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_task_plan_list_with_options(
+        state.inner(),
+        input,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_task_plan_get(
+    input: WorkerTaskPlanIdInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_task_plan_get_with_options(
+        state.inner(),
+        input.plan_id,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_task_plan_save(
+    input: WorkerTaskPlanSaveInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_task_plan_save_with_options(
+        state.inner(),
+        input.plan,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_task_plan_delete(
+    input: WorkerTaskPlanIdInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_task_plan_delete_with_options(
+        state.inner(),
+        input.plan_id,
         ts_agent_worker_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
@@ -1465,6 +1582,48 @@ fn worker_session_clear_with_options(
     )?;
     add_session_key_fields(&mut result)?;
     Ok(result)
+}
+
+fn worker_session_task_progress_with_options(
+    _shared: &SharedGateway,
+    key: String,
+    body: serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let plan_id = body
+        .get("planId")
+        .or_else(|| body.get("plan_id"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let progress = body
+        .get("progress")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    let content = body
+        .get("content")
+        .or_else(|| body.get("message"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("Task progress updated.");
+    let request_id = next_worker_request_correlation();
+    let session = call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("session-task-progress"),
+            request_id.trace_id("session-task-progress"),
+            "session.task_progress.upsert",
+            serde_json::json!({
+                "session_id": key,
+                "plan_id": plan_id,
+                "progress": progress,
+                "content": content,
+            }),
+        ),
+        "worker session task progress",
+    )?;
+    webui_session_item(&session)
 }
 
 fn webui_session_item(session: &serde_json::Value) -> Result<serde_json::Value, String> {
@@ -2123,7 +2282,129 @@ fn build_worker_background_trace_get_artifact_request(
     )
 }
 
+fn worker_background_trace_append_with_options(
+    _shared: &SharedGateway,
+    input: WorkerBackgroundTraceAppendInput,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    let request = WorkerRequest::new(
+        request_id.id("background-trace-append"),
+        request_id.trace_id("background-trace-append"),
+        "background.trace.append",
+        serde_json::json!({ "event": input.event }),
+    );
+    dispatch_worker_background_trace_request(
+        workspace_root,
+        config_snapshot,
+        request,
+        "worker background trace append",
+    )
+}
+
 fn dispatch_worker_background_trace_request(
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    request: WorkerRequest,
+    context: &str,
+) -> Result<serde_json::Value, String> {
+    let mut router = experimental_worker_router(workspace_root, config_snapshot);
+    let response = router.dispatch(&request);
+    if let Some(error) = response.error {
+        return Err(format!("{context} returned error: {}", error.message));
+    }
+    response
+        .result
+        .ok_or_else(|| format!("{context} response missing result"))
+}
+
+fn worker_task_plan_list_with_options(
+    _shared: &SharedGateway,
+    input: WorkerTaskPlanListInput,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    dispatch_rust_task_request(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("task-plan-list"),
+            request_id.trace_id("task-plan-list"),
+            "task.plan.list",
+            serde_json::json!({ "include_completed": input.include_completed }),
+        ),
+        "worker task plan list",
+    )
+}
+
+fn worker_task_plan_get_with_options(
+    _shared: &SharedGateway,
+    plan_id: String,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    dispatch_rust_task_request(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("task-plan-get"),
+            request_id.trace_id("task-plan-get"),
+            "task.plan.get",
+            serde_json::json!({ "plan_id": plan_id }),
+        ),
+        "worker task plan get",
+    )
+}
+
+fn worker_task_plan_save_with_options(
+    _shared: &SharedGateway,
+    plan: serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    dispatch_rust_task_request(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("task-plan-save"),
+            request_id.trace_id("task-plan-save"),
+            "task.plan.save",
+            serde_json::json!({ "plan": plan }),
+        ),
+        "worker task plan save",
+    )
+}
+
+fn worker_task_plan_delete_with_options(
+    _shared: &SharedGateway,
+    plan_id: String,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    dispatch_rust_task_request(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("task-plan-delete"),
+            request_id.trace_id("task-plan-delete"),
+            "task.plan.delete",
+            serde_json::json!({ "plan_id": plan_id }),
+        ),
+        "worker task plan delete",
+    )
+}
+
+fn dispatch_rust_task_request(
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     request: WorkerRequest,
@@ -2323,6 +2604,8 @@ fn experimental_worker_router(
             WorkerCapability::CronRun,
             WorkerCapability::BackgroundRead,
             WorkerCapability::BackgroundWrite,
+            WorkerCapability::TaskRead,
+            WorkerCapability::TaskWrite,
             WorkerCapability::McpCall,
             WorkerCapability::ChannelConnector,
             WorkerCapability::SessionMetadataRead,
@@ -2581,6 +2864,7 @@ pub fn run() {
             worker_session_delete,
             worker_session_patch,
             worker_session_clear,
+            worker_session_task_progress,
             worker_cowork_route,
             worker_webui_route,
             worker_transport_gateway_frame,
@@ -2596,6 +2880,11 @@ pub fn run() {
             worker_background_trace_list,
             worker_background_trace_get_delegate_trace,
             worker_background_trace_get_artifact,
+            worker_background_trace_append,
+            worker_task_plan_list,
+            worker_task_plan_get,
+            worker_task_plan_save,
+            worker_task_plan_delete,
             worker_submit_agent_form,
             worker_resume_agent_approval,
             worker_cron_dispatch_due,
@@ -3582,6 +3871,19 @@ mod tests {
             Duration::from_millis(10),
         )
         .expect("session clear should be served by Rust session state");
+        let progress = worker_session_task_progress_with_options(
+            &shared,
+            "websocket:chat-1".to_string(),
+            serde_json::json!({
+                "planId": "plan-1",
+                "progress": { "completed": 1, "total": 2 },
+                "content": "Half done"
+            }),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("task progress should be served by Rust session state");
         let deleted = worker_session_delete_with_options(
             &shared,
             "websocket:chat-1".to_string(),
@@ -3598,6 +3900,11 @@ mod tests {
         assert_eq!(patch["metadata"]["pinned"], true);
         assert_eq!(cleared_files["cleared"], 1);
         assert_eq!(cleared_session["messages_before"], 1);
+        assert_eq!(progress["key"], "websocket:chat-1");
+        assert_eq!(
+            progress["extra"]["messages"][0]["_task_progress"]["completed"],
+            1
+        );
         assert_eq!(deleted["key"], "websocket:chat-1");
         assert_eq!(deleted["deleted"], true);
         assert_eq!(
@@ -3967,13 +4274,10 @@ mod tests {
     fn worker_background_trace_list_reads_rust_registry_without_ts_worker() {
         let fixture = WorkspaceFixture::new();
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
-        let mut router = experimental_worker_router(fixture.root.clone(), serde_json::json!({}));
-        let append_response = router.dispatch(&WorkerRequest::new(
-            "req-background-trace-append",
-            "trace-1",
-            "background.trace.append",
-            serde_json::json!({
-                "event": {
+        let append = worker_background_trace_append_with_options(
+            &shared,
+            WorkerBackgroundTraceAppendInput {
+                event: serde_json::json!({
                     "eventId": "event-1",
                     "eventType": "agent.delegate.started",
                     "sessionKey": "WebSocket:chat-1",
@@ -3984,10 +4288,15 @@ mod tests {
                     "sequence": 1,
                     "createdAt": "2026-06-29T02:25:30.000Z",
                     "payload": { "status": "running" }
-                }
-            }),
-        ));
-        assert_eq!(append_response.error, None);
+                }),
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect(
+            "trace append should write the Rust background registry without starting TS worker",
+        );
 
         let result = worker_background_trace_list_with_options(
             &shared,
@@ -4000,8 +4309,76 @@ mod tests {
         )
         .expect("trace list should read the Rust background registry without starting TS worker");
 
+        assert_eq!(append["event"]["eventId"], "event-1");
         assert_eq!(result["events"][0]["eventId"], "event-1");
         assert_eq!(result["events"][0]["delegateId"], "delegate-1");
+        assert_eq!(
+            lock_runtime(&shared).experimental_worker.status().state,
+            WorkerManagerState::Stopped
+        );
+    }
+
+    #[test]
+    fn worker_task_plan_commands_use_rust_store_without_ts_worker() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let plan = serde_json::json!({
+            "id": "plan-1",
+            "title": "Move state service",
+            "status": "active",
+            "subtasks": [
+                { "id": "task-1", "title": "Persist through Rust", "status": "done" }
+            ]
+        });
+
+        let saved = worker_task_plan_save_with_options(
+            &shared,
+            plan.clone(),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("task plan save should use Rust task store without starting TS worker");
+        let listed = worker_task_plan_list_with_options(
+            &shared,
+            WorkerTaskPlanListInput {
+                include_completed: false,
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("task plan list should use Rust task store without starting TS worker");
+        let loaded = worker_task_plan_get_with_options(
+            &shared,
+            "plan-1".to_string(),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("task plan get should use Rust task store without starting TS worker");
+        let deleted = worker_task_plan_delete_with_options(
+            &shared,
+            "plan-1".to_string(),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("task plan delete should use Rust task store without starting TS worker");
+        let missing = worker_task_plan_get_with_options(
+            &shared,
+            "plan-1".to_string(),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("deleted task plan lookup should still be served by Rust task store");
+
+        assert_eq!(saved["plan"], plan);
+        assert_eq!(listed["plans"][0]["id"], "plan-1");
+        assert_eq!(loaded["plan"]["title"], "Move state service");
+        assert_eq!(deleted["deleted"], true);
+        assert_eq!(missing["plan"], serde_json::Value::Null);
         assert_eq!(
             lock_runtime(&shared).experimental_worker.status().state,
             WorkerManagerState::Stopped

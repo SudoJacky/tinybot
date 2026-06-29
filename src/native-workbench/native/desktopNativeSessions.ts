@@ -14,5 +14,6 @@ export function createDesktopNativeSessionsApi(options: { invoke?: TauriInvoke }
     delete: (key: string) => invoke("worker_session_delete", { input: { key } }),
     patch: (key: string, body: unknown) => invoke("worker_session_patch", { input: { key, body } }),
     clear: (key: string) => invoke("worker_session_clear", { input: { key } }),
+    upsertTaskProgress: (key: string, body: unknown) => invoke("worker_session_task_progress", { input: { key, body } }),
   };
 }

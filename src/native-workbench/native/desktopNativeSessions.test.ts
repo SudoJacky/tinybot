@@ -42,5 +42,9 @@ describe("desktop native sessions API", () => {
       command: "worker_session_clear",
       args: { input: { key: "websocket:chat-1" } },
     });
+    await expect(api.upsertTaskProgress!("websocket:chat-1", { planId: "plan-1" })).resolves.toEqual({
+      command: "worker_session_task_progress",
+      args: { input: { key: "websocket:chat-1", body: { planId: "plan-1" } } },
+    });
   });
 });
