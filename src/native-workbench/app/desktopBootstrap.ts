@@ -123,6 +123,7 @@ import {
   type TsCoworkRuntimeRollout,
 } from "../gateway/gatewayHttpClient";
 import { createDesktopNativeCoworkApi } from "../native/desktopNativeCowork";
+import { createDesktopNativeSessionsApi } from "../native/desktopNativeSessions";
 import { createDesktopNativeSkillsApi } from "../native/desktopNativeSkills";
 import { createDesktopNativeWebuiApi } from "../native/desktopNativeWebui";
 import { createDesktopNativeWorkspaceApi } from "../native/desktopNativeWorkspace";
@@ -158,6 +159,7 @@ const gatewayConfig = resolveGatewayConfig(DEFAULT_GATEWAY_CONFIG);
 const gatewayClientOptions: {
   config: typeof gatewayConfig;
   nativeCowork: ReturnType<typeof createDesktopNativeCoworkApi>;
+  nativeSessions: ReturnType<typeof createDesktopNativeSessionsApi>;
   nativeSkills: ReturnType<typeof createDesktopNativeSkillsApi>;
   nativeWebui: ReturnType<typeof createDesktopNativeWebuiApi>;
   nativeWorkspace: ReturnType<typeof createDesktopNativeWorkspaceApi>;
@@ -166,6 +168,7 @@ const gatewayClientOptions: {
 } = {
   config: gatewayConfig,
   nativeCowork: createDesktopNativeCoworkApi({ invoke }),
+  nativeSessions: createDesktopNativeSessionsApi({ invoke }),
   nativeSkills: createDesktopNativeSkillsApi({ invoke }),
   nativeWebui: createDesktopNativeWebuiApi({ invoke }),
   nativeWorkspace: createDesktopNativeWorkspaceApi({ invoke }),

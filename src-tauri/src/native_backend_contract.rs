@@ -33,6 +33,8 @@ pub const NATIVE_TAURI_COMMANDS: &[&str] = &[
     "worker_workspace_files",
     "worker_workspace_file",
     "worker_workspace_put_file",
+    "worker_sessions_list",
+    "worker_session_messages",
 ];
 
 pub const NATIVE_AGENT_EVENT_NAMES: &[&str] = &[

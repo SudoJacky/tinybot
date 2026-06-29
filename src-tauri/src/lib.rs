@@ -173,6 +173,12 @@ struct WorkerWorkspacePutFileInput {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct WorkerSessionInput {
+    key: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct WorkerCoworkRouteInput {
     method: String,
     path: String,
@@ -488,6 +494,30 @@ fn worker_workspace_put_file(
         state.inner(),
         input.path,
         input.body,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_sessions_list(state: State<'_, SharedGateway>) -> Result<serde_json::Value, String> {
+    worker_sessions_list_with_options(
+        state.inner(),
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_session_messages(
+    input: WorkerSessionInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_session_messages_with_options(
+        state.inner(),
+        input.key,
         ts_agent_worker_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
@@ -1117,6 +1147,99 @@ fn worker_workspace_put_file_with_options(
         ),
         "worker workspace put file",
     )
+}
+
+fn worker_sessions_list_with_options(
+    _shared: &SharedGateway,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    let sessions = call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("sessions-list"),
+            request_id.trace_id("sessions-list"),
+            "session.list_metadata",
+            serde_json::json!({}),
+        ),
+        "worker sessions list",
+    )?;
+    let items = sessions
+        .as_array()
+        .ok_or_else(|| "worker sessions list failed: response was not an array".to_string())?
+        .iter()
+        .map(webui_session_item)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(serde_json::json!({ "items": items }))
+}
+
+fn worker_session_messages_with_options(
+    _shared: &SharedGateway,
+    key: String,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    let mut history = call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("session-messages"),
+            request_id.trace_id("session-messages"),
+            "session.get_history",
+            serde_json::json!({ "session_id": key, "limit": 500 }),
+        ),
+        "worker session messages",
+    )?;
+    let object = history
+        .as_object_mut()
+        .ok_or_else(|| "worker session messages failed: response was not an object".to_string())?;
+    let session_id = object
+        .get("session_id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    object.insert(
+        "key".to_string(),
+        serde_json::Value::String(session_id.clone()),
+    );
+    object.insert(
+        "chat_id".to_string(),
+        serde_json::Value::String(session_chat_id_from_key(&session_id)),
+    );
+    Ok(history)
+}
+
+fn webui_session_item(session: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let mut item = session
+        .as_object()
+        .cloned()
+        .ok_or_else(|| "worker sessions list failed: session item was not an object".to_string())?;
+    let session_id = item
+        .get("session_id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    item.insert(
+        "key".to_string(),
+        serde_json::Value::String(session_id.clone()),
+    );
+    item.insert(
+        "chat_id".to_string(),
+        serde_json::Value::String(session_chat_id_from_key(&session_id)),
+    );
+    Ok(serde_json::Value::Object(item))
+}
+
+fn session_chat_id_from_key(key: &str) -> String {
+    key.split_once(':')
+        .map(|(_, chat_id)| chat_id)
+        .unwrap_or(key)
+        .to_string()
 }
 
 fn worker_cowork_route_with_options(
@@ -2170,6 +2293,8 @@ pub fn run() {
             worker_workspace_files,
             worker_workspace_file,
             worker_workspace_put_file,
+            worker_sessions_list,
+            worker_session_messages,
             worker_cowork_route,
             worker_webui_route,
             worker_transport_gateway_frame,
@@ -3038,6 +3163,63 @@ mod tests {
                 .expect("written file should read"),
             "new readme"
         );
+        assert_eq!(
+            lock_runtime(&shared).experimental_worker.status().state,
+            WorkerManagerState::Stopped
+        );
+    }
+
+    #[test]
+    fn worker_session_read_commands_use_rust_session_store_without_ts_worker() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write(
+            "sessions/store.json",
+            &serde_json::json!({
+                "version": 1,
+                "sessions": [{
+                    "session_id": "websocket:chat-1",
+                    "title": "Native session",
+                    "workspace_dir": "D:/Code/py/tinybot",
+                    "created_at": "2026-06-29T08:00:00Z",
+                    "updated_at": "2026-06-29T08:30:00Z",
+                    "extra": {
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": "Use Rust state",
+                                "message_id": "msg-1",
+                                "timestamp": "2026-06-29T08:00:01Z"
+                            }
+                        ]
+                    }
+                }]
+            })
+            .to_string(),
+        );
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+
+        let sessions = worker_sessions_list_with_options(
+            &shared,
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("session list should be served by Rust session state");
+        let messages = worker_session_messages_with_options(
+            &shared,
+            "websocket:chat-1".to_string(),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("session messages should be served by Rust session state");
+
+        assert_eq!(sessions["items"][0]["key"], "websocket:chat-1");
+        assert_eq!(sessions["items"][0]["chat_id"], "chat-1");
+        assert_eq!(sessions["items"][0]["title"], "Native session");
+        assert_eq!(messages["key"], "websocket:chat-1");
+        assert_eq!(messages["chat_id"], "chat-1");
+        assert_eq!(messages["messages"][0]["content"], "Use Rust state");
         assert_eq!(
             lock_runtime(&shared).experimental_worker.status().state,
             WorkerManagerState::Stopped

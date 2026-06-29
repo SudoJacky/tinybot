@@ -652,39 +652,52 @@ describe("gateway HTTP client", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
-  test("prefers native WebUI session list route when available", async () => {
+  test("prefers native Rust session list when both native paths are available", async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
     const nativeWebui = {
-      route: vi.fn(async (request: { method: string; path: string; body?: unknown }) => ({
+      route: vi.fn(async () => {
+        throw new Error("native WebUI session list route should not be used");
+      }),
+    };
+    const nativeSessions = {
+      list: vi.fn(async () => ({
         items: [{ key: "websocket:chat-1", chat_id: "chat-1", title: "Native session" }],
-        request,
       })),
+      messages: vi.fn(),
     };
     const client = createGatewayApiClient({
       config: DEFAULT_GATEWAY_CONFIG,
       fetchFn,
+      nativeSessions,
       nativeWebui,
     });
 
     await expect(client.sessions.list()).resolves.toMatchObject({
       items: [{ key: "websocket:chat-1", chat_id: "chat-1", title: "Native session" }],
     });
-    expect(nativeWebui.route).toHaveBeenCalledWith({ method: "GET", path: "/api/sessions" });
+    expect(nativeSessions.list).toHaveBeenCalledTimes(1);
+    expect(nativeWebui.route).not.toHaveBeenCalled();
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
-  test("prefers native WebUI session messages route when available", async () => {
+  test("prefers native Rust session messages when both native paths are available", async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
     const nativeWebui = {
-      route: vi.fn(async (request: { method: string; path: string; body?: unknown }) => ({
-        key: "websocket:chat-1",
+      route: vi.fn(async () => {
+        throw new Error("native WebUI session messages route should not be used");
+      }),
+    };
+    const nativeSessions = {
+      list: vi.fn(),
+      messages: vi.fn(async (key: string) => ({
+        key,
         messages: [{ role: "user", content: "Native history" }],
-        request,
       })),
     };
     const client = createGatewayApiClient({
       config: DEFAULT_GATEWAY_CONFIG,
       fetchFn,
+      nativeSessions,
       nativeWebui,
     });
 
@@ -692,10 +705,8 @@ describe("gateway HTTP client", () => {
       key: "websocket:chat-1",
       messages: [{ role: "user", content: "Native history" }],
     });
-    expect(nativeWebui.route).toHaveBeenCalledWith({
-      method: "GET",
-      path: "/api/sessions/websocket%3Achat-1/messages",
-    });
+    expect(nativeSessions.messages).toHaveBeenCalledWith("websocket:chat-1");
+    expect(nativeWebui.route).not.toHaveBeenCalled();
     expect(fetchFn).not.toHaveBeenCalled();
   });
 

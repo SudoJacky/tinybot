@@ -6,6 +6,7 @@ type FetchFn = typeof fetch;
 type ClientOptions = {
   config?: GatewayConfig;
   fetchFn?: FetchFn;
+  nativeSessions?: NativeSessionsApi;
   nativeSkills?: NativeSkillsApi;
   nativeWorkspace?: NativeWorkspaceApi;
   nativeCowork?: NativeCoworkApi;
@@ -59,6 +60,11 @@ export type NativeSkillsApi = {
   update: (name: string, body: unknown) => Promise<unknown>;
   delete: (name: string) => Promise<unknown>;
   validate: (name: string) => Promise<unknown>;
+};
+
+export type NativeSessionsApi = {
+  list: () => Promise<unknown>;
+  messages: (key: string) => Promise<unknown>;
 };
 
 export type NativeWorkspaceApi = {
@@ -340,12 +346,12 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
     },
     sessions: {
       list: () => nativeOrGateway(
-        () => options.nativeWebui?.route({ method: "GET", path: "/api/sessions" }),
+        () => options.nativeSessions?.list() ?? options.nativeWebui?.route({ method: "GET", path: "/api/sessions" }),
         () => request("/api/sessions"),
         "webui.sessions.list",
       ),
       messages: (key: string) => nativeOrGateway(
-        () => options.nativeWebui?.route({ method: "GET", path: `/api/sessions/${encodePathSegment(key)}/messages` }),
+        () => options.nativeSessions?.messages(key) ?? options.nativeWebui?.route({ method: "GET", path: `/api/sessions/${encodePathSegment(key)}/messages` }),
         () => request(`/api/sessions/${encodePathSegment(key)}/messages`),
         "webui.sessions.messages",
       ),
