@@ -925,21 +925,16 @@ describe("gateway HTTP client", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
-  test("prefers native WebUI skills read routes when available", async () => {
+  test("prefers native Rust skills read operations when both native paths are available", async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
     const nativeWebui = {
-      route: vi.fn(async (request: { method: string; path: string; body?: unknown }) => ({
-        native: true,
-        request,
-      })),
+      route: vi.fn(async () => {
+        throw new Error("native WebUI skills route should not be used");
+      }),
     };
     const nativeSkills = {
-      list: vi.fn(async () => {
-        throw new Error("legacy native skills should not be used");
-      }),
-      detail: vi.fn(async () => {
-        throw new Error("legacy native skills should not be used");
-      }),
+      list: vi.fn(async () => ({ skills: [{ name: "planner" }] })),
+      detail: vi.fn(async (name: string) => ({ name, content: "Plan." })),
       create: vi.fn(async () => ({})),
       update: vi.fn(async () => ({})),
       delete: vi.fn(async () => ({})),
@@ -952,44 +947,28 @@ describe("gateway HTTP client", () => {
       nativeSkills,
     });
 
-    await expect(client.skills.list()).resolves.toEqual({
-      native: true,
-      request: { method: "GET", path: "/api/skills" },
-    });
-    await expect(client.skills.detail("planner/phase")).resolves.toEqual({
-      native: true,
-      request: { method: "GET", path: "/api/skills/planner%2Fphase" },
-    });
-    expect(nativeWebui.route).toHaveBeenCalledWith({ method: "GET", path: "/api/skills" });
-    expect(nativeWebui.route).toHaveBeenCalledWith({ method: "GET", path: "/api/skills/planner%2Fphase" });
-    expect(nativeSkills.list).not.toHaveBeenCalled();
-    expect(nativeSkills.detail).not.toHaveBeenCalled();
+    await expect(client.skills.list()).resolves.toEqual({ skills: [{ name: "planner" }] });
+    await expect(client.skills.detail("planner/phase")).resolves.toEqual({ name: "planner/phase", content: "Plan." });
+    expect(nativeSkills.list).toHaveBeenCalledTimes(1);
+    expect(nativeSkills.detail).toHaveBeenCalledWith("planner/phase");
+    expect(nativeWebui.route).not.toHaveBeenCalled();
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
-  test("prefers native WebUI skills mutation routes when available", async () => {
+  test("prefers native Rust skills mutation operations when both native paths are available", async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
     const nativeWebui = {
-      route: vi.fn(async (request: { method: string; path: string; body?: unknown }) => ({
-        native: true,
-        request,
-      })),
+      route: vi.fn(async () => {
+        throw new Error("native WebUI skills route should not be used");
+      }),
     };
     const nativeSkills = {
       list: vi.fn(async () => ({})),
       detail: vi.fn(async () => ({})),
-      create: vi.fn(async () => {
-        throw new Error("legacy native skills should not be used");
-      }),
-      update: vi.fn(async () => {
-        throw new Error("legacy native skills should not be used");
-      }),
-      delete: vi.fn(async () => {
-        throw new Error("legacy native skills should not be used");
-      }),
-      validate: vi.fn(async () => {
-        throw new Error("legacy native skills should not be used");
-      }),
+      create: vi.fn(async (body: unknown) => ({ created: true, body })),
+      update: vi.fn(async (name: string, body: unknown) => ({ updated: true, name, body })),
+      delete: vi.fn(async (name: string) => ({ deleted: true, name })),
+      validate: vi.fn(async (name: string) => ({ name, valid: true })),
     };
     const client = createGatewayApiClient({
       config: DEFAULT_GATEWAY_CONFIG,
@@ -999,25 +978,27 @@ describe("gateway HTTP client", () => {
     });
 
     await expect(client.skills.create({ name: "planner", content: "Plan." })).resolves.toEqual({
-      native: true,
-      request: { method: "POST", path: "/api/skills", body: { name: "planner", content: "Plan." } },
+      created: true,
+      body: { name: "planner", content: "Plan." },
     });
     await expect(client.skills.update("planner/phase", { content: "Updated." })).resolves.toEqual({
-      native: true,
-      request: { method: "PATCH", path: "/api/skills/planner%2Fphase", body: { content: "Updated." } },
+      updated: true,
+      name: "planner/phase",
+      body: { content: "Updated." },
     });
     await expect(client.skills.delete("planner/phase")).resolves.toEqual({
-      native: true,
-      request: { method: "DELETE", path: "/api/skills/planner%2Fphase" },
+      deleted: true,
+      name: "planner/phase",
     });
     await expect(client.skills.validate("planner/phase")).resolves.toEqual({
-      native: true,
-      request: { method: "POST", path: "/api/skills/planner%2Fphase/validate" },
+      name: "planner/phase",
+      valid: true,
     });
-    expect(nativeSkills.create).not.toHaveBeenCalled();
-    expect(nativeSkills.update).not.toHaveBeenCalled();
-    expect(nativeSkills.delete).not.toHaveBeenCalled();
-    expect(nativeSkills.validate).not.toHaveBeenCalled();
+    expect(nativeSkills.create).toHaveBeenCalledWith({ name: "planner", content: "Plan." });
+    expect(nativeSkills.update).toHaveBeenCalledWith("planner/phase", { content: "Updated." });
+    expect(nativeSkills.delete).toHaveBeenCalledWith("planner/phase");
+    expect(nativeSkills.validate).toHaveBeenCalledWith("planner/phase");
+    expect(nativeWebui.route).not.toHaveBeenCalled();
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
