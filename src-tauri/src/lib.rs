@@ -8444,7 +8444,7 @@ mod tests {
         manager: &WorkerManager,
         predicate: impl Fn(&WorkerManagerStatus) -> bool,
     ) -> WorkerManagerStatus {
-        for _ in 0..30 {
+        for _ in 0..100 {
             let status = manager.status();
             if predicate(&status) {
                 return status;

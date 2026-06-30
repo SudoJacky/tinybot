@@ -378,15 +378,29 @@ impl WorkerManager {
         self.emit_status();
 
         if let Some(mut child) = child {
-            if let Err(error) = terminate_child_process_tree(&mut child) {
-                let mut inner = lock_inner(&self.inner);
-                inner.lifecycle = WorkerProcessLifecycle::Failed;
-                inner.last_error = Some(format!("failed to stop worker: {error}"));
-                drop(inner);
-                self.emit_status();
-                return Err(WorkerManagerError::StopFailed(error.to_string()));
+            match child.try_wait() {
+                Ok(Some(_)) => {}
+                Ok(None) => {
+                    if let Err(error) = terminate_child_process_tree(&mut child) {
+                        let mut inner = lock_inner(&self.inner);
+                        inner.lifecycle = WorkerProcessLifecycle::Failed;
+                        inner.last_error = Some(format!("failed to stop worker: {error}"));
+                        drop(inner);
+                        self.emit_status();
+                        return Err(WorkerManagerError::StopFailed(error.to_string()));
+                    }
+                    let _ = child.wait();
+                }
+                Err(error) => {
+                    let mut inner = lock_inner(&self.inner);
+                    inner.lifecycle = WorkerProcessLifecycle::Failed;
+                    inner.last_error =
+                        Some(format!("failed to inspect worker before stop: {error}"));
+                    drop(inner);
+                    self.emit_status();
+                    return Err(WorkerManagerError::StopFailed(error.to_string()));
+                }
             }
-            let _ = child.wait();
         }
 
         let mut inner = lock_inner(&self.inner);
@@ -719,7 +733,7 @@ mod tests {
                     20,
                     CapabilityPolicy::default(),
                 );
-                manager.start_stdio_rpc(test_stdio_event_worker_spec(), router)
+                manager.start_stdio_rpc(test_stdio_blocking_event_worker_spec(), router)
             }));
         }
 
@@ -1233,7 +1247,7 @@ mod tests {
             }),
         );
         let response = manager
-            .send_stdio_request(&request, std::time::Duration::from_secs(5))
+            .send_stdio_request(&request, std::time::Duration::from_secs(15))
             .expect("real TS agent worker request should complete");
         let events = wait_for_events(&events, |events| {
             let has_delta = events.iter().any(|event| {
@@ -1878,7 +1892,7 @@ mod tests {
                 "providers": {
                     "fixture": {
                         "responses": [
-                            { "content": "late answer", "stopReason": "stop", "delayMs": 300 }
+                            { "content": "late answer", "stopReason": "stop", "delayMs": 1500 }
                         ]
                     }
                 }
@@ -1928,6 +1942,27 @@ mod tests {
             "stderr",
             "[ts-agent-worker] ready"
         ));
+
+        let events_before_cancel = wait_for_events(&events, |events| {
+            events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Protocol(protocol_event)
+                        if protocol_event.event == "agent.usage"
+                            && protocol_event.payload["runId"] == "real-ts-run-cancel-1"
+                            && protocol_event.payload["phase"] == "before_request"
+                )
+            })
+        });
+        assert!(events_before_cancel.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.usage"
+                        && protocol_event.payload["runId"] == "real-ts-run-cancel-1"
+                        && protocol_event.payload["phase"] == "before_request"
+            )
+        }));
 
         let cancel_request = WorkerRequest::new(
             "agent-cancel-real-ts-1",
@@ -2075,6 +2110,35 @@ mod tests {
         }
     }
 
+    fn test_stdio_blocking_event_worker_spec() -> WorkerCommandSpec {
+        #[cfg(target_os = "windows")]
+        {
+            WorkerCommandSpec::new(
+                "powershell",
+                [
+                    "-NoProfile",
+                    "-Command",
+                    r#"$json = '{"protocol_version":"1","trace_id":"trace-event","event":"diagnostics.log","payload":{"stream":"stdout","line":"protocol event ready"}}'; [Console]::Out.WriteLine($json); Start-Sleep -Seconds 30"#,
+                ],
+                PathBuf::from("."),
+            )
+            .with_label("stdio-blocking-event-worker")
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            WorkerCommandSpec::new(
+                "sh",
+                [
+                    "-c",
+                    r#"json='{"protocol_version":"1","trace_id":"trace-event","event":"diagnostics.log","payload":{"stream":"stdout","line":"protocol event ready"}}'; printf '%s\n' "$json"; sleep 30"#,
+                ],
+                PathBuf::from("."),
+            )
+            .with_label("stdio-blocking-event-worker")
+        }
+    }
+
     fn test_stdio_agent_echo_worker_spec() -> WorkerCommandSpec {
         #[cfg(target_os = "windows")]
         {
@@ -2096,7 +2160,7 @@ mod tests {
                 "sh",
                 [
                     "-c",
-                    r#"IFS= read -r agent; printf '%s\n' '{"protocol_version":"1","id":"worker-req-1","trace_id":"trace-worker","method":"workspace.list_files","params":{}}'; IFS= read -r native_resp; printf '%s\n' '{"protocol_version":"1","id":"agent-req-1","trace_id":"trace-agent","result":{"ok":true,"echo":"hello","workspaceFileCount":1}}'"#,
+                    r#"IFS= read -r agent; printf '%s\n' '{"protocol_version":"1","id":"worker-req-1","trace_id":"trace-worker","method":"workspace.list_files","params":{}}'; IFS= read -r native_resp; echo_value=$(printf '%s' "$agent" | sed -n 's/.*"input":"\([^"]*\)".*/\1/p'); printf '{"protocol_version":"1","id":"agent-req-1","trace_id":"trace-agent","result":{"ok":true,"echo":"%s","workspaceFileCount":1}}\n' "$echo_value""#,
                 ],
                 PathBuf::from("."),
             )
@@ -2162,7 +2226,7 @@ mod tests {
     }
 
     fn wait_for_health(manager: &WorkerManager, expected: WorkerHealth) -> WorkerHealth {
-        for _ in 0..30 {
+        for _ in 0..100 {
             let health = manager.health_check();
             if health == expected {
                 return health;
