@@ -5835,6 +5835,41 @@ mod tests {
     }
 
     #[test]
+    fn worker_cron_next_wake_delay_backs_off_due_jobs_while_dispatch_is_unsupported() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write(
+            "cron/jobs.json",
+            &serde_json::json!({
+                "version": 1,
+                "jobs": [
+                    {
+                        "id": "due",
+                        "name": "Due",
+                        "enabled": true,
+                        "schedule": { "kind": "at", "atMs": 1000 },
+                        "payload": { "kind": "agent_turn", "message": "now", "deliver": false },
+                        "state": { "nextRunAtMs": 1000, "lastRunAtMs": null, "lastStatus": null, "lastError": null, "runHistory": [] },
+                        "createdAtMs": 1,
+                        "updatedAtMs": 1,
+                        "deleteAfterRun": true
+                    }
+                ]
+            })
+            .to_string(),
+        );
+
+        let delay = worker_cron_next_wake_delay_with_options(
+            fixture.root.clone(),
+            serde_json::json!({}),
+            2000,
+            Duration::from_secs(30),
+        )
+        .expect("cron next wake should back off due jobs");
+
+        assert_eq!(delay, Duration::from_secs(30));
+    }
+
+    #[test]
     fn worker_cron_dispatch_due_skips_when_dispatch_already_running() {
         let fixture = WorkspaceFixture::new();
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));

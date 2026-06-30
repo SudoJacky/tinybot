@@ -118,7 +118,7 @@ pub(crate) fn worker_cron_next_wake_delay_with_options(
         return Ok(max_poll);
     };
     if next_run_at_ms <= now_ms {
-        return Ok(Duration::ZERO);
+        return Ok(max_poll);
     }
     Ok(Duration::from_millis((next_run_at_ms - now_ms) as u64).min(max_poll))
 }
