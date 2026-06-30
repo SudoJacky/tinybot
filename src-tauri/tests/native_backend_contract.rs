@@ -56,7 +56,6 @@ fn route_inventory_classifies_webui_routes_and_tauri_commands() {
         entry.path == "worker_channel_start" && entry.owner == NativeRouteOwner::Unsupported
     }));
     assert!(summary.rust_owned > 0);
-    assert_eq!(summary.ts_fallback, 0);
     assert!(summary.unsupported > 0);
 }
 
@@ -168,16 +167,16 @@ fn native_event_wraps_worker_event_with_frontend_correlation_fields() {
     assert_eq!(event.run_id.as_deref(), Some("run-1"));
     assert_eq!(event.trace_id, "trace-1");
     assert_eq!(event.event_name, "agent.delta");
-    assert_eq!(event.source, NativeBackendEventSource::CompatibilityWorker);
+    assert_eq!(event.source, NativeBackendEventSource::RustBackend);
     assert_eq!(event.payload["delta"], "hi");
 }
 
 #[test]
-fn runtime_status_reports_rust_owner_without_ts_compatibility_worker() {
+fn runtime_status_reports_rust_owner() {
     let status = NativeBackendRuntimeStatus::rust_without_compatibility();
 
     assert_eq!(status.backend_kind, NativeBackendKind::Rust);
-    assert!(status.compatibility_worker.is_none());
+    assert_eq!(status.backend_label, "rust");
 }
 
 #[test]

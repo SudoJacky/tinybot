@@ -11,11 +11,10 @@ use std::{
 use tauri::State;
 
 use crate::worker_protocol::WorkerRequest;
-#[cfg(test)]
-use crate::worker_request_id::WorkerRequestCorrelation;
 use crate::{
-    experimental_worker_config_snapshot, experimental_worker_router, lock_runtime, now_unix_ms,
-    push_log, ts_agent_worker_workspace_root, SharedGateway, WORKER_CRON_TIMER_MAX_POLL,
+    experimental_worker_config_snapshot, experimental_worker_router, lock_runtime,
+    native_backend_workspace_root, now_unix_ms, push_log, SharedGateway,
+    WORKER_CRON_TIMER_MAX_POLL,
 };
 
 #[tauri::command]
@@ -24,7 +23,7 @@ pub(crate) fn worker_cron_dispatch_due(
 ) -> Result<serde_json::Value, String> {
     worker_cron_dispatch_due_with_options(
         state.inner(),
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         now_unix_ms() as i64,
         Duration::from_secs(120),
@@ -193,7 +192,7 @@ pub(crate) fn stop_worker_cron_timer(shared: &SharedGateway) {
 fn worker_cron_timer_loop(shared: SharedGateway, stop: Arc<AtomicBool>, started: Arc<AtomicBool>) {
     while !stop.load(Ordering::SeqCst) {
         let delay = worker_cron_next_wake_delay_with_options(
-            ts_agent_worker_workspace_root(),
+            native_backend_workspace_root(),
             experimental_worker_config_snapshot(),
             now_unix_ms() as i64,
             WORKER_CRON_TIMER_MAX_POLL,
@@ -204,7 +203,7 @@ fn worker_cron_timer_loop(shared: SharedGateway, stop: Arc<AtomicBool>, started:
         }
         match worker_cron_dispatch_due_with_options(
             &shared,
-            ts_agent_worker_workspace_root(),
+            native_backend_workspace_root(),
             experimental_worker_config_snapshot(),
             now_unix_ms() as i64,
             Duration::from_secs(120),
@@ -235,25 +234,6 @@ fn sleep_cron_timer_or_stopped(delay: Duration, stop: &AtomicBool) -> bool {
         remaining = remaining.saturating_sub(chunk);
     }
     stop.load(Ordering::SeqCst)
-}
-
-#[cfg(test)]
-pub(crate) fn build_worker_cron_run_due_request(
-    request_id: WorkerRequestCorrelation,
-    jobs: serde_json::Value,
-    model: String,
-) -> WorkerRequest {
-    WorkerRequest::new(
-        request_id.id("cron-run-due"),
-        request_id.trace_id("cron-run-due"),
-        "cron.run_due",
-        serde_json::json!({
-            "jobs": jobs,
-            "model": model,
-            "maxIterations": 4,
-            "stream": false
-        }),
-    )
 }
 
 #[cfg(test)]

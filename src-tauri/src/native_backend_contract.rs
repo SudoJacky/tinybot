@@ -1,5 +1,4 @@
-use crate::worker_protocol::{WorkerEvent, WorkerTransportMode};
-use crate::worker_runtime::{WorkerRuntimeState, WorkerRuntimeStatus};
+use crate::worker_protocol::WorkerEvent;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -7,7 +6,6 @@ use serde_json::{Map, Value};
 #[serde(rename_all = "kebab-case")]
 pub enum NativeRouteOwner {
     RustOwned,
-    TsFallback,
     Unsupported,
 }
 
@@ -29,7 +27,6 @@ pub struct NativeRouteInventoryEntry {
 #[serde(rename_all = "camelCase")]
 pub struct NativeRouteOwnerSummary {
     pub rust_owned: usize,
-    pub ts_fallback: usize,
     pub unsupported: usize,
 }
 
@@ -48,7 +45,6 @@ impl NativeRouteOwnerSummary {
         for entry in entries {
             match entry.owner {
                 NativeRouteOwner::RustOwned => summary.rust_owned += 1,
-                NativeRouteOwner::TsFallback => summary.ts_fallback += 1,
                 NativeRouteOwner::Unsupported => summary.unsupported += 1,
             }
         }
@@ -713,7 +709,6 @@ fn tauri_command_group(command: &str) -> &'static str {
 fn tauri_command_reason(command: &str) -> &'static str {
     match tauri_command_owner(command) {
         NativeRouteOwner::RustOwned => "implemented through Rust native backend command",
-        NativeRouteOwner::TsFallback => "legacy TS fallback command owner",
         NativeRouteOwner::Unsupported => "unsupported command",
     }
 }
@@ -721,7 +716,6 @@ fn tauri_command_reason(command: &str) -> &'static str {
 fn tauri_command_replacement_plan(command: &str) -> &'static str {
     match tauri_command_owner(command) {
         NativeRouteOwner::RustOwned => "implemented in Rust",
-        NativeRouteOwner::TsFallback => "replace legacy TS fallback owner",
         NativeRouteOwner::Unsupported => "add a Rust command implementation before exposing",
     }
 }
@@ -734,36 +728,8 @@ pub enum NativeBackendKind {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum CompatibilityWorkerKind {
-    TsAgentWorker,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CompatibilityWorkerState {
-    Inactive,
-    Starting,
-    Running,
-    Failed,
-    Incompatible,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
 pub enum NativeBackendEventSource {
     RustBackend,
-    CompatibilityWorker,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CompatibilityWorkerRuntimeStatus {
-    pub kind: CompatibilityWorkerKind,
-    pub state: CompatibilityWorkerState,
-    pub transport_mode: Option<WorkerTransportMode>,
-    pub diagnostics: Vec<crate::worker_protocol::WorkerDiagnosticLine>,
-    pub last_error: Option<String>,
-    pub delegated_capabilities: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -771,8 +737,6 @@ pub struct CompatibilityWorkerRuntimeStatus {
 pub struct NativeBackendRuntimeStatus {
     pub backend_kind: NativeBackendKind,
     pub backend_label: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub compatibility_worker: Option<CompatibilityWorkerRuntimeStatus>,
 }
 
 impl NativeBackendRuntimeStatus {
@@ -780,25 +744,6 @@ impl NativeBackendRuntimeStatus {
         Self {
             backend_kind: NativeBackendKind::Rust,
             backend_label: "rust".to_string(),
-            compatibility_worker: None,
-        }
-    }
-
-    pub fn rust_with_ts_compatibility(
-        worker: WorkerRuntimeStatus,
-        delegated_capabilities: Vec<String>,
-    ) -> Self {
-        Self {
-            backend_kind: NativeBackendKind::Rust,
-            backend_label: "rust".to_string(),
-            compatibility_worker: Some(CompatibilityWorkerRuntimeStatus {
-                kind: CompatibilityWorkerKind::TsAgentWorker,
-                state: compatibility_state_from_worker(&worker.state),
-                transport_mode: worker.transport_mode,
-                diagnostics: worker.diagnostics,
-                last_error: worker.last_error,
-                delegated_capabilities,
-            }),
         }
     }
 }
@@ -830,7 +775,7 @@ impl NativeBackendEvent {
             trace_id: event.trace_id,
             event_name: event.event,
             timestamp: timestamp.into(),
-            source: NativeBackendEventSource::CompatibilityWorker,
+            source: NativeBackendEventSource::RustBackend,
             payload: event.payload,
         }
     }
@@ -864,15 +809,5 @@ pub struct NativeBackendRunSpec {
 impl NativeBackendRunSpec {
     pub fn from_value(value: Value) -> Result<Self, serde_json::Error> {
         serde_json::from_value(value)
-    }
-}
-
-fn compatibility_state_from_worker(state: &WorkerRuntimeState) -> CompatibilityWorkerState {
-    match state {
-        WorkerRuntimeState::Stopped => CompatibilityWorkerState::Inactive,
-        WorkerRuntimeState::Starting => CompatibilityWorkerState::Starting,
-        WorkerRuntimeState::Running => CompatibilityWorkerState::Running,
-        WorkerRuntimeState::Failed => CompatibilityWorkerState::Failed,
-        WorkerRuntimeState::Incompatible => CompatibilityWorkerState::Incompatible,
     }
 }

@@ -1,4 +1,4 @@
-﻿import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { buildDesktopCoworkCockpitView, buildDesktopCoworkSessionRows } from "../cowork/desktopCowork";
 import { buildDesktopKnowledgePaneModel } from "../knowledge/desktopKnowledgeTraceability";
 import { buildDesktopRunChainItems } from "./desktopRunChainInspector";
@@ -1267,7 +1267,7 @@ describe("desktop workbench shell", () => {
       worker_runtime: {
         state: "running",
         transport_mode: "stdio",
-        diagnostics: [{ stream: "stderr", line: "[ts-agent-worker] ready" }],
+        diagnostics: [{ stream: "stderr", line: "[native-backend] ready" }],
       },
     };
 
@@ -1293,7 +1293,7 @@ describe("desktop workbench shell", () => {
           state: "running",
           transport_mode: "stdio",
           diagnostics: [
-            { stream: "stderr", line: "[ts-agent-worker] ready" },
+            { stream: "stderr", line: "[native-backend] ready" },
             { stream: "stderr", line: "worker.request.complete method=webui.handle_request route=GET /v1/knowledge/jobs/kjob_1" },
           ],
         },
@@ -2738,7 +2738,7 @@ describe("desktop workbench shell", () => {
       "Repo root: D:/Code/tinybot/tinybot",
       "Recent logs: stdout: ready",
       "Last error: No recent error",
-      "Exit policy: Keep TS compatibility worker running after exit",
+      "Exit policy: Keep native backend running after exit",
     ]);
   });
 

@@ -151,11 +151,11 @@ mod tests {
             "---\nname: planner\ndescription: Workspace planner\n---\nWorkspace body",
         );
         fixture.write_outside(
-            "workers/ts-agent-worker/skills/planner/SKILL.md",
+            "builtin-skills/planner/SKILL.md",
             "---\nname: planner\ndescription: Builtin planner\n---\nBuiltin body",
         );
         fixture.write_outside(
-            "workers/ts-agent-worker/skills/tmux/SKILL.md",
+            "builtin-skills/tmux/SKILL.md",
             "---\nname: tmux\ndescription: Terminal sessions\n---\nTmux body",
         );
         let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_policy())
@@ -179,7 +179,7 @@ mod tests {
                 (
                     "tmux".to_string(),
                     "builtin".to_string(),
-                    "workers/ts-agent-worker/skills/tmux/SKILL.md".to_string()
+                    "builtin-skills/tmux/SKILL.md".to_string()
                 )
             ]
         );
@@ -507,7 +507,7 @@ mod tests {
     fn webui_skill_delete_rejects_builtin_skills() {
         let fixture = WorkspaceFixture::new();
         fixture.write_outside(
-            "workers/ts-agent-worker/skills/planner/SKILL.md",
+            "builtin-skills/planner/SKILL.md",
             "---\nname: planner\ndescription: Builtin planner\n---\nBuiltin body",
         );
         let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_write_policy())

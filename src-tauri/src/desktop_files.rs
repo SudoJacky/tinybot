@@ -163,7 +163,7 @@ pub(crate) fn reveal_workspace_file_path_from_config_path(
     config_path: &Path,
     requested_path: &str,
 ) -> Result<PathBuf, String> {
-    let root = crate::resolve_ts_agent_worker_workspace_root_from_config_path(config_path);
+    let root = crate::resolve_native_backend_workspace_root_from_config_path(config_path);
     allowed_workspace_file_path(&root, requested_path)
 }
 

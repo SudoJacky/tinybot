@@ -1,4 +1,4 @@
-﻿import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { createDesktopNativeWorkbenchRuntime } from "./desktopNativeWorkbenchRuntime";
 import { normalizeNativeBackendEventPayload } from "./nativeBackendContract";
 
@@ -639,7 +639,7 @@ describe("desktop native workbench runtime", () => {
       traceId: "trace-rust-1",
       eventName: "agent.delta",
       timestamp: "2026-06-29T14:30:01.000Z",
-      source: "compatibility_worker",
+      source: "rust_backend",
       payload: { runId, delta: "rust-owned contract" },
     } as const;
 

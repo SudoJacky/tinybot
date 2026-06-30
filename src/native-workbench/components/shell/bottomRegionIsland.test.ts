@@ -27,7 +27,7 @@ describe("bottom region Vue island", () => {
       http_ok: true,
       gateway_http: "http://127.0.0.1:18790",
       gateway_ws: "ws://127.0.0.1:18790/ws",
-      command: "node workers/ts-agent-worker/src/index.ts",
+      command: "Tauri Rust backend",
       port: 18790,
       repo_root: "D:/Code/tinybot/tinybot",
       logs: ["stdout: ready"],

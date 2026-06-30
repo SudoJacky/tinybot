@@ -56,7 +56,7 @@ Build a desktop package from the repository root:
 npm run tauri -- build
 ```
 
-The desktop shell starts the Rust native backend in-process. The runtime exposes WebUI-compatible status and WebSocket endpoints at `http://127.0.0.1:18790` and `ws://127.0.0.1:18790/ws`. Routes or commands that are not implemented in Rust return explicit unsupported responses instead of delegating to the former TS compatibility worker.
+The desktop shell starts the Rust native backend in-process. The runtime exposes WebUI-compatible status and WebSocket endpoints at `http://127.0.0.1:18790` and `ws://127.0.0.1:18790/ws`. Routes or commands that are not implemented in Rust return explicit unsupported responses.
 
 ## Current Boundary
 
@@ -77,7 +77,7 @@ The desktop shell starts the Rust native backend in-process. The runtime exposes
 4. When `/webui/bootstrap` is ready, the desktop window installs the WebUI shell and imports the existing WebUI entry module.
 5. Use the desktop app the same way as the browser WebUI: chat, sessions, approvals, temporary files, settings, providers, tools, skills, knowledge, workspace files, browser frames, Cowork, language toggle, and theme toggle all remain WebUI-owned surfaces where Rust support exists.
 
-The app owns the native runtime lifecycle. The configured exit policy applies to managed native backend state; there is no TS compatibility worker lifecycle.
+The app owns the native runtime lifecycle. The configured exit policy applies to managed native backend state.
 
 ## Desktop Adapters
 

@@ -8,7 +8,7 @@ impl WorkerWorkspaceRpc {
         collect_skill_entries(&root, "skills", "workspace", &mut skills, &mut seen_names)?;
         collect_skill_entries(
             &builtin_skills_root,
-            "workers/ts-agent-worker/skills",
+            "builtin-skills",
             "builtin",
             &mut skills,
             &mut seen_names,
