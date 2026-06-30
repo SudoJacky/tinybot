@@ -1,15 +1,11 @@
 use serde_json::json;
 use tinybot_desktop_lib::native_backend_contract::{
     native_route_owner_summary, native_runtime_component_inventory, native_tauri_command_inventory,
-    native_webui_route_inventory, webui_route_inventory_entry, CompatibilityWorkerKind,
-    CompatibilityWorkerState, NativeBackendEvent, NativeBackendEventSource, NativeBackendKind,
-    NativeBackendRunSpec, NativeBackendRuntimeStatus, NativeRouteOwner, NATIVE_AGENT_EVENT_NAMES,
-    NATIVE_TAURI_COMMANDS,
+    native_webui_route_inventory, webui_route_inventory_entry, NativeBackendEvent,
+    NativeBackendEventSource, NativeBackendKind, NativeBackendRunSpec, NativeBackendRuntimeStatus,
+    NativeRouteOwner, NATIVE_AGENT_EVENT_NAMES, NATIVE_TAURI_COMMANDS,
 };
-use tinybot_desktop_lib::worker_protocol::{
-    WorkerEvent, WorkerRequest, WorkerResponse, WorkerTransportMode,
-};
-use tinybot_desktop_lib::worker_runtime::WorkerRuntimeStatus;
+use tinybot_desktop_lib::worker_protocol::{WorkerEvent, WorkerRequest, WorkerResponse};
 
 #[test]
 fn contract_inventory_lists_native_commands_and_events_used_by_frontend() {
@@ -45,7 +41,7 @@ fn route_inventory_classifies_webui_routes_and_tauri_commands() {
     assert!(webui.iter().any(|entry| {
         entry.method == Some("POST")
             && entry.path == "/v1/knowledge/query"
-            && entry.owner == NativeRouteOwner::TsFallback
+            && entry.owner == NativeRouteOwner::Unsupported
             && !entry.replacement_plan.is_empty()
     }));
     assert!(webui.iter().any(|entry| {
@@ -57,16 +53,16 @@ fn route_inventory_classifies_webui_routes_and_tauri_commands() {
         entry.path == "worker_run_agent" && entry.owner == NativeRouteOwner::RustOwned
     }));
     assert!(tauri.iter().any(|entry| {
-        entry.path == "worker_channel_start" && entry.owner == NativeRouteOwner::TsFallback
+        entry.path == "worker_channel_start" && entry.owner == NativeRouteOwner::Unsupported
     }));
     assert!(summary.rust_owned > 0);
-    assert!(summary.ts_fallback > 0);
+    assert_eq!(summary.ts_fallback, 0);
     assert!(summary.unsupported > 0);
 }
 
 #[test]
-fn fallback_webui_routes_must_have_inventory_entries() {
-    let fallback_routes = [
+fn unsupported_webui_routes_must_have_inventory_entries() {
+    let unsupported_routes = [
         ("PATCH", "/api/config"),
         ("POST", "/v1/knowledge/query"),
         ("POST", "/v1/knowledge/graph/extract"),
@@ -74,28 +70,28 @@ fn fallback_webui_routes_must_have_inventory_entries() {
         ("POST", "/api/cowork/sessions"),
     ];
 
-    for (method, path) in fallback_routes {
+    for (method, path) in unsupported_routes {
         let entry = webui_route_inventory_entry(method, path)
             .unwrap_or_else(|| panic!("{method} {path} must be inventoried"));
         assert_eq!(
             entry.owner,
-            NativeRouteOwner::TsFallback,
-            "{method} {path} must be an explicit TS fallback while delegated"
+            NativeRouteOwner::Unsupported,
+            "{method} {path} must be explicit unsupported in the Rust-only backend"
         );
     }
 }
 
 #[test]
-fn remaining_fallback_areas_are_explicitly_inventoried() {
+fn unsupported_areas_are_explicitly_inventoried() {
     let webui = native_webui_route_inventory();
     let tauri = native_tauri_command_inventory();
     let runtime = native_runtime_component_inventory();
 
-    assert_inventory_area(&webui, "knowledge", NativeRouteOwner::TsFallback);
-    assert_inventory_area(&webui, "cowork", NativeRouteOwner::TsFallback);
-    assert_inventory_area(&tauri, "channel", NativeRouteOwner::TsFallback);
-    assert_inventory_area(&tauri, "cron", NativeRouteOwner::TsFallback);
-    assert_inventory_area(&runtime, "heartbeat", NativeRouteOwner::TsFallback);
+    assert_inventory_area(&webui, "knowledge", NativeRouteOwner::Unsupported);
+    assert_inventory_area(&webui, "cowork", NativeRouteOwner::Unsupported);
+    assert_inventory_area(&tauri, "channel", NativeRouteOwner::Unsupported);
+    assert_inventory_area(&tauri, "cron", NativeRouteOwner::Unsupported);
+    assert_inventory_area(&runtime, "heartbeat", NativeRouteOwner::Unsupported);
     assert_inventory_area(&runtime, "tools", NativeRouteOwner::RustOwned);
     assert_inventory_area(&webui, "tools", NativeRouteOwner::Unsupported);
     assert_inventory_area(&runtime, "background", NativeRouteOwner::RustOwned);
@@ -177,20 +173,11 @@ fn native_event_wraps_worker_event_with_frontend_correlation_fields() {
 }
 
 #[test]
-fn runtime_status_reports_rust_owner_and_optional_ts_compatibility_worker() {
-    let status = NativeBackendRuntimeStatus::rust_with_ts_compatibility(
-        WorkerRuntimeStatus::running(WorkerTransportMode::Stdio, vec![]),
-        vec!["agent.run".to_string(), "agent.cancel".to_string()],
-    );
+fn runtime_status_reports_rust_owner_without_ts_compatibility_worker() {
+    let status = NativeBackendRuntimeStatus::rust_without_compatibility();
 
     assert_eq!(status.backend_kind, NativeBackendKind::Rust);
-    let worker = status
-        .compatibility_worker
-        .as_ref()
-        .expect("TS compatibility worker should be present");
-    assert_eq!(worker.kind, CompatibilityWorkerKind::TsAgentWorker);
-    assert_eq!(worker.state, CompatibilityWorkerState::Running);
-    assert_eq!(worker.delegated_capabilities, ["agent.run", "agent.cancel"]);
+    assert!(status.compatibility_worker.is_none());
 }
 
 #[test]

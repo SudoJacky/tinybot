@@ -215,13 +215,13 @@ const WEBUI_ROUTE_INVENTORY: &[NativeRouteInventoryEntry] = &[
         "config",
         "native config store",
     ),
-    ts_webui(
+    unsupported_webui(
         "patch_config",
         "PATCH",
         "/api/config",
         "config",
-        "validated config patch parity remains in TS worker",
-        "move config patch validation fully into Rust config store",
+        "config patch is not implemented in the Rust backend",
+        "add validated Rust config patch support before enabling",
     ),
     rust_webui(
         "providers",
@@ -468,61 +468,61 @@ const WEBUI_ROUTE_INVENTORY: &[NativeRouteInventoryEntry] = &[
         "knowledge",
         "native knowledge graph",
     ),
-    ts_webui(
+    unsupported_webui(
         "knowledge_query",
         "POST",
         "/v1/knowledge/query",
         "knowledge",
-        "advanced query path still depends on TS runtime",
-        "port query and GraphRAG execution to Rust knowledge runtime",
+        "advanced query path is not implemented in the Rust backend",
+        "add Rust query and GraphRAG execution before enabling",
     ),
-    ts_webui(
+    unsupported_webui(
         "knowledge_extract_graph",
         "POST",
         "/v1/knowledge/graph/extract",
         "knowledge",
-        "LLM graph extraction orchestration remains in TS worker",
-        "port graph extraction planner and provider calls to Rust",
+        "LLM graph extraction orchestration is not implemented in the Rust backend",
+        "add Rust graph extraction planner and provider calls before enabling",
     ),
-    ts_webui(
+    unsupported_webui(
         "knowledge_graphrag",
         "GET",
         "/v1/knowledge/graphrag",
         "knowledge",
-        "GraphRAG read path remains in TS worker",
-        "port GraphRAG route to Rust knowledge runtime",
+        "GraphRAG read path is not implemented in the Rust backend",
+        "add Rust GraphRAG route before enabling",
     ),
-    ts_webui(
+    unsupported_webui(
         "cowork_route",
         "GET",
         "/api/cowork/{path:.+}",
         "cowork",
-        "advanced Cowork routes are still being migrated",
-        "move remaining Cowork action routes to Rust",
+        "unimplemented Cowork routes are not exposed by the Rust backend",
+        "add the specific Rust Cowork route before enabling",
     ),
-    ts_webui(
+    unsupported_webui(
         "cowork_route",
         "POST",
         "/api/cowork/{path:.+}",
         "cowork",
-        "advanced Cowork routes are still being migrated",
-        "move remaining Cowork action routes to Rust",
+        "unimplemented Cowork routes are not exposed by the Rust backend",
+        "add the specific Rust Cowork route before enabling",
     ),
-    ts_webui(
+    unsupported_webui(
         "cowork_route",
         "PATCH",
         "/api/cowork/{path:.+}",
         "cowork",
-        "advanced Cowork routes are still being migrated",
-        "move remaining Cowork action routes to Rust",
+        "unimplemented Cowork routes are not exposed by the Rust backend",
+        "add the specific Rust Cowork route before enabling",
     ),
-    ts_webui(
+    unsupported_webui(
         "cowork_route",
         "DELETE",
         "/api/cowork/{path:.+}",
         "cowork",
-        "advanced Cowork routes are still being migrated",
-        "move remaining Cowork action routes to Rust",
+        "unimplemented Cowork routes are not exposed by the Rust backend",
+        "add the specific Rust Cowork route before enabling",
     ),
     unsupported_webui(
         "tools",
@@ -538,18 +538,18 @@ const RUNTIME_COMPONENT_INVENTORY: &[NativeRouteInventoryEntry] = &[
     runtime_component(
         "heartbeat_start",
         "heartbeat.start",
-        NativeRouteOwner::TsFallback,
+        NativeRouteOwner::Unsupported,
         "heartbeat",
-        "heartbeat lifecycle is still driven through the TS compatibility worker",
-        "port heartbeat lifecycle and delivery scheduling to Rust runtime",
+        "heartbeat lifecycle is not implemented in the Rust backend",
+        "add Rust heartbeat lifecycle and delivery scheduling before enabling",
     ),
     runtime_component(
         "heartbeat_stop",
         "heartbeat.stop",
-        NativeRouteOwner::TsFallback,
+        NativeRouteOwner::Unsupported,
         "heartbeat",
-        "heartbeat lifecycle is still driven through the TS compatibility worker",
-        "port heartbeat lifecycle and delivery scheduling to Rust runtime",
+        "heartbeat lifecycle is not implemented in the Rust backend",
+        "add Rust heartbeat lifecycle and delivery scheduling before enabling",
     ),
     runtime_component(
         "mcp_call_tool",
@@ -573,7 +573,7 @@ const RUNTIME_COMPONENT_INVENTORY: &[NativeRouteInventoryEntry] = &[
         NativeRouteOwner::RustOwned,
         "background",
         "background run registry state is persisted through Rust worker RPC",
-        "move any remaining background execution orchestration off the TS compatibility worker",
+        "expand Rust background execution orchestration as needed",
     ),
     runtime_component(
         "background_trace_registry",
@@ -581,7 +581,7 @@ const RUNTIME_COMPONENT_INVENTORY: &[NativeRouteInventoryEntry] = &[
         NativeRouteOwner::RustOwned,
         "background",
         "background trace state is persisted through Rust worker RPC",
-        "move any remaining background execution orchestration off the TS compatibility worker",
+        "expand Rust background execution orchestration as needed",
     ),
 ];
 
@@ -602,27 +602,6 @@ const fn rust_webui(
         reason,
         replacement_plan: "implemented in Rust",
         verification_status: "implemented",
-    }
-}
-
-const fn ts_webui(
-    key: &'static str,
-    method: &'static str,
-    path: &'static str,
-    route_group: &'static str,
-    reason: &'static str,
-    replacement_plan: &'static str,
-) -> NativeRouteInventoryEntry {
-    NativeRouteInventoryEntry {
-        surface: "webui-route",
-        key,
-        method: Some(method),
-        path,
-        owner: NativeRouteOwner::TsFallback,
-        route_group,
-        reason,
-        replacement_plan,
-        verification_status: "inventoried-fallback",
     }
 }
 
@@ -693,13 +672,12 @@ fn tauri_command_owner(command: &str) -> NativeRouteOwner {
     match command {
         "worker_transport_gateway_frame"
         | "worker_transport_websocket_message"
-        | "worker_transport_dispatch_websocket_message"
         | "worker_cron_dispatch_due"
         | "worker_channel_dispatch_inbound"
         | "worker_channel_start"
         | "worker_channel_status"
         | "worker_channel_stop"
-        | "worker_channel_login" => NativeRouteOwner::TsFallback,
+        | "worker_channel_login" => NativeRouteOwner::Unsupported,
         _ => NativeRouteOwner::RustOwned,
     }
 }
@@ -735,7 +713,7 @@ fn tauri_command_group(command: &str) -> &'static str {
 fn tauri_command_reason(command: &str) -> &'static str {
     match tauri_command_owner(command) {
         NativeRouteOwner::RustOwned => "implemented through Rust native backend command",
-        NativeRouteOwner::TsFallback => "runtime path still depends on TS compatibility worker",
+        NativeRouteOwner::TsFallback => "legacy TS fallback command owner",
         NativeRouteOwner::Unsupported => "unsupported command",
     }
 }
@@ -743,7 +721,7 @@ fn tauri_command_reason(command: &str) -> &'static str {
 fn tauri_command_replacement_plan(command: &str) -> &'static str {
     match tauri_command_owner(command) {
         NativeRouteOwner::RustOwned => "implemented in Rust",
-        NativeRouteOwner::TsFallback => "port compatibility worker command path to Rust runtime",
+        NativeRouteOwner::TsFallback => "replace legacy TS fallback owner",
         NativeRouteOwner::Unsupported => "add a Rust command implementation before exposing",
     }
 }

@@ -2245,7 +2245,7 @@ mod tests {
         manager: &WorkerManager,
         predicate: impl Fn(&[WorkerDiagnosticLine]) -> bool,
     ) -> Vec<WorkerDiagnosticLine> {
-        for _ in 0..30 {
+        for _ in 0..100 {
             let diagnostics = manager.status().diagnostics;
             if predicate(&diagnostics) {
                 return diagnostics;

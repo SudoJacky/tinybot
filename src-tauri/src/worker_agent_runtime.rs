@@ -8,7 +8,6 @@ use std::{
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum NativeAgentRuntimeMode {
     Rust,
-    TsCompatibility,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -392,38 +391,8 @@ pub fn resolve_native_agent_runtime_mode(
     spec: &Value,
     config_snapshot: &Value,
 ) -> NativeAgentRuntimeMode {
-    let spec_runtime = string_field(spec, "runtime")
-        .or_else(|| string_field(spec, "runtimeMode"))
-        .or_else(|| string_field(spec, "runtime_mode"))
-        .or_else(|| {
-            spec.get("metadata")
-                .and_then(|metadata| string_field(metadata, "runtime"))
-        })
-        .or_else(|| {
-            spec.get("metadata")
-                .and_then(|metadata| string_field(metadata, "nativeAgentRuntime"))
-        });
-    let config_runtime = config_snapshot
-        .get("desktop")
-        .and_then(|desktop| {
-            string_field(desktop, "nativeAgentRuntime")
-                .or_else(|| string_field(desktop, "native_agent_runtime"))
-        })
-        .or_else(|| {
-            config_snapshot.get("agents").and_then(|agents| {
-                string_field(agents, "nativeRuntime")
-                    .or_else(|| string_field(agents, "native_runtime"))
-            })
-        });
-
-    if matches!(
-        spec_runtime.as_deref().or(config_runtime.as_deref()),
-        Some("rust") | Some("native-rust")
-    ) {
-        NativeAgentRuntimeMode::Rust
-    } else {
-        NativeAgentRuntimeMode::TsCompatibility
-    }
+    let _ = (spec, config_snapshot);
+    NativeAgentRuntimeMode::Rust
 }
 
 pub fn run_native_agent_turn(spec: Value) -> Result<Value, String> {
@@ -1100,7 +1069,7 @@ mod tests {
         );
         assert_eq!(
             resolve_native_agent_runtime_mode(&json!({}), &json!({})),
-            NativeAgentRuntimeMode::TsCompatibility
+            NativeAgentRuntimeMode::Rust
         );
     }
 
