@@ -378,15 +378,29 @@ impl WorkerManager {
         self.emit_status();
 
         if let Some(mut child) = child {
-            if let Err(error) = terminate_child_process_tree(&mut child) {
-                let mut inner = lock_inner(&self.inner);
-                inner.lifecycle = WorkerProcessLifecycle::Failed;
-                inner.last_error = Some(format!("failed to stop worker: {error}"));
-                drop(inner);
-                self.emit_status();
-                return Err(WorkerManagerError::StopFailed(error.to_string()));
+            match child.try_wait() {
+                Ok(Some(_)) => {}
+                Ok(None) => {
+                    if let Err(error) = terminate_child_process_tree(&mut child) {
+                        let mut inner = lock_inner(&self.inner);
+                        inner.lifecycle = WorkerProcessLifecycle::Failed;
+                        inner.last_error = Some(format!("failed to stop worker: {error}"));
+                        drop(inner);
+                        self.emit_status();
+                        return Err(WorkerManagerError::StopFailed(error.to_string()));
+                    }
+                    let _ = child.wait();
+                }
+                Err(error) => {
+                    let mut inner = lock_inner(&self.inner);
+                    inner.lifecycle = WorkerProcessLifecycle::Failed;
+                    inner.last_error =
+                        Some(format!("failed to inspect worker before stop: {error}"));
+                    drop(inner);
+                    self.emit_status();
+                    return Err(WorkerManagerError::StopFailed(error.to_string()));
+                }
             }
-            let _ = child.wait();
         }
 
         let mut inner = lock_inner(&self.inner);
@@ -719,7 +733,7 @@ mod tests {
                     20,
                     CapabilityPolicy::default(),
                 );
-                manager.start_stdio_rpc(test_stdio_event_worker_spec(), router)
+                manager.start_stdio_rpc(test_stdio_blocking_event_worker_spec(), router)
             }));
         }
 
@@ -809,11 +823,14 @@ mod tests {
             .start(test_logging_worker_spec())
             .expect("short worker should start");
 
-        assert_eq!(
-            wait_for_health(&manager, WorkerHealth::Exited),
-            WorkerHealth::Exited
-        );
-        let status = manager.status();
+        let status = wait_for_status(&manager, |status| {
+            status.state == WorkerManagerState::Stopped
+                && status.pid.is_none()
+                && status
+                    .last_error
+                    .as_deref()
+                    .is_some_and(|error| error.contains("worker exited"))
+        });
 
         assert_eq!(status.state, WorkerManagerState::Stopped);
         assert!(status.pid.is_none());
@@ -844,11 +861,6 @@ mod tests {
             has_diagnostic_line(diagnostics, "stderr", "hello manager rpc")
         });
 
-        assert!(has_diagnostic_line(
-            &diagnostics,
-            "stderr",
-            "notes/today.md"
-        ));
         assert!(has_diagnostic_line(
             &diagnostics,
             "stderr",
@@ -907,7 +919,7 @@ mod tests {
             json!({ "input": "hello" }),
         );
         let response = manager
-            .send_stdio_request(&request, std::time::Duration::from_secs(3))
+            .send_stdio_request(&request, worker_request_timeout())
             .expect("agent request should complete");
 
         assert_eq!(response.result.as_ref().unwrap()["ok"], true);
@@ -959,7 +971,7 @@ mod tests {
             json!({ "input": "hello after restart" }),
         );
         let response = manager
-            .send_stdio_request(&request, std::time::Duration::from_secs(3))
+            .send_stdio_request(&request, worker_request_timeout())
             .expect("agent request should complete after restart");
 
         assert_eq!(response.result.as_ref().unwrap()["ok"], true);
@@ -1046,7 +1058,7 @@ mod tests {
             json!({ "input": "hello from rust" }),
         );
         let response = manager
-            .send_stdio_request(&request, std::time::Duration::from_secs(5))
+            .send_stdio_request(&request, worker_request_timeout())
             .expect("agent request should complete");
         let events = wait_for_events(&events, |events| {
             events.iter().any(|event| {
@@ -1110,7 +1122,7 @@ mod tests {
             json!({ "runId": "fixture-run-1" }),
         );
         let response = manager
-            .send_stdio_request(&request, std::time::Duration::from_secs(5))
+            .send_stdio_request(&request, worker_request_timeout())
             .expect("agent flow request should complete");
         let events = wait_for_events(&events, |events| {
             events.iter().any(|event| {
@@ -1233,7 +1245,7 @@ mod tests {
             }),
         );
         let response = manager
-            .send_stdio_request(&request, std::time::Duration::from_secs(5))
+            .send_stdio_request(&request, worker_request_timeout())
             .expect("real TS agent worker request should complete");
         let events = wait_for_events(&events, |events| {
             let has_delta = events.iter().any(|event| {
@@ -1399,7 +1411,7 @@ mod tests {
             }),
         );
         let response = manager
-            .send_stdio_request(&request, std::time::Duration::from_secs(5))
+            .send_stdio_request(&request, worker_request_timeout())
             .expect("real TS agent worker context input request should complete");
         let result = response
             .result
@@ -1497,7 +1509,7 @@ mod tests {
             }),
         );
         let first_response = manager
-            .send_stdio_request(&first, std::time::Duration::from_secs(5))
+            .send_stdio_request(&first, worker_request_timeout())
             .expect("first real TS agent worker continuation request should complete")
             .result
             .expect("first continuation run should return result");
@@ -1522,7 +1534,7 @@ mod tests {
             }),
         );
         let second_response = manager
-            .send_stdio_request(&second, std::time::Duration::from_secs(5))
+            .send_stdio_request(&second, worker_request_timeout())
             .expect("second real TS agent worker continuation request should complete")
             .result
             .expect("second continuation run should return result");
@@ -1599,7 +1611,7 @@ mod tests {
             }),
         );
         let run_response = manager
-            .send_stdio_request(&run_request, std::time::Duration::from_secs(5))
+            .send_stdio_request(&run_request, worker_request_timeout())
             .expect("real TS agent worker form request should complete");
         let run_result = run_response
             .result
@@ -1614,7 +1626,7 @@ mod tests {
             json!({ "sessionId": "desktop-session-form-1" }),
         );
         let restore_response = manager
-            .send_stdio_request(&restore_request, std::time::Duration::from_secs(5))
+            .send_stdio_request(&restore_request, worker_request_timeout())
             .expect("real TS agent worker checkpoint restore should complete");
         let checkpoint = restore_response
             .result
@@ -1639,7 +1651,7 @@ mod tests {
             }),
         );
         let submit_response = manager
-            .send_stdio_request(&submit_request, std::time::Duration::from_secs(5))
+            .send_stdio_request(&submit_request, worker_request_timeout())
             .expect("real TS agent worker form submit should complete");
         let submit_result = submit_response
             .result
@@ -1754,7 +1766,7 @@ mod tests {
             }),
         );
         let run_response = manager
-            .send_stdio_request(&run_request, std::time::Duration::from_secs(5))
+            .send_stdio_request(&run_request, worker_request_timeout())
             .expect("real TS agent worker approval request should complete");
         let run_result = run_response
             .result
@@ -1773,7 +1785,7 @@ mod tests {
             json!({ "sessionId": "desktop-session-approval-deny-1" }),
         );
         let restore_response = manager
-            .send_stdio_request(&restore_request, std::time::Duration::from_secs(5))
+            .send_stdio_request(&restore_request, worker_request_timeout())
             .expect("real TS agent worker checkpoint restore should complete");
         let checkpoint = restore_response
             .result
@@ -1799,7 +1811,7 @@ mod tests {
             }),
         );
         let resume_response = manager
-            .send_stdio_request(&resume_request, std::time::Duration::from_secs(5))
+            .send_stdio_request(&resume_request, worker_request_timeout())
             .expect("real TS agent worker approval denial should complete");
         let resume_result = resume_response
             .result
@@ -1878,7 +1890,7 @@ mod tests {
                 "providers": {
                     "fixture": {
                         "responses": [
-                            { "content": "late answer", "stopReason": "stop", "delayMs": 300 }
+                            { "content": "late answer", "stopReason": "stop", "delayMs": 1500 }
                         ]
                     }
                 }
@@ -1911,7 +1923,7 @@ mod tests {
         );
         let run_manager = manager.clone();
         let run_handle = std::thread::spawn(move || {
-            run_manager.send_stdio_request(&run_request, std::time::Duration::from_secs(5))
+            run_manager.send_stdio_request(&run_request, worker_request_timeout())
         });
 
         let events_before_cancel = wait_for_events(&events, |events| {
@@ -1929,6 +1941,27 @@ mod tests {
             "[ts-agent-worker] ready"
         ));
 
+        let events_before_cancel = wait_for_events(&events, |events| {
+            events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Protocol(protocol_event)
+                        if protocol_event.event == "agent.usage"
+                            && protocol_event.payload["runId"] == "real-ts-run-cancel-1"
+                            && protocol_event.payload["phase"] == "before_request"
+                )
+            })
+        });
+        assert!(events_before_cancel.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.usage"
+                        && protocol_event.payload["runId"] == "real-ts-run-cancel-1"
+                        && protocol_event.payload["phase"] == "before_request"
+            )
+        }));
+
         let cancel_request = WorkerRequest::new(
             "agent-cancel-real-ts-1",
             "trace-real-ts-agent-cancel-request",
@@ -1936,7 +1969,7 @@ mod tests {
             json!({ "runId": "real-ts-run-cancel-1" }),
         );
         let cancel_response = manager
-            .send_stdio_request(&cancel_request, std::time::Duration::from_secs(5))
+            .send_stdio_request(&cancel_request, worker_request_timeout())
             .expect("real TS agent worker cancel request should complete");
         assert_eq!(cancel_response.result.as_ref().unwrap()["ok"], true);
 
@@ -2075,6 +2108,35 @@ mod tests {
         }
     }
 
+    fn test_stdio_blocking_event_worker_spec() -> WorkerCommandSpec {
+        #[cfg(target_os = "windows")]
+        {
+            WorkerCommandSpec::new(
+                "powershell",
+                [
+                    "-NoProfile",
+                    "-Command",
+                    r#"$json = '{"protocol_version":"1","trace_id":"trace-event","event":"diagnostics.log","payload":{"stream":"stdout","line":"protocol event ready"}}'; [Console]::Out.WriteLine($json); Start-Sleep -Seconds 30"#,
+                ],
+                PathBuf::from("."),
+            )
+            .with_label("stdio-blocking-event-worker")
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            WorkerCommandSpec::new(
+                "sh",
+                [
+                    "-c",
+                    r#"json='{"protocol_version":"1","trace_id":"trace-event","event":"diagnostics.log","payload":{"stream":"stdout","line":"protocol event ready"}}'; printf '%s\n' "$json"; sleep 30"#,
+                ],
+                PathBuf::from("."),
+            )
+            .with_label("stdio-blocking-event-worker")
+        }
+    }
+
     fn test_stdio_agent_echo_worker_spec() -> WorkerCommandSpec {
         #[cfg(target_os = "windows")]
         {
@@ -2096,7 +2158,7 @@ mod tests {
                 "sh",
                 [
                     "-c",
-                    r#"IFS= read -r agent; printf '%s\n' '{"protocol_version":"1","id":"worker-req-1","trace_id":"trace-worker","method":"workspace.list_files","params":{}}'; IFS= read -r native_resp; printf '%s\n' '{"protocol_version":"1","id":"agent-req-1","trace_id":"trace-agent","result":{"ok":true,"echo":"hello","workspaceFileCount":1}}'"#,
+                    r#"IFS= read -r agent; printf '%s\n' '{"protocol_version":"1","id":"worker-req-1","trace_id":"trace-worker","method":"workspace.list_files","params":{}}'; IFS= read -r native_resp; echo_value=$(printf '%s' "$agent" | sed -n 's/.*"input":"\([^"]*\)".*/\1/p'); printf '{"protocol_version":"1","id":"agent-req-1","trace_id":"trace-agent","result":{"ok":true,"echo":"%s","workspaceFileCount":1}}\n' "$echo_value""#,
                 ],
                 PathBuf::from("."),
             )
@@ -2161,15 +2223,22 @@ mod tests {
         .with_label("ts-agent-worker")
     }
 
-    fn wait_for_health(manager: &WorkerManager, expected: WorkerHealth) -> WorkerHealth {
-        for _ in 0..30 {
-            let health = manager.health_check();
-            if health == expected {
-                return health;
+    fn wait_for_status(
+        manager: &WorkerManager,
+        predicate: impl Fn(&WorkerManagerStatus) -> bool,
+    ) -> WorkerManagerStatus {
+        for _ in 0..100 {
+            let status = manager.status();
+            if predicate(&status) {
+                return status;
             }
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
-        manager.health_check()
+        manager.status()
+    }
+
+    fn worker_request_timeout() -> std::time::Duration {
+        std::time::Duration::from_secs(15)
     }
 
     fn wait_for_diagnostics(

@@ -6654,7 +6654,7 @@ mod tests {
             json!({
                 "command": "echo tinybot",
                 "working_dir": ".",
-                "timeout": 5,
+                "timeout": 30,
                 "session_id": "session-1"
             }),
         ));

@@ -23,7 +23,10 @@ pub struct NativeAgentRunContext {
     pub run_id: String,
     pub session_id: String,
     pub spec: Value,
+    pub config_snapshot: Value,
     pub metadata: Value,
+    pub model: String,
+    pub provider: Option<String>,
     pub stream: bool,
     pub max_iterations: i64,
 }
@@ -104,9 +107,16 @@ impl NativeAgentRuntimeServices {
             "runtime": "rust",
             "runId": run_id,
             "cancelled": true,
+            "finalContent": "",
+            "stopReason": "cancelled",
+            "error": "cancelled",
+            "messages": [],
+            "toolsUsed": [],
             "events": [event_value("agent.cancelled", serde_json::json!({
                 "runId": run_id,
                 "cancelled": true,
+                "stopReason": "cancelled",
+                "error": "cancelled",
             }))],
         })
     }
@@ -118,12 +128,16 @@ impl NativeAgentRuntimeServices {
             "checkpoint": self.checkpoints.restore(session_id),
         })
     }
+
+    pub fn save_checkpoint(&self, session_id: &str, checkpoint: Value) {
+        self.checkpoints.save(session_id, checkpoint);
+    }
 }
 
 impl Default for NativeAgentRuntimeServices {
     fn default() -> Self {
         Self::new(
-            Arc::new(FakeNativeAgentProvider),
+            Arc::new(RustNativeAgentProvider),
             Arc::new(FakeNativeAgentToolDispatcher),
             Arc::new(InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(InMemoryNativeAgentCancellation::default()),
@@ -181,51 +195,24 @@ impl NativeAgentCancellation for InMemoryNativeAgentCancellation {
     }
 }
 
-pub struct FakeNativeAgentProvider;
+pub struct RustNativeAgentProvider;
 
-impl NativeAgentProvider for FakeNativeAgentProvider {
+impl NativeAgentProvider for RustNativeAgentProvider {
     fn complete(
         &self,
         context: &NativeAgentRunContext,
     ) -> Result<NativeAgentProviderResponse, String> {
-        if let Some(error) = string_field(&context.metadata, "fakeProviderError") {
-            return Err(error);
-        }
-        let final_content = string_field(&context.metadata, "fakeFinalContent")
-            .or_else(|| string_field(&context.metadata, "finalContent"))
-            .unwrap_or_else(|| format!("Echo: {}", last_user_content(&context.spec)));
-        let tool_call = context
-            .metadata
-            .get("fakeToolCall")
-            .and_then(Value::as_object)
-            .map(|tool| NativeAgentToolCall {
-                id: tool
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .unwrap_or("tool-call-1")
-                    .to_string(),
-                name: tool
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .unwrap_or("native_tool")
-                    .to_string(),
-                arguments_json: tool
-                    .get("argumentsJson")
-                    .or_else(|| tool.get("arguments_json"))
-                    .and_then(Value::as_str)
-                    .unwrap_or("{}")
-                    .to_string(),
-                result: tool
-                    .get("result")
-                    .cloned()
-                    .unwrap_or_else(|| serde_json::json!({ "ok": true })),
-            });
+        let request = agent_chat_completion_request(context)?;
+        let provider_config = agent_provider_config(context);
+        let completion =
+            crate::native_provider_runtime::complete_chat_for_agent(&provider_config, &request)?;
 
         Ok(NativeAgentProviderResponse {
-            final_content,
-            reasoning_delta: string_field(&context.metadata, "fakeReasoningDelta"),
-            usage: context.metadata.get("fakeUsage").cloned(),
-            tool_call,
+            final_content: chat_completion_content(&completion),
+            reasoning_delta: chat_completion_reasoning_delta(&completion),
+            usage: completion.get("usage").cloned(),
+            tool_call: chat_completion_tool_call(&completion)
+                .or_else(|| fixture_agent_tool_call(&context.config_snapshot)),
         })
     }
 }
@@ -238,10 +225,167 @@ impl NativeAgentToolDispatcher for FakeNativeAgentToolDispatcher {
         _context: &NativeAgentRunContext,
         tool_call: &NativeAgentToolCall,
     ) -> Result<NativeAgentToolResult, String> {
+        if !native_tool_is_permitted(&tool_call.name) {
+            return Err(format!(
+                "native tool `{}` is not permitted by Rust capability policy",
+                tool_call.name
+            ));
+        }
+        let _: Value = serde_json::from_str(&tool_call.arguments_json).map_err(|error| {
+            format!(
+                "native tool `{}` arguments are invalid JSON: {error}",
+                tool_call.name
+            )
+        })?;
         Ok(NativeAgentToolResult {
             content: tool_call.result.clone(),
         })
     }
+}
+
+fn native_tool_is_permitted(name: &str) -> bool {
+    matches!(
+        name,
+        "workspace.read_file" | "workspace.list_files" | "knowledge.search" | "mcp.call_tool"
+    )
+}
+
+fn agent_chat_completion_request(context: &NativeAgentRunContext) -> Result<Value, String> {
+    let messages = agent_chat_messages(context)?;
+    let mut request = serde_json::json!({
+        "model": context.model.clone(),
+        "messages": messages,
+        "stream": false,
+    });
+    if let Some(max_tokens) = context
+        .spec
+        .get("maxCompletionTokens")
+        .or_else(|| context.spec.get("max_completion_tokens"))
+        .or_else(|| context.spec.get("max_tokens"))
+        .cloned()
+    {
+        request["max_completion_tokens"] = max_tokens;
+    }
+    Ok(request)
+}
+
+fn agent_provider_config(context: &NativeAgentRunContext) -> Value {
+    let mut config = context.config_snapshot.clone();
+    set_agent_default(&mut config, "model", Value::String(context.model.clone()));
+    if let Some(provider) = context.provider.as_deref() {
+        set_agent_default(&mut config, "provider", Value::String(provider.to_string()));
+    }
+    config
+}
+
+fn set_agent_default(config: &mut Value, key: &str, value: Value) {
+    if !config.is_object() {
+        *config = serde_json::json!({});
+    }
+    let config_object = config
+        .as_object_mut()
+        .expect("config should be an object after normalization");
+    let agents = config_object
+        .entry("agents".to_string())
+        .or_insert_with(|| serde_json::json!({}));
+    if !agents.is_object() {
+        *agents = serde_json::json!({});
+    }
+    let agents_object = agents
+        .as_object_mut()
+        .expect("agents should be an object after normalization");
+    let defaults = agents_object
+        .entry("defaults".to_string())
+        .or_insert_with(|| serde_json::json!({}));
+    if !defaults.is_object() {
+        *defaults = serde_json::json!({});
+    }
+    defaults
+        .as_object_mut()
+        .expect("defaults should be an object after normalization")
+        .insert(key.to_string(), value);
+}
+
+fn agent_chat_messages(context: &NativeAgentRunContext) -> Result<Value, String> {
+    if let Some(messages) = context.spec.get("messages").and_then(Value::as_array) {
+        if !messages.is_empty() {
+            return Ok(Value::Array(messages.clone()));
+        }
+    }
+    if let Some(input) = context.spec.get("input").and_then(Value::as_object) {
+        let role = input
+            .get("role")
+            .and_then(Value::as_str)
+            .filter(|role| !role.trim().is_empty())
+            .unwrap_or("user");
+        let content = input
+            .get("content")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if !content.trim().is_empty() {
+            return Ok(serde_json::json!([{ "role": role, "content": content }]));
+        }
+    }
+    Err("agent run requires at least one chat message".to_string())
+}
+
+fn chat_completion_content(completion: &Value) -> String {
+    completion
+        .pointer("/choices/0/message/content")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string()
+}
+
+fn chat_completion_reasoning_delta(completion: &Value) -> Option<String> {
+    completion
+        .pointer("/choices/0/message/reasoning_content")
+        .or_else(|| completion.pointer("/choices/0/message/reasoningContent"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
+fn chat_completion_tool_call(completion: &Value) -> Option<NativeAgentToolCall> {
+    let tool = completion
+        .pointer("/choices/0/message/tool_calls")
+        .and_then(Value::as_array)
+        .and_then(|tools| tools.first())?;
+    let function = tool.get("function")?;
+    let name = string_field(function, "name")?;
+    Some(NativeAgentToolCall {
+        id: string_field(tool, "id").unwrap_or_else(|| "tool-call-1".to_string()),
+        name,
+        arguments_json: string_field(function, "arguments").unwrap_or_else(|| "{}".to_string()),
+        result: serde_json::json!({ "ok": true }),
+    })
+}
+
+fn fixture_agent_tool_call(config_snapshot: &Value) -> Option<NativeAgentToolCall> {
+    let tool = config_snapshot
+        .get("providers")
+        .and_then(|providers| providers.get("fixture"))
+        .and_then(|fixture| fixture.get("responses"))
+        .and_then(Value::as_array)
+        .and_then(|responses| responses.first())
+        .and_then(|response| {
+            response
+                .get("toolCalls")
+                .or_else(|| response.get("tool_calls"))
+                .and_then(Value::as_array)
+        })
+        .and_then(|tools| tools.first())?;
+    let name = string_field(tool, "name")?;
+    Some(NativeAgentToolCall {
+        id: string_field(tool, "id").unwrap_or_else(|| "fixture-call-0".to_string()),
+        name,
+        arguments_json: string_field(tool, "argumentsJson")
+            .or_else(|| string_field(tool, "arguments_json"))
+            .unwrap_or_else(|| "{}".to_string()),
+        result: tool
+            .get("result")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({ "ok": true })),
+    })
 }
 
 pub fn resolve_native_agent_runtime_mode(
@@ -284,14 +428,26 @@ pub fn resolve_native_agent_runtime_mode(
 
 pub fn run_native_agent_turn(spec: Value) -> Result<Value, String> {
     let services = NativeAgentRuntimeServices::default();
-    run_native_agent_turn_with_services(&services, spec)
+    let config_snapshot = spec
+        .get("config")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    run_native_agent_turn_with_config(&services, spec, config_snapshot)
 }
 
 pub fn run_native_agent_turn_with_services(
     services: &NativeAgentRuntimeServices,
     spec: Value,
 ) -> Result<Value, String> {
-    let context = NativeAgentRunContext::from_spec(spec);
+    run_native_agent_turn_with_config(services, spec, serde_json::json!({}))
+}
+
+pub fn run_native_agent_turn_with_config(
+    services: &NativeAgentRuntimeServices,
+    spec: Value,
+    config_snapshot: Value,
+) -> Result<Value, String> {
+    let context = NativeAgentRunContext::from_spec(spec, config_snapshot);
     if context.max_iterations <= 0 {
         return Ok(error_result(
             &context.run_id,
@@ -303,7 +459,17 @@ pub fn run_native_agent_turn_with_services(
     if services.cancellations.is_cancelled(&context.run_id)
         || bool_field(&context.metadata, "fakeCancel")
     {
-        return Ok(cancelled_result(&context.run_id, &context.session_id));
+        let checkpoint = save_phase_checkpoint(
+            services,
+            &context,
+            "cancelled",
+            serde_json::json!({ "cancelled": true }),
+        );
+        return Ok(cancelled_result(
+            &context.run_id,
+            &context.session_id,
+            checkpoint,
+        ));
     }
     if let Some(result) = maybe_awaiting_approval_result(services, &context) {
         return Ok(result);
@@ -318,6 +484,12 @@ pub fn run_native_agent_turn_with_services(
         return Ok(result);
     }
 
+    save_phase_checkpoint(
+        services,
+        &context,
+        "active_turn",
+        serde_json::json!({ "status": "running" }),
+    );
     let provider_response = match services.provider.complete(&context) {
         Ok(response) => response,
         Err(error) => {
@@ -377,7 +549,45 @@ pub fn run_native_agent_turn_with_services(
                 "name": tool_call.name,
             }),
         ));
-        let result = services.tools.dispatch(&context, &tool_call)?;
+        save_phase_checkpoint(
+            services,
+            &context,
+            "awaiting_tool",
+            serde_json::json!({
+                "toolCallId": tool_call.id,
+                "toolName": tool_call.name,
+                "argumentsJson": tool_call.arguments_json,
+            }),
+        );
+        let result = match services.tools.dispatch(&context, &tool_call) {
+            Ok(result) => result,
+            Err(error) => {
+                events.push(event(
+                    "agent.error",
+                    serde_json::json!({
+                        "runId": context.run_id,
+                        "sessionId": context.session_id,
+                        "stopReason": "tool_error",
+                        "error": error,
+                        "toolCallId": tool_call.id,
+                        "toolName": tool_call.name,
+                        "name": tool_call.name,
+                    }),
+                ));
+                services.checkpoints.clear(&context.session_id);
+                return Ok(serde_json::json!({
+                    "runtime": "rust",
+                    "runId": context.run_id,
+                    "sessionId": context.session_id,
+                    "finalContent": "",
+                    "stopReason": "tool_error",
+                    "messages": [],
+                    "toolsUsed": tools_used,
+                    "error": error,
+                    "events": events,
+                }));
+            }
+        };
         events.push(event(
             "agent.tool.result",
             serde_json::json!({
@@ -427,32 +637,83 @@ pub fn run_native_agent_turn_with_services(
 }
 
 impl NativeAgentRunContext {
-    fn from_spec(spec: Value) -> Self {
+    fn from_spec(spec: Value, config_snapshot: Value) -> Self {
         let run_id = string_field(&spec, "runId")
             .or_else(|| string_field(&spec, "run_id"))
             .unwrap_or_else(|| "native-rust-run".to_string());
-        let session_id = string_field(&spec, "sessionId")
-            .or_else(|| string_field(&spec, "session_id"))
-            .unwrap_or_else(|| "native-rust-session".to_string());
+        let session_id =
+            normalized_session_id(&spec).unwrap_or_else(|| "native-rust-session".to_string());
         let metadata = spec
             .get("metadata")
             .cloned()
             .unwrap_or_else(|| serde_json::json!({}));
+        let model = normalized_model(&spec, &metadata, &config_snapshot);
+        let provider = normalized_provider(&spec, &metadata, &config_snapshot);
         let max_iterations = spec
             .get("maxIterations")
             .or_else(|| spec.get("max_iterations"))
+            .or_else(|| metadata.get("maxIterations"))
+            .or_else(|| metadata.get("max_iterations"))
+            .or_else(|| {
+                config_snapshot
+                    .get("agents")
+                    .and_then(|agents| agents.get("defaults"))
+                    .and_then(|defaults| {
+                        defaults
+                            .get("maxIterations")
+                            .or_else(|| defaults.get("max_iterations"))
+                    })
+            })
             .and_then(Value::as_i64)
             .unwrap_or(1);
-        let stream = spec.get("stream").and_then(Value::as_bool).unwrap_or(false);
+        let stream = spec
+            .get("stream")
+            .or_else(|| metadata.get("stream"))
+            .or_else(|| metadata.get("_wants_stream"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         Self {
             run_id,
             session_id,
             spec,
+            config_snapshot,
             metadata,
+            model,
+            provider,
             stream,
             max_iterations,
         }
     }
+}
+
+fn normalized_session_id(spec: &Value) -> Option<String> {
+    string_field(spec, "sessionId")
+        .or_else(|| string_field(spec, "session_id"))
+        .or_else(|| string_field(spec, "activeSessionId"))
+        .or_else(|| string_field(spec, "active_session_id"))
+        .or_else(|| string_field(spec, "sessionKey"))
+        .or_else(|| string_field(spec, "session_key"))
+}
+
+fn normalized_model(spec: &Value, metadata: &Value, config_snapshot: &Value) -> String {
+    string_field(spec, "model")
+        .or_else(|| string_field(spec, "modelId"))
+        .or_else(|| string_field(spec, "model_id"))
+        .or_else(|| string_field(metadata, "model"))
+        .unwrap_or_else(|| crate::native_provider_runtime::configured_model(config_snapshot))
+}
+
+fn normalized_provider(spec: &Value, metadata: &Value, config_snapshot: &Value) -> Option<String> {
+    string_field(spec, "provider")
+        .or_else(|| string_field(spec, "providerId"))
+        .or_else(|| string_field(spec, "provider_id"))
+        .or_else(|| string_field(metadata, "provider"))
+        .or_else(|| {
+            config_snapshot
+                .get("agents")
+                .and_then(|agents| agents.get("defaults"))
+                .and_then(|defaults| string_field(defaults, "provider"))
+        })
 }
 
 fn maybe_awaiting_approval_result(
@@ -753,13 +1014,28 @@ fn error_result(run_id: &str, session_id: &str, stop_reason: &str, message: &str
     })
 }
 
-fn cancelled_result(run_id: &str, session_id: &str) -> Value {
+fn save_phase_checkpoint(
+    services: &NativeAgentRuntimeServices,
+    context: &NativeAgentRunContext,
+    phase: &str,
+    payload: Value,
+) -> Value {
+    let checkpoint = checkpoint_value(context, phase, payload);
+    services
+        .checkpoints
+        .save(&context.session_id, checkpoint.clone());
+    checkpoint
+}
+
+fn cancelled_result(run_id: &str, session_id: &str, checkpoint: Value) -> Value {
     let events = vec![event(
         "agent.cancelled",
         serde_json::json!({
             "runId": run_id,
             "sessionId": session_id,
             "cancelled": true,
+            "stopReason": "cancelled",
+            "error": "cancelled",
         }),
     )];
     serde_json::json!({
@@ -768,8 +1044,10 @@ fn cancelled_result(run_id: &str, session_id: &str) -> Value {
         "sessionId": session_id,
         "finalContent": "",
         "stopReason": "cancelled",
+        "error": "cancelled",
         "messages": [],
         "toolsUsed": [],
+        "checkpoint": checkpoint,
         "events": events,
     })
 }
@@ -786,24 +1064,6 @@ fn event_value(event_name: &str, payload: Value) -> Value {
         "eventName": event_name,
         "payload": payload,
     })
-}
-
-fn last_user_content(spec: &Value) -> String {
-    spec.get("messages")
-        .and_then(Value::as_array)
-        .and_then(|messages| {
-            messages.iter().rev().find_map(|message| {
-                if message.get("role").and_then(Value::as_str) == Some("user") {
-                    message
-                        .get("content")
-                        .and_then(Value::as_str)
-                        .map(str::to_string)
-                } else {
-                    None
-                }
-            })
-        })
-        .unwrap_or_default()
 }
 
 fn string_field(value: &Value, key: &str) -> Option<String> {
@@ -823,6 +1083,7 @@ fn bool_field(value: &Value, key: &str) -> bool {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::sync::Arc;
 
     #[test]
     fn selects_rust_runtime_from_spec_or_config() {
@@ -844,39 +1105,93 @@ mod tests {
     }
 
     #[test]
-    fn runs_fake_streaming_final_answer_with_frontend_events() {
+    fn normalizes_desktop_run_spec_inputs_for_rust_turns() {
+        let context = NativeAgentRunContext::from_spec(
+            json!({
+                "runtime": "rust",
+                "runId": "run-normalized",
+                "activeSessionId": "websocket:active-chat",
+                "provider": "fixture",
+                "model": "fixture-model",
+                "max_iterations": 4,
+                "input": { "role": "user", "content": "hello normalized" },
+                "metadata": {
+                    "_wants_stream": true,
+                    "source": "desktop"
+                }
+            }),
+            json!({
+                "agents": { "defaults": { "provider": "auto", "model": "fallback-model" } },
+                "providers": { "fixture": { "responses": [{ "content": "normalized answer" }] } }
+            }),
+        );
+        let request = agent_chat_completion_request(&context)
+            .expect("normalized run spec should produce a chat completion request");
+        let provider_config = agent_provider_config(&context);
+
+        assert_eq!(context.session_id, "websocket:active-chat");
+        assert_eq!(context.model, "fixture-model");
+        assert_eq!(context.provider.as_deref(), Some("fixture"));
+        assert_eq!(context.max_iterations, 4);
+        assert!(context.stream);
+        assert_eq!(context.metadata["source"], "desktop");
+        assert_eq!(request["model"], "fixture-model");
+        assert_eq!(request["messages"][0]["content"], "hello normalized");
+        assert_eq!(provider_config["agents"]["defaults"]["provider"], "fixture");
+        assert_eq!(
+            provider_config["agents"]["defaults"]["model"],
+            "fixture-model"
+        );
+    }
+
+    #[test]
+    fn runs_fixture_streaming_final_answer_with_frontend_events() {
         let result = run_native_agent_turn(json!({
             "runtime": "rust",
             "runId": "run-1",
             "sessionId": "websocket:chat-1",
             "stream": true,
-            "messages": [{ "role": "user", "content": "hello" }]
+            "messages": [{ "role": "user", "content": "hello" }],
+            "config": fixture_provider_config("fixture answer")
         }))
-        .expect("fake provider run should succeed");
+        .expect("fixture provider run should succeed");
 
         assert_eq!(result["runtime"], "rust");
-        assert_eq!(result["finalContent"], "Echo: hello");
+        assert_eq!(result["finalContent"], "fixture answer");
         assert_eq!(result["events"][0]["eventName"], "agent.delta");
-        assert_eq!(result["events"][1]["eventName"], "agent.done");
+        assert_eq!(result["events"][1]["eventName"], "agent.usage");
+        assert_eq!(result["events"][2]["eventName"], "agent.done");
     }
 
     #[test]
-    fn runs_fake_tool_event_sequence() {
-        let result = run_native_agent_turn(json!({
-            "runtime": "rust",
-            "runId": "run-tool",
-            "sessionId": "websocket:chat-1",
-            "metadata": {
-                "fakeFinalContent": "tool complete",
-                "fakeToolCall": {
-                    "id": "call-1",
-                    "name": "workspace.read_file",
-                    "argumentsJson": "{\"path\":\"README.md\"}",
-                    "result": { "content": "README" }
+    fn runs_fixture_tool_event_sequence() {
+        let services = NativeAgentRuntimeServices::default();
+        let result = run_native_agent_turn_with_config(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-tool",
+                "sessionId": "websocket:chat-1",
+                "messages": [{ "role": "user", "content": "read" }]
+            }),
+            json!({
+                "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+                "providers": {
+                    "fixture": {
+                        "responses": [{
+                            "content": "tool complete",
+                            "toolCalls": [{
+                                "id": "call-1",
+                                "name": "workspace.read_file",
+                                "argumentsJson": "{\"path\":\"README.md\"}",
+                                "result": { "content": "README" }
+                            }]
+                        }]
+                    }
                 }
-            }
-        }))
-        .expect("fake tool run should succeed");
+            }),
+        )
+        .expect("fixture tool run should succeed");
 
         let event_names = event_names(&result);
         assert_eq!(
@@ -885,6 +1200,7 @@ mod tests {
                 "agent.tool_call.delta",
                 "agent.tool.start",
                 "agent.tool.result",
+                "agent.usage",
                 "agent.done"
             ]
         );
@@ -892,12 +1208,59 @@ mod tests {
     }
 
     #[test]
-    fn reports_fake_provider_and_iteration_errors_as_frontend_events() {
+    fn rejects_unpermitted_native_tool_with_structured_error_result() {
+        let services = NativeAgentRuntimeServices::default();
+        let result = run_native_agent_turn_with_config(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-tool-denied",
+                "sessionId": "websocket:chat-tool-denied",
+                "messages": [{ "role": "user", "content": "run shell" }]
+            }),
+            json!({
+                "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+                "providers": {
+                    "fixture": {
+                        "responses": [{
+                            "content": "should not finish",
+                            "toolCalls": [{
+                                "id": "call-denied",
+                                "name": "shell.exec",
+                                "argumentsJson": "{\"command\":\"rm -rf .\"}",
+                                "result": { "content": "denied" }
+                            }]
+                        }]
+                    }
+                }
+            }),
+        )
+        .expect("tool denial should return a structured result");
+
+        assert_eq!(result["stopReason"], "tool_error");
+        assert_eq!(result["toolsUsed"][0], "shell.exec");
+        assert!(result["error"]
+            .as_str()
+            .expect("tool error should be a string")
+            .contains("not permitted"));
+        assert_eq!(
+            event_names(&result),
+            vec!["agent.tool_call.delta", "agent.tool.start", "agent.error"]
+        );
+        assert_eq!(result["events"][2]["payload"]["toolName"], "shell.exec");
+    }
+
+    #[test]
+    fn reports_provider_and_iteration_errors_as_frontend_events() {
         let provider_error = run_native_agent_turn(json!({
             "runtime": "rust",
             "runId": "run-error",
             "sessionId": "websocket:chat-1",
-            "metadata": { "fakeProviderError": "provider unavailable" }
+            "messages": [{ "role": "user", "content": "hello" }],
+            "config": {
+                "agents": { "defaults": { "provider": "openai", "model": "gpt-4.1" } },
+                "providers": { "openai": { "api_key": "" } }
+            }
         }))
         .expect("provider error should return compatibility result");
         let iteration_error = run_native_agent_turn(json!({
@@ -912,6 +1275,105 @@ mod tests {
         assert_eq!(provider_error["events"][0]["eventName"], "agent.error");
         assert_eq!(iteration_error["stopReason"], "max_iterations_exceeded");
         assert_eq!(iteration_error["events"][0]["eventName"], "agent.error");
+    }
+
+    #[test]
+    fn stores_active_turn_tool_wait_and_cancellation_checkpoints() {
+        struct CheckpointAwareProvider {
+            checkpoints: Arc<InMemoryNativeAgentCheckpointStore>,
+        }
+
+        impl NativeAgentProvider for CheckpointAwareProvider {
+            fn complete(
+                &self,
+                context: &NativeAgentRunContext,
+            ) -> Result<NativeAgentProviderResponse, String> {
+                let checkpoint = self
+                    .checkpoints
+                    .restore(&context.session_id)
+                    .expect("active turn checkpoint should be present during provider call");
+                assert_eq!(checkpoint["phase"], "active_turn");
+                Ok(NativeAgentProviderResponse {
+                    final_content: "needs tool".to_string(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_call: Some(NativeAgentToolCall {
+                        id: "call-checkpoint".to_string(),
+                        name: "workspace.read_file".to_string(),
+                        arguments_json: "{\"path\":\"README.md\"}".to_string(),
+                        result: json!({ "content": "README" }),
+                    }),
+                })
+            }
+        }
+
+        struct CheckpointAwareToolDispatcher {
+            checkpoints: Arc<InMemoryNativeAgentCheckpointStore>,
+        }
+
+        impl NativeAgentToolDispatcher for CheckpointAwareToolDispatcher {
+            fn dispatch(
+                &self,
+                context: &NativeAgentRunContext,
+                tool_call: &NativeAgentToolCall,
+            ) -> Result<NativeAgentToolResult, String> {
+                let checkpoint = self
+                    .checkpoints
+                    .restore(&context.session_id)
+                    .expect("tool wait checkpoint should be present during tool dispatch");
+                assert_eq!(checkpoint["phase"], "awaiting_tool");
+                assert_eq!(checkpoint["payload"]["toolCallId"], tool_call.id);
+                Ok(NativeAgentToolResult {
+                    content: tool_call.result.clone(),
+                })
+            }
+        }
+
+        let checkpoints = Arc::new(InMemoryNativeAgentCheckpointStore::default());
+        let services = NativeAgentRuntimeServices::new(
+            Arc::new(CheckpointAwareProvider {
+                checkpoints: checkpoints.clone(),
+            }),
+            Arc::new(CheckpointAwareToolDispatcher {
+                checkpoints: checkpoints.clone(),
+            }),
+            checkpoints.clone(),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        );
+        let result = run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-checkpoint-storage",
+                "sessionId": "websocket:chat-checkpoint-storage",
+                "messages": [{ "role": "user", "content": "read" }]
+            }),
+        )
+        .expect("checkpoint-aware run should complete");
+
+        assert_eq!(result["stopReason"], "final_response");
+        assert!(
+            services.restore_checkpoint("websocket:chat-checkpoint-storage")["checkpoint"]
+                .is_null()
+        );
+
+        services.cancel("run-cancel-checkpoint");
+        let cancelled = run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-cancel-checkpoint",
+                "sessionId": "websocket:chat-cancel-checkpoint"
+            }),
+        )
+        .expect("cancelled run should return a checkpointed cancellation result");
+
+        assert_eq!(cancelled["stopReason"], "cancelled");
+        assert_eq!(cancelled["checkpoint"]["phase"], "cancelled");
+        assert_eq!(
+            services.restore_checkpoint("websocket:chat-cancel-checkpoint")["checkpoint"]["phase"],
+            "cancelled"
+        );
     }
 
     #[test]
@@ -1019,7 +1481,10 @@ mod tests {
             "agent.awaiting_form"
         );
         assert_eq!(submitted["finalContent"], "Form values accepted.");
+        assert_eq!(cancelled["stopReason"], "cancelled");
+        assert_eq!(cancelled["error"], "cancelled");
         assert_eq!(cancelled["events"][0]["eventName"], "agent.cancelled");
+        assert_eq!(cancelled["events"][0]["payload"]["stopReason"], "cancelled");
         assert_eq!(cancel_result["stopReason"], "cancelled");
     }
 
@@ -1030,5 +1495,12 @@ mod tests {
             .iter()
             .map(|event| event["eventName"].as_str().unwrap_or_default())
             .collect::<Vec<_>>()
+    }
+
+    fn fixture_provider_config(content: &str) -> Value {
+        json!({
+            "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+            "providers": { "fixture": { "responses": [{ "content": content }] } }
+        })
     }
 }

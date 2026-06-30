@@ -3,6 +3,7 @@ use serde_json::{Map, Value};
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -86,7 +87,7 @@ impl WorkerCoworkRuntime {
         let timestamp = now_timestamp();
         let goal = string_field(&body, "goal").unwrap_or_else(|| "Cowork session".to_string());
         let title = string_field(&body, "title").unwrap_or_else(|| summarize_title(&goal));
-        let id = format!("cowork-{}", now_millis());
+        let id = unique_id("cowork");
         let lead_agent = CoworkAgentModel {
             id: "agent-lead".to_string(),
             title: "Lead".to_string(),
@@ -1060,6 +1061,15 @@ fn string_field(value: &Value, key: &str) -> Option<String> {
 
 fn now_timestamp() -> String {
     format!("{}Z", now_millis())
+}
+
+fn unique_id(prefix: &str) -> String {
+    static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+    format!(
+        "{prefix}-{}-{}",
+        now_millis(),
+        NEXT_ID.fetch_add(1, Ordering::Relaxed)
+    )
 }
 
 fn now_millis() -> u128 {

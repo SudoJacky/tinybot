@@ -17,7 +17,7 @@
 
 > **Python 后端提示：**[0.0.18](https://github.com/SudoJacky/tinybot/releases/tag/0.0.18) 是最后一个包含 Python 后端的稳定版本。
 
-[English](README.md) | [快速开始](#快速开始) | [核心亮点](#-核心亮点) | [命令](#交互式聊天命令)
+[English](README.md) | [快速开始](#快速开始) | [核心亮点](#-核心亮点) | [WebUI](#webui-使用)
 
 Tinybot 是一个轻量级个人 AI 助手框架，集成了大语言模型、多种聊天平台、工具系统和自动化机制。
 
@@ -264,18 +264,17 @@ Cowork 提供共享的多 Agent 会话模型，包含架构运行时策略、分
 - **阶段 3：经验更新** - 合并相似经验并更新策略文档
 - **向量存储集成** - 在整合后的记忆中进行语义搜索
 
-### 📊 CLI 实时进度显示
+### 📊 桌面任务进度
 
-任务执行会在 CLI 中实时显示进度，同时不打断主对话。
+任务执行会在桌面 WebUI 中实时显示进度，同时不打断主对话。
 
 ### ⚙️ 集成配置编辑器
 
-可在交互式聊天中直接打开全屏终端配置编辑器：
+配置现在直接在桌面设置界面中管理：
 
-- 按 `Ctrl+O` 或输入 `/config` 打开编辑器
-- 无需退出聊天会话
-- 编辑 provider 设置、模型参数、工具配置等
-- 按 `q` 保存并返回聊天
+- 编辑 provider 设置、模型参数、工具配置、知识库设置和运行时选项。
+- 配置变更通过 Rust 原生后端应用。
+- 不再需要单独进入终端聊天会话。
 
 ### 🔌 MCP（Model Context Protocol）支持
 
@@ -293,63 +292,42 @@ Cowork 提供共享的多 Agent 会话模型，包含架构运行时策略、分
 - **多 LLM 支持** - 兼容 OpenAI、DeepSeek、智谱、通义千问、Gemini 以及 14+ provider
 - **Skills 系统** - 通过 Markdown 文件定义 skills，无需编码即可教会 Agent 特定工作流
 - **自动化** - Cron 定时任务 + heartbeat 服务，用于周期性自动执行
-- **OpenAI 兼容 API** - 可作为 OpenAI 兼容后端服务运行，并集成任意 OpenAI client
+- **OpenAI 兼容运行时路由** - 桌面运行时提供 `/v1/chat/completions`，用于兼容 WebUI 的聊天调度
 - **会话管理** - 持久化对话历史，支持 checkpoint 恢复
 - **安全** - 工作区限制、命令审计、加密凭据存储
 
 ## 快速开始
 
 ```bash
-# 安装
-uv sync
+# 安装依赖
+npm install
 
-# 初始化配置（交互式向导）
-uv run tinybot onboard
+# 运行前端检查
+npm test
+npm run build
 
-# 交互式聊天模式
-uv run tinybot agent
+# 启动带 Rust 原生后端的 Tauri 桌面应用
+npm run tauri -- dev
 
-# 发送单条消息
-uv run tinybot agent -m "Hello"
-
-# 启动 gateway（多渠道 + 定时任务 + heartbeat）
-uv run tinybot gateway
-
-# 作为 OpenAI 兼容 API server 运行
-uv run tinybot api
+# 构建桌面安装包
+npm run tauri -- build
 ```
 
 ## WebUI 使用
 
-Tinybot 提供基于浏览器的 Web 界面，可用于和 AI Agent 聊天。
+Tinybot 现在在 Tauri 桌面应用中加载 WebUI。Rust 原生后端会在桌面壳使用的本地运行时端点上提供兼容 WebUI 的路由。
 
-### 启用 WebUI 的步骤
+### 打开 WebUI 的步骤
 
-#### 1. 在配置中启用 WebSocket 渠道
-
-编辑你的 `~/.tinybot/config.json` 文件，在 `channels` 下添加：
-
-```json
-{
-  "channels": {
-    "websocket": {
-      "enabled": true,
-      "host": "127.0.0.1",
-      "port": 18790
-    }
-  }
-}
-```
-
-#### 2. 启动 Gateway
+#### 1. 启动桌面应用
 
 ```bash
-uv run tinybot gateway
+npm run tauri -- dev
 ```
 
-#### 3. 打开浏览器
+#### 2. 使用桌面 WebUI
 
-在浏览器中访问 `http://127.0.0.1:18790`。
+桌面壳会自动启动 Rust 原生后端并加载 WebUI surface。运行状态可在 Gateway & Runtime 面板查看。
 
 ### 可用 API 端点
 
@@ -382,17 +360,16 @@ uv run tinybot gateway
 | `message` | Server → Client | 完整消息 |
 | `file_updated` | Server → Client | 工作区文件已变更 |
 
-## 交互式聊天命令
+## 桌面 WebUI 控制
 
-进入交互模式后，可使用以下命令：
+日常操作通过桌面 WebUI 完成：
 
-| Command | Description |
-|---------|-------------|
-| `/config` 或 `Ctrl+O` | 打开配置编辑器 |
-| `/help` | 显示可用命令 |
-| `/clear` | 清空对话历史 |
-| `/new` | 开启新的对话会话 |
-| `/exit` 或 `:q` | 退出聊天 |
+| 界面 | 说明 |
+|------|------|
+| Chat composer | 发送消息、附加文件、停止生成并切换会话 |
+| Settings | 配置 providers、models、tools、knowledge、channels 和 runtime 选项 |
+| Gateway & Runtime | 查看本地运行时就绪状态、端点状态和兼容 worker 状态 |
+| Tools / Skills / Knowledge | 查看工具、管理 skills，并操作本地知识库 |
 
 ## Skills 系统
 
@@ -435,7 +412,9 @@ Agent 可以主动管理自己的学习经验：
 
 ## 环境要求
 
-- Python >= 3.13
+- Node.js 22
+- Rust stable toolchain
+- 当前平台所需的 Tauri 2 前置依赖
 
 ## 许可证
 

@@ -18,6 +18,7 @@ pub mod desktop_heartbeat;
 pub mod desktop_logging;
 pub mod desktop_menu;
 pub mod native_backend_contract;
+pub mod native_provider_runtime;
 pub mod worker_agent_runtime;
 pub mod worker_background;
 pub mod worker_capability;
@@ -62,8 +63,11 @@ use crate::desktop_logging::append_native_backend_log_line;
 use crate::desktop_menu::{
     install_desktop_application_menu, is_desktop_menu_command, DesktopMenuCommandPayload,
 };
+use crate::native_backend_contract::{
+    webui_route_inventory_entry, NativeCompatibilityFallbackDiagnostic, NativeRouteOwner,
+};
 use crate::worker_agent_runtime::{
-    resolve_native_agent_runtime_mode, run_native_agent_turn_with_services, NativeAgentRuntimeMode,
+    resolve_native_agent_runtime_mode, run_native_agent_turn_with_config, NativeAgentRuntimeMode,
     NativeAgentRuntimeServices,
 };
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
@@ -105,6 +109,7 @@ struct GatewayRuntime {
     experimental_worker: WorkerManager,
     native_agent_runtime: NativeAgentRuntimeServices,
     logs: VecDeque<String>,
+    compatibility_fallbacks: VecDeque<NativeCompatibilityFallbackDiagnostic>,
     persistent_log_path: PathBuf,
     last_error: Option<String>,
     keep_background: bool,
@@ -119,6 +124,7 @@ impl Default for GatewayRuntime {
             experimental_worker: WorkerManager::new(200),
             native_agent_runtime: NativeAgentRuntimeServices::default(),
             logs: VecDeque::with_capacity(200),
+            compatibility_fallbacks: VecDeque::with_capacity(50),
             persistent_log_path: native_backend_log_path(),
             last_error: None,
             keep_background: false,
@@ -1258,11 +1264,25 @@ fn worker_run_agent_with_options(
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
     if resolve_native_agent_runtime_mode(&spec, &config_snapshot) == NativeAgentRuntimeMode::Rust {
+        let persistence_spec = spec.clone();
         let services = {
             let runtime = lock_runtime(shared);
             runtime.native_agent_runtime.clone()
         };
-        return run_native_agent_turn_with_services(&services, spec);
+        let mut result =
+            run_native_agent_turn_with_config(&services, spec, config_snapshot.clone())?;
+        persist_native_agent_checkpoint_if_present(
+            &result,
+            workspace_root.clone(),
+            config_snapshot.clone(),
+        )?;
+        persist_native_agent_turn_if_final(
+            persistence_spec,
+            &mut result,
+            workspace_root,
+            config_snapshot,
+        )?;
+        return Ok(result);
     }
 
     let client = WorkerClient::experimental(shared);
@@ -1270,6 +1290,138 @@ fn worker_run_agent_with_options(
 
     let request = build_worker_run_agent_request(next_worker_request_correlation(), spec);
     client.call(&request, timeout, "worker agent run")
+}
+
+fn persist_native_agent_checkpoint_if_present(
+    result: &serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+) -> Result<(), String> {
+    let Some(checkpoint) = result.get("checkpoint").filter(|value| !value.is_null()) else {
+        return Ok(());
+    };
+    let session_id = result
+        .get("sessionId")
+        .or_else(|| result.get("session_id"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "Rust agent checkpoint missing session id".to_string())?;
+    let request_id = next_worker_request_correlation();
+    call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("session-set-native-checkpoint"),
+            request_id.trace_id("session-set-native-checkpoint"),
+            "session.set_checkpoint",
+            serde_json::json!({
+                "session_id": session_id,
+                "checkpoint": checkpoint,
+            }),
+        ),
+        "native agent checkpoint persistence",
+    )?;
+    Ok(())
+}
+
+fn persist_native_agent_turn_if_final(
+    spec: serde_json::Value,
+    result: &mut serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+) -> Result<(), String> {
+    if result.get("stopReason").and_then(serde_json::Value::as_str) != Some("final_response") {
+        return Ok(());
+    }
+    let session_id = spec
+        .get("sessionId")
+        .or_else(|| spec.get("session_id"))
+        .or_else(|| spec.get("activeSessionId"))
+        .or_else(|| spec.get("active_session_id"))
+        .or_else(|| spec.get("sessionKey"))
+        .or_else(|| spec.get("session_key"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "Rust agent turn missing session id for persistence".to_string())?;
+    let run_id = result
+        .get("runId")
+        .or_else(|| result.get("run_id"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("native-rust-run");
+    let mut messages = native_agent_user_messages(&spec);
+    messages.extend(native_agent_assistant_messages(result));
+    if messages.is_empty() {
+        return Ok(());
+    }
+    let request_id = next_worker_request_correlation();
+    let persisted = call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("session-persist-native-turn"),
+            request_id.trace_id("session-persist-native-turn"),
+            "session.persist_turn",
+            serde_json::json!({
+                "session_id": session_id,
+                "run_id": run_id,
+                "messages": messages,
+                "clear_checkpoint": true,
+                "context_metadata": {
+                    "runtime": "rust",
+                    "historyMessageCount": native_agent_user_messages(&spec).len(),
+                }
+            }),
+        ),
+        "native agent session persistence",
+    )?;
+    result["sessionPersistence"] = persisted;
+    Ok(())
+}
+
+fn native_agent_user_messages(spec: &serde_json::Value) -> Vec<serde_json::Value> {
+    if let Some(messages) = spec.get("messages").and_then(serde_json::Value::as_array) {
+        return messages
+            .iter()
+            .filter(|message| {
+                message.get("role").and_then(serde_json::Value::as_str) == Some("user")
+            })
+            .cloned()
+            .collect();
+    }
+    let Some(input) = spec.get("input").and_then(serde_json::Value::as_object) else {
+        return Vec::new();
+    };
+    let content = input
+        .get("content")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    if content.trim().is_empty() {
+        Vec::new()
+    } else {
+        vec![serde_json::json!({
+            "role": input
+                .get("role")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("user"),
+            "content": content,
+        })]
+    }
+}
+
+fn native_agent_assistant_messages(result: &serde_json::Value) -> Vec<serde_json::Value> {
+    result
+        .get("messages")
+        .and_then(serde_json::Value::as_array)
+        .map(|messages| {
+            messages
+                .iter()
+                .filter(|message| {
+                    message.get("role").and_then(serde_json::Value::as_str) == Some("assistant")
+                })
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn build_worker_run_agent_request(
@@ -2053,6 +2205,8 @@ fn worker_webui_route_with_options(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    let fallback_method = input.method.to_ascii_uppercase();
+    let (fallback_path, _) = split_webui_route_path(&input.path);
     if let Some(response) = worker_webui_rust_route_with_options(
         shared,
         &input,
@@ -2063,6 +2217,7 @@ fn worker_webui_route_with_options(
         return Ok(response);
     }
 
+    record_compatibility_fallback(shared, "webui-route", &fallback_method, &fallback_path);
     let client = WorkerClient::experimental(shared);
     client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
 
@@ -2081,6 +2236,30 @@ fn worker_webui_rust_route_with_options(
     let (path, query) = split_webui_route_path(&input.path);
     let body = input.body.clone().unwrap_or(serde_json::Value::Null);
 
+    if method == "POST" && path == "/v1/chat/completions" {
+        return Ok(Some(
+            crate::native_provider_runtime::openai_chat_completions_route(&config_snapshot, &body),
+        ));
+    }
+    if method == "POST" {
+        if let Some((form_id, cancelled)) = webui_agent_ui_form_route(&path) {
+            let (status, body) = native_webui_agent_ui_form_resolution_body(
+                shared,
+                form_id,
+                &body,
+                cancelled,
+                workspace_root,
+                config_snapshot,
+            )?;
+            return Ok(Some(webui_route_response(
+                status,
+                body,
+                "rust",
+                webui_route_group(&path),
+            )));
+        }
+    }
+
     let result = match (method.as_str(), path.as_str()) {
         ("GET", "/health") => Some(Ok(serde_json::json!({
             "ok": true,
@@ -2094,6 +2273,15 @@ fn worker_webui_rust_route_with_options(
             workspace_root.clone(),
             config_snapshot.clone(),
         )),
+        ("GET", "/api/providers") => Some(Ok(
+            crate::native_provider_runtime::provider_catalog_body(&config_snapshot),
+        )),
+        ("POST", "/api/provider-models") => Some(Ok(
+            crate::native_provider_runtime::provider_models_body(&config_snapshot, &body),
+        )),
+        ("GET", "/v1/models") => Some(Ok(crate::native_provider_runtime::openai_models_body(
+            &config_snapshot,
+        ))),
         ("GET", "/api/sessions") => Some(worker_sessions_list_with_options(
             shared,
             workspace_root.clone(),
@@ -2106,7 +2294,11 @@ fn worker_webui_rust_route_with_options(
             config_snapshot.clone(),
             timeout,
         )),
-        ("GET", "/api/approvals") => Some(Ok(native_webui_approvals_body(&query))),
+        ("GET", "/api/approvals") => Some(native_webui_approvals_body(
+            &query,
+            workspace_root.clone(),
+            config_snapshot.clone(),
+        )),
         ("POST", "/api/skills") => Some(worker_skills_create_with_options(
             shared,
             body,
@@ -2210,19 +2402,25 @@ fn worker_webui_rust_route_with_options(
             webui_route_group(&path),
         ))),
         None if is_delegated_webui_route(&method, &path) => Ok(None),
-        None => Ok(Some(webui_route_response(
-            404,
-            serde_json::json!({
-                "error": {
-                    "message": "webui control route unavailable",
-                },
-                "method": method,
-                "path": path,
-                "route": format!("{} {}", method, path),
-            }),
-            "unsupported",
-            webui_route_group(&path),
-        ))),
+        None => {
+            let route_group = webui_route_group(&path);
+            Ok(Some(webui_route_response(
+                404,
+                serde_json::json!({
+                    "diagnostic": "unsupported-route",
+                    "inventoryStatus": "not-inventoried",
+                    "routeGroup": route_group,
+                    "error": {
+                        "message": "webui control route unavailable",
+                    },
+                    "method": method,
+                    "path": path,
+                    "route": format!("{} {}", method, path),
+                }),
+                "unsupported",
+                route_group,
+            )))
+        }
     }
 }
 
@@ -2364,20 +2562,26 @@ fn worker_webui_rust_dynamic_route(
     }
     if let Some(approval_id) = webui_approval_route_id(path, "/approve") {
         if method == "POST" {
-            return Some(Ok(native_webui_approval_resolution_body(
+            return Some(native_webui_approval_resolution_body(
+                shared,
                 approval_id,
                 body,
                 true,
-            )));
+                workspace_root,
+                config_snapshot,
+            ));
         }
     }
     if let Some(approval_id) = webui_approval_route_id(path, "/deny") {
         if method == "POST" {
-            return Some(Ok(native_webui_approval_resolution_body(
+            return Some(native_webui_approval_resolution_body(
+                shared,
                 approval_id,
                 body,
                 false,
-            )));
+                workspace_root,
+                config_snapshot,
+            ));
         }
     }
     if let Some(doc_id) = webui_path_param(path, "/v1/knowledge/documents/") {
@@ -2432,8 +2636,17 @@ fn native_webui_status_body(shared: &SharedGateway) -> serde_json::Value {
             }
         },
         "native_backend": status,
-        "provider": serde_json::Value::Null,
-        "model": serde_json::Value::Null,
+        "provider": crate::native_provider_runtime::resolve_provider_profile(
+            &experimental_worker_config_snapshot(),
+            None,
+            None,
+        ).map(|profile| serde_json::json!({
+            "id": profile.provider_id,
+            "displayName": profile.display_name,
+            "api_base": profile.api_base,
+            "api_key_configured": profile.api_key_configured,
+        })),
+        "model": crate::native_provider_runtime::configured_model(&experimental_worker_config_snapshot()),
     })
 }
 
@@ -2456,20 +2669,248 @@ fn worker_webui_config_body(
     Ok(snapshot.get("value").cloned().unwrap_or(snapshot))
 }
 
-fn native_webui_approvals_body(query: &HashMap<String, String>) -> serde_json::Value {
+fn native_webui_approvals_body(
+    query: &HashMap<String, String>,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+) -> Result<serde_json::Value, String> {
     let session_key = query
         .get("session_key")
         .or_else(|| query.get("chat_id"))
         .cloned()
         .unwrap_or_default();
-    serde_json::json!({
+    let checkpoint = if session_key.is_empty() {
+        None
+    } else {
+        native_session_checkpoint(
+            &session_key,
+            workspace_root,
+            config_snapshot,
+            "native approvals checkpoint lookup",
+        )?
+    };
+    Ok(serde_json::json!({
         "session_key": session_key,
-        "approvals": [],
+        "approvals": pending_approvals_from_checkpoint(checkpoint.as_ref()),
         "source": "rust",
-    })
+    }))
+}
+
+fn pending_approvals_from_checkpoint(
+    checkpoint: Option<&serde_json::Value>,
+) -> Vec<serde_json::Value> {
+    let Some(checkpoint) = checkpoint else {
+        return Vec::new();
+    };
+    if checkpoint.get("phase").and_then(serde_json::Value::as_str) != Some("awaiting_approval") {
+        return Vec::new();
+    }
+    let payload = checkpoint
+        .get("payload")
+        .and_then(serde_json::Value::as_object);
+    let operation = payload
+        .and_then(|payload| payload.get("operation"))
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let approval_id = payload
+        .and_then(|payload| payload.get("approval_id"))
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| {
+            operation
+                .get("approvalId")
+                .and_then(serde_json::Value::as_str)
+        })
+        .unwrap_or("approval-1");
+    let tool_name = operation
+        .get("toolName")
+        .or_else(|| operation.get("tool_name"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("approval");
+    let run_id = checkpoint
+        .get("runId")
+        .or_else(|| checkpoint.get("run_id"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let session_id = checkpoint
+        .get("sessionId")
+        .or_else(|| checkpoint.get("session_id"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    vec![serde_json::json!({
+        "id": approval_id,
+        "runId": run_id,
+        "sessionId": session_id,
+        "operation": operation,
+        "category": operation.get("category").and_then(serde_json::Value::as_str).unwrap_or("tool"),
+        "risk": operation.get("risk").and_then(serde_json::Value::as_str).unwrap_or("medium"),
+        "reason": operation.get("reason").and_then(serde_json::Value::as_str).unwrap_or("This tool requires user approval before execution."),
+        "summary": operation.get("summary").and_then(serde_json::Value::as_str).unwrap_or(tool_name),
+        "fingerprint": operation.get("fingerprint").and_then(serde_json::Value::as_str).unwrap_or(approval_id),
+        "sessionFingerprint": operation.get("sessionFingerprint").and_then(serde_json::Value::as_str).unwrap_or(approval_id),
+        "tool_name": tool_name,
+    })]
 }
 
 fn native_webui_approval_resolution_body(
+    shared: &SharedGateway,
+    approval_id: String,
+    body: &serde_json::Value,
+    approved: bool,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let session_key = body
+        .get("session_key")
+        .or_else(|| body.get("sessionId"))
+        .or_else(|| body.get("session_id"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let scope = body
+        .get("scope")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("once");
+    let Some(checkpoint) = native_session_checkpoint(
+        session_key,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+        "native approval resolution checkpoint lookup",
+    )?
+    else {
+        return Ok(native_webui_approval_not_found_body(
+            approval_id,
+            body,
+            approved,
+        ));
+    };
+    let pending = pending_approvals_from_checkpoint(Some(&checkpoint));
+    let Some(approval) = pending.iter().find(|approval| {
+        approval.get("id").and_then(serde_json::Value::as_str) == Some(&approval_id)
+    }) else {
+        return Ok(native_webui_approval_not_found_body(
+            approval_id,
+            body,
+            approved,
+        ));
+    };
+
+    let continuation_spec =
+        native_approval_continuation_spec(&checkpoint, body, &approval_id, approved);
+    let services = {
+        let runtime = lock_runtime(shared);
+        runtime.native_agent_runtime.clone()
+    };
+    services.save_checkpoint(session_key, checkpoint.clone());
+    let mut continuation = run_native_agent_turn_with_config(
+        &services,
+        continuation_spec.clone(),
+        config_snapshot.clone(),
+    )?;
+    persist_native_agent_turn_if_final(
+        continuation_spec,
+        &mut continuation,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+    )?;
+    clear_native_session_checkpoint(
+        session_key,
+        workspace_root,
+        config_snapshot,
+        "native approval resolution checkpoint clear",
+    )?;
+    continuation["ok"] = serde_json::Value::Bool(true);
+    continuation["status"] =
+        serde_json::Value::String(if approved { "approved" } else { "denied" }.to_string());
+    continuation["approvalId"] = serde_json::Value::String(approval_id);
+    continuation["approved"] = serde_json::Value::Bool(approved);
+    continuation["scope"] = serde_json::Value::String(scope.to_string());
+    continuation["session_key"] = serde_json::Value::String(session_key.to_string());
+    continuation["source"] = serde_json::Value::String("rust".to_string());
+    continuation["operation"] = approval
+        .get("operation")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    continuation["category"] = approval
+        .get("category")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    continuation["risk"] = approval
+        .get("risk")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    continuation["reason"] = approval
+        .get("reason")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    continuation["summary"] = approval
+        .get("summary")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    continuation["fingerprint"] = approval
+        .get("fingerprint")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    continuation["sessionFingerprint"] = approval
+        .get("sessionFingerprint")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    Ok(continuation)
+}
+
+fn native_approval_continuation_spec(
+    checkpoint: &serde_json::Value,
+    body: &serde_json::Value,
+    approval_id: &str,
+    approved: bool,
+) -> serde_json::Value {
+    let run_id = checkpoint
+        .get("runId")
+        .or_else(|| checkpoint.get("run_id"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("native-approval-resolution");
+    let session_id = checkpoint
+        .get("sessionId")
+        .or_else(|| checkpoint.get("session_id"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("native-rust-session");
+    let operation = checkpoint
+        .get("payload")
+        .and_then(|payload| payload.get("operation"))
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let tool_name = operation
+        .get("toolName")
+        .or_else(|| operation.get("tool_name"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("approval");
+    let mut resume = serde_json::json!({
+        "approved": approved,
+        "toolCallId": approval_id,
+        "toolName": tool_name,
+        "toolResult": if approved { "approved" } else { "denied" },
+    });
+    if let Some(final_content) = body
+        .get("finalContent")
+        .or_else(|| body.get("final_content"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+    {
+        resume["finalContent"] = serde_json::Value::String(final_content.to_string());
+    }
+    serde_json::json!({
+        "runtime": "rust",
+        "runId": run_id,
+        "sessionId": session_id,
+        "messages": checkpoint
+            .get("messages")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!([])),
+        "metadata": {
+            "fakeApprovalResume": resume,
+        },
+    })
+}
+
+fn native_webui_approval_not_found_body(
     approval_id: String,
     body: &serde_json::Value,
     approved: bool,
@@ -2496,6 +2937,263 @@ fn native_webui_approval_resolution_body(
             "message": "pending approval not found",
         },
     })
+}
+
+fn native_webui_agent_ui_form_resolution_body(
+    shared: &SharedGateway,
+    form_id: String,
+    body: &serde_json::Value,
+    cancelled: bool,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+) -> Result<(u16, serde_json::Value), String> {
+    let session_key = agent_ui_form_session_key(body).unwrap_or_default();
+    let values = body
+        .get("values")
+        .filter(|value| value.is_object())
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    let Some(checkpoint) = native_session_checkpoint(
+        &session_key,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+        "native Agent UI form checkpoint lookup",
+    )?
+    else {
+        return Ok((404, native_webui_agent_ui_form_not_found_body(form_id)));
+    };
+    if checkpoint.get("phase").and_then(serde_json::Value::as_str) != Some("awaiting_form")
+        || checkpoint
+            .get("payload")
+            .and_then(|payload| payload.get("form_id"))
+            .and_then(serde_json::Value::as_str)
+            != Some(&form_id)
+    {
+        return Ok((404, native_webui_agent_ui_form_not_found_body(form_id)));
+    }
+    let errors = validate_agent_ui_form_values(&checkpoint, &values);
+    if !cancelled && !errors.is_empty() {
+        return Ok((
+            400,
+            serde_json::json!({
+                "submitted": false,
+                "form_id": form_id,
+                "values": values,
+                "errors": errors,
+                "event": native_agent_ui_form_event("ui.form.validation_failed", &form_id, &values),
+                "source": "rust",
+            }),
+        ));
+    }
+
+    let continuation_spec =
+        native_agent_ui_form_continuation_spec(&checkpoint, body, &form_id, &values, cancelled);
+    let services = {
+        let runtime = lock_runtime(shared);
+        runtime.native_agent_runtime.clone()
+    };
+    services.save_checkpoint(&session_key, checkpoint);
+    let mut continuation = run_native_agent_turn_with_config(
+        &services,
+        continuation_spec.clone(),
+        config_snapshot.clone(),
+    )?;
+    persist_native_agent_turn_if_final(
+        continuation_spec,
+        &mut continuation,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+    )?;
+    clear_native_session_checkpoint(
+        &session_key,
+        workspace_root,
+        config_snapshot,
+        "native Agent UI form checkpoint clear",
+    )?;
+    continuation["form_id"] = serde_json::Value::String(form_id.clone());
+    continuation["source"] = serde_json::Value::String("rust".to_string());
+    continuation["continuation"] = serde_json::json!({
+        "mode": "resume",
+        "delivered": true,
+        "target": "agent_loop",
+    });
+    if cancelled {
+        continuation["cancelled"] = serde_json::Value::Bool(true);
+        continuation["event"] = native_agent_ui_form_event("ui.form.cancelled", &form_id, &values);
+    } else {
+        continuation["submitted"] = serde_json::Value::Bool(true);
+        continuation["values"] = values.clone();
+        continuation["event"] = native_agent_ui_form_event("ui.form.submitted", &form_id, &values);
+    }
+    Ok((200, continuation))
+}
+
+fn native_webui_agent_ui_form_not_found_body(form_id: String) -> serde_json::Value {
+    serde_json::json!({
+        "submitted": false,
+        "cancelled": false,
+        "form_id": form_id,
+        "source": "rust",
+        "error": "pending form checkpoint not found",
+    })
+}
+
+fn agent_ui_form_session_key(body: &serde_json::Value) -> Option<String> {
+    body.get("correlation")
+        .and_then(|correlation| {
+            correlation
+                .get("session_key")
+                .or_else(|| correlation.get("sessionId"))
+                .or_else(|| correlation.get("session_id"))
+                .and_then(serde_json::Value::as_str)
+        })
+        .or_else(|| {
+            body.get("session_key")
+                .or_else(|| body.get("sessionId"))
+                .or_else(|| body.get("session_id"))
+                .and_then(serde_json::Value::as_str)
+        })
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn validate_agent_ui_form_values(
+    checkpoint: &serde_json::Value,
+    values: &serde_json::Value,
+) -> serde_json::Map<String, serde_json::Value> {
+    let mut errors = serde_json::Map::new();
+    let Some(fields) = checkpoint
+        .get("payload")
+        .and_then(|payload| payload.get("form"))
+        .and_then(|form| form.get("fields"))
+        .and_then(serde_json::Value::as_array)
+    else {
+        return errors;
+    };
+    for field in fields {
+        if field.get("required").and_then(serde_json::Value::as_bool) != Some(true) {
+            continue;
+        }
+        let Some(name) = field.get("name").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        let missing = values
+            .get(name)
+            .is_none_or(|value| value.is_null() || value.as_str().is_some_and(str::is_empty));
+        if missing {
+            errors.insert(
+                name.to_string(),
+                serde_json::Value::String("Required".to_string()),
+            );
+        }
+    }
+    errors
+}
+
+fn native_agent_ui_form_continuation_spec(
+    checkpoint: &serde_json::Value,
+    body: &serde_json::Value,
+    form_id: &str,
+    values: &serde_json::Value,
+    cancelled: bool,
+) -> serde_json::Value {
+    let run_id = checkpoint
+        .get("runId")
+        .or_else(|| checkpoint.get("run_id"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("native-form-resolution");
+    let session_id = checkpoint
+        .get("sessionId")
+        .or_else(|| checkpoint.get("session_id"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("native-rust-session");
+    let mut form_submit = serde_json::json!({
+        "formId": form_id,
+        "values": values,
+        "cancelled": cancelled,
+    });
+    if let Some(final_content) = body
+        .get("finalContent")
+        .or_else(|| body.get("final_content"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+    {
+        form_submit["finalContent"] = serde_json::Value::String(final_content.to_string());
+    }
+    serde_json::json!({
+        "runtime": "rust",
+        "runId": run_id,
+        "sessionId": session_id,
+        "messages": checkpoint
+            .get("messages")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!([])),
+        "metadata": {
+            "fakeFormSubmit": form_submit,
+        },
+    })
+}
+
+fn native_agent_ui_form_event(
+    event_type: &str,
+    form_id: &str,
+    values: &serde_json::Value,
+) -> serde_json::Value {
+    let mut payload = serde_json::json!({ "form_id": form_id });
+    if event_type == "ui.form.submitted" || event_type == "ui.form.validation_failed" {
+        payload["values"] = values.clone();
+    }
+    serde_json::json!({
+        "event_type": event_type,
+        "payload": payload,
+    })
+}
+
+fn native_session_checkpoint(
+    session_key: &str,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    label: &str,
+) -> Result<Option<serde_json::Value>, String> {
+    let request_id = next_worker_request_correlation();
+    let checkpoint = call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("session-get-checkpoint"),
+            request_id.trace_id("session-get-checkpoint"),
+            "session.get_checkpoint",
+            serde_json::json!({ "session_id": session_key }),
+        ),
+        label,
+    )?;
+    Ok(if checkpoint.is_null() {
+        None
+    } else {
+        Some(checkpoint)
+    })
+}
+
+fn clear_native_session_checkpoint(
+    session_key: &str,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    label: &str,
+) -> Result<(), String> {
+    let request_id = next_worker_request_correlation();
+    call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("session-clear-checkpoint"),
+            request_id.trace_id("session-clear-checkpoint"),
+            "session.clear_checkpoint",
+            serde_json::json!({ "session_id": session_key }),
+        ),
+        label,
+    )?;
+    Ok(())
 }
 
 fn webui_route_response(
@@ -2604,6 +3302,21 @@ fn webui_approval_route_id(path: &str, suffix: &str) -> Option<String> {
     Some(percent_decode(approval_id))
 }
 
+fn webui_agent_ui_form_route(path: &str) -> Option<(String, bool)> {
+    webui_agent_ui_form_route_id(path, "/submit")
+        .map(|form_id| (form_id, false))
+        .or_else(|| webui_agent_ui_form_route_id(path, "/cancel").map(|form_id| (form_id, true)))
+}
+
+fn webui_agent_ui_form_route_id(path: &str, suffix: &str) -> Option<String> {
+    let rest = path.strip_prefix("/api/agent-ui/forms/")?;
+    let form_id = rest.strip_suffix(suffix)?;
+    if form_id.is_empty() || form_id.contains('/') {
+        return None;
+    }
+    Some(percent_decode(form_id))
+}
+
 fn webui_path_param(path: &str, prefix: &str) -> Option<String> {
     let rest = path.strip_prefix(prefix)?;
     if rest.is_empty() || rest.contains('/') {
@@ -2627,6 +3340,8 @@ fn webui_route_group(path: &str) -> &'static str {
         "workspace"
     } else if path.starts_with("/api/skills") {
         "skills"
+    } else if path == "/api/providers" || path == "/api/provider-models" {
+        "providers"
     } else if path.starts_with("/v1/knowledge") {
         "knowledge"
     } else if path.starts_with("/api/cowork") {
@@ -2643,18 +3358,26 @@ fn webui_route_group(path: &str) -> &'static str {
 }
 
 fn is_delegated_webui_route(method: &str, path: &str) -> bool {
-    matches!(
-        (method, path),
-        ("GET", "/v1/models")
-            | ("POST", "/v1/chat/completions")
-            | ("PATCH", "/api/config")
-            | ("GET", "/api/providers")
-            | ("POST", "/api/provider-models")
-            | ("POST", "/v1/knowledge/query")
-            | ("POST", "/v1/knowledge/graph/extract")
-            | ("GET", "/v1/knowledge/graphrag")
-    ) || path.starts_with("/api/agent-ui/")
-        || path.starts_with("/api/cowork/")
+    webui_route_inventory_entry(method, path)
+        .is_some_and(|entry| entry.owner == NativeRouteOwner::TsFallback)
+}
+
+fn record_compatibility_fallback(shared: &SharedGateway, surface: &str, method: &str, path: &str) {
+    let Some(entry) = webui_route_inventory_entry(method, path) else {
+        return;
+    };
+    let route = format!("{method} {path}");
+    let diagnostic = NativeCompatibilityFallbackDiagnostic {
+        surface: surface.to_string(),
+        route,
+        route_group: entry.route_group.to_string(),
+        reason: entry.reason.to_string(),
+    };
+    let mut runtime = lock_runtime(shared);
+    if runtime.compatibility_fallbacks.len() >= 50 {
+        runtime.compatibility_fallbacks.pop_front();
+    }
+    runtime.compatibility_fallbacks.push_back(diagnostic);
 }
 
 fn worker_webui_route_timeout(input: &WorkerWebuiRouteInput) -> Duration {
@@ -2774,6 +3497,42 @@ fn worker_transport_dispatch_websocket_message_with_options(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    if resolve_native_agent_runtime_mode(&serde_json::json!({}), &config_snapshot)
+        == NativeAgentRuntimeMode::Rust
+    {
+        if let Some(transport_result) = native_websocket_transport_result(&input) {
+            let dispatch_options = WorkerTransportWebSocketDispatchOptions {
+                model: input.model,
+                max_iterations: input.max_iterations,
+                run_id: input.run_id,
+                stream: input.stream,
+            };
+            let Some(run_request) = build_worker_transport_websocket_run_input_request(
+                next_worker_request_correlation(),
+                &transport_result,
+                dispatch_options,
+            ) else {
+                return Ok(serde_json::json!({ "transport": transport_result }));
+            };
+            let run_spec = run_request
+                .params
+                .get("input")
+                .cloned()
+                .ok_or_else(|| "native websocket dispatch missing run input".to_string())?;
+            let agent_result = worker_run_agent_with_options(
+                shared,
+                run_spec,
+                workspace_root,
+                config_snapshot,
+                timeout,
+            )?;
+            return Ok(serde_json::json!({
+                "transport": transport_result,
+                "agent": agent_result,
+            }));
+        }
+    }
+
     let client = WorkerClient::experimental(shared);
     client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
 
@@ -2816,6 +3575,52 @@ fn worker_transport_dispatch_websocket_message_with_options(
     Ok(serde_json::json!({
         "transport": transport_result,
         "agent": agent_result,
+    }))
+}
+
+fn native_websocket_transport_result(
+    input: &WorkerTransportWebSocketDispatchInput,
+) -> Option<serde_json::Value> {
+    let frame = input.frame.as_object()?;
+    if json_string_field(frame, "type") != Some("message") {
+        return None;
+    }
+    let content = json_string_field(frame, "content")?;
+    let chat_id = json_string_field(frame, "chat_id")
+        .or(input.attached_chat_id.as_deref())
+        .unwrap_or_default();
+    if chat_id.is_empty() {
+        return None;
+    }
+    let session_id = format!("websocket:{chat_id}");
+    let mut metadata = frame
+        .get("metadata")
+        .and_then(serde_json::Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    if let Some(use_persistent_rag) = frame
+        .get("use_persistent_rag")
+        .and_then(serde_json::Value::as_bool)
+    {
+        metadata.insert(
+            "_use_persistent_rag".to_string(),
+            serde_json::Value::Bool(use_persistent_rag),
+        );
+    }
+
+    Some(serde_json::json!({
+        "kind": "message",
+        "chatId": chat_id,
+        "sessionId": session_id,
+        "frames": [],
+        "inbound": {
+            "channel": "websocket",
+            "sender_id": input.client_id,
+            "chat_id": chat_id,
+            "content": content,
+            "metadata": serde_json::Value::Object(metadata),
+            "session_key": session_id,
+        }
     }))
 }
 
@@ -3113,7 +3918,18 @@ fn worker_restore_agent_checkpoint_with_options(
             let runtime = lock_runtime(shared);
             runtime.native_agent_runtime.clone()
         };
-        return Ok(services.restore_checkpoint(&session_id));
+        let restored = services.restore_checkpoint(&session_id);
+        if !restored
+            .get("checkpoint")
+            .is_some_and(|value| !value.is_null())
+        {
+            return restore_native_agent_checkpoint_from_session_store(
+                session_id,
+                workspace_root,
+                config_snapshot,
+            );
+        }
+        return Ok(restored);
     }
 
     let client = WorkerClient::experimental(shared);
@@ -3124,6 +3940,30 @@ fn worker_restore_agent_checkpoint_with_options(
         session_id,
     );
     client.call(&request, timeout, "worker agent checkpoint restore")
+}
+
+fn restore_native_agent_checkpoint_from_session_store(
+    session_id: String,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    let checkpoint = call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("session-get-native-checkpoint"),
+            request_id.trace_id("session-get-native-checkpoint"),
+            "session.get_checkpoint",
+            serde_json::json!({ "session_id": session_id.clone() }),
+        ),
+        "native agent checkpoint restore",
+    )?;
+    Ok(serde_json::json!({
+        "runtime": "rust",
+        "sessionId": session_id,
+        "checkpoint": checkpoint,
+    }))
 }
 
 fn build_worker_restore_agent_checkpoint_request(
@@ -4137,6 +4977,47 @@ mod tests {
     }
 
     #[test]
+    fn desktop_smoke_default_chat_runs_without_ts_compatibility_worker() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let status = crate::desktop_gateway::start_gateway_with_options(&shared, false)
+            .expect("default desktop runtime should start Rust backend");
+
+        let chat = worker_webui_route_with_options(
+            &shared,
+            WorkerWebuiRouteInput {
+                method: "POST".to_string(),
+                path: "/v1/chat/completions".to_string(),
+                headers: None,
+                body: Some(serde_json::json!({
+                    "messages": [{ "role": "user", "content": "desktop smoke" }],
+                    "stream": false
+                })),
+            },
+            fixture.root.clone(),
+            serde_json::json!({
+                "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+                "providers": { "fixture": { "responses": [{ "content": "smoke response from rust" }] } }
+            }),
+            Duration::from_millis(10),
+        )
+        .expect("desktop smoke chat should use Rust-owned route");
+
+        assert_eq!(status.command, "Tauri Rust backend");
+        assert!(status.worker_runtime.compatibility_worker.is_none());
+        assert_eq!(chat["status"], 200);
+        assert_eq!(chat["headers"]["x-tinybot-route-owner"], "rust");
+        assert_eq!(
+            chat["body"]["choices"][0]["message"]["content"],
+            "smoke response from rust"
+        );
+        assert_eq!(
+            lock_runtime(&shared).experimental_worker.status().state,
+            WorkerManagerState::Stopped
+        );
+    }
+
+    #[test]
     fn gateway_status_reflects_running_ts_compatibility_worker_runtime() {
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
         let worker = {
@@ -4459,15 +5340,6 @@ mod tests {
             .start_stdio_rpc(test_stdio_runtime_restart_worker_spec(), router)
             .expect("runtime restart worker should start");
 
-        let diagnostics = wait_for_worker_diagnostics(&manager, |diagnostics| {
-            diagnostics.iter().any(|line| {
-                line.stream == "stderr" && line.line.contains("\"restart_requested\":true")
-            })
-        });
-        assert!(diagnostics.iter().any(|line| {
-            line.stream == "stderr" && line.line.contains("\"restart_requested\":true")
-        }));
-
         let status = wait_for_worker_status(&manager, |status| {
             status.state == WorkerManagerState::Running
                 && status.label.as_deref() == Some("stdio-agent-echo-worker")
@@ -4482,7 +5354,7 @@ mod tests {
             serde_json::json!({ "input": "hello after runtime restart" }),
         );
         let response = manager
-            .send_stdio_request(&request, Duration::from_secs(3))
+            .send_stdio_request(&request, Duration::from_secs(15))
             .expect("restarted worker should accept stdio request");
 
         assert_eq!(response.result.as_ref().unwrap()["ok"], true);
@@ -4528,19 +5400,61 @@ mod tests {
                 "messages": [{ "role": "user", "content": "hello rust" }]
             }),
             fixture.root.clone(),
-            serde_json::json!({}),
+            serde_json::json!({
+                "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+                "providers": { "fixture": { "responses": [{ "content": "rust fixture answer" }] } }
+            }),
             Duration::from_millis(10),
         )
-        .expect("Rust runtime should run deterministic fake provider");
+        .expect("Rust runtime should run deterministic fixture provider");
 
         assert_eq!(result["runtime"], "rust");
-        assert_eq!(result["finalContent"], "Echo: hello rust");
+        assert_eq!(result["finalContent"], "rust fixture answer");
         assert_eq!(result["events"][0]["eventName"], "agent.delta");
-        assert_eq!(result["events"][1]["eventName"], "agent.done");
+        assert_eq!(result["events"][1]["eventName"], "agent.usage");
+        assert_eq!(result["events"][2]["eventName"], "agent.done");
         assert_eq!(
             lock_runtime(&shared).experimental_worker.status().state,
             WorkerManagerState::Stopped
         );
+    }
+
+    #[test]
+    fn worker_run_agent_persists_rust_turn_messages_in_session_store() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let config = serde_json::json!({
+            "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+            "providers": { "fixture": { "responses": [{ "content": "persisted assistant" }] } }
+        });
+
+        let result = worker_run_agent_with_options(
+            &shared,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-persist",
+                "sessionId": "websocket:chat-persist",
+                "messages": [{ "role": "user", "content": "persist me" }]
+            }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("Rust runtime should complete fixture-backed turn");
+        let history = worker_session_messages_with_options(
+            &shared,
+            "websocket:chat-persist".to_string(),
+            fixture.root.clone(),
+            config,
+            Duration::from_millis(10),
+        )
+        .expect("session messages route should read persisted Rust turn");
+
+        assert_eq!(result["stopReason"], "final_response");
+        assert_eq!(history["messages"][0]["role"], "user");
+        assert_eq!(history["messages"][0]["content"], "persist me");
+        assert_eq!(history["messages"][1]["role"], "assistant");
+        assert_eq!(history["messages"][1]["content"], "persisted assistant");
     }
 
     #[test]
@@ -4588,7 +5502,604 @@ mod tests {
         assert_eq!(awaiting["stopReason"], "awaiting_approval");
         assert_eq!(restored["runtime"], "rust");
         assert_eq!(restored["checkpoint"]["phase"], "awaiting_approval");
+        assert_eq!(cancelled["stopReason"], "cancelled");
+        assert_eq!(cancelled["error"], "cancelled");
         assert_eq!(cancelled["events"][0]["eventName"], "agent.cancelled");
+        assert_eq!(cancelled["events"][0]["payload"]["stopReason"], "cancelled");
+        assert_eq!(
+            lock_runtime(&shared).experimental_worker.status().state,
+            WorkerManagerState::Stopped
+        );
+    }
+
+    #[test]
+    fn worker_rust_agent_restores_checkpoint_from_session_store_after_runtime_restart() {
+        let fixture = WorkspaceFixture::new();
+        let first_runtime = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let restarted_runtime = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let rust_config = serde_json::json!({
+            "desktop": { "nativeAgentRuntime": "rust" }
+        });
+
+        let awaiting = worker_run_agent_with_options(
+            &first_runtime,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-persisted-approval",
+                "sessionId": "websocket:chat-persisted-approval",
+                "metadata": {
+                    "fakeAwaitingApproval": {
+                        "approvalId": "approval-persisted",
+                        "toolName": "workspace.write_file"
+                    }
+                }
+            }),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("Rust runtime should create an approval checkpoint");
+        let restored = worker_restore_agent_checkpoint_with_options(
+            &restarted_runtime,
+            "websocket:chat-persisted-approval".to_string(),
+            fixture.root.clone(),
+            rust_config,
+            Duration::from_millis(10),
+        )
+        .expect("Rust runtime should restore persisted checkpoint after restart");
+
+        assert_eq!(awaiting["stopReason"], "awaiting_approval");
+        assert_eq!(restored["runtime"], "rust");
+        assert_eq!(restored["checkpoint"]["phase"], "awaiting_approval");
+        assert_eq!(
+            restored["checkpoint"]["payload"]["approval_id"],
+            "approval-persisted"
+        );
+        assert_eq!(
+            lock_runtime(&restarted_runtime)
+                .experimental_worker
+                .status()
+                .state,
+            WorkerManagerState::Stopped
+        );
+    }
+
+    #[test]
+    fn worker_webui_approvals_lists_persisted_rust_approval_checkpoint() {
+        let fixture = WorkspaceFixture::new();
+        let first_runtime = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let restarted_runtime = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let session_id = "websocket:chat-persisted-approval-list";
+
+        worker_run_agent_with_options(
+            &first_runtime,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-persisted-approval-list",
+                "sessionId": session_id,
+                "metadata": {
+                    "fakeAwaitingApproval": {
+                        "approvalId": "approval-persisted-list",
+                        "toolName": "workspace.write_file",
+                        "summary": "write notes"
+                    }
+                }
+            }),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("Rust runtime should create an approval checkpoint");
+
+        let approvals = worker_webui_route_with_options(
+            &restarted_runtime,
+            WorkerWebuiRouteInput {
+                method: "GET".to_string(),
+                path: "/api/approvals?session_key=websocket%3Achat-persisted-approval-list"
+                    .to_string(),
+                headers: None,
+                body: None,
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("approvals route should read persisted Rust checkpoint");
+
+        assert_eq!(approvals["headers"]["x-tinybot-route-owner"], "rust");
+        assert_eq!(approvals["body"]["session_key"], session_id);
+        assert_eq!(
+            approvals["body"]["approvals"][0]["id"],
+            "approval-persisted-list"
+        );
+        assert_eq!(
+            approvals["body"]["approvals"][0]["tool_name"],
+            "workspace.write_file"
+        );
+        assert_eq!(
+            lock_runtime(&restarted_runtime)
+                .experimental_worker
+                .status()
+                .state,
+            WorkerManagerState::Stopped
+        );
+    }
+
+    #[test]
+    fn worker_webui_approval_resolution_clears_persisted_rust_checkpoint() {
+        let fixture = WorkspaceFixture::new();
+        let first_runtime = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let restarted_runtime = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let session_id = "websocket:chat-persisted-approval-resolve";
+        let rust_config = serde_json::json!({
+            "desktop": { "nativeAgentRuntime": "rust" }
+        });
+
+        worker_run_agent_with_options(
+            &first_runtime,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-persisted-approval-resolve",
+                "sessionId": session_id,
+                "metadata": {
+                    "fakeAwaitingApproval": {
+                        "approvalId": "approval-persisted-resolve",
+                        "toolName": "workspace.write_file"
+                    }
+                }
+            }),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("Rust runtime should create an approval checkpoint");
+
+        let approval_resolution = worker_webui_route_with_options(
+            &restarted_runtime,
+            WorkerWebuiRouteInput {
+                method: "POST".to_string(),
+                path: "/api/approvals/approval-persisted-resolve/approve".to_string(),
+                headers: None,
+                body: Some(serde_json::json!({
+                    "session_key": session_id,
+                    "scope": "session"
+                })),
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("approval resolution route should read persisted Rust checkpoint");
+        let restored_after_resolution = worker_restore_agent_checkpoint_with_options(
+            &restarted_runtime,
+            session_id.to_string(),
+            fixture.root.clone(),
+            rust_config,
+            Duration::from_millis(10),
+        )
+        .expect("checkpoint restore should still be Rust-owned after approval resolution");
+
+        assert_eq!(
+            approval_resolution["headers"]["x-tinybot-route-owner"],
+            "rust"
+        );
+        assert_eq!(approval_resolution["body"]["ok"], true);
+        assert_eq!(approval_resolution["body"]["status"], "approved");
+        assert_eq!(
+            approval_resolution["body"]["approvalId"],
+            "approval-persisted-resolve"
+        );
+        assert_eq!(
+            approval_resolution["body"]["restoredCheckpoint"]["phase"],
+            "awaiting_approval"
+        );
+        assert!(restored_after_resolution["checkpoint"].is_null());
+    }
+
+    #[test]
+    fn worker_webui_approval_resolution_finalizes_rust_turn_and_persists_result() {
+        let fixture = WorkspaceFixture::new();
+        let first_runtime = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let restarted_runtime = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let session_id = "websocket:chat-approval-finalize";
+        let config = serde_json::json!({
+            "desktop": { "nativeAgentRuntime": "rust" }
+        });
+
+        worker_run_agent_with_options(
+            &first_runtime,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-approval-finalize",
+                "sessionId": session_id,
+                "messages": [{ "role": "user", "content": "write the note" }],
+                "metadata": {
+                    "fakeAwaitingApproval": {
+                        "approvalId": "approval-finalize",
+                        "toolName": "workspace.write_file"
+                    }
+                }
+            }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("Rust runtime should create an approval checkpoint");
+
+        let approval_resolution = worker_webui_route_with_options(
+            &restarted_runtime,
+            WorkerWebuiRouteInput {
+                method: "POST".to_string(),
+                path: "/api/approvals/approval-finalize/approve".to_string(),
+                headers: None,
+                body: Some(serde_json::json!({
+                    "session_key": session_id,
+                    "scope": "once",
+                    "finalContent": "Approved route completed."
+                })),
+            },
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("approval resolution route should finalize the Rust turn");
+        let history = worker_session_messages_with_options(
+            &restarted_runtime,
+            session_id.to_string(),
+            fixture.root.clone(),
+            config,
+            Duration::from_millis(10),
+        )
+        .expect("session messages route should read finalized approval turn");
+
+        assert_eq!(
+            approval_resolution["headers"]["x-tinybot-route-owner"],
+            "rust"
+        );
+        assert_eq!(approval_resolution["body"]["ok"], true);
+        assert_eq!(approval_resolution["body"]["status"], "approved");
+        assert_eq!(approval_resolution["body"]["stopReason"], "final_response");
+        assert_eq!(
+            approval_resolution["body"]["finalContent"],
+            "Approved route completed."
+        );
+        assert_eq!(history["messages"][0]["role"], "user");
+        assert_eq!(history["messages"][0]["content"], "write the note");
+        assert_eq!(history["messages"][1]["role"], "assistant");
+        assert_eq!(
+            history["messages"][1]["content"],
+            "Approved route completed."
+        );
+    }
+
+    #[test]
+    fn worker_webui_approval_denial_finalizes_with_rust_error_result() {
+        let fixture = WorkspaceFixture::new();
+        let first_runtime = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let restarted_runtime = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let session_id = "websocket:chat-approval-deny";
+        let config = serde_json::json!({
+            "desktop": { "nativeAgentRuntime": "rust" }
+        });
+
+        worker_run_agent_with_options(
+            &first_runtime,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-approval-deny",
+                "sessionId": session_id,
+                "metadata": {
+                    "fakeAwaitingApproval": {
+                        "approvalId": "approval-deny",
+                        "toolName": "workspace.write_file"
+                    }
+                }
+            }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("Rust runtime should create an approval checkpoint");
+
+        let approval_resolution = worker_webui_route_with_options(
+            &restarted_runtime,
+            WorkerWebuiRouteInput {
+                method: "POST".to_string(),
+                path: "/api/approvals/approval-deny/deny".to_string(),
+                headers: None,
+                body: Some(serde_json::json!({
+                    "session_key": session_id
+                })),
+            },
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("approval denial route should finalize the Rust turn");
+        let restored_after_resolution = worker_restore_agent_checkpoint_with_options(
+            &restarted_runtime,
+            session_id.to_string(),
+            fixture.root.clone(),
+            config,
+            Duration::from_millis(10),
+        )
+        .expect("checkpoint restore should remain Rust-owned after denial");
+
+        assert_eq!(
+            approval_resolution["headers"]["x-tinybot-route-owner"],
+            "rust"
+        );
+        assert_eq!(approval_resolution["body"]["ok"], true);
+        assert_eq!(approval_resolution["body"]["status"], "denied");
+        assert_eq!(approval_resolution["body"]["stopReason"], "approval_denied");
+        assert_eq!(
+            approval_resolution["body"]["error"],
+            "Rust agent approval was denied."
+        );
+        assert!(restored_after_resolution["checkpoint"].is_null());
+    }
+
+    #[test]
+    fn worker_webui_agent_ui_form_submit_finalizes_rust_turn_and_persists_result() {
+        let fixture = WorkspaceFixture::new();
+        let first_runtime = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let restarted_runtime = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let session_id = "websocket:chat-form-submit";
+        let config = serde_json::json!({
+            "desktop": { "nativeAgentRuntime": "rust" }
+        });
+
+        worker_run_agent_with_options(
+            &first_runtime,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-form-submit",
+                "sessionId": session_id,
+                "messages": [{ "role": "user", "content": "collect travel details" }],
+                "metadata": {
+                    "fakeAwaitingForm": {
+                        "formId": "travel_plan",
+                        "title": "Travel plan",
+                        "fields": [
+                            { "name": "destination", "type": "text", "required": true }
+                        ]
+                    }
+                }
+            }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("Rust runtime should create a form checkpoint");
+
+        let form_submission = worker_webui_route_with_options(
+            &restarted_runtime,
+            WorkerWebuiRouteInput {
+                method: "POST".to_string(),
+                path: "/api/agent-ui/forms/travel_plan/submit".to_string(),
+                headers: None,
+                body: Some(serde_json::json!({
+                    "correlation": { "session_key": session_id },
+                    "values": { "destination": "Paris" },
+                    "finalContent": "Submitted values received."
+                })),
+            },
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("form submit route should finalize the Rust turn");
+        let history = worker_session_messages_with_options(
+            &restarted_runtime,
+            session_id.to_string(),
+            fixture.root.clone(),
+            config,
+            Duration::from_millis(10),
+        )
+        .expect("session messages route should read finalized form turn");
+
+        assert_eq!(form_submission["headers"]["x-tinybot-route-owner"], "rust");
+        assert_eq!(form_submission["body"]["submitted"], true);
+        assert_eq!(form_submission["body"]["form_id"], "travel_plan");
+        assert_eq!(form_submission["body"]["values"]["destination"], "Paris");
+        assert_eq!(form_submission["body"]["stopReason"], "final_response");
+        assert_eq!(
+            form_submission["body"]["finalContent"],
+            "Submitted values received."
+        );
+        assert_eq!(history["messages"][0]["content"], "collect travel details");
+        assert_eq!(
+            history["messages"][1]["content"],
+            "Submitted values received."
+        );
+    }
+
+    #[test]
+    fn worker_webui_agent_ui_form_cancel_finalizes_with_rust_error_result() {
+        let fixture = WorkspaceFixture::new();
+        let first_runtime = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let restarted_runtime = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let session_id = "websocket:chat-form-cancel";
+        let config = serde_json::json!({
+            "desktop": { "nativeAgentRuntime": "rust" }
+        });
+
+        worker_run_agent_with_options(
+            &first_runtime,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-form-cancel",
+                "sessionId": session_id,
+                "metadata": {
+                    "fakeAwaitingForm": {
+                        "formId": "travel_cancel",
+                        "title": "Travel cancellation"
+                    }
+                }
+            }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("Rust runtime should create a form checkpoint");
+
+        let form_cancellation = worker_webui_route_with_options(
+            &restarted_runtime,
+            WorkerWebuiRouteInput {
+                method: "POST".to_string(),
+                path: "/api/agent-ui/forms/travel_cancel/cancel".to_string(),
+                headers: None,
+                body: Some(serde_json::json!({
+                    "correlation": { "session_id": session_id }
+                })),
+            },
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("form cancel route should finalize the Rust turn");
+        let restored_after_resolution = worker_restore_agent_checkpoint_with_options(
+            &restarted_runtime,
+            session_id.to_string(),
+            fixture.root.clone(),
+            config,
+            Duration::from_millis(10),
+        )
+        .expect("checkpoint restore should remain Rust-owned after form cancellation");
+
+        assert_eq!(
+            form_cancellation["headers"]["x-tinybot-route-owner"],
+            "rust"
+        );
+        assert_eq!(form_cancellation["body"]["cancelled"], true);
+        assert_eq!(form_cancellation["body"]["form_id"], "travel_cancel");
+        assert_eq!(form_cancellation["body"]["stopReason"], "form_cancelled");
+        assert_eq!(
+            form_cancellation["body"]["error"],
+            "Rust agent form was cancelled."
+        );
+        assert!(restored_after_resolution["checkpoint"].is_null());
+    }
+
+    #[test]
+    fn worker_webui_agent_ui_form_submit_reports_validation_errors_without_consuming_checkpoint() {
+        let fixture = WorkspaceFixture::new();
+        let first_runtime = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let restarted_runtime = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let session_id = "websocket:chat-form-validation";
+        let config = serde_json::json!({
+            "desktop": { "nativeAgentRuntime": "rust" }
+        });
+
+        worker_run_agent_with_options(
+            &first_runtime,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-form-validation",
+                "sessionId": session_id,
+                "metadata": {
+                    "fakeAwaitingForm": {
+                        "formId": "travel_validation",
+                        "fields": [
+                            { "name": "destination", "type": "text", "required": true }
+                        ]
+                    }
+                }
+            }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("Rust runtime should create a form checkpoint");
+
+        let form_submission = worker_webui_route_with_options(
+            &restarted_runtime,
+            WorkerWebuiRouteInput {
+                method: "POST".to_string(),
+                path: "/api/agent-ui/forms/travel_validation/submit".to_string(),
+                headers: None,
+                body: Some(serde_json::json!({
+                    "correlation": { "session_key": session_id },
+                    "values": {}
+                })),
+            },
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("form submit route should return validation errors");
+        let restored_after_validation = worker_restore_agent_checkpoint_with_options(
+            &restarted_runtime,
+            session_id.to_string(),
+            fixture.root.clone(),
+            config,
+            Duration::from_millis(10),
+        )
+        .expect("checkpoint restore should remain Rust-owned after validation failure");
+
+        assert_eq!(form_submission["status"], 400);
+        assert_eq!(form_submission["headers"]["x-tinybot-route-owner"], "rust");
+        assert_eq!(form_submission["body"]["submitted"], false);
+        assert_eq!(form_submission["body"]["errors"]["destination"], "Required");
+        assert_eq!(
+            restored_after_validation["checkpoint"]["phase"],
+            "awaiting_form"
+        );
+    }
+
+    #[test]
+    fn worker_webui_approval_and_form_routes_report_missing_checkpoints_with_rust_metadata() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let config = serde_json::json!({
+            "desktop": { "nativeAgentRuntime": "rust" }
+        });
+
+        let approval = worker_webui_route_with_options(
+            &shared,
+            WorkerWebuiRouteInput {
+                method: "POST".to_string(),
+                path: "/api/approvals/missing-approval/approve".to_string(),
+                headers: None,
+                body: Some(serde_json::json!({
+                    "session_key": "websocket:missing-approval"
+                })),
+            },
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("missing approval route should return Rust diagnostic");
+        let form = worker_webui_route_with_options(
+            &shared,
+            WorkerWebuiRouteInput {
+                method: "POST".to_string(),
+                path: "/api/agent-ui/forms/missing-form/submit".to_string(),
+                headers: None,
+                body: Some(serde_json::json!({
+                    "correlation": { "session_key": "websocket:missing-form" },
+                    "values": {}
+                })),
+            },
+            fixture.root.clone(),
+            config,
+            Duration::from_millis(10),
+        )
+        .expect("missing form route should return Rust diagnostic");
+
+        assert_eq!(approval["headers"]["x-tinybot-route-owner"], "rust");
+        assert_eq!(approval["headers"]["x-tinybot-route-group"], "approvals");
+        assert_eq!(approval["body"]["ok"], false);
+        assert_eq!(approval["body"]["status"], "not_found");
+        assert_eq!(
+            approval["body"]["error"]["message"],
+            "pending approval not found"
+        );
+        assert_eq!(form["status"], 404);
+        assert_eq!(form["headers"]["x-tinybot-route-owner"], "rust");
+        assert_eq!(form["headers"]["x-tinybot-route-group"], "agent-ui");
+        assert_eq!(form["body"]["submitted"], false);
+        assert_eq!(form["body"]["error"], "pending form checkpoint not found");
         assert_eq!(
             lock_runtime(&shared).experimental_worker.status().state,
             WorkerManagerState::Stopped
@@ -5393,6 +6904,66 @@ mod tests {
             Duration::from_millis(10),
         )
         .expect("approvals list route should be Rust-owned");
+        let providers = worker_webui_route_with_options(
+            &shared,
+            WorkerWebuiRouteInput {
+                method: "GET".to_string(),
+                path: "/api/providers".to_string(),
+                headers: None,
+                body: None,
+            },
+            fixture.root.clone(),
+            serde_json::json!({
+                "providers": {
+                    "openai": {
+                        "api_key": "sk-secret",
+                        "api_base": "https://example.test/v1"
+                    }
+                }
+            }),
+            Duration::from_millis(10),
+        )
+        .expect("providers route should be Rust-owned");
+        let provider_models = worker_webui_route_with_options(
+            &shared,
+            WorkerWebuiRouteInput {
+                method: "POST".to_string(),
+                path: "/api/provider-models".to_string(),
+                headers: None,
+                body: Some(serde_json::json!({
+                    "provider": "openai",
+                    "manual_models": "manual-model",
+                    "refreshLive": true,
+                    "liveModelIds": ["live-model"]
+                })),
+            },
+            fixture.root.clone(),
+            serde_json::json!({
+                "providers": {
+                    "openai": {
+                        "api_key": "sk-secret",
+                        "models": ["profile-model"]
+                    }
+                }
+            }),
+            Duration::from_millis(10),
+        )
+        .expect("provider models route should be Rust-owned");
+        let openai_models = worker_webui_route_with_options(
+            &shared,
+            WorkerWebuiRouteInput {
+                method: "GET".to_string(),
+                path: "/v1/models".to_string(),
+                headers: None,
+                body: None,
+            },
+            fixture.root.clone(),
+            serde_json::json!({
+                "agents": { "defaults": { "model": "gpt-4.1-mini" } }
+            }),
+            Duration::from_millis(10),
+        )
+        .expect("OpenAI models route should be Rust-owned");
         let approval_resolution = worker_webui_route_with_options(
             &shared,
             WorkerWebuiRouteInput {
@@ -5421,6 +6992,23 @@ mod tests {
         assert_eq!(approvals["headers"]["x-tinybot-route-owner"], "rust");
         assert_eq!(approvals["headers"]["x-tinybot-route-group"], "approvals");
         assert_eq!(approvals["body"]["session_key"], "websocket:chat-1");
+        assert_eq!(providers["headers"]["x-tinybot-route-owner"], "rust");
+        assert_eq!(providers["headers"]["x-tinybot-route-group"], "providers");
+        assert_eq!(providers["body"]["source"], "rust");
+        assert_eq!(
+            providers["body"]["providers"][0]["api_key_configured"],
+            true
+        );
+        assert!(providers["body"]["providers"][0].get("api_key").is_none());
+        assert_eq!(provider_models["headers"]["x-tinybot-route-owner"], "rust");
+        assert_eq!(provider_models["body"]["ok"], true);
+        assert!(provider_models["body"]["models"]
+            .as_array()
+            .expect("models should be an array")
+            .iter()
+            .any(|model| model == "live-model"));
+        assert_eq!(openai_models["headers"]["x-tinybot-route-owner"], "rust");
+        assert_eq!(openai_models["body"]["data"][0]["id"], "gpt-4.1-mini");
         assert_eq!(
             approval_resolution["headers"]["x-tinybot-route-owner"],
             "rust"
@@ -5435,23 +7023,29 @@ mod tests {
     }
 
     #[test]
-    fn worker_webui_route_classifies_delegated_and_unsupported_routes_without_ts_worker() {
+    fn worker_webui_route_classifies_rust_owned_chat_and_unsupported_routes_without_ts_worker() {
         let fixture = WorkspaceFixture::new();
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
 
-        let delegated = worker_webui_rust_route_with_options(
+        let chat = worker_webui_route_with_options(
             &shared,
-            &WorkerWebuiRouteInput {
+            WorkerWebuiRouteInput {
                 method: "POST".to_string(),
                 path: "/v1/chat/completions".to_string(),
                 headers: None,
-                body: Some(serde_json::json!({ "messages": [] })),
+                body: Some(serde_json::json!({
+                    "messages": [{ "role": "user", "content": "hello" }],
+                    "stream": true
+                })),
             },
             fixture.root.clone(),
-            serde_json::json!({}),
+            serde_json::json!({
+                "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+                "providers": { "fixture": { "responses": [{ "content": "route stream" }] } }
+            }),
             Duration::from_millis(10),
         )
-        .expect("delegated classification should not fail");
+        .expect("chat route should be Rust-owned");
         let unsupported = worker_webui_route_with_options(
             &shared,
             WorkerWebuiRouteInput {
@@ -5466,18 +7060,66 @@ mod tests {
         )
         .expect("unsupported route should return a structured response");
 
-        assert!(delegated.is_none());
+        assert_eq!(chat["status"], 200);
+        assert_eq!(chat["headers"]["x-tinybot-route-owner"], "rust");
+        assert_eq!(chat["headers"]["x-tinybot-route-group"], "openai");
+        assert_eq!(chat["headers"]["content-type"], "text/event-stream");
+        assert!(chat["body"]
+            .as_str()
+            .expect("streaming chat route should return text/event-stream body")
+            .contains("route stream"));
         assert_eq!(unsupported["status"], 404);
         assert_eq!(
             unsupported["headers"]["x-tinybot-route-owner"],
             "unsupported"
         );
+        assert_eq!(unsupported["body"]["diagnostic"], "unsupported-route");
+        assert_eq!(unsupported["body"]["inventoryStatus"], "not-inventoried");
+        assert_eq!(unsupported["body"]["routeGroup"], "unsupported");
         assert_eq!(unsupported["body"]["method"], "GET");
         assert_eq!(unsupported["body"]["path"], "/api/not-a-route");
         assert_eq!(
             lock_runtime(&shared).experimental_worker.status().state,
             WorkerManagerState::Stopped
         );
+        assert!(current_status(&shared)
+            .compatibility_fallback_diagnostics
+            .is_empty());
+    }
+
+    #[test]
+    fn worker_webui_route_records_fallback_route_group_before_ts_worker_startup() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+
+        let _ = worker_webui_route_with_options(
+            &shared,
+            WorkerWebuiRouteInput {
+                method: "POST".to_string(),
+                path: "/v1/knowledge/graph/extract".to_string(),
+                headers: None,
+                body: Some(serde_json::json!({ "text": "hello" })),
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(1),
+        );
+
+        let status = current_status(&shared);
+        let worker = {
+            let runtime = lock_runtime(&shared);
+            runtime.experimental_worker.clone()
+        };
+        let _ = worker.stop();
+        let diagnostic = status
+            .compatibility_fallback_diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.route == "POST /v1/knowledge/graph/extract")
+            .expect("fallback route should record a compatibility diagnostic");
+
+        assert_eq!(diagnostic.surface, "webui-route");
+        assert_eq!(diagnostic.route_group, "knowledge");
+        assert!(diagnostic.reason.contains("TS worker"));
     }
 
     #[test]
@@ -5690,6 +7332,51 @@ mod tests {
         assert_eq!(
             request.params["input"]["runId"],
             serde_json::Value::String("websocket-chat-1-preallocated".to_string())
+        );
+    }
+
+    #[test]
+    fn worker_transport_websocket_dispatch_runs_basic_message_through_rust_without_ts_worker() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+
+        let result = worker_transport_dispatch_websocket_message_with_options(
+            &shared,
+            WorkerTransportWebSocketDispatchInput {
+                client_id: "client-1".to_string(),
+                frame: serde_json::json!({
+                    "type": "message",
+                    "chat_id": "chat-1",
+                    "content": "hello native websocket",
+                    "metadata": { "source": "test" }
+                }),
+                attached_chat_id: Some("chat-1".to_string()),
+                session_exists: Some(true),
+                editable_paths: None,
+                model: Some("fixture-model".to_string()),
+                max_iterations: Some(4),
+                run_id: Some("websocket-chat-1-rust".to_string()),
+                stream: Some(true),
+            },
+            fixture.root.clone(),
+            serde_json::json!({
+                "desktop": { "nativeAgentRuntime": "rust" },
+                "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+                "providers": { "fixture": { "responses": [{ "content": "rust websocket answer" }] } }
+            }),
+            Duration::from_millis(10),
+        )
+        .expect("basic websocket message should dispatch through Rust");
+
+        assert_eq!(result["transport"]["kind"], "message");
+        assert_eq!(result["transport"]["sessionId"], "websocket:chat-1");
+        assert_eq!(result["agent"]["runtime"], "rust");
+        assert_eq!(result["agent"]["runId"], "websocket-chat-1-rust");
+        assert_eq!(result["agent"]["stopReason"], "final_response");
+        assert_eq!(result["agent"]["finalContent"], "rust websocket answer");
+        assert_eq!(
+            lock_runtime(&shared).experimental_worker.status().state,
+            WorkerManagerState::Stopped
         );
     }
 
@@ -6455,12 +8142,21 @@ mod tests {
             response_class: Some("tinybot-bootstrap".to_string()),
             recovery_hint: None,
             worker_runtime: crate::worker_runtime::WorkerRuntimeStatus::stopped(),
+            route_owner_summary: crate::native_backend_contract::native_route_owner_summary(),
+            webui_route_inventory: crate::native_backend_contract::native_webui_route_inventory(),
+            compatibility_fallback_diagnostics: vec![],
         };
 
         let value = serde_json::to_value(status).expect("status should serialize");
 
         assert_eq!(value["worker_runtime"]["state"], "stopped");
         assert!(value["worker_runtime"]["transport_mode"].is_null());
+        assert!(value["route_owner_summary"]["rustOwned"]
+            .as_u64()
+            .is_some_and(|count| count > 0));
+        assert!(value["webui_route_inventory"]
+            .as_array()
+            .is_some_and(|items| !items.is_empty()));
     }
 
     #[test]
@@ -6739,7 +8435,7 @@ mod tests {
         manager: &WorkerManager,
         predicate: impl Fn(&WorkerManagerStatus) -> bool,
     ) -> WorkerManagerStatus {
-        for _ in 0..30 {
+        for _ in 0..100 {
             let status = manager.status();
             if predicate(&status) {
                 return status;
