@@ -1,8 +1,10 @@
 use serde_json::json;
 use tinybot_desktop_lib::native_backend_contract::{
-    CompatibilityWorkerKind, CompatibilityWorkerState, NativeBackendEvent,
-    NativeBackendEventSource, NativeBackendKind, NativeBackendRunSpec, NativeBackendRuntimeStatus,
-    NATIVE_AGENT_EVENT_NAMES, NATIVE_TAURI_COMMANDS,
+    native_route_owner_summary, native_runtime_component_inventory, native_tauri_command_inventory,
+    native_webui_route_inventory, webui_route_inventory_entry, CompatibilityWorkerKind,
+    CompatibilityWorkerState, NativeBackendEvent, NativeBackendEventSource, NativeBackendKind,
+    NativeBackendRunSpec, NativeBackendRuntimeStatus, NativeRouteOwner, NATIVE_AGENT_EVENT_NAMES,
+    NATIVE_TAURI_COMMANDS,
 };
 use tinybot_desktop_lib::worker_protocol::{
     WorkerEvent, WorkerRequest, WorkerResponse, WorkerTransportMode,
@@ -22,6 +24,110 @@ fn contract_inventory_lists_native_commands_and_events_used_by_frontend() {
     assert!(NATIVE_AGENT_EVENT_NAMES.contains(&"agent.awaiting_form"));
     assert!(NATIVE_AGENT_EVENT_NAMES.contains(&"agent.delegate.trace.updated"));
     assert!(NATIVE_AGENT_EVENT_NAMES.contains(&"heartbeat.delivery"));
+}
+
+#[test]
+fn route_inventory_classifies_webui_routes_and_tauri_commands() {
+    let webui = native_webui_route_inventory();
+    let tauri = native_tauri_command_inventory();
+    let summary = native_route_owner_summary();
+
+    assert!(webui.iter().any(|entry| {
+        entry.method == Some("GET")
+            && entry.path == "/webui/bootstrap"
+            && entry.owner == NativeRouteOwner::RustOwned
+    }));
+    assert!(webui.iter().any(|entry| {
+        entry.method == Some("POST")
+            && entry.path == "/api/provider-models"
+            && entry.owner == NativeRouteOwner::RustOwned
+    }));
+    assert!(webui.iter().any(|entry| {
+        entry.method == Some("POST")
+            && entry.path == "/v1/knowledge/query"
+            && entry.owner == NativeRouteOwner::TsFallback
+            && !entry.replacement_plan.is_empty()
+    }));
+    assert!(webui.iter().any(|entry| {
+        entry.method == Some("GET")
+            && entry.path == "/api/tools"
+            && entry.owner == NativeRouteOwner::Unsupported
+    }));
+    assert!(tauri.iter().any(|entry| {
+        entry.path == "worker_run_agent" && entry.owner == NativeRouteOwner::RustOwned
+    }));
+    assert!(tauri.iter().any(|entry| {
+        entry.path == "worker_channel_start" && entry.owner == NativeRouteOwner::TsFallback
+    }));
+    assert!(summary.rust_owned > 0);
+    assert!(summary.ts_fallback > 0);
+    assert!(summary.unsupported > 0);
+}
+
+#[test]
+fn fallback_webui_routes_must_have_inventory_entries() {
+    let fallback_routes = [
+        ("PATCH", "/api/config"),
+        ("POST", "/v1/knowledge/query"),
+        ("POST", "/v1/knowledge/graph/extract"),
+        ("GET", "/v1/knowledge/graphrag"),
+        ("POST", "/api/cowork/sessions"),
+    ];
+
+    for (method, path) in fallback_routes {
+        let entry = webui_route_inventory_entry(method, path)
+            .unwrap_or_else(|| panic!("{method} {path} must be inventoried"));
+        assert_eq!(
+            entry.owner,
+            NativeRouteOwner::TsFallback,
+            "{method} {path} must be an explicit TS fallback while delegated"
+        );
+    }
+}
+
+#[test]
+fn remaining_fallback_areas_are_explicitly_inventoried() {
+    let webui = native_webui_route_inventory();
+    let tauri = native_tauri_command_inventory();
+    let runtime = native_runtime_component_inventory();
+
+    assert_inventory_area(&webui, "knowledge", NativeRouteOwner::TsFallback);
+    assert_inventory_area(&webui, "cowork", NativeRouteOwner::TsFallback);
+    assert_inventory_area(&tauri, "channel", NativeRouteOwner::TsFallback);
+    assert_inventory_area(&tauri, "cron", NativeRouteOwner::TsFallback);
+    assert_inventory_area(&runtime, "heartbeat", NativeRouteOwner::TsFallback);
+    assert_inventory_area(&runtime, "tools", NativeRouteOwner::RustOwned);
+    assert_inventory_area(&webui, "tools", NativeRouteOwner::Unsupported);
+    assert_inventory_area(&runtime, "background", NativeRouteOwner::RustOwned);
+    assert_inventory_area(&webui, "agent-ui", NativeRouteOwner::RustOwned);
+
+    for entry in webui.iter().chain(tauri.iter()).chain(runtime.iter()) {
+        assert!(
+            !entry.reason.is_empty(),
+            "{} {} must explain why it has its current owner",
+            entry.surface,
+            entry.path
+        );
+        assert!(
+            !entry.replacement_plan.is_empty(),
+            "{} {} must include a replacement or stability plan",
+            entry.surface,
+            entry.path
+        );
+    }
+}
+
+fn assert_inventory_area(
+    entries: &[tinybot_desktop_lib::native_backend_contract::NativeRouteInventoryEntry],
+    route_group: &str,
+    owner: NativeRouteOwner,
+) {
+    assert!(
+        entries
+            .iter()
+            .any(|entry| entry.route_group == route_group && entry.owner == owner),
+        "{route_group} should have a {owner:?} inventory entry"
+    );
 }
 
 #[test]

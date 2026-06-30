@@ -3,6 +3,59 @@ use crate::worker_runtime::{WorkerRuntimeState, WorkerRuntimeStatus};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NativeRouteOwner {
+    RustOwned,
+    TsFallback,
+    Unsupported,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeRouteInventoryEntry {
+    pub surface: &'static str,
+    pub key: &'static str,
+    pub method: Option<&'static str>,
+    pub path: &'static str,
+    pub owner: NativeRouteOwner,
+    pub route_group: &'static str,
+    pub reason: &'static str,
+    pub replacement_plan: &'static str,
+    pub verification_status: &'static str,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeRouteOwnerSummary {
+    pub rust_owned: usize,
+    pub ts_fallback: usize,
+    pub unsupported: usize,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeCompatibilityFallbackDiagnostic {
+    pub surface: String,
+    pub route: String,
+    pub route_group: String,
+    pub reason: String,
+}
+
+impl NativeRouteOwnerSummary {
+    pub fn from_inventory(entries: &[NativeRouteInventoryEntry]) -> Self {
+        let mut summary = Self::default();
+        for entry in entries {
+            match entry.owner {
+                NativeRouteOwner::RustOwned => summary.rust_owned += 1,
+                NativeRouteOwner::TsFallback => summary.ts_fallback += 1,
+                NativeRouteOwner::Unsupported => summary.unsupported += 1,
+            }
+        }
+        summary
+    }
+}
+
 pub const NATIVE_TAURI_COMMANDS: &[&str] = &[
     "worker_probe_status",
     "worker_run_agent",
@@ -29,6 +82,7 @@ pub const NATIVE_TAURI_COMMANDS: &[&str] = &[
     "worker_knowledge_graph",
     "worker_webui_route",
     "worker_cowork_route",
+    "worker_cron_dispatch_due",
     "worker_transport_gateway_frame",
     "worker_transport_websocket_message",
     "worker_transport_dispatch_websocket_message",
@@ -56,6 +110,48 @@ pub const NATIVE_TAURI_COMMANDS: &[&str] = &[
     "worker_session_clear",
     "worker_session_task_progress",
 ];
+
+pub fn native_tauri_command_inventory() -> Vec<NativeRouteInventoryEntry> {
+    NATIVE_TAURI_COMMANDS
+        .iter()
+        .map(|command| NativeRouteInventoryEntry {
+            surface: "tauri-command",
+            key: command,
+            method: None,
+            path: command,
+            owner: tauri_command_owner(command),
+            route_group: tauri_command_group(command),
+            reason: tauri_command_reason(command),
+            replacement_plan: tauri_command_replacement_plan(command),
+            verification_status: "covered-by-native-command-contract",
+        })
+        .collect()
+}
+
+pub fn native_webui_route_inventory() -> Vec<NativeRouteInventoryEntry> {
+    WEBUI_ROUTE_INVENTORY.to_vec()
+}
+
+pub fn native_runtime_component_inventory() -> Vec<NativeRouteInventoryEntry> {
+    RUNTIME_COMPONENT_INVENTORY.to_vec()
+}
+
+pub fn native_route_owner_summary() -> NativeRouteOwnerSummary {
+    let mut entries = native_webui_route_inventory();
+    entries.extend(native_tauri_command_inventory());
+    entries.extend(native_runtime_component_inventory());
+    NativeRouteOwnerSummary::from_inventory(&entries)
+}
+
+pub fn webui_route_inventory_entry(method: &str, path: &str) -> Option<NativeRouteInventoryEntry> {
+    let method = method.to_ascii_uppercase();
+    WEBUI_ROUTE_INVENTORY
+        .iter()
+        .find(|entry| {
+            entry.method == Some(method.as_str()) && webui_inventory_path_matches(entry.path, path)
+        })
+        .cloned()
+}
 
 pub const NATIVE_AGENT_EVENT_NAMES: &[&str] = &[
     "agent.delta",
@@ -88,6 +184,569 @@ pub const NATIVE_AGENT_EVENT_NAMES: &[&str] = &[
     "diagnostics.log",
     "worker.status",
 ];
+
+const WEBUI_ROUTE_INVENTORY: &[NativeRouteInventoryEntry] = &[
+    rust_webui("health", "GET", "/health", "health", "native health check"),
+    rust_webui(
+        "bootstrap",
+        "GET",
+        "/webui/bootstrap",
+        "bootstrap",
+        "native WebUI bootstrap",
+    ),
+    rust_webui(
+        "refresh_token",
+        "POST",
+        "/webui/refresh-token",
+        "bootstrap",
+        "native WebUI bootstrap",
+    ),
+    rust_webui(
+        "get_status",
+        "GET",
+        "/api/status",
+        "status",
+        "native runtime status",
+    ),
+    rust_webui(
+        "get_config",
+        "GET",
+        "/api/config",
+        "config",
+        "native config store",
+    ),
+    ts_webui(
+        "patch_config",
+        "PATCH",
+        "/api/config",
+        "config",
+        "validated config patch parity remains in TS worker",
+        "move config patch validation fully into Rust config store",
+    ),
+    rust_webui(
+        "providers",
+        "GET",
+        "/api/providers",
+        "providers",
+        "native provider catalog",
+    ),
+    rust_webui(
+        "provider_models",
+        "POST",
+        "/api/provider-models",
+        "providers",
+        "native provider model resolution",
+    ),
+    rust_webui(
+        "openai_models",
+        "GET",
+        "/v1/models",
+        "openai",
+        "native OpenAI-compatible model list",
+    ),
+    rust_webui(
+        "openai_chat_completions",
+        "POST",
+        "/v1/chat/completions",
+        "openai",
+        "native OpenAI-compatible chat completions",
+    ),
+    rust_webui(
+        "get_approvals",
+        "GET",
+        "/api/approvals",
+        "approvals",
+        "native approval state",
+    ),
+    rust_webui(
+        "approve_approval",
+        "POST",
+        "/api/approvals/{approval_id}/approve",
+        "approvals",
+        "native approval continuation",
+    ),
+    rust_webui(
+        "deny_approval",
+        "POST",
+        "/api/approvals/{approval_id}/deny",
+        "approvals",
+        "native approval continuation",
+    ),
+    rust_webui(
+        "submit_agent_ui_form",
+        "POST",
+        "/api/agent-ui/forms/{form_id}/submit",
+        "agent-ui",
+        "native Agent UI form continuation",
+    ),
+    rust_webui(
+        "cancel_agent_ui_form",
+        "POST",
+        "/api/agent-ui/forms/{form_id}/cancel",
+        "agent-ui",
+        "native Agent UI form continuation",
+    ),
+    rust_webui(
+        "list_sessions",
+        "GET",
+        "/api/sessions",
+        "sessions",
+        "native session store",
+    ),
+    rust_webui(
+        "get_messages",
+        "GET",
+        "/api/sessions/{key}/messages",
+        "sessions",
+        "native session store",
+    ),
+    rust_webui(
+        "patch_session",
+        "PATCH",
+        "/api/sessions/{key}",
+        "sessions",
+        "native session store",
+    ),
+    rust_webui(
+        "delete_session",
+        "DELETE",
+        "/api/sessions/{key}",
+        "sessions",
+        "native session store",
+    ),
+    rust_webui(
+        "clear_session",
+        "POST",
+        "/api/sessions/{key}/clear",
+        "sessions",
+        "native session store",
+    ),
+    rust_webui(
+        "list_temporary_files",
+        "GET",
+        "/api/sessions/{key}/temporary-files",
+        "sessions",
+        "native session temporary files",
+    ),
+    rust_webui(
+        "upload_temporary_file",
+        "POST",
+        "/api/sessions/{key}/temporary-files",
+        "sessions",
+        "native session temporary files",
+    ),
+    rust_webui(
+        "clear_temporary_files",
+        "DELETE",
+        "/api/sessions/{key}/temporary-files",
+        "sessions",
+        "native session temporary files",
+    ),
+    rust_webui(
+        "get_skills",
+        "GET",
+        "/api/skills",
+        "skills",
+        "native skills store",
+    ),
+    rust_webui(
+        "create_skill",
+        "POST",
+        "/api/skills",
+        "skills",
+        "native skills store",
+    ),
+    rust_webui(
+        "get_skill_detail",
+        "GET",
+        "/api/skills/{name}",
+        "skills",
+        "native skills store",
+    ),
+    rust_webui(
+        "update_skill",
+        "PATCH",
+        "/api/skills/{name}",
+        "skills",
+        "native skills store",
+    ),
+    rust_webui(
+        "delete_skill",
+        "DELETE",
+        "/api/skills/{name}",
+        "skills",
+        "native skills store",
+    ),
+    rust_webui(
+        "validate_skill",
+        "POST",
+        "/api/skills/{name}/validate",
+        "skills",
+        "native skills store",
+    ),
+    rust_webui(
+        "list_workspace_files",
+        "GET",
+        "/api/workspace/files",
+        "workspace",
+        "native workspace store",
+    ),
+    rust_webui(
+        "get_workspace_file",
+        "GET",
+        "/api/workspace/files/{path:.+}",
+        "workspace",
+        "native workspace store",
+    ),
+    rust_webui(
+        "put_workspace_file",
+        "PUT",
+        "/api/workspace/files/{path:.+}",
+        "workspace",
+        "native workspace store",
+    ),
+    rust_webui(
+        "knowledge_list_documents",
+        "GET",
+        "/v1/knowledge/documents",
+        "knowledge",
+        "native knowledge store",
+    ),
+    rust_webui(
+        "knowledge_add_document",
+        "POST",
+        "/v1/knowledge/documents",
+        "knowledge",
+        "native knowledge store",
+    ),
+    rust_webui(
+        "knowledge_upload_document",
+        "POST",
+        "/v1/knowledge/documents/upload",
+        "knowledge",
+        "native knowledge store",
+    ),
+    rust_webui(
+        "knowledge_get_document",
+        "GET",
+        "/v1/knowledge/documents/{doc_id}",
+        "knowledge",
+        "native knowledge store",
+    ),
+    rust_webui(
+        "knowledge_delete_document",
+        "DELETE",
+        "/v1/knowledge/documents/{doc_id}",
+        "knowledge",
+        "native knowledge store",
+    ),
+    rust_webui(
+        "knowledge_stats",
+        "GET",
+        "/v1/knowledge/stats",
+        "knowledge",
+        "native knowledge store",
+    ),
+    rust_webui(
+        "knowledge_job",
+        "GET",
+        "/v1/knowledge/jobs/{job_id}",
+        "knowledge",
+        "native knowledge jobs",
+    ),
+    rust_webui(
+        "knowledge_rebuild_index",
+        "POST",
+        "/v1/knowledge/rebuild-index",
+        "knowledge",
+        "native knowledge jobs",
+    ),
+    rust_webui(
+        "knowledge_graph",
+        "GET",
+        "/v1/knowledge/graph",
+        "knowledge",
+        "native knowledge graph",
+    ),
+    ts_webui(
+        "knowledge_query",
+        "POST",
+        "/v1/knowledge/query",
+        "knowledge",
+        "advanced query path still depends on TS runtime",
+        "port query and GraphRAG execution to Rust knowledge runtime",
+    ),
+    ts_webui(
+        "knowledge_extract_graph",
+        "POST",
+        "/v1/knowledge/graph/extract",
+        "knowledge",
+        "LLM graph extraction orchestration remains in TS worker",
+        "port graph extraction planner and provider calls to Rust",
+    ),
+    ts_webui(
+        "knowledge_graphrag",
+        "GET",
+        "/v1/knowledge/graphrag",
+        "knowledge",
+        "GraphRAG read path remains in TS worker",
+        "port GraphRAG route to Rust knowledge runtime",
+    ),
+    ts_webui(
+        "cowork_route",
+        "GET",
+        "/api/cowork/{path:.+}",
+        "cowork",
+        "advanced Cowork routes are still being migrated",
+        "move remaining Cowork action routes to Rust",
+    ),
+    ts_webui(
+        "cowork_route",
+        "POST",
+        "/api/cowork/{path:.+}",
+        "cowork",
+        "advanced Cowork routes are still being migrated",
+        "move remaining Cowork action routes to Rust",
+    ),
+    ts_webui(
+        "cowork_route",
+        "PATCH",
+        "/api/cowork/{path:.+}",
+        "cowork",
+        "advanced Cowork routes are still being migrated",
+        "move remaining Cowork action routes to Rust",
+    ),
+    ts_webui(
+        "cowork_route",
+        "DELETE",
+        "/api/cowork/{path:.+}",
+        "cowork",
+        "advanced Cowork routes are still being migrated",
+        "move remaining Cowork action routes to Rust",
+    ),
+    unsupported_webui(
+        "tools",
+        "GET",
+        "/api/tools",
+        "tools",
+        "native tool catalog route is not exposed yet",
+        "add Rust tool catalog route before enabling",
+    ),
+];
+
+const RUNTIME_COMPONENT_INVENTORY: &[NativeRouteInventoryEntry] = &[
+    runtime_component(
+        "heartbeat_start",
+        "heartbeat.start",
+        NativeRouteOwner::TsFallback,
+        "heartbeat",
+        "heartbeat lifecycle is still driven through the TS compatibility worker",
+        "port heartbeat lifecycle and delivery scheduling to Rust runtime",
+    ),
+    runtime_component(
+        "heartbeat_stop",
+        "heartbeat.stop",
+        NativeRouteOwner::TsFallback,
+        "heartbeat",
+        "heartbeat lifecycle is still driven through the TS compatibility worker",
+        "port heartbeat lifecycle and delivery scheduling to Rust runtime",
+    ),
+    runtime_component(
+        "mcp_call_tool",
+        "mcp.call_tool",
+        NativeRouteOwner::RustOwned,
+        "tools",
+        "MCP fixture/tool execution is dispatched through Rust worker RPC",
+        "expand native tool registry coverage as tool parity grows",
+    ),
+    runtime_component(
+        "mcp_list_tools",
+        "mcp.list_tools",
+        NativeRouteOwner::RustOwned,
+        "tools",
+        "MCP tool listing is dispatched through Rust worker RPC",
+        "expand native tool registry coverage as tool parity grows",
+    ),
+    runtime_component(
+        "background_run_registry",
+        "background.run.*",
+        NativeRouteOwner::RustOwned,
+        "background",
+        "background run registry state is persisted through Rust worker RPC",
+        "move any remaining background execution orchestration off the TS compatibility worker",
+    ),
+    runtime_component(
+        "background_trace_registry",
+        "background.trace.*",
+        NativeRouteOwner::RustOwned,
+        "background",
+        "background trace state is persisted through Rust worker RPC",
+        "move any remaining background execution orchestration off the TS compatibility worker",
+    ),
+];
+
+const fn rust_webui(
+    key: &'static str,
+    method: &'static str,
+    path: &'static str,
+    route_group: &'static str,
+    reason: &'static str,
+) -> NativeRouteInventoryEntry {
+    NativeRouteInventoryEntry {
+        surface: "webui-route",
+        key,
+        method: Some(method),
+        path,
+        owner: NativeRouteOwner::RustOwned,
+        route_group,
+        reason,
+        replacement_plan: "implemented in Rust",
+        verification_status: "implemented",
+    }
+}
+
+const fn ts_webui(
+    key: &'static str,
+    method: &'static str,
+    path: &'static str,
+    route_group: &'static str,
+    reason: &'static str,
+    replacement_plan: &'static str,
+) -> NativeRouteInventoryEntry {
+    NativeRouteInventoryEntry {
+        surface: "webui-route",
+        key,
+        method: Some(method),
+        path,
+        owner: NativeRouteOwner::TsFallback,
+        route_group,
+        reason,
+        replacement_plan,
+        verification_status: "inventoried-fallback",
+    }
+}
+
+const fn unsupported_webui(
+    key: &'static str,
+    method: &'static str,
+    path: &'static str,
+    route_group: &'static str,
+    reason: &'static str,
+    replacement_plan: &'static str,
+) -> NativeRouteInventoryEntry {
+    NativeRouteInventoryEntry {
+        surface: "webui-route",
+        key,
+        method: Some(method),
+        path,
+        owner: NativeRouteOwner::Unsupported,
+        route_group,
+        reason,
+        replacement_plan,
+        verification_status: "unsupported",
+    }
+}
+
+const fn runtime_component(
+    key: &'static str,
+    path: &'static str,
+    owner: NativeRouteOwner,
+    route_group: &'static str,
+    reason: &'static str,
+    replacement_plan: &'static str,
+) -> NativeRouteInventoryEntry {
+    NativeRouteInventoryEntry {
+        surface: "runtime-component",
+        key,
+        method: None,
+        path,
+        owner,
+        route_group,
+        reason,
+        replacement_plan,
+        verification_status: "inventoried-runtime-component",
+    }
+}
+
+fn webui_inventory_path_matches(template: &str, path: &str) -> bool {
+    if template == path {
+        return true;
+    }
+    let Some(prefix) = template.split('{').next() else {
+        return false;
+    };
+    if prefix.is_empty() || !path.starts_with(prefix) {
+        return false;
+    }
+    if template.contains("{path:.+}") {
+        return path.len() > prefix.len();
+    }
+    let suffix = template.rsplit('}').next().unwrap_or_default();
+    let rest = path
+        .strip_prefix(prefix)
+        .and_then(|value| value.strip_suffix(suffix))
+        .unwrap_or_default();
+    !rest.is_empty() && !rest.contains('/')
+}
+
+fn tauri_command_owner(command: &str) -> NativeRouteOwner {
+    match command {
+        "worker_transport_gateway_frame"
+        | "worker_transport_websocket_message"
+        | "worker_transport_dispatch_websocket_message"
+        | "worker_cron_dispatch_due"
+        | "worker_channel_dispatch_inbound"
+        | "worker_channel_start"
+        | "worker_channel_status"
+        | "worker_channel_stop"
+        | "worker_channel_login" => NativeRouteOwner::TsFallback,
+        _ => NativeRouteOwner::RustOwned,
+    }
+}
+
+fn tauri_command_group(command: &str) -> &'static str {
+    if command.contains("channel") {
+        "channel"
+    } else if command.contains("cron") {
+        "cron"
+    } else if command.contains("cowork") {
+        "cowork"
+    } else if command.contains("knowledge") {
+        "knowledge"
+    } else if command.contains("session") {
+        "sessions"
+    } else if command.contains("workspace") {
+        "workspace"
+    } else if command.contains("skill") {
+        "skills"
+    } else if command.contains("background") {
+        "background"
+    } else if command.contains("task") {
+        "tasks"
+    } else if command.contains("transport") {
+        "transport"
+    } else if command.contains("agent") {
+        "agent"
+    } else {
+        "runtime"
+    }
+}
+
+fn tauri_command_reason(command: &str) -> &'static str {
+    match tauri_command_owner(command) {
+        NativeRouteOwner::RustOwned => "implemented through Rust native backend command",
+        NativeRouteOwner::TsFallback => "runtime path still depends on TS compatibility worker",
+        NativeRouteOwner::Unsupported => "unsupported command",
+    }
+}
+
+fn tauri_command_replacement_plan(command: &str) -> &'static str {
+    match tauri_command_owner(command) {
+        NativeRouteOwner::RustOwned => "implemented in Rust",
+        NativeRouteOwner::TsFallback => "port compatibility worker command path to Rust runtime",
+        NativeRouteOwner::Unsupported => "add a Rust command implementation before exposing",
+    }
+}
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]

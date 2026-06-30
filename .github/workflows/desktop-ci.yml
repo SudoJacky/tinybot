@@ -33,6 +33,24 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Run native backend desktop smoke
+        run: cargo test --manifest-path src-tauri/Cargo.toml desktop_smoke_default_chat_runs_without_ts_compatibility_worker
+
       - name: Run desktop tests
         shell: bash
         run: |

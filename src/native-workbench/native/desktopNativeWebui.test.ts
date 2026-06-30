@@ -79,6 +79,46 @@ describe("desktop native WebUI API", () => {
     });
   });
 
+  test("preserves Rust chat completion route owner headers for bridge consumers", async () => {
+    const invoke = vi.fn(async (_command: string, _args?: unknown) => ({
+      status: 200,
+      body: "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\ndata: [DONE]\n\n",
+      headers: {
+        "content-type": "text/event-stream",
+        "x-tinybot-route-group": "openai",
+        "x-tinybot-route-owner": "rust",
+      },
+    }));
+    const api = createDesktopNativeWebuiApi({ invoke });
+
+    await expect(api.routeResponse({
+      method: "POST",
+      path: "/v1/chat/completions",
+      body: {
+        stream: true,
+        messages: [{ role: "user", content: "hello" }],
+      },
+    })).resolves.toEqual({
+      status: 200,
+      body: "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\ndata: [DONE]\n\n",
+      headers: {
+        "content-type": "text/event-stream",
+        "x-tinybot-route-group": "openai",
+        "x-tinybot-route-owner": "rust",
+      },
+    });
+    expect(invoke).toHaveBeenCalledWith("worker_webui_route", {
+      input: {
+        method: "POST",
+        path: "/v1/chat/completions",
+        body: {
+          stream: true,
+          messages: [{ role: "user", content: "hello" }],
+        },
+      },
+    });
+  });
+
   test("surfaces native WebUI error body messages", async () => {
     const invoke = vi.fn(async (_command: string, _args?: unknown) => ({
       status: 500,

@@ -9,6 +9,10 @@ use std::{
 use tauri::State;
 
 use crate::desktop_logging::{gateway_runtime_logs, read_native_backend_log_tail};
+use crate::native_backend_contract::{
+    native_route_owner_summary, native_webui_route_inventory,
+    NativeCompatibilityFallbackDiagnostic, NativeRouteInventoryEntry, NativeRouteOwnerSummary,
+};
 use crate::worker_manager::WorkerManagerState;
 use crate::worker_runtime::WorkerRuntimeStatus;
 use crate::{
@@ -39,6 +43,9 @@ pub(crate) struct GatewayRuntimeStatus {
     pub(crate) response_class: Option<String>,
     pub(crate) recovery_hint: Option<String>,
     pub(crate) worker_runtime: WorkerRuntimeStatus,
+    pub(crate) route_owner_summary: NativeRouteOwnerSummary,
+    pub(crate) webui_route_inventory: Vec<NativeRouteInventoryEntry>,
+    pub(crate) compatibility_fallback_diagnostics: Vec<NativeCompatibilityFallbackDiagnostic>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -303,6 +310,13 @@ pub(crate) fn current_status(shared: &SharedGateway) -> GatewayRuntimeStatus {
         response_class: probe.response_class(),
         recovery_hint: probe.recovery_hint(),
         worker_runtime: gateway_worker_runtime_status(&worker_status),
+        route_owner_summary: native_route_owner_summary(),
+        webui_route_inventory: native_webui_route_inventory(),
+        compatibility_fallback_diagnostics: runtime
+            .compatibility_fallbacks
+            .iter()
+            .cloned()
+            .collect(),
     }
 }
 
