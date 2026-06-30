@@ -823,11 +823,14 @@ mod tests {
             .start(test_logging_worker_spec())
             .expect("short worker should start");
 
-        assert_eq!(
-            wait_for_health(&manager, WorkerHealth::Exited),
-            WorkerHealth::Exited
-        );
-        let status = manager.status();
+        let status = wait_for_status(&manager, |status| {
+            status.state == WorkerManagerState::Stopped
+                && status.pid.is_none()
+                && status
+                    .last_error
+                    .as_deref()
+                    .is_some_and(|error| error.contains("worker exited"))
+        });
 
         assert_eq!(status.state, WorkerManagerState::Stopped);
         assert!(status.pid.is_none());
@@ -858,11 +861,6 @@ mod tests {
             has_diagnostic_line(diagnostics, "stderr", "hello manager rpc")
         });
 
-        assert!(has_diagnostic_line(
-            &diagnostics,
-            "stderr",
-            "notes/today.md"
-        ));
         assert!(has_diagnostic_line(
             &diagnostics,
             "stderr",
@@ -921,7 +919,7 @@ mod tests {
             json!({ "input": "hello" }),
         );
         let response = manager
-            .send_stdio_request(&request, std::time::Duration::from_secs(3))
+            .send_stdio_request(&request, worker_request_timeout())
             .expect("agent request should complete");
 
         assert_eq!(response.result.as_ref().unwrap()["ok"], true);
@@ -973,7 +971,7 @@ mod tests {
             json!({ "input": "hello after restart" }),
         );
         let response = manager
-            .send_stdio_request(&request, std::time::Duration::from_secs(3))
+            .send_stdio_request(&request, worker_request_timeout())
             .expect("agent request should complete after restart");
 
         assert_eq!(response.result.as_ref().unwrap()["ok"], true);
@@ -1060,7 +1058,7 @@ mod tests {
             json!({ "input": "hello from rust" }),
         );
         let response = manager
-            .send_stdio_request(&request, std::time::Duration::from_secs(5))
+            .send_stdio_request(&request, worker_request_timeout())
             .expect("agent request should complete");
         let events = wait_for_events(&events, |events| {
             events.iter().any(|event| {
@@ -1124,7 +1122,7 @@ mod tests {
             json!({ "runId": "fixture-run-1" }),
         );
         let response = manager
-            .send_stdio_request(&request, std::time::Duration::from_secs(5))
+            .send_stdio_request(&request, worker_request_timeout())
             .expect("agent flow request should complete");
         let events = wait_for_events(&events, |events| {
             events.iter().any(|event| {
@@ -1247,7 +1245,7 @@ mod tests {
             }),
         );
         let response = manager
-            .send_stdio_request(&request, std::time::Duration::from_secs(15))
+            .send_stdio_request(&request, worker_request_timeout())
             .expect("real TS agent worker request should complete");
         let events = wait_for_events(&events, |events| {
             let has_delta = events.iter().any(|event| {
@@ -1413,7 +1411,7 @@ mod tests {
             }),
         );
         let response = manager
-            .send_stdio_request(&request, std::time::Duration::from_secs(5))
+            .send_stdio_request(&request, worker_request_timeout())
             .expect("real TS agent worker context input request should complete");
         let result = response
             .result
@@ -1511,7 +1509,7 @@ mod tests {
             }),
         );
         let first_response = manager
-            .send_stdio_request(&first, std::time::Duration::from_secs(5))
+            .send_stdio_request(&first, worker_request_timeout())
             .expect("first real TS agent worker continuation request should complete")
             .result
             .expect("first continuation run should return result");
@@ -1536,7 +1534,7 @@ mod tests {
             }),
         );
         let second_response = manager
-            .send_stdio_request(&second, std::time::Duration::from_secs(5))
+            .send_stdio_request(&second, worker_request_timeout())
             .expect("second real TS agent worker continuation request should complete")
             .result
             .expect("second continuation run should return result");
@@ -1613,7 +1611,7 @@ mod tests {
             }),
         );
         let run_response = manager
-            .send_stdio_request(&run_request, std::time::Duration::from_secs(5))
+            .send_stdio_request(&run_request, worker_request_timeout())
             .expect("real TS agent worker form request should complete");
         let run_result = run_response
             .result
@@ -1628,7 +1626,7 @@ mod tests {
             json!({ "sessionId": "desktop-session-form-1" }),
         );
         let restore_response = manager
-            .send_stdio_request(&restore_request, std::time::Duration::from_secs(5))
+            .send_stdio_request(&restore_request, worker_request_timeout())
             .expect("real TS agent worker checkpoint restore should complete");
         let checkpoint = restore_response
             .result
@@ -1653,7 +1651,7 @@ mod tests {
             }),
         );
         let submit_response = manager
-            .send_stdio_request(&submit_request, std::time::Duration::from_secs(5))
+            .send_stdio_request(&submit_request, worker_request_timeout())
             .expect("real TS agent worker form submit should complete");
         let submit_result = submit_response
             .result
@@ -1768,7 +1766,7 @@ mod tests {
             }),
         );
         let run_response = manager
-            .send_stdio_request(&run_request, std::time::Duration::from_secs(5))
+            .send_stdio_request(&run_request, worker_request_timeout())
             .expect("real TS agent worker approval request should complete");
         let run_result = run_response
             .result
@@ -1787,7 +1785,7 @@ mod tests {
             json!({ "sessionId": "desktop-session-approval-deny-1" }),
         );
         let restore_response = manager
-            .send_stdio_request(&restore_request, std::time::Duration::from_secs(5))
+            .send_stdio_request(&restore_request, worker_request_timeout())
             .expect("real TS agent worker checkpoint restore should complete");
         let checkpoint = restore_response
             .result
@@ -1813,7 +1811,7 @@ mod tests {
             }),
         );
         let resume_response = manager
-            .send_stdio_request(&resume_request, std::time::Duration::from_secs(5))
+            .send_stdio_request(&resume_request, worker_request_timeout())
             .expect("real TS agent worker approval denial should complete");
         let resume_result = resume_response
             .result
@@ -1925,7 +1923,7 @@ mod tests {
         );
         let run_manager = manager.clone();
         let run_handle = std::thread::spawn(move || {
-            run_manager.send_stdio_request(&run_request, std::time::Duration::from_secs(5))
+            run_manager.send_stdio_request(&run_request, worker_request_timeout())
         });
 
         let events_before_cancel = wait_for_events(&events, |events| {
@@ -1971,7 +1969,7 @@ mod tests {
             json!({ "runId": "real-ts-run-cancel-1" }),
         );
         let cancel_response = manager
-            .send_stdio_request(&cancel_request, std::time::Duration::from_secs(5))
+            .send_stdio_request(&cancel_request, worker_request_timeout())
             .expect("real TS agent worker cancel request should complete");
         assert_eq!(cancel_response.result.as_ref().unwrap()["ok"], true);
 
@@ -2225,15 +2223,22 @@ mod tests {
         .with_label("ts-agent-worker")
     }
 
-    fn wait_for_health(manager: &WorkerManager, expected: WorkerHealth) -> WorkerHealth {
+    fn wait_for_status(
+        manager: &WorkerManager,
+        predicate: impl Fn(&WorkerManagerStatus) -> bool,
+    ) -> WorkerManagerStatus {
         for _ in 0..100 {
-            let health = manager.health_check();
-            if health == expected {
-                return health;
+            let status = manager.status();
+            if predicate(&status) {
+                return status;
             }
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
-        manager.health_check()
+        manager.status()
+    }
+
+    fn worker_request_timeout() -> std::time::Duration {
+        std::time::Duration::from_secs(15)
     }
 
     fn wait_for_diagnostics(

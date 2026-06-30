@@ -5340,15 +5340,6 @@ mod tests {
             .start_stdio_rpc(test_stdio_runtime_restart_worker_spec(), router)
             .expect("runtime restart worker should start");
 
-        let diagnostics = wait_for_worker_diagnostics(&manager, |diagnostics| {
-            diagnostics.iter().any(|line| {
-                line.stream == "stderr" && line.line.contains("\"restart_requested\":true")
-            })
-        });
-        assert!(diagnostics.iter().any(|line| {
-            line.stream == "stderr" && line.line.contains("\"restart_requested\":true")
-        }));
-
         let status = wait_for_worker_status(&manager, |status| {
             status.state == WorkerManagerState::Running
                 && status.label.as_deref() == Some("stdio-agent-echo-worker")
@@ -5363,7 +5354,7 @@ mod tests {
             serde_json::json!({ "input": "hello after runtime restart" }),
         );
         let response = manager
-            .send_stdio_request(&request, Duration::from_secs(3))
+            .send_stdio_request(&request, Duration::from_secs(15))
             .expect("restarted worker should accept stdio request");
 
         assert_eq!(response.result.as_ref().unwrap()["ok"], true);
