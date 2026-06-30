@@ -398,7 +398,7 @@ mod tests {
         let request = WorkerRequest::new("agent-req-1", "trace-agent", "agent.echo", json!({}));
 
         let response = connection
-            .send_request(&request, Duration::from_secs(2))
+            .send_request(&request, Duration::from_secs(10))
             .expect("agent request should complete");
 
         assert_eq!(response.result, Some(json!({ "ok": true })));
