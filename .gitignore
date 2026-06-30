@@ -35,6 +35,8 @@ Thumbs.db
 .agents
 openspec/
 arch/
+docs/local/
+docs/superpowers/
 
 # Misc
 *.bak

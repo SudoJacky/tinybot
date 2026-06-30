@@ -8,9 +8,6 @@ jobs:
   desktop:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    defaults:
-      run:
-        working-directory: apps/desktop
 
     steps:
       - name: Checkout code
@@ -21,7 +18,7 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: apps/desktop/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install frontend dependencies
         run: npm ci
@@ -36,5 +33,5 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Run Rust tests
-        working-directory: apps/desktop/src-tauri
+        working-directory: src-tauri
         run: cargo test --lib
