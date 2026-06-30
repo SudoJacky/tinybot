@@ -17,7 +17,7 @@
 
 > **Python backend notice:** [0.0.18](https://github.com/SudoJacky/tinybot/releases/tag/0.0.18) is the last stable release that includes the Python backend.
 
-[中文文档](README_ZH.md) | [Quick Start](#quick-start) | [Features](#-core-highlights) | [Commands](#interactive-chat-commands)
+[中文文档](README_ZH.md) | [Quick Start](#quick-start) | [Features](#-core-highlights) | [WebUI](#webui-usage)
 
 A lightweight personal AI assistant framework that integrates Large Language Models with multiple chat platforms, tool systems, and automation mechanisms.
 
@@ -267,18 +267,17 @@ Two-phase autonomous memory consolidation during idle periods:
 - **Phase 3: Experience Update** — Merges similar experiences, updates strategy documents
 - **Vector Storage Integration** — Semantic search across consolidated memories
 
-### 📊 CLI Real-time Progress Display
+### 📊 Desktop Task Progress
 
-Task execution shows real-time progress in CLI without disrupting main conversation
+Task execution shows real-time progress in the desktop WebUI without disrupting the main conversation.
 
 ### ⚙️ Integrated Configuration Editor
 
-Full-screen terminal configuration editor accessible directly within the interactive chat:
+Configuration is managed directly in the desktop settings surface:
 
-- Press `Ctrl+O` or type `/config` to open the editor
-- No need to exit the chat session
-- Edit provider settings, model parameters, tool configs, etc.
-- Press `q` to save and return to chat
+- Edit provider settings, model parameters, tool configs, knowledge settings, and runtime options.
+- Changes are applied through the Rust native backend.
+- No separate terminal chat session is required.
 
 ### 🔌 MCP (Model Context Protocol) Support
 
@@ -296,63 +295,42 @@ Connect to external MCP servers and use their tools seamlessly:
 - **Multi-LLM Support** — Compatible with OpenAI, DeepSeek, Zhipu, Qwen, Gemini, and 14+ providers
 - **Skills System** — Define skills via Markdown files, teach Agent specific workflows without coding
 - **Automation** — Cron scheduled tasks + heartbeat service for periodic auto-execution
-- **OpenAI Compatible API** — Run as OpenAI-compatible backend service, integrate with any OpenAI client
+- **OpenAI-compatible Runtime Route** — The desktop runtime exposes `/v1/chat/completions` for WebUI-compatible chat dispatch
 - **Session Management** — Persistent conversation history with checkpoint recovery
 - **Security** — Workspace restriction, command audit, encrypted credential storage
 
 ## Quick Start
 
 ```bash
-# Install
-uv sync
+# Install dependencies
+npm install
 
-# Initialize configuration (interactive wizard)
-uv run tinybot onboard
+# Run frontend checks
+npm test
+npm run build
 
-# Interactive chat mode
-uv run tinybot agent
+# Start the Tauri desktop app with the Rust native backend
+npm run tauri -- dev
 
-# Send single message
-uv run tinybot agent -m "Hello"
-
-# Start gateway (multi-channel + scheduled tasks + heartbeat)
-uv run tinybot gateway
-
-# Run as OpenAI-compatible API server
-uv run tinybot api
+# Build a desktop package
+npm run tauri -- build
 ```
 
 ## WebUI Usage
 
-Tinybot provides a browser-based web interface for chatting with the AI agent.
+Tinybot now runs the WebUI inside the Tauri desktop app. The Rust native backend exposes WebUI-compatible routes on the local runtime endpoint used by the desktop shell.
 
-### Steps to Enable WebUI
+### Steps to Open WebUI
 
-#### 1. Enable WebSocket Channel in Config
-
-Edit your `~/.tinybot/config.json` file, add the following under `channels`:
-
-```json
-{
-  "channels": {
-    "websocket": {
-      "enabled": true,
-      "host": "127.0.0.1",
-      "port": 18790
-    }
-  }
-}
-```
-
-#### 2. Start the Gateway
+#### 1. Start the Desktop App
 
 ```bash
-uv run tinybot gateway
+npm run tauri -- dev
 ```
 
-#### 3. Open Browser
+#### 2. Use the Desktop WebUI
 
-Visit `http://127.0.0.1:18790` in your browser.
+The desktop shell starts the Rust native backend and loads the WebUI surface automatically. Runtime status is available from the Gateway & Runtime panel.
 
 ### Available API Endpoints
 
@@ -385,17 +363,16 @@ Visit `http://127.0.0.1:18790` in your browser.
 | `message` | Server → Client | Full message |
 | `file_updated` | Server → Client | Workspace file changed |
 
-## Interactive Chat Commands
+## Desktop WebUI Controls
 
-When in interactive mode, the following commands are available:
+Use the desktop WebUI for day-to-day operation:
 
-| Command | Description |
+| Surface | Description |
 |---------|-------------|
-| `/config` or `Ctrl+O` | Open configuration editor |
-| `/help` | Show available commands |
-| `/clear` | Clear conversation history |
-| `/new` | Start new conversation session |
-| `/exit` or `:q` | Exit the chat |
+| Chat composer | Send messages, attach files, stop generation, and switch sessions |
+| Settings | Configure providers, models, tools, knowledge, channels, and runtime options |
+| Gateway & Runtime | View local runtime readiness, endpoint status, and compatibility-worker state |
+| Tools / Skills / Knowledge | Inspect tools, manage skills, and operate the local knowledge base |
 
 ## Skills System
 
@@ -438,7 +415,9 @@ The Agent can actively manage its learning experiences:
 
 ## Requirements
 
-- Python >= 3.13
+- Node.js 22
+- Rust stable toolchain
+- Tauri 2 prerequisites for your platform
 
 ## License
 
