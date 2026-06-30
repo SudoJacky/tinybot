@@ -1215,11 +1215,11 @@ mod tests {
             "---\nname: planner\ndescription: Workspace planner\n---\nWorkspace body",
         );
         fixture.write(
-            "workers/ts-agent-worker/skills/planner/SKILL.md",
+            "builtin-skills/planner/SKILL.md",
             "---\nname: planner\ndescription: Builtin planner\n---\nBuiltin body",
         );
         fixture.write(
-            "workers/ts-agent-worker/skills/tmux/SKILL.md",
+            "builtin-skills/tmux/SKILL.md",
             "---\nname: tmux\ndescription: Terminal sessions\n---\nTmux body",
         );
         let mut router = WorkerRpcRouter::new(
@@ -1247,7 +1247,7 @@ mod tests {
                     },
                     {
                         "name": "tmux",
-                        "path": "workers/ts-agent-worker/skills/tmux/SKILL.md",
+                        "path": "builtin-skills/tmux/SKILL.md",
                         "source": "builtin",
                         "content": "---\nname: tmux\ndescription: Terminal sessions\n---\nTmux body"
                     }
@@ -3035,8 +3035,8 @@ mod tests {
     fn dispatches_rag_query_request() {
         let fixture = WorkspaceFixture::new();
         fixture.write(
-            "docs/ts-agent-loop.md",
-            "# TS Agent Loop Design\n\nTS worker should proxy product integrations through Rust.\n",
+            "docs/native-agent-loop.md",
+            "# Native Agent Loop Design\n\nNative agent should route product integrations through Rust.\n",
         );
         let mut router = WorkerRpcRouter::new(
             fixture.root.clone(),
@@ -3050,7 +3050,7 @@ mod tests {
             "trace-1",
             "rag.query",
             json!({
-                "query": "TS worker Rust",
+                "query": "Native agent Rust",
                 "collection": "docs",
                 "limit": 3
             }),
@@ -3062,11 +3062,11 @@ mod tests {
             response.result,
             Some(json!({
                 "documents": [{
-                    "id": "docs/ts-agent-loop.md",
-                    "title": "TS Agent Loop Design",
-                    "path": "docs/ts-agent-loop.md",
-                    "score": 2,
-                    "excerpt": "TS worker should proxy product integrations through Rust."
+                    "id": "docs/native-agent-loop.md",
+                    "title": "Native Agent Loop Design",
+                    "path": "docs/native-agent-loop.md",
+                    "score": 3,
+                    "excerpt": "Native agent should route product integrations through Rust."
                 }]
             }))
         );
@@ -3077,8 +3077,8 @@ mod tests {
     fn knowledge_query_requires_knowledge_read_capability() {
         let fixture = WorkspaceFixture::new();
         fixture.write(
-            "docs/ts-agent-loop.md",
-            "# TS Agent Loop Design\n\nTS worker should proxy product integrations through Rust.\n",
+            "docs/native-agent-loop.md",
+            "# Native Agent Loop Design\n\nNative agent should route product integrations through Rust.\n",
         );
         let mut router = WorkerRpcRouter::new(
             fixture.root.clone(),
@@ -3092,7 +3092,7 @@ mod tests {
             "trace-1",
             "knowledge.query",
             json!({
-                "query": "TS worker Rust",
+                "query": "Native agent Rust",
                 "category": "docs",
                 "limit": 3
             }),

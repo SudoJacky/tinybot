@@ -31,7 +31,7 @@ describe("desktop gateway runtime controls", () => {
       { label: "Repo root", value: "D:/Code/tinybot/tinybot" },
       { label: "Recent logs", value: "stdout: booting\nstderr: warning\nstdout: listening" },
       { label: "Last error", value: "HTTP 503" },
-      { label: "Exit policy", value: "Stop TS compatibility worker on exit" },
+      { label: "Exit policy", value: "Stop native backend on exit" },
     ]);
   });
 
@@ -108,7 +108,7 @@ describe("desktop gateway runtime controls", () => {
     expect(commands).toEqual(["stop_gateway", "start_gateway"]);
   });
 
-  test("toggles TS compatibility worker exit policy through a persisted runtime command", async () => {
+  test("toggles native backend exit policy through a persisted runtime command", async () => {
     const status: GatewayRuntimeStatus = {
       state: "running",
       owner: "shell",

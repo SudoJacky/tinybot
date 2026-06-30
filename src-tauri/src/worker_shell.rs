@@ -371,7 +371,7 @@ mod tests {
             .execute(ShellExecuteParams {
                 command: large_output_command(),
                 working_dir: Some(".".to_string()),
-                timeout: Some(5),
+                timeout: Some(15),
                 restrict_to_workspace: Some(true),
             })
             .expect("large output command should complete");

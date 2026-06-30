@@ -5,7 +5,6 @@ use std::{
     collections::{HashMap, VecDeque},
     path::{Path, PathBuf},
     sync::{atomic::AtomicBool, Arc, Mutex},
-    thread,
     time::Duration,
 };
 use tauri::{Emitter, Manager, Runtime, State, WindowEvent};
@@ -14,6 +13,7 @@ pub mod config_store;
 pub mod desktop_cron;
 pub mod desktop_files;
 pub mod desktop_gateway;
+#[cfg(test)]
 pub mod desktop_heartbeat;
 pub mod desktop_logging;
 pub mod desktop_menu;
@@ -54,22 +54,16 @@ use crate::desktop_files::{pick_upload_file, reveal_workspace_file, save_export_
 use crate::desktop_gateway::{
     gateway_exit_policy_preference_path, gateway_status, load_gateway_exit_policy,
     native_backend_log_path, set_gateway_keep_running, start_gateway, stop_gateway,
-    stop_owned_gateway, ts_compatibility_worker_enabled,
-};
-use crate::desktop_heartbeat::{
-    start_worker_heartbeat_runtime_with_options, stop_worker_heartbeat_runtime_with_options,
+    stop_owned_gateway,
 };
 use crate::desktop_logging::append_native_backend_log_line;
 use crate::desktop_menu::{
     install_desktop_application_menu, is_desktop_menu_command, DesktopMenuCommandPayload,
 };
 use crate::native_backend_contract::{
-    webui_route_inventory_entry, NativeCompatibilityFallbackDiagnostic, NativeRouteOwner,
+    webui_route_inventory_entry, NativeCompatibilityFallbackDiagnostic,
 };
-use crate::worker_agent_runtime::{
-    resolve_native_agent_runtime_mode, run_native_agent_turn_with_config, NativeAgentRuntimeMode,
-    NativeAgentRuntimeServices,
-};
+use crate::worker_agent_runtime::{run_native_agent_turn_with_config, NativeAgentRuntimeServices};
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_client::WorkerClient;
 use crate::worker_cowork_runtime::WorkerCoworkRuntime;
@@ -473,7 +467,7 @@ fn worker_run_agent(
     worker_run_agent_with_options(
         state.inner(),
         input.spec,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(120),
     )
@@ -487,7 +481,7 @@ fn worker_run_agent_input(
     worker_run_agent_input_with_options(
         state.inner(),
         input.input,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(120),
     )
@@ -497,7 +491,7 @@ fn worker_run_agent_input(
 fn worker_skills_list(state: State<'_, SharedGateway>) -> Result<serde_json::Value, String> {
     worker_skills_list_with_options(
         state.inner(),
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -511,7 +505,7 @@ fn worker_skills_detail(
     worker_skills_detail_with_options(
         state.inner(),
         input.name,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -525,7 +519,7 @@ fn worker_skills_create(
     worker_skills_create_with_options(
         state.inner(),
         input.body,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -540,7 +534,7 @@ fn worker_skills_update(
         state.inner(),
         input.name,
         input.body,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -554,7 +548,7 @@ fn worker_skills_delete(
     worker_skills_delete_with_options(
         state.inner(),
         input.name,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -568,7 +562,7 @@ fn worker_skills_validate(
     worker_skills_validate_with_options(
         state.inner(),
         input.name,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -578,7 +572,7 @@ fn worker_skills_validate(
 fn worker_workspace_files(state: State<'_, SharedGateway>) -> Result<serde_json::Value, String> {
     worker_workspace_files_with_options(
         state.inner(),
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -592,7 +586,7 @@ fn worker_workspace_file(
     worker_workspace_file_with_options(
         state.inner(),
         input.path,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -607,7 +601,7 @@ fn worker_workspace_put_file(
         state.inner(),
         input.path,
         input.body,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -617,7 +611,7 @@ fn worker_workspace_put_file(
 fn worker_sessions_list(state: State<'_, SharedGateway>) -> Result<serde_json::Value, String> {
     worker_sessions_list_with_options(
         state.inner(),
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -631,7 +625,7 @@ fn worker_session_messages(
     worker_session_messages_with_options(
         state.inner(),
         input.key,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -645,7 +639,7 @@ fn worker_session_temporary_files(
     worker_session_temporary_files_with_options(
         state.inner(),
         input.key,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -660,7 +654,7 @@ fn worker_session_upload_temporary_file(
         state.inner(),
         input.key,
         input.body,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -674,7 +668,7 @@ fn worker_session_clear_temporary_files(
     worker_session_clear_temporary_files_with_options(
         state.inner(),
         input.key,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -688,7 +682,7 @@ fn worker_session_delete(
     worker_session_delete_with_options(
         state.inner(),
         input.key,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -703,7 +697,7 @@ fn worker_session_patch(
         state.inner(),
         input.key,
         input.body,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -717,7 +711,7 @@ fn worker_session_clear(
     worker_session_clear_with_options(
         state.inner(),
         input.key,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -732,7 +726,7 @@ fn worker_session_task_progress(
         state.inner(),
         input.key,
         input.body,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -746,7 +740,7 @@ fn worker_cowork_route(
     worker_cowork_route_with_options(
         state.inner(),
         input,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(30),
     )
@@ -761,7 +755,7 @@ fn worker_webui_route(
     worker_webui_route_with_options(
         state.inner(),
         input,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         timeout,
     )
@@ -775,7 +769,7 @@ fn worker_transport_gateway_frame(
     worker_transport_gateway_frame_with_options(
         state.inner(),
         input,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -789,7 +783,7 @@ fn worker_transport_websocket_message(
     worker_transport_websocket_message_with_options(
         state.inner(),
         input,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -801,7 +795,7 @@ async fn worker_transport_dispatch_websocket_message(
     state: State<'_, SharedGateway>,
 ) -> Result<serde_json::Value, String> {
     let shared = state.inner().clone();
-    let workspace_root = ts_agent_worker_workspace_root();
+    let workspace_root = native_backend_workspace_root();
     let config_snapshot = experimental_worker_config_snapshot();
     tauri::async_runtime::spawn_blocking(move || {
         worker_transport_dispatch_websocket_message_with_options(
@@ -824,7 +818,7 @@ fn worker_channel_dispatch_inbound(
     worker_channel_dispatch_inbound_with_options(
         state.inner(),
         input,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(60),
     )
@@ -834,7 +828,7 @@ fn worker_channel_dispatch_inbound(
 fn worker_channel_start(state: State<'_, SharedGateway>) -> Result<serde_json::Value, String> {
     worker_channel_start_with_options(
         state.inner(),
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(60),
     )
@@ -844,7 +838,7 @@ fn worker_channel_start(state: State<'_, SharedGateway>) -> Result<serde_json::V
 fn worker_channel_status(state: State<'_, SharedGateway>) -> Result<serde_json::Value, String> {
     worker_channel_status_with_options(
         state.inner(),
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -854,7 +848,7 @@ fn worker_channel_status(state: State<'_, SharedGateway>) -> Result<serde_json::
 fn worker_channel_stop(state: State<'_, SharedGateway>) -> Result<serde_json::Value, String> {
     worker_channel_stop_with_options(
         state.inner(),
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(60),
     )
@@ -867,7 +861,7 @@ fn worker_channel_login(
 ) -> Result<serde_json::Value, String> {
     worker_channel_login_with_options(
         state.inner(),
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(60),
         input.channel,
@@ -896,7 +890,7 @@ fn worker_restore_agent_checkpoint(
     worker_restore_agent_checkpoint_with_options(
         state.inner(),
         input.session_id,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -910,7 +904,7 @@ fn worker_background_trace_list(
     worker_background_trace_list_with_options(
         state.inner(),
         input,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -924,7 +918,7 @@ fn worker_background_trace_get_delegate_trace(
     worker_background_trace_get_delegate_trace_with_options(
         state.inner(),
         input,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -938,7 +932,7 @@ fn worker_background_trace_get_artifact(
     worker_background_trace_get_artifact_with_options(
         state.inner(),
         input,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -952,7 +946,7 @@ fn worker_background_trace_append(
     worker_background_trace_append_with_options(
         state.inner(),
         input,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -966,7 +960,7 @@ fn worker_task_plan_list(
     worker_task_plan_list_with_options(
         state.inner(),
         input,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -980,7 +974,7 @@ fn worker_task_plan_get(
     worker_task_plan_get_with_options(
         state.inner(),
         input.plan_id,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -994,7 +988,7 @@ fn worker_task_plan_save(
     worker_task_plan_save_with_options(
         state.inner(),
         input.plan,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -1008,7 +1002,7 @@ fn worker_task_plan_delete(
     worker_task_plan_delete_with_options(
         state.inner(),
         input.plan_id,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -1022,7 +1016,7 @@ fn worker_knowledge_documents(
     worker_knowledge_documents_with_options(
         state.inner(),
         input,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -1036,7 +1030,7 @@ fn worker_knowledge_add_document(
     worker_knowledge_add_document_with_options(
         state.inner(),
         input.body,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -1050,7 +1044,7 @@ fn worker_knowledge_document(
     worker_knowledge_document_with_options(
         state.inner(),
         input.doc_id,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -1064,7 +1058,7 @@ fn worker_knowledge_delete_document(
     worker_knowledge_delete_document_with_options(
         state.inner(),
         input.doc_id,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -1078,7 +1072,7 @@ fn worker_knowledge_job(
     worker_knowledge_job_with_options(
         state.inner(),
         input.job_id,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -1092,7 +1086,7 @@ fn worker_knowledge_rebuild_index(
     worker_knowledge_rebuild_index_with_options(
         state.inner(),
         input.rebuild_type,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -1102,7 +1096,7 @@ fn worker_knowledge_rebuild_index(
 fn worker_knowledge_stats(state: State<'_, SharedGateway>) -> Result<serde_json::Value, String> {
     worker_knowledge_stats_with_options(
         state.inner(),
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -1116,7 +1110,7 @@ fn worker_knowledge_graph(
     worker_knowledge_graph_with_options(
         state.inner(),
         input,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -1133,7 +1127,7 @@ fn worker_submit_agent_form(
         input.form_id,
         input.values,
         input.action,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(120),
     )
@@ -1150,7 +1144,7 @@ fn worker_resume_agent_approval(
         input.approval_id,
         input.approved,
         input.scope,
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(120),
     )
@@ -1263,33 +1257,25 @@ fn worker_run_agent_with_options(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    if resolve_native_agent_runtime_mode(&spec, &config_snapshot) == NativeAgentRuntimeMode::Rust {
-        let persistence_spec = spec.clone();
-        let services = {
-            let runtime = lock_runtime(shared);
-            runtime.native_agent_runtime.clone()
-        };
-        let mut result =
-            run_native_agent_turn_with_config(&services, spec, config_snapshot.clone())?;
-        persist_native_agent_checkpoint_if_present(
-            &result,
-            workspace_root.clone(),
-            config_snapshot.clone(),
-        )?;
-        persist_native_agent_turn_if_final(
-            persistence_spec,
-            &mut result,
-            workspace_root,
-            config_snapshot,
-        )?;
-        return Ok(result);
-    }
-
-    let client = WorkerClient::experimental(shared);
-    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
-
-    let request = build_worker_run_agent_request(next_worker_request_correlation(), spec);
-    client.call(&request, timeout, "worker agent run")
+    let _ = timeout;
+    let persistence_spec = spec.clone();
+    let services = {
+        let runtime = lock_runtime(shared);
+        runtime.native_agent_runtime.clone()
+    };
+    let mut result = run_native_agent_turn_with_config(&services, spec, config_snapshot.clone())?;
+    persist_native_agent_checkpoint_if_present(
+        &result,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+    )?;
+    persist_native_agent_turn_if_final(
+        persistence_spec,
+        &mut result,
+        workspace_root,
+        config_snapshot,
+    )?;
+    Ok(result)
 }
 
 fn persist_native_agent_checkpoint_if_present(
@@ -1424,18 +1410,6 @@ fn native_agent_assistant_messages(result: &serde_json::Value) -> Vec<serde_json
         .unwrap_or_default()
 }
 
-fn build_worker_run_agent_request(
-    request_id: WorkerRequestCorrelation,
-    spec: serde_json::Value,
-) -> WorkerRequest {
-    WorkerRequest::new(
-        request_id.id("agent-run"),
-        request_id.trace_id("agent-run"),
-        "agent.run",
-        serde_json::json!({ "spec": spec }),
-    )
-}
-
 fn worker_run_agent_input_with_options(
     shared: &SharedGateway,
     input: serde_json::Value,
@@ -1443,23 +1417,7 @@ fn worker_run_agent_input_with_options(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let client = WorkerClient::experimental(shared);
-    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
-
-    let request = build_worker_run_agent_input_request(next_worker_request_correlation(), input);
-    client.call(&request, timeout, "worker agent run input")
-}
-
-fn build_worker_run_agent_input_request(
-    request_id: WorkerRequestCorrelation,
-    input: serde_json::Value,
-) -> WorkerRequest {
-    WorkerRequest::new(
-        request_id.id("agent-run-input"),
-        request_id.trace_id("agent-run-input"),
-        "agent.run_input",
-        serde_json::json!({ "input": input }),
-    )
+    worker_run_agent_with_options(shared, input, workspace_root, config_snapshot, timeout)
 }
 
 fn worker_skills_list_with_options(
@@ -2016,21 +1974,23 @@ fn session_chat_id_from_key(key: &str) -> String {
 }
 
 fn worker_cowork_route_with_options(
-    shared: &SharedGateway,
+    _shared: &SharedGateway,
     input: WorkerCoworkRouteInput,
     workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-    timeout: Duration,
+    _config_snapshot: serde_json::Value,
+    _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
     if let Some(response) = worker_cowork_rust_route_with_options(&input, workspace_root.clone()) {
         return response;
     }
 
-    let client = WorkerClient::experimental(shared);
-    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
-
-    let request = build_worker_cowork_route_request(next_worker_request_correlation(), input);
-    client.call(&request, timeout, "worker cowork route")
+    let method = input.method.to_ascii_uppercase();
+    let (path, _) = split_webui_route_path(&input.path);
+    Ok(unsupported_webui_route_response(
+        &method,
+        &path,
+        "cowork route unavailable in the Rust-only backend",
+    ))
 }
 
 fn worker_cowork_rust_route_with_options(
@@ -2176,28 +2136,6 @@ fn worker_cowork_rust_dynamic_route(
     None
 }
 
-fn build_worker_cowork_route_request(
-    request_id: WorkerRequestCorrelation,
-    input: WorkerCoworkRouteInput,
-) -> WorkerRequest {
-    let mut params = serde_json::json!({
-        "method": input.method,
-        "path": input.path,
-    });
-    if let Some(body) = input.body {
-        params["body"] = body;
-    }
-    if let Some(query) = input.query {
-        params["query"] = query;
-    }
-    WorkerRequest::new(
-        request_id.id("cowork-route"),
-        request_id.trace_id("cowork-route"),
-        "cowork.route_request",
-        params,
-    )
-}
-
 fn worker_webui_route_with_options(
     shared: &SharedGateway,
     input: WorkerWebuiRouteInput,
@@ -2205,8 +2143,8 @@ fn worker_webui_route_with_options(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let fallback_method = input.method.to_ascii_uppercase();
-    let (fallback_path, _) = split_webui_route_path(&input.path);
+    let method = input.method.to_ascii_uppercase();
+    let (path, _) = split_webui_route_path(&input.path);
     if let Some(response) = worker_webui_rust_route_with_options(
         shared,
         &input,
@@ -2217,12 +2155,11 @@ fn worker_webui_route_with_options(
         return Ok(response);
     }
 
-    record_compatibility_fallback(shared, "webui-route", &fallback_method, &fallback_path);
-    let client = WorkerClient::experimental(shared);
-    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
-
-    let request = build_worker_webui_route_request(next_worker_request_correlation(), input);
-    client.call(&request, timeout, "worker webui route")
+    Ok(unsupported_webui_route_response(
+        &method,
+        &path,
+        "webui control route unavailable in the Rust-only backend",
+    ))
 }
 
 fn worker_webui_rust_route_with_options(
@@ -2401,7 +2338,13 @@ fn worker_webui_rust_route_with_options(
             "rust",
             webui_route_group(&path),
         ))),
-        None if is_delegated_webui_route(&method, &path) => Ok(None),
+        None if webui_route_inventory_entry(&method, &path).is_some() => {
+            Ok(Some(unsupported_webui_route_response(
+                &method,
+                &path,
+                "webui control route unavailable in the Rust-only backend",
+            )))
+        }
         None => {
             let route_group = webui_route_group(&path);
             Ok(Some(webui_route_response(
@@ -3357,27 +3300,26 @@ fn webui_route_group(path: &str) -> &'static str {
     }
 }
 
-fn is_delegated_webui_route(method: &str, path: &str) -> bool {
-    webui_route_inventory_entry(method, path)
-        .is_some_and(|entry| entry.owner == NativeRouteOwner::TsFallback)
-}
-
-fn record_compatibility_fallback(shared: &SharedGateway, surface: &str, method: &str, path: &str) {
-    let Some(entry) = webui_route_inventory_entry(method, path) else {
-        return;
-    };
-    let route = format!("{method} {path}");
-    let diagnostic = NativeCompatibilityFallbackDiagnostic {
-        surface: surface.to_string(),
-        route,
-        route_group: entry.route_group.to_string(),
-        reason: entry.reason.to_string(),
-    };
-    let mut runtime = lock_runtime(shared);
-    if runtime.compatibility_fallbacks.len() >= 50 {
-        runtime.compatibility_fallbacks.pop_front();
+fn unsupported_webui_route_response(method: &str, path: &str, message: &str) -> serde_json::Value {
+    let inventory = webui_route_inventory_entry(method, path);
+    let route_group = inventory
+        .as_ref()
+        .map(|entry| entry.route_group)
+        .unwrap_or_else(|| webui_route_group(path));
+    let mut body = serde_json::json!({
+        "diagnostic": "unsupported-route",
+        "inventoryStatus": if inventory.is_some() { "unsupported" } else { "not-inventoried" },
+        "routeGroup": route_group,
+        "error": { "message": message },
+        "method": method,
+        "path": path,
+        "route": format!("{} {}", method, path),
+    });
+    if let Some(entry) = inventory {
+        body["reason"] = serde_json::Value::String(entry.reason.to_string());
+        body["replacementPlan"] = serde_json::Value::String(entry.replacement_plan.to_string());
     }
-    runtime.compatibility_fallbacks.push_back(diagnostic);
+    webui_route_response(501, body, "unsupported", route_group)
 }
 
 fn worker_webui_route_timeout(input: &WorkerWebuiRouteInput) -> Duration {
@@ -3385,109 +3327,24 @@ fn worker_webui_route_timeout(input: &WorkerWebuiRouteInput) -> Duration {
     WORKER_WEBUI_ROUTE_TIMEOUT
 }
 
-fn build_worker_webui_route_request(
-    request_id: WorkerRequestCorrelation,
-    input: WorkerWebuiRouteInput,
-) -> WorkerRequest {
-    let mut params = serde_json::json!({
-        "method": input.method,
-        "path": input.path,
-    });
-    if let Some(body) = input.body {
-        params["body"] = body;
-    }
-    if let Some(headers) = input.headers {
-        params["headers"] = headers;
-    }
-    WorkerRequest::new(
-        request_id.id("webui-route"),
-        request_id.trace_id("webui-route"),
-        "webui.handle_request",
-        params,
-    )
-}
-
 fn worker_transport_gateway_frame_with_options(
-    shared: &SharedGateway,
-    input: WorkerTransportGatewayFrameInput,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-    timeout: Duration,
+    _shared: &SharedGateway,
+    _input: WorkerTransportGatewayFrameInput,
+    _workspace_root: PathBuf,
+    _config_snapshot: serde_json::Value,
+    _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let client = WorkerClient::experimental(shared);
-    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
-
-    let request =
-        build_worker_transport_gateway_frame_request(next_worker_request_correlation(), input);
-    client.call(&request, timeout, "worker transport gateway frame")
-}
-
-fn build_worker_transport_gateway_frame_request(
-    request_id: WorkerRequestCorrelation,
-    input: WorkerTransportGatewayFrameInput,
-) -> WorkerRequest {
-    let mut params = serde_json::json!({
-        "kind": input.kind,
-        "chatId": input.chat_id,
-    });
-    if let Some(content) = input.content {
-        params["content"] = serde_json::Value::String(content);
-    }
-    if let Some(delta) = input.delta {
-        params["delta"] = serde_json::Value::String(delta);
-    }
-    if let Some(usage) = input.usage {
-        params["usage"] = usage;
-    }
-    if let Some(metadata) = input.metadata {
-        params["metadata"] = metadata;
-    }
-    WorkerRequest::new(
-        request_id.id("transport-gateway-frame"),
-        request_id.trace_id("transport-gateway-frame"),
-        "transport.gateway_frame",
-        params,
-    )
+    unsupported_rust_only_command("worker_transport_gateway_frame")
 }
 
 fn worker_transport_websocket_message_with_options(
-    shared: &SharedGateway,
-    input: WorkerTransportWebSocketMessageInput,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-    timeout: Duration,
+    _shared: &SharedGateway,
+    _input: WorkerTransportWebSocketMessageInput,
+    _workspace_root: PathBuf,
+    _config_snapshot: serde_json::Value,
+    _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let client = WorkerClient::experimental(shared);
-    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
-
-    let request =
-        build_worker_transport_websocket_message_request(next_worker_request_correlation(), input);
-    client.call(&request, timeout, "worker transport websocket message")
-}
-
-fn build_worker_transport_websocket_message_request(
-    request_id: WorkerRequestCorrelation,
-    input: WorkerTransportWebSocketMessageInput,
-) -> WorkerRequest {
-    let mut params = serde_json::json!({
-        "clientId": input.client_id,
-        "frame": input.frame,
-    });
-    if let Some(attached_chat_id) = input.attached_chat_id {
-        params["attachedChatId"] = serde_json::Value::String(attached_chat_id);
-    }
-    if let Some(session_exists) = input.session_exists {
-        params["sessionExists"] = serde_json::Value::Bool(session_exists);
-    }
-    if let Some(editable_paths) = input.editable_paths {
-        params["editablePaths"] = serde_json::json!(editable_paths);
-    }
-    WorkerRequest::new(
-        request_id.id("transport-websocket-message"),
-        request_id.trace_id("transport-websocket-message"),
-        "transport.websocket_message",
-        params,
-    )
+    unsupported_rust_only_command("worker_transport_websocket_message")
 }
 
 fn worker_transport_dispatch_websocket_message_with_options(
@@ -3497,61 +3354,9 @@ fn worker_transport_dispatch_websocket_message_with_options(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    if resolve_native_agent_runtime_mode(&serde_json::json!({}), &config_snapshot)
-        == NativeAgentRuntimeMode::Rust
-    {
-        if let Some(transport_result) = native_websocket_transport_result(&input) {
-            let dispatch_options = WorkerTransportWebSocketDispatchOptions {
-                model: input.model,
-                max_iterations: input.max_iterations,
-                run_id: input.run_id,
-                stream: input.stream,
-            };
-            let Some(run_request) = build_worker_transport_websocket_run_input_request(
-                next_worker_request_correlation(),
-                &transport_result,
-                dispatch_options,
-            ) else {
-                return Ok(serde_json::json!({ "transport": transport_result }));
-            };
-            let run_spec = run_request
-                .params
-                .get("input")
-                .cloned()
-                .ok_or_else(|| "native websocket dispatch missing run input".to_string())?;
-            let agent_result = worker_run_agent_with_options(
-                shared,
-                run_spec,
-                workspace_root,
-                config_snapshot,
-                timeout,
-            )?;
-            return Ok(serde_json::json!({
-                "transport": transport_result,
-                "agent": agent_result,
-            }));
-        }
-    }
-
-    let client = WorkerClient::experimental(shared);
-    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
-
-    let transport_request = build_worker_transport_websocket_message_request(
-        next_worker_request_correlation(),
-        WorkerTransportWebSocketMessageInput {
-            client_id: input.client_id,
-            frame: input.frame,
-            attached_chat_id: input.attached_chat_id,
-            session_exists: input.session_exists,
-            editable_paths: input.editable_paths,
-        },
-    );
-    let transport_result = client.call(
-        &transport_request,
-        timeout,
-        "worker transport websocket dispatch mapper",
-    )?;
-
+    let Some(transport_result) = native_websocket_transport_result(&input) else {
+        return unsupported_rust_only_command("worker_transport_dispatch_websocket_message");
+    };
     let dispatch_options = WorkerTransportWebSocketDispatchOptions {
         model: input.model,
         max_iterations: input.max_iterations,
@@ -3566,11 +3371,13 @@ fn worker_transport_dispatch_websocket_message_with_options(
         return Ok(serde_json::json!({ "transport": transport_result }));
     };
 
-    let agent_result = client.call(
-        &run_request,
-        timeout,
-        "worker transport websocket dispatch agent",
-    )?;
+    let run_spec = run_request
+        .params
+        .get("input")
+        .cloned()
+        .ok_or_else(|| "native websocket dispatch missing run input".to_string())?;
+    let agent_result =
+        worker_run_agent_with_options(shared, run_spec, workspace_root, config_snapshot, timeout)?;
 
     Ok(serde_json::json!({
         "transport": transport_result,
@@ -3680,30 +3487,13 @@ fn build_worker_transport_websocket_run_input_request(
 }
 
 fn worker_channel_dispatch_inbound_with_options(
-    shared: &SharedGateway,
-    input: WorkerChannelDispatchInboundInput,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-    timeout: Duration,
+    _shared: &SharedGateway,
+    _input: WorkerChannelDispatchInboundInput,
+    _workspace_root: PathBuf,
+    _config_snapshot: serde_json::Value,
+    _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let client = WorkerClient::experimental(shared);
-    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
-
-    let request =
-        build_worker_channel_dispatch_inbound_request(next_worker_request_correlation(), input);
-    client.call(&request, timeout, "worker channel dispatch inbound")
-}
-
-fn build_worker_channel_dispatch_inbound_request(
-    request_id: WorkerRequestCorrelation,
-    input: WorkerChannelDispatchInboundInput,
-) -> WorkerRequest {
-    WorkerRequest::new(
-        request_id.id("channel-dispatch-inbound"),
-        request_id.trace_id("channel-dispatch-inbound"),
-        "channel.dispatch_inbound",
-        serde_json::json!({ "message": input.message }),
-    )
+    unsupported_rust_only_command("worker_channel_dispatch_inbound")
 }
 
 fn worker_channel_start_with_options(
@@ -3773,16 +3563,15 @@ fn worker_channel_login_with_options(
 }
 
 fn send_channel_lifecycle_worker_request(
-    shared: &SharedGateway,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
+    _shared: &SharedGateway,
+    _workspace_root: PathBuf,
+    _config_snapshot: serde_json::Value,
     request: WorkerRequest,
-    timeout: Duration,
+    _timeout: Duration,
     action: &str,
 ) -> Result<serde_json::Value, String> {
-    let client = WorkerClient::experimental(shared);
-    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
-    client.call(&request, timeout, &format!("worker channel {action}"))
+    let _ = request;
+    unsupported_rust_only_command(&format!("worker_channel_{action}"))
 }
 
 fn build_worker_channel_start_request(request_id: WorkerRequestCorrelation) -> WorkerRequest {
@@ -3869,39 +3658,22 @@ fn call_rust_state_service(
         .ok_or_else(|| format!("{label} failed: missing response result"))
 }
 
+fn unsupported_rust_only_command(command: &str) -> Result<serde_json::Value, String> {
+    Err(format!("{command} is unsupported in the Rust-only backend"))
+}
+
 fn worker_cancel_agent_with_options(
     shared: &SharedGateway,
     run_id: String,
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    if resolve_native_agent_runtime_mode(&serde_json::json!({}), &config_snapshot)
-        == NativeAgentRuntimeMode::Rust
-    {
-        let services = {
-            let runtime = lock_runtime(shared);
-            runtime.native_agent_runtime.clone()
-        };
-        return Ok(services.cancel(&run_id));
-    }
-
-    let client = WorkerClient::experimental(shared);
-    client.require_running()?;
-
-    let request = build_worker_cancel_agent_request(next_worker_request_correlation(), run_id);
-    client.call(&request, timeout, "worker agent cancel")
-}
-
-fn build_worker_cancel_agent_request(
-    request_id: WorkerRequestCorrelation,
-    run_id: String,
-) -> WorkerRequest {
-    WorkerRequest::new(
-        request_id.id("agent-cancel"),
-        request_id.trace_id("agent-cancel"),
-        "agent.cancel",
-        serde_json::json!({ "runId": run_id }),
-    )
+    let _ = (config_snapshot, timeout);
+    let services = {
+        let runtime = lock_runtime(shared);
+        runtime.native_agent_runtime.clone()
+    };
+    Ok(services.cancel(&run_id))
 }
 
 fn worker_restore_agent_checkpoint_with_options(
@@ -3911,35 +3683,23 @@ fn worker_restore_agent_checkpoint_with_options(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    if resolve_native_agent_runtime_mode(&serde_json::json!({}), &config_snapshot)
-        == NativeAgentRuntimeMode::Rust
+    let _ = timeout;
+    let services = {
+        let runtime = lock_runtime(shared);
+        runtime.native_agent_runtime.clone()
+    };
+    let restored = services.restore_checkpoint(&session_id);
+    if !restored
+        .get("checkpoint")
+        .is_some_and(|value| !value.is_null())
     {
-        let services = {
-            let runtime = lock_runtime(shared);
-            runtime.native_agent_runtime.clone()
-        };
-        let restored = services.restore_checkpoint(&session_id);
-        if !restored
-            .get("checkpoint")
-            .is_some_and(|value| !value.is_null())
-        {
-            return restore_native_agent_checkpoint_from_session_store(
-                session_id,
-                workspace_root,
-                config_snapshot,
-            );
-        }
-        return Ok(restored);
+        return restore_native_agent_checkpoint_from_session_store(
+            session_id,
+            workspace_root,
+            config_snapshot,
+        );
     }
-
-    let client = WorkerClient::experimental(shared);
-    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
-
-    let request = build_worker_restore_agent_checkpoint_request(
-        next_worker_request_correlation(),
-        session_id,
-    );
-    client.call(&request, timeout, "worker agent checkpoint restore")
+    Ok(restored)
 }
 
 fn restore_native_agent_checkpoint_from_session_store(
@@ -3964,18 +3724,6 @@ fn restore_native_agent_checkpoint_from_session_store(
         "sessionId": session_id,
         "checkpoint": checkpoint,
     }))
-}
-
-fn build_worker_restore_agent_checkpoint_request(
-    request_id: WorkerRequestCorrelation,
-    session_id: String,
-) -> WorkerRequest {
-    WorkerRequest::new(
-        request_id.id("agent-restore-checkpoint"),
-        request_id.trace_id("agent-restore-checkpoint"),
-        "agent.restore_checkpoint",
-        serde_json::json!({ "sessionId": session_id }),
-    )
 }
 
 fn worker_background_trace_list_with_options(
@@ -4378,117 +4126,29 @@ fn dispatch_rust_knowledge_request(
 }
 
 fn worker_submit_agent_form_with_options(
-    shared: &SharedGateway,
-    session_id: String,
-    form_id: String,
-    values: serde_json::Value,
-    action: Option<String>,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-    timeout: Duration,
+    _shared: &SharedGateway,
+    _session_id: String,
+    _form_id: String,
+    _values: serde_json::Value,
+    _action: Option<String>,
+    _workspace_root: PathBuf,
+    _config_snapshot: serde_json::Value,
+    _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let client = WorkerClient::experimental(shared);
-    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
-
-    let request = build_worker_submit_agent_form_request(
-        next_worker_request_correlation(),
-        session_id,
-        form_id,
-        values,
-        action,
-    );
-    client.call(&request, timeout, "worker agent form submission")
-}
-
-fn build_worker_submit_agent_form_request(
-    request_id: WorkerRequestCorrelation,
-    session_id: String,
-    form_id: String,
-    values: serde_json::Value,
-    action: Option<String>,
-) -> WorkerRequest {
-    let mut params = serde_json::json!({
-        "sessionId": session_id,
-        "formId": form_id,
-        "values": if values.is_null() { serde_json::json!({}) } else { values },
-    });
-    if let Some(action) = action {
-        params["action"] = serde_json::Value::String(action);
-    }
-    WorkerRequest::new(
-        request_id.id("agent-submit-form"),
-        request_id.trace_id("agent-submit-form"),
-        "agent.submit_form",
-        params,
-    )
+    unsupported_rust_only_command("worker_submit_agent_form")
 }
 
 fn worker_resume_agent_approval_with_options(
-    shared: &SharedGateway,
-    session_id: String,
-    approval_id: String,
-    approved: bool,
-    scope: Option<String>,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-    timeout: Duration,
+    _shared: &SharedGateway,
+    _session_id: String,
+    _approval_id: String,
+    _approved: bool,
+    _scope: Option<String>,
+    _workspace_root: PathBuf,
+    _config_snapshot: serde_json::Value,
+    _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let client = WorkerClient::experimental(shared);
-    client.ensure_ts_agent_running(workspace_root, config_snapshot)?;
-
-    let request = build_worker_resume_agent_approval_request(
-        next_worker_request_correlation(),
-        session_id,
-        approval_id,
-        approved,
-        scope,
-    );
-    client.call(&request, timeout, "worker agent approval resume")
-}
-
-fn build_worker_resume_agent_approval_request(
-    request_id: WorkerRequestCorrelation,
-    session_id: String,
-    approval_id: String,
-    approved: bool,
-    scope: Option<String>,
-) -> WorkerRequest {
-    let mut params = serde_json::json!({
-        "sessionId": session_id,
-        "approvalId": approval_id,
-        "approved": approved,
-    });
-    if let Some(scope) = scope {
-        params["scope"] = serde_json::Value::String(scope);
-    }
-    WorkerRequest::new(
-        request_id.id("agent-resume-approval"),
-        request_id.trace_id("agent-resume-approval"),
-        "agent.resume_approval",
-        params,
-    )
-}
-
-fn ensure_ts_agent_worker_running(
-    worker: &WorkerManager,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-) -> Result<(), String> {
-    if worker.status().state == WorkerManagerState::Running {
-        return Ok(());
-    }
-    let spec = ts_agent_worker_command_spec();
-    worker
-        .start_stdio_rpc(
-            spec.clone(),
-            experimental_worker_router_with_runtime_restart(
-                worker.clone(),
-                spec,
-                workspace_root,
-                config_snapshot,
-            ),
-        )
-        .map_err(|error| format!("failed to start TS agent worker: {error:?}"))
+    unsupported_rust_only_command("worker_resume_agent_approval")
 }
 
 fn ensure_experimental_fixture_worker_running(
@@ -4501,26 +4161,13 @@ fn ensure_experimental_fixture_worker_running(
     }
     worker
         .start_stdio_rpc(
-            ts_worker_fixture_command_spec(),
+            stdio_worker_fixture_command_spec(),
             experimental_worker_router(workspace_root, config_snapshot),
         )
         .map_err(|error| format!("failed to start TS worker fixture: {error:?}"))
 }
 
-fn ts_agent_worker_command_spec() -> WorkerCommandSpec {
-    let desktop_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("src-tauri should have repo parent")
-        .to_path_buf();
-    WorkerCommandSpec::new(
-        "node",
-        ["workers/ts-agent-worker/src/index.ts"],
-        desktop_dir,
-    )
-    .with_label("ts-agent-worker")
-}
-
-fn ts_worker_fixture_command_spec() -> WorkerCommandSpec {
+fn stdio_worker_fixture_command_spec() -> WorkerCommandSpec {
     let desktop_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("src-tauri should have repo parent")
@@ -4573,6 +4220,7 @@ fn experimental_worker_router(
     .with_builtin_skills_root(repo_root())
 }
 
+#[cfg(test)]
 fn experimental_worker_router_with_runtime_restart(
     worker: WorkerManager,
     spec: WorkerCommandSpec,
@@ -4589,9 +4237,9 @@ fn experimental_worker_router_with_runtime_restart(
             let spec = restart_spec.clone();
             let workspace_root = restart_workspace_root.clone();
             let config_snapshot = restart_config_snapshot.clone();
-            thread::spawn(move || {
+            std::thread::spawn(move || {
                 // Let the worker receive the runtime.restart response before replacing it.
-                thread::sleep(Duration::from_millis(25));
+                std::thread::sleep(Duration::from_millis(25));
                 let router = experimental_worker_router_with_runtime_restart(
                     worker.clone(),
                     spec.clone(),
@@ -4617,14 +4265,14 @@ fn experimental_worker_workspace_root() -> PathBuf {
     }
 }
 
-fn ts_agent_worker_workspace_root() -> PathBuf {
+fn native_backend_workspace_root() -> PathBuf {
     let root =
-        resolve_ts_agent_worker_workspace_root_from_config_path(&default_tinybot_config_path());
+        resolve_native_backend_workspace_root_from_config_path(&default_tinybot_config_path());
     let _ = std::fs::create_dir_all(&root);
     root
 }
 
-fn resolve_ts_agent_worker_workspace_root_from_config_path(config_path: &Path) -> PathBuf {
+fn resolve_native_backend_workspace_root_from_config_path(config_path: &Path) -> PathBuf {
     configured_tinybot_workspace(config_path)
         .map(|workspace| expand_tinybot_workspace_path(&workspace))
         .unwrap_or_else(default_tinybot_workspace_root)
@@ -4757,7 +4405,7 @@ fn repo_root() -> PathBuf {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     manifest_dir
         .ancestors()
-        .find(|path| path.join("workers").join("ts-agent-worker").exists())
+        .find(|path| path.join("package.json").exists())
         .map(PathBuf::from)
         .or_else(|| manifest_dir.parent().map(PathBuf::from))
         .unwrap_or_else(|| PathBuf::from("."))
@@ -4787,24 +4435,10 @@ pub fn run() {
             });
             drop(runtime);
             start_worker_cron_timer(&setup_state);
-            if ts_compatibility_worker_enabled() {
-                if let Err(error) = start_worker_heartbeat_runtime_with_options(
-                    &setup_state,
-                    ts_agent_worker_workspace_root(),
-                    experimental_worker_config_snapshot(),
-                    Duration::from_secs(10),
-                ) {
-                    push_log(
-                        &setup_state,
-                        &format!("TS compatibility heartbeat start failed: {error}"),
-                    );
-                }
-            } else {
-                push_log(
-                    &setup_state,
-                    "Rust backend startup skipped TS compatibility heartbeat",
-                );
-            }
+            push_log(
+                &setup_state,
+                "Rust backend startup skipped legacy heartbeat worker",
+            );
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -4876,19 +4510,6 @@ pub fn run() {
         .on_window_event(move |_window, event| {
             if matches!(event, WindowEvent::CloseRequested { .. }) {
                 stop_worker_cron_timer(&close_state);
-                if ts_compatibility_worker_enabled() {
-                    if let Err(error) = stop_worker_heartbeat_runtime_with_options(
-                        &close_state,
-                        ts_agent_worker_workspace_root(),
-                        experimental_worker_config_snapshot(),
-                        Duration::from_secs(10),
-                    ) {
-                        push_log(
-                            &close_state,
-                            &format!("TS compatibility heartbeat stop failed: {error}"),
-                        );
-                    }
-                }
                 let _ = stop_owned_gateway(&close_state, false);
             }
         })
@@ -4908,8 +4529,8 @@ pub fn run() {
 mod tests {
     use super::*;
     use crate::desktop_cron::{
-        build_worker_cron_run_due_request, cron_model_from_config,
-        worker_cron_dispatch_due_with_options, worker_cron_next_wake_delay_with_options,
+        cron_model_from_config, worker_cron_dispatch_due_with_options,
+        worker_cron_next_wake_delay_with_options,
     };
     use crate::desktop_files::{
         allowed_workspace_file_path, mime_type_for_path,
@@ -4928,7 +4549,7 @@ mod tests {
     }
 
     #[test]
-    fn close_shutdown_stops_ts_compatibility_worker_child() {
+    fn close_shutdown_stops_background_worker_child() {
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
         {
             let runtime = lock_runtime(&shared);
@@ -4938,7 +4559,7 @@ mod tests {
                 .expect("test worker should start");
         }
 
-        stop_owned_gateway(&shared, false).expect("TS compatibility worker child should stop");
+        stop_owned_gateway(&shared, false).expect("background worker child should stop");
 
         let runtime = lock_runtime(&shared);
         assert_eq!(
@@ -4948,14 +4569,14 @@ mod tests {
         assert!(runtime
             .logs
             .iter()
-            .any(|line| line == "stopped TS compatibility worker"));
+            .any(|line| line == "stopped background worker"));
     }
 
     #[test]
-    fn start_gateway_defaults_to_rust_backend_without_ts_worker() {
+    fn start_gateway_defaults_to_rust_backend() {
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
 
-        let status = crate::desktop_gateway::start_gateway_with_options(&shared, false)
+        let status = crate::desktop_gateway::start_gateway_with_options(&shared)
             .expect("Rust backend startup should not require TS worker");
 
         assert_eq!(status.owner, "shell");
@@ -4965,7 +4586,6 @@ mod tests {
             status.worker_runtime.state,
             crate::worker_runtime::WorkerRuntimeState::Running
         );
-        assert!(status.worker_runtime.compatibility_worker.is_none());
         assert_eq!(
             lock_runtime(&shared).experimental_worker.status().state,
             WorkerManagerState::Stopped
@@ -4973,14 +4593,14 @@ mod tests {
         assert!(lock_runtime(&shared)
             .logs
             .iter()
-            .any(|line| line == "Rust native backend active; TS compatibility worker disabled"));
+            .any(|line| line == "Rust native backend active"));
     }
 
     #[test]
-    fn desktop_smoke_default_chat_runs_without_ts_compatibility_worker() {
+    fn desktop_smoke_default_chat_runs_on_rust_backend() {
         let fixture = WorkspaceFixture::new();
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
-        let status = crate::desktop_gateway::start_gateway_with_options(&shared, false)
+        let status = crate::desktop_gateway::start_gateway_with_options(&shared)
             .expect("default desktop runtime should start Rust backend");
 
         let chat = worker_webui_route_with_options(
@@ -5004,7 +4624,6 @@ mod tests {
         .expect("desktop smoke chat should use Rust-owned route");
 
         assert_eq!(status.command, "Tauri Rust backend");
-        assert!(status.worker_runtime.compatibility_worker.is_none());
         assert_eq!(chat["status"], 200);
         assert_eq!(chat["headers"]["x-tinybot-route-owner"], "rust");
         assert_eq!(
@@ -5018,7 +4637,7 @@ mod tests {
     }
 
     #[test]
-    fn gateway_status_reflects_running_ts_compatibility_worker_runtime() {
+    fn gateway_status_reflects_running_managed_worker() {
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
         let worker = {
             let runtime = lock_runtime(&shared);
@@ -5041,22 +4660,22 @@ mod tests {
     }
 
     #[test]
-    fn gateway_status_reports_ts_compatibility_worker_diagnostics() {
+    fn gateway_status_reports_managed_worker_diagnostics() {
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
-        let ts_worker = {
+        let worker = {
             let runtime = lock_runtime(&shared);
             runtime.experimental_worker.clone()
         };
-        ts_worker
+        worker
             .start(test_logging_sleep_worker_spec(
-                "ts-agent-worker",
-                "ts native backend",
+                "managed-worker",
+                "managed worker diagnostic",
             ))
-            .expect("ts worker should start");
-        let _ = wait_for_worker_diagnostics(&ts_worker, |diagnostics| {
+            .expect("managed worker should start");
+        let _ = wait_for_worker_diagnostics(&worker, |diagnostics| {
             diagnostics
                 .iter()
-                .any(|line| line.line.contains("ts native backend"))
+                .any(|line| line.line.contains("managed worker diagnostic"))
         });
 
         let status = current_status(&shared);
@@ -5069,13 +4688,13 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
 
-        assert!(log_text.contains("ts native backend"));
-        assert!(diagnostic_text.contains("ts native backend"));
+        assert!(log_text.contains("managed worker diagnostic"));
+        assert!(diagnostic_text.contains("managed worker diagnostic"));
         assert_eq!(status.command, "Tauri Rust backend");
     }
 
     #[test]
-    fn worker_echo_agent_uses_ts_agent_worker() {
+    fn worker_echo_agent_uses_experimental_fixture_worker() {
         let fixture = WorkspaceFixture::new();
         fixture.write("AGENTS.md", "agents");
         fixture.write("notes/today.md", "hello command");
@@ -5103,21 +4722,12 @@ mod tests {
     }
 
     #[test]
-    fn experimental_worker_command_spec_points_at_ts_agent_worker() {
-        let spec = ts_agent_worker_command_spec();
-
-        assert_eq!(spec.program, "node");
-        assert_eq!(spec.args, vec!["workers/ts-agent-worker/src/index.ts"]);
-        assert_eq!(spec.label, "ts-agent-worker");
-    }
-
-    #[test]
-    fn ts_agent_worker_uses_default_tinybot_workspace_root() {
+    fn native_backend_uses_default_tinybot_workspace_root() {
         let fixture = WorkspaceFixture::new();
         let expected = default_tinybot_workspace_root();
 
         assert_eq!(
-            resolve_ts_agent_worker_workspace_root_from_config_path(
+            resolve_native_backend_workspace_root_from_config_path(
                 &fixture.root.join("missing.json")
             ),
             expected
@@ -5125,7 +4735,7 @@ mod tests {
     }
 
     #[test]
-    fn ts_agent_worker_uses_configured_workspace_root() {
+    fn native_backend_uses_configured_workspace_root() {
         let fixture = WorkspaceFixture::new();
         let workspace_root = fixture.root.join("workspace");
         fixture.write(
@@ -5141,7 +4751,7 @@ mod tests {
         );
 
         assert_eq!(
-            resolve_ts_agent_worker_workspace_root_from_config_path(
+            resolve_native_backend_workspace_root_from_config_path(
                 &fixture.root.join("config.json")
             ),
             workspace_root
@@ -5177,7 +4787,15 @@ mod tests {
     #[test]
     fn experimental_worker_router_keeps_builtin_skills_root_separate_from_workspace_root() {
         let fixture = WorkspaceFixture::new();
-        let mut router = experimental_worker_router(fixture.root.clone(), serde_json::json!({}));
+        let workspace_root = fixture.root.join("workspace");
+        let builtin_root = fixture.root.join("repo");
+        std::fs::create_dir_all(&workspace_root).expect("workspace root should create");
+        fixture.write(
+            "repo/builtin-skills/builtin-fixture/SKILL.md",
+            "---\nname: builtin-fixture\ndescription: Builtin fixture\n---\n",
+        );
+        let mut router = experimental_worker_router(workspace_root, serde_json::json!({}))
+            .with_builtin_skills_root(builtin_root);
         let request = WorkerRequest::new("req-1", "trace-1", "skills.list", serde_json::json!({}));
 
         let response = router.dispatch(&request);
@@ -5194,7 +4812,7 @@ mod tests {
                 && skill
                     .get("path")
                     .and_then(serde_json::Value::as_str)
-                    .is_some_and(|path| path.starts_with("workers/ts-agent-worker/skills/"))
+                    .is_some_and(|path| path.starts_with("builtin-skills/"))
         }));
     }
 
@@ -5264,7 +4882,7 @@ mod tests {
     }
 
     #[test]
-    fn experimental_worker_router_allows_registered_ts_agent_native_tools() {
+    fn experimental_worker_router_allows_registered_native_agent_tools() {
         let fixture = WorkspaceFixture::new();
         fixture.write(
             "memory/notes.jsonl",
@@ -5367,26 +4985,7 @@ mod tests {
     }
 
     #[test]
-    fn worker_run_agent_request_wraps_agent_spec_for_ts_worker() {
-        let agent_spec = serde_json::json!({
-            "runId": "run-1",
-            "messages": [{ "role": "user", "content": "hello" }],
-            "model": "gpt-5",
-            "maxIterations": 3,
-            "stream": true
-        });
-
-        let request =
-            build_worker_run_agent_request(test_request_correlation("42"), agent_spec.clone());
-
-        assert_eq!(request.id, "agent-run-42");
-        assert_eq!(request.trace_id, "trace-agent-run-42");
-        assert_eq!(request.method, "agent.run");
-        assert_eq!(request.params, serde_json::json!({ "spec": agent_spec }));
-    }
-
-    #[test]
-    fn worker_run_agent_uses_rust_runtime_when_selected_without_ts_worker() {
+    fn worker_run_agent_uses_rust_runtime_when_selected() {
         let fixture = WorkspaceFixture::new();
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
 
@@ -6107,83 +5706,6 @@ mod tests {
     }
 
     #[test]
-    fn worker_run_agent_requests_use_unique_rust_owned_correlation_keys() {
-        let generator = crate::worker_request_id::WorkerRequestIdGenerator::with_run_prefix("test");
-        let first_spec = serde_json::json!({ "runId": "run-1" });
-        let second_spec = serde_json::json!({ "runId": "run-2" });
-
-        let first = build_worker_run_agent_request(generator.next(), first_spec.clone());
-        let second = build_worker_run_agent_request(generator.next(), second_spec.clone());
-
-        assert_ne!(first.id, second.id);
-        assert_ne!(first.trace_id, second.trace_id);
-        assert!(first.id.starts_with("agent-run-test-"));
-        assert!(first.trace_id.starts_with("trace-agent-run-test-"));
-        assert_eq!(first.method, "agent.run");
-        assert_eq!(second.method, "agent.run");
-        assert_eq!(first.params, serde_json::json!({ "spec": first_spec }));
-        assert_eq!(second.params, serde_json::json!({ "spec": second_spec }));
-    }
-
-    #[test]
-    fn worker_run_agent_input_request_wraps_high_level_input_for_ts_worker() {
-        let agent_input = serde_json::json!({
-            "runId": "run-input-1",
-            "sessionId": "session-1",
-            "input": { "content": "hello" },
-            "model": "gpt-5",
-            "maxIterations": 3,
-            "stream": true
-        });
-
-        let request = build_worker_run_agent_input_request(
-            test_request_correlation("42"),
-            agent_input.clone(),
-        );
-
-        assert_eq!(request.id, "agent-run-input-42");
-        assert_eq!(request.trace_id, "trace-agent-run-input-42");
-        assert_eq!(request.method, "agent.run_input");
-        assert_eq!(request.params, serde_json::json!({ "input": agent_input }));
-    }
-
-    #[test]
-    fn worker_cron_run_due_request_wraps_due_jobs_for_ts_worker() {
-        let jobs = serde_json::json!([
-            {
-                "id": "job-1",
-                "name": "Check status",
-                "enabled": true,
-                "schedule": { "kind": "every", "everyMs": 60000 },
-                "payload": { "kind": "agent_turn", "message": "Check", "deliver": true },
-                "state": { "nextRunAtMs": 1000 },
-                "createdAtMs": 1,
-                "updatedAtMs": 1,
-                "deleteAfterRun": false
-            }
-        ]);
-
-        let request = build_worker_cron_run_due_request(
-            test_request_correlation("42"),
-            jobs.clone(),
-            "gpt-5".to_string(),
-        );
-
-        assert_eq!(request.id, "cron-run-due-42");
-        assert_eq!(request.trace_id, "trace-cron-run-due-42");
-        assert_eq!(request.method, "cron.run_due");
-        assert_eq!(
-            request.params,
-            serde_json::json!({
-                "jobs": jobs,
-                "model": "gpt-5",
-                "maxIterations": 4,
-                "stream": false
-            })
-        );
-    }
-
-    #[test]
     fn cron_model_from_config_defaults_to_agent_model() {
         assert_eq!(
             cron_model_from_config(&serde_json::json!({})),
@@ -6192,7 +5714,7 @@ mod tests {
     }
 
     #[test]
-    fn worker_heartbeat_lifecycle_requests_target_ts_worker_methods() {
+    fn worker_heartbeat_lifecycle_requests_target_native_worker_methods() {
         let start =
             build_worker_heartbeat_lifecycle_request(test_request_correlation("42"), "start");
         assert_eq!(start.id, "heartbeat-start-42");
@@ -6313,6 +5835,41 @@ mod tests {
     }
 
     #[test]
+    fn worker_cron_next_wake_delay_backs_off_due_jobs_while_dispatch_is_unsupported() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write(
+            "cron/jobs.json",
+            &serde_json::json!({
+                "version": 1,
+                "jobs": [
+                    {
+                        "id": "due",
+                        "name": "Due",
+                        "enabled": true,
+                        "schedule": { "kind": "at", "atMs": 1000 },
+                        "payload": { "kind": "agent_turn", "message": "now", "deliver": false },
+                        "state": { "nextRunAtMs": 1000, "lastRunAtMs": null, "lastStatus": null, "lastError": null, "runHistory": [] },
+                        "createdAtMs": 1,
+                        "updatedAtMs": 1,
+                        "deleteAfterRun": true
+                    }
+                ]
+            })
+            .to_string(),
+        );
+
+        let delay = worker_cron_next_wake_delay_with_options(
+            fixture.root.clone(),
+            serde_json::json!({}),
+            2000,
+            Duration::from_secs(30),
+        )
+        .expect("cron next wake should back off due jobs");
+
+        assert_eq!(delay, Duration::from_secs(30));
+    }
+
+    #[test]
     fn worker_cron_dispatch_due_skips_when_dispatch_already_running() {
         let fixture = WorkspaceFixture::new();
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
@@ -6414,7 +5971,7 @@ mod tests {
     }
 
     #[test]
-    fn worker_skills_list_reads_rust_workspace_without_ts_worker() {
+    fn worker_skills_list_reads_rust_workspace() {
         let fixture = WorkspaceFixture::new();
         fixture.write(
             "skills/planner/SKILL.md",
@@ -6440,7 +5997,7 @@ mod tests {
     }
 
     #[test]
-    fn worker_workspace_file_commands_use_rust_workspace_without_ts_worker() {
+    fn worker_workspace_file_commands_use_rust_workspace() {
         let fixture = WorkspaceFixture::new();
         fixture.write("docs/readme.md", "old readme");
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
@@ -6486,7 +6043,7 @@ mod tests {
     }
 
     #[test]
-    fn worker_session_read_commands_use_rust_session_store_without_ts_worker() {
+    fn worker_session_read_commands_use_rust_session_store() {
         let fixture = WorkspaceFixture::new();
         fixture.write(
             "sessions/store.json",
@@ -6543,7 +6100,7 @@ mod tests {
     }
 
     #[test]
-    fn worker_session_write_commands_use_rust_session_store_without_ts_worker() {
+    fn worker_session_write_commands_use_rust_session_store_on_rust_backend() {
         let fixture = WorkspaceFixture::new();
         fixture.write(
             "sessions/store.json",
@@ -6655,33 +6212,7 @@ mod tests {
     }
 
     #[test]
-    fn worker_cowork_route_request_targets_ts_route_bridge() {
-        let request = build_worker_cowork_route_request(
-            test_request_correlation("42"),
-            WorkerCoworkRouteInput {
-                method: "POST".to_string(),
-                path: "/api/cowork/sessions/cw_1/tasks/task_1/retry".to_string(),
-                body: Some(serde_json::json!({ "reason": "Retry" })),
-                query: Some(serde_json::json!({ "limit": "5" })),
-            },
-        );
-
-        assert_eq!(request.id, "cowork-route-42");
-        assert_eq!(request.trace_id, "trace-cowork-route-42");
-        assert_eq!(request.method, "cowork.route_request");
-        assert_eq!(
-            request.params,
-            serde_json::json!({
-                "method": "POST",
-                "path": "/api/cowork/sessions/cw_1/tasks/task_1/retry",
-                "body": { "reason": "Retry" },
-                "query": { "limit": "5" }
-            })
-        );
-    }
-
-    #[test]
-    fn worker_cowork_route_serves_rust_sessions_without_ts_worker() {
+    fn worker_cowork_route_serves_rust_sessions_on_rust_backend() {
         let fixture = WorkspaceFixture::new();
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
 
@@ -6815,7 +6346,7 @@ mod tests {
     }
 
     #[test]
-    fn worker_webui_route_serves_rust_owned_state_routes_without_ts_worker() {
+    fn worker_webui_route_serves_rust_owned_state_routes_on_rust_backend() {
         let fixture = WorkspaceFixture::new();
         fixture.write("docs/readme.md", "hello route");
         fixture.write(
@@ -7023,7 +6554,7 @@ mod tests {
     }
 
     #[test]
-    fn worker_webui_route_classifies_rust_owned_chat_and_unsupported_routes_without_ts_worker() {
+    fn worker_webui_route_classifies_rust_owned_chat_and_unsupported_routes_on_rust_backend() {
         let fixture = WorkspaceFixture::new();
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
 
@@ -7088,11 +6619,11 @@ mod tests {
     }
 
     #[test]
-    fn worker_webui_route_records_fallback_route_group_before_ts_worker_startup() {
+    fn worker_webui_route_returns_unsupported_for_unimplemented_inventory_route_on_rust_backend() {
         let fixture = WorkspaceFixture::new();
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
 
-        let _ = worker_webui_route_with_options(
+        let response = worker_webui_route_with_options(
             &shared,
             WorkerWebuiRouteInput {
                 method: "POST".to_string(),
@@ -7103,47 +6634,22 @@ mod tests {
             fixture.root.clone(),
             serde_json::json!({}),
             Duration::from_millis(1),
-        );
+        )
+        .expect("unsupported route should return a structured response");
 
         let status = current_status(&shared);
-        let worker = {
-            let runtime = lock_runtime(&shared);
-            runtime.experimental_worker.clone()
-        };
-        let _ = worker.stop();
-        let diagnostic = status
-            .compatibility_fallback_diagnostics
-            .iter()
-            .find(|diagnostic| diagnostic.route == "POST /v1/knowledge/graph/extract")
-            .expect("fallback route should record a compatibility diagnostic");
-
-        assert_eq!(diagnostic.surface, "webui-route");
-        assert_eq!(diagnostic.route_group, "knowledge");
-        assert!(diagnostic.reason.contains("TS worker"));
-    }
-
-    #[test]
-    fn worker_webui_route_request_targets_ts_route_bridge() {
-        let request = build_worker_webui_route_request(
-            test_request_correlation("42"),
-            WorkerWebuiRouteInput {
-                method: "GET".to_string(),
-                path: "/api/status".to_string(),
-                body: None,
-                headers: Some(serde_json::json!({ "Authorization": "Bearer token-1" })),
-            },
-        );
-
-        assert_eq!(request.id, "webui-route-42");
-        assert_eq!(request.trace_id, "trace-webui-route-42");
-        assert_eq!(request.method, "webui.handle_request");
+        assert_eq!(response["status"], 501);
+        assert_eq!(response["headers"]["x-tinybot-route-owner"], "unsupported");
+        assert_eq!(response["headers"]["x-tinybot-route-group"], "knowledge");
+        assert_eq!(response["body"]["inventoryStatus"], "unsupported");
+        assert_eq!(response["body"]["routeGroup"], "knowledge");
+        assert!(response["body"]["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("not implemented")));
+        assert!(status.compatibility_fallback_diagnostics.is_empty());
         assert_eq!(
-            request.params,
-            serde_json::json!({
-                "method": "GET",
-                "path": "/api/status",
-                "headers": { "Authorization": "Bearer token-1" }
-            })
+            lock_runtime(&shared).experimental_worker.status().state,
+            WorkerManagerState::Stopped
         );
     }
 
@@ -7166,79 +6672,6 @@ mod tests {
                 headers: None,
             }),
             Duration::from_secs(10)
-        );
-    }
-
-    #[test]
-    fn worker_transport_gateway_frame_request_targets_ts_transport_mapper() {
-        let request = build_worker_transport_gateway_frame_request(
-            test_request_correlation("42"),
-            WorkerTransportGatewayFrameInput {
-                kind: "message".to_string(),
-                chat_id: "chat-1".to_string(),
-                content: Some("reading file".to_string()),
-                delta: None,
-                usage: None,
-                metadata: Some(serde_json::json!({
-                    "_stream_id": "msg-1",
-                    "_progress": true,
-                    "_tool_name": "read_file"
-                })),
-            },
-        );
-
-        assert_eq!(request.id, "transport-gateway-frame-42");
-        assert_eq!(request.trace_id, "trace-transport-gateway-frame-42");
-        assert_eq!(request.method, "transport.gateway_frame");
-        assert_eq!(
-            request.params,
-            serde_json::json!({
-                "kind": "message",
-                "chatId": "chat-1",
-                "content": "reading file",
-                "metadata": {
-                    "_stream_id": "msg-1",
-                    "_progress": true,
-                    "_tool_name": "read_file"
-                }
-            })
-        );
-    }
-
-    #[test]
-    fn worker_transport_websocket_message_request_targets_ts_inbound_mapper() {
-        let request = build_worker_transport_websocket_message_request(
-            test_request_correlation("42"),
-            WorkerTransportWebSocketMessageInput {
-                client_id: "client-1".to_string(),
-                frame: serde_json::json!({
-                    "type": "message",
-                    "chat_id": "chat-1",
-                    "content": "hello",
-                    "use_persistent_rag": true
-                }),
-                attached_chat_id: Some("chat-1".to_string()),
-                session_exists: None,
-                editable_paths: Some(vec!["AGENTS.md".to_string()]),
-            },
-        );
-
-        assert_eq!(request.id, "transport-websocket-message-42");
-        assert_eq!(request.trace_id, "trace-transport-websocket-message-42");
-        assert_eq!(request.method, "transport.websocket_message");
-        assert_eq!(
-            request.params,
-            serde_json::json!({
-                "clientId": "client-1",
-                "frame": {
-                    "type": "message",
-                    "chat_id": "chat-1",
-                    "content": "hello",
-                    "use_persistent_rag": true
-                },
-                "attachedChatId": "chat-1",
-                "editablePaths": ["AGENTS.md"]
-            })
         );
     }
 
@@ -7336,7 +6769,7 @@ mod tests {
     }
 
     #[test]
-    fn worker_transport_websocket_dispatch_runs_basic_message_through_rust_without_ts_worker() {
+    fn worker_transport_websocket_dispatch_runs_basic_message_through_rust_on_rust_backend() {
         let fixture = WorkspaceFixture::new();
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
 
@@ -7381,106 +6814,6 @@ mod tests {
     }
 
     #[test]
-    fn worker_channel_dispatch_inbound_request_targets_ts_channel_runtime() {
-        let request = build_worker_channel_dispatch_inbound_request(
-            test_request_correlation("42"),
-            WorkerChannelDispatchInboundInput {
-                message: serde_json::json!({
-                    "channel": "feishu",
-                    "sender_id": "ou_1",
-                    "chat_id": "oc_1",
-                    "content": "hello",
-                    "timestamp": "2026-06-13T02:00:00.000Z",
-                    "media": ["file://clip.png"],
-                    "metadata": { "message_id": "mid-1" },
-                    "session_key_override": "thread:42"
-                }),
-            },
-        );
-
-        assert_eq!(request.id, "channel-dispatch-inbound-42");
-        assert_eq!(request.trace_id, "trace-channel-dispatch-inbound-42");
-        assert_eq!(request.method, "channel.dispatch_inbound");
-        assert_eq!(
-            request.params,
-            serde_json::json!({
-                "message": {
-                    "channel": "feishu",
-                    "sender_id": "ou_1",
-                    "chat_id": "oc_1",
-                    "content": "hello",
-                    "timestamp": "2026-06-13T02:00:00.000Z",
-                    "media": ["file://clip.png"],
-                    "metadata": { "message_id": "mid-1" },
-                    "session_key_override": "thread:42"
-                }
-            })
-        );
-    }
-
-    #[test]
-    fn worker_channel_lifecycle_requests_target_ts_channel_manager() {
-        let start_request = build_worker_channel_start_request(test_request_correlation("42"));
-        let status_request = build_worker_channel_status_request(test_request_correlation("43"));
-        let stop_request = build_worker_channel_stop_request(test_request_correlation("44"));
-        let login_request = build_worker_channel_login_request(
-            test_request_correlation("45"),
-            "feishu".to_string(),
-            true,
-        );
-
-        assert_eq!(start_request.id, "channel-start-42");
-        assert_eq!(start_request.trace_id, "trace-channel-start-42");
-        assert_eq!(start_request.method, "channel.start");
-        assert_eq!(start_request.params, serde_json::json!({}));
-
-        assert_eq!(status_request.id, "channel-status-43");
-        assert_eq!(status_request.trace_id, "trace-channel-status-43");
-        assert_eq!(status_request.method, "channel.status");
-        assert_eq!(status_request.params, serde_json::json!({}));
-
-        assert_eq!(stop_request.id, "channel-stop-44");
-        assert_eq!(stop_request.trace_id, "trace-channel-stop-44");
-        assert_eq!(stop_request.method, "channel.stop");
-        assert_eq!(stop_request.params, serde_json::json!({}));
-
-        assert_eq!(login_request.id, "channel-login-45");
-        assert_eq!(login_request.trace_id, "trace-channel-login-45");
-        assert_eq!(login_request.method, "channel.login");
-        assert_eq!(
-            login_request.params,
-            serde_json::json!({ "channel": "feishu", "force": true })
-        );
-    }
-
-    #[test]
-    fn worker_cancel_agent_request_wraps_run_id_for_ts_worker() {
-        let request =
-            build_worker_cancel_agent_request(test_request_correlation("42"), "run-1".to_string());
-
-        assert_eq!(request.id, "agent-cancel-42");
-        assert_eq!(request.trace_id, "trace-agent-cancel-42");
-        assert_eq!(request.method, "agent.cancel");
-        assert_eq!(request.params, serde_json::json!({ "runId": "run-1" }));
-    }
-
-    #[test]
-    fn worker_restore_agent_checkpoint_request_wraps_session_id_for_ts_worker() {
-        let request = build_worker_restore_agent_checkpoint_request(
-            test_request_correlation("42"),
-            "WebSocket:chat-1".to_string(),
-        );
-
-        assert_eq!(request.id, "agent-restore-checkpoint-42");
-        assert_eq!(request.trace_id, "trace-agent-restore-checkpoint-42");
-        assert_eq!(request.method, "agent.restore_checkpoint");
-        assert_eq!(
-            request.params,
-            serde_json::json!({ "sessionId": "WebSocket:chat-1" })
-        );
-    }
-
-    #[test]
     fn worker_background_trace_list_request_wraps_filter_for_background_rpc() {
         let request = build_worker_background_trace_list_request(
             test_request_correlation("42"),
@@ -7499,7 +6832,7 @@ mod tests {
     }
 
     #[test]
-    fn worker_background_trace_list_reads_rust_registry_without_ts_worker() {
+    fn worker_background_trace_list_reads_rust_registry_on_rust_backend() {
         let fixture = WorkspaceFixture::new();
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
         let append = worker_background_trace_append_with_options(
@@ -7547,7 +6880,7 @@ mod tests {
     }
 
     #[test]
-    fn worker_task_plan_commands_use_rust_store_without_ts_worker() {
+    fn worker_task_plan_commands_use_rust_store() {
         let fixture = WorkspaceFixture::new();
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
         let plan = serde_json::json!({
@@ -7614,7 +6947,7 @@ mod tests {
     }
 
     #[test]
-    fn worker_knowledge_state_commands_use_rust_store_without_ts_worker() {
+    fn worker_knowledge_state_commands_use_rust_store_on_rust_backend() {
         let fixture = WorkspaceFixture::new();
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
 
@@ -7775,54 +7108,6 @@ mod tests {
     }
 
     #[test]
-    fn worker_submit_agent_form_request_wraps_form_submission_for_ts_worker() {
-        let request = build_worker_submit_agent_form_request(
-            test_request_correlation("42"),
-            "WebSocket:chat-1".to_string(),
-            "travel_plan".to_string(),
-            serde_json::json!({ "destination": "Paris" }),
-            Some("cancelled".to_string()),
-        );
-
-        assert_eq!(request.id, "agent-submit-form-42");
-        assert_eq!(request.trace_id, "trace-agent-submit-form-42");
-        assert_eq!(request.method, "agent.submit_form");
-        assert_eq!(
-            request.params,
-            serde_json::json!({
-                "sessionId": "WebSocket:chat-1",
-                "formId": "travel_plan",
-                "values": { "destination": "Paris" },
-                "action": "cancelled"
-            })
-        );
-    }
-
-    #[test]
-    fn worker_resume_agent_approval_request_wraps_approval_for_ts_worker() {
-        let request = build_worker_resume_agent_approval_request(
-            test_request_correlation("42"),
-            "WebSocket:chat-1".to_string(),
-            "approval-1".to_string(),
-            true,
-            Some("session".to_string()),
-        );
-
-        assert_eq!(request.id, "agent-resume-approval-42");
-        assert_eq!(request.trace_id, "trace-agent-resume-approval-42");
-        assert_eq!(request.method, "agent.resume_approval");
-        assert_eq!(
-            request.params,
-            serde_json::json!({
-                "sessionId": "WebSocket:chat-1",
-                "approvalId": "approval-1",
-                "approved": true,
-                "scope": "session"
-            })
-        );
-    }
-
-    #[test]
     fn gateway_status_exposes_port_and_exit_policy() {
         let shared = Arc::new(Mutex::new(GatewayRuntime {
             experimental_worker: WorkerManager::new(200),
@@ -7870,14 +7155,14 @@ mod tests {
             &shared,
             &WorkerManagerEvent::Diagnostics(crate::worker_protocol::WorkerDiagnosticLine::new(
                 "stderr",
-                "[ts-agent-worker] worker.request.start route=POST /v1/knowledge/graph/extract",
+                "[native-backend] worker.request.start route=POST /v1/knowledge/graph/extract",
             )),
         );
 
         let contents =
             std::fs::read_to_string(log_path).expect("persistent backend log should be written");
         assert!(contents.contains(
-            "stderr [ts-agent-worker] worker.request.start route=POST /v1/knowledge/graph/extract"
+            "stderr [native-backend] worker.request.start route=POST /v1/knowledge/graph/extract"
         ));
     }
 
@@ -8210,7 +7495,6 @@ mod tests {
 
         assert_eq!(value["state"], "running");
         assert!(value["transport_mode"].is_null());
-        assert!(value.get("compatibility_worker").is_none());
         assert_eq!(
             value["diagnostics"][0]["line"],
             format!(

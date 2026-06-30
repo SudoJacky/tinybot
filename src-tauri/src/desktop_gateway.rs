@@ -16,13 +16,10 @@ use crate::native_backend_contract::{
 use crate::worker_manager::WorkerManagerState;
 use crate::worker_runtime::WorkerRuntimeStatus;
 use crate::{
-    append_log, ensure_ts_agent_worker_running, experimental_worker_config_snapshot, lock_runtime,
-    push_log, repo_root, ts_agent_worker_workspace_root, SharedGateway,
-    NATIVE_BACKEND_LOG_TAIL_LINES,
+    append_log, lock_runtime, push_log, repo_root, SharedGateway, NATIVE_BACKEND_LOG_TAIL_LINES,
 };
 
 const RUST_BACKEND_COMMAND: &str = "Tauri Rust backend";
-const TS_COMPATIBILITY_WORKER_ENV: &str = "TINYBOT_ENABLE_TS_COMPAT_WORKER";
 
 #[derive(Serialize)]
 pub(crate) struct GatewayRuntimeStatus {
@@ -126,66 +123,17 @@ pub(crate) fn gateway_status(state: State<'_, SharedGateway>) -> GatewayRuntimeS
 pub(crate) fn start_gateway(
     state: State<'_, SharedGateway>,
 ) -> Result<GatewayRuntimeStatus, String> {
-    start_gateway_with_options(state.inner(), ts_compatibility_worker_enabled())
+    start_gateway_with_options(state.inner())
 }
 
 pub(crate) fn start_gateway_with_options(
     shared: &SharedGateway,
-    compatibility_worker_enabled: bool,
 ) -> Result<GatewayRuntimeStatus, String> {
-    if compatibility_worker_enabled {
-        start_ts_compatibility_worker(shared)?;
-    } else {
-        let mut runtime = lock_runtime(shared);
-        runtime.last_error = None;
-        append_log(
-            &mut runtime,
-            "Rust native backend active; TS compatibility worker disabled",
-        );
-    }
-
+    let mut runtime = lock_runtime(shared);
+    runtime.last_error = None;
+    append_log(&mut runtime, "Rust native backend active");
+    drop(runtime);
     Ok(current_status(shared))
-}
-
-fn start_ts_compatibility_worker(shared: &SharedGateway) -> Result<(), String> {
-    let repo_root = repo_root();
-    let worker = {
-        let runtime = lock_runtime(shared);
-        runtime.experimental_worker.clone()
-    };
-    match ensure_ts_agent_worker_running(
-        &worker,
-        ts_agent_worker_workspace_root(),
-        experimental_worker_config_snapshot(),
-    ) {
-        Ok(()) => {
-            let mut runtime = lock_runtime(shared);
-            runtime.last_error = None;
-            append_log(
-                &mut runtime,
-                "started TS compatibility worker with `node workers/ts-agent-worker/src/index.ts`",
-            );
-        }
-        Err(error) if error.contains("AlreadyRunning") => {
-            push_log(shared, "TS compatibility worker is already running");
-        }
-        Err(error) => {
-            let message = format!("failed to start TS compatibility worker: {error}");
-            let mut runtime = lock_runtime(shared);
-            runtime.last_error = Some(message.clone());
-            return Err(message);
-        }
-    }
-
-    {
-        let mut runtime = lock_runtime(shared);
-        append_log(
-            &mut runtime,
-            &format!("TS compatibility worker cwd: {}", repo_root.display()),
-        );
-    }
-
-    Ok(())
 }
 
 #[tauri::command]
@@ -208,9 +156,9 @@ pub(crate) fn set_gateway_keep_running(
         append_log(
             &mut runtime,
             if keep_running {
-                "configured TS compatibility worker to keep running after desktop exits"
+                "configured native backend to keep running after desktop exits"
             } else {
-                "configured TS compatibility worker to stop when desktop exits"
+                "configured native backend to stop when desktop exits"
             },
         );
     }
@@ -429,10 +377,7 @@ pub(crate) fn stop_owned_gateway(shared: &SharedGateway, explicit: bool) -> Resu
         let runtime = lock_runtime(shared);
         if !explicit && runtime.keep_background {
             drop(runtime);
-            push_log(
-                shared,
-                "leaving TS compatibility worker running in background",
-            );
+            push_log(shared, "leaving native backend running in background");
             return Ok(());
         }
         runtime.experimental_worker.clone()
@@ -441,16 +386,10 @@ pub(crate) fn stop_owned_gateway(shared: &SharedGateway, explicit: bool) -> Resu
     let was_running = experimental_worker.status().state == WorkerManagerState::Running;
     experimental_worker
         .stop()
-        .map_err(|error| format!("failed to stop TS compatibility worker: {error:?}"))?;
+        .map_err(|error| format!("failed to stop background worker: {error:?}"))?;
     if was_running {
         let mut runtime = lock_runtime(shared);
-        append_log(&mut runtime, "stopped TS compatibility worker");
+        append_log(&mut runtime, "stopped background worker");
     }
     Ok(())
-}
-
-pub(crate) fn ts_compatibility_worker_enabled() -> bool {
-    std::env::var(TS_COMPATIBILITY_WORKER_ENV)
-        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "on"))
-        .unwrap_or(false)
 }

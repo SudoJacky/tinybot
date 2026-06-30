@@ -1,8 +1,0 @@
-{
-  "name": "tinybot-ts-agent-worker",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "typecheck": "tsc -p tsconfig.json"
-  }
-}

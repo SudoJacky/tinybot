@@ -31,7 +31,7 @@ describe("native backend contract", () => {
     ]));
   });
 
-  test("normalizes Rust event envelopes while preserving legacy payloads", () => {
+  test("normalizes Rust event envelopes while preserving payloads", () => {
     const payload = { runId: "run-1", delta: "hello" };
     const envelope = {
       sessionId: "WebSocket:chat-1",
@@ -39,7 +39,7 @@ describe("native backend contract", () => {
       traceId: "trace-1",
       eventName: "agent.delta",
       timestamp: "2026-06-29T14:30:00.000Z",
-      source: "compatibility_worker",
+      source: "rust_backend",
       payload,
     } as const;
 
@@ -48,22 +48,13 @@ describe("native backend contract", () => {
     expect(normalizeNativeBackendEventPayload(payload)).toBe(payload);
   });
 
-  test("models Rust ownership with optional TS compatibility worker state", () => {
+  test("models Rust backend ownership", () => {
     const status: NativeBackendRuntimeStatus = {
       backendKind: "rust",
       backendLabel: "rust",
-      compatibilityWorker: {
-        kind: "ts_agent_worker",
-        state: "running",
-        transportMode: "stdio",
-        diagnostics: [{ stream: "stdout", line: "worker ready" }],
-        lastError: null,
-        delegatedCapabilities: ["agent.run", "agent.cancel"],
-      },
     };
 
     expect(status.backendKind).toBe("rust");
-    expect(status.compatibilityWorker?.state).toBe("running");
-    expect(status.compatibilityWorker?.delegatedCapabilities).toContain("agent.run");
+    expect(status.backendLabel).toBe("rust");
   });
 });

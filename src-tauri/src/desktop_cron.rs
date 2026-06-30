@@ -10,12 +10,11 @@ use std::{
 
 use tauri::State;
 
-use crate::worker_client::WorkerClient;
 use crate::worker_protocol::WorkerRequest;
-use crate::worker_request_id::{next_worker_request_correlation, WorkerRequestCorrelation};
 use crate::{
-    experimental_worker_config_snapshot, experimental_worker_router, lock_runtime, now_unix_ms,
-    push_log, ts_agent_worker_workspace_root, SharedGateway, WORKER_CRON_TIMER_MAX_POLL,
+    experimental_worker_config_snapshot, experimental_worker_router, lock_runtime,
+    native_backend_workspace_root, now_unix_ms, push_log, SharedGateway,
+    WORKER_CRON_TIMER_MAX_POLL,
 };
 
 #[tauri::command]
@@ -24,7 +23,7 @@ pub(crate) fn worker_cron_dispatch_due(
 ) -> Result<serde_json::Value, String> {
     worker_cron_dispatch_due_with_options(
         state.inner(),
-        ts_agent_worker_workspace_root(),
+        native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         now_unix_ms() as i64,
         Duration::from_secs(120),
@@ -36,7 +35,7 @@ pub(crate) fn worker_cron_dispatch_due_with_options(
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     now_ms: i64,
-    timeout: Duration,
+    _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
     let Some(_dispatch_guard) = CronDispatchGuard::begin(shared) else {
         return Ok(serde_json::json!({
@@ -72,41 +71,11 @@ pub(crate) fn worker_cron_dispatch_due_with_options(
         }));
     }
 
-    let client = WorkerClient::experimental(shared);
-    client.ensure_ts_agent_running(workspace_root, config_snapshot.clone())?;
-
-    let request = build_worker_cron_run_due_request(
-        next_worker_request_correlation(),
-        jobs,
-        cron_model_from_config(&config_snapshot),
-    );
-    let result = client.call(&request, timeout, "worker cron due")?;
-    let records = result
-        .get("records")
-        .cloned()
-        .unwrap_or_else(|| serde_json::json!([]));
-
-    let record_response = router.dispatch(&WorkerRequest::new(
-        format!("cron-record-{now_ms}"),
-        format!("trace-cron-record-{now_ms}"),
-        "cron.job.record_runs",
-        serde_json::json!({ "now_ms": now_ms, "records": records.clone() }),
-    ));
-    if let Some(error) = record_response.error {
-        return Err(format!(
-            "native cron record_runs returned error: {}",
-            error.message
-        ));
-    }
-    let recorded = record_response
-        .result
-        .ok_or_else(|| "native cron record_runs response missing result".to_string())?;
-
-    Ok(serde_json::json!({
-        "dispatched": dispatched,
-        "records": records,
-        "recorded": recorded
-    }))
+    let _ = jobs;
+    Err(
+        "worker_cron_dispatch_due is unsupported in the Rust-only backend when jobs are due"
+            .to_string(),
+    )
 }
 
 pub(crate) fn worker_cron_next_wake_delay_with_options(
@@ -149,7 +118,7 @@ pub(crate) fn worker_cron_next_wake_delay_with_options(
         return Ok(max_poll);
     };
     if next_run_at_ms <= now_ms {
-        return Ok(Duration::ZERO);
+        return Ok(max_poll);
     }
     Ok(Duration::from_millis((next_run_at_ms - now_ms) as u64).min(max_poll))
 }
@@ -223,7 +192,7 @@ pub(crate) fn stop_worker_cron_timer(shared: &SharedGateway) {
 fn worker_cron_timer_loop(shared: SharedGateway, stop: Arc<AtomicBool>, started: Arc<AtomicBool>) {
     while !stop.load(Ordering::SeqCst) {
         let delay = worker_cron_next_wake_delay_with_options(
-            ts_agent_worker_workspace_root(),
+            native_backend_workspace_root(),
             experimental_worker_config_snapshot(),
             now_unix_ms() as i64,
             WORKER_CRON_TIMER_MAX_POLL,
@@ -234,7 +203,7 @@ fn worker_cron_timer_loop(shared: SharedGateway, stop: Arc<AtomicBool>, started:
         }
         match worker_cron_dispatch_due_with_options(
             &shared,
-            ts_agent_worker_workspace_root(),
+            native_backend_workspace_root(),
             experimental_worker_config_snapshot(),
             now_unix_ms() as i64,
             Duration::from_secs(120),
@@ -267,24 +236,7 @@ fn sleep_cron_timer_or_stopped(delay: Duration, stop: &AtomicBool) -> bool {
     stop.load(Ordering::SeqCst)
 }
 
-pub(crate) fn build_worker_cron_run_due_request(
-    request_id: WorkerRequestCorrelation,
-    jobs: serde_json::Value,
-    model: String,
-) -> WorkerRequest {
-    WorkerRequest::new(
-        request_id.id("cron-run-due"),
-        request_id.trace_id("cron-run-due"),
-        "cron.run_due",
-        serde_json::json!({
-            "jobs": jobs,
-            "model": model,
-            "maxIterations": 4,
-            "stream": false
-        }),
-    )
-}
-
+#[cfg(test)]
 pub(crate) fn cron_model_from_config(config_snapshot: &serde_json::Value) -> String {
     config_snapshot
         .pointer("/agents/defaults/model")

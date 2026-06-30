@@ -87,7 +87,7 @@ export const NATIVE_BACKEND_AGENT_EVENT_NAMES = [
 ] as const;
 
 export type NativeBackendEventName = typeof NATIVE_BACKEND_AGENT_EVENT_NAMES[number];
-export type NativeBackendCompatibilityWorkerEventName = Exclude<
+export type NativeBackendWorkerEventName = Exclude<
   NativeBackendEventName,
   "agent.browser_frame" | "diagnostics.log" | "worker.status"
 >;
@@ -97,9 +97,7 @@ export type NativeBackendWebSocketAgentEventName = Exclude<
 >;
 
 export type NativeBackendKind = "rust";
-export type CompatibilityWorkerKind = "ts_agent_worker";
-export type CompatibilityWorkerState = "inactive" | "starting" | "running" | "failed" | "incompatible";
-export type NativeBackendEventSource = "rust_backend" | "compatibility_worker";
+export type NativeBackendEventSource = "rust_backend";
 export type NativeBackendWorkerTransportMode = "stdio" | "local_pipe";
 
 export type NativeBackendDiagnosticLine = {
@@ -107,19 +105,9 @@ export type NativeBackendDiagnosticLine = {
   line: string;
 };
 
-export type NativeBackendCompatibilityWorkerStatus = {
-  kind: CompatibilityWorkerKind;
-  state: CompatibilityWorkerState;
-  transportMode?: NativeBackendWorkerTransportMode | null;
-  diagnostics: NativeBackendDiagnosticLine[];
-  lastError?: string | null;
-  delegatedCapabilities: string[];
-};
-
 export type NativeBackendRuntimeStatus = {
   backendKind: NativeBackendKind;
   backendLabel: "rust";
-  compatibilityWorker?: NativeBackendCompatibilityWorkerStatus | null;
 };
 
 export type NativeBackendEventEnvelope<TPayload = unknown> = {

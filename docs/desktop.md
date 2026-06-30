@@ -56,7 +56,7 @@ Build a desktop package from the repository root:
 npm run tauri -- build
 ```
 
-The desktop shell starts the Rust native backend in-process. The runtime exposes WebUI-compatible status and WebSocket endpoints at `http://127.0.0.1:18790` and `ws://127.0.0.1:18790/ws`. The optional TS compatibility worker is disabled by default and only starts when explicitly enabled through the compatibility environment switch.
+The desktop shell starts the Rust native backend in-process. The runtime exposes WebUI-compatible status and WebSocket endpoints at `http://127.0.0.1:18790` and `ws://127.0.0.1:18790/ws`. Routes or commands that are not implemented in Rust return explicit unsupported responses.
 
 ## Current Boundary
 
@@ -65,7 +65,7 @@ The desktop shell starts the Rust native backend in-process. The runtime exposes
 - Runtime endpoint: `http://127.0.0.1:18790`
 - WebSocket endpoint: `ws://127.0.0.1:18790/ws`
 - Runtime backend: Rust native backend
-- Optional compatibility path: TS agent worker, disabled by default
+- Optional compatibility path: none
 - Primary UI source: repository `webui/index.html` plus `webui/assets`
 - Browser mode: external browser only
 
@@ -74,11 +74,10 @@ The desktop shell starts the Rust native backend in-process. The runtime exposes
 1. Open the desktop app.
 2. A compact startup state waits for the Rust native backend to become ready.
 3. The Tauri shell initializes the native runtime and exposes WebUI-compatible routes.
-4. If the TS compatibility worker is explicitly enabled, the shell starts it as a delegated compatibility path.
-5. When `/webui/bootstrap` is ready, the desktop window installs the WebUI shell and imports the existing WebUI entry module.
-6. Use the desktop app the same way as the browser WebUI: chat, sessions, approvals, temporary files, settings, providers, tools, skills, knowledge, workspace files, browser frames, Cowork, language toggle, and theme toggle all remain WebUI-owned surfaces.
+4. When `/webui/bootstrap` is ready, the desktop window installs the WebUI shell and imports the existing WebUI entry module.
+5. Use the desktop app the same way as the browser WebUI: chat, sessions, approvals, temporary files, settings, providers, tools, skills, knowledge, workspace files, browser frames, Cowork, language toggle, and theme toggle all remain WebUI-owned surfaces where Rust support exists.
 
-The app owns the native runtime lifecycle. If the optional TS compatibility worker is running, the configured exit policy decides whether it stops on exit or stays alive for debugging.
+The app owns the native runtime lifecycle. The configured exit policy applies to managed native backend state.
 
 ## Desktop Adapters
 

@@ -7,7 +7,6 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "test": "vitest run",
-    "typecheck:worker": "tsc -p workers/ts-agent-worker/tsconfig.json && node scripts/verify-ts-worker-runtime.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },

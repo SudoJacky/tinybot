@@ -1,11 +1,8 @@
 use std::{path::PathBuf, time::Duration};
 
-use crate::worker_manager::{WorkerManager, WorkerManagerState};
+use crate::worker_manager::WorkerManager;
 use crate::worker_protocol::WorkerRequest;
-use crate::{
-    ensure_experimental_fixture_worker_running, ensure_ts_agent_worker_running, lock_runtime,
-    SharedGateway,
-};
+use crate::{ensure_experimental_fixture_worker_running, lock_runtime, SharedGateway};
 
 #[derive(Clone)]
 pub(crate) struct WorkerClient {
@@ -21,28 +18,12 @@ impl WorkerClient {
         Self { worker }
     }
 
-    pub(crate) fn ensure_ts_agent_running(
-        &self,
-        workspace_root: PathBuf,
-        config_snapshot: serde_json::Value,
-    ) -> Result<(), String> {
-        ensure_ts_agent_worker_running(&self.worker, workspace_root, config_snapshot)
-    }
-
     pub(crate) fn ensure_experimental_fixture_running(
         &self,
         workspace_root: PathBuf,
         config_snapshot: serde_json::Value,
     ) -> Result<(), String> {
         ensure_experimental_fixture_worker_running(&self.worker, workspace_root, config_snapshot)
-    }
-
-    pub(crate) fn require_running(&self) -> Result<(), String> {
-        if self.worker.status().state == WorkerManagerState::Running {
-            Ok(())
-        } else {
-            Err("TS agent worker is not running".to_string())
-        }
     }
 
     pub(crate) fn call(

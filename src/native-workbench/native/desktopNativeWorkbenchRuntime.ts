@@ -23,7 +23,7 @@ import {
   type NativeChatMessage,
   type NativeChatReference,
 } from "../chat/nativeChat";
-import type { NativeBackendCompatibilityWorkerEventName } from "./nativeBackendContract";
+import type { NativeBackendWorkerEventName } from "./nativeBackendContract";
 
 export interface DesktopNativeWorkbenchRuntimeOptions {
   api: DesktopChatSessionControllerApi;
@@ -92,7 +92,7 @@ export type DesktopTsAgentRestoreCheckpointResult = {
   checkpoint?: Record<string, unknown> | null;
 };
 
-export type DesktopTsAgentWorkerEventName = NativeBackendCompatibilityWorkerEventName;
+export type DesktopTsAgentWorkerEventName = NativeBackendWorkerEventName;
 
 export interface DesktopNativeWorkbenchRuntime {
   readonly chat: DesktopNativeChatModel;
@@ -334,7 +334,7 @@ export function createDesktopNativeWorkbenchRuntime({
             chat_id: chatId,
             content: result.finalContent,
             message_id: spec.runId,
-            source: "ts-agent-worker",
+            source: "native-backend",
             stop_reason: result.stopReason,
           },
         });
@@ -430,7 +430,7 @@ export function createDesktopNativeWorkbenchRuntime({
           chat_id: chatId,
           delta: stringValue(frame.delta),
           message_id: runId,
-          source: "ts-agent-worker",
+          source: "native-backend",
         },
       });
       keepTsAgentRunResponding(chatId);
@@ -455,7 +455,7 @@ export function createDesktopNativeWorkbenchRuntime({
           chat_id: chatId,
           content: formatTsAgentToolCallText(toolName, argumentsText),
           message_id: `${runId}:${toolCallId}:args`,
-          source: "ts-agent-worker",
+          source: "native-backend",
           status: "running",
           _tool_call_id: toolCallId,
           _tool_detail: true,
@@ -482,7 +482,7 @@ export function createDesktopNativeWorkbenchRuntime({
           chat_id: chatId,
           content: toolText,
           message_id: `${runId}:${toolCallId}:start`,
-          source: "ts-agent-worker",
+          source: "native-backend",
           status: "running",
           _tool_call_id: toolCallId,
           _tool_detail: true,
@@ -521,7 +521,7 @@ export function createDesktopNativeWorkbenchRuntime({
           chat_id: chatId,
           content,
           message_id: `${runId}:${toolCallId}:result`,
-          source: "ts-agent-worker",
+          source: "native-backend",
           status: "completed",
           tool_call_id: toolCallId,
           _tool_name: toolName,
@@ -635,7 +635,7 @@ export function createDesktopNativeWorkbenchRuntime({
         chat_id: chatId,
         content,
         message_id: `${runId}:${approvalId}:approval`,
-        source: "ts-agent-worker",
+        source: "native-backend",
         status: "blocked",
         _approval_id: approvalId,
         _approval_status: "approval_required",
@@ -664,7 +664,7 @@ export function createDesktopNativeWorkbenchRuntime({
         content,
         message_id: `${runId}:${toolCallId}:task-progress`,
         role: "progress",
-        source: "ts-agent-worker",
+        source: "native-backend",
         status: "running",
         _tool_call_id: toolCallId,
         _tool_name: toolName,
@@ -696,7 +696,7 @@ export function createDesktopNativeWorkbenchRuntime({
         chat_id: chatId,
         content,
         message_id: messageId,
-        source: "ts-agent-worker",
+        source: "native-backend",
         tasks: stringValue(frame.tasks),
       },
     });
@@ -843,7 +843,7 @@ export function createDesktopNativeWorkbenchRuntime({
         event: "stream_end",
         chat_id: chatId,
         message_id: runId,
-        source: "ts-agent-worker",
+        source: "native-backend",
       },
     });
     activeTsAgentRuns.delete(runId);

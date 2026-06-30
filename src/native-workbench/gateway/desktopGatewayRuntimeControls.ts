@@ -184,7 +184,7 @@ function formatExitPolicy(policy: GatewayRuntimeStatus["exit_policy"], owner: Ga
     return "External gateway is not managed by desktop";
   }
   if (policy === "keep_running") {
-    return "Keep TS compatibility worker running after exit";
+    return "Keep native backend running after exit";
   }
-  return "Stop TS compatibility worker on exit";
+  return "Stop native backend on exit";
 }
