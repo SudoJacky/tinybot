@@ -301,16 +301,19 @@ pub fn list_provider_models(
     config: &Value,
     request: NativeProviderModelsRequest,
 ) -> Result<NativeProviderModelList, String> {
-    let provider_id = request
-        .provider_id
-        .as_deref()
-        .or(request.profile_name.as_deref())
-        .map(normalize_provider_id)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| "provider is required".to_string())?;
-    let profile =
-        resolve_provider_profile(config, Some(&provider_id), request.profile_name.as_deref())
-            .ok_or_else(|| format!("provider '{provider_id}' is not configured"))?;
+    let profile = resolve_provider_profile(
+        config,
+        request.provider_id.as_deref(),
+        request.profile_name.as_deref(),
+    )
+    .ok_or_else(|| {
+        let provider_id = request
+            .provider_id
+            .as_deref()
+            .or(request.profile_name.as_deref())
+            .unwrap_or("default");
+        format!("provider '{provider_id}' is not configured")
+    })?;
     let catalog = catalog_entry_by_id(&profile.provider_id);
     let mut warning = None;
     let mut merged: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
@@ -838,31 +841,34 @@ pub fn resolve_provider_profile(
     provider_id: Option<&str>,
     profile_name: Option<&str>,
 ) -> Option<NativeProviderProfile> {
-    let provider_id = provider_id
+    let requested_provider_id = provider_id
         .map(normalize_provider_id)
-        .or_else(|| {
-            config
-                .get("agents")
-                .and_then(|agents| agents.get("defaults"))
-                .and_then(|defaults| string_field(defaults, "provider"))
-                .map(|value| {
-                    if value == "auto" {
-                        infer_provider_from_model(&configured_model(config))
-                    } else {
-                        normalize_provider_id(&value)
-                    }
-                })
-        })
+        .filter(|value| !value.is_empty() && value != "auto");
+    let explicit_profile_config =
+        profile_name.and_then(|name| provider_profile_config(config, name));
+    let active_profile_config =
+        active_profile_name(config).and_then(|name| provider_profile_config(config, &name));
+    let profile_provider_id = explicit_profile_config
+        .or(active_profile_config)
+        .and_then(|profile| string_field(profile, "provider"))
+        .map(|value| normalize_provider_id(&value));
+    let default_provider_id = default_provider_id(config);
+    let provider_id = requested_provider_id
+        .or(profile_provider_id)
+        .or(default_provider_id)
         .unwrap_or_else(|| infer_provider_from_model(&configured_model(config)));
-    let catalog = catalog_entry_by_id(&provider_id)?;
+    let catalog = catalog_entry_by_id(&provider_id);
     let provider_config = provider_config(config, &provider_id, profile_name);
+    if catalog.is_none() && provider_config.is_none() {
+        return None;
+    }
     let api_base = string_field(provider_config.unwrap_or(&Value::Null), "api_base")
         .or_else(|| string_field(provider_config.unwrap_or(&Value::Null), "apiBase"))
-        .or_else(|| env_first(catalog.api_base_env_vars))
-        .or_else(|| catalog.default_api_base.map(str::to_string));
+        .or_else(|| catalog.and_then(|entry| env_first(entry.api_base_env_vars)))
+        .or_else(|| catalog.and_then(|entry| entry.default_api_base.map(str::to_string)));
     let api_key = string_field(provider_config.unwrap_or(&Value::Null), "api_key")
         .or_else(|| string_field(provider_config.unwrap_or(&Value::Null), "apiKey"))
-        .or_else(|| env_first(catalog.api_key_env_vars));
+        .or_else(|| catalog.and_then(|entry| env_first(entry.api_key_env_vars)));
     let models = string_array_field(provider_config.unwrap_or(&Value::Null), "models")
         .or_else(|| string_array_field(provider_config.unwrap_or(&Value::Null), "model_ids"))
         .unwrap_or_default();
@@ -880,16 +886,62 @@ pub fn resolve_provider_profile(
 
     Some(NativeProviderProfile {
         provider_id: provider_id.to_string(),
-        display_name: catalog.display_name.to_string(),
+        display_name: string_field(provider_config.unwrap_or(&Value::Null), "displayName")
+            .or_else(|| string_field(provider_config.unwrap_or(&Value::Null), "display_name"))
+            .unwrap_or_else(|| {
+                catalog
+                    .map(|entry| entry.display_name.to_string())
+                    .unwrap_or_else(|| provider_id.to_string())
+            }),
         api_base,
         api_key_configured: api_key
             .as_deref()
             .is_some_and(|value| !value.trim().is_empty()),
         api_key,
         models,
-        supports_model_discovery: catalog.supports_model_discovery,
+        supports_model_discovery: bool_field(
+            provider_config.unwrap_or(&Value::Null),
+            "supports_model_discovery",
+        )
+        .or_else(|| {
+            bool_field(
+                provider_config.unwrap_or(&Value::Null),
+                "supportsModelDiscovery",
+            )
+        })
+        .unwrap_or_else(|| {
+            catalog
+                .map(|entry| entry.supports_model_discovery)
+                .unwrap_or(true)
+        }),
         request_timeout_ms,
     })
+}
+
+fn default_provider_id(config: &Value) -> Option<String> {
+    config
+        .get("agents")
+        .and_then(|agents| agents.get("defaults"))
+        .and_then(|defaults| string_field(defaults, "provider"))
+        .map(|value| normalize_provider_id(&value))
+        .filter(|value| !value.is_empty() && value != "auto")
+}
+
+fn active_profile_name(config: &Value) -> Option<String> {
+    config
+        .get("agents")
+        .and_then(|agents| agents.get("defaults"))
+        .and_then(|defaults| {
+            string_field(defaults, "activeProfile")
+                .or_else(|| string_field(defaults, "active_profile"))
+        })
+}
+
+fn provider_profile_config<'a>(config: &'a Value, profile_name: &str) -> Option<&'a Value> {
+    config
+        .get("providers")
+        .and_then(|providers| providers.get("profiles"))
+        .and_then(|profiles| profiles.get(profile_name))
 }
 
 fn provider_config<'a>(
@@ -899,8 +951,31 @@ fn provider_config<'a>(
 ) -> Option<&'a Value> {
     let providers = config.get("providers")?.as_object()?;
     profile_name
-        .and_then(|name| providers.get(name))
+        .and_then(|name| provider_profile_config(config, name))
+        .or_else(|| {
+            active_profile_name(config)
+                .as_deref()
+                .and_then(|name| provider_profile_config(config, name))
+                .filter(|profile| profile_matches_provider(profile, provider_id))
+        })
         .or_else(|| providers.get(provider_id))
+        .or_else(|| provider_profile_config(config, provider_id))
+        .or_else(|| {
+            providers
+                .get("profiles")
+                .and_then(Value::as_object)
+                .and_then(|profiles| {
+                    profiles
+                        .values()
+                        .find(|profile| profile_matches_provider(profile, provider_id))
+                })
+        })
+}
+
+fn profile_matches_provider(profile: &Value, provider_id: &str) -> bool {
+    string_field(profile, "provider")
+        .map(|value| normalize_provider_id(&value) == provider_id)
+        .unwrap_or(false)
 }
 
 fn catalog_entry_by_id(provider_id: &str) -> Option<&'static NativeProviderCatalogEntry> {
@@ -986,6 +1061,10 @@ fn u64_field(value: &Value, key: &str) -> Option<u64> {
     value.get(key).and_then(Value::as_u64)
 }
 
+fn bool_field(value: &Value, key: &str) -> Option<bool> {
+    value.get(key).and_then(Value::as_bool)
+}
+
 fn env_first(names: &[&str]) -> Option<String> {
     names.iter().find_map(|name| {
         std::env::var(name)
@@ -1062,6 +1141,89 @@ mod tests {
         );
         assert!(profile.api_key_configured);
         assert_eq!(profile.models, vec!["gpt-4.1-custom"]);
+    }
+
+    #[test]
+    fn resolves_active_provider_profile_credentials() {
+        let config = json!({
+            "agents": {
+                "defaults": {
+                    "provider": "openai",
+                    "model": "gpt-4.1",
+                    "activeProfile": "work"
+                }
+            },
+            "providers": {
+                "profiles": {
+                    "work": {
+                        "provider": "openai",
+                        "api_key": "sk-profile",
+                        "api_base": "https://profile.example.test/v1",
+                        "models": ["profile-model"]
+                    }
+                }
+            }
+        });
+        let profile = resolve_provider_profile(&config, None, None).unwrap();
+        let models = list_provider_models(
+            &config,
+            NativeProviderModelsRequest {
+                provider_id: Some("openai".to_string()),
+                profile_name: Some("work".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(profile.provider_id, "openai");
+        assert_eq!(
+            profile.api_base.as_deref(),
+            Some("https://profile.example.test/v1")
+        );
+        assert_eq!(profile.api_key.as_deref(), Some("sk-profile"));
+        assert!(profile.api_key_configured);
+        assert_eq!(profile.models, vec!["profile-model"]);
+        assert!(models.models.contains(&"profile-model".to_string()));
+    }
+
+    #[test]
+    fn resolves_configured_custom_openai_compatible_provider_without_catalog_entry() {
+        let config = json!({
+            "agents": {
+                "defaults": {
+                    "provider": "my_gateway",
+                    "model": "custom-chat"
+                }
+            },
+            "providers": {
+                "my_gateway": {
+                    "displayName": "My Gateway",
+                    "api_key": "sk-custom",
+                    "api_base": "https://gateway.example.test/v1",
+                    "models": ["custom-chat"]
+                }
+            }
+        });
+        let profile = resolve_provider_profile(&config, Some("my_gateway"), None).unwrap();
+        let models = list_provider_models(
+            &config,
+            NativeProviderModelsRequest {
+                provider_id: Some("my_gateway".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(profile.provider_id, "my_gateway");
+        assert_eq!(profile.display_name, "My Gateway");
+        assert_eq!(
+            profile.api_base.as_deref(),
+            Some("https://gateway.example.test/v1")
+        );
+        assert_eq!(profile.api_key.as_deref(), Some("sk-custom"));
+        assert!(profile.supports_model_discovery);
+        assert_eq!(models.models, vec!["custom-chat"]);
+        assert_eq!(models.sources["profile"], 1);
     }
 
     #[test]
