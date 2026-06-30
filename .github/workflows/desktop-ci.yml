@@ -18,6 +18,10 @@ jobs:
   test-and-build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      CARGO_HTTP_TIMEOUT: "120"
+      CARGO_NET_RETRY: "10"
+      CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
 
     steps:
       - name: Checkout code
@@ -49,6 +53,18 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             patchelf
+
+      - name: Fetch Rust dependencies
+        working-directory: src-tauri
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if cargo fetch; then
+              exit 0
+            fi
+            sleep $((attempt * 10))
+          done
+          cargo fetch
 
       - name: Run native backend desktop smoke
         run: cargo test --manifest-path src-tauri/Cargo.toml desktop_smoke_default_chat_runs_without_ts_compatibility_worker
