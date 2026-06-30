@@ -3699,6 +3699,7 @@ fn worker_restore_agent_checkpoint_with_options(
             config_snapshot,
         );
     }
+    validate_native_agent_checkpoint_version(restored.get("checkpoint"))?;
     Ok(restored)
 }
 
@@ -3719,11 +3720,32 @@ fn restore_native_agent_checkpoint_from_session_store(
         ),
         "native agent checkpoint restore",
     )?;
+    validate_native_agent_checkpoint_version(Some(&checkpoint))?;
     Ok(serde_json::json!({
         "runtime": "rust",
         "sessionId": session_id,
         "checkpoint": checkpoint,
     }))
+}
+
+fn validate_native_agent_checkpoint_version(
+    checkpoint: Option<&serde_json::Value>,
+) -> Result<(), String> {
+    let Some(checkpoint) = checkpoint.filter(|value| !value.is_null()) else {
+        return Ok(());
+    };
+    let Some(schema_version) = checkpoint
+        .get("schemaVersion")
+        .and_then(serde_json::Value::as_u64)
+    else {
+        return Ok(());
+    };
+    if schema_version == 1 {
+        return Ok(());
+    }
+    Err(format!(
+        "unsupported Rust agent checkpoint schemaVersion {schema_version}"
+    ))
 }
 
 fn worker_background_trace_list_with_options(
@@ -5019,6 +5041,64 @@ mod tests {
     }
 
     #[test]
+    fn worker_run_agent_preserves_legacy_tool_content_with_envelope_payload() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+
+        let result = worker_run_agent_with_options(
+            &shared,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-rust-tool-envelope",
+                "sessionId": "websocket:chat-tool-envelope",
+                "maxIterations": 2,
+                "messages": [{ "role": "user", "content": "read with envelope" }]
+            }),
+            fixture.root.clone(),
+            serde_json::json!({
+                "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+                "providers": {
+                    "fixture": {
+                        "responses": [
+                            {
+                                "content": "",
+                                "toolCalls": [{
+                                    "id": "call-envelope",
+                                    "name": "workspace.read_file",
+                                    "argumentsJson": "{\"path\":\"README.md\"}",
+                                    "result": { "content": "README excerpt" }
+                                }]
+                            },
+                            { "content": "final after envelope" }
+                        ]
+                    }
+                }
+            }),
+            Duration::from_millis(10),
+        )
+        .expect("Rust runtime should return enriched tool result payloads");
+        let tool_result = result["events"]
+            .as_array()
+            .expect("events should be an array")
+            .iter()
+            .find(|event| event["eventName"] == "agent.tool.result")
+            .expect("tool result event should be present");
+
+        assert_eq!(result["stopReason"], "final_response");
+        assert_eq!(result["finalContent"], "final after envelope");
+        assert_eq!(tool_result["payload"]["content"], "README excerpt");
+        assert_eq!(tool_result["payload"]["envelope"]["status"], "ok");
+        assert_eq!(
+            tool_result["payload"]["envelope"]["trace"]["toolCallId"],
+            "call-envelope"
+        );
+        assert_eq!(
+            tool_result["payload"]["envelope"]["ui"]["type"],
+            "generic_result"
+        );
+    }
+
+    #[test]
     fn worker_run_agent_persists_rust_turn_messages_in_session_store() {
         let fixture = WorkspaceFixture::new();
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
@@ -5101,6 +5181,23 @@ mod tests {
         assert_eq!(awaiting["stopReason"], "awaiting_approval");
         assert_eq!(restored["runtime"], "rust");
         assert_eq!(restored["checkpoint"]["phase"], "awaiting_approval");
+        assert_eq!(restored["checkpoint"]["schemaVersion"], 1);
+        assert_eq!(restored["checkpoint"]["iteration"], 0);
+        assert_eq!(restored["checkpoint"]["maxIterations"], 1);
+        assert_eq!(
+            restored["checkpoint"]["pendingToolCalls"]
+                .as_array()
+                .expect("pending tool calls should be an array")
+                .len(),
+            1
+        );
+        assert_eq!(
+            restored["checkpoint"]["completedToolResults"]
+                .as_array()
+                .expect("completed tool results should be an array")
+                .len(),
+            0
+        );
         assert_eq!(cancelled["stopReason"], "cancelled");
         assert_eq!(cancelled["error"], "cancelled");
         assert_eq!(cancelled["events"][0]["eventName"], "agent.cancelled");
@@ -5150,6 +5247,11 @@ mod tests {
         assert_eq!(awaiting["stopReason"], "awaiting_approval");
         assert_eq!(restored["runtime"], "rust");
         assert_eq!(restored["checkpoint"]["phase"], "awaiting_approval");
+        assert_eq!(restored["checkpoint"]["schemaVersion"], 1);
+        assert_eq!(
+            restored["checkpoint"]["resumeToken"],
+            "approval:approval-persisted"
+        );
         assert_eq!(
             restored["checkpoint"]["payload"]["approval_id"],
             "approval-persisted"
@@ -5160,6 +5262,42 @@ mod tests {
                 .status()
                 .state,
             WorkerManagerState::Stopped
+        );
+    }
+
+    #[test]
+    fn worker_rust_agent_restore_rejects_unknown_checkpoint_schema_version() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+        {
+            let services = {
+                let runtime = lock_runtime(&shared);
+                runtime.native_agent_runtime.clone()
+            };
+            services.save_checkpoint(
+                "websocket:chat-future-checkpoint",
+                serde_json::json!({
+                    "schemaVersion": 999,
+                    "runtime": "rust",
+                    "runId": "run-future-checkpoint",
+                    "sessionId": "websocket:chat-future-checkpoint",
+                    "phase": "awaiting_approval"
+                }),
+            );
+        }
+
+        let error = worker_restore_agent_checkpoint_with_options(
+            &shared,
+            "websocket:chat-future-checkpoint".to_string(),
+            fixture.root.clone(),
+            serde_json::json!({ "desktop": { "nativeAgentRuntime": "rust" } }),
+            Duration::from_millis(10),
+        )
+        .expect_err("unknown checkpoint versions should fail visibly");
+
+        assert!(
+            error.contains("unsupported Rust agent checkpoint schemaVersion 999"),
+            "unexpected error: {error}"
         );
     }
 
