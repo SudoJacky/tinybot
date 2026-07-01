@@ -163,6 +163,283 @@ mod tests {
     }
 
     #[test]
+    fn agent_run_record_serializes_run_state() {
+        let record = AgentRunRecord {
+            session_id: "session-1".to_string(),
+            run_id: "run-1".to_string(),
+            status: AgentRunStatus::Waiting,
+            phase: "awaiting_tool".to_string(),
+            started_at: "unix-ms:1".to_string(),
+            updated_at: "unix-ms:2".to_string(),
+            completed_at: None,
+            stop_reason: None,
+            model: "fixture-model".to_string(),
+            provider: Some("fixture".to_string()),
+            max_iterations: 4,
+            current_iteration: 1,
+            conversation_message_ids: vec!["message-1".to_string()],
+            trace_messages: vec![json!({ "role": "tool", "content": "README" })],
+            trace_events: vec![json!({ "eventName": "agent.tool.result" })],
+            completed_tool_results: vec![json!({ "toolCallId": "call-1" })],
+            pending_tool_calls: vec![json!({ "toolCallId": "call-2" })],
+            checkpoint: Some(json!({
+                "schemaVersion": 1,
+                "sessionId": "session-1",
+                "runId": "run-1",
+                "phase": "awaiting_tool"
+            })),
+            artifacts: vec![json!({ "type": "file", "path": "report.md" })],
+            usage: vec![json!({ "totalTokens": 12 })],
+            error: Some(json!({ "message": "waiting" })),
+        };
+
+        let value = serde_json::to_value(&record).expect("run record should serialize");
+        assert_eq!(value["sessionId"], "session-1");
+        assert_eq!(value["runId"], "run-1");
+        assert_eq!(value["status"], "waiting");
+        assert_eq!(value["currentIteration"], 1);
+        assert_eq!(value["completedToolResults"][0]["toolCallId"], "call-1");
+
+        let restored: AgentRunRecord =
+            serde_json::from_value(value).expect("run record should deserialize");
+        assert_eq!(restored, record);
+    }
+
+    #[test]
+    fn agent_run_store_isolates_runs_in_same_session() {
+        let mut rpc = WorkerSessionRpc::new(vec![], read_write_policy());
+        let mut first = agent_run_fixture("session-1", "run-1", AgentRunStatus::Running);
+        first.updated_at = "unix-ms:1".to_string();
+        let mut second = agent_run_fixture("session-1", "run-2", AgentRunStatus::Waiting);
+        second.updated_at = "unix-ms:2".to_string();
+
+        rpc.upsert_agent_run(first)
+            .expect("first run should upsert");
+        rpc.upsert_agent_run(second)
+            .expect("second run should upsert");
+        rpc.append_agent_run_trace_event(
+            "session-1",
+            "run-1",
+            json!({ "eventName": "agent.tool.result", "payload": { "toolCallId": "call-1" } }),
+        )
+        .expect("trace event should append");
+        rpc.set_agent_run_checkpoint(
+            "session-1",
+            "run-2",
+            json!({ "sessionId": "session-1", "runId": "run-2", "phase": "awaiting_approval" }),
+        )
+        .expect("checkpoint should set");
+
+        let first = rpc
+            .get_agent_run("session-1", "run-1")
+            .expect("first run should read");
+        let second = rpc
+            .get_agent_run("session-1", "run-2")
+            .expect("second run should read");
+
+        assert_eq!(first.trace_events.len(), 1);
+        assert_eq!(first.checkpoint, None);
+        assert!(second.trace_events.is_empty());
+        assert_eq!(
+            second.checkpoint.unwrap()["phase"],
+            json!("awaiting_approval")
+        );
+    }
+
+    #[test]
+    fn agent_run_list_orders_by_updated_at_and_latest_resumable_checkpoint() {
+        let mut rpc = WorkerSessionRpc::new(vec![], read_write_policy());
+        let mut older = agent_run_fixture("session-1", "run-old", AgentRunStatus::Waiting);
+        older.updated_at = "unix-ms:1".to_string();
+        older.checkpoint = Some(json!({ "sessionId": "session-1", "runId": "run-old" }));
+        let mut newer = agent_run_fixture("session-1", "run-new", AgentRunStatus::Waiting);
+        newer.updated_at = "unix-ms:3".to_string();
+        newer.checkpoint = Some(json!({ "sessionId": "session-1", "runId": "run-new" }));
+        let mut completed = agent_run_fixture("session-1", "run-done", AgentRunStatus::Completed);
+        completed.updated_at = "unix-ms:4".to_string();
+        completed.checkpoint = Some(json!({ "sessionId": "session-1", "runId": "run-done" }));
+
+        rpc.upsert_agent_run(older).expect("older run should upsert");
+        rpc.upsert_agent_run(newer).expect("newer run should upsert");
+        rpc.upsert_agent_run(completed)
+            .expect("completed run should upsert");
+
+        let runs = rpc
+            .list_agent_runs("session-1")
+            .expect("runs should list");
+        assert_eq!(
+            runs.iter()
+                .map(|run| run.run_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["run-done", "run-new", "run-old"]
+        );
+
+        let checkpoint = rpc
+            .latest_resumable_agent_run_checkpoint("session-1")
+            .expect("latest resumable lookup should succeed")
+            .expect("resumable checkpoint should exist");
+        assert_eq!(checkpoint.run_id, "run-new");
+        assert_eq!(checkpoint.checkpoint["runId"], "run-new");
+    }
+
+    #[test]
+    fn agent_run_mark_methods_update_terminal_state() {
+        let mut rpc = WorkerSessionRpc::new(vec![], read_write_policy());
+        rpc.upsert_agent_run(agent_run_fixture(
+            "session-1",
+            "run-1",
+            AgentRunStatus::Running,
+        ))
+        .expect("run should upsert");
+
+        let completed = rpc
+            .mark_agent_run_completed(
+                "session-1",
+                "run-1",
+                "final_response",
+                Some("done".to_string()),
+            )
+            .expect("run should mark completed");
+        assert_eq!(completed.status, AgentRunStatus::Completed);
+        assert_eq!(completed.stop_reason.as_deref(), Some("final_response"));
+        assert_eq!(completed.phase, "done");
+        assert!(completed.completed_at.is_some());
+
+        rpc.upsert_agent_run(agent_run_fixture(
+            "session-1",
+            "run-2",
+            AgentRunStatus::Running,
+        ))
+        .expect("second run should upsert");
+        let failed = rpc
+            .mark_agent_run_failed(
+                "session-1",
+                "run-2",
+                "provider_error",
+                json!({ "message": "provider failed" }),
+            )
+            .expect("run should mark failed");
+        assert_eq!(failed.status, AgentRunStatus::Failed);
+        assert_eq!(failed.error.as_ref().unwrap()["message"], "provider failed");
+
+        rpc.upsert_agent_run(agent_run_fixture(
+            "session-1",
+            "run-3",
+            AgentRunStatus::Running,
+        ))
+        .expect("third run should upsert");
+        let cancelled = rpc
+            .mark_agent_run_cancelled("session-1", "run-3")
+            .expect("run should mark cancelled");
+        assert_eq!(cancelled.status, AgentRunStatus::Cancelled);
+        assert_eq!(cancelled.stop_reason.as_deref(), Some("cancelled"));
+    }
+
+    #[test]
+    fn agent_run_summary_and_trace_page_omit_full_record_payloads() {
+        let mut record = agent_run_fixture("session-1", "run-1", AgentRunStatus::Completed);
+        record.trace_events = vec![json!({ "eventName": "agent.tool.result" })];
+        record.completed_tool_results = vec![json!({ "toolCallId": "call-1", "toolName": "workspace.read_file" })];
+        record.artifacts = vec![json!({ "type": "file" })];
+        record.stop_reason = Some("final_response".to_string());
+        record.completed_at = Some("unix-ms:2".to_string());
+
+        let summary = AgentRunSummary::from_record(&record);
+        assert_eq!(summary.run_id, "run-1");
+        assert_eq!(summary.tool_call_count, 1);
+        assert_eq!(summary.tools_used, vec!["workspace.read_file"]);
+        assert_eq!(summary.artifact_count, 1);
+        assert!(!serde_json::to_value(&summary)
+            .expect("summary should serialize")
+            .get("traceEvents")
+            .is_some());
+
+        let page = AgentRunTracePage::new("session-1", "run-1", vec![json!({ "eventName": "agent.done" })]);
+        assert_eq!(page.session_id, "session-1");
+        assert_eq!(page.run_id, "run-1");
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.next_cursor, None);
+    }
+
+    #[test]
+    fn agent_run_upsert_preserves_original_started_at() {
+        let mut rpc = WorkerSessionRpc::new(vec![session_fixture()], read_write_policy());
+        let mut running = agent_run_fixture("session-1", "run-1", AgentRunStatus::Running);
+        running.started_at = "unix-ms:1".to_string();
+        running.updated_at = "unix-ms:1".to_string();
+        let mut completed = agent_run_fixture("session-1", "run-1", AgentRunStatus::Completed);
+        completed.started_at = "unix-ms:2".to_string();
+        completed.updated_at = "unix-ms:3".to_string();
+        completed.completed_at = Some("unix-ms:3".to_string());
+
+        rpc.upsert_agent_run(running)
+            .expect("running run should upsert");
+        rpc.upsert_agent_run(completed)
+            .expect("terminal run should upsert");
+        let restored = rpc
+            .get_agent_run("session-1", "run-1")
+            .expect("run should read");
+
+        assert_eq!(restored.started_at, "unix-ms:1");
+        assert_eq!(restored.updated_at, "unix-ms:3");
+        assert_eq!(restored.completed_at.as_deref(), Some("unix-ms:3"));
+    }
+
+    #[test]
+    fn agent_run_trace_pages_are_bounded_by_cursor_and_limit() {
+        let mut rpc = WorkerSessionRpc::new(vec![session_fixture()], read_write_policy());
+        let mut record = agent_run_fixture("session-1", "run-1", AgentRunStatus::Running);
+        record.trace_events = vec![
+            json!({ "eventName": "agent.tool_call.delta" }),
+            json!({ "eventName": "agent.tool.start" }),
+            json!({ "eventName": "agent.tool.result" }),
+        ];
+        rpc.upsert_agent_run(record)
+            .expect("run should upsert");
+
+        let first_page = rpc
+            .list_agent_run_trace_events("session-1", "run-1", None, Some(2))
+            .expect("first trace page should read");
+        let second_page = rpc
+            .list_agent_run_trace_events(
+                "session-1",
+                "run-1",
+                first_page.next_cursor.as_deref(),
+                Some(2),
+            )
+            .expect("second trace page should read");
+
+        assert_eq!(first_page.items.len(), 2);
+        assert_eq!(first_page.items[0]["eventName"], "agent.tool_call.delta");
+        assert_eq!(first_page.next_cursor.as_deref(), Some("2"));
+        assert_eq!(second_page.items.len(), 1);
+        assert_eq!(second_page.items[0]["eventName"], "agent.tool.result");
+        assert_eq!(second_page.next_cursor, None);
+    }
+
+    #[test]
+    fn persistent_store_restores_agent_runs_after_worker_restarts() {
+        let root = temp_workspace_root("agent-run-persistence");
+        let _cleanup = TempWorkspaceCleanup(root.clone());
+        let mut rpc = WorkerSessionRpc::new_persistent(root.clone(), vec![], read_write_policy())
+            .expect("persistent session rpc should initialize");
+        let mut record = agent_run_fixture("websocket:chat-1", "run-1", AgentRunStatus::Completed);
+        record.completed_tool_results = vec![json!({ "toolCallId": "call-1" })];
+
+        rpc.upsert_agent_run(record)
+            .expect("run record should persist");
+
+        let restarted = WorkerSessionRpc::new_persistent(root, vec![], read_policy())
+            .expect("store should load");
+        let restored = restarted
+            .get_agent_run("websocket:chat-1", "run-1")
+            .expect("persisted run should load");
+
+        assert_eq!(restored.status, AgentRunStatus::Completed);
+        assert_eq!(restored.completed_tool_results[0]["toolCallId"], "call-1");
+    }
+
+    #[test]
     fn set_and_clear_checkpoint_update_session_extra_with_write_capability() {
         let mut rpc = WorkerSessionRpc::new(vec![session_fixture()], write_policy());
 
@@ -183,6 +460,93 @@ mod tests {
             .expect("checkpoint should clear");
 
         assert!(cleared.extra.get("runtime_checkpoint").is_none());
+    }
+
+    #[test]
+    fn set_checkpoint_mirrors_run_id_checkpoint_into_agent_run_store() {
+        let mut rpc = WorkerSessionRpc::new(vec![session_fixture()], read_write_policy());
+
+        let updated = rpc
+            .set_checkpoint(
+                "session-1",
+                json!({
+                    "schemaVersion": 1,
+                    "sessionId": "session-1",
+                    "runId": "run-checkpoint",
+                    "phase": "awaiting_tool",
+                    "iteration": 2,
+                    "maxIterations": 4,
+                    "completedToolResults": [{ "toolCallId": "call-1" }]
+                }),
+            )
+            .expect("checkpoint should set");
+
+        assert_eq!(updated.extra["runtime_checkpoint"]["runId"], "run-checkpoint");
+        let run_checkpoint = rpc
+            .get_agent_run_checkpoint("session-1", "run-checkpoint")
+            .expect("run checkpoint should read")
+            .expect("run checkpoint should exist");
+        assert_eq!(run_checkpoint.checkpoint["phase"], "awaiting_tool");
+        let run = rpc
+            .get_agent_run("session-1", "run-checkpoint")
+            .expect("mirrored run should exist");
+        assert_eq!(run.status, AgentRunStatus::Waiting);
+        assert_eq!(run.current_iteration, 2);
+        assert_eq!(run.completed_tool_results[0]["toolCallId"], "call-1");
+    }
+
+    #[test]
+    fn get_checkpoint_falls_back_to_latest_resumable_agent_run() {
+        let mut session = session_fixture();
+        let mut old_run = agent_run_fixture("session-1", "run-old", AgentRunStatus::Waiting);
+        old_run.updated_at = "unix-ms:1".to_string();
+        old_run.checkpoint = Some(json!({ "sessionId": "session-1", "runId": "run-old" }));
+        let mut new_run = agent_run_fixture("session-1", "run-new", AgentRunStatus::Waiting);
+        new_run.updated_at = "unix-ms:2".to_string();
+        new_run.checkpoint = Some(json!({ "sessionId": "session-1", "runId": "run-new" }));
+        session.extra = json!({
+            "agent_runs": [
+                serde_json::to_value(old_run).unwrap(),
+                serde_json::to_value(new_run).unwrap()
+            ]
+        });
+        let rpc = WorkerSessionRpc::new(vec![session], read_policy());
+
+        let checkpoint = rpc
+            .get_checkpoint("session-1")
+            .expect("checkpoint should read")
+            .expect("latest resumable checkpoint should exist");
+
+        assert_eq!(checkpoint["runId"], "run-new");
+    }
+
+    #[test]
+    fn clear_checkpoint_clears_only_legacy_and_selected_run_checkpoint() {
+        let mut session = session_fixture();
+        let mut first = agent_run_fixture("session-1", "run-1", AgentRunStatus::Waiting);
+        first.checkpoint = Some(json!({ "sessionId": "session-1", "runId": "run-1" }));
+        let mut second = agent_run_fixture("session-1", "run-2", AgentRunStatus::Waiting);
+        second.checkpoint = Some(json!({ "sessionId": "session-1", "runId": "run-2" }));
+        session.extra = json!({
+            "runtime_checkpoint": { "sessionId": "session-1", "runId": "run-1" },
+            "agent_runs": [
+                serde_json::to_value(first).unwrap(),
+                serde_json::to_value(second).unwrap()
+            ]
+        });
+        let mut rpc = WorkerSessionRpc::new(vec![session], read_write_policy());
+
+        rpc.clear_checkpoint("session-1")
+            .expect("checkpoint should clear");
+
+        assert!(rpc
+            .get_agent_run_checkpoint("session-1", "run-1")
+            .expect("first run should read")
+            .is_none());
+        assert!(rpc
+            .get_agent_run_checkpoint("session-1", "run-2")
+            .expect("second run should read")
+            .is_some());
     }
 
     #[test]
@@ -219,6 +583,8 @@ mod tests {
     #[test]
     fn clear_session_resets_messages_profile_and_checkpoint_with_write_capability() {
         let mut session = session_fixture();
+        let mut run = agent_run_fixture("session-1", "run-1", AgentRunStatus::Waiting);
+        run.checkpoint = Some(json!({ "sessionId": "session-1", "runId": "run-1" }));
         session.extra = json!({
             "messages": [
                 { "role": "user", "content": "hello" },
@@ -228,7 +594,10 @@ mod tests {
             "user_profile": { "name": "Ada" },
             "runtime_checkpoint": { "phase": "awaiting_tools" },
             "last_context_metadata": { "historyMessageCount": 2 },
-            "last_persisted_run_id": "run-1"
+            "last_persisted_run_id": "run-1",
+            "agent_runs": [
+                serde_json::to_value(run).unwrap()
+            ]
         });
         let mut rpc = WorkerSessionRpc::new(vec![session], write_policy());
 
@@ -246,6 +615,9 @@ mod tests {
         assert!(result.session.extra.get("runtime_checkpoint").is_none());
         assert!(result.session.extra.get("last_context_metadata").is_none());
         assert!(result.session.extra.get("last_persisted_run_id").is_none());
+        assert!(agent_run_records(&result.session)
+            .into_iter()
+            .all(|run| run.checkpoint.is_none()));
     }
 
     #[test]
@@ -378,6 +750,33 @@ mod tests {
         assert_eq!(
             history.user_profile,
             json!({ "name": "Ada", "preferences": ["concise"] })
+        );
+    }
+
+    #[test]
+    fn get_history_ignores_agent_run_trace_payloads() {
+        let mut run = agent_run_fixture("session-1", "run-1", AgentRunStatus::Completed);
+        run.trace_messages = vec![json!({ "role": "tool", "content": "large tool trace" })];
+        let mut session = session_fixture();
+        session.extra = json!({
+            "messages": [
+                { "role": "user", "content": "hello" },
+                { "role": "assistant", "content": "done" }
+            ],
+            "agent_runs": [serde_json::to_value(run).unwrap()]
+        });
+        let rpc = WorkerSessionRpc::new(vec![session], read_policy());
+
+        let history = rpc
+            .get_history("session-1", 10)
+            .expect("history should read");
+
+        assert_eq!(
+            history.messages,
+            vec![
+                json!({ "role": "user", "content": "hello" }),
+                json!({ "role": "assistant", "content": "done" })
+            ]
         );
     }
 
@@ -877,10 +1276,15 @@ mod tests {
     #[test]
     fn persist_turn_appends_messages_and_clears_checkpoint() {
         let mut session = session_fixture();
+        let mut run = agent_run_fixture("session-1", "run-1", AgentRunStatus::Waiting);
+        run.checkpoint = Some(json!({ "sessionId": "session-1", "runId": "run-1" }));
         session.extra = json!({
-            "runtime_checkpoint": { "phase": "tools_completed" },
+            "runtime_checkpoint": { "sessionId": "session-1", "runId": "run-1", "phase": "tools_completed" },
             "messages": [
                 { "role": "user", "content": "existing" }
+            ],
+            "agent_runs": [
+                serde_json::to_value(run).unwrap()
             ]
         });
         let mut rpc = WorkerSessionRpc::new(
@@ -942,6 +1346,14 @@ mod tests {
             ])
         );
         assert!(updated.extra.get("runtime_checkpoint").is_none());
+        assert!(rpc
+            .get_agent_run_checkpoint("session-1", "run-1")
+            .expect("run checkpoint should read")
+            .is_none());
+        assert!(rpc
+            .get_checkpoint("session-1")
+            .expect("fallback checkpoint should read")
+            .is_none());
         assert_eq!(updated.extra["last_persisted_run_id"], "run-1");
         assert_eq!(
             updated.extra["last_context_metadata"],
@@ -1136,6 +1548,13 @@ mod tests {
         CapabilityPolicy::new([WorkerCapability::SessionWrite])
     }
 
+    fn read_write_policy() -> CapabilityPolicy {
+        CapabilityPolicy::new([
+            WorkerCapability::SessionMetadataRead,
+            WorkerCapability::SessionWrite,
+        ])
+    }
+
     fn temp_workspace_root(name: &str) -> PathBuf {
         let nonce = now_session_timestamp().replace(':', "-");
         let root = std::env::temp_dir().join(format!(
@@ -1162,6 +1581,36 @@ mod tests {
             created_at: "2026-06-09T09:00:00Z".to_string(),
             updated_at: "2026-06-09T09:30:00Z".to_string(),
             extra: json!({ "mode": "desktop" }),
+        }
+    }
+
+    fn agent_run_fixture(
+        session_id: &str,
+        run_id: &str,
+        status: AgentRunStatus,
+    ) -> AgentRunRecord {
+        AgentRunRecord {
+            session_id: session_id.to_string(),
+            run_id: run_id.to_string(),
+            status,
+            phase: "active_turn".to_string(),
+            started_at: "unix-ms:0".to_string(),
+            updated_at: "unix-ms:0".to_string(),
+            completed_at: None,
+            stop_reason: None,
+            model: "fixture-model".to_string(),
+            provider: Some("fixture".to_string()),
+            max_iterations: 4,
+            current_iteration: 0,
+            conversation_message_ids: Vec::new(),
+            trace_messages: Vec::new(),
+            trace_events: Vec::new(),
+            completed_tool_results: Vec::new(),
+            pending_tool_calls: Vec::new(),
+            checkpoint: None,
+            artifacts: Vec::new(),
+            usage: Vec::new(),
+            error: None,
         }
     }
 }

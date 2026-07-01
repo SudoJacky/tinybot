@@ -61,6 +61,7 @@ impl WorkerSessionRpc {
                 .and_then(Value::as_array)
                 .map_or(0, Vec::len);
             let checkpoint_cleared = session.extra.get("runtime_checkpoint").is_some();
+            clear_all_agent_run_checkpoints(session)?;
             if let Some(extra) = session.extra.as_object_mut() {
                 extra.insert("messages".to_string(), serde_json::json!([]));
                 extra.insert("last_consolidated".to_string(), serde_json::json!(0));

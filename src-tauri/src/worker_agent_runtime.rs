@@ -3,7 +3,10 @@ use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
     ops::{Deref, DerefMut},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -384,8 +387,11 @@ pub trait NativeAgentToolDispatcher: Send + Sync {
 
 pub trait NativeAgentCheckpointStore: Send + Sync {
     fn save(&self, session_id: &str, checkpoint: Value);
+    fn save_for_run(&self, session_id: &str, run_id: &str, checkpoint: Value);
     fn restore(&self, session_id: &str) -> Option<Value>;
+    fn restore_for_run(&self, session_id: &str, run_id: &str) -> Option<Value>;
     fn clear(&self, session_id: &str);
+    fn clear_for_run(&self, session_id: &str, run_id: &str);
 }
 
 pub trait NativeAgentCancellation: Send + Sync {
@@ -444,8 +450,26 @@ impl NativeAgentRuntimeServices {
         })
     }
 
+    pub fn restore_run_checkpoint(&self, session_id: &str, run_id: &str) -> Value {
+        serde_json::json!({
+            "runtime": "rust",
+            "sessionId": session_id,
+            "runId": run_id,
+            "checkpoint": self.checkpoints.restore_for_run(session_id, run_id),
+        })
+    }
+
     pub fn save_checkpoint(&self, session_id: &str, checkpoint: Value) {
         self.checkpoints.save(session_id, checkpoint);
+    }
+
+    pub fn save_run_checkpoint(&self, session_id: &str, run_id: &str, checkpoint: Value) {
+        self.checkpoints
+            .save_for_run(session_id, run_id, checkpoint);
+    }
+
+    pub fn clear_run_checkpoint(&self, session_id: &str, run_id: &str) {
+        self.checkpoints.clear_for_run(session_id, run_id);
     }
 }
 
@@ -462,31 +486,106 @@ impl Default for NativeAgentRuntimeServices {
 
 #[derive(Default)]
 pub struct InMemoryNativeAgentCheckpointStore {
-    checkpoints: Mutex<HashMap<String, Value>>,
+    checkpoints: Mutex<HashMap<String, StoredNativeCheckpoint>>,
+    sequence: AtomicU64,
+}
+
+#[derive(Clone, Debug)]
+struct StoredNativeCheckpoint {
+    checkpoint: Value,
+    sequence: u64,
 }
 
 impl NativeAgentCheckpointStore for InMemoryNativeAgentCheckpointStore {
     fn save(&self, session_id: &str, checkpoint: Value) {
+        let run_id =
+            checkpoint_run_id(&checkpoint).unwrap_or_else(|| legacy_session_run_id(session_id));
+        self.save_for_run(session_id, &run_id, checkpoint);
+    }
+
+    fn save_for_run(&self, session_id: &str, run_id: &str, checkpoint: Value) {
+        let sequence = self.sequence.fetch_add(1, Ordering::SeqCst);
         self.checkpoints
             .lock()
             .expect("checkpoint store lock should not be poisoned")
-            .insert(session_id.to_string(), checkpoint);
+            .insert(
+                checkpoint_key(session_id, run_id),
+                StoredNativeCheckpoint {
+                    checkpoint,
+                    sequence,
+                },
+            );
     }
 
     fn restore(&self, session_id: &str) -> Option<Value> {
         self.checkpoints
             .lock()
             .expect("checkpoint store lock should not be poisoned")
-            .get(session_id)
-            .cloned()
+            .iter()
+            .filter_map(|(key, stored)| {
+                checkpoint_key_session(key)
+                    .filter(|key_session_id| *key_session_id == session_id)
+                    .map(|_| stored)
+            })
+            .max_by_key(|stored| stored.sequence)
+            .map(|stored| stored.checkpoint.clone())
     }
 
-    fn clear(&self, session_id: &str) {
+    fn restore_for_run(&self, session_id: &str, run_id: &str) -> Option<Value> {
         self.checkpoints
             .lock()
             .expect("checkpoint store lock should not be poisoned")
-            .remove(session_id);
+            .get(&checkpoint_key(session_id, run_id))
+            .map(|stored| stored.checkpoint.clone())
     }
+
+    fn clear(&self, session_id: &str) {
+        let mut checkpoints = self
+            .checkpoints
+            .lock()
+            .expect("checkpoint store lock should not be poisoned");
+        let Some(key) = checkpoints
+            .iter()
+            .filter(|(key, _stored)| {
+                checkpoint_key_session(key)
+                    .is_some_and(|key_session_id| key_session_id == session_id)
+            })
+            .max_by_key(|(_key, stored)| stored.sequence)
+            .map(|(key, _stored)| key.clone())
+        else {
+            return;
+        };
+        checkpoints.remove(&key);
+    }
+
+    fn clear_for_run(&self, session_id: &str, run_id: &str) {
+        self.checkpoints
+            .lock()
+            .expect("checkpoint store lock should not be poisoned")
+            .remove(&checkpoint_key(session_id, run_id));
+    }
+}
+
+fn checkpoint_key(session_id: &str, run_id: &str) -> String {
+    format!("{session_id}\u{1f}{run_id}")
+}
+
+fn checkpoint_key_session(key: &str) -> Option<&str> {
+    key.split_once('\u{1f}')
+        .map(|(session_id, _run_id)| session_id)
+}
+
+fn checkpoint_run_id(checkpoint: &Value) -> Option<String> {
+    checkpoint
+        .get("runId")
+        .or_else(|| checkpoint.get("run_id"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string)
+}
+
+fn legacy_session_run_id(session_id: &str) -> String {
+    format!("legacy-session:{session_id}")
 }
 
 #[derive(Default)]
@@ -939,7 +1038,9 @@ pub fn run_native_agent_turn_with_config(
                             "name": tool_call.name,
                         }),
                     ));
-                    services.checkpoints.clear(&context.session_id);
+                    services
+                        .checkpoints
+                        .clear_for_run(&context.session_id, &context.run_id);
                     return Ok(serde_json::json!({
                         "runtime": "rust",
                         "runId": context.run_id,
@@ -1007,7 +1108,9 @@ pub fn run_native_agent_turn_with_config(
                                 "name": tool_call.name,
                             }),
                         ));
-                        services.checkpoints.clear(&context.session_id);
+                        services
+                            .checkpoints
+                            .clear_for_run(&context.session_id, &context.run_id);
                         return Ok(serde_json::json!({
                             "runtime": "rust",
                             "runId": context.run_id,
@@ -1092,7 +1195,9 @@ pub fn run_native_agent_turn_with_config(
             ));
         }
         state.set_stop_reason("final_response");
-        services.checkpoints.clear(&context.session_id);
+        services
+            .checkpoints
+            .clear_for_run(&context.session_id, &context.run_id);
         state.events.push(event(
             "agent.done",
             serde_json::json!({
@@ -1490,7 +1595,7 @@ fn maybe_awaiting_approval_result(
     );
     services
         .checkpoints
-        .save(&context.session_id, checkpoint.clone());
+        .save_for_run(&context.session_id, &context.run_id, checkpoint.clone());
     let events = vec![
         event(
             "agent.checkpoint",
@@ -1543,9 +1648,13 @@ fn maybe_approval_resume_result(
         .get("approved")
         .and_then(Value::as_bool)
         .unwrap_or_else(|| string_field(&approval, "decision").as_deref() == Some("approved"));
-    let checkpoint = services.checkpoints.restore(&context.session_id);
+    let checkpoint = services
+        .checkpoints
+        .restore_for_run(&context.session_id, &context.run_id);
     if !approved {
-        services.checkpoints.clear(&context.session_id);
+        services
+            .checkpoints
+            .clear_for_run(&context.session_id, &context.run_id);
         return Some(error_result(
             &context.run_id,
             &context.session_id,
@@ -1553,7 +1662,9 @@ fn maybe_approval_resume_result(
             "Rust agent approval was denied.",
         ));
     }
-    services.checkpoints.clear(&context.session_id);
+    services
+        .checkpoints
+        .clear_for_run(&context.session_id, &context.run_id);
     let final_content = string_field(&approval, "finalContent")
         .or_else(|| string_field(&approval, "final_content"))
         .unwrap_or_else(|| "Approved tool completed.".to_string());
@@ -1619,7 +1730,7 @@ fn maybe_awaiting_form_result(
     );
     services
         .checkpoints
-        .save(&context.session_id, checkpoint.clone());
+        .save_for_run(&context.session_id, &context.run_id, checkpoint.clone());
     let events = vec![
         event(
             "agent.checkpoint",
@@ -1667,7 +1778,9 @@ fn maybe_form_submit_result(
 ) -> Option<Value> {
     let form = context.metadata.get("fakeFormSubmit")?.clone();
     if bool_field(&form, "cancelled") {
-        services.checkpoints.clear(&context.session_id);
+        services
+            .checkpoints
+            .clear_for_run(&context.session_id, &context.run_id);
         return Some(error_result(
             &context.run_id,
             &context.session_id,
@@ -1675,8 +1788,12 @@ fn maybe_form_submit_result(
             "Rust agent form was cancelled.",
         ));
     }
-    let checkpoint = services.checkpoints.restore(&context.session_id);
-    services.checkpoints.clear(&context.session_id);
+    let checkpoint = services
+        .checkpoints
+        .restore_for_run(&context.session_id, &context.run_id);
+    services
+        .checkpoints
+        .clear_for_run(&context.session_id, &context.run_id);
     let final_content = string_field(&form, "finalContent")
         .or_else(|| string_field(&form, "final_content"))
         .unwrap_or_else(|| "Form submitted.".to_string());
@@ -1725,7 +1842,7 @@ fn maybe_emit_checkpoint(
     let checkpoint = checkpoint_value(context, &phase, checkpoint_metadata.clone());
     services
         .checkpoints
-        .save(&context.session_id, checkpoint.clone());
+        .save_for_run(&context.session_id, &context.run_id, checkpoint.clone());
     events.push(event(
         "agent.checkpoint",
         serde_json::json!({
@@ -1805,7 +1922,7 @@ fn save_phase_checkpoint(
     let checkpoint = checkpoint_value(context, phase, payload);
     services
         .checkpoints
-        .save(&context.session_id, checkpoint.clone());
+        .save_for_run(&context.session_id, &context.run_id, checkpoint.clone());
     checkpoint
 }
 
@@ -2954,6 +3071,74 @@ mod tests {
             services.restore_checkpoint("websocket:chat-cancel-checkpoint")["checkpoint"]["phase"],
             "cancelled"
         );
+    }
+
+    #[test]
+    fn runtime_checkpoint_store_isolates_same_session_runs() {
+        let services = NativeAgentRuntimeServices::default();
+        services.save_run_checkpoint(
+            "websocket:chat-1",
+            "run-1",
+            json!({
+                "sessionId": "websocket:chat-1",
+                "runId": "run-1",
+                "phase": "awaiting_tool"
+            }),
+        );
+        services.save_run_checkpoint(
+            "websocket:chat-1",
+            "run-2",
+            json!({
+                "sessionId": "websocket:chat-1",
+                "runId": "run-2",
+                "phase": "awaiting_approval"
+            }),
+        );
+
+        assert_eq!(
+            services.restore_run_checkpoint("websocket:chat-1", "run-1")["checkpoint"]["runId"],
+            "run-1"
+        );
+        assert_eq!(
+            services.restore_run_checkpoint("websocket:chat-1", "run-2")["checkpoint"]["runId"],
+            "run-2"
+        );
+
+        services.clear_run_checkpoint("websocket:chat-1", "run-1");
+        assert!(
+            services.restore_run_checkpoint("websocket:chat-1", "run-1")["checkpoint"].is_null()
+        );
+        assert_eq!(
+            services.restore_run_checkpoint("websocket:chat-1", "run-2")["checkpoint"]["runId"],
+            "run-2"
+        );
+    }
+
+    #[test]
+    fn runtime_checkpoint_restore_by_session_uses_latest_resumable_run() {
+        let services = NativeAgentRuntimeServices::default();
+        services.save_run_checkpoint(
+            "websocket:chat-1",
+            "run-old",
+            json!({
+                "sessionId": "websocket:chat-1",
+                "runId": "run-old",
+                "phase": "awaiting_tool"
+            }),
+        );
+        services.save_run_checkpoint(
+            "websocket:chat-1",
+            "run-new",
+            json!({
+                "sessionId": "websocket:chat-1",
+                "runId": "run-new",
+                "phase": "awaiting_form"
+            }),
+        );
+
+        let restored = services.restore_checkpoint("websocket:chat-1");
+
+        assert_eq!(restored["checkpoint"]["runId"], "run-new");
     }
 
     #[test]

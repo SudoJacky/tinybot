@@ -208,6 +208,53 @@ pub const NATIVE_AGENT_CHECKPOINT_FIELDS: &[&str] = &[
     "messages",
 ];
 
+pub const NATIVE_AGENT_RUN_SUMMARY_FIELDS: &[&str] = &[
+    "sessionId",
+    "runId",
+    "status",
+    "phase",
+    "startedAt",
+    "updatedAt",
+    "completedAt",
+    "stopReason",
+    "model",
+    "provider",
+    "toolsUsed",
+    "toolCallCount",
+    "hasCheckpoint",
+    "finalContentPreview",
+    "artifactCount",
+];
+
+pub const NATIVE_AGENT_RUN_DETAIL_FIELDS: &[&str] = &[
+    "sessionId",
+    "runId",
+    "status",
+    "phase",
+    "startedAt",
+    "updatedAt",
+    "completedAt",
+    "stopReason",
+    "model",
+    "provider",
+    "maxIterations",
+    "currentIteration",
+    "conversationMessageIds",
+    "traceMessages",
+    "traceEvents",
+    "completedToolResults",
+    "pendingToolCalls",
+    "checkpoint",
+    "artifacts",
+    "usage",
+    "error",
+];
+
+pub const NATIVE_AGENT_RUN_CHECKPOINT_FIELDS: &[&str] = &["sessionId", "runId", "checkpoint"];
+
+pub const NATIVE_AGENT_RUN_TRACE_PAGE_FIELDS: &[&str] =
+    &["sessionId", "runId", "items", "nextCursor"];
+
 const WEBUI_ROUTE_INVENTORY: &[NativeRouteInventoryEntry] = &[
     rust_webui("health", "GET", "/health", "health", "native health check"),
     rust_webui(
@@ -836,5 +883,43 @@ pub struct NativeBackendRunSpec {
 impl NativeBackendRunSpec {
     pub fn from_value(value: Value) -> Result<Self, serde_json::Error> {
         serde_json::from_value(value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn agent_run_timeline_contract_fields_are_stable() {
+        assert_eq!(
+            NATIVE_AGENT_RUN_SUMMARY_FIELDS,
+            &[
+                "sessionId",
+                "runId",
+                "status",
+                "phase",
+                "startedAt",
+                "updatedAt",
+                "completedAt",
+                "stopReason",
+                "model",
+                "provider",
+                "toolsUsed",
+                "toolCallCount",
+                "hasCheckpoint",
+                "finalContentPreview",
+                "artifactCount",
+            ]
+        );
+        assert!(NATIVE_AGENT_RUN_DETAIL_FIELDS.contains(&"traceEvents"));
+        assert!(NATIVE_AGENT_RUN_DETAIL_FIELDS.contains(&"completedToolResults"));
+        assert!(NATIVE_AGENT_RUN_DETAIL_FIELDS.contains(&"pendingToolCalls"));
+        assert!(NATIVE_AGENT_RUN_DETAIL_FIELDS.contains(&"checkpoint"));
+        assert_eq!(
+            NATIVE_AGENT_RUN_TRACE_PAGE_FIELDS,
+            &["sessionId", "runId", "items", "nextCursor"]
+        );
+        assert!(NATIVE_AGENT_RUN_CHECKPOINT_FIELDS.contains(&"checkpoint"));
     }
 }

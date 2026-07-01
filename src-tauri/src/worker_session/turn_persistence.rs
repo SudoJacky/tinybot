@@ -74,6 +74,7 @@ impl WorkerSessionRpc {
             }
             let mut checkpoint_cleared = false;
             if clear_checkpoint {
+                clear_agent_run_checkpoint_by_id(session, run_id)?;
                 if let Some(extra) = session.extra.as_object_mut() {
                     checkpoint_cleared = extra.remove("runtime_checkpoint").is_some();
                 }

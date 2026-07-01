@@ -98,6 +98,7 @@ const WORKER_CRON_TIMER_MAX_POLL: Duration = Duration::from_secs(30);
 const WORKER_WEBUI_ROUTE_TIMEOUT: Duration = Duration::from_secs(10);
 const NATIVE_BACKEND_LOG_MAX_BYTES: u64 = 5 * 1024 * 1024;
 const NATIVE_BACKEND_LOG_TAIL_LINES: usize = 100;
+const NATIVE_AGENT_RUN_TRACE_STRING_LIMIT: usize = 256;
 
 struct GatewayRuntime {
     experimental_worker: WorkerManager,
@@ -1263,7 +1264,31 @@ fn worker_run_agent_with_options(
         let runtime = lock_runtime(shared);
         runtime.native_agent_runtime.clone()
     };
+    let start_persistence_error = persist_native_agent_run_start(
+        persistence_spec.clone(),
+        workspace_root.clone(),
+        config_snapshot.clone(),
+    )
+    .err();
     let mut result = run_native_agent_turn_with_config(&services, spec, config_snapshot.clone())?;
+    if let Err(error) = persist_native_agent_run_record(
+        persistence_spec.clone(),
+        &mut result,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+    ) {
+        result["runPersistence"] = serde_json::json!({
+            "ok": false,
+            "error": error,
+        });
+    }
+    if let Some(error) = start_persistence_error {
+        result["runPersistenceDiagnostics"] = serde_json::json!([{
+            "phase": "start",
+            "ok": false,
+            "error": error,
+        }]);
+    }
     persist_native_agent_checkpoint_if_present(
         &result,
         workspace_root.clone(),
@@ -1276,6 +1301,363 @@ fn worker_run_agent_with_options(
         config_snapshot,
     )?;
     Ok(result)
+}
+
+fn persist_native_agent_run_start(
+    spec: serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+) -> Result<(), String> {
+    let session_id =
+        native_agent_session_id(&spec).unwrap_or_else(|| "native-rust-session".to_string());
+    let run_id = native_agent_run_id(&spec).unwrap_or_else(|| "native-rust-run".to_string());
+    let record = native_agent_run_record(
+        &spec,
+        &serde_json::json!({ "sessionId": session_id, "runId": run_id }),
+        &config_snapshot,
+        &session_id,
+        &run_id,
+    );
+    let request_id = next_worker_request_correlation();
+    call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("agent-run-start-native"),
+            request_id.trace_id("agent-run-start-native"),
+            "agent_run.upsert",
+            serde_json::json!({ "record": record }),
+        ),
+        "native agent run start persistence",
+    )?;
+    Ok(())
+}
+
+fn persist_native_agent_run_record(
+    spec: serde_json::Value,
+    result: &mut serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+) -> Result<(), String> {
+    let session_id = native_agent_session_id(result)
+        .or_else(|| native_agent_session_id(&spec))
+        .ok_or_else(|| "Rust agent run missing session id for persistence".to_string())?;
+    let run_id = native_agent_run_id(result)
+        .or_else(|| native_agent_run_id(&spec))
+        .unwrap_or_else(|| "native-rust-run".to_string());
+    let record = native_agent_run_record(&spec, result, &config_snapshot, &session_id, &run_id);
+    let request_id = next_worker_request_correlation();
+    let persisted = call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("agent-run-upsert-native"),
+            request_id.trace_id("agent-run-upsert-native"),
+            "agent_run.upsert",
+            serde_json::json!({ "record": record }),
+        ),
+        "native agent run persistence",
+    )?;
+    result["runPersistence"] = persisted;
+    Ok(())
+}
+
+fn native_agent_run_record(
+    spec: &serde_json::Value,
+    result: &serde_json::Value,
+    config_snapshot: &serde_json::Value,
+    session_id: &str,
+    run_id: &str,
+) -> serde_json::Value {
+    let timestamp = now_unix_ms().to_string();
+    let stop_reason = result
+        .get("stopReason")
+        .or_else(|| result.get("stop_reason"))
+        .and_then(serde_json::Value::as_str);
+    let status = native_agent_run_status(stop_reason);
+    let checkpoint = result
+        .get("checkpoint")
+        .filter(|value| !value.is_null())
+        .cloned();
+    let phase = checkpoint
+        .as_ref()
+        .and_then(|value| value.get("phase"))
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| native_agent_run_phase_from_stop_reason(stop_reason))
+        .unwrap_or("active_turn");
+    let error = result
+        .get("error")
+        .filter(|value| !value.is_null())
+        .cloned();
+
+    serde_json::json!({
+        "sessionId": session_id,
+        "runId": run_id,
+        "status": status,
+        "phase": phase,
+        "startedAt": timestamp,
+        "updatedAt": timestamp,
+        "completedAt": native_agent_run_completed_at(status, &timestamp),
+        "stopReason": stop_reason,
+        "model": native_agent_model(spec, config_snapshot),
+        "provider": native_agent_provider(spec, config_snapshot),
+        "maxIterations": native_agent_max_iterations(spec, config_snapshot),
+        "currentIteration": native_agent_current_iteration(result, checkpoint.as_ref()),
+        "conversationMessageIds": [],
+        "traceMessages": native_agent_assistant_messages(result),
+        "traceEvents": result
+            .get("events")
+            .and_then(serde_json::Value::as_array)
+            .map(|values| native_agent_persisted_trace_values(values))
+            .unwrap_or_default(),
+        "completedToolResults": result
+            .get("completedToolResults")
+            .or_else(|| result.get("completed_tool_results"))
+            .and_then(serde_json::Value::as_array)
+            .map(|values| native_agent_persisted_trace_values(values))
+            .unwrap_or_default(),
+        "pendingToolCalls": checkpoint
+            .as_ref()
+            .and_then(|value| value.get("pendingToolCalls").or_else(|| value.get("pending_tool_calls")))
+            .and_then(serde_json::Value::as_array)
+            .cloned()
+            .unwrap_or_default(),
+        "checkpoint": checkpoint,
+        "artifacts": native_agent_artifacts(result),
+        "usage": native_agent_usage(result),
+        "error": error,
+    })
+}
+
+fn native_agent_run_status(stop_reason: Option<&str>) -> &'static str {
+    match stop_reason {
+        Some("final_response") => "completed",
+        Some("cancelled") => "cancelled",
+        Some("awaiting_approval") | Some("awaiting_form") | Some("awaiting_tool") => "waiting",
+        Some(_) => "failed",
+        None => "running",
+    }
+}
+
+fn native_agent_run_phase_from_stop_reason(stop_reason: Option<&str>) -> Option<&'static str> {
+    match stop_reason {
+        Some("final_response") => Some("done"),
+        Some("cancelled") => Some("cancelled"),
+        Some("awaiting_approval") => Some("awaiting_approval"),
+        Some("awaiting_form") => Some("awaiting_form"),
+        Some("awaiting_tool") => Some("awaiting_tool"),
+        Some(_) => Some("failed"),
+        None => None,
+    }
+}
+
+fn native_agent_run_completed_at(status: &str, timestamp: &str) -> Option<String> {
+    matches!(status, "completed" | "failed" | "cancelled").then(|| timestamp.to_string())
+}
+
+fn native_agent_session_id(value: &serde_json::Value) -> Option<String> {
+    native_agent_string_field(value, "sessionId")
+        .or_else(|| native_agent_string_field(value, "session_id"))
+        .or_else(|| native_agent_string_field(value, "activeSessionId"))
+        .or_else(|| native_agent_string_field(value, "active_session_id"))
+        .or_else(|| native_agent_string_field(value, "sessionKey"))
+        .or_else(|| native_agent_string_field(value, "session_key"))
+}
+
+fn native_agent_run_id(value: &serde_json::Value) -> Option<String> {
+    native_agent_string_field(value, "runId").or_else(|| native_agent_string_field(value, "run_id"))
+}
+
+fn native_agent_model(spec: &serde_json::Value, config_snapshot: &serde_json::Value) -> String {
+    native_agent_string_field(spec, "model")
+        .or_else(|| native_agent_string_field(spec, "modelId"))
+        .or_else(|| native_agent_string_field(spec, "model_id"))
+        .or_else(|| {
+            spec.get("metadata")
+                .and_then(|metadata| native_agent_string_field(metadata, "model"))
+        })
+        .unwrap_or_else(|| crate::native_provider_runtime::configured_model(config_snapshot))
+}
+
+fn native_agent_provider(
+    spec: &serde_json::Value,
+    config_snapshot: &serde_json::Value,
+) -> Option<String> {
+    native_agent_string_field(spec, "provider")
+        .or_else(|| native_agent_string_field(spec, "providerId"))
+        .or_else(|| native_agent_string_field(spec, "provider_id"))
+        .or_else(|| {
+            spec.get("metadata")
+                .and_then(|metadata| native_agent_string_field(metadata, "provider"))
+        })
+        .or_else(|| {
+            config_snapshot
+                .get("agents")
+                .and_then(|agents| agents.get("defaults"))
+                .and_then(|defaults| native_agent_string_field(defaults, "provider"))
+        })
+}
+
+fn native_agent_max_iterations(
+    spec: &serde_json::Value,
+    config_snapshot: &serde_json::Value,
+) -> i64 {
+    spec.get("maxIterations")
+        .or_else(|| spec.get("max_iterations"))
+        .or_else(|| {
+            spec.get("metadata").and_then(|metadata| {
+                metadata
+                    .get("maxIterations")
+                    .or_else(|| metadata.get("max_iterations"))
+            })
+        })
+        .or_else(|| {
+            config_snapshot
+                .get("agents")
+                .and_then(|agents| agents.get("defaults"))
+                .and_then(|defaults| {
+                    defaults
+                        .get("maxIterations")
+                        .or_else(|| defaults.get("max_iterations"))
+                })
+        })
+        .and_then(serde_json::Value::as_i64)
+        .unwrap_or(1)
+}
+
+fn native_agent_current_iteration(
+    result: &serde_json::Value,
+    checkpoint: Option<&serde_json::Value>,
+) -> i64 {
+    checkpoint
+        .and_then(|value| value.get("iteration"))
+        .and_then(serde_json::Value::as_i64)
+        .or_else(|| {
+            result
+                .get("events")
+                .and_then(serde_json::Value::as_array)
+                .and_then(|events| {
+                    events
+                        .iter()
+                        .rev()
+                        .filter_map(|event| event.get("payload"))
+                        .filter_map(|payload| payload.get("iteration"))
+                        .find_map(serde_json::Value::as_i64)
+                })
+        })
+        .unwrap_or(0)
+}
+
+fn native_agent_usage(result: &serde_json::Value) -> Vec<serde_json::Value> {
+    result
+        .get("events")
+        .and_then(serde_json::Value::as_array)
+        .map(|events| {
+            events
+                .iter()
+                .filter(|event| {
+                    event.get("eventName").and_then(serde_json::Value::as_str)
+                        == Some("agent.usage")
+                })
+                .filter_map(|event| event.get("payload"))
+                .filter_map(|payload| payload.get("usage"))
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn native_agent_persisted_trace_values(values: &[serde_json::Value]) -> Vec<serde_json::Value> {
+    values
+        .iter()
+        .cloned()
+        .map(|value| native_agent_bound_persisted_trace_value(value).0)
+        .collect()
+}
+
+fn native_agent_bound_persisted_trace_value(value: serde_json::Value) -> (serde_json::Value, bool) {
+    match value {
+        serde_json::Value::String(content) => {
+            let char_count = content.chars().count();
+            if char_count <= NATIVE_AGENT_RUN_TRACE_STRING_LIMIT {
+                (serde_json::Value::String(content), false)
+            } else {
+                (
+                    serde_json::Value::String(
+                        content
+                            .chars()
+                            .take(NATIVE_AGENT_RUN_TRACE_STRING_LIMIT)
+                            .collect(),
+                    ),
+                    true,
+                )
+            }
+        }
+        serde_json::Value::Array(items) => {
+            let mut truncated = false;
+            let items = items
+                .into_iter()
+                .map(|item| {
+                    let (item, item_truncated) = native_agent_bound_persisted_trace_value(item);
+                    truncated |= item_truncated;
+                    item
+                })
+                .collect();
+            (serde_json::Value::Array(items), truncated)
+        }
+        serde_json::Value::Object(entries) => {
+            let mut truncated = false;
+            let mut entries = entries
+                .into_iter()
+                .map(|(key, value)| {
+                    let (value, value_truncated) = native_agent_bound_persisted_trace_value(value);
+                    truncated |= value_truncated;
+                    (key, value)
+                })
+                .collect::<serde_json::Map<_, _>>();
+            if truncated {
+                entries.insert(
+                    "tracePersistence".to_string(),
+                    serde_json::json!({
+                        "truncated": true,
+                        "maxStringChars": NATIVE_AGENT_RUN_TRACE_STRING_LIMIT,
+                    }),
+                );
+            }
+            (serde_json::Value::Object(entries), truncated)
+        }
+        value => (value, false),
+    }
+}
+
+fn native_agent_artifacts(result: &serde_json::Value) -> Vec<serde_json::Value> {
+    result
+        .get("completedToolResults")
+        .or_else(|| result.get("completed_tool_results"))
+        .and_then(serde_json::Value::as_array)
+        .map(|results| {
+            results
+                .iter()
+                .flat_map(|result| {
+                    result
+                        .get("envelope")
+                        .and_then(|envelope| envelope.get("artifacts"))
+                        .and_then(serde_json::Value::as_array)
+                        .cloned()
+                        .unwrap_or_default()
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn native_agent_string_field(value: &serde_json::Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 fn persist_native_agent_checkpoint_if_present(
@@ -5134,6 +5516,377 @@ mod tests {
         assert_eq!(history["messages"][0]["content"], "persist me");
         assert_eq!(history["messages"][1]["role"], "assistant");
         assert_eq!(history["messages"][1]["content"], "persisted assistant");
+    }
+
+    #[test]
+    fn worker_run_agent_persists_agent_run_record_and_keeps_history_compact() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let config = serde_json::json!({
+            "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+            "providers": {
+                "fixture": {
+                    "responses": [
+                        {
+                            "content": "",
+                            "toolCalls": [{
+                                "id": "call-run-trace",
+                                "name": "workspace.read_file",
+                                "argumentsJson": "{\"path\":\"README.md\"}",
+                                "result": { "content": "README trace body" }
+                            }]
+                        },
+                        { "content": "run trace final" }
+                    ]
+                }
+            }
+        });
+
+        let result = worker_run_agent_with_options(
+            &shared,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-trace-persist",
+                "sessionId": "websocket:chat-run-trace",
+                "maxIterations": 2,
+                "messages": [{ "role": "user", "content": "read and answer" }]
+            }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("Rust runtime should complete tool-backed turn");
+        let run = call_rust_state_service(
+            fixture.root.clone(),
+            config.clone(),
+            WorkerRequest::new(
+                "req-agent-run-get",
+                "trace-agent-run-get",
+                "agent_run.get",
+                serde_json::json!({
+                    "session_id": "websocket:chat-run-trace",
+                    "run_id": "run-trace-persist"
+                }),
+            ),
+            "agent run read",
+        )
+        .expect("agent run record should persist");
+        let history = worker_session_messages_with_options(
+            &shared,
+            "websocket:chat-run-trace".to_string(),
+            fixture.root.clone(),
+            config,
+            Duration::from_millis(10),
+        )
+        .expect("session messages should read");
+
+        assert_eq!(result["stopReason"], "final_response");
+        assert_eq!(run["status"], "completed");
+        assert_eq!(run["stopReason"], "final_response");
+        assert_eq!(
+            run["completedToolResults"][0]["toolCallId"],
+            "call-run-trace"
+        );
+        assert!(run["traceEvents"]
+            .as_array()
+            .expect("trace events should be an array")
+            .iter()
+            .any(|event| event["eventName"] == "agent.tool.result"));
+        assert_eq!(history["messages"].as_array().unwrap().len(), 2);
+        assert!(history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|message| message["role"] != "tool"));
+    }
+
+    #[test]
+    fn worker_run_agent_persists_waiting_approval_run_record() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let config = serde_json::json!({});
+
+        let result = worker_run_agent_with_options(
+            &shared,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-waiting-persist",
+                "sessionId": "websocket:chat-waiting-persist",
+                "metadata": {
+                    "fakeAwaitingApproval": {
+                        "approvalId": "approval-waiting-persist",
+                        "toolName": "workspace.write_file"
+                    }
+                }
+            }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("Rust runtime should return waiting approval");
+        let run = read_agent_run_record(
+            fixture.root.clone(),
+            config,
+            "websocket:chat-waiting-persist",
+            "run-waiting-persist",
+        );
+
+        assert_eq!(result["stopReason"], "awaiting_approval");
+        assert_eq!(run["status"], "waiting");
+        assert_eq!(run["phase"], "awaiting_approval");
+        assert_eq!(
+            run["checkpoint"]["resumeToken"],
+            "approval:approval-waiting-persist"
+        );
+        assert_eq!(
+            run["pendingToolCalls"][0]["toolCallId"],
+            "approval-waiting-persist"
+        );
+    }
+
+    #[test]
+    fn worker_run_agent_persists_failed_tool_run_with_accumulated_trace() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let config = serde_json::json!({
+            "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+            "providers": {
+                "fixture": {
+                    "responses": [{
+                        "content": "",
+                        "toolCalls": [
+                            {
+                                "id": "call-before-tool-error",
+                                "name": "workspace.read_file",
+                                "argumentsJson": "{\"path\":\"README.md\"}",
+                                "result": { "content": "README before tool error" }
+                            },
+                            {
+                                "id": "call-tool-error",
+                                "name": "workspace.list_files",
+                                "argumentsJson": "{not json",
+                                "result": { "content": "unused" }
+                            }
+                        ]
+                    }]
+                }
+            }
+        });
+
+        let result = worker_run_agent_with_options(
+            &shared,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-tool-error-persist",
+                "sessionId": "websocket:chat-tool-error-persist",
+                "maxIterations": 3,
+                "messages": [{ "role": "user", "content": "read then fail" }]
+            }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("Rust runtime should return structured tool error");
+        let run = read_agent_run_record(
+            fixture.root.clone(),
+            config,
+            "websocket:chat-tool-error-persist",
+            "run-tool-error-persist",
+        );
+
+        assert_eq!(result["stopReason"], "tool_error");
+        assert_eq!(run["status"], "failed");
+        assert_eq!(run["stopReason"], "tool_error");
+        assert_eq!(
+            run["completedToolResults"][0]["toolCallId"],
+            "call-before-tool-error"
+        );
+        assert!(run["traceEvents"]
+            .as_array()
+            .expect("trace events should be an array")
+            .iter()
+            .any(|event| event["eventName"] == "agent.error"
+                && event["payload"]["toolCallId"] == "call-tool-error"));
+    }
+
+    #[test]
+    fn worker_run_agent_persists_cancelled_run_as_cancelled() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let config = serde_json::json!({});
+
+        let result = worker_run_agent_with_options(
+            &shared,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-cancel-persist",
+                "sessionId": "websocket:chat-cancel-persist",
+                "metadata": { "fakeCancel": true },
+                "messages": [{ "role": "user", "content": "cancel me" }]
+            }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("Rust runtime should return structured cancellation");
+        let run = read_agent_run_record(
+            fixture.root.clone(),
+            config,
+            "websocket:chat-cancel-persist",
+            "run-cancel-persist",
+        );
+
+        assert_eq!(result["stopReason"], "cancelled");
+        assert_eq!(run["status"], "cancelled");
+        assert_eq!(run["phase"], "cancelled");
+        assert_eq!(run["checkpoint"]["phase"], "cancelled");
+    }
+
+    #[test]
+    fn worker_run_agent_persists_redacted_bounded_tool_trace() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let config = serde_json::json!({
+            "agents": {
+                "defaults": {
+                    "provider": "fixture",
+                    "model": "fixture-model",
+                    "maxToolResultChars": 12
+                }
+            },
+            "providers": {
+                "fixture": {
+                    "api_key": "secret-token",
+                    "responses": [
+                        {
+                            "content": "",
+                            "toolCalls": [{
+                                "id": "call-redacted",
+                                "name": "workspace.read_file",
+                                "argumentsJson": "{\"path\":\"README.md\"}",
+                                "result": { "content": "secret-token ABCDEFGHIJKLMNOP" }
+                            }]
+                        },
+                        { "content": "bounded final" }
+                    ]
+                }
+            }
+        });
+
+        worker_run_agent_with_options(
+            &shared,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-redacted-trace",
+                "sessionId": "websocket:chat-redacted-trace",
+                "maxIterations": 2,
+                "messages": [{ "role": "user", "content": "read bounded" }]
+            }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("Rust runtime should complete bounded tool run");
+        let run = read_agent_run_record(
+            fixture.root.clone(),
+            config,
+            "websocket:chat-redacted-trace",
+            "run-redacted-trace",
+        );
+        let serialized = run.to_string();
+        let envelope = &run["completedToolResults"][0]["envelope"];
+
+        assert!(!serialized.contains("secret-token"));
+        assert_eq!(envelope["truncation"]["truncated"], true);
+        assert_eq!(envelope["continuation"]["nextOffset"], 12);
+        assert!(envelope["modelContent"].as_str().unwrap().chars().count() <= 12);
+    }
+
+    #[test]
+    fn worker_run_agent_omits_large_raw_tool_trace_from_persisted_run_record() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let large_output = "A".repeat(12_000);
+        let config = serde_json::json!({
+            "agents": {
+                "defaults": {
+                    "provider": "fixture",
+                    "model": "fixture-model",
+                    "maxToolResultChars": 128
+                }
+            },
+            "providers": {
+                "fixture": {
+                    "responses": [
+                        {
+                            "content": "",
+                            "toolCalls": [{
+                                "id": "call-large",
+                                "name": "workspace.read_file",
+                                "argumentsJson": "{\"path\":\"large.txt\"}",
+                                "result": { "content": large_output }
+                            }]
+                        },
+                        { "content": "large final" }
+                    ]
+                }
+            }
+        });
+
+        worker_run_agent_with_options(
+            &shared,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-large-trace",
+                "sessionId": "websocket:chat-large-trace",
+                "maxIterations": 2,
+                "messages": [{ "role": "user", "content": "read large" }]
+            }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("Rust runtime should complete large tool run");
+        let run = read_agent_run_record(
+            fixture.root.clone(),
+            config,
+            "websocket:chat-large-trace",
+            "run-large-trace",
+        );
+        let serialized = run.to_string();
+
+        assert!(
+            serialized.len() < 9_000,
+            "run record was {} bytes",
+            serialized.len()
+        );
+        assert_eq!(
+            run["completedToolResults"][0]["tracePersistence"]["truncated"],
+            true
+        );
+    }
+
+    fn read_agent_run_record(
+        workspace_root: PathBuf,
+        config_snapshot: serde_json::Value,
+        session_id: &str,
+        run_id: &str,
+    ) -> serde_json::Value {
+        call_rust_state_service(
+            workspace_root,
+            config_snapshot,
+            WorkerRequest::new(
+                "req-agent-run-get",
+                "trace-agent-run-get",
+                "agent_run.get",
+                serde_json::json!({
+                    "session_id": session_id,
+                    "run_id": run_id,
+                }),
+            ),
+            "agent run read",
+        )
+        .expect("agent run record should persist")
     }
 
     #[test]
