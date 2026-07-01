@@ -854,12 +854,30 @@ pub fn run_native_agent_turn_with_config(
         let provider_response = match services.provider.complete(&context) {
             Ok(response) => response,
             Err(error) => {
-                return Ok(error_result(
-                    &context.run_id,
-                    &context.session_id,
-                    "provider_error",
-                    &error,
+                state.set_stop_reason("provider_error");
+                state.events.push(event(
+                    "agent.error",
+                    serde_json::json!({
+                        "runId": context.run_id,
+                        "sessionId": context.session_id,
+                        "iteration": iteration,
+                        "stopReason": "provider_error",
+                        "message": error,
+                        "error": error,
+                    }),
                 ));
+                return Ok(serde_json::json!({
+                    "runtime": "rust",
+                    "runId": context.run_id,
+                    "sessionId": context.session_id,
+                    "finalContent": "",
+                    "stopReason": "provider_error",
+                    "messages": [],
+                    "toolsUsed": state.tools_used,
+                    "completedToolResults": state.completed_tool_results,
+                    "error": error,
+                    "events": state.events,
+                }));
             }
         };
 
@@ -1250,6 +1268,12 @@ fn normalize_tool_result_for_context(
             "summary".to_string(),
             Value::String(redact_sensitive_text(&summary, &secrets, &mut redactions)),
         );
+        if let Some(structured) = envelope.get_mut("structured") {
+            redact_sensitive_value(structured, &secrets, &mut redactions);
+        }
+        if let Some(raw) = envelope.get_mut("raw") {
+            redact_sensitive_value(raw, &secrets, &mut redactions);
+        }
         if let Some(metrics) = envelope.get_mut("metrics").and_then(Value::as_object_mut) {
             metrics.insert(
                 "modelChars".to_string(),
@@ -1356,6 +1380,25 @@ fn redact_sensitive_text(text: &str, secrets: &[String], redactions: &mut Vec<St
         }
     }
     redacted
+}
+
+fn redact_sensitive_value(value: &mut Value, secrets: &[String], redactions: &mut Vec<String>) {
+    match value {
+        Value::String(text) => {
+            *text = redact_sensitive_text(text, secrets, redactions);
+        }
+        Value::Array(values) => {
+            for child in values {
+                redact_sensitive_value(child, secrets, redactions);
+            }
+        }
+        Value::Object(map) => {
+            for child in map.values_mut() {
+                redact_sensitive_value(child, secrets, redactions);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn completed_tool_result_entry(
@@ -2108,6 +2151,75 @@ mod tests {
     }
 
     #[test]
+    fn provider_error_after_tool_result_preserves_accumulated_tool_state() {
+        struct ToolThenErrorProvider {
+            calls: Mutex<usize>,
+        }
+
+        impl NativeAgentProvider for ToolThenErrorProvider {
+            fn complete(
+                &self,
+                _context: &NativeAgentRunContext,
+            ) -> Result<NativeAgentProviderResponse, String> {
+                let mut calls = self.calls.lock().expect("provider calls lock");
+                *calls += 1;
+                if *calls == 1 {
+                    return Ok(NativeAgentProviderResponse {
+                        final_content: String::new(),
+                        reasoning_delta: None,
+                        usage: None,
+                        tool_calls: vec![NativeAgentToolCall {
+                            id: "call-before-provider-error".to_string(),
+                            name: "workspace.read_file".to_string(),
+                            arguments_json: "{\"path\":\"README.md\"}".to_string(),
+                            result: json!({ "content": "README before provider error" }),
+                        }],
+                    });
+                }
+
+                Err("provider failed after tool result".to_string())
+            }
+        }
+
+        let services = NativeAgentRuntimeServices::new(
+            Arc::new(ToolThenErrorProvider {
+                calls: Mutex::new(0),
+            }),
+            Arc::new(FakeNativeAgentToolDispatcher),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        );
+        let result = run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-provider-error-after-tool",
+                "sessionId": "websocket:chat-provider-error-after-tool",
+                "maxIterations": 3,
+                "messages": [{ "role": "user", "content": "read then fail" }]
+            }),
+        )
+        .expect("provider error should return a structured result");
+
+        assert_eq!(result["stopReason"], "provider_error");
+        assert_eq!(result["toolsUsed"], json!(["workspace.read_file"]));
+        assert_eq!(result["completedToolResults"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            result["completedToolResults"][0]["toolCallId"],
+            "call-before-provider-error"
+        );
+        assert_eq!(
+            event_names(&result),
+            vec![
+                "agent.tool_call.delta",
+                "agent.tool.start",
+                "agent.tool.result",
+                "agent.error"
+            ]
+        );
+    }
+
+    #[test]
     fn emits_tool_result_envelope_with_legacy_content_projection() {
         let services = NativeAgentRuntimeServices::default();
         let result = run_native_agent_turn_with_config(
@@ -2229,6 +2341,9 @@ mod tests {
         assert!(!tool_result["payload"]["envelope"]["modelContent"]
             .as_str()
             .unwrap()
+            .contains("secret-token"));
+        assert!(!tool_result["payload"]["envelope"]
+            .to_string()
             .contains("secret-token"));
         assert_eq!(
             tool_result["payload"]["envelope"]["continuation"]["nextOffset"],
