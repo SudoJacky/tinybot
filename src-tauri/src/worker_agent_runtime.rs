@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
+    ops::{Deref, DerefMut},
     sync::{Arc, Mutex},
 };
 
@@ -22,6 +23,7 @@ pub struct NativeAgentRunContext {
     pub run_id: String,
     pub session_id: String,
     pub spec: Value,
+    pub messages: Vec<Value>,
     pub config_snapshot: Value,
     pub metadata: Value,
     pub model: String,
@@ -30,12 +32,96 @@ pub struct NativeAgentRunContext {
     pub max_iterations: i64,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum NativeAgentRunPhase {
+    ActiveTurn,
+    AwaitingTool,
+    Cancelled,
+    Terminal,
+}
+
+impl NativeAgentRunPhase {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::ActiveTurn => "active_turn",
+            Self::AwaitingTool => "awaiting_tool",
+            Self::Cancelled => "cancelled",
+            Self::Terminal => "terminal",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct NativeAgentRunState {
+    phase: NativeAgentRunPhase,
+    iteration: i64,
+    max_iterations: i64,
+    pending_tool_calls: Vec<Value>,
+    completed_tool_results: Vec<Value>,
+    messages: Vec<Value>,
+    events: Vec<NativeAgentEvent>,
+    usage: Vec<Value>,
+    tools_used: Vec<String>,
+    stop_reason: Option<String>,
+}
+
+impl NativeAgentRunState {
+    fn new(context: &NativeAgentRunContext) -> Self {
+        Self {
+            phase: NativeAgentRunPhase::ActiveTurn,
+            iteration: 0,
+            max_iterations: context.max_iterations,
+            pending_tool_calls: Vec::new(),
+            completed_tool_results: Vec::new(),
+            messages: context.messages.clone(),
+            events: Vec::new(),
+            usage: Vec::new(),
+            tools_used: Vec::new(),
+            stop_reason: None,
+        }
+    }
+
+    fn set_phase(&mut self, phase: NativeAgentRunPhase, iteration: i64) {
+        self.phase = phase;
+        self.iteration = iteration;
+    }
+
+    fn set_stop_reason(&mut self, stop_reason: &str) {
+        self.stop_reason = Some(stop_reason.to_string());
+        self.phase = NativeAgentRunPhase::Terminal;
+    }
+
+    fn active_checkpoint_payload(&self, status: &str) -> Value {
+        serde_json::json!({
+            "status": status,
+            "iteration": self.iteration,
+            "maxIterations": self.max_iterations,
+            "pendingToolCalls": self.pending_tool_calls,
+            "completedToolResults": self.completed_tool_results,
+            "stopReason": self.stop_reason,
+        })
+    }
+
+    fn set_pending_tool_call(&mut self, tool_call: &NativeAgentToolCall) {
+        self.phase = NativeAgentRunPhase::AwaitingTool;
+        self.pending_tool_calls = vec![serde_json::json!({
+            "toolCallId": tool_call.id,
+            "toolName": tool_call.name,
+            "argumentsJson": tool_call.arguments_json,
+        })];
+    }
+
+    fn clear_pending_tool_calls(&mut self) {
+        self.pending_tool_calls.clear();
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct NativeAgentProviderResponse {
     pub final_content: String,
     pub reasoning_delta: Option<String>,
     pub usage: Option<Value>,
-    pub tool_call: Option<NativeAgentToolCall>,
+    pub tool_calls: Vec<NativeAgentToolCall>,
 }
 
 #[derive(Clone, Debug)]
@@ -49,6 +135,236 @@ pub struct NativeAgentToolCall {
 #[derive(Clone, Debug)]
 pub struct NativeAgentToolResult {
     pub content: Value,
+    pub envelope: NativeToolResultEnvelope,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(transparent)]
+pub struct NativeToolResultEnvelope {
+    value: Value,
+}
+
+impl NativeToolResultEnvelope {
+    pub fn generic_success(tool_call: &NativeAgentToolCall, raw_content: Value) -> Self {
+        let model_content = legacy_tool_content(&raw_content);
+        Self::from_parts(
+            "ok",
+            model_content.clone(),
+            model_content,
+            "generic_result",
+            tool_call.name.clone(),
+            serde_json::json!({
+                "kind": "generic_result",
+                "value": raw_content,
+            }),
+            serde_json::json!([]),
+            serde_json::json!([]),
+            serde_json::json!([]),
+            tool_call,
+            raw_content,
+        )
+    }
+
+    pub fn generic_error(
+        tool_call: &NativeAgentToolCall,
+        summary: String,
+        raw_content: Value,
+    ) -> Self {
+        Self::from_parts(
+            "error",
+            summary.clone(),
+            summary,
+            "generic_error",
+            tool_call.name.clone(),
+            serde_json::json!({
+                "kind": "generic_error",
+                "value": raw_content,
+            }),
+            serde_json::json!([]),
+            serde_json::json!([]),
+            serde_json::json!([]),
+            tool_call,
+            raw_content,
+        )
+    }
+
+    pub fn file_excerpt(tool_call: &NativeAgentToolCall, path: String, excerpt: String) -> Self {
+        Self::from_parts(
+            "ok",
+            format!("Read file excerpt: {path}"),
+            excerpt.clone(),
+            "file_excerpt",
+            path.clone(),
+            serde_json::json!({
+                "kind": "file_excerpt",
+                "path": path,
+                "excerpt": excerpt,
+            }),
+            serde_json::json!([{ "type": "workspace_file", "path": path }]),
+            serde_json::json!([]),
+            serde_json::json!([]),
+            tool_call,
+            serde_json::json!({ "path": path, "excerpt": excerpt }),
+        )
+    }
+
+    pub fn search_results(tool_call: &NativeAgentToolCall, query: String, matches: Value) -> Self {
+        let match_count = matches.as_array().map_or(0, Vec::len);
+        Self::from_parts(
+            "ok",
+            format!("Found {match_count} result(s) for {query}"),
+            matches.to_string(),
+            "search_results",
+            query.clone(),
+            serde_json::json!({
+                "kind": "search_results",
+                "query": query,
+                "matches": matches,
+            }),
+            serde_json::json!([]),
+            serde_json::json!([]),
+            serde_json::json!([]),
+            tool_call,
+            serde_json::json!({ "query": query, "matches": matches }),
+        )
+    }
+
+    pub fn command_output(
+        tool_call: &NativeAgentToolCall,
+        command: String,
+        exit_code: i64,
+        stdout: String,
+        stderr: String,
+    ) -> Self {
+        let summary = format!("Command exited with code {exit_code}: {command}");
+        let model_content = if stderr.trim().is_empty() {
+            stdout.clone()
+        } else {
+            format!("{stdout}\n{stderr}")
+        };
+        Self::from_parts(
+            "ok",
+            summary,
+            model_content,
+            "command_output",
+            command.clone(),
+            serde_json::json!({
+                "kind": "command_output",
+                "command": command,
+                "exitCode": exit_code,
+                "stdout": stdout,
+                "stderr": stderr,
+            }),
+            serde_json::json!([]),
+            serde_json::json!([]),
+            serde_json::json!([{ "type": "command", "command": command, "exitCode": exit_code }]),
+            tool_call,
+            serde_json::json!({
+                "command": command,
+                "exitCode": exit_code,
+                "stdout": stdout,
+                "stderr": stderr,
+            }),
+        )
+    }
+
+    pub fn knowledge_context(
+        tool_call: &NativeAgentToolCall,
+        summary: String,
+        snippets: Value,
+    ) -> Self {
+        Self::from_parts(
+            "ok",
+            summary.clone(),
+            snippets.to_string(),
+            "knowledge_context",
+            summary,
+            serde_json::json!({
+                "kind": "knowledge_context",
+                "snippets": snippets,
+            }),
+            serde_json::json!([]),
+            serde_json::json!([]),
+            serde_json::json!([]),
+            tool_call,
+            serde_json::json!({ "snippets": snippets }),
+        )
+    }
+
+    fn from_parts(
+        status: &str,
+        summary: String,
+        model_content: String,
+        ui_type: &str,
+        title: String,
+        structured: Value,
+        references: Value,
+        artifacts: Value,
+        side_effects: Value,
+        tool_call: &NativeAgentToolCall,
+        raw_content: Value,
+    ) -> Self {
+        Self {
+            value: serde_json::json!({
+                "status": status,
+                "summary": summary,
+                "modelContent": model_content,
+                "structured": structured,
+                "ui": {
+                    "type": ui_type,
+                    "title": title,
+                    "actions": [],
+                },
+                "references": references,
+                "artifacts": artifacts,
+                "sideEffects": side_effects,
+                "metrics": {
+                    "durationMs": Value::Null,
+                    "modelChars": model_content.chars().count(),
+                    "rawChars": raw_content.to_string().chars().count(),
+                },
+                "trace": {
+                    "toolCallId": tool_call.id,
+                    "toolName": tool_call.name,
+                },
+                "continuation": Value::Null,
+                "redactions": [],
+                "truncation": {
+                    "truncated": false,
+                },
+                "raw": raw_content,
+            }),
+        }
+    }
+}
+
+impl Deref for NativeToolResultEnvelope {
+    type Target = Value;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
+}
+
+impl DerefMut for NativeToolResultEnvelope {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.value
+    }
+}
+
+impl NativeAgentToolResult {
+    fn generic_success(tool_call: &NativeAgentToolCall, raw_content: Value) -> Self {
+        let envelope = NativeToolResultEnvelope::generic_success(tool_call, raw_content);
+        let model_content = envelope
+            .get("modelContent")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        Self {
+            content: Value::String(model_content),
+            envelope,
+        }
+    }
 }
 
 pub trait NativeAgentProvider: Send + Sync {
@@ -205,13 +521,26 @@ impl NativeAgentProvider for RustNativeAgentProvider {
         let provider_config = agent_provider_config(context);
         let completion =
             crate::native_provider_runtime::complete_chat_for_agent(&provider_config, &request)?;
+        let fixture_response = fixture_agent_response(&context.config_snapshot, &context.messages);
 
         Ok(NativeAgentProviderResponse {
-            final_content: chat_completion_content(&completion),
+            final_content: fixture_response
+                .as_ref()
+                .and_then(|response| string_field(response, "content"))
+                .unwrap_or_else(|| chat_completion_content(&completion)),
             reasoning_delta: chat_completion_reasoning_delta(&completion),
             usage: completion.get("usage").cloned(),
-            tool_call: chat_completion_tool_call(&completion)
-                .or_else(|| fixture_agent_tool_call(&context.config_snapshot)),
+            tool_calls: {
+                let chat_tool_calls = chat_completion_tool_calls(&completion);
+                if chat_tool_calls.is_empty() {
+                    fixture_response
+                        .as_ref()
+                        .map(fixture_agent_tool_calls)
+                        .unwrap_or_default()
+                } else {
+                    chat_tool_calls
+                }
+            },
         })
     }
 }
@@ -236,9 +565,10 @@ impl NativeAgentToolDispatcher for FakeNativeAgentToolDispatcher {
                 tool_call.name
             )
         })?;
-        Ok(NativeAgentToolResult {
-            content: tool_call.result.clone(),
-        })
+        Ok(NativeAgentToolResult::generic_success(
+            tool_call,
+            tool_call.result.clone(),
+        ))
     }
 }
 
@@ -306,12 +636,19 @@ fn set_agent_default(config: &mut Value, key: &str, value: Value) {
 }
 
 fn agent_chat_messages(context: &NativeAgentRunContext) -> Result<Value, String> {
-    if let Some(messages) = context.spec.get("messages").and_then(Value::as_array) {
+    if !context.messages.is_empty() {
+        return Ok(Value::Array(context.messages.clone()));
+    }
+    Err("agent run requires at least one chat message".to_string())
+}
+
+fn initial_agent_messages(spec: &Value) -> Vec<Value> {
+    if let Some(messages) = spec.get("messages").and_then(Value::as_array) {
         if !messages.is_empty() {
-            return Ok(Value::Array(messages.clone()));
+            return messages.clone();
         }
     }
-    if let Some(input) = context.spec.get("input").and_then(Value::as_object) {
+    if let Some(input) = spec.get("input").and_then(Value::as_object) {
         let role = input
             .get("role")
             .and_then(Value::as_str)
@@ -322,10 +659,10 @@ fn agent_chat_messages(context: &NativeAgentRunContext) -> Result<Value, String>
             .and_then(Value::as_str)
             .unwrap_or_default();
         if !content.trim().is_empty() {
-            return Ok(serde_json::json!([{ "role": role, "content": content }]));
+            return vec![serde_json::json!({ "role": role, "content": content })];
         }
     }
-    Err("agent run requires at least one chat message".to_string())
+    Vec::new()
 }
 
 fn chat_completion_content(completion: &Value) -> String {
@@ -344,47 +681,78 @@ fn chat_completion_reasoning_delta(completion: &Value) -> Option<String> {
         .map(str::to_string)
 }
 
-fn chat_completion_tool_call(completion: &Value) -> Option<NativeAgentToolCall> {
-    let tool = completion
+fn chat_completion_tool_calls(completion: &Value) -> Vec<NativeAgentToolCall> {
+    completion
         .pointer("/choices/0/message/tool_calls")
         .and_then(Value::as_array)
-        .and_then(|tools| tools.first())?;
-    let function = tool.get("function")?;
-    let name = string_field(function, "name")?;
-    Some(NativeAgentToolCall {
-        id: string_field(tool, "id").unwrap_or_else(|| "tool-call-1".to_string()),
-        name,
-        arguments_json: string_field(function, "arguments").unwrap_or_else(|| "{}".to_string()),
-        result: serde_json::json!({ "ok": true }),
-    })
+        .map(|tools| {
+            tools
+                .iter()
+                .enumerate()
+                .filter_map(|(index, tool)| {
+                    let function = tool.get("function")?;
+                    let name = string_field(function, "name")?;
+                    Some(NativeAgentToolCall {
+                        id: string_field(tool, "id")
+                            .unwrap_or_else(|| format!("tool-call-{}", index + 1)),
+                        name,
+                        arguments_json: string_field(function, "arguments")
+                            .unwrap_or_else(|| "{}".to_string()),
+                        result: serde_json::json!({ "ok": true }),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
-fn fixture_agent_tool_call(config_snapshot: &Value) -> Option<NativeAgentToolCall> {
-    let tool = config_snapshot
+fn fixture_agent_response(config_snapshot: &Value, messages: &[Value]) -> Option<Value> {
+    let response_index = messages
+        .iter()
+        .filter(|message| {
+            message.get("role").and_then(Value::as_str) == Some("assistant")
+                && message
+                    .get("tool_calls")
+                    .and_then(Value::as_array)
+                    .is_some_and(|tool_calls| !tool_calls.is_empty())
+        })
+        .count();
+    config_snapshot
         .get("providers")
         .and_then(|providers| providers.get("fixture"))
         .and_then(|fixture| fixture.get("responses"))
         .and_then(Value::as_array)
-        .and_then(|responses| responses.first())
-        .and_then(|response| {
-            response
-                .get("toolCalls")
-                .or_else(|| response.get("tool_calls"))
-                .and_then(Value::as_array)
+        .and_then(|responses| responses.get(response_index).or_else(|| responses.first()))
+        .cloned()
+}
+
+fn fixture_agent_tool_calls(response: &Value) -> Vec<NativeAgentToolCall> {
+    response
+        .get("toolCalls")
+        .or_else(|| response.get("tool_calls"))
+        .and_then(Value::as_array)
+        .map(|tools| {
+            tools
+                .iter()
+                .enumerate()
+                .filter_map(|(index, tool)| {
+                    let name = string_field(tool, "name")?;
+                    Some(NativeAgentToolCall {
+                        id: string_field(tool, "id")
+                            .unwrap_or_else(|| format!("fixture-call-{index}")),
+                        name,
+                        arguments_json: string_field(tool, "argumentsJson")
+                            .or_else(|| string_field(tool, "arguments_json"))
+                            .unwrap_or_else(|| "{}".to_string()),
+                        result: tool
+                            .get("result")
+                            .cloned()
+                            .unwrap_or_else(|| serde_json::json!({ "ok": true })),
+                    })
+                })
+                .collect()
         })
-        .and_then(|tools| tools.first())?;
-    let name = string_field(tool, "name")?;
-    Some(NativeAgentToolCall {
-        id: string_field(tool, "id").unwrap_or_else(|| "fixture-call-0".to_string()),
-        name,
-        arguments_json: string_field(tool, "argumentsJson")
-            .or_else(|| string_field(tool, "arguments_json"))
-            .unwrap_or_else(|| "{}".to_string()),
-        result: tool
-            .get("result")
-            .cloned()
-            .unwrap_or_else(|| serde_json::json!({ "ok": true })),
-    })
+        .unwrap_or_default()
 }
 
 pub fn resolve_native_agent_runtime_mode(
@@ -416,12 +784,12 @@ pub fn run_native_agent_turn_with_config(
     spec: Value,
     config_snapshot: Value,
 ) -> Result<Value, String> {
-    let context = NativeAgentRunContext::from_spec(spec, config_snapshot);
+    let mut context = NativeAgentRunContext::from_spec(spec, config_snapshot);
     if context.max_iterations <= 0 {
         return Ok(error_result(
             &context.run_id,
             &context.session_id,
-            "max_iterations_exceeded",
+            "max_iterations",
             "Rust agent runtime reached max iterations before provider call.",
         ));
     }
@@ -452,156 +820,327 @@ pub fn run_native_agent_turn_with_config(
     if let Some(result) = maybe_form_submit_result(services, &context) {
         return Ok(result);
     }
+    if context.messages.is_empty() {
+        return Ok(error_result(
+            &context.run_id,
+            &context.session_id,
+            "invalid_request",
+            "Rust agent runtime requires at least one user input or chat message.",
+        ));
+    }
 
-    save_phase_checkpoint(
-        services,
-        &context,
-        "active_turn",
-        serde_json::json!({ "status": "running" }),
-    );
-    let provider_response = match services.provider.complete(&context) {
-        Ok(response) => response,
-        Err(error) => {
-            return Ok(error_result(
-                &context.run_id,
-                &context.session_id,
-                "provider_error",
-                &error,
+    let mut state = NativeAgentRunState::new(&context);
+    for iteration in 0..context.max_iterations {
+        state.set_phase(NativeAgentRunPhase::ActiveTurn, iteration);
+        if services.cancellations.is_cancelled(&context.run_id) {
+            state.phase = NativeAgentRunPhase::Cancelled;
+            return Ok(cancelled_run_result(
+                services,
+                &context,
+                std::mem::take(&mut state.events),
+                std::mem::take(&mut state.tools_used),
+                std::mem::take(&mut state.completed_tool_results),
+                iteration,
             ));
         }
-    };
-
-    let mut events = Vec::new();
-    maybe_emit_checkpoint(services, &context, &mut events, "running");
-    if let Some(reasoning_delta) = provider_response.reasoning_delta {
-        events.push(event(
-            "agent.reasoning_delta",
-            serde_json::json!({
-                "runId": context.run_id,
-                "sessionId": context.session_id,
-                "delta": reasoning_delta,
-            }),
-        ));
-    }
-    if context.stream {
-        events.push(event(
-            "agent.delta",
-            serde_json::json!({
-                "runId": context.run_id,
-                "sessionId": context.session_id,
-                "delta": provider_response.final_content,
-            }),
-        ));
-    }
-
-    let mut tools_used = Vec::new();
-    if let Some(tool_call) = provider_response.tool_call {
-        tools_used.push(tool_call.name.clone());
-        events.push(event(
-            "agent.tool_call.delta",
-            serde_json::json!({
-                "runId": context.run_id,
-                "sessionId": context.session_id,
-                "toolCallId": tool_call.id,
-                "toolName": tool_call.name,
-                "name": tool_call.name,
-                "argumentsDelta": tool_call.arguments_json,
-            }),
-        ));
-        events.push(event(
-            "agent.tool.start",
-            serde_json::json!({
-                "runId": context.run_id,
-                "sessionId": context.session_id,
-                "toolCallId": tool_call.id,
-                "toolName": tool_call.name,
-                "name": tool_call.name,
-            }),
-        ));
         save_phase_checkpoint(
             services,
             &context,
-            "awaiting_tool",
-            serde_json::json!({
-                "toolCallId": tool_call.id,
-                "toolName": tool_call.name,
-                "argumentsJson": tool_call.arguments_json,
-            }),
+            state.phase.as_str(),
+            state.active_checkpoint_payload("running"),
         );
-        let result = match services.tools.dispatch(&context, &tool_call) {
-            Ok(result) => result,
+        context.messages = state.messages.clone();
+        context.spec["messages"] = Value::Array(state.messages.clone());
+        let provider_response = match services.provider.complete(&context) {
+            Ok(response) => response,
             Err(error) => {
-                events.push(event(
+                state.set_stop_reason("provider_error");
+                state.events.push(event(
                     "agent.error",
                     serde_json::json!({
                         "runId": context.run_id,
                         "sessionId": context.session_id,
-                        "stopReason": "tool_error",
+                        "iteration": iteration,
+                        "stopReason": "provider_error",
+                        "message": error,
                         "error": error,
-                        "toolCallId": tool_call.id,
-                        "toolName": tool_call.name,
-                        "name": tool_call.name,
                     }),
                 ));
-                services.checkpoints.clear(&context.session_id);
                 return Ok(serde_json::json!({
                     "runtime": "rust",
                     "runId": context.run_id,
                     "sessionId": context.session_id,
                     "finalContent": "",
-                    "stopReason": "tool_error",
+                    "stopReason": "provider_error",
                     "messages": [],
-                    "toolsUsed": tools_used,
+                    "toolsUsed": state.tools_used,
+                    "completedToolResults": state.completed_tool_results,
                     "error": error,
-                    "events": events,
+                    "events": state.events,
                 }));
             }
         };
-        events.push(event(
-            "agent.tool.result",
+
+        maybe_emit_checkpoint(services, &context, &mut state.events, "running");
+        if let Some(reasoning_delta) = provider_response.reasoning_delta.clone() {
+            state.events.push(event(
+                "agent.reasoning_delta",
+                serde_json::json!({
+                    "runId": context.run_id,
+                    "sessionId": context.session_id,
+                    "iteration": iteration,
+                    "delta": reasoning_delta,
+                }),
+            ));
+        }
+        if context.stream && !provider_response.final_content.is_empty() {
+            state.events.push(event(
+                "agent.delta",
+                serde_json::json!({
+                    "runId": context.run_id,
+                    "sessionId": context.session_id,
+                    "iteration": iteration,
+                    "delta": provider_response.final_content,
+                }),
+            ));
+        }
+
+        if !provider_response.tool_calls.is_empty() {
+            let tool_calls = provider_response.tool_calls;
+            state.messages.push(assistant_tool_calls_message(
+                &provider_response.final_content,
+                &tool_calls,
+            ));
+            for tool_call in tool_calls {
+                state.events.push(event(
+                    "agent.tool_call.delta",
+                    serde_json::json!({
+                        "runId": context.run_id,
+                        "sessionId": context.session_id,
+                        "iteration": iteration,
+                        "toolCallId": tool_call.id,
+                        "toolName": tool_call.name,
+                        "name": tool_call.name,
+                        "argumentsDelta": tool_call.arguments_json,
+                    }),
+                ));
+                if !native_tool_is_permitted(&tool_call.name) {
+                    state.set_stop_reason("policy_denied");
+                    state.events.push(event(
+                        "agent.error",
+                        serde_json::json!({
+                            "runId": context.run_id,
+                            "sessionId": context.session_id,
+                            "iteration": iteration,
+                            "stopReason": "policy_denied",
+                            "error": format!("native tool `{}` is not permitted by Rust capability policy", tool_call.name),
+                            "toolCallId": tool_call.id,
+                            "toolName": tool_call.name,
+                            "name": tool_call.name,
+                        }),
+                    ));
+                    services.checkpoints.clear(&context.session_id);
+                    return Ok(serde_json::json!({
+                        "runtime": "rust",
+                        "runId": context.run_id,
+                        "sessionId": context.session_id,
+                        "finalContent": "",
+                        "stopReason": "policy_denied",
+                        "messages": [],
+                        "toolsUsed": state.tools_used,
+                        "completedToolResults": state.completed_tool_results,
+                        "error": format!("native tool `{}` is not permitted by Rust capability policy", tool_call.name),
+                        "events": state.events,
+                    }));
+                }
+                if services.cancellations.is_cancelled(&context.run_id) {
+                    state.phase = NativeAgentRunPhase::Cancelled;
+                    return Ok(cancelled_run_result(
+                        services,
+                        &context,
+                        std::mem::take(&mut state.events),
+                        std::mem::take(&mut state.tools_used),
+                        std::mem::take(&mut state.completed_tool_results),
+                        iteration,
+                    ));
+                }
+                state.tools_used.push(tool_call.name.clone());
+                state.events.push(event(
+                    "agent.tool.start",
+                    serde_json::json!({
+                        "runId": context.run_id,
+                        "sessionId": context.session_id,
+                        "iteration": iteration,
+                        "toolCallId": tool_call.id,
+                        "toolName": tool_call.name,
+                        "name": tool_call.name,
+                    }),
+                ));
+                state.set_pending_tool_call(&tool_call);
+                save_phase_checkpoint(
+                    services,
+                    &context,
+                    state.phase.as_str(),
+                    serde_json::json!({
+                        "iteration": iteration,
+                        "toolCallId": tool_call.id,
+                        "toolName": tool_call.name,
+                        "argumentsJson": tool_call.arguments_json,
+                        "pendingToolCalls": state.pending_tool_calls.clone(),
+                        "completedToolResults": state.completed_tool_results.clone(),
+                    }),
+                );
+                let result = match services.tools.dispatch(&context, &tool_call) {
+                    Ok(result) => result,
+                    Err(error) => {
+                        state.set_stop_reason("tool_error");
+                        state.events.push(event(
+                            "agent.error",
+                            serde_json::json!({
+                                "runId": context.run_id,
+                                "sessionId": context.session_id,
+                                "iteration": iteration,
+                                "stopReason": "tool_error",
+                                "error": error,
+                                "toolCallId": tool_call.id,
+                                "toolName": tool_call.name,
+                                "name": tool_call.name,
+                            }),
+                        ));
+                        services.checkpoints.clear(&context.session_id);
+                        return Ok(serde_json::json!({
+                            "runtime": "rust",
+                            "runId": context.run_id,
+                            "sessionId": context.session_id,
+                            "finalContent": "",
+                            "stopReason": "tool_error",
+                            "messages": [],
+                            "toolsUsed": state.tools_used,
+                            "completedToolResults": state.completed_tool_results,
+                            "error": error,
+                            "events": state.events,
+                        }));
+                    }
+                };
+                let result = normalize_tool_result_for_context(result, &context);
+                let observation_content = tool_observation_content(&result);
+                let completed_result = completed_tool_result_entry(&tool_call, &result);
+                state
+                    .messages
+                    .push(tool_observation_message(&tool_call, &observation_content));
+                state.events.push(event(
+                    "agent.tool.result",
+                    serde_json::json!({
+                        "runId": context.run_id,
+                        "sessionId": context.session_id,
+                        "iteration": iteration,
+                        "toolCallId": tool_call.id,
+                        "toolName": tool_call.name,
+                        "name": tool_call.name,
+                        "content": observation_content,
+                        "envelope": result.envelope.clone(),
+                    }),
+                ));
+                state.completed_tool_results.push(completed_result);
+                state.clear_pending_tool_calls();
+                state.set_phase(NativeAgentRunPhase::ActiveTurn, iteration);
+                save_phase_checkpoint(
+                    services,
+                    &context,
+                    state.phase.as_str(),
+                    state.active_checkpoint_payload("tool_completed"),
+                );
+                if services.cancellations.is_cancelled(&context.run_id) {
+                    state.phase = NativeAgentRunPhase::Cancelled;
+                    return Ok(cancelled_run_result(
+                        services,
+                        &context,
+                        std::mem::take(&mut state.events),
+                        std::mem::take(&mut state.tools_used),
+                        std::mem::take(&mut state.completed_tool_results),
+                        iteration,
+                    ));
+                }
+            }
+
+            if let Some(usage) = provider_response.usage {
+                state.usage.push(usage.clone());
+                state.events.push(event(
+                    "agent.usage",
+                    serde_json::json!({
+                        "runId": context.run_id,
+                        "sessionId": context.session_id,
+                        "iteration": iteration,
+                        "usage": usage,
+                    }),
+                ));
+            }
+            continue;
+        }
+
+        let final_content = provider_response.final_content;
+        if let Some(usage) = provider_response.usage {
+            state.usage.push(usage.clone());
+            state.events.push(event(
+                "agent.usage",
+                serde_json::json!({
+                    "runId": context.run_id,
+                    "sessionId": context.session_id,
+                    "iteration": iteration,
+                    "usage": usage,
+                }),
+            ));
+        }
+        state.set_stop_reason("final_response");
+        services.checkpoints.clear(&context.session_id);
+        state.events.push(event(
+            "agent.done",
             serde_json::json!({
                 "runId": context.run_id,
                 "sessionId": context.session_id,
-                "toolCallId": tool_call.id,
-                "toolName": tool_call.name,
-                "name": tool_call.name,
-                "content": result.content,
+                "iteration": iteration,
+                "stopReason": "final_response",
             }),
         ));
+
+        return Ok(serde_json::json!({
+            "runtime": "rust",
+            "runId": context.run_id,
+            "sessionId": context.session_id,
+            "finalContent": final_content,
+            "stopReason": "final_response",
+            "messages": [{
+                "role": "assistant",
+                "content": final_content
+            }],
+            "toolsUsed": state.tools_used,
+            "completedToolResults": state.completed_tool_results,
+            "events": state.events,
+        }));
     }
 
-    if let Some(usage) = provider_response.usage {
-        events.push(event(
-            "agent.usage",
-            serde_json::json!({
-                "runId": context.run_id,
-                "sessionId": context.session_id,
-                "usage": usage,
-            }),
-        ));
-    }
-    services.checkpoints.clear(&context.session_id);
-    events.push(event(
-        "agent.done",
+    let error = "Rust agent runtime reached max iterations before final response.";
+    state.set_stop_reason("max_iterations");
+    state.events.push(event(
+        "agent.error",
         serde_json::json!({
             "runId": context.run_id,
             "sessionId": context.session_id,
-            "stopReason": "final_response",
+            "stopReason": "max_iterations",
+            "error": error,
         }),
     ));
-
     Ok(serde_json::json!({
         "runtime": "rust",
         "runId": context.run_id,
         "sessionId": context.session_id,
-        "finalContent": provider_response.final_content,
-        "stopReason": "final_response",
-        "messages": [{
-            "role": "assistant",
-            "content": provider_response.final_content
-        }],
-        "toolsUsed": tools_used,
-        "events": events,
+        "finalContent": "",
+        "stopReason": "max_iterations",
+        "messages": [],
+        "toolsUsed": state.tools_used,
+        "completedToolResults": state.completed_tool_results,
+        "error": error,
+        "events": state.events,
     }))
 }
 
@@ -644,6 +1183,7 @@ impl NativeAgentRunContext {
         Self {
             run_id,
             session_id,
+            messages: initial_agent_messages(&spec),
             spec,
             config_snapshot,
             metadata,
@@ -653,6 +1193,243 @@ impl NativeAgentRunContext {
             max_iterations,
         }
     }
+}
+
+fn assistant_tool_calls_message(content: &str, tool_calls: &[NativeAgentToolCall]) -> Value {
+    serde_json::json!({
+        "role": "assistant",
+        "content": content,
+        "tool_calls": tool_calls
+            .iter()
+            .map(|tool_call| {
+                serde_json::json!({
+                    "id": tool_call.id,
+                    "type": "function",
+                    "function": {
+                        "name": tool_call.name,
+                        "arguments": tool_call.arguments_json,
+                    }
+                })
+            })
+            .collect::<Vec<_>>()
+    })
+}
+
+fn tool_observation_message(tool_call: &NativeAgentToolCall, content: &str) -> Value {
+    serde_json::json!({
+        "role": "tool",
+        "tool_call_id": tool_call.id,
+        "name": tool_call.name,
+        "content": content,
+    })
+}
+
+fn tool_observation_content(result: &NativeAgentToolResult) -> String {
+    if let Some(content) = result.envelope.get("modelContent").and_then(Value::as_str) {
+        return content.to_string();
+    }
+    legacy_tool_content(&result.content)
+}
+
+fn normalize_tool_result_for_context(
+    mut result: NativeAgentToolResult,
+    context: &NativeAgentRunContext,
+) -> NativeAgentToolResult {
+    let secrets = config_redaction_values(&context.config_snapshot);
+    let max_model_chars = configured_max_tool_result_chars(context);
+    let mut redactions = Vec::new();
+    let mut model_content = result
+        .envelope
+        .get("modelContent")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| legacy_tool_content(&result.content));
+    model_content = redact_sensitive_text(&model_content, &secrets, &mut redactions);
+    let original_model_chars = model_content.chars().count();
+    let mut truncated = false;
+    if let Some(max_model_chars) = max_model_chars {
+        if original_model_chars > max_model_chars {
+            model_content = model_content.chars().take(max_model_chars).collect();
+            truncated = true;
+        }
+    }
+
+    if let Some(envelope) = result.envelope.as_object_mut() {
+        envelope.insert(
+            "modelContent".to_string(),
+            Value::String(model_content.clone()),
+        );
+        let summary = envelope
+            .get("summary")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| model_content.clone());
+        envelope.insert(
+            "summary".to_string(),
+            Value::String(redact_sensitive_text(&summary, &secrets, &mut redactions)),
+        );
+        if let Some(structured) = envelope.get_mut("structured") {
+            redact_sensitive_value(structured, &secrets, &mut redactions);
+        }
+        if let Some(raw) = envelope.get_mut("raw") {
+            redact_sensitive_value(raw, &secrets, &mut redactions);
+        }
+        if let Some(metrics) = envelope.get_mut("metrics").and_then(Value::as_object_mut) {
+            metrics.insert(
+                "modelChars".to_string(),
+                serde_json::json!(model_content.chars().count()),
+            );
+            metrics.insert(
+                "originalModelChars".to_string(),
+                serde_json::json!(original_model_chars),
+            );
+        }
+        envelope.insert(
+            "redactions".to_string(),
+            Value::Array(redactions.into_iter().map(Value::String).collect()),
+        );
+        envelope.insert(
+            "truncation".to_string(),
+            serde_json::json!({
+                "truncated": truncated,
+                "maxModelChars": max_model_chars,
+                "originalModelChars": original_model_chars,
+            }),
+        );
+        if truncated {
+            envelope.insert(
+                "continuation".to_string(),
+                serde_json::json!({
+                    "cursor": format!("modelContent:{original_model_chars}"),
+                    "nextOffset": model_content.chars().count(),
+                }),
+            );
+        }
+    }
+    result.content = Value::String(model_content);
+    result
+}
+
+fn configured_max_tool_result_chars(context: &NativeAgentRunContext) -> Option<usize> {
+    context
+        .spec
+        .get("maxToolResultChars")
+        .or_else(|| context.spec.get("max_tool_result_chars"))
+        .or_else(|| context.metadata.get("maxToolResultChars"))
+        .or_else(|| context.metadata.get("max_tool_result_chars"))
+        .or_else(|| {
+            context
+                .config_snapshot
+                .get("agents")
+                .and_then(|agents| agents.get("defaults"))
+                .and_then(|defaults| {
+                    defaults
+                        .get("maxToolResultChars")
+                        .or_else(|| defaults.get("max_tool_result_chars"))
+                })
+        })
+        .or_else(|| context.config_snapshot.get("maxToolResultChars"))
+        .or_else(|| context.config_snapshot.get("max_tool_result_chars"))
+        .and_then(Value::as_u64)
+        .and_then(|value| usize::try_from(value).ok())
+        .filter(|value| *value > 0)
+}
+
+fn config_redaction_values(value: &Value) -> Vec<String> {
+    let mut redactions = Vec::new();
+    collect_config_redaction_values(value, None, &mut redactions);
+    redactions
+}
+
+fn collect_config_redaction_values(value: &Value, key: Option<&str>, redactions: &mut Vec<String>) {
+    match value {
+        Value::Object(map) => {
+            for (child_key, child_value) in map {
+                collect_config_redaction_values(child_value, Some(child_key), redactions);
+            }
+        }
+        Value::Array(values) => {
+            for child_value in values {
+                collect_config_redaction_values(child_value, key, redactions);
+            }
+        }
+        Value::String(secret) => {
+            let key = key.unwrap_or_default().to_ascii_lowercase();
+            let sensitive_key = key.contains("api_key")
+                || key.contains("apikey")
+                || key.contains("token")
+                || key.contains("secret")
+                || key.contains("password");
+            if sensitive_key && secret.chars().count() >= 4 {
+                redactions.push(secret.clone());
+            }
+        }
+        _ => {}
+    }
+}
+
+fn redact_sensitive_text(text: &str, secrets: &[String], redactions: &mut Vec<String>) -> String {
+    let mut redacted = text.to_string();
+    for secret in secrets {
+        if secret.is_empty() || !redacted.contains(secret) {
+            continue;
+        }
+        redacted = redacted.replace(secret, "[REDACTED]");
+        if !redactions.iter().any(|entry| entry == "config_secret") {
+            redactions.push("config_secret".to_string());
+        }
+    }
+    redacted
+}
+
+fn redact_sensitive_value(value: &mut Value, secrets: &[String], redactions: &mut Vec<String>) {
+    match value {
+        Value::String(text) => {
+            *text = redact_sensitive_text(text, secrets, redactions);
+        }
+        Value::Array(values) => {
+            for child in values {
+                redact_sensitive_value(child, secrets, redactions);
+            }
+        }
+        Value::Object(map) => {
+            for child in map.values_mut() {
+                redact_sensitive_value(child, secrets, redactions);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn completed_tool_result_entry(
+    tool_call: &NativeAgentToolCall,
+    result: &NativeAgentToolResult,
+) -> Value {
+    serde_json::json!({
+        "toolCallId": tool_call.id,
+        "toolName": tool_call.name,
+        "status": result
+            .envelope
+            .get("status")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!("ok")),
+        "summary": result
+            .envelope
+            .get("summary")
+            .cloned()
+            .unwrap_or_else(|| result.content.clone()),
+        "envelope": result.envelope,
+    })
+}
+
+fn legacy_tool_content(value: &Value) -> String {
+    if let Some(content) = value.as_str() {
+        return content.to_string();
+    }
+    if let Some(content) = value.get("content").and_then(Value::as_str) {
+        return content.to_string();
+    }
+    value.to_string()
 }
 
 fn normalized_session_id(spec: &Value) -> Option<String> {
@@ -700,8 +1477,15 @@ fn maybe_awaiting_approval_result(
         context,
         "awaiting_approval",
         serde_json::json!({
+            "iteration": 0,
             "approval_id": approval_id,
             "operation": approval,
+            "pendingToolCalls": [{
+                "toolCallId": approval_id,
+                "toolName": tool_name,
+                "argumentsJson": Value::Null,
+            }],
+            "resumeToken": format!("approval:{approval_id}"),
         }),
     );
     services
@@ -826,8 +1610,11 @@ fn maybe_awaiting_form_result(
         context,
         "awaiting_form",
         serde_json::json!({
+            "iteration": 0,
             "form_id": form_id,
             "form": form,
+            "pendingToolCalls": [],
+            "resumeToken": format!("form:{form_id}"),
         }),
     );
     services
@@ -952,13 +1739,37 @@ fn maybe_emit_checkpoint(
 
 fn checkpoint_value(context: &NativeAgentRunContext, phase: &str, payload: Value) -> Value {
     serde_json::json!({
+        "schemaVersion": 1,
         "runtime": "rust",
         "runId": context.run_id,
         "sessionId": context.session_id,
         "phase": phase,
+        "iteration": payload.get("iteration").cloned().unwrap_or(Value::Null),
+        "maxIterations": context.max_iterations,
+        "pendingToolCalls": checkpoint_pending_tool_calls(&payload),
+        "completedToolResults": payload
+            .get("completedToolResults")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!([])),
+        "resumeToken": payload.get("resumeToken").cloned().unwrap_or(Value::Null),
+        "stopReason": payload.get("stopReason").cloned().unwrap_or(Value::Null),
         "payload": payload,
         "messages": context.spec.get("messages").cloned().unwrap_or_else(|| serde_json::json!([])),
     })
+}
+
+fn checkpoint_pending_tool_calls(payload: &Value) -> Value {
+    if let Some(pending) = payload.get("pendingToolCalls") {
+        return pending.clone();
+    }
+    let Some(tool_call_id) = payload.get("toolCallId").cloned() else {
+        return serde_json::json!([]);
+    };
+    serde_json::json!([{
+        "toolCallId": tool_call_id,
+        "toolName": payload.get("toolName").cloned().unwrap_or(Value::Null),
+        "argumentsJson": payload.get("argumentsJson").cloned().unwrap_or(Value::Null),
+    }])
 }
 
 fn error_result(run_id: &str, session_id: &str, stop_reason: &str, message: &str) -> Value {
@@ -967,7 +1778,9 @@ fn error_result(run_id: &str, session_id: &str, stop_reason: &str, message: &str
         serde_json::json!({
             "runId": run_id,
             "sessionId": session_id,
+            "stopReason": stop_reason,
             "message": message,
+            "error": message,
         }),
     )];
     serde_json::json!({
@@ -1021,6 +1834,51 @@ fn cancelled_result(run_id: &str, session_id: &str, checkpoint: Value) -> Value 
     })
 }
 
+fn cancelled_run_result(
+    services: &NativeAgentRuntimeServices,
+    context: &NativeAgentRunContext,
+    mut events: Vec<NativeAgentEvent>,
+    tools_used: Vec<String>,
+    completed_tool_results: Vec<Value>,
+    iteration: i64,
+) -> Value {
+    let checkpoint = save_phase_checkpoint(
+        services,
+        context,
+        "cancelled",
+        serde_json::json!({
+            "cancelled": true,
+            "iteration": iteration,
+            "completedToolResults": completed_tool_results.clone(),
+            "stopReason": "cancelled",
+        }),
+    );
+    events.push(event(
+        "agent.cancelled",
+        serde_json::json!({
+            "runId": context.run_id,
+            "sessionId": context.session_id,
+            "iteration": iteration,
+            "cancelled": true,
+            "stopReason": "cancelled",
+            "error": "cancelled",
+        }),
+    ));
+    serde_json::json!({
+        "runtime": "rust",
+        "runId": context.run_id,
+        "sessionId": context.session_id,
+        "finalContent": "",
+        "stopReason": "cancelled",
+        "messages": [],
+        "toolsUsed": tools_used,
+        "completedToolResults": completed_tool_results,
+        "error": "cancelled",
+        "checkpoint": checkpoint,
+        "events": events,
+    })
+}
+
 fn event(event_name: &str, payload: Value) -> NativeAgentEvent {
     NativeAgentEvent {
         event_name: event_name.to_string(),
@@ -1052,7 +1910,7 @@ fn bool_field(value: &Value, key: &str) -> bool {
 mod tests {
     use super::*;
     use serde_json::json;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn selects_rust_runtime_from_spec_or_config() {
@@ -1114,6 +1972,31 @@ mod tests {
     }
 
     #[test]
+    fn invalid_request_stops_before_provider_call() {
+        let result = run_native_agent_turn_with_config(
+            &NativeAgentRuntimeServices::default(),
+            json!({
+                "runtime": "rust",
+                "runId": "run-invalid",
+                "sessionId": "websocket:chat-invalid"
+            }),
+            json!({
+                "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+                "providers": { "fixture": { "responses": [{ "content": "should not be used" }] } }
+            }),
+        )
+        .expect("invalid request should return a structured result");
+
+        assert_eq!(result["stopReason"], "invalid_request");
+        assert_eq!(result["finalContent"], "");
+        assert_eq!(event_names(&result), vec!["agent.error"]);
+        assert_eq!(
+            result["events"][0]["payload"]["stopReason"],
+            "invalid_request"
+        );
+    }
+
+    #[test]
     fn runs_fixture_streaming_final_answer_with_frontend_events() {
         let result = run_native_agent_turn(json!({
             "runtime": "rust",
@@ -1141,21 +2024,25 @@ mod tests {
                 "runtime": "rust",
                 "runId": "run-tool",
                 "sessionId": "websocket:chat-1",
+                "maxIterations": 2,
                 "messages": [{ "role": "user", "content": "read" }]
             }),
             json!({
                 "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
                 "providers": {
                     "fixture": {
-                        "responses": [{
-                            "content": "tool complete",
-                            "toolCalls": [{
-                                "id": "call-1",
-                                "name": "workspace.read_file",
-                                "argumentsJson": "{\"path\":\"README.md\"}",
-                                "result": { "content": "README" }
-                            }]
-                        }]
+                        "responses": [
+                            {
+                                "content": "",
+                                "toolCalls": [{
+                                    "id": "call-1",
+                                    "name": "workspace.read_file",
+                                    "argumentsJson": "{\"path\":\"README.md\"}",
+                                    "result": { "content": "README" }
+                                }]
+                            },
+                            { "content": "tool complete" }
+                        ]
                     }
                 }
             }),
@@ -1164,16 +2051,449 @@ mod tests {
 
         let event_names = event_names(&result);
         assert_eq!(
-            event_names,
+            &event_names[..3],
+            &[
+                "agent.tool_call.delta",
+                "agent.tool.start",
+                "agent.tool.result"
+            ]
+        );
+        assert_eq!(event_names.last().copied(), Some("agent.done"));
+        assert_eq!(result["finalContent"], "tool complete");
+        assert_eq!(result["toolsUsed"][0], "workspace.read_file");
+    }
+
+    #[test]
+    fn feeds_tool_observation_back_into_second_provider_call() {
+        struct TwoStepProvider {
+            seen_messages: Mutex<Vec<Value>>,
+        }
+
+        impl NativeAgentProvider for TwoStepProvider {
+            fn complete(
+                &self,
+                context: &NativeAgentRunContext,
+            ) -> Result<NativeAgentProviderResponse, String> {
+                let request = agent_chat_completion_request(context)
+                    .expect("provider context should build request messages");
+                self.seen_messages
+                    .lock()
+                    .expect("seen messages lock should not be poisoned")
+                    .push(request["messages"].clone());
+                let call_count = self
+                    .seen_messages
+                    .lock()
+                    .expect("seen messages lock should not be poisoned")
+                    .len();
+
+                if call_count == 1 {
+                    Ok(NativeAgentProviderResponse {
+                        final_content: String::new(),
+                        reasoning_delta: None,
+                        usage: None,
+                        tool_calls: vec![NativeAgentToolCall {
+                            id: "call-read".to_string(),
+                            name: "workspace.read_file".to_string(),
+                            arguments_json: "{\"path\":\"README.md\"}".to_string(),
+                            result: json!({ "content": "README body" }),
+                        }],
+                    })
+                } else {
+                    Ok(NativeAgentProviderResponse {
+                        final_content: "I read README body.".to_string(),
+                        reasoning_delta: None,
+                        usage: None,
+                        tool_calls: Vec::new(),
+                    })
+                }
+            }
+        }
+
+        let provider = Arc::new(TwoStepProvider {
+            seen_messages: Mutex::new(Vec::new()),
+        });
+        let services = NativeAgentRuntimeServices::new(
+            provider.clone(),
+            Arc::new(FakeNativeAgentToolDispatcher),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        );
+
+        let result = run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-tool-loop",
+                "sessionId": "websocket:chat-tool-loop",
+                "maxIterations": 4,
+                "messages": [{ "role": "user", "content": "read README then answer" }]
+            }),
+        )
+        .expect("multi-iteration tool run should complete");
+
+        let seen_messages = provider
+            .seen_messages
+            .lock()
+            .expect("seen messages lock should not be poisoned");
+        assert_eq!(seen_messages.len(), 2);
+        assert_eq!(result["finalContent"], "I read README body.");
+        assert_eq!(result["stopReason"], "final_response");
+        assert!(seen_messages[1]
+            .as_array()
+            .expect("messages should be an array")
+            .iter()
+            .any(|message| message["role"] == "tool"
+                && message["tool_call_id"] == "call-read"
+                && message["content"]
+                    .as_str()
+                    .expect("tool observation should be text")
+                    .contains("README body")));
+    }
+
+    #[test]
+    fn provider_error_after_tool_result_preserves_accumulated_tool_state() {
+        struct ToolThenErrorProvider {
+            calls: Mutex<usize>,
+        }
+
+        impl NativeAgentProvider for ToolThenErrorProvider {
+            fn complete(
+                &self,
+                _context: &NativeAgentRunContext,
+            ) -> Result<NativeAgentProviderResponse, String> {
+                let mut calls = self.calls.lock().expect("provider calls lock");
+                *calls += 1;
+                if *calls == 1 {
+                    return Ok(NativeAgentProviderResponse {
+                        final_content: String::new(),
+                        reasoning_delta: None,
+                        usage: None,
+                        tool_calls: vec![NativeAgentToolCall {
+                            id: "call-before-provider-error".to_string(),
+                            name: "workspace.read_file".to_string(),
+                            arguments_json: "{\"path\":\"README.md\"}".to_string(),
+                            result: json!({ "content": "README before provider error" }),
+                        }],
+                    });
+                }
+
+                Err("provider failed after tool result".to_string())
+            }
+        }
+
+        let services = NativeAgentRuntimeServices::new(
+            Arc::new(ToolThenErrorProvider {
+                calls: Mutex::new(0),
+            }),
+            Arc::new(FakeNativeAgentToolDispatcher),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        );
+        let result = run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-provider-error-after-tool",
+                "sessionId": "websocket:chat-provider-error-after-tool",
+                "maxIterations": 3,
+                "messages": [{ "role": "user", "content": "read then fail" }]
+            }),
+        )
+        .expect("provider error should return a structured result");
+
+        assert_eq!(result["stopReason"], "provider_error");
+        assert_eq!(result["toolsUsed"], json!(["workspace.read_file"]));
+        assert_eq!(result["completedToolResults"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            result["completedToolResults"][0]["toolCallId"],
+            "call-before-provider-error"
+        );
+        assert_eq!(
+            event_names(&result),
             vec![
                 "agent.tool_call.delta",
                 "agent.tool.start",
                 "agent.tool.result",
-                "agent.usage",
-                "agent.done"
+                "agent.error"
             ]
         );
-        assert_eq!(result["toolsUsed"][0], "workspace.read_file");
+    }
+
+    #[test]
+    fn emits_tool_result_envelope_with_legacy_content_projection() {
+        let services = NativeAgentRuntimeServices::default();
+        let result = run_native_agent_turn_with_config(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-tool-envelope",
+                "sessionId": "websocket:chat-tool-envelope",
+                "maxIterations": 2,
+                "messages": [{ "role": "user", "content": "read" }]
+            }),
+            json!({
+                "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+                "providers": {
+                    "fixture": {
+                        "responses": [
+                            {
+                                "content": "",
+                                "toolCalls": [{
+                                    "id": "call-envelope",
+                                    "name": "workspace.read_file",
+                                    "argumentsJson": "{\"path\":\"README.md\"}",
+                                    "result": { "content": "README envelope body" }
+                                }]
+                            },
+                            { "content": "envelope final" }
+                        ]
+                    }
+                }
+            }),
+        )
+        .expect("fixture tool run should succeed");
+
+        let tool_result = result["events"]
+            .as_array()
+            .expect("events should be an array")
+            .iter()
+            .find(|event| event["eventName"] == "agent.tool.result")
+            .expect("tool result event should be emitted");
+        let payload = &tool_result["payload"];
+
+        assert_eq!(payload["content"], "README envelope body");
+        assert_eq!(payload["envelope"]["status"], "ok");
+        assert_eq!(payload["envelope"]["summary"], "README envelope body");
+        assert_eq!(payload["envelope"]["modelContent"], "README envelope body");
+        assert_eq!(payload["envelope"]["ui"]["type"], "generic_result");
+        assert_eq!(payload["envelope"]["ui"]["title"], "workspace.read_file");
+        assert!(payload["envelope"]["references"]
+            .as_array()
+            .expect("references should be an array")
+            .is_empty());
+        assert_eq!(payload["envelope"]["metrics"]["modelChars"], 20);
+        assert_eq!(payload["envelope"]["trace"]["toolCallId"], "call-envelope");
+        assert_eq!(
+            payload["envelope"]["trace"]["toolName"],
+            "workspace.read_file"
+        );
+    }
+
+    #[test]
+    fn tool_result_projection_redacts_and_truncates_model_content() {
+        let result = run_native_agent_turn_with_config(
+            &NativeAgentRuntimeServices::default(),
+            json!({
+                "runtime": "rust",
+                "runId": "run-tool-budget",
+                "sessionId": "websocket:chat-tool-budget",
+                "maxIterations": 2,
+                "messages": [{ "role": "user", "content": "read bounded result" }]
+            }),
+            json!({
+                "agents": {
+                    "defaults": {
+                        "provider": "fixture",
+                        "model": "fixture-model",
+                        "maxToolResultChars": 12
+                    }
+                },
+                "providers": {
+                    "fixture": {
+                        "api_key": "secret-token",
+                        "responses": [
+                            {
+                                "content": "",
+                                "toolCalls": [{
+                                    "id": "call-budget",
+                                    "name": "workspace.read_file",
+                                    "argumentsJson": "{\"path\":\"README.md\"}",
+                                    "result": { "content": "secret-token ABCDEFGHIJKLMNOP" }
+                                }]
+                            },
+                            { "content": "bounded final" }
+                        ]
+                    }
+                }
+            }),
+        )
+        .expect("bounded tool result run should complete");
+        let tool_result = result["events"]
+            .as_array()
+            .expect("events should be an array")
+            .iter()
+            .find(|event| event["eventName"] == "agent.tool.result")
+            .expect("tool result event should be emitted");
+        let content = tool_result["payload"]["content"]
+            .as_str()
+            .expect("legacy content should be text");
+
+        assert!(!content.contains("secret-token"));
+        assert!(content.chars().count() <= 12);
+        assert_eq!(
+            tool_result["payload"]["envelope"]["truncation"]["truncated"],
+            true
+        );
+        assert_eq!(
+            tool_result["payload"]["envelope"]["redactions"][0],
+            "config_secret"
+        );
+        assert!(!tool_result["payload"]["envelope"]["modelContent"]
+            .as_str()
+            .unwrap()
+            .contains("secret-token"));
+        assert!(!tool_result["payload"]["envelope"]
+            .to_string()
+            .contains("secret-token"));
+        assert_eq!(
+            tool_result["payload"]["envelope"]["continuation"]["nextOffset"],
+            12
+        );
+    }
+
+    #[test]
+    fn dispatches_multiple_tool_calls_from_one_provider_response_in_order() {
+        let services = NativeAgentRuntimeServices::default();
+        let result = run_native_agent_turn_with_config(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-multiple-tools",
+                "sessionId": "websocket:chat-multiple-tools",
+                "maxIterations": 2,
+                "messages": [{ "role": "user", "content": "inspect workspace" }]
+            }),
+            json!({
+                "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+                "providers": {
+                    "fixture": {
+                        "responses": [
+                            {
+                                "content": "",
+                                "toolCalls": [
+                                    {
+                                        "id": "call-read",
+                                        "name": "workspace.read_file",
+                                        "argumentsJson": "{\"path\":\"README.md\"}",
+                                        "result": { "content": "README body" }
+                                    },
+                                    {
+                                        "id": "call-list",
+                                        "name": "workspace.list_files",
+                                        "argumentsJson": "{\"path\":\"src\"}",
+                                        "result": { "content": "src/main.ts" }
+                                    }
+                                ]
+                            },
+                            { "content": "workspace inspected" }
+                        ]
+                    }
+                }
+            }),
+        )
+        .expect("multiple tool run should succeed");
+
+        let tool_results = result["events"]
+            .as_array()
+            .expect("events should be an array")
+            .iter()
+            .filter(|event| event["eventName"] == "agent.tool.result")
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            result["toolsUsed"],
+            json!(["workspace.read_file", "workspace.list_files"])
+        );
+        assert_eq!(tool_results.len(), 2);
+        assert_eq!(tool_results[0]["payload"]["toolCallId"], "call-read");
+        assert_eq!(tool_results[1]["payload"]["toolCallId"], "call-list");
+        assert_eq!(result["finalContent"], "workspace inspected");
+    }
+
+    #[test]
+    fn later_tool_error_preserves_earlier_completed_tool_result() {
+        struct TwoToolProvider;
+
+        impl NativeAgentProvider for TwoToolProvider {
+            fn complete(
+                &self,
+                _context: &NativeAgentRunContext,
+            ) -> Result<NativeAgentProviderResponse, String> {
+                Ok(NativeAgentProviderResponse {
+                    final_content: "".to_string(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: vec![
+                        NativeAgentToolCall {
+                            id: "call-first-ok".to_string(),
+                            name: "workspace.read_file".to_string(),
+                            arguments_json: "{\"path\":\"README.md\"}".to_string(),
+                            result: json!({ "content": "README" }),
+                        },
+                        NativeAgentToolCall {
+                            id: "call-second-fails".to_string(),
+                            name: "workspace.list_files".to_string(),
+                            arguments_json: "{\"path\":\"missing\"}".to_string(),
+                            result: json!({ "content": "unused" }),
+                        },
+                    ],
+                })
+            }
+        }
+
+        struct FailingSecondToolDispatcher;
+
+        impl NativeAgentToolDispatcher for FailingSecondToolDispatcher {
+            fn dispatch(
+                &self,
+                _context: &NativeAgentRunContext,
+                tool_call: &NativeAgentToolCall,
+            ) -> Result<NativeAgentToolResult, String> {
+                if tool_call.id == "call-second-fails" {
+                    return Err("missing path".to_string());
+                }
+                Ok(NativeAgentToolResult::generic_success(
+                    tool_call,
+                    tool_call.result.clone(),
+                ))
+            }
+        }
+
+        let result = run_native_agent_turn_with_services(
+            &NativeAgentRuntimeServices::new(
+                Arc::new(TwoToolProvider),
+                Arc::new(FailingSecondToolDispatcher),
+                Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+                Arc::new(InMemoryNativeAgentCancellation::default()),
+            ),
+            json!({
+                "runtime": "rust",
+                "runId": "run-later-tool-error",
+                "sessionId": "websocket:chat-later-tool-error",
+                "maxIterations": 2,
+                "messages": [{ "role": "user", "content": "run two tools" }]
+            }),
+        )
+        .expect("later tool error should return structured failure");
+
+        assert_eq!(result["stopReason"], "tool_error");
+        assert_eq!(
+            result["toolsUsed"],
+            json!(["workspace.read_file", "workspace.list_files"])
+        );
+        assert_eq!(result["completedToolResults"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            result["completedToolResults"][0]["toolCallId"],
+            "call-first-ok"
+        );
+        assert_eq!(
+            result["events"].as_array().unwrap().last().unwrap()["eventName"],
+            "agent.error"
+        );
+        assert_eq!(
+            result["events"].as_array().unwrap().last().unwrap()["payload"]["toolCallId"],
+            "call-second-fails"
+        );
     }
 
     #[test]
@@ -1206,17 +2526,17 @@ mod tests {
         )
         .expect("tool denial should return a structured result");
 
-        assert_eq!(result["stopReason"], "tool_error");
-        assert_eq!(result["toolsUsed"][0], "shell.exec");
+        assert_eq!(result["stopReason"], "policy_denied");
+        assert_eq!(result["toolsUsed"], json!([]));
         assert!(result["error"]
             .as_str()
             .expect("tool error should be a string")
             .contains("not permitted"));
         assert_eq!(
             event_names(&result),
-            vec!["agent.tool_call.delta", "agent.tool.start", "agent.error"]
+            vec!["agent.tool_call.delta", "agent.error"]
         );
-        assert_eq!(result["events"][2]["payload"]["toolName"], "shell.exec");
+        assert_eq!(result["events"][1]["payload"]["toolName"], "shell.exec");
     }
 
     #[test]
@@ -1242,14 +2562,271 @@ mod tests {
 
         assert_eq!(provider_error["stopReason"], "provider_error");
         assert_eq!(provider_error["events"][0]["eventName"], "agent.error");
-        assert_eq!(iteration_error["stopReason"], "max_iterations_exceeded");
+        assert_eq!(iteration_error["stopReason"], "max_iterations");
         assert_eq!(iteration_error["events"][0]["eventName"], "agent.error");
+    }
+
+    #[test]
+    fn stops_with_max_iterations_after_bounded_tool_iterations() {
+        let result = run_native_agent_turn_with_config(
+            &NativeAgentRuntimeServices::default(),
+            json!({
+                "runtime": "rust",
+                "runId": "run-max-iterations",
+                "sessionId": "websocket:chat-max-iterations",
+                "maxIterations": 1,
+                "messages": [{ "role": "user", "content": "read forever" }]
+            }),
+            json!({
+                "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+                "providers": {
+                    "fixture": {
+                        "responses": [
+                            {
+                                "content": "",
+                                "toolCalls": [{
+                                    "id": "call-read",
+                                    "name": "workspace.read_file",
+                                    "argumentsJson": "{\"path\":\"README.md\"}",
+                                    "result": { "content": "README body" }
+                                }]
+                            },
+                            { "content": "unreachable final" }
+                        ]
+                    }
+                }
+            }),
+        )
+        .expect("max iteration run should return a structured result");
+
+        assert_eq!(result["stopReason"], "max_iterations");
+        assert_eq!(result["finalContent"], "");
+        assert_eq!(result["toolsUsed"], json!(["workspace.read_file"]));
+        assert_eq!(
+            result["events"].as_array().unwrap().last().unwrap()["eventName"],
+            "agent.error"
+        );
+        assert_eq!(
+            result["events"].as_array().unwrap().last().unwrap()["payload"]["stopReason"],
+            "max_iterations"
+        );
+    }
+
+    #[test]
+    fn denied_tool_stops_with_policy_denied_without_tool_dispatch() {
+        let result = run_native_agent_turn_with_config(
+            &NativeAgentRuntimeServices::default(),
+            json!({
+                "runtime": "rust",
+                "runId": "run-policy-denied",
+                "sessionId": "websocket:chat-policy-denied",
+                "maxIterations": 2,
+                "messages": [{ "role": "user", "content": "run shell" }]
+            }),
+            json!({
+                "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+                "providers": {
+                    "fixture": {
+                        "responses": [{
+                            "content": "",
+                            "toolCalls": [{
+                                "id": "call-denied",
+                                "name": "shell.exec",
+                                "argumentsJson": "{\"command\":\"rm -rf .\"}",
+                                "result": { "content": "must not execute" }
+                            }]
+                        }]
+                    }
+                }
+            }),
+        )
+        .expect("policy denial should return a structured result");
+
+        assert_eq!(result["stopReason"], "policy_denied");
+        assert_eq!(result["toolsUsed"], json!([]));
+        assert_eq!(
+            event_names(&result),
+            vec!["agent.tool_call.delta", "agent.error"]
+        );
+        assert_eq!(result["events"][1]["payload"]["toolName"], "shell.exec");
+    }
+
+    #[test]
+    fn cancellation_before_tool_dispatch_stops_without_dispatching_tool() {
+        struct CancellingProvider {
+            cancellations: Arc<InMemoryNativeAgentCancellation>,
+        }
+
+        impl NativeAgentProvider for CancellingProvider {
+            fn complete(
+                &self,
+                context: &NativeAgentRunContext,
+            ) -> Result<NativeAgentProviderResponse, String> {
+                self.cancellations.cancel(&context.run_id);
+                Ok(NativeAgentProviderResponse {
+                    final_content: "needs cancelled tool".to_string(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: vec![NativeAgentToolCall {
+                        id: "call-cancel-before-tool".to_string(),
+                        name: "workspace.read_file".to_string(),
+                        arguments_json: "{\"path\":\"README.md\"}".to_string(),
+                        result: json!({ "content": "must not run" }),
+                    }],
+                })
+            }
+        }
+
+        struct PanickingToolDispatcher;
+
+        impl NativeAgentToolDispatcher for PanickingToolDispatcher {
+            fn dispatch(
+                &self,
+                _context: &NativeAgentRunContext,
+                _tool_call: &NativeAgentToolCall,
+            ) -> Result<NativeAgentToolResult, String> {
+                panic!("tool dispatch should be skipped after cancellation");
+            }
+        }
+
+        let cancellations = Arc::new(InMemoryNativeAgentCancellation::default());
+        let services = NativeAgentRuntimeServices::new(
+            Arc::new(CancellingProvider {
+                cancellations: cancellations.clone(),
+            }),
+            Arc::new(PanickingToolDispatcher),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            cancellations,
+        );
+
+        let result = run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-cancel-before-tool",
+                "sessionId": "websocket:chat-cancel-before-tool",
+                "maxIterations": 2,
+                "messages": [{ "role": "user", "content": "read then cancel" }]
+            }),
+        )
+        .expect("cancelled run should return a structured result");
+
+        assert_eq!(result["stopReason"], "cancelled");
+        assert_eq!(result["toolsUsed"], json!([]));
+        assert!(result["completedToolResults"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            event_names(&result),
+            vec!["agent.tool_call.delta", "agent.cancelled"]
+        );
+        assert_eq!(result["checkpoint"]["phase"], "cancelled");
+        assert_eq!(result["checkpoint"]["iteration"], 0);
+    }
+
+    #[test]
+    fn cancellation_after_tool_result_preserves_completed_tool_state() {
+        struct SingleToolProvider {
+            calls: Mutex<u32>,
+        }
+
+        impl NativeAgentProvider for SingleToolProvider {
+            fn complete(
+                &self,
+                _context: &NativeAgentRunContext,
+            ) -> Result<NativeAgentProviderResponse, String> {
+                let mut calls = self
+                    .calls
+                    .lock()
+                    .expect("provider calls lock should not be poisoned");
+                *calls += 1;
+                assert_eq!(
+                    *calls, 1,
+                    "provider should not be called after cancellation"
+                );
+                Ok(NativeAgentProviderResponse {
+                    final_content: "needs one tool".to_string(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: vec![NativeAgentToolCall {
+                        id: "call-cancel-after-result".to_string(),
+                        name: "workspace.read_file".to_string(),
+                        arguments_json: "{\"path\":\"README.md\"}".to_string(),
+                        result: json!({ "content": "README" }),
+                    }],
+                })
+            }
+        }
+
+        struct CancellingToolDispatcher {
+            cancellations: Arc<InMemoryNativeAgentCancellation>,
+        }
+
+        impl NativeAgentToolDispatcher for CancellingToolDispatcher {
+            fn dispatch(
+                &self,
+                context: &NativeAgentRunContext,
+                tool_call: &NativeAgentToolCall,
+            ) -> Result<NativeAgentToolResult, String> {
+                self.cancellations.cancel(&context.run_id);
+                Ok(NativeAgentToolResult::generic_success(
+                    tool_call,
+                    tool_call.result.clone(),
+                ))
+            }
+        }
+
+        let cancellations = Arc::new(InMemoryNativeAgentCancellation::default());
+        let services = NativeAgentRuntimeServices::new(
+            Arc::new(SingleToolProvider {
+                calls: Mutex::new(0),
+            }),
+            Arc::new(CancellingToolDispatcher {
+                cancellations: cancellations.clone(),
+            }),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            cancellations,
+        );
+
+        let result = run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-cancel-after-result",
+                "sessionId": "websocket:chat-cancel-after-result",
+                "maxIterations": 2,
+                "messages": [{ "role": "user", "content": "read then cancel" }]
+            }),
+        )
+        .expect("cancelled run should preserve completed tool result state");
+
+        assert_eq!(result["stopReason"], "cancelled");
+        assert_eq!(result["toolsUsed"], json!(["workspace.read_file"]));
+        assert_eq!(
+            result["completedToolResults"][0]["toolCallId"],
+            "call-cancel-after-result"
+        );
+        assert_eq!(
+            event_names(&result),
+            vec![
+                "agent.tool_call.delta",
+                "agent.tool.start",
+                "agent.tool.result",
+                "agent.cancelled"
+            ]
+        );
+        assert_eq!(
+            result["checkpoint"]["completedToolResults"][0]["toolCallId"],
+            "call-cancel-after-result"
+        );
     }
 
     #[test]
     fn stores_active_turn_tool_wait_and_cancellation_checkpoints() {
         struct CheckpointAwareProvider {
             checkpoints: Arc<InMemoryNativeAgentCheckpointStore>,
+            calls: Mutex<u32>,
         }
 
         impl NativeAgentProvider for CheckpointAwareProvider {
@@ -1262,17 +2839,31 @@ mod tests {
                     .restore(&context.session_id)
                     .expect("active turn checkpoint should be present during provider call");
                 assert_eq!(checkpoint["phase"], "active_turn");
-                Ok(NativeAgentProviderResponse {
-                    final_content: "needs tool".to_string(),
-                    reasoning_delta: None,
-                    usage: None,
-                    tool_call: Some(NativeAgentToolCall {
-                        id: "call-checkpoint".to_string(),
-                        name: "workspace.read_file".to_string(),
-                        arguments_json: "{\"path\":\"README.md\"}".to_string(),
-                        result: json!({ "content": "README" }),
-                    }),
-                })
+                let mut calls = self
+                    .calls
+                    .lock()
+                    .expect("provider call lock should not be poisoned");
+                *calls += 1;
+                if *calls == 1 {
+                    Ok(NativeAgentProviderResponse {
+                        final_content: "needs tool".to_string(),
+                        reasoning_delta: None,
+                        usage: None,
+                        tool_calls: vec![NativeAgentToolCall {
+                            id: "call-checkpoint".to_string(),
+                            name: "workspace.read_file".to_string(),
+                            arguments_json: "{\"path\":\"README.md\"}".to_string(),
+                            result: json!({ "content": "README" }),
+                        }],
+                    })
+                } else {
+                    Ok(NativeAgentProviderResponse {
+                        final_content: "checkpoint-aware final".to_string(),
+                        reasoning_delta: None,
+                        usage: None,
+                        tool_calls: Vec::new(),
+                    })
+                }
             }
         }
 
@@ -1291,10 +2882,28 @@ mod tests {
                     .restore(&context.session_id)
                     .expect("tool wait checkpoint should be present during tool dispatch");
                 assert_eq!(checkpoint["phase"], "awaiting_tool");
-                assert_eq!(checkpoint["payload"]["toolCallId"], tool_call.id);
-                Ok(NativeAgentToolResult {
-                    content: tool_call.result.clone(),
-                })
+                assert_eq!(checkpoint["schemaVersion"], 1);
+                assert_eq!(checkpoint["runtime"], "rust");
+                assert_eq!(checkpoint["runId"], context.run_id);
+                assert_eq!(checkpoint["sessionId"], context.session_id);
+                assert_eq!(checkpoint["iteration"], 0);
+                assert_eq!(checkpoint["maxIterations"], 2);
+                assert_eq!(
+                    checkpoint["pendingToolCalls"][0]["toolCallId"],
+                    tool_call.id
+                );
+                assert_eq!(
+                    checkpoint["pendingToolCalls"][0]["toolName"],
+                    tool_call.name
+                );
+                assert!(checkpoint["completedToolResults"]
+                    .as_array()
+                    .expect("completed results should be an array")
+                    .is_empty());
+                Ok(NativeAgentToolResult::generic_success(
+                    tool_call,
+                    tool_call.result.clone(),
+                ))
             }
         }
 
@@ -1302,6 +2911,7 @@ mod tests {
         let services = NativeAgentRuntimeServices::new(
             Arc::new(CheckpointAwareProvider {
                 checkpoints: checkpoints.clone(),
+                calls: Mutex::new(0),
             }),
             Arc::new(CheckpointAwareToolDispatcher {
                 checkpoints: checkpoints.clone(),
@@ -1315,6 +2925,7 @@ mod tests {
                 "runtime": "rust",
                 "runId": "run-checkpoint-storage",
                 "sessionId": "websocket:chat-checkpoint-storage",
+                "maxIterations": 2,
                 "messages": [{ "role": "user", "content": "read" }]
             }),
         )
@@ -1365,6 +2976,28 @@ mod tests {
         .expect("approval checkpoint should be created");
 
         assert_eq!(awaiting["stopReason"], "awaiting_approval");
+        assert_eq!(awaiting["checkpoint"]["schemaVersion"], 1);
+        assert_eq!(awaiting["checkpoint"]["runId"], "run-approval");
+        assert_eq!(
+            awaiting["checkpoint"]["sessionId"],
+            "websocket:chat-approval"
+        );
+        assert_eq!(awaiting["checkpoint"]["phase"], "awaiting_approval");
+        assert_eq!(awaiting["checkpoint"]["iteration"], 0);
+        assert_eq!(awaiting["checkpoint"]["maxIterations"], 1);
+        assert_eq!(
+            awaiting["checkpoint"]["pendingToolCalls"][0]["toolCallId"],
+            "approval-1"
+        );
+        assert_eq!(
+            awaiting["checkpoint"]["pendingToolCalls"][0]["toolName"],
+            "workspace.write_file"
+        );
+        assert!(awaiting["checkpoint"]["completedToolResults"]
+            .as_array()
+            .expect("approval completed results should be an array")
+            .is_empty());
+        assert_eq!(awaiting["checkpoint"]["resumeToken"], "approval:approval-1");
         assert_eq!(
             services.restore_checkpoint("websocket:chat-approval")["checkpoint"]["phase"],
             "awaiting_approval"
@@ -1449,6 +3082,24 @@ mod tests {
             awaiting_form["events"][1]["eventName"],
             "agent.awaiting_form"
         );
+        assert_eq!(awaiting_form["checkpoint"]["schemaVersion"], 1);
+        assert_eq!(awaiting_form["checkpoint"]["runId"], "run-form");
+        assert_eq!(
+            awaiting_form["checkpoint"]["sessionId"],
+            "websocket:chat-form"
+        );
+        assert_eq!(awaiting_form["checkpoint"]["phase"], "awaiting_form");
+        assert_eq!(awaiting_form["checkpoint"]["iteration"], 0);
+        assert_eq!(awaiting_form["checkpoint"]["maxIterations"], 1);
+        assert!(awaiting_form["checkpoint"]["pendingToolCalls"]
+            .as_array()
+            .expect("form pending tool calls should be an array")
+            .is_empty());
+        assert!(awaiting_form["checkpoint"]["completedToolResults"]
+            .as_array()
+            .expect("form completed results should be an array")
+            .is_empty());
+        assert_eq!(awaiting_form["checkpoint"]["resumeToken"], "form:form-1");
         assert_eq!(submitted["finalContent"], "Form values accepted.");
         assert_eq!(cancelled["stopReason"], "cancelled");
         assert_eq!(cancelled["error"], "cancelled");

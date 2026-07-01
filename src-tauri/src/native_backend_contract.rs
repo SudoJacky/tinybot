@@ -181,6 +181,33 @@ pub const NATIVE_AGENT_EVENT_NAMES: &[&str] = &[
     "worker.status",
 ];
 
+pub const NATIVE_AGENT_TOOL_RESULT_PAYLOAD_FIELDS: &[&str] = &[
+    "runId",
+    "sessionId",
+    "iteration",
+    "toolCallId",
+    "toolName",
+    "name",
+    "content",
+    "envelope",
+];
+
+pub const NATIVE_AGENT_CHECKPOINT_FIELDS: &[&str] = &[
+    "schemaVersion",
+    "runtime",
+    "runId",
+    "sessionId",
+    "phase",
+    "iteration",
+    "maxIterations",
+    "pendingToolCalls",
+    "completedToolResults",
+    "resumeToken",
+    "stopReason",
+    "payload",
+    "messages",
+];
+
 const WEBUI_ROUTE_INVENTORY: &[NativeRouteInventoryEntry] = &[
     rust_webui("health", "GET", "/health", "health", "native health check"),
     rust_webui(

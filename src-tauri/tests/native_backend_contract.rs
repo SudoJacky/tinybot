@@ -3,7 +3,8 @@ use tinybot_desktop_lib::native_backend_contract::{
     native_route_owner_summary, native_runtime_component_inventory, native_tauri_command_inventory,
     native_webui_route_inventory, webui_route_inventory_entry, NativeBackendEvent,
     NativeBackendEventSource, NativeBackendKind, NativeBackendRunSpec, NativeBackendRuntimeStatus,
-    NativeRouteOwner, NATIVE_AGENT_EVENT_NAMES, NATIVE_TAURI_COMMANDS,
+    NativeRouteOwner, NATIVE_AGENT_CHECKPOINT_FIELDS, NATIVE_AGENT_EVENT_NAMES,
+    NATIVE_AGENT_TOOL_RESULT_PAYLOAD_FIELDS, NATIVE_TAURI_COMMANDS,
 };
 use tinybot_desktop_lib::worker_protocol::{WorkerEvent, WorkerRequest, WorkerResponse};
 
@@ -20,6 +21,18 @@ fn contract_inventory_lists_native_commands_and_events_used_by_frontend() {
     assert!(NATIVE_AGENT_EVENT_NAMES.contains(&"agent.awaiting_form"));
     assert!(NATIVE_AGENT_EVENT_NAMES.contains(&"agent.delegate.trace.updated"));
     assert!(NATIVE_AGENT_EVENT_NAMES.contains(&"heartbeat.delivery"));
+}
+
+#[test]
+fn contract_documents_additive_agent_loop_payload_fields() {
+    assert!(NATIVE_AGENT_TOOL_RESULT_PAYLOAD_FIELDS.contains(&"content"));
+    assert!(NATIVE_AGENT_TOOL_RESULT_PAYLOAD_FIELDS.contains(&"envelope"));
+    assert!(NATIVE_AGENT_TOOL_RESULT_PAYLOAD_FIELDS.contains(&"iteration"));
+
+    assert!(NATIVE_AGENT_CHECKPOINT_FIELDS.contains(&"schemaVersion"));
+    assert!(NATIVE_AGENT_CHECKPOINT_FIELDS.contains(&"pendingToolCalls"));
+    assert!(NATIVE_AGENT_CHECKPOINT_FIELDS.contains(&"completedToolResults"));
+    assert!(NATIVE_AGENT_CHECKPOINT_FIELDS.contains(&"resumeToken"));
 }
 
 #[test]
