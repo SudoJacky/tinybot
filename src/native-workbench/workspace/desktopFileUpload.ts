@@ -29,7 +29,7 @@ export interface DesktopPickedUploadFile {
 export interface DesktopFileUploadActions {
   targetDocument?: Document;
   pickFile: (kind: DesktopUploadKind, options: DesktopUploadPickerOptions) => Promise<DesktopPickedUploadFile | null>;
-  uploadKnowledgeDocument: (form: FormData) => Promise<unknown>;
+  uploadKnowledgeDocument?: (form: FormData) => Promise<unknown>;
   uploadSessionTemporaryFile: (sessionKey: string, form: FormData) => Promise<unknown>;
   listSessionTemporaryFiles?: (sessionKey: string) => Promise<unknown>;
   uploadWorkspaceFile?: (path: string, body: DesktopWorkspaceImportBody) => Promise<unknown>;
@@ -82,9 +82,9 @@ export interface DesktopDroppedFileHandlerOptions {
   targetKind: DesktopDropTargetKind;
   files: readonly File[];
   sessionKey?: string;
-  uploadKnowledgeDocument: (form: FormData) => Promise<unknown>;
+  uploadKnowledgeDocument?: (form: FormData) => Promise<unknown>;
   uploadSessionTemporaryFile: (sessionKey: string, form: FormData) => Promise<unknown>;
-  uploadWorkspaceFile: (path: string, body: DesktopWorkspaceImportBody) => Promise<unknown>;
+  uploadWorkspaceFile?: (path: string, body: DesktopWorkspaceImportBody) => Promise<unknown>;
   onKnowledgeUploaded?: () => Promise<void>;
   onKnowledgeTaskUpdated?: (operation: DesktopTaskSourceOperation) => void;
   onSessionFileUploaded?: (sessionKey: string) => Promise<void>;
@@ -300,16 +300,20 @@ export async function handleDesktopDroppedFiles({
 
   if (classification.accepted.length) {
     if (targetKind === "knowledge-document") {
-      for (const file of classification.accepted) {
-        onKnowledgeTaskUpdated?.(buildDesktopKnowledgeUploadTaskOperation(file.name));
-        const result = await uploadKnowledgeDocument(buildKnowledgeUploadFormFromFile(file));
-        const operation = buildDesktopKnowledgeTaskOperation(result);
-        if (operation) {
-          onKnowledgeTaskUpdated?.(operation);
+      if (!uploadKnowledgeDocument) {
+        actionSummary = "Knowledge document upload is unavailable.";
+      } else {
+        for (const file of classification.accepted) {
+          onKnowledgeTaskUpdated?.(buildDesktopKnowledgeUploadTaskOperation(file.name));
+          const result = await uploadKnowledgeDocument(buildKnowledgeUploadFormFromFile(file));
+          const operation = buildDesktopKnowledgeTaskOperation(result);
+          if (operation) {
+            onKnowledgeTaskUpdated?.(operation);
+          }
         }
+        await onKnowledgeUploaded?.();
+        actionSummary = `Uploaded ${plural(classification.accepted.length, "knowledge file")}.`;
       }
-      await onKnowledgeUploaded?.();
-      actionSummary = `Uploaded ${plural(classification.accepted.length, "knowledge file")}.`;
     } else if (targetKind === "session-temporary-file") {
       for (const file of classification.accepted) {
         await uploadSessionTemporaryFile(cleanSessionKey, buildSessionTemporaryUploadFormFromFile(file));
@@ -317,12 +321,16 @@ export async function handleDesktopDroppedFiles({
       await onSessionFileUploaded?.(cleanSessionKey);
       actionSummary = `Attached ${plural(classification.accepted.length, "session file")} to ${cleanSessionKey}.`;
     } else {
-      for (const file of classification.accepted) {
-        const payload = await buildDesktopWorkspaceImport(file);
-        await uploadWorkspaceFile(payload.path, payload.body);
-        await onWorkspaceFileImported?.(payload.path);
+      if (!uploadWorkspaceFile) {
+        actionSummary = "Workspace file import is unavailable.";
+      } else {
+        for (const file of classification.accepted) {
+          const payload = await buildDesktopWorkspaceImport(file);
+          await uploadWorkspaceFile(payload.path, payload.body);
+          await onWorkspaceFileImported?.(payload.path);
+        }
+        actionSummary = `Imported ${plural(classification.accepted.length, "workspace file")}.`;
       }
-      actionSummary = `Imported ${plural(classification.accepted.length, "workspace file")}.`;
     }
   }
 
@@ -359,17 +367,19 @@ export function installDesktopFileUploadActions({
     await refreshSessionTemporaryFiles(sessionKey);
   };
 
-  bindClickOnce(targetDocument.querySelector<HTMLButtonElement>("#desktop-knowledge-upload"), "knowledge-upload", () => {
-    void runKnowledgeUpload({ targetDocument, pickFile, uploadKnowledgeDocument, onKnowledgeUploaded, onKnowledgeTaskUpdated });
-  });
-  targetDocument.querySelectorAll<HTMLElement>("[data-desktop-drop-target]").forEach((target) => {
-    if (target.getAttribute("data-desktop-drop-target") !== "knowledge-document") {
-      return;
-    }
-    bindClickOnce(target, "knowledge-drop-zone-upload", () => {
+  if (uploadKnowledgeDocument) {
+    bindClickOnce(targetDocument.querySelector<HTMLButtonElement>("#desktop-knowledge-upload"), "knowledge-upload", () => {
       void runKnowledgeUpload({ targetDocument, pickFile, uploadKnowledgeDocument, onKnowledgeUploaded, onKnowledgeTaskUpdated });
     });
-  });
+    targetDocument.querySelectorAll<HTMLElement>("[data-desktop-drop-target]").forEach((target) => {
+      if (target.getAttribute("data-desktop-drop-target") !== "knowledge-document") {
+        return;
+      }
+      bindClickOnce(target, "knowledge-drop-zone-upload", () => {
+        void runKnowledgeUpload({ targetDocument, pickFile, uploadKnowledgeDocument, onKnowledgeUploaded, onKnowledgeTaskUpdated });
+      });
+    });
+  }
 
   bindClickOnce(targetDocument.querySelector<HTMLButtonElement>("#desktop-session-file-upload"), "session-file-upload", () => {
     const sessionKey = (
@@ -557,7 +567,9 @@ async function runKnowledgeUpload({
   uploadKnowledgeDocument,
   onKnowledgeUploaded,
   onKnowledgeTaskUpdated,
-}: Pick<DesktopFileUploadActions, "targetDocument" | "pickFile" | "uploadKnowledgeDocument" | "onKnowledgeUploaded" | "onKnowledgeTaskUpdated">): Promise<void> {
+}: Pick<DesktopFileUploadActions, "targetDocument" | "pickFile" | "uploadKnowledgeDocument" | "onKnowledgeUploaded" | "onKnowledgeTaskUpdated"> & {
+  uploadKnowledgeDocument: NonNullable<DesktopFileUploadActions["uploadKnowledgeDocument"]>;
+}): Promise<void> {
   setUploadStatus(targetDocument, "Opening knowledge document picker.");
   const picked = await pickFile("knowledge-document", desktopUploadPickerOptions("knowledge-document"));
   if (!picked) {

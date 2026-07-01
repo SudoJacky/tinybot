@@ -4,20 +4,11 @@ import { resolveDesktopNavigationTarget } from "../shell/desktopNavigation";
 import { buildDesktopCommandPaletteUx } from "../native/desktopNativeUx";
 import type { DesktopCommandEntry } from "../shell/desktopSharedModels";
 import type { NativeChatSession } from "../chat/nativeChat";
-import type { DesktopCoworkSessionRow } from "../cowork/desktopCowork";
-import type { DesktopKnowledgeDocumentRow } from "../knowledge/desktopKnowledgeTraceability";
-import type { DesktopSkillRow, DesktopToolRow } from "../tools-skills/desktopToolsSkills";
-import type { DesktopWorkspaceFileRow } from "../workspace/desktopWorkspaceFiles";
 import { mountCommandPaletteResultsIsland } from "../components/shared/commandPaletteResultsIsland";
 
 export type DesktopCommandPaletteGroupId =
   | "commands"
-  | "sessions"
-  | "workspaceFiles"
-  | "knowledgeDocuments"
-  | "tools"
-  | "skills"
-  | "coworkSessions";
+  | "sessions";
 
 export type DesktopCommandPaletteDestinationModule =
   | "command"
@@ -67,11 +58,11 @@ export interface DesktopCommandPaletteRankingContext {
 export interface DesktopCommandPaletteInput {
   desktopCommands?: DesktopCommandEntry[];
   sessions?: LoadedRows<NativeChatSession>;
-  workspaceFiles?: LoadedRows<DesktopWorkspaceFileRow>;
-  knowledgeDocuments?: LoadedRows<DesktopKnowledgeDocumentRow>;
-  tools?: LoadedRows<DesktopToolRow>;
-  skills?: LoadedRows<DesktopSkillRow>;
-  coworkSessions?: LoadedRows<DesktopCoworkSessionRow>;
+  workspaceFiles?: LoadedRows<unknown>;
+  knowledgeDocuments?: LoadedRows<unknown>;
+  tools?: LoadedRows<unknown>;
+  skills?: LoadedRows<unknown>;
+  coworkSessions?: LoadedRows<unknown>;
 }
 
 export interface InstallDesktopCommandPaletteOptions {
@@ -103,11 +94,6 @@ export function createDesktopCommandPaletteState(
   const resultGroups: Array<[DesktopCommandPaletteGroupId, string, LoadedRows<unknown>, DesktopCommandPaletteResult[]]> = [
     ["commands", "Commands", { loaded: true, rows: DESKTOP_MENU_COMMANDS }, commandResults],
     ["sessions", "Sessions", input.sessions ?? unloaded(), sessionResults(input.sessions?.rows ?? [])],
-    ["workspaceFiles", "Workspace files", input.workspaceFiles ?? unloaded(), workspaceResults(input.workspaceFiles?.rows ?? [])],
-    ["knowledgeDocuments", "Knowledge documents", input.knowledgeDocuments ?? unloaded(), knowledgeResults(input.knowledgeDocuments?.rows ?? [])],
-    ["tools", "Tools", input.tools ?? unloaded(), toolResults(input.tools?.rows ?? [])],
-    ["skills", "Skills", input.skills ?? unloaded(), skillResults(input.skills?.rows ?? [])],
-    ["coworkSessions", "Cowork sessions", input.coworkSessions ?? unloaded(), coworkResults(input.coworkSessions?.rows ?? [])],
   ];
 
   return {
@@ -404,87 +390,8 @@ function sessionResults(rows: NativeChatSession[]): DesktopCommandPaletteResult[
   }));
 }
 
-function workspaceResults(rows: DesktopWorkspaceFileRow[]): DesktopCommandPaletteResult[] {
-  return rows.map((file) => ({
-    id: `workspace:${file.path}`,
-    groupId: "workspaceFiles",
-    group: "Workspace files",
-    title: file.path,
-    secondary: file.meta,
-    keywords: [file.updatedAt ?? "", file.exists ? "available" : "missing"],
-    destination: { module: "files", entityId: file.path, href: "/files" },
-    actions: paletteActions("workspaceFiles"),
-  }));
-}
-
-function knowledgeResults(rows: DesktopKnowledgeDocumentRow[]): DesktopCommandPaletteResult[] {
-  return rows.map((document) => ({
-    id: `knowledge:${document.id || document.path}`,
-    groupId: "knowledgeDocuments",
-    group: "Knowledge documents",
-    title: document.title || document.path,
-    secondary: document.meta || document.path,
-    keywords: [document.id, document.path, document.category, ...document.tags],
-    destination: { module: "knowledge", entityId: document.id || document.path, href: "/knowledge" },
-    actions: paletteActions("knowledgeDocuments"),
-  }));
-}
-
-function toolResults(rows: DesktopToolRow[]): DesktopCommandPaletteResult[] {
-  return rows.map((tool) => ({
-    id: `tool:${tool.name}`,
-    groupId: "tools",
-    group: "Tools",
-    title: tool.displayName || tool.name,
-    secondary: tool.meta || tool.description,
-    keywords: [tool.name, tool.description, tool.configHint, tool.riskHint],
-    destination: { module: "tools", entityId: tool.name, href: "/tools" },
-    actions: paletteActions("tools"),
-  }));
-}
-
-function skillResults(rows: DesktopSkillRow[]): DesktopCommandPaletteResult[] {
-  return rows.map((skill) => ({
-    id: `skill:${skill.name}`,
-    groupId: "skills",
-    group: "Skills",
-    title: skill.name,
-    secondary: skill.meta,
-    keywords: [skill.source, skill.status, skill.available ? "available" : "unavailable"],
-    destination: { module: "skills", entityId: skill.name, href: "/tools" },
-    actions: paletteActions("skills"),
-  }));
-}
-
-function coworkResults(rows: DesktopCoworkSessionRow[]): DesktopCommandPaletteResult[] {
-  return rows.map((session) => ({
-    id: `cowork:${session.id}`,
-    groupId: "coworkSessions",
-    group: "Cowork sessions",
-    title: session.title,
-    secondary: session.meta,
-    keywords: [session.id, session.goal, session.status, session.workflow],
-    destination: { module: "cowork", entityId: session.id, href: "/cowork" },
-    actions: paletteActions("coworkSessions"),
-  }));
-}
-
 function paletteActions(groupId: DesktopCommandPaletteGroupId): DesktopCommandPaletteResultAction[] {
-  if (groupId === "knowledgeDocuments") {
-    return [
-      { id: "open", label: "Open" },
-      { id: "focus", label: "Focus" },
-      { id: "inspect", label: "Inspect" },
-      { id: "useInChat", label: "Use in chat" },
-    ];
-  }
-  if (groupId === "workspaceFiles") {
-    return [
-      { id: "open", label: "Open" },
-      { id: "focus", label: "Focus" },
-      { id: "reveal", label: "Reveal" },
-    ];
-  }
+  void groupId;
   return [
     { id: "open", label: "Open" },
     { id: "focus", label: "Focus" },
@@ -495,14 +402,6 @@ function commandKeywords(id: DesktopMenuCommandId): string[] {
   switch (id) {
     case "open-chat":
       return ["chat", "conversation", "sessions"];
-    case "open-workspace":
-      return ["workspace", "files", "project"];
-    case "open-knowledge":
-      return ["knowledge", "documents", "rag"];
-    case "open-files":
-      return ["files", "session file", "knowledge document", "workspace file", "resources"];
-    case "open-cowork":
-      return ["cowork", "agents", "collaboration", "sessions"];
     case "open-tinybot-repo":
       return ["github", "repo", "repository"];
     case "open-docs":

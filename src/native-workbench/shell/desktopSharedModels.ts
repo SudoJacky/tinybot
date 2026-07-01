@@ -6,7 +6,7 @@ export type DesktopSidebarGroupId = "actions" | "workspace" | "footer";
 
 export type DesktopSidebarItemKind = "command" | "link" | "session" | "status";
 
-export type NativeWorkbenchAreaId = "chat" | "knowledge" | "files" | "settings";
+export type NativeWorkbenchAreaId = "chat" | "settings";
 
 export type NativeWorkbenchFileScopeId = "session" | "knowledge" | "workspace";
 
@@ -15,13 +15,6 @@ export type NativeWorkbenchInspectorTabId = "context" | "files" | "tasks" | "app
 export type NativeWorkbenchSettingsSectionId =
   | "general"
   | "provider-models"
-  | "knowledge"
-  | "tools-approvals"
-  | "files-workspace"
-  | "memory-experience"
-  | "skills"
-  | "channels"
-  | "automations"
   | "gateway-runtime"
   | "logs-diagnostics";
 
@@ -149,22 +142,10 @@ const NATIVE_WORKBENCH_AREAS: NativeWorkbenchArea[] = [
     owner: "Daily AI execution and conversation work items",
   },
   {
-    id: "knowledge",
-    label: "Knowledge",
-    href: "/knowledge",
-    owner: "Long-term documents, graph structure, retrieval, and evidence",
-  },
-  {
-    id: "files",
-    label: "Files",
-    href: "/files",
-    owner: "Session files, Knowledge documents, and workspace files",
-  },
-  {
     id: "settings",
     label: "Settings",
     href: "/settings",
-    owner: "Providers, permissions, runtime, channels, and capability boundaries",
+    owner: "Providers, models, runtime, and diagnostics",
   },
 ];
 
@@ -197,13 +178,6 @@ const WORKBENCH_INSPECTOR_TABS: Array<{ id: NativeWorkbenchInspectorTabId; label
 const WORKBENCH_SETTINGS_SECTIONS: NativeWorkbenchSettingsSection[] = [
   { id: "general", label: "General", href: "/settings/general" },
   { id: "provider-models", label: "Provider & Models", href: "/settings/provider-models" },
-  { id: "knowledge", label: "Knowledge", href: "/settings/knowledge" },
-  { id: "tools-approvals", label: "Tools & Approvals", href: "/settings/tools-approvals" },
-  { id: "files-workspace", label: "Files & Workspace", href: "/settings/files-workspace" },
-  { id: "memory-experience", label: "Memory & Experience", href: "/settings/memory-experience" },
-  { id: "skills", label: "Skills", href: "/settings/skills" },
-  { id: "channels", label: "Channels", href: "/settings/channels" },
-  { id: "automations", label: "Automations", href: "/settings/automations" },
   { id: "gateway-runtime", label: "Gateway & Runtime", href: "/settings/gateway-runtime" },
   { id: "logs-diagnostics", label: "Logs & Diagnostics", href: "/settings/logs-diagnostics" },
 ];
@@ -211,23 +185,23 @@ const WORKBENCH_SETTINGS_SECTIONS: NativeWorkbenchSettingsSection[] = [
 const NATIVE_WORKBENCH_ROADMAP: NativeWorkbenchRoadmapPhase[] = [
   {
     id: "phase-1",
-    title: "Skeleton",
-    exitCriteria: "Chat, Files, Knowledge, Settings, shell, runtime status, and provider basics are usable together.",
+    title: "Chat foundation",
+    exitCriteria: "Chat, Settings, runtime status, and provider basics are usable together.",
   },
   {
     id: "phase-2",
-    title: "AI execution surfaces",
-    exitCriteria: "Tool timeline, approvals, forms, references, token usage, upload jobs, and workspace editor are inspectable.",
+    title: "Agent execution clarity",
+    exitCriteria: "Run timeline, approvals, forms, references, and token usage are inspectable from chat.",
   },
   {
     id: "phase-3",
-    title: "Knowledge differentiation",
-    exitCriteria: "2D graph, node drawer, evidence paths, conflicts, communities, and graph/table/evidence switching are usable.",
+    title: "Selective expansion",
+    exitCriteria: "Files, Knowledge, Skills, and Cowork only return after the Rust backend exposes stable frontend contracts.",
   },
   {
     id: "phase-4",
     title: "Advanced workbench capabilities",
-    exitCriteria: "Skills, channels, memory/experience, automations, Cowork, multi-window, tray, and dependency-gated features are planned after core stability.",
+    exitCriteria: "Multi-window, tray, channels, memory, automations, and collaboration are planned after core stability.",
   },
 ];
 
@@ -277,8 +251,6 @@ export function buildRootWebUiSidebarModel({
         id: "actions",
         items: [
           ...sidebarItemsFromCommands(ROOT_WEBUI_ACTION_COMMANDS),
-          { id: "link:tools", kind: "link", label: "Tools", href: "/tools", icon: "tools" },
-          { id: "link:automations", kind: "link", label: "Automations", href: "/cowork", icon: "automation" },
         ],
       },
       {
@@ -315,7 +287,6 @@ export function buildNativeWorkbenchSidebarModel({
           href: area.href,
           commandId: area.id === "settings" ? "open-settings" : undefined,
           icon: area.id === "chat" ? "new-chat" : area.id,
-          meta: area.id === "files" ? "3 scopes" : undefined,
         })),
       },
       {

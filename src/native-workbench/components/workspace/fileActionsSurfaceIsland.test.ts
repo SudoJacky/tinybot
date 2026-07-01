@@ -4,7 +4,7 @@ import { describe, expect, test } from "vitest";
 import { mountFileActionsSurfaceIsland } from "./fileActionsSurfaceIsland";
 
 describe("file actions surface Vue island", () => {
-  test("renders import cards, session upload state, operation status, and session file list", () => {
+  test("renders chat session attachment controls only", () => {
     const host = document.createElement("section");
 
     const mounted = mountFileActionsSurfaceIsland(host, {
@@ -13,14 +13,13 @@ describe("file actions surface Vue island", () => {
 
     expect(host.className).toBe("desktop-file-actions");
     expect(host.getAttribute("data-desktop-vue-island")).toBe("file-actions-surface");
-    expect(host.getAttribute("data-desktop-module-surface")).toBe("workspace knowledge");
+    expect(host.getAttribute("data-desktop-module-surface")).toBe("chat attachments");
     expect(host.querySelector(".n-card.desktop-file-actions-card")).not.toBeNull();
-    expect(host.querySelector("h2")?.textContent).toBe("File imports");
+    expect(host.querySelector("h2")?.textContent).toBe("Session attachments");
 
-    expect(host.querySelector("#desktop-knowledge-upload")?.closest(".desktop-file-import-card")?.getAttribute("data-desktop-vue-island")).toBe("file-import-card");
-    expect(host.querySelector("#desktop-knowledge-upload")?.getAttribute("data-desktop-file-upload")).toBe("knowledge-document");
+    expect(host.querySelector("#desktop-knowledge-upload")).toBeNull();
     expect(host.querySelector("#desktop-session-file-upload")?.getAttribute("data-desktop-file-upload")).toBe("session-temporary-file");
-    expect(host.querySelector("#desktop-workspace-file-drop")?.getAttribute("href")).toBe("/files");
+    expect(host.querySelector("#desktop-workspace-file-drop")).toBeNull();
     expect(host.querySelector("#desktop-file-session-formats")?.textContent).toContain("png");
 
     const sessionKey = host.querySelector<HTMLInputElement>("#desktop-session-upload-key");
@@ -33,9 +32,9 @@ describe("file actions surface Vue island", () => {
 
     const operationStrip = host.querySelector(".desktop-file-operation-strip");
     expect(operationStrip?.querySelector(".desktop-file-operation-status")?.getAttribute("data-desktop-vue-island")).toBe("file-operation-status");
-    expect(operationStrip?.textContent).toContain("Knowledge upload");
     expect(operationStrip?.textContent).toContain("Session upload");
-    expect(operationStrip?.textContent).toContain("Workspace import");
+    expect(operationStrip?.textContent).not.toContain("Knowledge upload");
+    expect(operationStrip?.textContent).not.toContain("Workspace import");
     expect(host.querySelector("#desktop-file-upload-status")?.textContent).toBe("No file operation running.");
     expect(host.querySelector("#desktop-file-upload-status")?.getAttribute("data-desktop-vue-island")).toBe("file-upload-status");
 

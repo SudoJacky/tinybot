@@ -58,8 +58,6 @@ describe("desktop shared shell models", () => {
       "new-chat",
       "search-sessions",
       "open-command-palette",
-      "/tools",
-      "/cowork",
     ]);
     expect(model.groups[1]).toMatchObject({
       id: "workspace",
@@ -102,14 +100,11 @@ describe("desktop shared shell models", () => {
     const entries = buildDesktopCommandEntriesFromSidebar(buildRootWebUiSidebarModel());
 
     expect(entries.map((entry) => entry.id)).toContain("sidebar:command:new-chat");
-    expect(entries.map((entry) => entry.id)).toContain("sidebar:link:tools");
     expect(entries.find((entry) => entry.commandId === "open-command-palette")).toMatchObject({
       title: "Command Palette",
       group: "Actions",
     });
-    expect(entries.find((entry) => entry.href === "/tools")?.keywords).toEqual(
-      expect.arrayContaining(["tools", "actions", "tinybot"]),
-    );
+    expect(entries.map((entry) => entry.href)).not.toEqual(expect.arrayContaining(["/tools", "/cowork"]));
   });
 
   test("builds native workbench sidebar groups from the shared desktop model shape", () => {
@@ -129,8 +124,6 @@ describe("desktop shared shell models", () => {
     });
     expect(model.groups[1].items.map((item) => [item.label, item.href])).toEqual([
       ["Chat", "/chat"],
-      ["Knowledge", "/knowledge"],
-      ["Files", "/files"],
       ["Settings", "/settings"],
     ]);
     expect(model.groups[2].items.map((item) => item.commandId)).toEqual([
@@ -161,12 +154,10 @@ describe("desktop shared shell models", () => {
     });
   });
 
-  test("defines the initial native workbench IA as Chat, Knowledge, Files, and Settings", () => {
+  test("defines the native workbench IA as Chat and Settings only", () => {
     expect(buildWorkbenchWorkbenchAreas().map((area) => [area.id, area.label, area.href, area.owner])).toEqual([
       ["chat", "Chat", "/chat", "Daily AI execution and conversation work items"],
-      ["knowledge", "Knowledge", "/knowledge", "Long-term documents, graph structure, retrieval, and evidence"],
-      ["files", "Files", "/files", "Session files, Knowledge documents, and workspace files"],
-      ["settings", "Settings", "/settings", "Providers, permissions, runtime, channels, and capability boundaries"],
+      ["settings", "Settings", "/settings", "Providers, models, runtime, and diagnostics"],
     ]);
   });
 
@@ -202,30 +193,23 @@ describe("desktop shared shell models", () => {
       { id: "approvals", label: "Approvals", active: false, badge: 1 },
       { id: "activity", label: "Activity", active: false, badge: 2 },
     ]);
-    expect(buildWorkbenchInspectorTabs({ activePage: "knowledge" }).find((tab) => tab.active)).toMatchObject({
+    expect(buildWorkbenchInspectorTabs({ activePage: "settings" }).find((tab) => tab.active)).toMatchObject({
       id: "activity",
     });
   });
 
-  test("defines final settings sections and phased roadmap gates", () => {
+  test("defines chat-first settings sections and phased roadmap gates", () => {
     expect(buildWorkbenchSettingsSections().map((section) => [section.id, section.label, section.href])).toEqual([
       ["general", "General", "/settings/general"],
       ["provider-models", "Provider & Models", "/settings/provider-models"],
-      ["knowledge", "Knowledge", "/settings/knowledge"],
-      ["tools-approvals", "Tools & Approvals", "/settings/tools-approvals"],
-      ["files-workspace", "Files & Workspace", "/settings/files-workspace"],
-      ["memory-experience", "Memory & Experience", "/settings/memory-experience"],
-      ["skills", "Skills", "/settings/skills"],
-      ["channels", "Channels", "/settings/channels"],
-      ["automations", "Automations", "/settings/automations"],
       ["gateway-runtime", "Gateway & Runtime", "/settings/gateway-runtime"],
       ["logs-diagnostics", "Logs & Diagnostics", "/settings/logs-diagnostics"],
     ]);
     expect(buildNativeWorkbenchRoadmap().map((phase) => [phase.id, phase.title, phase.exitCriteria])).toEqual([
-      ["phase-1", "Skeleton", "Chat, Files, Knowledge, Settings, shell, runtime status, and provider basics are usable together."],
-      ["phase-2", "AI execution surfaces", "Tool timeline, approvals, forms, references, token usage, upload jobs, and workspace editor are inspectable."],
-      ["phase-3", "Knowledge differentiation", "2D graph, node drawer, evidence paths, conflicts, communities, and graph/table/evidence switching are usable."],
-      ["phase-4", "Advanced workbench capabilities", "Skills, channels, memory/experience, automations, Cowork, multi-window, tray, and dependency-gated features are planned after core stability."],
+      ["phase-1", "Chat foundation", "Chat, Settings, runtime status, and provider basics are usable together."],
+      ["phase-2", "Agent execution clarity", "Run timeline, approvals, forms, references, and token usage are inspectable from chat."],
+      ["phase-3", "Selective expansion", "Files, Knowledge, Skills, and Cowork only return after the Rust backend exposes stable frontend contracts."],
+      ["phase-4", "Advanced workbench capabilities", "Multi-window, tray, channels, memory, automations, and collaboration are planned after core stability."],
     ]);
   });
 });

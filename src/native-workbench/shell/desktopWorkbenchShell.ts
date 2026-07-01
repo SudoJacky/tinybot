@@ -142,7 +142,6 @@ import { mountToolsSkillsPaneIsland } from "../components/tools-skills/toolsSkil
 import { mountTokenUsageOrbIsland } from "../components/shell/tokenUsageOrbIsland";
 import { mountWorkLensIsland } from "../components/shell/workLensIsland";
 import { mountWorkbenchPanelIsland } from "../components/shell/workbenchPanelIsland";
-import { mountWorkspaceBrowserIsland } from "../components/workspace/workspaceBrowserIsland";
 
 const desktopPinnedChatSessions = new WeakMap<Document, Set<string>>();
 const DESKTOP_COWORK_STANDALONE_AVAILABLE = false;
@@ -922,11 +921,11 @@ function createWorkbenchShell(
   taskCenterItems: DesktopTaskCenterItem[],
   settingsPane: DesktopSettingsPaneModel | null,
   settingsActions: DesktopSettingsActionOptions,
-  knowledgePane: DesktopKnowledgePaneModel | null,
+  _knowledgePane: DesktopKnowledgePaneModel | null,
   knowledgeActions: DesktopKnowledgeActionOptions,
-  toolsSkillsPane: DesktopToolsSkillsPaneModel | null,
+  _toolsSkillsPane: DesktopToolsSkillsPaneModel | null,
   toolsSkillsActions: DesktopToolsSkillsActionOptions,
-  coworkPane: DesktopCoworkPaneModel | null,
+  _coworkPane: DesktopCoworkPaneModel | null,
   coworkActions: DesktopCoworkActionOptions,
   runChainItems: DesktopRunChainItem[],
   selectedRunChainItemKey: string | null,
@@ -960,7 +959,7 @@ function createWorkbenchShell(
   shell.append(
     createActivityRail(targetDocument),
     createPanel(targetDocument, "sidebar", sidebarState, sidebarContent),
-    createMainRegion(targetDocument, gatewayHttp, layout, chat, chatActions, agentUiForms, agentUiActions, taskCenterItems, settingsPane, settingsActions, knowledgePane, knowledgeActions, toolsSkillsPane, toolsSkillsActions, coworkPane, coworkActions, workLens, workLensActions),
+    createMainRegion(targetDocument, gatewayHttp, layout, chat, chatActions, agentUiForms, agentUiActions, taskCenterItems, settingsPane, settingsActions, null, knowledgeActions, null, toolsSkillsActions, null, coworkActions, workLens, workLensActions),
     createPanel(targetDocument, "inspector", inspectorState, inspectorContent),
     createPanel(targetDocument, "bottom", layout.bottom, createBottomRegion(targetDocument, runtimeStatus, gatewayHttp, taskCenterItems, taskActions, gatewayActions)),
   );
@@ -992,9 +991,6 @@ function createActivityRail(targetDocument: Document): HTMLElement {
   primary.className = "desktop-activity-primary";
   for (const [index, [label, href, module]] of [
     ["Chat", "/chat", "chat"],
-    ["Files", "/files", "files"],
-    ["Knowledge", "/knowledge", "knowledge"],
-    ["Cowork", "/cowork", "cowork"],
     ["Docs", "/docs", "docs"],
     ["GitHub", "https://github.com/SudoJacky/tinybot", "gateway"],
   ].entries()) {
@@ -1446,11 +1442,11 @@ function createMainRegion(
   taskCenterItems: DesktopTaskCenterItem[],
   settingsPane: DesktopSettingsPaneModel | null,
   settingsActions: DesktopSettingsActionOptions,
-  knowledgePane: DesktopKnowledgePaneModel | null,
+  _knowledgePane: DesktopKnowledgePaneModel | null,
   knowledgeActions: DesktopKnowledgeActionOptions,
-  toolsSkillsPane: DesktopToolsSkillsPaneModel | null,
+  _toolsSkillsPane: DesktopToolsSkillsPaneModel | null,
   toolsSkillsActions: DesktopToolsSkillsActionOptions,
-  coworkPane: DesktopCoworkPaneModel | null,
+  _coworkPane: DesktopCoworkPaneModel | null,
   coworkActions: DesktopCoworkActionOptions,
   workLens: DesktopWorkLensProjection | null,
   workLensActions: DesktopWorkLensActionOptions,
@@ -1479,14 +1475,10 @@ function createMainRegion(
   utilities.className = "desktop-utility-surfaces";
   utilities.append(
     createCommandPalette(targetDocument),
-    ...(knowledgePane ? [] : [createFileActions(targetDocument, chat)]),
+    createFileActions(targetDocument, chat),
     createDesktopHelpSurface(targetDocument),
     createAgentUiFormsSurface(targetDocument, agentUiForms, agentUiActions),
-    createWorkspaceFilesSurface(targetDocument),
     ...(settingsPane ? [createSettingsProvidersPane(targetDocument, settingsPane, settingsActions)] : []),
-    ...(knowledgePane ? [createKnowledgePane(targetDocument, knowledgePane, knowledgeActions, moduleWorkItems(taskCenterItems, "knowledge"))] : []),
-    ...(toolsSkillsPane ? [createToolsSkillsPane(targetDocument, toolsSkillsPane, toolsSkillsActions)] : []),
-    ...(coworkPane ? [createCoworkCockpitPane(targetDocument, coworkPane, coworkActions)] : []),
   );
   mountMainUtilitiesRegionVueIsland(
     utilities,
@@ -1497,11 +1489,11 @@ function createMainRegion(
     taskCenterItems,
     settingsPane,
     settingsActions,
-    knowledgePane,
+    null,
     knowledgeActions,
-    toolsSkillsPane,
+    null,
     toolsSkillsActions,
-    coworkPane,
+    null,
     coworkActions,
   );
 
@@ -1510,6 +1502,7 @@ function createMainRegion(
   status.setAttribute("data-desktop-route-status", "");
   status.textContent = `No workspace file selected · Gateway ${gatewayHttp}`;
 
+  status.textContent = `Chat ready - Gateway ${gatewayHttp}`;
   if (canMountVueIsland(status)) {
     mountStatusStripIsland(status, { message: status.textContent });
   }
@@ -7934,8 +7927,8 @@ function mountWorkbenchPanelVueIsland(
 function createFileActions(targetDocument: Document, chat: DesktopNativeChatModel | null = null): HTMLElement {
   const section = targetDocument.createElement("section");
   section.className = "desktop-file-actions";
-  section.setAttribute("data-desktop-module-surface", "workspace knowledge");
-  section.append(createText(targetDocument, "h2", "File imports"));
+  section.setAttribute("data-desktop-module-surface", "chat attachments");
+  section.append(createText(targetDocument, "h2", "Session attachments"));
 
   const sessionKey = targetDocument.createElement("input");
   sessionKey.setAttribute("id", "desktop-session-upload-key");
@@ -7947,15 +7940,6 @@ function createFileActions(targetDocument: Document, chat: DesktopNativeChatMode
     sessionKey.setAttribute("readonly", "");
     sessionKey.setAttribute("data-active-session-key", chat.activeSessionKey);
   }
-
-  const knowledge = createFileImportCard(targetDocument, {
-    id: "desktop-knowledge-upload",
-    label: "Import knowledge",
-    uploadKind: "knowledge-document",
-    dropTarget: "knowledge-document",
-    formatsId: "desktop-file-knowledge-formats",
-    formats: ["md", "pdf", "docx", "csv", "json"],
-  });
 
   const session = createFileImportCard(targetDocument, {
     id: "desktop-session-file-upload",
@@ -7987,15 +7971,6 @@ function createFileActions(targetDocument: Document, chat: DesktopNativeChatMode
   sessionCard.append(sessionLabel, sessionKey, sessionMeta);
   mountSessionUploadCardVueIsland(sessionCard, chat?.activeSessionKey ?? null);
 
-  const workspace = createFileImportCard(targetDocument, {
-    id: "desktop-workspace-file-drop",
-    label: "Workspace import",
-    href: "/files",
-    dropTarget: "workspace-file",
-    formatsId: "desktop-file-workspace-formats",
-    formats: ["md", "txt", "json", "csv", "py", "js", "ts", "html", "css", "yaml", "toml"],
-  });
-
   const status = targetDocument.createElement("p");
   status.setAttribute("id", "desktop-file-upload-status");
   status.setAttribute("class", "desktop-file-upload-status");
@@ -8011,14 +7986,12 @@ function createFileActions(targetDocument: Document, chat: DesktopNativeChatMode
 
   const grid = targetDocument.createElement("div");
   grid.className = "desktop-file-import-grid";
-  grid.append(knowledge, session, sessionCard, workspace);
+  grid.append(session, sessionCard);
 
   const operationStrip = targetDocument.createElement("div");
   operationStrip.className = "desktop-file-operation-strip";
   operationStrip.append(
-    createFileOperationStatus(targetDocument, "Knowledge upload", "Waiting"),
     createFileOperationStatus(targetDocument, "Session upload", "Waiting"),
-    createFileOperationStatus(targetDocument, "Workspace import", "Waiting"),
     status,
   );
 
@@ -8465,197 +8438,6 @@ function renderDesktopPageHelp(targetDocument: Document, title: string): void {
       : [{ type: "text" as const, label: "Target", text: "No visible desktop help targets." }],
   }));
   setRouteStatus(targetDocument, `Opened ${title.toLowerCase()}`);
-}
-
-function createWorkspaceFilesSurface(targetDocument: Document): HTMLElement {
-  const section = targetDocument.createElement("section");
-  section.className = "desktop-workspace-files";
-  section.setAttribute("data-desktop-module-surface", "files workspace");
-  section.setAttribute("data-desktop-workspace-layout", "source-browser-detail-actions");
-
-  const header = targetDocument.createElement("div");
-  header.className = "desktop-workspace-header";
-  const titleGroup = targetDocument.createElement("div");
-  titleGroup.className = "desktop-workspace-title-group";
-  titleGroup.append(
-    createText(targetDocument, "h2", "Workspace files"),
-    createText(targetDocument, "p", "Browse, inspect, edit, and export workspace files."),
-  );
-
-  const status = targetDocument.createElement("p");
-  status.setAttribute("id", "desktop-workspace-status");
-  status.setAttribute("class", "desktop-workspace-status");
-  status.textContent = "0 files";
-  header.append(titleGroup, status);
-
-  const recent = targetDocument.createElement("div");
-  recent.setAttribute("id", "desktop-workspace-recent-files");
-  recent.setAttribute("class", "desktop-workspace-recent-files");
-  recent.setAttribute("aria-label", "Recent workspace files");
-
-  const search = targetDocument.createElement("input");
-  search.setAttribute("id", "desktop-workspace-search");
-  search.setAttribute("class", "desktop-workspace-search");
-  search.setAttribute("type", "search");
-  search.setAttribute("placeholder", "Search workspace files...");
-  search.setAttribute("aria-label", "Search workspace files");
-
-  const activePath = targetDocument.createElement("p");
-  activePath.setAttribute("id", "desktop-workspace-active-path");
-  activePath.setAttribute("class", "desktop-workspace-active-path");
-  activePath.textContent = "No workspace file selected.";
-
-  const updatedAt = targetDocument.createElement("p");
-  updatedAt.setAttribute("id", "desktop-workspace-updated-at");
-  updatedAt.setAttribute("class", "desktop-workspace-updated-at");
-  updatedAt.textContent = "No timestamp";
-
-  const size = targetDocument.createElement("p");
-  size.setAttribute("id", "desktop-workspace-size");
-  size.setAttribute("class", "desktop-workspace-size");
-  size.textContent = "No size";
-
-  const detail = targetDocument.createElement("p");
-  detail.setAttribute("id", "desktop-workspace-detail");
-  detail.setAttribute("class", "desktop-workspace-detail");
-  detail.textContent = "No workspace file selected.";
-
-  const browser = targetDocument.createElement("aside");
-  browser.className = "desktop-workspace-browser";
-  browser.append(
-    createText(targetDocument, "h3", "Files"),
-    search,
-    recent,
-  );
-  mountWorkspaceBrowserVueIsland(browser);
-
-  const sourceTree = createFileSourceTree(targetDocument);
-
-  const detailPanel = targetDocument.createElement("section");
-  detailPanel.className = "desktop-workspace-detail-panel";
-  detailPanel.append(
-    createText(targetDocument, "h3", "Selection"),
-    activePath,
-    updatedAt,
-    size,
-    detail,
-  );
-
-  const editor = targetDocument.createElement("textarea");
-  editor.setAttribute("id", "desktop-workspace-editor");
-  editor.setAttribute("class", "desktop-workspace-editor");
-  editor.setAttribute("aria-label", "Workspace file editor");
-
-  const editorPanel = targetDocument.createElement("section");
-  editorPanel.className = "desktop-workspace-editor-panel";
-  editorPanel.append(
-    createText(targetDocument, "h3", "Editor"),
-    editor,
-  );
-
-  const saveState = targetDocument.createElement("p");
-  saveState.setAttribute("id", "desktop-workspace-save-state");
-  saveState.setAttribute("class", "desktop-workspace-save-state");
-  saveState.textContent = "Select a workspace file";
-
-  const error = targetDocument.createElement("p");
-  error.setAttribute("id", "desktop-workspace-error");
-  error.setAttribute("class", "desktop-workspace-error");
-  error.textContent = "";
-
-  const save = targetDocument.createElement("button");
-  save.setAttribute("id", "desktop-workspace-save");
-  save.setAttribute("type", "button");
-  save.setAttribute("class", "desktop-file-action");
-  save.setAttribute("disabled", "");
-  save.textContent = "Save";
-
-  const reveal = targetDocument.createElement("button");
-  reveal.setAttribute("id", "desktop-workspace-reveal");
-  reveal.setAttribute("type", "button");
-  reveal.setAttribute("class", "desktop-file-action");
-  reveal.setAttribute("disabled", "");
-  reveal.textContent = "Reveal";
-
-  const reload = targetDocument.createElement("button");
-  reload.setAttribute("id", "desktop-workspace-reload");
-  reload.setAttribute("type", "button");
-  reload.setAttribute("class", "desktop-file-action desktop-workspace-reload");
-  reload.setAttribute("disabled", "");
-  reload.textContent = "Reload";
-
-  const exportButton = targetDocument.createElement("button");
-  exportButton.setAttribute("id", "desktop-workspace-export");
-  exportButton.setAttribute("type", "button");
-  exportButton.setAttribute("class", "desktop-file-action");
-  exportButton.setAttribute("disabled", "");
-  exportButton.textContent = "Export";
-
-  const actions = targetDocument.createElement("div");
-  actions.setAttribute("class", "desktop-workspace-actions");
-  actions.append(save, reveal, exportButton, reload);
-
-  const actionRail = targetDocument.createElement("aside");
-  actionRail.className = "desktop-workspace-action-rail";
-  actionRail.setAttribute("aria-label", "Workspace file actions");
-  actionRail.append(
-    createText(targetDocument, "h3", "Actions"),
-    actions,
-    saveState,
-    error,
-  );
-
-  section.append(header, sourceTree, browser, detailPanel, editorPanel, actionRail);
-  return section;
-}
-
-function createFileSourceTree(targetDocument: Document): HTMLElement {
-  const sourceTree = targetDocument.createElement("aside");
-  sourceTree.className = "desktop-file-source-tree";
-  sourceTree.setAttribute("aria-label", "File sources");
-  sourceTree.append(createText(targetDocument, "h3", "Source Tree"));
-
-  const chips = targetDocument.createElement("div");
-  chips.className = "desktop-file-scope-chips";
-  chips.setAttribute("aria-label", "File scope filters");
-  for (const label of ["All", "Session", "Knowledge", "Workspace"]) {
-    const chip = targetDocument.createElement("button");
-    chip.type = "button";
-    chip.className = "desktop-file-scope-chip";
-    chip.setAttribute("data-desktop-file-scope", label.toLowerCase());
-    chip.textContent = label;
-    chips.append(chip);
-  }
-  sourceTree.append(chips);
-
-  for (const [id, title, detail] of [
-    ["session", "Session Files", "Current chat and recent chats"],
-    ["knowledge", "Knowledge Documents", "Persistent RAG and graph sources"],
-    ["workspace", "Workspace Files", "Editable project files"],
-  ]) {
-    const row = targetDocument.createElement("button");
-    row.type = "button";
-    row.className = "desktop-file-source-row";
-    row.setAttribute("data-desktop-file-source", id);
-    const titleNode = createText(targetDocument, "span", title);
-    titleNode.className = "desktop-file-source-title";
-    const detailNode = createText(targetDocument, "span", detail);
-    detailNode.className = "desktop-file-source-detail";
-    const count = createText(targetDocument, "span", "0");
-    count.className = "desktop-file-source-count";
-    count.setAttribute("aria-label", `${title} count`);
-    row.append(titleNode, detailNode, count);
-    sourceTree.append(row);
-  }
-
-  return sourceTree;
-}
-
-function mountWorkspaceBrowserVueIsland(browser: HTMLElement): void {
-  if (!canMountVueIsland(browser)) {
-    return;
-  }
-  mountWorkspaceBrowserIsland(browser);
 }
 
 function renderInspectorView(targetDocument: Document, view: DesktopInspectorView): HTMLElement {

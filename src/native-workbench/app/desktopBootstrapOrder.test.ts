@@ -36,7 +36,7 @@ describe("desktop bootstrap order", () => {
     expect(chatOptionPosition).toBeGreaterThan(nativeShellPosition);
   });
 
-  test("native startup defers secondary pane and cowork task hydration", () => {
+  test("native startup does not schedule removed page hydration", () => {
     const nativeShellPosition = callPosition("installDesktopWorkbenchShell({");
     const hydrationStart = callPosition("function hydrateNativeStartupPanes(");
     const hydrationEnd = bootstrapSource.indexOf("const nativeRouteHydratedModules", hydrationStart);
@@ -44,7 +44,6 @@ describe("desktop bootstrap order", () => {
     const hydrationSource = bootstrapSource.slice(hydrationStart, hydrationEnd);
 
     expect(nativeShellPosition).toBeGreaterThanOrEqual(0);
-    expect(hydrationSource).not.toContain("loadNativeSettingsPane()");
     expect(hydrationSource).not.toContain("loadNativeKnowledgePane()");
     expect(hydrationSource).not.toContain("loadNativeToolsSkillsPane()");
     expect(hydrationSource).not.toContain("loadNativeCoworkPane()");
@@ -59,26 +58,23 @@ describe("desktop bootstrap order", () => {
     expect(approvalRefreshPosition).toBeGreaterThan(nativeShellPosition);
   });
 
-  test("native startup syncs cowork rollout without hydrating settings", () => {
-    const nativeShellPosition = callPosition("installDesktopWorkbenchShell({");
-    const rolloutSyncPosition = callPosition("ensureNativeCoworkRuntimeRolloutSynced(startupTrace);");
-    const settingsHydrationPosition = callPosition("hydrateNativeSettingsPaneOnce(startupTrace);");
-
-    expect(rolloutSyncPosition).toBeGreaterThan(nativeShellPosition);
-    expect(rolloutSyncPosition).toBeLessThan(settingsHydrationPosition);
+  test("native startup does not sync removed cowork rollout", () => {
+    expect(bootstrapSource).not.toContain("ensureNativeCoworkRuntimeRolloutSynced(startupTrace);");
+    expect(bootstrapSource).not.toContain("function ensureNativeCoworkRuntimeRolloutSynced(");
   });
 
-  test("native cowork hydration waits for rollout config before loading cowork data", () => {
-    const coworkHydrationStart = callPosition("function hydrateNativeCoworkPaneOnce(");
-    const coworkHydrationEnd = bootstrapSource.indexOf("function hydrateNativeWorkspaceFilesOnce", coworkHydrationStart);
-    expect(coworkHydrationEnd).toBeGreaterThan(coworkHydrationStart);
-    const coworkHydrationSource = bootstrapSource.slice(coworkHydrationStart, coworkHydrationEnd);
+  test("native route hydration only supports settings among secondary panes", () => {
+    const routeHydrationSource = sourceBlock(
+      "function hydrateNativeRouteTarget(",
+      "function hydrateNativeSettingsPaneOnce(",
+    );
 
-    const rolloutSyncPosition = coworkHydrationSource.indexOf("await ensureNativeCoworkRuntimeRolloutSynced(startupTrace);");
-    const loadCoworkPosition = coworkHydrationSource.indexOf("const pane = await loadNativeCoworkPane();");
-
-    expect(rolloutSyncPosition).toBeGreaterThanOrEqual(0);
-    expect(loadCoworkPosition).toBeGreaterThan(rolloutSyncPosition);
+    expect(routeHydrationSource).toContain('pathname.startsWith("/settings")');
+    expect(routeHydrationSource).not.toContain('pathname.startsWith("/knowledge")');
+    expect(routeHydrationSource).not.toContain('pathname.startsWith("/tools")');
+    expect(routeHydrationSource).not.toContain('pathname.startsWith("/skills")');
+    expect(routeHydrationSource).not.toContain('pathname.startsWith("/cowork")');
+    expect(routeHydrationSource).not.toContain('pathname.startsWith("/files")');
   });
 
   test("installs native chat runtime actions after the native shell exists", () => {
@@ -95,15 +91,31 @@ describe("desktop bootstrap order", () => {
     expect(uploadClickPosition).toBeGreaterThan(attachActionPosition);
   });
 
-  test("refreshes the native knowledge pane after document upload completes", () => {
+  test("file upload actions are limited to chat session attachments", () => {
     const uploadActionsSource = sourceBlock(
       "function installNativeFileUploadActions(): void {",
       "function refreshNativeFileUploadActions(): void {",
     );
 
-    expect(uploadActionsSource).toContain("onKnowledgeUploaded");
-    expect(uploadActionsSource).toContain("loadNativeKnowledgePane");
-    expect(uploadActionsSource).toContain("setNativeKnowledgePane");
+    expect(uploadActionsSource).toContain("uploadSessionTemporaryFile");
+    expect(uploadActionsSource).toContain("listSessionTemporaryFiles");
+    expect(uploadActionsSource).not.toContain("uploadKnowledgeDocument");
+    expect(uploadActionsSource).not.toContain("uploadWorkspaceFile");
+    expect(uploadActionsSource).not.toContain("onKnowledgeUploaded");
+  });
+
+  test("native command palette only loads chat sessions", () => {
+    const paletteSource = sourceBlock(
+      "async function loadNativeCommandPaletteData(): Promise<DesktopCommandPaletteInput> {",
+      "let nativeFileUploadActions: DesktopFileUploadActions | null = null;",
+    );
+
+    expect(paletteSource).toContain("gatewayApi.sessions.list()");
+    expect(paletteSource).not.toContain("gatewayApi.workspace.files()");
+    expect(paletteSource).not.toContain("gatewayApi.knowledge.documents()");
+    expect(paletteSource).not.toContain("gatewayApi.tools.list()");
+    expect(paletteSource).not.toContain("gatewayApi.skills.list()");
+    expect(paletteSource).not.toContain("gatewayApi.cowork.sessions()");
   });
 
   test("resetting local settings UI state also resets the saved baseline", () => {

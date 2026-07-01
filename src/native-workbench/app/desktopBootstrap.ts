@@ -20,7 +20,6 @@ import type { GatewayRuntimeStatus } from "../gateway/desktopGatewayStartup";
 import { DEFAULT_NATIVE_BACKEND_COMMAND, ensureGatewayReady } from "../gateway/desktopGatewayStartup";
 import { installDesktopGatewayBridge } from "../gateway/desktopGatewayBridge";
 import {
-  buildDesktopKnowledgeDocumentRows,
   buildDesktopKnowledgePaneModel,
   buildDesktopKnowledgeQueryRequest,
   buildDesktopKnowledgeTaskOperation,
@@ -81,7 +80,7 @@ import {
   buildDesktopGatewayTaskOperation,
   buildDesktopProviderModelDiscoveryTaskOperation,
 } from "../tasks/desktopTaskCenterSources";
-import { buildDesktopSkillRows, buildDesktopToolRows } from "../tools-skills/desktopToolsSkills";
+import { buildDesktopSkillRows } from "../tools-skills/desktopToolsSkills";
 import {
   buildDesktopToolsSkillsPaneModel,
   updateDesktopSkillEditorDraft,
@@ -107,8 +106,6 @@ import {
   type DesktopTaskCenterActionEvent,
   type DesktopToolsSkillsActionEvent,
 } from "../shell/desktopWorkbenchShell";
-import { installDesktopWorkspaceFileActions } from "../workspace/desktopWorkspaceFiles";
-import { buildDesktopWorkspaceFileRows } from "../workspace/desktopWorkspaceFiles";
 import { resolveDesktopWorkbenchStartupMode } from "../shell/desktopWorkbenchGate";
 import { installDesktopWindowFrame, setDesktopWindowRuntimeStatus } from "../shell/desktopWindowFrame";
 import { DEFAULT_GATEWAY_CONFIG, resolveGatewayConfig } from "../gateway/gatewayConfig";
@@ -312,9 +309,6 @@ async function bootDesktopWebUi(): Promise<void> {
     startupTrace.start("initialPaneModels");
     const settingsPane = await loadNativeSettingsPane();
     nativeChatRuntime.setRuntimeMetadata(nativeRuntimeMetadataFromSettings());
-    const knowledgePane = buildInitialNativeKnowledgePane();
-    const toolsSkillsPane = buildInitialNativeToolsSkillsPane();
-    const coworkPane = buildInitialNativeCoworkPane();
     startupTrace.complete("initialPaneModels");
     startupTrace.start("nativeShellInstall");
     installDesktopWorkbenchShell({
@@ -330,24 +324,6 @@ async function bootDesktopWebUi(): Promise<void> {
       settingsActions: {
         onSettingsAction: (event) => {
           void handleNativeSettingsAction(event);
-        },
-      },
-      knowledgePane,
-      knowledgeActions: {
-        onKnowledgeAction: (event) => {
-          void handleNativeKnowledgeAction(event);
-        },
-      },
-      toolsSkillsPane,
-      toolsSkillsActions: {
-        onToolsSkillsAction: (event) => {
-          void handleNativeToolsSkillsAction(event);
-        },
-      },
-      coworkPane,
-      coworkActions: {
-        onCoworkAction: (event) => {
-          void handleNativeCoworkAction(event);
         },
       },
       gatewayActions: {
@@ -368,7 +344,6 @@ async function bootDesktopWebUi(): Promise<void> {
     syncNativeRuntimeMetadata();
     startupTrace.complete("nativeChromeBindings");
     hydrateNativeStartupPanes(startupTrace);
-    void ensureNativeCoworkRuntimeRolloutSynced(startupTrace);
     scheduleNativeApprovalTasksRefresh(startupTrace);
     startupTrace.mark("native.ready", {
       gatewayHttp: gatewayConfig.httpBaseUrl,
@@ -398,52 +373,14 @@ async function bootDesktopWebUi(): Promise<void> {
   }
 }
 
-function buildInitialNativeKnowledgePane(): DesktopKnowledgePaneModel {
-  nativeKnowledgePane = buildDesktopKnowledgePaneModel();
-  return nativeKnowledgePane;
-}
-
-function buildInitialNativeToolsSkillsPane(): DesktopToolsSkillsPaneModel {
-  nativeToolsPayload = {};
-  nativeSkillsPayload = {};
-  nativeToolsSkillsConfig = {};
-  nativeToolsSkillsPane = buildDesktopToolsSkillsPaneModel();
-  return nativeToolsSkillsPane;
-}
-
-function buildInitialNativeCoworkPane(): DesktopCoworkPaneModel {
-  nativeCoworkPane = {
-    sessionRows: [],
-    cockpitView: null,
-  };
-  return nativeCoworkPane;
-}
-
 function hydrateNativeStartupPanes(startupTrace?: DesktopNativeStartupTrace): void {
   startupTrace?.mark("hydration.scheduled");
   startupTrace?.mark("settingsPaneHydration.skipped", {
     reason: "deferred-until-opened",
   });
-  startupTrace?.mark("knowledgePaneHydration.skipped", {
-    reason: "deferred-until-opened",
-  });
-  startupTrace?.mark("toolsSkillsPaneHydration.skipped", {
-    reason: "deferred-until-opened",
-  });
-  startupTrace?.mark("coworkPaneHydration.skipped", {
-    reason: "deferred-until-opened",
-  });
-  startupTrace?.mark("workspaceFilesHydration.skipped", {
-    reason: "deferred-until-opened",
-  });
-  startupTrace?.mark("coworkTasksRefresh.skipped", {
-    reason: "deferred-until-opened",
-  });
 }
 
 const nativeRouteHydratedModules = new Set<string>();
-let nativeCoworkRuntimeRolloutSyncPromise: Promise<void> | null = null;
-const DESKTOP_COWORK_STANDALONE_AVAILABLE = false;
 
 function installNativeRouteHydration(startupTrace?: DesktopNativeStartupTrace): void {
   window.addEventListener("tinybot:desktop-route", (event) => {
@@ -464,32 +401,6 @@ function hydrateNativeRouteTarget(href: string, startupTrace?: DesktopNativeStar
   const pathname = new URL(href, window.location.href).pathname;
   if (pathname.startsWith("/settings")) {
     hydrateNativeSettingsPaneOnce(startupTrace);
-    return;
-  }
-  if (pathname.startsWith("/knowledge")) {
-    hydrateNativeKnowledgePaneOnce(startupTrace);
-    return;
-  }
-  if (pathname.startsWith("/tools") || pathname.startsWith("/skills")) {
-    hydrateNativeToolsSkillsPaneOnce(startupTrace);
-    return;
-  }
-  if (pathname.startsWith("/cowork")) {
-    if (!DESKTOP_COWORK_STANDALONE_AVAILABLE) {
-      startupTrace?.mark("coworkPaneHydration.skipped", {
-        reason: "under-construction",
-      });
-      startupTrace?.mark("coworkTasksRefresh.skipped", {
-        reason: "under-construction",
-      });
-      return;
-    }
-    hydrateNativeCoworkPaneOnce(startupTrace);
-    traceNativeRouteBackgroundOnce("coworkTasksRefresh", () => refreshNativeCoworkTasks(), startupTrace);
-    return;
-  }
-  if (pathname.startsWith("/files")) {
-    hydrateNativeWorkspaceFilesOnce(startupTrace);
   }
 }
 
@@ -508,46 +419,8 @@ function hydrateNativeSettingsPaneOnce(startupTrace?: DesktopNativeStartupTrace)
   }, startupTrace);
 }
 
-function hydrateNativeKnowledgePaneOnce(startupTrace?: DesktopNativeStartupTrace): void {
-  traceNativeRouteBackgroundOnce("knowledgePaneHydration", async () => {
-    const pane = await loadNativeKnowledgePane();
-    setNativeKnowledgePane(pane);
-    logDesktopNativeDebug("knowledge.load.lazy.complete", {
-      documentCount: pane.documentRows.length,
-    });
-  }, startupTrace);
-}
-
-function hydrateNativeToolsSkillsPaneOnce(startupTrace?: DesktopNativeStartupTrace): void {
-  traceNativeRouteBackgroundOnce("toolsSkillsPaneHydration", async () => {
-    const pane = await loadNativeToolsSkillsPane();
-    setNativeToolsSkillsPane(pane);
-    logDesktopNativeDebug("toolsSkills.load.lazy.complete", {
-      skillCount: pane.skillRows.length,
-      toolCount: pane.toolRows.length,
-    });
-  }, startupTrace);
-}
-
-function hydrateNativeCoworkPaneOnce(startupTrace?: DesktopNativeStartupTrace): void {
-  traceNativeRouteBackgroundOnce("coworkPaneHydration", async () => {
-    await ensureNativeCoworkRuntimeRolloutSynced(startupTrace);
-    const pane = await loadNativeCoworkPane();
-    setNativeCoworkPane(pane);
-    logDesktopNativeDebug("cowork.load.lazy.complete", {
-      sessionCount: pane.sessionRows.length,
-    });
-  }, startupTrace);
-}
-
 function scheduleNativeApprovalTasksRefresh(startupTrace?: DesktopNativeStartupTrace): void {
   traceNativeRouteBackgroundOnce("approvalTasksRefresh", () => refreshNativeApprovalTasks(), startupTrace);
-}
-
-function hydrateNativeWorkspaceFilesOnce(startupTrace?: DesktopNativeStartupTrace): void {
-  traceNativeRouteBackgroundOnce("workspaceFilesHydration", async () => {
-    await installNativeWorkspaceFileActions();
-  }, startupTrace);
 }
 
 function traceNativeRouteBackgroundOnce(
@@ -569,24 +442,6 @@ function traceNativeRouteBackgroundOnce(
       error: stringifyError(error),
     });
   });
-}
-
-function ensureNativeCoworkRuntimeRolloutSynced(startupTrace?: DesktopNativeStartupTrace): Promise<void> {
-  if (nativeCoworkRuntimeRolloutSyncPromise) {
-    return nativeCoworkRuntimeRolloutSyncPromise;
-  }
-  startupTrace?.start("coworkRolloutSync");
-  nativeCoworkRuntimeRolloutSyncPromise = gatewayApi.config.get().then((config) => {
-    syncTsCoworkRuntimeRollout(config);
-    startupTrace?.complete("coworkRolloutSync");
-  }).catch((error) => {
-    nativeCoworkRuntimeRolloutSyncPromise = null;
-    startupTrace?.fail("coworkRolloutSync", error);
-    logDesktopNativeDebug("cowork.rollout.sync.failed", {
-      error: stringifyError(error),
-    });
-  });
-  return nativeCoworkRuntimeRolloutSyncPromise;
 }
 
 async function resolveNativeWebSocketSessionExists(sessionId: string): Promise<boolean | undefined> {
@@ -2516,36 +2371,11 @@ function buildNativeWorkbenchDesktopCommands(): ReturnType<typeof buildDesktopCo
 }
 
 async function loadNativeCommandPaletteData(): Promise<DesktopCommandPaletteInput> {
-  const [sessions, workspaceFiles, knowledgeDocuments, config, tools, skills, coworkSessions] = await Promise.all([
-    gatewayApi.sessions.list(),
-    gatewayApi.workspace.files(),
-    gatewayApi.knowledge.documents(),
-    gatewayApi.config.get(),
-    gatewayApi.tools.list(),
-    gatewayApi.skills.list(),
-    gatewayApi.cowork.sessions(),
-  ]);
-  replaceNativeCoworkTasks(coworkSessions);
+  const sessions = await gatewayApi.sessions.list();
   return {
     desktopCommands: buildNativeWorkbenchDesktopCommands(),
     sessions: { loaded: true, rows: normalizeSessionsPayload(sessions) },
-    workspaceFiles: { loaded: true, rows: buildDesktopWorkspaceFileRows(workspaceFiles) },
-    knowledgeDocuments: { loaded: true, rows: buildDesktopKnowledgeDocumentRows(knowledgeDocuments) },
-    tools: { loaded: true, rows: buildDesktopToolRows(tools, config) },
-    skills: { loaded: true, rows: buildDesktopSkillRows(skills, config) },
-    coworkSessions: { loaded: true, rows: buildDesktopCoworkSessionRows(coworkSessions) },
   };
-}
-
-function installNativeWorkspaceFileActions(): Promise<void> {
-  return installDesktopWorkspaceFileActions({
-    listWorkspaceFiles: () => gatewayApi.workspace.files(),
-    loadWorkspaceFile: (path) => gatewayApi.workspace.file(path),
-    saveWorkspaceFile: (path, body) => gatewayApi.workspace.putFile(path, body),
-    revealWorkspaceFile: (path) => invoke("reveal_workspace_file", { path }),
-    exportWorkspaceFile: (options) => invoke("save_export_file", { options }),
-    onFileTaskUpdated: updateNativeFileTask,
-  });
 }
 
 let nativeFileUploadActions: DesktopFileUploadActions | null = null;
@@ -2556,19 +2386,9 @@ function installNativeFileUploadActions(): void {
       invoke<DesktopPickedUploadFile | null>("pick_upload_file", {
         options: desktopUploadPickerOptions(kind),
     }),
-    uploadKnowledgeDocument: (form) => gatewayApi.knowledge.uploadDocument(form),
-    onKnowledgeTaskUpdated: updateNativeKnowledgeTask,
-    onKnowledgeUploaded: async () => {
-      const pane = await loadNativeKnowledgePane({
-        queryResultPayload: nativeKnowledgeQueryResult,
-        selectedDocumentId: nativeKnowledgePane?.selectedDocument?.id,
-      });
-      setNativeKnowledgePane(pane);
-    },
     uploadSessionTemporaryFile: (sessionKey, form) => gatewayApi.sessions.uploadTemporaryFile(sessionKey, form),
     listSessionTemporaryFiles: (sessionKey) => gatewayApi.sessions.temporaryFiles(sessionKey),
     getSessionKey: () => nativeWorkbenchRuntime?.chat.activeSessionKey ?? "",
-    uploadWorkspaceFile: (path, body) => gatewayApi.workspace.putFile(path, body),
   };
   refreshNativeFileUploadActions();
 }
@@ -2650,12 +2470,6 @@ function buildDesktopKnowledgeGraphExtractionTaskOperation(input: {
     retryable: false,
     updatedAt: "",
   };
-}
-
-function updateNativeFileTask(operation: DesktopTaskSourceOperation): void {
-  nativeFileTaskOperations.set(operation.id, operation);
-  logDesktopNativeDebug("task.operation.update", summarizeTaskOperation("files", operation));
-  publishNativeTaskCenterItems();
 }
 
 function updateNativeProviderTask(operation: DesktopTaskSourceOperation): void {
@@ -2851,31 +2665,6 @@ async function refreshNativeApprovalTasks(): Promise<void> {
   }
 }
 
-async function refreshNativeCoworkTasks(): Promise<void> {
-  logDesktopNativeDebug("cowork.tasks.refresh.start");
-  try {
-    const payload = await gatewayApi.cowork.sessions({ includeCompleted: true });
-    replaceNativeCoworkTasks(payload);
-    logDesktopNativeDebug("cowork.tasks.refresh.complete", {
-      count: nativeCoworkTaskOperations.size,
-    });
-  } catch (error) {
-    updateNativeCoworkTask({
-      id: "cowork:load",
-      title: "Load Cowork task state",
-      status: "failed",
-      detail: "Cowork sessions unavailable",
-      canonical: { module: "cowork", href: "/cowork" },
-      diagnostics: stringifyError(error),
-      retryable: true,
-      updatedAt: new Date().toISOString(),
-    });
-    logDesktopNativeDebug("cowork.tasks.refresh.failed", {
-      error: stringifyError(error),
-    });
-  }
-}
-
 function replaceNativeCoworkTasks(payload: unknown): void {
   nativeCoworkTaskOperations.clear();
   for (const operation of buildDesktopCoworkTaskOperations(payload)) {
@@ -2885,12 +2674,6 @@ function replaceNativeCoworkTasks(payload: unknown): void {
     count: nativeCoworkTaskOperations.size,
     source: "cowork",
   });
-  publishNativeTaskCenterItems();
-}
-
-function updateNativeCoworkTask(operation: DesktopTaskSourceOperation): void {
-  nativeCoworkTaskOperations.set(operation.id, operation);
-  logDesktopNativeDebug("task.operation.update", summarizeTaskOperation("cowork", operation));
   publishNativeTaskCenterItems();
 }
 

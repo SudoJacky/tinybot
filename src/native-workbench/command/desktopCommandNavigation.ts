@@ -5,10 +5,6 @@ export type DesktopMenuCommandId =
   | "stop-generation"
   | "search-sessions"
   | "open-chat"
-  | "open-workspace"
-  | "open-knowledge"
-  | "open-files"
-  | "open-cowork"
   | "open-tinybot-repo"
   | "open-settings"
   | "open-docs"
@@ -64,9 +60,6 @@ export const DESKTOP_MENU_COMMANDS: DesktopMenuCommand[] = [
   { id: "stop-generation", label: "Stop Generation", chromeLabel: "Stop", chromeGroup: "primary", shortcut: "Ctrl+." },
   { id: "search-sessions", label: "Search Sessions", chromeLabel: "Search", chromeGroup: "primary", shortcut: "Ctrl+F" },
   { id: "open-chat", label: "Chat", chromeGroup: "secondary", shortcut: "" },
-  { id: "open-files", label: "Files", chromeGroup: "secondary", shortcut: "" },
-  { id: "open-knowledge", label: "Knowledge", chromeGroup: "secondary", shortcut: "" },
-  { id: "open-cowork", label: "Cowork", chromeGroup: "secondary", shortcut: "" },
   { id: "open-tinybot-repo", label: "Tinybot repo", chromeGroup: "secondary", shortcut: "" },
   { id: "open-settings", label: "Settings", chromeGroup: "secondary", shortcut: "Ctrl+," },
   { id: "open-docs", label: "Documentation", chromeGroup: "secondary", shortcut: "F1" },
@@ -91,9 +84,6 @@ const DESKTOP_CHROME_COMMAND_IDS: DesktopMenuCommandId[] = [
 
 const DESKTOP_RESOURCE_COMMAND_IDS: DesktopMenuCommandId[] = [
   "open-chat",
-  "open-files",
-  "open-knowledge",
-  "open-cowork",
 ];
 
 const DESKTOP_SYSTEM_COMMAND_IDS: DesktopMenuCommandId[] = [
@@ -146,14 +136,6 @@ export function routeDesktopMenuCommand(id: string, context: DesktopMenuCommandC
       return { kind: "action", action: "open-session-search" };
     case "open-chat":
       return { kind: "navigate", href: "/chat" };
-    case "open-workspace":
-      return { kind: "navigate", href: "/files" };
-    case "open-knowledge":
-      return { kind: "navigate", href: "/knowledge" };
-    case "open-files":
-      return { kind: "navigate", href: "/files" };
-    case "open-cowork":
-      return { kind: "navigate", href: "/cowork" };
     case "open-tinybot-repo":
       return { kind: "navigate", href: "https://github.com/SudoJacky/tinybot" };
     case "open-settings":

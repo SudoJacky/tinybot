@@ -85,9 +85,6 @@ describe("desktop command navigation", () => {
       "stop-generation",
       "search-sessions",
       "open-chat",
-      "open-files",
-      "open-knowledge",
-      "open-cowork",
       "open-tinybot-repo",
       "open-settings",
       "open-docs",
@@ -105,9 +102,6 @@ describe("desktop command navigation", () => {
       "Stop Generation",
       "Search Sessions",
       "Chat",
-      "Files",
-      "Knowledge",
-      "Cowork",
       "Tinybot repo",
       "Settings",
       "Documentation",
@@ -124,9 +118,6 @@ describe("desktop command navigation", () => {
       "Ctrl+N",
       "Ctrl+.",
       "Ctrl+F",
-      "",
-      "",
-      "",
       "",
       "",
       "Ctrl+,",
@@ -158,9 +149,6 @@ describe("desktop command navigation", () => {
     ]);
     expect(DESKTOP_RESOURCE_COMMANDS.map((command) => command.id)).toEqual([
       "open-chat",
-      "open-files",
-      "open-knowledge",
-      "open-cowork",
     ]);
     expect(DESKTOP_SYSTEM_COMMANDS.map((command) => command.id)).toEqual([
       "open-settings",
@@ -184,9 +172,6 @@ describe("desktop command navigation", () => {
     ]);
     expect(DESKTOP_MENU_COMMANDS.filter((command) => command.chromeGroup === "secondary").map((command) => command.id)).toEqual([
       "open-chat",
-      "open-files",
-      "open-knowledge",
-      "open-cowork",
       "open-tinybot-repo",
       "open-settings",
       "open-docs",
@@ -210,10 +195,6 @@ describe("desktop command navigation", () => {
     expect(routeDesktopMenuCommand("new-chat", context)).toMatchObject({ kind: "navigate", href: "/chat/new" });
     expect(routeDesktopMenuCommand("search-sessions", context)).toMatchObject({ kind: "action", action: "open-session-search" });
     expect(routeDesktopMenuCommand("open-chat", context)).toMatchObject({ kind: "navigate", href: "/chat" });
-    expect(routeDesktopMenuCommand("open-workspace", context)).toMatchObject({ kind: "navigate", href: "/files" });
-    expect(routeDesktopMenuCommand("open-knowledge", context)).toMatchObject({ kind: "navigate", href: "/knowledge" });
-    expect(routeDesktopMenuCommand("open-files", context)).toMatchObject({ kind: "navigate", href: "/files" });
-    expect(routeDesktopMenuCommand("open-cowork", context)).toMatchObject({ kind: "navigate", href: "/cowork" });
     expect(routeDesktopMenuCommand("open-tinybot-repo", context)).toMatchObject({
       kind: "navigate",
       href: "https://github.com/SudoJacky/tinybot",
@@ -229,6 +210,21 @@ describe("desktop command navigation", () => {
     expect(routeDesktopMenuCommand("open-command-palette", context)).toMatchObject({ kind: "action", action: "open-command-palette" });
     expect(routeDesktopMenuCommand("refresh-gateway-status", context)).toMatchObject({ kind: "navigate", href: "/api/status" });
     expect(routeDesktopMenuCommand("stop-generation", context)).toMatchObject({ kind: "action", action: "stop-generation" });
+  });
+
+  test("does not route removed workbench modules", () => {
+    const context: DesktopMenuCommandContext = {
+      activeGeneration: false,
+      sidebarVisible: true,
+      theme: "light",
+    };
+
+    for (const id of ["open-workspace", "open-files", "open-knowledge", "open-cowork"]) {
+      expect(routeDesktopMenuCommand(id, context)).toEqual({
+        kind: "unavailable",
+        feedback: `Unknown desktop command: ${id}`,
+      });
+    }
   });
 
   test("reports unavailable menu commands without destructive fallback", () => {

@@ -26,16 +26,8 @@ describe("desktop command palette", () => {
       desktopCommands,
     });
 
-    expect(buildDesktopCommandPaletteResults(state, "automations")[0]).toMatchObject({
-      group: "Actions",
-      title: "Automations",
-      destination: { module: "cowork", href: "/cowork" },
-    });
-    expect(buildDesktopCommandPaletteResults(state, "tools")[0]).toMatchObject({
-      group: "Actions",
-      title: "Tools",
-      destination: { module: "tools", href: "/tools" },
-    });
+    expect(buildDesktopCommandPaletteResults(state, "automations")).toEqual([]);
+    expect(buildDesktopCommandPaletteResults(state, "tools")).toEqual([]);
     expect(buildDesktopCommandPaletteResults(state, "settings")[0]).toMatchObject({
       group: "System",
       title: "Settings",
@@ -64,80 +56,17 @@ describe("desktop command palette", () => {
         destination: rootResult.destination,
       });
     }
-    expect(buildDesktopCommandPaletteResults(nativeState, "files")[0]).toMatchObject({
-      title: "Files",
-      destination: { module: "files", href: "/files" },
-    });
-    expect(buildDesktopCommandPaletteResults(nativeState, "session file")[0]).toMatchObject({
-      title: "Files",
-      destination: { module: "command", commandId: "open-files" },
-    });
+    expect(buildDesktopCommandPaletteResults(nativeState, "files")).toEqual([]);
+    expect(buildDesktopCommandPaletteResults(nativeState, "session file")).toEqual([]);
     expect(buildDesktopCommandPaletteResults(nativeState, "tools")[0]?.title).not.toBe("Tools");
   });
 
-  test("groups searchable commands and loaded workbench data", () => {
+  test("groups searchable commands and loaded chat sessions only", () => {
     const state = createDesktopCommandPaletteState({
       sessions: {
         loaded: true,
         rows: [
           { key: "WebSocket:chat-1", chatId: "chat-1", title: "Plan desktop shell", createdAt: "2026-05-31T09:00:00Z", updatedAt: "2026-05-31T10:00:00Z" },
-        ],
-      },
-      workspaceFiles: {
-        loaded: true,
-        rows: [
-          { path: "docs/desktop-shell.md", exists: true, updatedAt: "2026-05-30T09:00:00Z", meta: "Updated 2026-05-30" },
-        ],
-      },
-      knowledgeDocuments: {
-        loaded: true,
-        rows: [
-          {
-            id: "doc-1",
-            title: "Desktop UX Notes",
-            path: "knowledge/desktop.md",
-            category: "design",
-            tags: ["ux"],
-            chunkCount: 12,
-            status: "indexed",
-            phaseLabel: "Indexed",
-            progressPercent: 100,
-            progressDetail: "12 chunks indexed",
-            updatedAt: "2026-05-29",
-            meta: "indexed / 12 chunks",
-          },
-        ],
-      },
-      tools: {
-        loaded: true,
-        rows: [
-          { name: "read_file", displayName: "Read file", description: "Read files", enabled: true, configHint: "", riskHint: "", schemaFields: [], schemaText: "", meta: "enabled", raw: {} },
-        ],
-      },
-      skills: {
-        loaded: true,
-        rows: [
-          { name: "desktop-planner", source: "workspace", available: true, always: false, enabled: true, status: "enabled", deletable: true, meta: "workspace / enabled", raw: {} },
-        ],
-      },
-      coworkSessions: {
-        loaded: true,
-        rows: [
-          {
-            id: "cowork-1",
-            title: "Ship desktop command palette",
-            goal: "Search loaded workbench data",
-            status: "running",
-            workflow: "Hybrid",
-            agentCount: 2,
-            activeAgentCount: 1,
-            taskProgress: { total: 3, completed: 1, failed: 0, blocked: 0 },
-            attention: { total: 0, blockers: 0, pendingReplies: 0, taskIssues: 0, workUnitIssues: 0, agentIssues: 0, approvals: 0, interventions: 0, tone: "normal", label: "On track" },
-            finalOutput: "",
-            updatedAt: "2026-05-31T11:00:00Z",
-            meta: "running / Hybrid",
-            raw: {},
-          },
         ],
       },
     });
@@ -148,37 +77,20 @@ describe("desktop command palette", () => {
       "Commands:Shortcut Help",
       "Commands:Page Help",
       "Sessions:Plan desktop shell",
-      "Workspace files:docs/desktop-shell.md",
-      "Knowledge documents:Desktop UX Notes",
-      "Skills:desktop-planner",
-      "Cowork sessions:Ship desktop command palette",
     ]);
     expect(shellResults.map((result) => result.groupId)).toEqual([
       "commands",
       "commands",
       "commands",
       "sessions",
-      "workspaceFiles",
-      "knowledgeDocuments",
-      "skills",
-      "coworkSessions",
     ]);
 
     const skillsResults = buildDesktopCommandPaletteResults(state, "read");
-    expect(skillsResults.map((result) => `${result.group}:${result.title}`)).toEqual([
-      "Tools:Read file",
-    ]);
-
-    const skillResult = buildDesktopCommandPaletteResults(state, "planner")[0];
-    expect(skillResult).toMatchObject({
-      groupId: "skills",
-      group: "Skills",
-      title: "desktop-planner",
-      destination: { module: "skills", entityId: "desktop-planner" },
-    });
+    expect(skillsResults).toEqual([]);
+    expect(buildDesktopCommandPaletteResults(state, "planner")).toEqual([]);
   });
 
-  test("ranks active knowledge results and exposes result actions", () => {
+  test("ignores removed knowledge input data", () => {
     const state = createDesktopCommandPaletteState({
       knowledgeDocuments: {
         loaded: true,
@@ -204,13 +116,7 @@ describe("desktop command palette", () => {
       recentEntityIds: ["doc-1"],
     });
 
-    const [result] = buildDesktopCommandPaletteResults(state, "desktop notes");
-    expect(result).toMatchObject({
-      id: "knowledge:doc-1",
-      groupId: "knowledgeDocuments",
-      title: "Desktop Notes",
-    });
-    expect(result.actions.map((action) => action.id)).toEqual(["open", "focus", "inspect", "useInChat"]);
+    expect(buildDesktopCommandPaletteResults(state, "desktop notes")).toEqual([]);
   });
 
   test("maps Ctrl/Cmd+K to command palette without removing Ctrl+Shift+P", () => {
@@ -225,11 +131,6 @@ describe("desktop command palette", () => {
     expect(new Set(buildDesktopCommandPaletteResults(state, "session").map((result) => result.group))).toEqual(new Set(["Commands"]));
     expect(state.groups.filter((group) => !group.loaded).map((group) => group.label)).toEqual([
       "Sessions",
-      "Workspace files",
-      "Knowledge documents",
-      "Tools",
-      "Skills",
-      "Cowork sessions",
     ]);
   });
 
@@ -309,13 +210,13 @@ describe("desktop command palette", () => {
 
     activateDesktopCommandPaletteResult(
       {
-        id: "workspace:docs/desktop-shell.md",
-        groupId: "workspaceFiles",
-        group: "Workspace files",
-        title: "docs/desktop-shell.md",
+        id: "session:WebSocket:chat-1",
+        groupId: "sessions",
+        group: "Sessions",
+        title: "Desktop shell chat",
         secondary: "Updated",
         keywords: [],
-        destination: { module: "files", entityId: "docs/desktop-shell.md", href: "/files" },
+        destination: { module: "chat", entityId: "chat-1", href: "/chat/chat-1" },
         actions: [{ id: "open", label: "Open" }],
       },
       {
@@ -325,11 +226,11 @@ describe("desktop command palette", () => {
       },
     );
 
-    expect(historyCalls).toEqual(["http://localhost:1420/files"]);
-    expect(focused).toEqual(["files:docs/desktop-shell.md"]);
-    expect(targetDocument.documentElement.dataset.desktopPaletteFocusModule).toBe("files");
-    expect(targetDocument.documentElement.dataset.desktopPaletteFocusEntity).toBe("docs/desktop-shell.md");
-    expect(targetDocument.documentElement.dataset.desktopCommandFeedback).toBe("Focused Workspace files: docs/desktop-shell.md");
+    expect(historyCalls).toEqual(["http://localhost:1420/chat/chat-1"]);
+    expect(focused).toEqual([]);
+    expect(targetDocument.documentElement.dataset.desktopPaletteFocusModule).toBe("chat");
+    expect(targetDocument.documentElement.dataset.desktopPaletteFocusEntity).toBe("chat-1");
+    expect(targetDocument.documentElement.dataset.desktopCommandFeedback).toBe("Open Sessions: Desktop shell chat");
     expect(events.map((event) => event.type)).toContain("tinybot:desktop-route");
     expect(events.map((event) => event.type)).toContain("tinybot:desktop-palette-activate");
   });
@@ -348,13 +249,13 @@ describe("desktop command palette", () => {
 
     activateDesktopCommandPaletteResult(
       {
-        id: "skill:desktop-planner",
-        groupId: "skills",
-        group: "Skills",
-        title: "desktop-planner",
-        secondary: "workspace / enabled",
+        id: "session:WebSocket:chat-2",
+        groupId: "sessions",
+        group: "Sessions",
+        title: "Deferred chat",
+        secondary: "recent",
         keywords: [],
-        destination: { module: "skills", entityId: "desktop-planner", href: "/tools" },
+        destination: { module: "chat", entityId: "chat-2", href: "/chat/chat-2" },
         actions: [{ id: "open", label: "Open" }],
       },
       {
@@ -364,8 +265,8 @@ describe("desktop command palette", () => {
       },
     );
 
-    expect(targetDocument.documentElement.dataset.desktopPaletteFocusModule).toBe("skills");
-    expect(targetDocument.documentElement.dataset.desktopPaletteFocusEntity).toBe("desktop-planner");
-    expect(targetDocument.documentElement.dataset.desktopCommandFeedback).toBe("Open Skills: desktop-planner");
+    expect(targetDocument.documentElement.dataset.desktopPaletteFocusModule).toBe("chat");
+    expect(targetDocument.documentElement.dataset.desktopPaletteFocusEntity).toBe("chat-2");
+    expect(targetDocument.documentElement.dataset.desktopCommandFeedback).toBe("Open Sessions: Deferred chat");
   });
 });
