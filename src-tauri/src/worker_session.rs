@@ -27,6 +27,7 @@ include!("worker_session/turn_persistence.rs");
 include!("worker_session/task_progress.rs");
 
 include!("worker_session/types.rs");
+include!("worker_session/agent_run.rs");
 include!("worker_session/metadata_helpers.rs");
 include!("worker_session/history_helpers.rs");
 include!("worker_session/task_progress_helpers.rs");

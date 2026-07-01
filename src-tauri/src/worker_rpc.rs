@@ -22,7 +22,7 @@ use crate::worker_protocol::{
     WorkerResponse,
 };
 use crate::worker_secret::{ProviderResolveSecretParams, WorkerSecretRpc};
-use crate::worker_session::{SessionMetadata, WorkerSessionRpc};
+use crate::worker_session::{AgentRunRecord, AgentRunSummary, SessionMetadata, WorkerSessionRpc};
 use crate::worker_shell::{ShellExecuteParams, WorkerShellRpc};
 use crate::worker_task::{TaskPlanIdParams, TaskPlanListParams, TaskPlanSaveParams, WorkerTaskRpc};
 use crate::worker_workspace::{WorkerWorkspaceRpc, WorkspaceReadFormat, WorkspaceReadOptions};
@@ -437,6 +437,104 @@ impl WorkerRpcRouter {
                     params.clear_checkpoint,
                     context_metadata,
                 )?)
+                .map_err(serialization_error)
+            }
+            "agent_run.upsert" => {
+                let params: AgentRunUpsertParams = parse_params(request)?;
+                serde_json::to_value(self.session.upsert_agent_run(params.record)?)
+                    .map_err(serialization_error)
+            }
+            "agent_run.list" => {
+                let params: SessionIdParams = parse_params(request)?;
+                let runs = self
+                    .session
+                    .list_agent_runs(&params.session_id)?
+                    .iter()
+                    .map(AgentRunSummary::from_record)
+                    .collect::<Vec<_>>();
+                Ok(serde_json::json!({
+                    "sessionId": params.session_id,
+                    "runs": runs,
+                }))
+            }
+            "agent_run.get" => {
+                let params: AgentRunIdParams = parse_params(request)?;
+                serde_json::to_value(
+                    self.session
+                        .get_agent_run(&params.session_id, &params.run_id)?,
+                )
+                .map_err(serialization_error)
+            }
+            "agent_run.list_trace" => {
+                let params: AgentRunListTraceParams = parse_params(request)?;
+                serde_json::to_value(self.session.list_agent_run_trace_events(
+                    &params.session_id,
+                    &params.run_id,
+                    params.cursor.as_deref(),
+                    params.limit,
+                )?)
+                .map_err(serialization_error)
+            }
+            "agent_run.append_trace" => {
+                let params: AgentRunAppendTraceParams = parse_params(request)?;
+                serde_json::to_value(self.session.append_agent_run_trace_event(
+                    &params.session_id,
+                    &params.run_id,
+                    params.event,
+                )?)
+                .map_err(serialization_error)
+            }
+            "agent_run.set_checkpoint" => {
+                let params: AgentRunCheckpointParams = parse_params(request)?;
+                serde_json::to_value(self.session.set_agent_run_checkpoint(
+                    &params.session_id,
+                    &params.run_id,
+                    params.checkpoint,
+                )?)
+                .map_err(serialization_error)
+            }
+            "agent_run.get_checkpoint" => {
+                let params: AgentRunIdParams = parse_params(request)?;
+                serde_json::to_value(
+                    self.session
+                        .get_agent_run_checkpoint(&params.session_id, &params.run_id)?,
+                )
+                .map_err(serialization_error)
+            }
+            "agent_run.clear_checkpoint" => {
+                let params: AgentRunIdParams = parse_params(request)?;
+                serde_json::to_value(
+                    self.session
+                        .clear_agent_run_checkpoint(&params.session_id, &params.run_id)?,
+                )
+                .map_err(serialization_error)
+            }
+            "agent_run.mark_completed" => {
+                let params: AgentRunMarkCompletedParams = parse_params(request)?;
+                serde_json::to_value(self.session.mark_agent_run_completed(
+                    &params.session_id,
+                    &params.run_id,
+                    &params.stop_reason,
+                    params.final_content,
+                )?)
+                .map_err(serialization_error)
+            }
+            "agent_run.mark_failed" => {
+                let params: AgentRunMarkFailedParams = parse_params(request)?;
+                serde_json::to_value(self.session.mark_agent_run_failed(
+                    &params.session_id,
+                    &params.run_id,
+                    &params.stop_reason,
+                    params.error,
+                )?)
+                .map_err(serialization_error)
+            }
+            "agent_run.mark_cancelled" => {
+                let params: AgentRunIdParams = parse_params(request)?;
+                serde_json::to_value(
+                    self.session
+                        .mark_agent_run_cancelled(&params.session_id, &params.run_id)?,
+                )
                 .map_err(serialization_error)
             }
             "diagnostics.append" => {
@@ -901,6 +999,72 @@ impl SessionPersistTurnParams {
             .clone()
             .or_else(|| self.context_metadata_camel.clone())
     }
+}
+
+#[derive(Deserialize)]
+struct AgentRunUpsertParams {
+    record: AgentRunRecord,
+}
+
+#[derive(Deserialize)]
+struct AgentRunIdParams {
+    #[serde(alias = "sessionId")]
+    session_id: String,
+    #[serde(alias = "runId")]
+    run_id: String,
+}
+
+#[derive(Deserialize)]
+struct AgentRunListTraceParams {
+    #[serde(alias = "sessionId")]
+    session_id: String,
+    #[serde(alias = "runId")]
+    run_id: String,
+    #[serde(default)]
+    cursor: Option<String>,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+#[derive(Deserialize)]
+struct AgentRunAppendTraceParams {
+    #[serde(alias = "sessionId")]
+    session_id: String,
+    #[serde(alias = "runId")]
+    run_id: String,
+    event: Value,
+}
+
+#[derive(Deserialize)]
+struct AgentRunCheckpointParams {
+    #[serde(alias = "sessionId")]
+    session_id: String,
+    #[serde(alias = "runId")]
+    run_id: String,
+    checkpoint: Value,
+}
+
+#[derive(Deserialize)]
+struct AgentRunMarkCompletedParams {
+    #[serde(alias = "sessionId")]
+    session_id: String,
+    #[serde(alias = "runId")]
+    run_id: String,
+    #[serde(alias = "stopReason")]
+    stop_reason: String,
+    #[serde(default, alias = "finalContent")]
+    final_content: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct AgentRunMarkFailedParams {
+    #[serde(alias = "sessionId")]
+    session_id: String,
+    #[serde(alias = "runId")]
+    run_id: String,
+    #[serde(alias = "stopReason")]
+    stop_reason: String,
+    error: Value,
 }
 
 #[derive(Deserialize)]
@@ -2219,6 +2383,214 @@ mod tests {
             })
         );
         assert!(response.error.is_none());
+    }
+
+    #[test]
+    fn dispatches_agent_run_store_round_trip_requests() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::SessionMetadataRead,
+                WorkerCapability::SessionWrite,
+            ]),
+        );
+        let record = json!({
+            "sessionId": "session-1",
+            "runId": "run-1",
+            "status": "running",
+            "phase": "active_turn",
+            "startedAt": "unix-ms:1",
+            "updatedAt": "unix-ms:1",
+            "completedAt": null,
+            "stopReason": null,
+            "model": "fixture-model",
+            "provider": "fixture",
+            "maxIterations": 4,
+            "currentIteration": 0,
+            "conversationMessageIds": [],
+            "traceMessages": [],
+            "traceEvents": [],
+            "completedToolResults": [],
+            "pendingToolCalls": [],
+            "checkpoint": null,
+            "artifacts": [],
+            "usage": [],
+            "error": null
+        });
+
+        let upsert = router.dispatch(&WorkerRequest::new(
+            "req-upsert",
+            "trace-agent-run",
+            "agent_run.upsert",
+            json!({ "record": record }),
+        ));
+        let append_trace = router.dispatch(&WorkerRequest::new(
+            "req-trace",
+            "trace-agent-run",
+            "agent_run.append_trace",
+            json!({
+                "session_id": "session-1",
+                "run_id": "run-1",
+                "event": { "eventName": "agent.tool.result" }
+            }),
+        ));
+        let append_second_trace = router.dispatch(&WorkerRequest::new(
+            "req-trace-2",
+            "trace-agent-run",
+            "agent_run.append_trace",
+            json!({
+                "session_id": "session-1",
+                "run_id": "run-1",
+                "event": { "eventName": "agent.done" }
+            }),
+        ));
+        let set_checkpoint = router.dispatch(&WorkerRequest::new(
+            "req-set-checkpoint",
+            "trace-agent-run",
+            "agent_run.set_checkpoint",
+            json!({
+                "session_id": "session-1",
+                "run_id": "run-1",
+                "checkpoint": { "sessionId": "session-1", "runId": "run-1", "phase": "awaiting_tool" }
+            }),
+        ));
+        let get_checkpoint = router.dispatch(&WorkerRequest::new(
+            "req-get-checkpoint",
+            "trace-agent-run",
+            "agent_run.get_checkpoint",
+            json!({ "session_id": "session-1", "run_id": "run-1" }),
+        ));
+        let list = router.dispatch(&WorkerRequest::new(
+            "req-list",
+            "trace-agent-run",
+            "agent_run.list",
+            json!({ "session_id": "session-1" }),
+        ));
+        let get = router.dispatch(&WorkerRequest::new(
+            "req-get",
+            "trace-agent-run",
+            "agent_run.get",
+            json!({ "session_id": "session-1", "run_id": "run-1" }),
+        ));
+        let trace_page = router.dispatch(&WorkerRequest::new(
+            "req-list-trace",
+            "trace-agent-run",
+            "agent_run.list_trace",
+            json!({ "session_id": "session-1", "run_id": "run-1", "limit": 1 }),
+        ));
+        let completed = router.dispatch(&WorkerRequest::new(
+            "req-complete",
+            "trace-agent-run",
+            "agent_run.mark_completed",
+            json!({
+                "session_id": "session-1",
+                "run_id": "run-1",
+                "stop_reason": "final_response",
+                "final_content": "done"
+            }),
+        ));
+        let clear_checkpoint = router.dispatch(&WorkerRequest::new(
+            "req-clear-checkpoint",
+            "trace-agent-run",
+            "agent_run.clear_checkpoint",
+            json!({ "session_id": "session-1", "run_id": "run-1" }),
+        ));
+
+        assert!(upsert.error.is_none());
+        assert!(append_trace.error.is_none());
+        assert!(append_second_trace.error.is_none());
+        assert!(set_checkpoint.error.is_none());
+        assert_eq!(
+            get_checkpoint.result.as_ref().unwrap()["checkpoint"]["phase"],
+            "awaiting_tool"
+        );
+        assert_eq!(list.result.as_ref().unwrap()["sessionId"], "session-1");
+        assert_eq!(list.result.as_ref().unwrap()["runs"][0]["runId"], "run-1");
+        assert!(list.result.as_ref().unwrap()["runs"][0]
+            .get("traceEvents")
+            .is_none());
+        assert_eq!(
+            get.result.as_ref().unwrap()["traceEvents"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(trace_page.error, None);
+        assert_eq!(
+            trace_page.result.as_ref().unwrap()["items"][0]["eventName"],
+            "agent.tool.result"
+        );
+        assert_eq!(trace_page.result.as_ref().unwrap()["nextCursor"], "1");
+        assert_eq!(completed.result.as_ref().unwrap()["status"], "completed");
+        assert_eq!(completed.result.as_ref().unwrap()["phase"], "done");
+        assert_eq!(
+            clear_checkpoint.result.as_ref().unwrap()["checkpoint"],
+            json!(null)
+        );
+    }
+
+    #[test]
+    fn agent_run_rpc_enforces_capabilities_and_unknown_run_errors() {
+        let fixture = WorkspaceFixture::new();
+        let mut denied_router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::default(),
+        );
+        let denied = denied_router.dispatch(&WorkerRequest::new(
+            "req-denied",
+            "trace-agent-run",
+            "agent_run.list",
+            json!({ "session_id": "session-1" }),
+        ));
+        assert_eq!(
+            denied.error.as_ref().unwrap().code,
+            crate::worker_protocol::WorkerProtocolErrorCode::CapabilityDenied
+        );
+
+        let mut read_router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::SessionMetadataRead]),
+        );
+        let missing = read_router.dispatch(&WorkerRequest::new(
+            "req-missing",
+            "trace-agent-run",
+            "agent_run.get",
+            json!({ "session_id": "session-1", "run_id": "missing-run" }),
+        ));
+        assert_eq!(
+            missing.error.as_ref().unwrap().code,
+            crate::worker_protocol::WorkerProtocolErrorCode::InvalidProtocol
+        );
+        assert_eq!(
+            missing.error.as_ref().unwrap().details["run_id"],
+            "missing-run"
+        );
+
+        let malformed = read_router.dispatch(&WorkerRequest::new(
+            "req-malformed",
+            "trace-agent-run",
+            "agent_run.get",
+            json!({ "session_id": "session-1" }),
+        ));
+        assert_eq!(
+            malformed.error.as_ref().unwrap().code,
+            crate::worker_protocol::WorkerProtocolErrorCode::InvalidProtocol
+        );
+        assert_eq!(
+            malformed.error.as_ref().unwrap().details["method"],
+            "agent_run.get"
+        );
     }
 
     #[test]
