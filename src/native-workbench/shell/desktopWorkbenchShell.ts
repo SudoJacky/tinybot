@@ -48,7 +48,8 @@ import type { WorkbenchLayoutState, WorkbenchPanelId, WorkbenchPanelState } from
 import { loadWorkbenchLayout } from "./desktopWorkbenchLayout";
 import { installDesktopDesignTokens } from "./desktopDesignTokens";
 import { logDesktopNativeChatDebug, logDesktopNativeDebug, summarizeDebugText } from "../native/desktopNativeChatDebug";
-import type { NativeChatMessage, NativeChatReference, NativeChatSession } from "../chat/nativeChat";
+import { createNativeChatState, type NativeChatMessage, type NativeChatSession } from "../chat/nativeChat";
+import { projectNativeChatState, type ChatUiProjection, type LiveSubagent, type SubagentStatus } from "../chat/chatUiProjection";
 import { mountAgentUiFormActionsIsland } from "../components/agent-ui/agentUiFormActionsIsland";
 import { mountAgentUiFormCardIsland } from "../components/agent-ui/agentUiFormCardIsland";
 import { mountAgentUiFormFieldIsland } from "../components/agent-ui/agentUiFormFieldIsland";
@@ -60,6 +61,7 @@ import { mountChatMenuButtonIsland } from "../components/chat/chatMenuButtonIsla
 import { mountChatMenuEmptyIsland } from "../components/chat/chatMenuEmptyIsland";
 import { mountChatMenuPopoverIsland } from "../components/chat/chatMenuPopoverIsland";
 import { mountChatTitleIsland } from "../components/chat/chatTitleIsland";
+import { mountChatSurface } from "../components/chat/chatSurface";
 import { mountChatWorkbenchIsland } from "../components/chat/chatWorkbenchIsland";
 import { mountCommandPaletteIsland } from "../components/shared/commandPaletteIsland";
 import { mountComposerAttachButtonIsland } from "../components/chat/composerAttachButtonIsland";
@@ -74,7 +76,6 @@ import { mountConversationMetaIsland } from "../components/chat/conversationMeta
 import { mountConversationReasoningIsland } from "../components/chat/conversationReasoningIsland";
 import { mountConversationReferenceIsland } from "../components/chat/conversationReferenceIsland";
 import {
-  mountOrUpdateConversationThreadIsland,
   type ConversationCoworkRunOptions,
   type DelegateArtifactLoadSelection,
   type DelegateTraceLoadSelection,
@@ -683,7 +684,7 @@ function updateInlineAgentUiForms(
   if (!thread || !chat) {
     return;
   }
-  mountConversationThreadVueIsland(thread, conversationThreadOptions(targetDocument, chat));
+  mountRebuiltChatSurface(thread, chat);
 }
 
 export function updateDesktopCoworkPane(
@@ -704,7 +705,7 @@ export function updateDesktopCoworkPane(
   const thread = targetDocument.querySelector<HTMLElement>(".desktop-conversation-thread");
   const chat = desktopNativeChatModels.get(targetDocument);
   if (thread && chat) {
-    mountConversationThreadVueIsland(thread, conversationThreadOptions(targetDocument, chat));
+    mountRebuiltChatSurface(thread, chat);
   }
 }
 
@@ -750,12 +751,7 @@ export function updateDesktopNativeChat(
   const thread = targetDocument.querySelector<HTMLElement>(".desktop-conversation-thread");
   if (thread) {
     const scrollState = captureConversationThreadScroll(thread);
-    if (canMountVueIsland(thread)) {
-      mountConversationThreadVueIsland(thread, conversationThreadMountOptions(targetDocument, conversationThreadOptions(targetDocument, chat)));
-    } else {
-      const next = createConversationThread(targetDocument, chat);
-      thread.replaceChildren(...Array.from(next.children));
-    }
+    mountRebuiltChatSurface(thread, chat);
     restoreConversationThreadScroll(thread, scrollState);
     queueConversationThreadScrollRestore(thread, scrollState);
   }
@@ -2124,21 +2120,7 @@ function createConversationThread(
   thread.setAttribute("data-desktop-chat-region", "message-timeline");
   thread.setAttribute("role", "log");
   if (chat) {
-    const activeForms = activeChatAgentUiForms(chat, desktopChatTimelineContexts.get(targetDocument)?.agentUiForms ?? []);
-    const activeCoworkRuns = chatCoworkRuns(targetDocument, chat);
-    if (!chat.activeSessionKey) {
-      mountConversationThreadVueIsland(thread, conversationThreadMountOptions(targetDocument, { coworkRuns: [], emptyMessage: "", messages: [] }));
-      return thread;
-    }
-    if (!hasVisibleConversationMessages(chat) && !activeForms.length && !activeCoworkRuns.length) {
-      mountConversationThreadVueIsland(thread, conversationThreadMountOptions(targetDocument, { coworkRuns: [], emptyMessage: "", messages: [] }));
-      return thread;
-    }
-    const options = conversationThreadOptions(targetDocument, chat);
-    const { messages } = options;
-    thread.append(...messages.map((message) => createConversationMessage(targetDocument, message)));
-    thread.append(...activeForms.map((form) => createInlineAgentUiFormCard(targetDocument, form, desktopChatTimelineContexts.get(targetDocument)?.agentUiActions ?? {})));
-    mountConversationThreadVueIsland(thread, conversationThreadMountOptions(targetDocument, options));
+    mountRebuiltChatSurface(thread, chat);
     return thread;
   }
   thread.append(
@@ -2165,242 +2147,92 @@ function createConversationThread(
   return thread;
 }
 
-function conversationThreadMountOptions(
-  targetDocument: Document,
-  options: ReturnType<typeof conversationThreadOptions>,
-): Parameters<typeof mountConversationThreadVueIsland>[1] {
-  const context = desktopChatTimelineContexts.get(targetDocument) ?? {
-    agentUiActions: {},
-    agentUiForms: [],
-    chatActions: {},
-    coworkActions: {},
-    coworkPane: null,
-  };
-  return {
-    ...options,
-    inlineForms: activeChatAgentUiForms(desktopNativeChatModels.get(targetDocument) ?? null, context.agentUiForms),
-    onCoworkAgentInspect: (selection) => {
-      setRouteStatus(targetDocument, `Inspecting Cowork agent ${selection.agentId}`);
+function mountRebuiltChatSurface(thread: HTMLElement, chat: DesktopNativeChatModel): void {
+  mountChatSurface(thread, {
+    projection: projectDesktopNativeChat(thread.ownerDocument, chat),
+  });
+}
+
+function projectDesktopNativeChat(targetDocument: Document, chat: DesktopNativeChatModel): ChatUiProjection {
+  const projection = projectNativeChatState(desktopNativeChatToProjectionState(chat));
+  projection.liveSubagents.push(...chatCoworkRuns(targetDocument, chat).flatMap(coworkRunToLiveSubagents));
+  return projection;
+}
+
+function desktopNativeChatToProjectionState(chat: DesktopNativeChatModel) {
+  const state = createNativeChatState();
+  state.sessions = chat.sessions;
+  state.activeSessionKey = chat.activeSessionKey;
+  state.activeChatId = chat.activeChatId;
+  if (chat.activeSessionKey) {
+    state.messages.set(chat.activeSessionKey, chat.messages);
+    if (chat.responding === true) {
+      state.respondingSessionKeys.add(chat.activeSessionKey);
+    }
+  }
+  return state;
+}
+
+function coworkRunToLiveSubagents(run: ConversationCoworkRunOptions): LiveSubagent[] {
+  if (!run.agents.length) {
+    return [{
+      id: run.id,
+      sessionKey: run.id,
+      name: run.title,
+      task: run.workflow,
+      status: coworkStatusToSubagentStatus(run.status),
+      latestActivity: run.finalOutput || run.attentionLabel || run.taskProgress,
+      capabilities: ["partial_transcript"],
+      transcript: {
+        id: run.id,
+        sessionKey: run.id,
+        capability: "partial_transcript",
+        messages: run.finalOutput ? [{
+          id: `${run.id}:summary`,
+          role: "assistant",
+          content: run.finalOutput,
+        }] : [],
+        toolSummaries: [],
+      },
+    }];
+  }
+  return run.agents.map((agent) => ({
+    id: agent.id,
+    sessionKey: run.id,
+    name: agent.label,
+    task: agent.roleOrTask || run.title,
+    status: coworkStatusToSubagentStatus(agent.status),
+    latestActivity: agent.latestActivity || agent.attentionLabel || run.attentionLabel,
+    capabilities: ["partial_transcript"],
+    transcript: {
+      id: agent.id,
+      sessionKey: run.id,
+      capability: "partial_transcript",
+      messages: agent.latestActivity ? [{
+        id: `${agent.id}:activity`,
+        role: "assistant",
+        content: agent.latestActivity,
+      }] : [],
+      toolSummaries: [],
     },
-    onInlineFormCancel: (form) => {
-      context.agentUiActions.onAgentUiFormAction?.({ action: "cancel", form });
-    },
-    onInlineFormSubmit: (form, values) => {
-      context.agentUiActions.onAgentUiFormAction?.({ action: "submit", form, values });
-    },
-    onArtifactLoad: context.chatActions.onArtifactLoad,
-    onDelegateTraceLoad: context.chatActions.onDelegateTraceLoad,
-    onReferenceInspect: (reference) => {
-      setRouteStatus(targetDocument, `Inspecting ${reference.kind} reference ${reference.title}`);
-    },
-  };
+  }));
 }
 
-function createInlineAgentUiFormCard(
-  targetDocument: Document,
-  form: AgentUiForm,
-  agentUiActions: DesktopAgentUiFormActionOptions,
-): HTMLElement {
-  const card = createAgentUiFormCard(targetDocument, form, agentUiActions);
-  card.className = `${card.className} desktop-agent-ui-form-inline`.trim();
-  card.setAttribute("data-desktop-chat-region", "agent-form-card");
-  return card;
-}
-
-function conversationThreadOptions(targetDocument: Document, chat: DesktopNativeChatModel | null): {
-  coworkRuns: ConversationCoworkRunOptions[];
-  emptyMessage: string;
-  messages: Array<{
-    attachment?: string;
-    author: string;
-    body: string[];
-    copyable?: boolean;
-    references: Array<{
-      detail: string;
-      evidenceId?: string;
-      kind: NativeChatReference["kind"];
-      noteId?: string;
-      rawLine?: number;
-      rawPath?: string;
-      scope?: string;
-      sourceLine?: number;
-      sourcePath?: string;
-      sourceText?: string;
-      title: string;
-      type?: string;
-    }>;
-    reasoningContent?: string;
-    time: string;
-    tone: "assistant" | "user";
-    toolActivities: Array<{
-      approvalId?: string;
-      argsText: string;
-      approvalStatus: string;
-      delegatedTrace?: Record<string, unknown>;
-      delegateId?: string;
-      delegateTask?: string;
-      delegateTitle?: string;
-      delegateType?: string;
-      finalOutput?: string;
-      id: string;
-      kind: "call" | "result";
-      name: string;
-      parentRunId?: string;
-      parentTurnId?: string;
-      responseText: string;
-      runChainItemKey?: string;
-      sessionKey?: string;
-      status?: string;
-      traceRef?: string;
-    }>;
-  }>;
-} {
-  if (!chat?.activeSessionKey || !hasVisibleConversationMessages(chat)) {
-    return { coworkRuns: chatCoworkRuns(targetDocument, chat), emptyMessage: "", messages: [] };
+function coworkStatusToSubagentStatus(status: string): SubagentStatus {
+  switch (status.toLowerCase()) {
+    case "active":
+    case "running":
+      return "running";
+    case "blocked":
+    case "paused":
+      return "waiting_user";
+    case "completed":
+    case "done":
+    case "succeeded":
+      return "completed";
+    default:
+      return "idle";
   }
-  return {
-    coworkRuns: chatCoworkRuns(targetDocument, chat),
-    emptyMessage: "",
-    messages: chat.messages.map((message) => ({
-      author: message.role === "user" ? "You" : "Tinybot",
-      time: formatCompactTime(message.timestamp),
-      tone: message.role === "user" ? "user" as const : "assistant" as const,
-      copyable: message.copyable,
-      reasoningContent: message.reasoningContent,
-      body: shouldRenderConversationBody(message) ? [message.content].filter(Boolean) : [],
-      toolActivities: (message.toolActivities ?? []).map((activity) => ({
-        approvalId: activity.approvalId,
-        argsText: activity.argsText || "",
-        approvalStatus: activity.approvalStatus || "",
-        delegatedTrace: activity.delegatedTrace,
-        delegateId: activity.delegateId,
-        delegateTask: activity.delegateTask,
-        delegateTitle: activity.delegateTitle,
-        delegateType: activity.delegateType,
-        finalOutput: activity.finalOutput,
-        id: activity.id || "",
-        kind: activity.kind,
-        name: activity.name || "",
-        parentRunId: activity.parentRunId,
-        parentTurnId: activity.parentTurnId,
-        responseText: activity.responseText || "",
-        runChainItemKey: conversationToolActivityRunChainKey(message, activity),
-        sessionKey: activity.sessionKey || chat.activeSessionKey,
-        status: activity.status,
-        traceRef: activity.traceRef,
-      })),
-      references: (message.references ?? []).map((reference) => ({
-        detail: reference.detail ?? "",
-        evidenceId: reference.evidenceId,
-        kind: reference.kind,
-        noteId: reference.noteId,
-        rawLine: reference.rawLine,
-        rawPath: reference.rawPath,
-        scope: reference.scope,
-        sourceLine: reference.sourceLine,
-        sourcePath: reference.sourcePath,
-        sourceText: reference.sourceText,
-        title: reference.title,
-        type: reference.type,
-      })),
-    })),
-  };
-}
-
-function mountConversationThreadVueIsland(
-  thread: HTMLElement,
-  options: {
-    coworkRuns?: ConversationCoworkRunOptions[];
-    emptyMessage: string;
-    inlineForms?: AgentUiForm[];
-    messages: Array<{
-      attachment?: string;
-      author: string;
-      body: string[];
-      references: Array<{
-        detail: string;
-        evidenceId?: string;
-        kind: string;
-        noteId?: string;
-        rawLine?: number;
-        rawPath?: string;
-        scope?: string;
-        sourceLine?: number;
-        sourcePath?: string;
-        sourceText?: string;
-        title: string;
-        type?: string;
-      }>;
-      reasoningContent?: string;
-      time: string;
-      tone: "assistant" | "user";
-      toolActivities: Array<{
-        approvalId?: string;
-        argsText: string;
-        approvalStatus: string;
-        delegatedTrace?: Record<string, unknown>;
-        delegateId?: string;
-        delegateTask?: string;
-        delegateTitle?: string;
-        delegateType?: string;
-        finalOutput?: string;
-        id: string;
-        kind: "call" | "result";
-        name: string;
-        parentRunId?: string;
-        parentTurnId?: string;
-        responseText: string;
-        runChainItemKey?: string;
-        sessionKey?: string;
-        status?: string;
-        traceRef?: string;
-      }>;
-    }>;
-    onCoworkAgentInspect?: (selection: { agentId: string; sessionId: string }) => void;
-    onArtifactLoad?: (selection: DelegateArtifactLoadSelection) => Promise<unknown>;
-    onDelegateTraceLoad?: (selection: DelegateTraceLoadSelection) => Promise<unknown>;
-    onInlineFormCancel?: (form: AgentUiForm) => void;
-    onInlineFormSubmit?: (form: AgentUiForm, values: Record<string, unknown>) => void;
-    onReferenceInspect?: (reference: {
-      detail: string;
-      evidenceId?: string;
-      kind: string;
-      noteId?: string;
-      rawLine?: number;
-      rawPath?: string;
-      scope?: string;
-      sourceLine?: number;
-      sourcePath?: string;
-      sourceText?: string;
-      title: string;
-      type?: string;
-    }) => void;
-  },
-): void {
-  if (!canMountVueIsland(thread)) {
-    return;
-  }
-  mountOrUpdateConversationThreadIsland(thread, options);
-}
-
-function shouldRenderConversationBody(message: NativeChatMessage): boolean {
-  return !((message.role === "tool" || message.role === "progress") && Boolean(message.toolActivities?.length));
-}
-
-function conversationToolActivityRunChainKey(
-  message: NativeChatMessage,
-  activity: NonNullable<NativeChatMessage["toolActivities"]>[number],
-): string | undefined {
-  if (!message.messageId) {
-    return undefined;
-  }
-  if (activity.id) {
-    return `${message.messageId}:${activity.id}`;
-  }
-  if (message.role === "tool" || activity.kind === "result") {
-    return `${message.messageId}:result`;
-  }
-  return `${message.messageId}:detail`;
 }
 
 function createConversationMessage(
@@ -3195,14 +3027,6 @@ function activeChatTitle(chat: DesktopNativeChatModel | null): string {
 
 function nativeComposerState(chat: DesktopNativeChatModel | null): NonNullable<DesktopNativeChatModel["composerState"]> {
   return chat?.composerState ?? (chat?.responding ? "sending" : "idle");
-}
-
-function formatCompactTime(value: string): string {
-  if (!value) {
-    return "";
-  }
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleTimeString();
 }
 
 function formatSessionRelativeTime(value: string): string {
