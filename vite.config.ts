@@ -7,11 +7,12 @@ import { defineConfig } from "vitest/config";
 const host = process.env.TAURI_DEV_HOST;
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = dirname;
-const webuiRoot = path.resolve(repoRoot, "webui");
+const desktopStaticRoot = path.resolve(repoRoot, "public");
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
-  plugins: [webuiStaticPlugin(webuiRoot)],
+  plugins: [desktopStaticPlugin(desktopStaticRoot)],
+  publicDir: desktopStaticRoot,
   clearScreen: false,
   server: {
     port: 1420,
@@ -28,7 +29,7 @@ export default defineConfig(async () => ({
       ignored: ["**/src-tauri/**"],
     },
     fs: {
-      allow: [dirname, webuiRoot],
+      allow: [dirname, desktopStaticRoot],
     },
   },
   test: {
@@ -36,55 +37,46 @@ export default defineConfig(async () => ({
   },
 }));
 
-type WebuiStaticAssetRoot = {
+type DesktopStaticAssetRoot = {
   route: "/assets" | "/docs";
   dir: string;
 };
 
-type WebuiStaticBundleFile = {
+type DesktopStaticBundleFile = {
   fileName: string;
   sourcePath: string;
 };
 
-function webuiStaticPlugin(root: string): Plugin {
+function desktopStaticPlugin(root: string): Plugin {
   return {
-    name: "tinybot-webui-static",
+    name: "tinybot-desktop-static",
     configureServer(server) {
       server.middlewares.use((request, response, next) => {
-        if (!serveWebuiStatic(root, request.url ?? "", response)) {
+        if (!serveDesktopStatic(root, request.url ?? "", response)) {
           next();
         }
       });
     },
     configurePreviewServer(server) {
       server.middlewares.use((request, response, next) => {
-        if (!serveWebuiStatic(root, request.url ?? "", response)) {
+        if (!serveDesktopStatic(root, request.url ?? "", response)) {
           next();
         }
       });
     },
-    generateBundle() {
-      for (const file of collectWebuiStaticBundleFiles(root)) {
-        this.emitFile({
-          type: "asset",
-          fileName: file.fileName,
-          source: fs.readFileSync(file.sourcePath),
-        });
-      }
-    },
   };
 }
 
-function webuiStaticAssetRoots(root: string): WebuiStaticAssetRoot[] {
+function desktopStaticAssetRoots(root: string): DesktopStaticAssetRoot[] {
   return [
     { route: "/assets", dir: path.join(root, "assets") },
     { route: "/docs", dir: path.join(root, "docs") },
   ];
 }
 
-export function collectWebuiStaticBundleFiles(root: string): WebuiStaticBundleFile[] {
-  const files: WebuiStaticBundleFile[] = [];
-  for (const assetRoot of webuiStaticAssetRoots(root)) {
+export function collectDesktopStaticBundleFiles(root: string): DesktopStaticBundleFile[] {
+  const files: DesktopStaticBundleFile[] = [];
+  for (const assetRoot of desktopStaticAssetRoots(root)) {
     for (const file of walkFiles(assetRoot.dir)) {
       if (isSourceTestFile(file)) {
         continue;
@@ -106,7 +98,7 @@ export function isSourceTestFile(file: string): boolean {
   return /\.test\.[cm]?js$/i.test(file) || /\.test\.mjs$/i.test(file);
 }
 
-function serveWebuiStatic(
+function serveDesktopStatic(
   root: string,
   url: string,
   response: {
@@ -116,7 +108,7 @@ function serveWebuiStatic(
   },
 ): boolean {
   const pathname = decodeURIComponent(new URL(url, "http://localhost").pathname);
-  const file = resolveWebuiStaticFile(root, pathname);
+  const file = resolveDesktopStaticFile(root, pathname);
   if (!file) {
     return false;
   }
@@ -126,7 +118,7 @@ function serveWebuiStatic(
   return true;
 }
 
-export function resolveWebuiStaticFile(root: string, pathname: string): string | null {
+export function resolveDesktopStaticFile(root: string, pathname: string): string | null {
   if (pathname.split("/").includes("..")) {
     return null;
   }

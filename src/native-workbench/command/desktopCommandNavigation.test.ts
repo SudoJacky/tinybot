@@ -114,7 +114,7 @@ describe("desktop command navigation", () => {
       "Shortcut Help",
       "Page Help",
       "Backend Logs",
-      "Open browser-compatible WebUI",
+      "Open native workbench",
       "Toggle Theme",
       "Toggle Sidebar",
       "Command Palette",
@@ -179,7 +179,7 @@ describe("desktop command navigation", () => {
       "Shortcut Help",
       "Page Help",
       "Backend Logs",
-      "Open browser-compatible WebUI",
+      "Open native workbench",
       "Tinybot repo",
     ]);
     expect(DESKTOP_MENU_COMMANDS.filter((command) => command.chromeGroup === "secondary").map((command) => command.id)).toEqual([
@@ -223,7 +223,7 @@ describe("desktop command navigation", () => {
     expect(routeDesktopMenuCommand("open-shortcut-help", context)).toMatchObject({ kind: "action", action: "open-shortcut-help" });
     expect(routeDesktopMenuCommand("open-page-help", context)).toMatchObject({ kind: "action", action: "open-page-help" });
     expect(routeDesktopMenuCommand("open-backend-logs", context)).toMatchObject({ kind: "action", action: "open-backend-logs" });
-    expect(routeDesktopMenuCommand("open-safe-mode", context)).toMatchObject({ kind: "navigate", href: "/?desktop-workbench=root" });
+    expect(routeDesktopMenuCommand("open-safe-mode", context)).toMatchObject({ kind: "navigate", href: "/" });
     expect(routeDesktopMenuCommand("toggle-theme", context)).toMatchObject({ kind: "action", action: "set-theme", value: "dark" });
     expect(routeDesktopMenuCommand("toggle-sidebar", context)).toMatchObject({ kind: "action", action: "set-sidebar-visible", value: false });
     expect(routeDesktopMenuCommand("open-command-palette", context)).toMatchObject({ kind: "action", action: "open-command-palette" });

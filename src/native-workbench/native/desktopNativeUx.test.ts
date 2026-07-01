@@ -28,7 +28,7 @@ describe("desktop native UX projections", () => {
     ]);
     expect(ready.diagnosticsDefaultOpen).toBe(false);
     expect(ready.summary).toBe("Using an existing gateway");
-    expect(ready.safeModeAction.href).toBe("/?desktop-workbench=root&route=%2Fchat%2Fsession-1&session=session-1");
+    expect(ready.safeModeAction.href).toBe("/?route=%2Fchat%2Fsession-1&session=session-1");
 
     const incompatible = buildDesktopSafeModeRecoveryUx({
       phase: "failed",
@@ -38,7 +38,7 @@ describe("desktop native UX projections", () => {
     expect(incompatible.diagnosticsDefaultOpen).toBe(true);
     expect(incompatible.recoveryCards[0]).toMatchObject({
       id: "bootstrap-incompatible",
-      primaryAction: "Open browser-compatible WebUI",
+      primaryAction: "Open native workbench",
     });
     expect(incompatible.recoveryCards[0].hint).toContain("not with the WebUI bootstrap shape");
   });
@@ -197,6 +197,7 @@ describe("desktop native UX projections", () => {
       session: { id: "cowork-1", status: "running", finalDraft: "Draft" },
     });
     expect(cowork.readiness.mode).toBe("preview");
+    expect(cowork.readiness.fallbackHref).toBe("/cowork");
     expect(cowork.stages.map((stage) => stage.id)).toEqual(["goal", "plan", "run", "review-outputs", "finalize"]);
     expect(cowork.primarySurface).toBe("timeline-task-feed");
     expect(cowork.graphFocus.rootId).toBe("task-1");

@@ -1,7 +1,7 @@
 # Tinybot
 
 <p align="center">
-  <img src="./webui/assets/logo.svg" width="96" alt="Tinybot logo">
+  <img src="./public/assets/logo.svg" width="96" alt="Tinybot logo">
 </p>
 
 [![Node.js](https://img.shields.io/badge/Node.js-22-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)

@@ -33,7 +33,7 @@ export function buildDesktopSafeModeRecoveryUx(input: {
     recoveryCards: failed ? [recoveryCard(input.failureType ?? "command-failed", input.responseClass)] : [],
     safeModeAction: {
       id: "open-browser-compatible-webui",
-      label: "Open browser-compatible WebUI",
+      label: "Open native workbench",
       href: safeModeHref(input.routeIntent),
     },
   };
@@ -260,7 +260,7 @@ export function buildDesktopCoworkCockpitUx(input: {
   return {
     readiness: {
       mode: input.nativeReady ? "native" : "preview",
-      fallbackHref: "/?desktop-workbench=root&route=%2Fcowork",
+      fallbackHref: "/cowork",
     },
     stages: ["goal", "plan", "run", "review-outputs", "finalize"].map((id) => ({ id, label: titleCase(id) })),
     primarySurface: "timeline-task-feed",
@@ -336,7 +336,7 @@ function recoveryCard(failureType: string, responseClass = "") {
     },
     "bootstrap-incompatible": {
       title: "Bootstrap incompatible",
-      primaryAction: "Open browser-compatible WebUI",
+      primaryAction: "Open native workbench",
       hint: `The local gateway responded${responseClass ? ` with ${responseClass}` : ""}, but not with the WebUI bootstrap shape this desktop build expects.`,
     },
     "missing-runtime": {
@@ -349,14 +349,15 @@ function recoveryCard(failureType: string, responseClass = "") {
 }
 
 function safeModeHref(routeIntent?: RouteIntent): string {
-  const params = new URLSearchParams({ "desktop-workbench": "root" });
+  const params = new URLSearchParams();
   if (routeIntent?.href) {
     params.set("route", routeIntent.href);
   }
   if (routeIntent?.sessionId) {
     params.set("session", routeIntent.sessionId);
   }
-  return `/?${params.toString()}`;
+  const query = params.toString();
+  return query ? `/?${query}` : "/";
 }
 
 function attentionBadges(attention: { taskUpdates?: number; references?: number; blocked?: number; failed?: number } = {}) {

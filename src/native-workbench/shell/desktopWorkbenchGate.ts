@@ -20,11 +20,19 @@ export const DESKTOP_WORKBENCH_STORAGE_KEY = "tinybot.desktop.workbench";
 export function resolveDesktopWorkbenchStartupMode(
   options: Omit<ResolveDesktopWorkbenchModeOptions, "defaultMode" | "nativeWorkbenchAvailable"> = {},
 ): DesktopWorkbenchModeResolution {
-  return resolveDesktopWorkbenchMode({
+  const resolution = resolveDesktopWorkbenchMode({
     ...options,
     nativeWorkbenchAvailable: true,
     defaultMode: "native-workbench",
   });
+  if (resolution.mode === "root-webui") {
+    return {
+      ...resolution,
+      mode: "native-workbench",
+      fallbackReason: "root WebUI fallback has been removed; using the native workbench",
+    };
+  }
+  return resolution;
 }
 
 export function resolveDesktopWorkbenchMode({

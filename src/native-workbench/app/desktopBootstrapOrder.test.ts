@@ -19,14 +19,12 @@ function sourceBlock(start: string, end: string): string {
   return bootstrapSource.slice(startPosition, endPosition);
 }
 
-describe("desktop root WebUI bootstrap order", () => {
-  test("lets the WebUI entry bind its original DOM before installing the desktop root adapter", () => {
-    const shellPosition = callPosition("installWebUiShell(webUiHtml);");
-    const webUiEntryPosition = callPosition("await import(/* @vite-ignore */ WEBUI_ENTRY);");
-    const rootAdapterPosition = callPosition("installDesktopRootWebUiWorkbenchAdapter();");
-
-    expect(webUiEntryPosition).toBeGreaterThan(shellPosition);
-    expect(webUiEntryPosition).toBeLessThan(rootAdapterPosition);
+describe("desktop bootstrap order", () => {
+  test("does not import or boot the legacy root WebUI fallback", () => {
+    expect(bootstrapSource).not.toContain("../../../webui/index.html?raw");
+    expect(bootstrapSource).not.toContain("const WEBUI_ENTRY");
+    expect(bootstrapSource).not.toContain("installWebUiShell(webUiHtml);");
+    expect(bootstrapSource).not.toContain("await import(/* @vite-ignore */ WEBUI_ENTRY);");
   });
 
   test("loads native chat runtime before installing the native workbench shell", () => {

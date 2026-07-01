@@ -3,7 +3,6 @@ import { listen } from "@tauri-apps/api/event";
 import { defaultWindowIcon } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import webUiHtml from "../../../webui/index.html?raw";
 import {
   buildAgentUiFormCancelRequest,
   buildAgentUiFormSubmitRequest,
@@ -110,8 +109,6 @@ import {
 } from "../shell/desktopWorkbenchShell";
 import { installDesktopWorkspaceFileActions } from "../workspace/desktopWorkspaceFiles";
 import { buildDesktopWorkspaceFileRows } from "../workspace/desktopWorkspaceFiles";
-import { installDesktopRootWebUiWorkbenchAdapter } from "../root-webui/desktopRootWebUiWorkbench";
-import { installWebUiShell } from "../root-webui/desktopWebUiShell";
 import { resolveDesktopWorkbenchStartupMode } from "../shell/desktopWorkbenchGate";
 import { installDesktopWindowFrame, setDesktopWindowRuntimeStatus } from "../shell/desktopWindowFrame";
 import { DEFAULT_GATEWAY_CONFIG, resolveGatewayConfig } from "../gateway/gatewayConfig";
@@ -147,13 +144,9 @@ import {
   type DesktopPickedUploadFile,
   type DesktopUploadKind,
 } from "../workspace/desktopFileUpload";
-import { installDesktopWebUiCommandBridge } from "../root-webui/desktopWebUiCommandBridge";
-import { installDesktopWebUiFilePickerBridge } from "../root-webui/desktopWebUiFilePickerBridge";
-import { installDesktopWebUiNotificationBridge } from "../root-webui/desktopWebUiNotificationBridge";
 import {
   buildDesktopCommandEntriesFromSidebar,
   buildNativeWorkbenchSidebarModel,
-  buildRootWebUiSidebarModel,
 } from "../shell/desktopSharedModels";
 import { resolveDesktopAgentRoute } from "../../desktopAgentRoute";
 
@@ -182,7 +175,6 @@ const gatewayClientOptions: {
   tsCoworkRuntime: DEFAULT_TS_COWORK_RUNTIME_ROLLOUT,
 };
 const gatewayApi = createGatewayApiClient(gatewayClientOptions);
-const WEBUI_ENTRY = "/assets/src/main.js";
 const nativeKnowledgeTaskOperations = new Map<string, DesktopTaskSourceOperation>();
 const nativeCoworkTaskOperations = new Map<string, DesktopTaskSourceOperation>();
 const nativeProviderTaskOperations = new Map<string, DesktopTaskSourceOperation>();
@@ -297,7 +289,7 @@ async function bootDesktopWebUi(): Promise<void> {
         mode: workbenchMode.mode,
         requestedMode: workbenchMode.requestedMode,
       });
-      console.info("Tinybot desktop loading root WebUI fallback", workbenchMode);
+      console.info("Tinybot desktop using native workbench for legacy mode request", workbenchMode);
     }
     startupTrace.start("gatewayBridge");
     installDesktopGatewayBridge({
@@ -311,115 +303,84 @@ async function bootDesktopWebUi(): Promise<void> {
     });
     installWebUiRenderGlobals();
     startupTrace.complete("gatewayBridge");
-    if (workbenchMode.mode === "native-workbench") {
-      startupTrace.start("nativeChatRuntime");
-      const nativeChatRuntime = await loadNativeChatRuntime();
-      startupTrace.complete("nativeChatRuntime", {
-        activeSessionKey: nativeChatRuntime.chat.activeSessionKey ?? "",
-        sessionCount: nativeChatRuntime.chat.sessions.length,
-      });
-      startupTrace.start("initialPaneModels");
-      const settingsPane = await loadNativeSettingsPane();
-      nativeChatRuntime.setRuntimeMetadata(nativeRuntimeMetadataFromSettings());
-      const knowledgePane = buildInitialNativeKnowledgePane();
-      const toolsSkillsPane = buildInitialNativeToolsSkillsPane();
-      const coworkPane = buildInitialNativeCoworkPane();
-      startupTrace.complete("initialPaneModels");
-      startupTrace.start("nativeShellInstall");
-      installDesktopWorkbenchShell({
-        runtimeStatus: status,
-        chat: nativeChatRuntime.chat,
-        chatActions: nativeChatActions(),
-        agentUiForms: nativeChatRuntime.agentUiForms,
-        agentUiActions: nativeAgentUiActions(),
-        gatewayHttp: gatewayConfig.httpBaseUrl,
-        taskCenterItems: currentNativeTaskCenterItems(),
-        taskActions: nativeTaskActions(),
-        settingsPane,
-        settingsActions: {
-          onSettingsAction: (event) => {
-            void handleNativeSettingsAction(event);
-          },
-        },
-        knowledgePane,
-        knowledgeActions: {
-          onKnowledgeAction: (event) => {
-            void handleNativeKnowledgeAction(event);
-          },
-        },
-        toolsSkillsPane,
-        toolsSkillsActions: {
-          onToolsSkillsAction: (event) => {
-            void handleNativeToolsSkillsAction(event);
-          },
-        },
-        coworkPane,
-        coworkActions: {
-          onCoworkAction: (event) => {
-            void handleNativeCoworkAction(event);
-          },
-        },
-        gatewayActions: {
-          onGatewayRuntimeAction: (event) => {
-            void handleNativeGatewayRuntimeAction(event);
-          },
-        },
-      });
-      startupTrace.complete("nativeShellInstall");
-      startupTrace.start("nativeChromeBindings");
-      installNativeChatRuntimeActions();
-      installNativeFileUploadActions();
-      installNativeCommandPalette();
-      installTauriNavigation({ routeDocsInWorkbench: true });
-      installTauriMenuCommandRouting({ routeDocsInWorkbench: true });
-      installNativeRouteHydration(startupTrace);
-      installTauriWindowFrame(status);
-      syncNativeRuntimeMetadata();
-      startupTrace.complete("nativeChromeBindings");
-      hydrateNativeStartupPanes(startupTrace);
-      void ensureNativeCoworkRuntimeRolloutSynced(startupTrace);
-      scheduleNativeApprovalTasksRefresh(startupTrace);
-      startupTrace.mark("native.ready", {
-        gatewayHttp: gatewayConfig.httpBaseUrl,
-        mode: workbenchMode.mode,
-        runtimeState: status?.state ?? "",
-      });
-      logDesktopNativeDebug("bootstrap.native.initialized", {
-        gatewayHttp: gatewayConfig.httpBaseUrl,
-        mode: workbenchMode.mode,
-        runtimeState: status?.state ?? "",
-      });
-      console.info("Tinybot desktop native workbench initialized", status);
-      return;
-    }
-    startupTrace.start("webUiShell");
-    installWebUiShell(webUiHtml);
-    startupTrace.complete("webUiShell");
-    startupTrace.start("webUiEntryImport");
-    await import(/* @vite-ignore */ WEBUI_ENTRY);
-    startupTrace.complete("webUiEntryImport");
-    startupTrace.start("rootWorkbenchAdapter");
-    installDesktopRootWebUiWorkbenchAdapter();
-    installDesktopCommandPalette({
-      gatewayOrigin: gatewayConfig.httpBaseUrl,
-      desktopCommands: buildRootWebUiDesktopCommands(),
-      loadData: loadRootWebUiCommandPaletteData,
+    startupTrace.start("nativeChatRuntime");
+    const nativeChatRuntime = await loadNativeChatRuntime();
+    startupTrace.complete("nativeChatRuntime", {
+      activeSessionKey: nativeChatRuntime.chat.activeSessionKey ?? "",
+      sessionCount: nativeChatRuntime.chat.sessions.length,
     });
-    installRootWebUiDesktopAdapters();
-    installTauriNavigation();
+    startupTrace.start("initialPaneModels");
+    const settingsPane = await loadNativeSettingsPane();
+    nativeChatRuntime.setRuntimeMetadata(nativeRuntimeMetadataFromSettings());
+    const knowledgePane = buildInitialNativeKnowledgePane();
+    const toolsSkillsPane = buildInitialNativeToolsSkillsPane();
+    const coworkPane = buildInitialNativeCoworkPane();
+    startupTrace.complete("initialPaneModels");
+    startupTrace.start("nativeShellInstall");
+    installDesktopWorkbenchShell({
+      runtimeStatus: status,
+      chat: nativeChatRuntime.chat,
+      chatActions: nativeChatActions(),
+      agentUiForms: nativeChatRuntime.agentUiForms,
+      agentUiActions: nativeAgentUiActions(),
+      gatewayHttp: gatewayConfig.httpBaseUrl,
+      taskCenterItems: currentNativeTaskCenterItems(),
+      taskActions: nativeTaskActions(),
+      settingsPane,
+      settingsActions: {
+        onSettingsAction: (event) => {
+          void handleNativeSettingsAction(event);
+        },
+      },
+      knowledgePane,
+      knowledgeActions: {
+        onKnowledgeAction: (event) => {
+          void handleNativeKnowledgeAction(event);
+        },
+      },
+      toolsSkillsPane,
+      toolsSkillsActions: {
+        onToolsSkillsAction: (event) => {
+          void handleNativeToolsSkillsAction(event);
+        },
+      },
+      coworkPane,
+      coworkActions: {
+        onCoworkAction: (event) => {
+          void handleNativeCoworkAction(event);
+        },
+      },
+      gatewayActions: {
+        onGatewayRuntimeAction: (event) => {
+          void handleNativeGatewayRuntimeAction(event);
+        },
+      },
+    });
+    startupTrace.complete("nativeShellInstall");
+    startupTrace.start("nativeChromeBindings");
+    installNativeChatRuntimeActions();
+    installNativeFileUploadActions();
+    installNativeCommandPalette();
+    installTauriNavigation({ routeDocsInWorkbench: true });
+    installTauriMenuCommandRouting({ routeDocsInWorkbench: true });
+    installNativeRouteHydration(startupTrace);
     installTauriWindowFrame(status);
-    startupTrace.complete("rootWorkbenchAdapter");
-    startupTrace.mark("webui.ready", {
+    syncNativeRuntimeMetadata();
+    startupTrace.complete("nativeChromeBindings");
+    hydrateNativeStartupPanes(startupTrace);
+    void ensureNativeCoworkRuntimeRolloutSynced(startupTrace);
+    scheduleNativeApprovalTasksRefresh(startupTrace);
+    startupTrace.mark("native.ready", {
       gatewayHttp: gatewayConfig.httpBaseUrl,
       mode: workbenchMode.mode,
       runtimeState: status?.state ?? "",
     });
-    logDesktopNativeDebug("bootstrap.webui.initialized", {
+    logDesktopNativeDebug("bootstrap.native.initialized", {
       gatewayHttp: gatewayConfig.httpBaseUrl,
       mode: workbenchMode.mode,
       runtimeState: status?.state ?? "",
     });
-    console.info("Tinybot desktop WebUI initialized", status);
+    console.info("Tinybot desktop native workbench initialized", status);
   } catch (error) {
     startupTrace.fail("boot", error, {
       gatewayHttp: gatewayConfig.httpBaseUrl,
@@ -2550,19 +2511,8 @@ function installNativeCommandPalette(): void {
   });
 }
 
-function buildRootWebUiDesktopCommands(): ReturnType<typeof buildDesktopCommandEntriesFromSidebar> {
-  return buildDesktopCommandEntriesFromSidebar(buildRootWebUiSidebarModel());
-}
-
 function buildNativeWorkbenchDesktopCommands(): ReturnType<typeof buildDesktopCommandEntriesFromSidebar> {
   return buildDesktopCommandEntriesFromSidebar(buildNativeWorkbenchSidebarModel());
-}
-
-async function loadRootWebUiCommandPaletteData(): Promise<DesktopCommandPaletteInput> {
-  return {
-    ...await loadNativeCommandPaletteData(),
-    desktopCommands: buildRootWebUiDesktopCommands(),
-  };
 }
 
 async function loadNativeCommandPaletteData(): Promise<DesktopCommandPaletteInput> {
@@ -2628,29 +2578,6 @@ function refreshNativeFileUploadActions(): void {
     return;
   }
   installDesktopFileUploadActions(nativeFileUploadActions);
-}
-
-function installRootWebUiDesktopAdapters(): void {
-  if (!hasTauriRuntime()) {
-    return;
-  }
-  installDesktopWebUiCommandBridge({
-    listenToMenuCommand: (handler) =>
-      listen<{ id: string }>("desktop-menu-command", (event) => {
-        handler(event.payload.id);
-      }),
-  });
-  installDesktopWebUiFilePickerBridge({
-    pickFile: (kind: DesktopUploadKind) =>
-      invoke<DesktopPickedUploadFile | null>("pick_upload_file", {
-        options: desktopUploadPickerOptions(kind),
-      }),
-  });
-  installDesktopWebUiNotificationBridge({
-    isFocused: () => document.hasFocus(),
-    canNotify: nativeOsNotifications.canNotify,
-    notify: nativeOsNotifications.notify,
-  });
 }
 
 function updateNativeKnowledgeTask(operation: DesktopTaskSourceOperation): void {

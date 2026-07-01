@@ -2,17 +2,16 @@ import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 
 const desktopSettingsCss = readFileSync(
-  new URL("../../../webui/assets/styles/components/desktop-settings.css", import.meta.url),
+  new URL("../../../public/assets/styles/components/desktop-settings.css", import.meta.url),
   "utf8",
 );
 const desktopIndexHtml = readFileSync(new URL("../../../index.html", import.meta.url), "utf8");
-const mainCss = readFileSync(new URL("../../../webui/assets/styles/main.css", import.meta.url), "utf8");
 const nativeSettingsScope = "html[data-desktop-active-workbench-module=\"settings\"] body.desktop-native-workbench";
 
 describe("desktop settings experience stylesheet", () => {
-  test("loads from the native shell and stays out of the browser WebUI bundle", () => {
+  test("loads from the native shell without depending on the legacy WebUI bundle", () => {
     expect(desktopIndexHtml).toContain('href="/assets/styles/components/desktop-settings.css"');
-    expect(mainCss).not.toContain("desktop-settings.css");
+    expect(desktopIndexHtml).not.toContain('href="/assets/styles/main.css"');
     expect(desktopSettingsCss).toContain(nativeSettingsScope);
     expect(desktopSettingsCss).not.toMatch(/^body\s*\{/m);
   });

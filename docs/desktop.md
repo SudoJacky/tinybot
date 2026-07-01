@@ -1,6 +1,6 @@
 # Tinybot Desktop
 
-Desktop host for Tinybot's WebUI. The desktop app uses Tauri and the platform WebView, runs the Rust native backend as the default runtime, and presents the WebUI surface inside the desktop shell. Desktop-specific code owns startup, runtime readiness, the window frame, OS notifications, native file picking, external link handling, and WebUI-compatible routing.
+Desktop host for Tinybot's native workbench. The desktop app uses Tauri and the platform WebView, runs the Rust native backend as the default runtime, and presents native TypeScript workbench surfaces inside the desktop shell. Desktop-specific code owns startup, runtime readiness, the window frame, OS notifications, native file picking, external link handling, and WebUI-compatible routing.
 
 ## Prerequisites
 
@@ -66,7 +66,8 @@ The desktop shell starts the Rust native backend in-process. The runtime exposes
 - WebSocket endpoint: `ws://127.0.0.1:18790/ws`
 - Runtime backend: Rust native backend
 - Optional compatibility path: none
-- Primary UI source: repository `webui/index.html` plus `webui/assets`
+- Primary UI source: repository `index.html` plus `src/native-workbench/`
+- Static assets and docs: repository `public/`
 - Browser mode: external browser only
 
 ## Launch Flow
@@ -74,21 +75,21 @@ The desktop shell starts the Rust native backend in-process. The runtime exposes
 1. Open the desktop app.
 2. A compact startup state waits for the Rust native backend to become ready.
 3. The Tauri shell initializes the native runtime and exposes WebUI-compatible routes.
-4. When `/webui/bootstrap` is ready, the desktop window installs the WebUI shell and imports the existing WebUI entry module.
-5. Use the desktop app the same way as the browser WebUI: chat, sessions, approvals, temporary files, settings, providers, tools, skills, knowledge, workspace files, browser frames, Cowork, language toggle, and theme toggle all remain WebUI-owned surfaces where Rust support exists.
+4. When `/webui/bootstrap` is ready, the desktop window installs the native workbench shell.
+5. Use the desktop app through native workbench modules for chat, sessions, approvals, temporary files, settings, providers, tools, skills, knowledge, workspace files, browser frames, Cowork, language toggle, and theme toggle where Rust support exists.
 
 The app owns the native runtime lifecycle. The configured exit policy applies to managed native backend state.
 
 ## Desktop Adapters
 
-The desktop route keeps WebUI behavior as the source of truth and layers native capabilities around it:
+The desktop route keeps the Rust backend contract as the source of truth and layers native capabilities around it:
 
 - WebUI HTTP and WebSocket requests are routed through the Rust native backend or native WebUI route bridge;
-- menu and keyboard commands click existing WebUI controls;
-- native file picking feeds the WebUI's upload inputs;
-- OS notifications observe existing WebUI approval and task progress surfaces;
+- menu and keyboard commands route through native workbench navigation and actions;
+- native file picking feeds native workbench upload actions;
+- OS notifications observe native approval and task progress surfaces;
 - external links open through the operating system.
 
 ## External Browser Policy
 
-The desktop package does not bundle Chromium. The app UI uses the platform WebView. Browser automation, browser snapshots, and browser bridge status are optional runtime capabilities and should not block native backend startup or the WebUI shell.
+The desktop package does not bundle Chromium. The app UI uses the platform WebView. Browser automation, browser snapshots, and browser bridge status are optional runtime capabilities and should not block native backend startup or the native workbench shell.

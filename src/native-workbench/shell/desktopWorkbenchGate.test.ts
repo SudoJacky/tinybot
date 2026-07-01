@@ -79,7 +79,7 @@ describe("desktop workbench gate", () => {
     });
   });
 
-  test("uses native workbench as the desktop startup default while preserving an explicit root fallback", () => {
+  test("uses native workbench as the desktop startup default and treats root as a legacy alias", () => {
     expect(
       resolveDesktopWorkbenchStartupMode({
         location: { search: "" },
@@ -96,8 +96,8 @@ describe("desktop workbench gate", () => {
         location: { search: "?desktop-workbench=root" },
         storage: storageWith(null),
       }),
-    ).toEqual({
-      mode: "root-webui",
+    ).toMatchObject({
+      mode: "native-workbench",
       requestedMode: "root-webui",
       source: "query",
     });
