@@ -344,16 +344,39 @@ fn clear_compatible_agent_run_checkpoint(
     let Some(run_id) = selected_run_id else {
         return Ok(());
     };
+    clear_agent_run_checkpoint_by_id(session, &run_id)
+}
+
+fn clear_agent_run_checkpoint_by_id(
+    session: &mut SessionMetadata,
+    run_id: &str,
+) -> Result<(), WorkerProtocolError> {
+    update_agent_run_checkpoints(session, |run| run.run_id == run_id)
+}
+
+fn clear_all_agent_run_checkpoints(session: &mut SessionMetadata) -> Result<(), WorkerProtocolError> {
+    update_agent_run_checkpoints(session, |run| run.checkpoint.is_some())
+}
+
+fn update_agent_run_checkpoints(
+    session: &mut SessionMetadata,
+    mut should_clear: impl FnMut(&AgentRunRecord) -> bool,
+) -> Result<(), WorkerProtocolError> {
+    let mut changed = false;
     let mut runs = agent_run_records(session);
+    let timestamp = now_session_timestamp();
     for run in &mut runs {
-        if run.run_id == run_id {
+        if should_clear(run) {
             run.checkpoint = None;
-            run.updated_at = now_session_timestamp();
-            break;
+            run.updated_at = timestamp.clone();
+            changed = true;
         }
     }
-    ensure_agent_runs_array(session);
-    session.extra[AGENT_RUNS_KEY] = serde_json::to_value(runs).map_err(session_serialization_error)?;
+    if changed {
+        ensure_agent_runs_array(session);
+        session.extra[AGENT_RUNS_KEY] =
+            serde_json::to_value(runs).map_err(session_serialization_error)?;
+    }
     Ok(())
 }
 

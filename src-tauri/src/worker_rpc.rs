@@ -445,7 +445,7 @@ impl WorkerRpcRouter {
                     .map_err(serialization_error)
             }
             "agent_run.list" => {
-                let params: SessionIdParams = parse_params(request)?;
+                let params: AgentRunListParams = parse_params(request)?;
                 let runs = self
                     .session
                     .list_agent_runs(&params.session_id)?
@@ -1004,6 +1004,12 @@ impl SessionPersistTurnParams {
 #[derive(Deserialize)]
 struct AgentRunUpsertParams {
     record: AgentRunRecord,
+}
+
+#[derive(Deserialize)]
+struct AgentRunListParams {
+    #[serde(alias = "sessionId")]
+    session_id: String,
 }
 
 #[derive(Deserialize)]
@@ -2468,7 +2474,7 @@ mod tests {
             "req-list",
             "trace-agent-run",
             "agent_run.list",
-            json!({ "session_id": "session-1" }),
+            json!({ "sessionId": "session-1" }),
         ));
         let get = router.dispatch(&WorkerRequest::new(
             "req-get",

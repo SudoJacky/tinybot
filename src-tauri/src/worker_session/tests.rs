@@ -583,6 +583,8 @@ mod tests {
     #[test]
     fn clear_session_resets_messages_profile_and_checkpoint_with_write_capability() {
         let mut session = session_fixture();
+        let mut run = agent_run_fixture("session-1", "run-1", AgentRunStatus::Waiting);
+        run.checkpoint = Some(json!({ "sessionId": "session-1", "runId": "run-1" }));
         session.extra = json!({
             "messages": [
                 { "role": "user", "content": "hello" },
@@ -592,7 +594,10 @@ mod tests {
             "user_profile": { "name": "Ada" },
             "runtime_checkpoint": { "phase": "awaiting_tools" },
             "last_context_metadata": { "historyMessageCount": 2 },
-            "last_persisted_run_id": "run-1"
+            "last_persisted_run_id": "run-1",
+            "agent_runs": [
+                serde_json::to_value(run).unwrap()
+            ]
         });
         let mut rpc = WorkerSessionRpc::new(vec![session], write_policy());
 
@@ -610,6 +615,9 @@ mod tests {
         assert!(result.session.extra.get("runtime_checkpoint").is_none());
         assert!(result.session.extra.get("last_context_metadata").is_none());
         assert!(result.session.extra.get("last_persisted_run_id").is_none());
+        assert!(agent_run_records(&result.session)
+            .into_iter()
+            .all(|run| run.checkpoint.is_none()));
     }
 
     #[test]
@@ -1268,10 +1276,15 @@ mod tests {
     #[test]
     fn persist_turn_appends_messages_and_clears_checkpoint() {
         let mut session = session_fixture();
+        let mut run = agent_run_fixture("session-1", "run-1", AgentRunStatus::Waiting);
+        run.checkpoint = Some(json!({ "sessionId": "session-1", "runId": "run-1" }));
         session.extra = json!({
-            "runtime_checkpoint": { "phase": "tools_completed" },
+            "runtime_checkpoint": { "sessionId": "session-1", "runId": "run-1", "phase": "tools_completed" },
             "messages": [
                 { "role": "user", "content": "existing" }
+            ],
+            "agent_runs": [
+                serde_json::to_value(run).unwrap()
             ]
         });
         let mut rpc = WorkerSessionRpc::new(
@@ -1333,6 +1346,14 @@ mod tests {
             ])
         );
         assert!(updated.extra.get("runtime_checkpoint").is_none());
+        assert!(rpc
+            .get_agent_run_checkpoint("session-1", "run-1")
+            .expect("run checkpoint should read")
+            .is_none());
+        assert!(rpc
+            .get_checkpoint("session-1")
+            .expect("fallback checkpoint should read")
+            .is_none());
         assert_eq!(updated.extra["last_persisted_run_id"], "run-1");
         assert_eq!(
             updated.extra["last_context_metadata"],
