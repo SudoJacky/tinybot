@@ -176,6 +176,50 @@ describe("chat UI projection", () => {
       presentation: "drawer",
     });
   });
+
+  test("treats blocked tool activities with approval IDs as waiting approval", () => {
+    const state = createNativeChatState();
+    setSessions(state, [{
+      key: "websocket:chat-approval",
+      chatId: "chat-approval",
+      title: "Approval required",
+      createdAt: "2026-07-01T11:00:00Z",
+      updatedAt: "2026-07-01T11:01:00Z",
+    }]);
+    state.activeSessionKey = "websocket:chat-approval";
+    state.activeChatId = "chat-approval";
+    setMessages(state, "websocket:chat-approval", [{
+      role: "assistant",
+      content: "I need approval.",
+      reasoningContent: "",
+      timestamp: "2026-07-01T11:01:00Z",
+      messageId: "m-approval",
+      toolActivities: [{
+        id: "tool-blocked",
+        approvalId: "approval-blocked",
+        name: "workspace.write_file",
+        argsText: "{\"path\":\"notes.md\"}",
+        responseText: "Needs approval",
+        kind: "result",
+        status: "blocked",
+      }],
+    }]);
+
+    const projection = projectNativeChatState(state);
+
+    expect(projection.sessions[0].primaryBadge).toBe("waiting_approval");
+    expect(projection.turns[0].tools[0].status).toBe("waiting_approval");
+    expect(projection.approvals).toEqual([{
+      id: "approval-blocked",
+      sessionKey: "websocket:chat-approval",
+      toolName: "workspace.write_file",
+      status: "pending",
+      scopeKey: "filesystem.write:workspace",
+      scopeLabel: "Allow workspace writes for this session",
+      prompt: "Needs approval",
+      choices: ["allow_once", "allow_session", "deny"],
+    }]);
+  });
 });
 
 function fixtureMessages(): NativeChatMessage[] {

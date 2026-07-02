@@ -216,6 +216,18 @@ function renderApprovalCard(approvals: ApprovalRequest[]): HTMLElement | null {
     const button = element("button", "desktop-chat-surface__approval-choice", approvalChoiceLabel(choice));
     button.type = "button";
     button.setAttribute("data-approval-choice", choice);
+    button.setAttribute("data-desktop-approval-action", approvalActionForChoice(choice));
+    button.addEventListener("click", () => {
+      button.dispatchEvent(new CustomEvent("desktop-tool-approval-action", {
+        bubbles: true,
+        detail: {
+          action: approvalActionForChoice(choice),
+          approvalId: approval.id,
+          sessionKey: approval.sessionKey,
+          toolName: approval.toolName || "tool",
+        },
+      }));
+    });
     card.append(button);
   }
   return card;
@@ -442,6 +454,17 @@ function approvalChoiceLabel(choice: ApprovalRequest["choices"][number]): string
       return "Allow for this session";
     case "deny":
       return "Deny";
+  }
+}
+
+function approvalActionForChoice(choice: ApprovalRequest["choices"][number]): "approveOnce" | "approveSession" | "deny" {
+  switch (choice) {
+    case "allow_once":
+      return "approveOnce";
+    case "allow_session":
+      return "approveSession";
+    case "deny":
+      return "deny";
   }
 }
 

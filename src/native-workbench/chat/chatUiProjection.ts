@@ -425,6 +425,7 @@ function normalizeStatus(status: string | undefined): ToolCallStatus {
     case "waiting_approval":
     case "awaiting_approval":
     case "approval_required":
+    case "blocked":
       return "waiting_approval";
     default:
       return status ? "unknown" : "unknown";

@@ -261,6 +261,10 @@ describe("rebuilt chat surface", () => {
 
   test("renders inline approval card and queued input near composer", () => {
     const host = document.createElement("section");
+    const approvalActions: unknown[] = [];
+    host.addEventListener("desktop-tool-approval-action", (event) => {
+      approvalActions.push((event as CustomEvent).detail);
+    });
     const projection = fixtureProjection();
     projection.approvals = [{
       id: "approval-1",
@@ -287,6 +291,30 @@ describe("rebuilt chat surface", () => {
     expect(approval?.textContent).toContain("Allow once");
     expect(approval?.textContent).toContain("Allow workspace writes for this session");
     expect(host.querySelector("[data-composer-mode='approval_guidance']")?.textContent).toContain("发送文字将拒绝此请求");
+
+    host.querySelector<HTMLButtonElement>("[data-desktop-approval-action='approveOnce']")?.click();
+    host.querySelector<HTMLButtonElement>("[data-desktop-approval-action='approveSession']")?.click();
+    host.querySelector<HTMLButtonElement>("[data-desktop-approval-action='deny']")?.click();
+    expect(approvalActions).toEqual([
+      {
+        action: "approveOnce",
+        approvalId: "approval-1",
+        sessionKey: "websocket:chat-1",
+        toolName: "workspace.write_file",
+      },
+      {
+        action: "approveSession",
+        approvalId: "approval-1",
+        sessionKey: "websocket:chat-1",
+        toolName: "workspace.write_file",
+      },
+      {
+        action: "deny",
+        approvalId: "approval-1",
+        sessionKey: "websocket:chat-1",
+        toolName: "workspace.write_file",
+      },
+    ]);
 
     const queue = host.querySelector("[data-chat-region='queued-inputs']");
     expect(queue?.textContent).toContain("Summarize after this.");
