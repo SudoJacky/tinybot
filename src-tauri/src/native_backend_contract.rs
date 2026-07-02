@@ -64,6 +64,7 @@ pub const NATIVE_TAURI_COMMANDS: &[&str] = &[
     "worker_background_trace_get_delegate_trace",
     "worker_background_trace_get_artifact",
     "worker_background_trace_append",
+    "worker_background_subagent_enqueue_input",
     "worker_task_plan_list",
     "worker_task_plan_get",
     "worker_task_plan_save",

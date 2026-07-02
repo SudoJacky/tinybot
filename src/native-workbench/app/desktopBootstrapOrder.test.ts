@@ -111,7 +111,9 @@ describe("desktop bootstrap order", () => {
     );
 
     expect(runtimeActionsSource).toContain('document.addEventListener("desktop-chat-subagent-message-submit"');
-    expect(runtimeActionsSource).toContain("runtime.actions.subagentDirectMessageUnsupported");
+    expect(runtimeActionsSource).toContain("runtime.actions.subagentDirectMessage.start");
+    expect(runtimeActionsSource).toContain('invoke("worker_background_subagent_enqueue_input"');
+    expect(runtimeActionsSource).toContain("runtime.actions.subagentDirectMessage.complete");
     expect(runtimeActionsSource).not.toContain("desktop-chat-subagent-message-submit\", (event) => {\n    const detail = asRecord((event as CustomEvent).detail);\n    const content = typeof detail.content === \"string\" ? detail.content : \"\";\n    logDesktopNativeDebug(\"runtime.actions.chatSurfaceSubmit\"");
   });
 

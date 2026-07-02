@@ -607,6 +607,8 @@ describe("rebuilt chat surface", () => {
       subagentId: "delegate-send",
     }]);
     expect(host.querySelector<HTMLTextAreaElement>("[data-subagent-input='message']")?.value).toBe("");
+    expect(host.querySelector("[data-chat-region='detail-surface']")?.textContent).toContain("Use the safer option.");
+    expect(host.querySelector("[data-subagent-status]")?.getAttribute("data-subagent-status")).toBe("user_intervened_unsynced");
   });
 
   test("requires first-send confirmation for waiting-main-agent subagent messages", () => {

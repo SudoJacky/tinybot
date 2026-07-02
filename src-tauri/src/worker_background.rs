@@ -4,7 +4,11 @@ use crate::worker_protocol::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::PathBuf,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 #[derive(Clone, Debug)]
 pub struct WorkerBackgroundRpc {
@@ -234,6 +238,79 @@ impl WorkerBackgroundRpc {
         Ok(BackgroundTraceArtifactResult { artifact })
     }
 
+    pub fn enqueue_subagent_input(
+        &self,
+        params: BackgroundSubagentEnqueueInputParams,
+    ) -> Result<BackgroundSubagentInputResult, WorkerProtocolError> {
+        self.require(WorkerCapability::BackgroundWrite)?;
+        let session_key = params.session_key.trim();
+        let subagent_id = params.subagent_id.trim();
+        let content = params.content.trim();
+        if session_key.is_empty() {
+            return Err(invalid_background_request("session_key is required"));
+        }
+        if subagent_id.is_empty() {
+            return Err(invalid_background_request("subagent_id is required"));
+        }
+        if content.is_empty() {
+            return Err(invalid_background_request("content is required"));
+        }
+
+        let mut store = self.read_store()?;
+        let sequence = store
+            .trace_events
+            .iter()
+            .map(|event| event.sequence)
+            .max()
+            .unwrap_or(0)
+            + 1;
+        let delivery = "queued_for_runtime".to_string();
+        let event = BackgroundTraceEvent {
+            event_id: format!(
+                "subagent-input-{}-{sequence}",
+                safe_event_id_part(subagent_id)
+            ),
+            event_type: "agent.delegate.message_queued".to_string(),
+            session_key: session_key.to_string(),
+            turn_id: params
+                .turn_id
+                .filter(|turn_id| !turn_id.trim().is_empty())
+                .unwrap_or_else(|| "subagent-direct-input".to_string()),
+            parent_step_id: None,
+            delegate_id: Some(subagent_id.to_string()),
+            child_run_id: params
+                .child_run_id
+                .filter(|child_run_id| !child_run_id.trim().is_empty()),
+            child_step_id: None,
+            trace_ref: params
+                .trace_ref
+                .filter(|trace_ref| !trace_ref.trim().is_empty()),
+            sequence,
+            created_at: params
+                .created_at
+                .filter(|created_at| !created_at.trim().is_empty())
+                .unwrap_or_else(now_unix_ms_timestamp),
+            payload: serde_json::json!({
+                "content": content,
+                "delivery": delivery,
+                "source": "user",
+                "metadata": params.metadata,
+            }),
+        };
+        store.trace_events.push(event.clone());
+        store.trace_events.sort_by(|left, right| {
+            left.sequence
+                .cmp(&right.sequence)
+                .then(left.event_id.cmp(&right.event_id))
+        });
+        self.write_store(&store)?;
+        Ok(BackgroundSubagentInputResult {
+            accepted: true,
+            delivery,
+            event,
+        })
+    }
+
     fn require(&self, capability: WorkerCapability) -> Result<(), WorkerProtocolError> {
         if self.policy.allows(&capability) {
             return Ok(());
@@ -412,6 +489,21 @@ pub struct BackgroundTraceGetArtifactParams {
     pub filter: BackgroundTraceListFilter,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundSubagentEnqueueInputParams {
+    pub session_key: String,
+    #[serde(alias = "delegateId")]
+    pub subagent_id: String,
+    pub content: String,
+    pub turn_id: Option<String>,
+    pub trace_ref: Option<String>,
+    pub child_run_id: Option<String>,
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub metadata: Value,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BackgroundTraceEvent {
@@ -464,6 +556,13 @@ pub struct BackgroundTraceArtifactResult {
     pub artifact: Value,
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct BackgroundSubagentInputResult {
+    pub accepted: bool,
+    pub delivery: String,
+    pub event: BackgroundTraceEvent,
+}
+
 fn validate_run(run: &BackgroundRun) -> Result<(), WorkerProtocolError> {
     if run.id.trim().is_empty() {
         return Err(invalid_background_request("run.id is required"));
@@ -479,6 +578,33 @@ fn validate_run(run: &BackgroundRun) -> Result<(), WorkerProtocolError> {
         ));
     }
     Ok(())
+}
+
+fn safe_event_id_part(value: &str) -> String {
+    let sanitized = value
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || character == '-' || character == '_' {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    let trimmed = sanitized.trim_matches('-');
+    if trimmed.is_empty() {
+        "subagent".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn now_unix_ms_timestamp() -> String {
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+    format!("unix-ms:{millis}")
 }
 
 fn json_string(value: &Value, key: &str) -> Option<String> {

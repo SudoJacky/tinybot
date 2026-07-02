@@ -1,8 +1,8 @@
 use crate::config_store::{ConfigPatchBridgeResult, ConfigStore};
 use crate::worker_background::{
-    BackgroundRunCompleteParams, BackgroundRunUpsertParams, BackgroundTraceAppendParams,
-    BackgroundTraceGetArtifactParams, BackgroundTraceGetDelegateTraceParams,
-    BackgroundTraceListParams, WorkerBackgroundRpc,
+    BackgroundRunCompleteParams, BackgroundRunUpsertParams, BackgroundSubagentEnqueueInputParams,
+    BackgroundTraceAppendParams, BackgroundTraceGetArtifactParams,
+    BackgroundTraceGetDelegateTraceParams, BackgroundTraceListParams, WorkerBackgroundRpc,
 };
 use crate::worker_capability::CapabilityPolicy;
 use crate::worker_config::WorkerConfigRpc;
@@ -755,6 +755,11 @@ impl WorkerRpcRouter {
             "background.trace.get_artifact" => {
                 let params: BackgroundTraceGetArtifactParams = parse_params(request)?;
                 serde_json::to_value(self.background.get_artifact(params)?)
+                    .map_err(serialization_error)
+            }
+            "background.subagent.enqueue_input" => {
+                let params: BackgroundSubagentEnqueueInputParams = parse_params(request)?;
+                serde_json::to_value(self.background.enqueue_subagent_input(params)?)
                     .map_err(serialization_error)
             }
             "mcp.call_tool" => self.mcp.call_tool_from_request(request),
@@ -3371,6 +3376,54 @@ mod tests {
             get_artifact_response.result.as_ref().unwrap()["artifact"]["artifactId"],
             "artifact-1"
         );
+    }
+
+    #[test]
+    fn background_subagent_enqueue_input_writes_user_message_trace_event() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::BackgroundRead,
+                WorkerCapability::BackgroundWrite,
+            ]),
+        );
+
+        let response = router.dispatch(&WorkerRequest::new(
+            "req-background-subagent-input",
+            "trace-1",
+            "background.subagent.enqueue_input",
+            json!({
+                "sessionKey": "desktop:chat-1",
+                "subagentId": "subagent-1",
+                "content": "Use the safer option.",
+                "traceRef": "trace-subagent-1",
+                "childRunId": "run-subagent-1",
+                "createdAt": "2026-06-28T00:00:02.000Z"
+            }),
+        ));
+
+        assert_eq!(response.error, None);
+        let result = response
+            .result
+            .as_ref()
+            .expect("enqueue should return a result");
+        assert_eq!(result["accepted"], true);
+        assert_eq!(result["delivery"], "queued_for_runtime");
+        assert_eq!(
+            result["event"]["eventType"],
+            "agent.delegate.message_queued"
+        );
+        assert_eq!(result["event"]["sessionKey"], "desktop:chat-1");
+        assert_eq!(result["event"]["delegateId"], "subagent-1");
+        assert_eq!(
+            result["event"]["payload"]["content"],
+            "Use the safer option."
+        );
+        assert_eq!(result["event"]["payload"]["source"], "user");
     }
 
     #[test]

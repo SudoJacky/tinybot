@@ -350,6 +350,24 @@ struct WorkerBackgroundTraceAppendInput {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct WorkerBackgroundSubagentInputInput {
+    session_key: String,
+    subagent_id: String,
+    content: String,
+    #[serde(default)]
+    turn_id: Option<String>,
+    #[serde(default)]
+    trace_ref: Option<String>,
+    #[serde(default)]
+    child_run_id: Option<String>,
+    #[serde(default)]
+    created_at: Option<String>,
+    #[serde(default)]
+    metadata: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct WorkerTaskPlanListInput {
     #[serde(default)]
     include_completed: bool,
@@ -967,6 +985,20 @@ fn worker_background_trace_append(
     state: State<'_, SharedGateway>,
 ) -> Result<serde_json::Value, String> {
     worker_background_trace_append_with_options(
+        state.inner(),
+        input,
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_background_subagent_enqueue_input(
+    input: WorkerBackgroundSubagentInputInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_background_subagent_enqueue_input_with_options(
         state.inner(),
         input,
         native_backend_workspace_root(),
@@ -4431,6 +4463,46 @@ fn worker_background_trace_append_with_options(
     )
 }
 
+fn worker_background_subagent_enqueue_input_with_options(
+    _shared: &SharedGateway,
+    input: WorkerBackgroundSubagentInputInput,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let request = build_worker_background_subagent_enqueue_input_request(
+        next_worker_request_correlation(),
+        input,
+    );
+    dispatch_worker_background_trace_request(
+        workspace_root,
+        config_snapshot,
+        request,
+        "worker background subagent input enqueue",
+    )
+}
+
+fn build_worker_background_subagent_enqueue_input_request(
+    request_id: WorkerRequestCorrelation,
+    input: WorkerBackgroundSubagentInputInput,
+) -> WorkerRequest {
+    WorkerRequest::new(
+        request_id.id("background-subagent-enqueue-input"),
+        request_id.trace_id("background-subagent-enqueue-input"),
+        "background.subagent.enqueue_input",
+        serde_json::json!({
+            "sessionKey": input.session_key,
+            "subagentId": input.subagent_id,
+            "content": input.content,
+            "turnId": input.turn_id,
+            "traceRef": input.trace_ref,
+            "childRunId": input.child_run_id,
+            "createdAt": input.created_at,
+            "metadata": input.metadata,
+        }),
+    )
+}
+
 fn dispatch_worker_background_trace_request(
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -5079,6 +5151,7 @@ pub fn run() {
             worker_background_trace_get_delegate_trace,
             worker_background_trace_get_artifact,
             worker_background_trace_append,
+            worker_background_subagent_enqueue_input,
             worker_task_plan_list,
             worker_task_plan_get,
             worker_task_plan_save,
@@ -8286,6 +8359,83 @@ mod tests {
                     "artifactId": "artifact-1"
                 }
             })
+        );
+    }
+
+    #[test]
+    fn worker_background_subagent_enqueue_input_request_wraps_subagent_payload() {
+        let request = build_worker_background_subagent_enqueue_input_request(
+            test_request_correlation("42"),
+            WorkerBackgroundSubagentInputInput {
+                session_key: "WebSocket:chat-1".to_string(),
+                subagent_id: "delegate-1".to_string(),
+                content: "Use the safer option.".to_string(),
+                turn_id: Some("turn-1".to_string()),
+                trace_ref: Some("trace-1".to_string()),
+                child_run_id: Some("run-1".to_string()),
+                created_at: Some("2026-06-29T02:25:31.000Z".to_string()),
+                metadata: serde_json::json!({ "surface": "rebuilt-chat" }),
+            },
+        );
+
+        assert_eq!(request.id, "background-subagent-enqueue-input-42");
+        assert_eq!(
+            request.trace_id,
+            "trace-background-subagent-enqueue-input-42"
+        );
+        assert_eq!(request.method, "background.subagent.enqueue_input");
+        assert_eq!(
+            request.params,
+            serde_json::json!({
+                "sessionKey": "WebSocket:chat-1",
+                "subagentId": "delegate-1",
+                "content": "Use the safer option.",
+                "turnId": "turn-1",
+                "traceRef": "trace-1",
+                "childRunId": "run-1",
+                "createdAt": "2026-06-29T02:25:31.000Z",
+                "metadata": { "surface": "rebuilt-chat" }
+            })
+        );
+    }
+
+    #[test]
+    fn worker_background_subagent_enqueue_input_writes_rust_registry() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+
+        let result = worker_background_subagent_enqueue_input_with_options(
+            &shared,
+            WorkerBackgroundSubagentInputInput {
+                session_key: "WebSocket:chat-1".to_string(),
+                subagent_id: "delegate-1".to_string(),
+                content: "Use the safer option.".to_string(),
+                turn_id: Some("turn-1".to_string()),
+                trace_ref: Some("trace-1".to_string()),
+                child_run_id: Some("run-1".to_string()),
+                created_at: Some("2026-06-29T02:25:31.000Z".to_string()),
+                metadata: serde_json::json!({ "surface": "rebuilt-chat" }),
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("subagent input enqueue should write the Rust background registry");
+
+        assert_eq!(result["accepted"], true);
+        assert_eq!(result["delivery"], "queued_for_runtime");
+        assert_eq!(
+            result["event"]["eventType"],
+            "agent.delegate.message_queued"
+        );
+        assert_eq!(result["event"]["delegateId"], "delegate-1");
+        assert_eq!(
+            result["event"]["payload"]["content"],
+            "Use the safer option."
+        );
+        assert_eq!(
+            lock_runtime(&shared).experimental_worker.status().state,
+            WorkerManagerState::Stopped
         );
     }
 

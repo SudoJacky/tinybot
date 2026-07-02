@@ -172,6 +172,7 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
           subagentId,
         },
       }));
+      loadedSubagents.set(subagentOverrideKey(subagent), appendDirectSubagentMessage(subagent, message));
       logChatSurfaceAction(host, "subagent.message.submit", {
         contentLength: message.length,
         subagentId,
@@ -670,6 +671,26 @@ function renderToolRow(tool: ToolCallSummary, actions: ChatSurfaceActions): HTML
 
 function toolDetailKind(tool: ToolCallSummary): ChatDetailPanelKind {
   return tool.name.startsWith("Artifact:") ? "artifact" : "tool";
+}
+
+function appendDirectSubagentMessage(subagent: LiveSubagent, content: string): LiveSubagent {
+  return {
+    ...subagent,
+    latestActivity: "User input queued",
+    status: "user_intervened_unsynced",
+    transcript: {
+      ...subagent.transcript,
+      messages: [
+        ...subagent.transcript.messages,
+        {
+          id: `${subagent.id}:direct-input:${Date.now()}`,
+          role: "user",
+          content,
+          timestamp: new Date().toISOString(),
+        },
+      ],
+    },
+  };
 }
 
 function isProcessExpanded(turn: ChatTurn, overrides: Map<string, boolean>): boolean {

@@ -1014,12 +1014,45 @@ function installNativeChatRuntimeActions(): void {
     const content = typeof detail.content === "string" ? detail.content : "";
     const sessionKey = typeof detail.sessionKey === "string" ? detail.sessionKey : "";
     const subagentId = typeof detail.subagentId === "string" ? detail.subagentId : "";
-    logDesktopNativeDebug("runtime.actions.subagentDirectMessageUnsupported", {
+    logDesktopNativeDebug("runtime.actions.subagentDirectMessage.start", {
       contentLength: content.trim().length,
       hasRuntime: Boolean(nativeWorkbenchRuntime),
       hasSessionKey: Boolean(sessionKey),
       sessionKeyPrefix: sessionKey.split(":")[0] || "",
       subagentId,
+    });
+    if (!content.trim() || !sessionKey || !subagentId) {
+      logDesktopNativeDebug("runtime.actions.subagentDirectMessageSkipped", {
+        hasContent: Boolean(content.trim()),
+        hasSessionKey: Boolean(sessionKey),
+        hasSubagentId: Boolean(subagentId),
+      });
+      return;
+    }
+    void invoke("worker_background_subagent_enqueue_input", {
+      input: {
+        content: content.trim(),
+        createdAt: new Date().toISOString(),
+        metadata: {
+          surface: "rebuilt-chat",
+          source: "desktop-chat-subagent-message-submit",
+        },
+        sessionKey,
+        subagentId,
+      },
+    }).then((result) => {
+      const record = asRecord(result);
+      logDesktopNativeDebug("runtime.actions.subagentDirectMessage.complete", {
+        accepted: record.accepted === true,
+        delivery: typeof record.delivery === "string" ? record.delivery : "",
+        eventType: asRecord(record.event).eventType,
+        subagentId,
+      });
+    }).catch((error: unknown) => {
+      logDesktopNativeDebug("runtime.actions.subagentDirectMessage.failed", {
+        message: error instanceof Error ? error.message : String(error),
+        subagentId,
+      });
     });
   });
   document.addEventListener("desktop-chat-branch-session-request", (event) => {

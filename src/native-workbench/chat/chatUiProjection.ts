@@ -43,6 +43,11 @@ export const CHAT_RUNTIME_CAPABILITY_AUDIT = {
     source: "worker_background_trace_get_delegate_trace",
     notes: "Delegate trace can be queried, but a first-class full subagent transcript facade is not present in the current contract.",
   },
+  subagentDirectInput: {
+    status: "partial",
+    source: "worker_background_subagent_enqueue_input",
+    notes: "User direct input can be persisted as a delegate message_queued trace event for a future runtime consumer; live delivery into a running child thread is not present yet.",
+  },
   branchSession: {
     status: "available",
     source: "worker_session_branch / /api/sessions/branch",
