@@ -990,6 +990,17 @@ function installNativeChatRuntimeActions(): void {
       subagentId,
     });
   });
+  document.addEventListener("desktop-chat-branch-session-request", (event) => {
+    const detail = asRecord((event as CustomEvent).detail);
+    const messages = Array.isArray(detail.messages) ? detail.messages : [];
+    logDesktopNativeDebug("runtime.actions.branchSessionUnsupported", {
+      branchedFromMessageId: typeof detail.branchedFromMessageId === "string" ? detail.branchedFromMessageId : "",
+      branchedFromSessionId: typeof detail.branchedFromSessionId === "string" ? detail.branchedFromSessionId : "",
+      hasRuntime: Boolean(nativeWorkbenchRuntime),
+      messageCount: messages.length,
+      title: typeof detail.title === "string" ? detail.title : "",
+    });
+  });
   document.addEventListener("desktop-chat-approval-guidance-submit", (event) => {
     const detail = asRecord((event as CustomEvent).detail);
     const approvalId = typeof detail.approvalId === "string" ? detail.approvalId : "";

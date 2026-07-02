@@ -110,6 +110,16 @@ describe("desktop bootstrap order", () => {
     expect(runtimeActionsSource).not.toContain("desktop-chat-subagent-message-submit\", (event) => {\n    const detail = asRecord((event as CustomEvent).detail);\n    const content = typeof detail.content === \"string\" ? detail.content : \"\";\n    logDesktopNativeDebug(\"runtime.actions.chatSurfaceSubmit\"");
   });
 
+  test("records rebuilt branch session requests until the backend adapter exists", () => {
+    const runtimeActionsSource = sourceBlock(
+      "function installNativeChatRuntimeActions(): void {",
+      "async function handleNativeInlineApprovalAction(",
+    );
+
+    expect(runtimeActionsSource).toContain('document.addEventListener("desktop-chat-branch-session-request"');
+    expect(runtimeActionsSource).toContain("runtime.actions.branchSessionUnsupported");
+  });
+
   test("routes native composer attach through the session temporary file upload control", () => {
     const attachActionPosition = callPosition("onAttachSessionFile: () => {");
     const uploadClickPosition = callPosition('document.getElementById("desktop-session-file-upload")?.click();');

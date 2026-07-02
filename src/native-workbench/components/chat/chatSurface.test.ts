@@ -543,6 +543,33 @@ describe("rebuilt chat surface", () => {
     expect(queue?.querySelector("[data-queued-input-action='guide']")).toBeNull();
   });
 
+  test("dispatches a branch session draft from a selected turn", () => {
+    const host = document.createElement("section");
+    const branchRequests: unknown[] = [];
+    host.addEventListener("desktop-chat-branch-session-request", (event) => {
+      branchRequests.push((event as CustomEvent).detail);
+    });
+
+    mountChatSurface(host, { projection: fixtureProjection() });
+
+    host.querySelector<HTMLButtonElement>("[data-chat-turn-id='m-assistant'] [data-turn-action='branch']")?.click();
+
+    expect(branchRequests).toEqual([{
+      title: "Investigate IAM certificate · 分叉",
+      branchedFromSessionId: "websocket:chat-1",
+      branchedFromMessageId: "m-assistant",
+      messages: [
+        { messageId: "m-user", role: "user", content: "Check the cert setup." },
+        { messageId: "m-assistant", role: "assistant", content: "I found the relevant file." },
+      ],
+      portableContext: {
+        chatId: "chat-1",
+        sessionKey: "websocket:chat-1",
+      },
+      runtimeState: {},
+    }]);
+  });
+
   test("submits normal composer text as a main chat message event", () => {
     const host = document.createElement("section");
     const submissions: unknown[] = [];

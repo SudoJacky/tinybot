@@ -16,6 +16,7 @@ import {
   type ChatDetailPanelKind,
   openChatDetailPanel,
 } from "../../chat/chatDetailPanelState";
+import { createBranchSessionDraft } from "../../chat/chatBranchSession";
 import {
   resumeNextQueuedInput,
   submitComposerText,
@@ -63,6 +64,36 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
       currentDetailPanel = closeChatDetailPanel(chatSurfaceViewportWidth(host));
       logChatSurfaceAction(host, "detail.close", currentDetailPanel);
       renderCurrent();
+    },
+    branchFromTurn(turnId) {
+      const activeSession = currentProjection.sessions.find((session) => session.key === currentProjection.activeSessionKey);
+      if (!activeSession || !currentProjection.branchSource.canBranchSession) {
+        logChatSurfaceAction(host, "branch.request.unavailable", { turnId });
+        return;
+      }
+      const draft = createBranchSessionDraft({
+        sessionId: currentProjection.activeSessionKey,
+        chatId: activeSession.chatId,
+        title: activeSession.title,
+        messages: currentProjection.turns.map((turn) => ({
+          messageId: turn.id,
+          role: turn.role,
+          content: turn.content,
+        })),
+        portableContext: {
+          chatId: activeSession.chatId,
+          sessionKey: currentProjection.activeSessionKey,
+        },
+        runtimeState: {},
+      }, turnId);
+      host.dispatchEvent(new CustomEvent("desktop-chat-branch-session-request", {
+        bubbles: true,
+        detail: draft,
+      }));
+      logChatSurfaceAction(host, "branch.request", {
+        messageCount: draft.messages.length,
+        turnId,
+      });
     },
     openDetail(kind, targetId) {
       currentDetailPanel = openChatDetailPanel(kind, targetId, chatSurfaceViewportWidth(host));
@@ -242,6 +273,7 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
 }
 
 type ChatSurfaceActions = {
+  branchFromTurn(turnId: string): void;
   closeDetail(): void;
   composerDraft(): string;
   composerError(): string;
@@ -361,6 +393,13 @@ function renderTurn(turn: ChatTurn, actions: ChatSurfaceActions): HTMLElement {
   for (const tool of turn.tools) {
     article.append(renderToolRow(tool, actions));
   }
+  const actionsRow = element("div", "desktop-chat-surface__turn-actions");
+  const branch = element("button", "desktop-chat-surface__turn-branch", "Branch from here");
+  branch.type = "button";
+  branch.setAttribute("data-turn-action", "branch");
+  branch.addEventListener("click", () => actions.branchFromTurn(turn.id));
+  actionsRow.append(branch);
+  article.append(actionsRow);
   return article;
 }
 
