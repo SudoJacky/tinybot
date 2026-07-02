@@ -421,6 +421,7 @@ const desktopRuntimeStatusSnapshots = new WeakMap<Document, {
 }>();
 const desktopNativeChatModels = new WeakMap<Document, DesktopNativeChatModel>();
 const desktopPanelFrameEventDocuments = new WeakSet<Document>();
+const rebuiltChatSurfaceNewSessionHandlers = new WeakMap<HTMLElement, EventListener>();
 const desktopChatTimelineContexts = new WeakMap<Document, {
   agentUiActions: DesktopAgentUiFormActionOptions;
   agentUiForms: AgentUiForm[];
@@ -763,7 +764,7 @@ export function updateDesktopNativeChat(
   const thread = targetDocument.querySelector<HTMLElement>(".desktop-conversation-thread");
   if (thread) {
     const scrollState = captureConversationThreadScroll(thread);
-    mountRebuiltChatSurface(thread, chat);
+    mountRebuiltChatSurface(thread, chat, chatActions);
     restoreConversationThreadScroll(thread, scrollState);
     queueConversationThreadScrollRestore(thread, scrollState);
   }
@@ -1372,10 +1373,30 @@ function mountRebuiltChatSurface(
   chat: DesktopNativeChatModel,
   chatActions: DesktopNativeChatActionOptions = {},
 ): void {
+  installRebuiltChatSurfaceActionBridge(thread, chatActions);
   mountChatSurface(thread, {
     projection: projectDesktopNativeChat(thread.ownerDocument, chat),
     loadSubagentTranscript: chatActions.onDelegateTraceLoad,
   });
+}
+
+function installRebuiltChatSurfaceActionBridge(
+  thread: HTMLElement,
+  chatActions: DesktopNativeChatActionOptions,
+): void {
+  const previousNewSessionHandler = rebuiltChatSurfaceNewSessionHandlers.get(thread);
+  if (previousNewSessionHandler) {
+    thread.removeEventListener("desktop-chat-session-new", previousNewSessionHandler);
+  }
+  const handleNewSession: EventListener = (event) => {
+    if (!chatActions.onNewChat) {
+      return;
+    }
+    event.stopPropagation();
+    chatActions.onNewChat();
+  };
+  thread.addEventListener("desktop-chat-session-new", handleNewSession);
+  rebuiltChatSurfaceNewSessionHandlers.set(thread, handleNewSession);
 }
 
 function projectDesktopNativeChat(targetDocument: Document, chat: DesktopNativeChatModel): ChatUiProjection {

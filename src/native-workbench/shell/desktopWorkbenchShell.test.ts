@@ -1001,6 +1001,28 @@ describe("desktop workbench shell", () => {
     expect(composerActions).toEqual([]);
   });
 
+  test("routes rebuilt chat surface new session actions through chat actions", () => {
+    const targetDocument = new FakeDocument();
+    const onNewChat = vi.fn();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      chat: {
+        sessions: [{ key: "WebSocket:chat-live", chatId: "chat-live", title: "Live session", createdAt: "", updatedAt: "" }],
+        activeSessionKey: "WebSocket:chat-live",
+        activeChatId: "chat-live",
+        messages: [],
+      },
+      chatActions: { onNewChat },
+    });
+
+    targetDocument.body.querySelector('[data-session-action="new"]')?.click();
+
+    expect(onNewChat).toHaveBeenCalledTimes(1);
+  });
+
   test("styles native composer input without focus chrome or manual resizing", () => {
     const targetDocument = new FakeDocument();
 
