@@ -347,7 +347,9 @@ describe("desktop root WebUI workbench adapter", () => {
       "footer",
     ]);
     expect(sidebar?.querySelector('[data-sidebar-command="new-chat"]')?.textContent).toContain("New");
-    expect(sidebar?.querySelector('[data-sidebar-href="/tools"]')?.getAttribute("href")).toBe("/tools");
+    expect(sidebar?.querySelector('[data-sidebar-command="open-settings"]')?.textContent).toContain("Settings");
+    expect(sidebar?.querySelector('[data-sidebar-command="open-docs"]')?.textContent).toContain("Documentation");
+    expect(sidebar?.querySelector('[data-sidebar-href="/tools"]')).toBeNull();
     expect(sidebar?.querySelector('[data-sidebar-item-id="session:chat-1"]')?.getAttribute("aria-current")).toBe("page");
   });
 
