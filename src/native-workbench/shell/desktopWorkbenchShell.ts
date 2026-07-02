@@ -56,11 +56,6 @@ import { mountAgentUiFormFieldIsland } from "../components/agent-ui/agentUiFormF
 import { mountAgentUiFormsSurfaceIsland } from "../components/agent-ui/agentUiFormsSurfaceIsland";
 import { mountBottomRegionIsland } from "../components/shell/bottomRegionIsland";
 import { mountActivityRailIsland } from "../components/shell/activityRailIsland";
-import { mountChatMenuActionIsland } from "../components/chat/chatMenuActionIsland";
-import { mountChatMenuButtonIsland } from "../components/chat/chatMenuButtonIsland";
-import { mountChatMenuEmptyIsland } from "../components/chat/chatMenuEmptyIsland";
-import { mountChatMenuPopoverIsland } from "../components/chat/chatMenuPopoverIsland";
-import { mountChatTitleIsland } from "../components/chat/chatTitleIsland";
 import { mountChatSurface } from "../components/chat/chatSurface";
 import { mountChatWorkbenchIsland } from "../components/chat/chatWorkbenchIsland";
 import { mountCommandPaletteIsland } from "../components/shared/commandPaletteIsland";
@@ -138,7 +133,6 @@ import { mountTokenUsageOrbIsland } from "../components/shell/tokenUsageOrbIslan
 import { mountWorkLensIsland } from "../components/shell/workLensIsland";
 import { mountWorkbenchPanelIsland } from "../components/shell/workbenchPanelIsland";
 
-const desktopPinnedChatSessions = new WeakMap<Document, Set<string>>();
 const DESKTOP_COWORK_STANDALONE_AVAILABLE = false;
 
 type ConversationToolActivityRenderOptions = ToolActivityIslandOptions;
@@ -766,12 +760,6 @@ export function updateDesktopNativeChat(
     dom: summarizeNativeChatDomForDebug(targetDocument),
   });
   syncNativeChatDocumentState(targetDocument, chat);
-  const header = targetDocument.querySelector<HTMLElement>(".desktop-chat-header");
-  if (header) {
-    const next = createChatHeader(targetDocument, chat, chatActions);
-    header.replaceChildren(...Array.from(next.children));
-  }
-
   const thread = targetDocument.querySelector<HTMLElement>(".desktop-conversation-thread");
   if (thread) {
     const scrollState = captureConversationThreadScroll(thread);
@@ -803,11 +791,10 @@ function syncChatWorkbenchChrome(targetDocument: Document, chat: DesktopNativeCh
   if (!workbench) {
     return;
   }
-  const header = workbench.querySelector<HTMLElement>(".desktop-chat-header");
   const thread = workbench.querySelector<HTMLElement>(".desktop-conversation-thread");
   const workLens = workbench.querySelector<HTMLElement>(".desktop-work-lens-inline");
   const composer = workbench.querySelector<HTMLElement>("#desktop-native-composer");
-  const children = [header, thread].filter((child): child is HTMLElement => Boolean(child));
+  const children = [thread].filter((child): child is HTMLElement => Boolean(child));
   if (!hasChatTimelineContent(targetDocument, chat)) {
     children.push(createChatWorkbenchEmptyState(targetDocument, []));
   }
@@ -1100,7 +1087,6 @@ function createMainRegion(
   const workbench = targetDocument.createElement("div");
   workbench.className = "desktop-empty-session desktop-chat-workbench";
   const workbenchChildren = [
-    createChatHeader(targetDocument, chat, chatActions),
     createConversationThread(targetDocument, chat, chatActions),
   ];
   if (showEmptySession) {
@@ -1338,367 +1324,6 @@ function mountMainUtilitiesRegionVueIsland(
     },
     promptProviderId: () => promptForSettingsProviderId(targetDocument),
   });
-}
-
-function createChatHeader(
-  targetDocument: Document,
-  chat: DesktopNativeChatModel | null,
-  chatActions: DesktopNativeChatActionOptions = {},
-): HTMLElement {
-  const header = targetDocument.createElement("header");
-  header.className = "desktop-chat-header";
-
-  const titleRow = targetDocument.createElement("div");
-  titleRow.className = "desktop-chat-title-row";
-
-  const activeSession = activeChatSession(chat);
-  const titleGroup = targetDocument.createElement("div");
-  titleGroup.className = "desktop-chat-title-group";
-  const context = targetDocument.createElement("span");
-  context.className = "desktop-chat-context";
-  context.textContent = "tinybot";
-  const title = targetDocument.createElement("h1");
-  title.className = "desktop-chat-title";
-  title.textContent = activeChatTitle(chat);
-  if (canMountVueIsland(title)) {
-    mountChatTitleIsland(title, { title: activeChatTitle(chat) });
-  }
-  titleGroup.append(context, title);
-  const headerStatus = createChatHeaderStatus(targetDocument, chat, chatActions);
-  if (headerStatus) {
-    titleGroup.append(headerStatus);
-  }
-  const menu = targetDocument.createElement("button");
-  menu.type = "button";
-  menu.className = "desktop-chat-menu";
-  menu.setAttribute("data-desktop-chat-menu", "more");
-  menu.setAttribute("aria-haspopup", "menu");
-  menu.setAttribute("aria-expanded", "false");
-  menu.setAttribute("aria-label", "More chat actions");
-  menu.textContent = "...";
-
-  const popover = createChatMenuPopover(targetDocument, chat, activeSession, title, menu, chatActions);
-  mountChatMenuButtonVueIsland(menu, popover);
-  targetDocument.addEventListener("click", (event) => {
-    if (popover.hidden) {
-      return;
-    }
-    const target = "target" in event ? event.target : null;
-    if (isEventTargetInsideElement(target, menu) || isEventTargetInsideElement(target, popover)) {
-      return;
-    }
-    closeChatMenuPopover(menu, popover);
-  });
-
-  titleRow.append(titleGroup, menu, popover);
-
-  const actions = targetDocument.createElement("div");
-  actions.className = "desktop-chat-header-actions";
-
-  header.append(titleRow, actions);
-  return header;
-}
-
-function createChatHeaderStatus(
-  targetDocument: Document,
-  chat: DesktopNativeChatModel | null,
-  chatActions: DesktopNativeChatActionOptions,
-): HTMLElement | null {
-  if (chat?.responding !== true && chat?.composerState !== "sending" && chat?.composerState !== "queued") {
-    return null;
-  }
-  const status = targetDocument.createElement("div");
-  status.className = "desktop-chat-header-status";
-  status.setAttribute("aria-label", "Chat response controls");
-  status.setAttribute("data-desktop-chat-region", "header-status");
-  const stop = targetDocument.createElement("button");
-  stop.type = "button";
-  stop.className = "desktop-chat-header-stop";
-  stop.setAttribute("aria-label", "Stop current response");
-  stop.setAttribute("data-desktop-chat-action", "stop");
-  stop.textContent = "Stop";
-  stop.addEventListener("click", () => chatActions.onInterrupt?.());
-  status.append(stop);
-  return status;
-}
-
-function mountChatMenuButtonVueIsland(menu: HTMLElement, popover: HTMLElement): void {
-  const toggle = () => toggleChatMenuPopover(menu, popover);
-  const installFallback = () => {
-    menu.addEventListener("click", toggle);
-  };
-  if (!canMountVueIsland(menu)) {
-    installFallback();
-    return;
-  }
-  mountChatMenuButtonIsland(menu, {
-    expanded: menu.getAttribute("aria-expanded") === "true",
-    onToggle: toggle,
-  });
-}
-
-function toggleChatMenuPopover(menu: HTMLElement, popover: HTMLElement): void {
-  const expanded = menu.getAttribute("aria-expanded") === "true";
-  menu.setAttribute("aria-expanded", String(!expanded));
-  popover.hidden = expanded;
-}
-
-function closeChatMenuPopover(menu: HTMLElement, popover: HTMLElement): void {
-  menu.setAttribute("aria-expanded", "false");
-  popover.hidden = true;
-}
-
-function isEventTargetInsideElement(target: EventTarget | null, element: HTMLElement): boolean {
-  return typeof Node !== "undefined" && target instanceof Node && (target === element || element.contains(target));
-}
-
-function activeChatSession(chat: DesktopNativeChatModel | null): NativeChatSession | null {
-  if (!chat?.activeSessionKey) {
-    return null;
-  }
-  return chat.sessions.find((session) => session.key === chat.activeSessionKey) ?? null;
-}
-
-function createChatMenuPopover(
-  targetDocument: Document,
-  chat: DesktopNativeChatModel | null,
-  session: NativeChatSession | null,
-  titleElement: HTMLElement,
-  trigger: HTMLElement,
-  chatActions: DesktopNativeChatActionOptions,
-): HTMLElement {
-  const popover = targetDocument.createElement("div");
-  popover.className = "desktop-chat-menu-popover";
-  popover.setAttribute("role", "menu");
-  popover.setAttribute("aria-label", "Chat session actions");
-  popover.hidden = true;
-
-  const close = () => {
-    popover.hidden = true;
-    trigger.setAttribute("aria-expanded", "false");
-  };
-
-  const popoverActions: Array<{
-    action: string;
-    disabled: boolean;
-    label: string;
-    onAction: () => string | void;
-  }> = [];
-
-  const appendAction = (action: string, label: string, handler: (button: HTMLElement) => void, disabled = false) => {
-    const button = targetDocument.createElement("button");
-    button.type = "button";
-    button.className = "desktop-chat-menu-action";
-    button.setAttribute("role", "menuitem");
-    button.setAttribute("data-desktop-chat-menu-action", action);
-    button.textContent = label;
-    if (disabled) {
-      button.setAttribute("disabled", "");
-    }
-    button.addEventListener("click", (event) => {
-      event.preventDefault?.();
-      event.stopPropagation?.();
-      if (disabled) {
-        return;
-      }
-      handler(button);
-      close();
-    });
-    mountChatMenuActionVueIsland(button, { action, disabled, label });
-    popover.append(button);
-    popoverActions.push({
-      action,
-      disabled,
-      label,
-      onAction: () => {
-        if (disabled) {
-          return;
-        }
-        handler(button);
-        close();
-        return button.textContent ?? undefined;
-      },
-    });
-    return button;
-  };
-
-  const initialPinned = session ? isSessionPinned(targetDocument, session.key) : false;
-  appendAction(
-    "pin",
-    initialPinned ? "Unpin session" : "Pin session",
-    (button) => {
-      if (!session) {
-        return;
-      }
-      const pinned = toggleActiveSessionPinned(targetDocument, session);
-      button.textContent = pinned ? "Unpin session" : "Pin session";
-      chatActions.onPinSession?.({
-        sessionKey: session.key,
-        chatId: session.chatId,
-        title: session.title || "New session",
-        pinned,
-      });
-    },
-    !session,
-  );
-  appendAction(
-    "rename",
-    "Rename session",
-    () => {
-      if (!session) {
-        return;
-      }
-      startInlineSessionRename(targetDocument, session, titleElement, chatActions);
-    },
-    !session,
-  );
-  appendAction("new-chat", "New chat", () => chatActions.onNewChat?.(), !chatActions.onNewChat);
-
-  if (!chat?.sessions.length) {
-    const empty = createText(targetDocument, "span", "No active session");
-    empty.className = "desktop-chat-menu-empty";
-    mountChatMenuEmptyVueIsland(empty, "No active session");
-    popover.append(empty);
-  }
-
-  mountChatMenuPopoverVueIsland(popover, {
-    actions: popoverActions,
-    emptyMessage: !chat?.sessions.length ? "No active session" : "",
-  });
-  return popover;
-}
-
-function mountChatMenuPopoverVueIsland(
-  popover: HTMLElement,
-  options: {
-    actions: Array<{
-      action: string;
-      disabled: boolean;
-      label: string;
-      onAction: () => string | void;
-    }>;
-    emptyMessage: string;
-  },
-): void {
-  if (!canMountVueIsland(popover)) {
-    return;
-  }
-  mountChatMenuPopoverIsland(popover, options);
-}
-
-function mountChatMenuEmptyVueIsland(empty: HTMLElement, message: string): void {
-  if (!canMountVueIsland(empty)) {
-    return;
-  }
-  mountChatMenuEmptyIsland(empty, { message });
-}
-
-function mountChatMenuActionVueIsland(
-  button: HTMLElement,
-  options: { action: string; disabled: boolean; label: string },
-): void {
-  if (!canMountVueIsland(button)) {
-    return;
-  }
-  mountChatMenuActionIsland(button, options);
-}
-
-function pinnedSessionKeysForDocument(targetDocument: Document): Set<string> {
-  let keys = desktopPinnedChatSessions.get(targetDocument);
-  if (!keys) {
-    keys = new Set<string>();
-    desktopPinnedChatSessions.set(targetDocument, keys);
-  }
-  return keys;
-}
-
-function isSessionPinned(targetDocument: Document, sessionKey: string): boolean {
-  return pinnedSessionKeysForDocument(targetDocument).has(sessionKey);
-}
-
-function setSessionPinned(targetDocument: Document, sessionKey: string, pinned: boolean): void {
-  const keys = pinnedSessionKeysForDocument(targetDocument);
-  if (pinned) {
-    keys.add(sessionKey);
-    return;
-  }
-  keys.delete(sessionKey);
-}
-
-function toggleActiveSessionPinned(targetDocument: Document, session: NativeChatSession): boolean {
-  const pinned = !isSessionPinned(targetDocument, session.key);
-  setSessionPinned(targetDocument, session.key, pinned);
-  return pinned;
-}
-
-function startInlineSessionRename(
-  targetDocument: Document,
-  session: NativeChatSession,
-  titleElement: HTMLElement,
-  chatActions: DesktopNativeChatActionOptions,
-): void {
-  const existingEditor = titleElement.querySelector<HTMLInputElement>(".desktop-chat-title-editor");
-  if (existingEditor) {
-    focusSessionTitleEditor(existingEditor);
-    return;
-  }
-
-  const currentTitle = session.title || "New session";
-  const editor = targetDocument.createElement("input");
-  editor.type = "text";
-  editor.className = "desktop-chat-title-editor";
-  editor.setAttribute("aria-label", "Rename session");
-  editor.value = currentTitle;
-
-  let closed = false;
-  const closeEditor = (nextTitle = currentTitle) => {
-    closed = true;
-    titleElement.replaceChildren();
-    titleElement.textContent = nextTitle;
-  };
-  const commit = () => {
-    if (closed) {
-      return;
-    }
-    const renamedTitle = editor.value.trim();
-    if (!renamedTitle || renamedTitle === currentTitle) {
-      closeEditor();
-      return;
-    }
-    session.title = renamedTitle;
-    closeEditor(renamedTitle);
-    chatActions.onRenameSession?.({
-      sessionKey: session.key,
-      chatId: session.chatId,
-      title: renamedTitle,
-    });
-  };
-  const cancel = () => {
-    if (!closed) {
-      closeEditor();
-    }
-  };
-
-  editor.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      commit();
-    }
-    if (event.key === "Escape") {
-      event.preventDefault();
-      cancel();
-    }
-  });
-  editor.addEventListener("blur", commit);
-
-  titleElement.textContent = "";
-  titleElement.replaceChildren(editor);
-  focusSessionTitleEditor(editor);
-}
-
-function focusSessionTitleEditor(editor: HTMLInputElement): void {
-  editor.focus?.({ preventScroll: true });
-  editor.setSelectionRange?.(0, editor.value.length);
 }
 
 function createConversationThread(
@@ -2462,10 +2087,10 @@ function createNativeComposerSurface(
   send.setAttribute("data-desktop-composer-action", "send");
   send.setAttribute("aria-label", "Send message");
   send.replaceChildren(createComposerSendIcon(targetDocument));
-  updateNativeComposerSendState(input as HTMLTextAreaElement, send as HTMLButtonElement, chat);
+  updateNativeComposerSendState(input as HTMLTextAreaElement, send as HTMLButtonElement, chat, Boolean(chat));
   input.addEventListener("input", () => {
     resizeNativeComposerInput(input as HTMLTextAreaElement);
-    updateNativeComposerSendState(input as HTMLTextAreaElement, send as HTMLButtonElement, chat);
+    updateNativeComposerSendState(input as HTMLTextAreaElement, send as HTMLButtonElement, chat, Boolean(chat));
   });
   mountComposerSendButtonVueIsland(send, input as HTMLTextAreaElement, chat, chatActions);
 
@@ -2520,6 +2145,7 @@ function mountComposerSurfaceVueIsland(
   }
   mountOrUpdateComposerSurfaceIsland(composer, {
     activeSessionKey: chat?.activeSessionKey || null,
+    canSubmitWhileBusy: Boolean(chat) || hasMountedRebuiltChatSurface(composer.ownerDocument),
     composerState: nativeComposerState(chat),
     model: chat?.runtime?.model || null,
     modelOptions: chat?.runtime?.modelOptions || [],
@@ -2529,7 +2155,7 @@ function mountComposerSurfaceVueIsland(
     onAttach: () => chatActions.onAttachSessionFile?.(),
     onModelSelect: (model) => chatActions.onSelectModel?.(model),
     onPersistentRagChange: (enabled) => chatActions.onPersistentRagChange?.(enabled),
-    onSend: (event) => chatActions.onComposerSubmit?.(event),
+    onSend: (event) => submitNativeComposerSurfaceEvent(composer, event, chat, chatActions),
   });
 }
 
@@ -2562,10 +2188,68 @@ function submitNativeComposerMessage(
   if (send.disabled || !input.value.trim()) {
     return;
   }
+  const surfaceResult = submitNativeComposerToChatSurface(
+    input.ownerDocument,
+    input.value,
+    chat?.usePersistentRag !== false,
+  );
+  if (surfaceResult.handled) {
+    if (surfaceResult.accepted) {
+      input.value = "";
+      resizeNativeComposerInput(input);
+      updateNativeComposerSendState(input, send, chat);
+    }
+    return;
+  }
+  if (nativeComposerState(chat) !== "idle") {
+    return;
+  }
   chatActions.onComposerSubmit?.({
     content: input.value,
     usePersistentRag: chat?.usePersistentRag !== false,
   });
+}
+
+function submitNativeComposerSurfaceEvent(
+  composer: HTMLElement,
+  event: { content: string; usePersistentRag: boolean },
+  chat: DesktopNativeChatModel | null,
+  chatActions: DesktopNativeChatActionOptions,
+): void {
+  const surfaceResult = submitNativeComposerToChatSurface(composer.ownerDocument, event.content, event.usePersistentRag);
+  if (surfaceResult.handled) {
+    return;
+  }
+  if (nativeComposerState(chat) !== "idle") {
+    return;
+  }
+  chatActions.onComposerSubmit?.(event);
+}
+
+function submitNativeComposerToChatSurface(
+  targetDocument: Document,
+  content: string,
+  usePersistentRag: boolean,
+): { accepted: boolean; handled: boolean } {
+  const surface = targetDocument.querySelector<HTMLElement>(".desktop-chat-surface")
+    ?? targetDocument.querySelector<HTMLElement>("[data-chat-surface='rebuild-chat-agent-surface']");
+  if (!surface) {
+    return { accepted: false, handled: false };
+  }
+  const detail = {
+    accepted: false,
+    content,
+    handled: false,
+    usePersistentRag,
+  };
+  surface.dispatchEvent(new CustomEvent("desktop-chat-composer-submit-request", {
+    bubbles: true,
+    detail,
+  }));
+  return {
+    accepted: detail.accepted,
+    handled: detail.handled,
+  };
 }
 
 function mountComposerAttachButtonVueIsland(
@@ -2608,8 +2292,9 @@ function updateNativeComposerSendState(
   input: HTMLTextAreaElement,
   send: HTMLButtonElement,
   chat: DesktopNativeChatModel | null,
+  canSubmitWhileBusy = hasMountedRebuiltChatSurface(input.ownerDocument),
 ): void {
-  const canSend = nativeComposerState(chat) === "idle" && Boolean(input.value.trim());
+  const canSend = Boolean(input.value.trim()) && (nativeComposerState(chat) === "idle" || canSubmitWhileBusy);
   send.disabled = !canSend;
   if (canSend) {
     send.removeAttribute("disabled");
@@ -2618,15 +2303,15 @@ function updateNativeComposerSendState(
   }
 }
 
-function activeChatTitle(chat: DesktopNativeChatModel | null): string {
-  if (!chat) {
-    return "Design native workbench";
-  }
-  return chat.sessions.find((session) => session.key === chat.activeSessionKey)?.title || "New chat";
-}
-
 function nativeComposerState(chat: DesktopNativeChatModel | null): NonNullable<DesktopNativeChatModel["composerState"]> {
   return chat?.composerState ?? (chat?.responding ? "sending" : "idle");
+}
+
+function hasMountedRebuiltChatSurface(targetDocument: Document): boolean {
+  return Boolean(
+    targetDocument.querySelector(".desktop-chat-surface")
+      ?? targetDocument.querySelector("[data-chat-surface='rebuild-chat-agent-surface']"),
+  );
 }
 
 function createComposerModelControl(
@@ -8326,8 +8011,6 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-workspace-file-row:focus-visible,
     body.desktop-native-workbench .desktop-workspace-editor:focus-visible,
     body.desktop-native-workbench .desktop-inspector-restore:focus-visible,
-    body.desktop-native-workbench .desktop-chat-header-stop:focus-visible,
-    body.desktop-native-workbench .desktop-chat-header-panel-button:focus-visible,
     body.desktop-native-workbench .desktop-tool-approval-action:focus-visible,
     body.desktop-native-workbench .desktop-run-chain-icon-button:focus-visible,
     body.desktop-native-workbench .desktop-run-chain-summary-item:focus-visible,
@@ -10325,228 +10008,6 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       max-width: 520px;
       color: #69635d;
       font: 500 13px/1.55 var(--font-sans);
-    }
-
-    body.desktop-native-workbench .desktop-chat-header {
-      grid-column: 1;
-      grid-row: 1;
-      justify-self: center;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      width: min(var(--desktop-chat-column-width), 100%);
-      min-width: 0;
-      min-height: 54px;
-      margin: 0 auto;
-      border-bottom: 0;
-      padding: 0;
-      background: transparent;
-    }
-
-    body.desktop-native-workbench .desktop-chat-title-row {
-      position: relative;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      min-width: 0;
-    }
-
-    body.desktop-native-workbench .desktop-chat-title-group {
-      display: grid;
-      gap: 2px;
-      min-width: 0;
-    }
-
-    body.desktop-native-workbench .desktop-chat-context {
-      overflow: hidden;
-      color: #8a8179;
-      font: 650 11px/1.1 var(--font-sans);
-      letter-spacing: 0;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    body.desktop-native-workbench .desktop-chat-header h1 {
-      margin: 0;
-      color: #1c1b19;
-      font-family: var(--font-sans);
-      font-size: 18px;
-      font-weight: 650;
-      line-height: 1.2;
-      letter-spacing: 0;
-    }
-
-    body.desktop-native-workbench .desktop-chat-header-status {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 5px;
-      min-width: 0;
-      margin-top: 2px;
-    }
-
-    body.desktop-native-workbench .desktop-chat-header-stop {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 20px;
-      max-width: 100%;
-      border: 1px solid #eaded8;
-      border-radius: 999px;
-      padding: 0 7px;
-      background: #fffaf5;
-      color: #6f685f;
-      font: 650 10px/1.2 var(--font-sans);
-      letter-spacing: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    body.desktop-native-workbench .desktop-chat-header-stop {
-      border-color: #e6b8a8;
-      background: #fff0ea;
-      color: #b4533c;
-      cursor: pointer;
-    }
-
-    body.desktop-native-workbench .desktop-chat-title-editor {
-      width: min(360px, 42vw);
-      min-width: 120px;
-      border: 1px solid #dfd6cf;
-      border-radius: 6px;
-      padding: 3px 7px;
-      background: #fffdfb;
-      color: #1c1b19;
-      font: 650 18px/1.2 var(--font-sans);
-      letter-spacing: 0;
-      outline: none;
-    }
-
-    body.desktop-native-workbench .desktop-chat-title-editor:focus {
-      border-color: #d5674c;
-      box-shadow: 0 0 0 2px rgba(213, 103, 76, 0.16);
-    }
-
-    body.desktop-native-workbench .desktop-chat-header-actions {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex: 0 0 auto;
-      min-width: 0;
-    }
-
-    body.desktop-native-workbench .desktop-chat-header-panel-button,
-    body.desktop-native-workbench .desktop-chat-menu {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      height: 30px;
-      min-width: 30px;
-      min-height: 30px;
-      border: 0;
-      border-radius: 6px;
-      background: #ffffff;
-      color: #262522;
-      font: 700 16px/1 var(--font-sans);
-      cursor: pointer;
-    }
-
-    body.desktop-native-workbench .desktop-chat-header-panel-button {
-      width: 34px;
-      min-width: 34px;
-      padding: 0;
-      border: 1px solid #e4ddd6;
-      color: #59544f;
-    }
-
-    body.desktop-native-workbench .desktop-chat-header-panel-icon {
-      position: relative;
-      display: block;
-      width: 18px;
-      height: 18px;
-      color: #6f6963;
-    }
-
-    body.desktop-native-workbench .desktop-chat-header-panel-icon-frame {
-      position: absolute;
-      inset: 2px;
-      border: 1.5px solid currentColor;
-      border-radius: 4px;
-    }
-
-    body.desktop-native-workbench .desktop-chat-header-panel-icon-rail {
-      position: absolute;
-      top: 5px;
-      bottom: 5px;
-      width: 3px;
-      border-radius: 2px;
-      background: currentColor;
-    }
-
-    body.desktop-native-workbench .desktop-chat-header-panel-icon[data-panel-icon="collapse-left"] .desktop-chat-header-panel-icon-rail {
-      left: 5px;
-    }
-
-    body.desktop-native-workbench .desktop-chat-header-panel-icon[data-panel-icon="collapse-right"] .desktop-chat-header-panel-icon-rail {
-      right: 5px;
-    }
-
-    body.desktop-native-workbench .desktop-chat-menu {
-      width: 30px;
-      padding: 0;
-      font-size: 16px;
-    }
-
-    body.desktop-native-workbench .desktop-chat-menu:hover,
-    body.desktop-native-workbench .desktop-chat-menu:focus-visible,
-    body.desktop-native-workbench .desktop-chat-header-panel-button:hover,
-    body.desktop-native-workbench .desktop-chat-header-panel-button:focus-visible {
-      background: #f7f2ed;
-    }
-
-    body.desktop-native-workbench .desktop-chat-menu-popover {
-      position: absolute;
-      top: calc(100% + 8px);
-      left: 0;
-      right: auto;
-      z-index: 8;
-      display: grid;
-      gap: 4px;
-      min-width: 176px;
-      border: 1px solid #e5ddd7;
-      border-radius: 8px;
-      padding: 6px;
-      background: #ffffff;
-      box-shadow: 0 12px 26px rgba(42, 34, 27, 0.14);
-    }
-
-    body.desktop-native-workbench .desktop-chat-menu-popover[hidden] {
-      display: none;
-    }
-
-    body.desktop-native-workbench .desktop-chat-menu-action {
-      min-height: 30px;
-      border: 0;
-      border-radius: 6px;
-      padding: 0 10px;
-      background: transparent;
-      color: #262522;
-      font: 600 13px/1.2 var(--font-sans);
-      text-align: left;
-      cursor: pointer;
-    }
-
-    body.desktop-native-workbench .desktop-chat-menu-action:hover,
-    body.desktop-native-workbench .desktop-chat-menu-action:focus-visible {
-      background: #f7f2ed;
-    }
-
-    body.desktop-native-workbench .desktop-chat-menu-empty {
-      padding: 7px 10px;
-      color: #77736f;
-      font: 500 12px/1.2 var(--font-sans);
     }
 
     body.desktop-native-workbench .desktop-conversation-thread {
@@ -14291,7 +13752,6 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     html[data-theme="dark"] body.desktop-native-workbench .desktop-workbench-inspector,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-workbench-bottom,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-sidebar-content,
-    html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-header,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-conversation-thread,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-utility-surfaces,
@@ -14483,7 +13943,6 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-workbench-chrome h2,
-    html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-header h1,
     html[data-theme="dark"] body.desktop-native-workbench .n-text,
     html[data-theme="dark"] body.desktop-native-workbench .n-ellipsis,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-sidebar-row,
@@ -14518,10 +13977,6 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     html[data-theme="dark"] body.desktop-native-workbench .desktop-sidebar-search,
-    html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-title-editor,
-    html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-header-panel-button,
-    html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-menu,
-    html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-menu-popover,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-model-menu,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-native-token-orb {
@@ -14529,10 +13984,6 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       color: var(--text);
       border-color: var(--border);
       box-shadow: none;
-    }
-
-    html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-menu-action {
-      color: var(--text);
     }
 
     html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-model-menu-title {
@@ -14544,22 +13995,12 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       color: var(--text);
     }
 
-    html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-menu-empty {
-      color: var(--text-muted);
-    }
-
     html[data-theme="dark"] body.desktop-native-workbench .desktop-activity-secondary-button:hover,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-activity-secondary-button:focus-visible,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-workbench-link:hover,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-workbench-link:focus-visible,
-    html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-menu:hover,
-    html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-menu:focus-visible,
-    html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-menu-action:hover,
-    html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-menu-action:focus-visible,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-model-option:hover,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-model-option:focus-visible,
-    html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-header-panel-button:hover,
-    html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-header-panel-button:focus-visible,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-model:hover,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-model:focus-visible,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-rag-toggle:hover,
@@ -14663,12 +14104,6 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
       body.desktop-native-workbench .desktop-workbench-main {
         padding: 12px;
-      }
-
-      body.desktop-native-workbench .desktop-chat-header {
-        min-height: 54px;
-        width: min(var(--desktop-chat-column-width), 100%);
-        padding: 0;
       }
 
       body.desktop-native-workbench .desktop-conversation-thread {

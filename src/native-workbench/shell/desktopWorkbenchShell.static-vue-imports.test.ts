@@ -84,13 +84,19 @@ describe("desktop workbench shell static Vue imports", () => {
     expect(source).not.toContain('void import("../components/shell/sidebarRowIsland")');
   });
 
-  test("statically imports the chat menu islands", () => {
+  test("does not import retired shell chat header menu islands", () => {
     const source = readFileSync(resolve(__dirname, "desktopWorkbenchShell.ts"), "utf8");
 
-    expect(source).toContain('import { mountChatMenuActionIsland } from "../components/chat/chatMenuActionIsland";');
+    expect(source).not.toContain('import { mountChatMenuActionIsland } from "../components/chat/chatMenuActionIsland";');
     expect(source).not.toContain('void import("../components/chat/chatMenuActionIsland")');
-    expect(source).toContain('import { mountChatMenuEmptyIsland } from "../components/chat/chatMenuEmptyIsland";');
+    expect(source).not.toContain('import { mountChatMenuButtonIsland } from "../components/chat/chatMenuButtonIsland";');
+    expect(source).not.toContain('void import("../components/chat/chatMenuButtonIsland")');
+    expect(source).not.toContain('import { mountChatMenuEmptyIsland } from "../components/chat/chatMenuEmptyIsland";');
     expect(source).not.toContain('void import("../components/chat/chatMenuEmptyIsland")');
+    expect(source).not.toContain('import { mountChatMenuPopoverIsland } from "../components/chat/chatMenuPopoverIsland";');
+    expect(source).not.toContain('void import("../components/chat/chatMenuPopoverIsland")');
+    expect(source).not.toContain('import { mountChatTitleIsland } from "../components/chat/chatTitleIsland";');
+    expect(source).not.toContain('void import("../components/chat/chatTitleIsland")');
   });
 
   test("statically imports the conversation message islands", () => {
