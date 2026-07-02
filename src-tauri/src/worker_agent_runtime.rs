@@ -1655,11 +1655,14 @@ fn maybe_approval_resume_result(
         services
             .checkpoints
             .clear_for_run(&context.session_id, &context.run_id);
+        let message = string_field(&approval, "guidance")
+            .map(|guidance| format!("Rust agent approval was denied. User guidance: {guidance}"))
+            .unwrap_or_else(|| "Rust agent approval was denied.".to_string());
         return Some(error_result(
             &context.run_id,
             &context.session_id,
             "approval_denied",
-            "Rust agent approval was denied.",
+            &message,
         ));
     }
     services

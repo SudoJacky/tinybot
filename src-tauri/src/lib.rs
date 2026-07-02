@@ -431,6 +431,8 @@ struct WorkerResumeAgentApprovalInput {
     approved: bool,
     #[serde(default)]
     scope: Option<String>,
+    #[serde(default)]
+    guidance: Option<String>,
 }
 
 #[tauri::command]
@@ -1145,6 +1147,7 @@ fn worker_resume_agent_approval(
         input.approval_id,
         input.approved,
         input.scope,
+        input.guidance,
         native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(120),
@@ -3150,6 +3153,9 @@ fn native_webui_approval_resolution_body(
     continuation["scope"] = serde_json::Value::String(scope.to_string());
     continuation["session_key"] = serde_json::Value::String(session_key.to_string());
     continuation["source"] = serde_json::Value::String("rust".to_string());
+    if let Some(guidance) = approval_guidance_value(body) {
+        continuation["guidance"] = serde_json::Value::String(guidance);
+    }
     continuation["operation"] = approval
         .get("operation")
         .cloned()
@@ -3207,12 +3213,23 @@ fn native_approval_continuation_spec(
         .or_else(|| operation.get("tool_name"))
         .and_then(serde_json::Value::as_str)
         .unwrap_or("approval");
+    let guidance = approval_guidance_value(body);
+    let tool_result = if approved {
+        "approved".to_string()
+    } else if let Some(guidance) = guidance.as_deref() {
+        format!("denied: {guidance}")
+    } else {
+        "denied".to_string()
+    };
     let mut resume = serde_json::json!({
         "approved": approved,
         "toolCallId": approval_id,
         "toolName": tool_name,
-        "toolResult": if approved { "approved" } else { "denied" },
+        "toolResult": tool_result,
     });
+    if let Some(guidance) = guidance {
+        resume["guidance"] = serde_json::Value::String(guidance);
+    }
     if let Some(final_content) = body
         .get("finalContent")
         .or_else(|| body.get("final_content"))
@@ -3233,6 +3250,15 @@ fn native_approval_continuation_spec(
             "fakeApprovalResume": resume,
         },
     })
+}
+
+fn approval_guidance_value(body: &serde_json::Value) -> Option<String> {
+    body.get("guidance")
+        .or_else(|| body.get("user_guidance"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
 }
 
 fn native_webui_approval_not_found_body(
@@ -4548,6 +4574,7 @@ fn worker_resume_agent_approval_with_options(
     _approval_id: String,
     _approved: bool,
     _scope: Option<String>,
+    _guidance: Option<String>,
     _workspace_root: PathBuf,
     _config_snapshot: serde_json::Value,
     _timeout: Duration,
@@ -6298,7 +6325,8 @@ mod tests {
                 path: "/api/approvals/approval-deny/deny".to_string(),
                 headers: None,
                 body: Some(serde_json::json!({
-                    "session_key": session_id
+                    "session_key": session_id,
+                    "guidance": "Do not write files; summarize instead."
                 })),
             },
             fixture.root.clone(),
@@ -6324,7 +6352,11 @@ mod tests {
         assert_eq!(approval_resolution["body"]["stopReason"], "approval_denied");
         assert_eq!(
             approval_resolution["body"]["error"],
-            "Rust agent approval was denied."
+            "Rust agent approval was denied. User guidance: Do not write files; summarize instead."
+        );
+        assert_eq!(
+            approval_resolution["body"]["guidance"],
+            "Do not write files; summarize instead."
         );
         assert!(restored_after_resolution["checkpoint"].is_null());
     }
