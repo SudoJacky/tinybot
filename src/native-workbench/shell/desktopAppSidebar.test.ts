@@ -132,25 +132,26 @@ describe("desktop app sidebar", () => {
     ]);
     expect(host.querySelector('[data-sidebar-group="workspace"]')?.textContent).toContain("tinybot");
     expect(Array.from(host.querySelectorAll(".desktop-app-sidebar-item")).map((node) => node.getAttribute("data-sidebar-item-kind"))).toContain("command");
-    expect(Array.from(host.querySelectorAll(".desktop-app-sidebar-item")).map((node) => node.getAttribute("data-sidebar-item-kind"))).toContain("link");
     expect(Array.from(host.querySelectorAll(".desktop-app-sidebar-item")).map((node) => node.getAttribute("data-sidebar-item-kind"))).toContain("session");
   });
 
-  test("keeps command, link, and selected session metadata on sidebar items", () => {
+  test("keeps command and selected session metadata on sidebar items", () => {
     const host = document.createElement("aside");
     const model = buildRootWebUiSidebarModel({ sessions: sidebarItems() });
 
     renderDesktopAppSidebar(host, model, document);
 
     const newChat = host.querySelector('[data-sidebar-command="new-chat"]');
-    const tools = host.querySelector('[data-sidebar-href="/tools"]');
+    const settings = host.querySelector('[data-sidebar-command="open-settings"]');
     const activeSession = host.querySelector('[data-sidebar-item-id="session:active"]');
 
     expect(newChat?.getAttribute("type")).toBe("button");
     expect(newChat?.getAttribute("data-sidebar-item-kind")).toBe("command");
     expect(newChat?.textContent).toContain("New");
-    expect(tools?.getAttribute("href")).toBe("/tools");
-    expect(tools?.getAttribute("data-sidebar-item-kind")).toBe("link");
+    expect(settings?.getAttribute("type")).toBe("button");
+    expect(settings?.getAttribute("data-sidebar-item-kind")).toBe("command");
+    expect(settings?.textContent).toContain("Settings");
+    expect(host.querySelector('[data-sidebar-href="/tools"]')).toBeNull();
     expect(activeSession?.getAttribute("aria-current")).toBe("page");
     expect(activeSession?.getAttribute("data-active")).toBe("true");
     expect(activeSession?.textContent).toContain("Desktop shell planning");

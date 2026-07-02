@@ -28,7 +28,21 @@ jobs:
         run: npm ci
 
       - name: Run desktop tests
-        run: npm test
+        shell: bash
+        run: |
+          set +e
+          npm test > test-output.log 2>&1
+          status=$?
+          tail -n 200 test-output.log
+          exit "$status"
+
+      - name: Upload failed desktop test log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-test-output
+          path: test-output.log
+          retention-days: 3
 
       - name: Build desktop frontend
         run: npm run build
@@ -64,4 +78,4 @@ jobs:
 
       - name: Run Rust tests
         working-directory: src-tauri
-        run: cargo test --lib
+        run: cargo test --lib -- --test-threads=1

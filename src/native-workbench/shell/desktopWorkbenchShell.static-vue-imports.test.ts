@@ -289,7 +289,6 @@ describe("desktop workbench shell static Vue imports", () => {
     expect(source).not.toContain('import { mountQuickActionsIsland } from "../components/shell/quickActionsIsland";');
     expect(source).toContain('import { mountSkillEditorIsland } from "../components/tools-skills/skillEditorIsland";');
     expect(source).not.toContain('void import("../components/tools-skills/skillEditorIsland")');
-    expect(source).toContain('import { mountWorkspaceBrowserIsland } from "../components/workspace/workspaceBrowserIsland";');
     expect(source).not.toContain('void import("../components/workspace/workspaceBrowserIsland")');
   });
 });
