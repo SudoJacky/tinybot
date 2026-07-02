@@ -639,16 +639,18 @@ function renderHeader(title: string, pinned: boolean, actions: ChatSurfaceAction
   const heading = element("h2", "desktop-chat-surface__title", title);
   const summary = element("div", "desktop-chat-surface__runtime", "Agent · rust");
   const menu = element("div", "desktop-chat-surface__header-actions");
-  for (const [action, label] of [
-    [pinned ? "unpin" : "pin", pinned ? "Unpin" : "Pin"],
-    ["rename", "Rename"],
-    ["delete", "Delete"],
-    ["copy-session-id", "Copy ID"],
-    ["copy-markdown", "Copy Markdown"],
+  for (const { action, label, title: actionTitle } of [
+    { action: pinned ? "unpin" : "pin", label: pinned ? "Unpin" : "Pin", title: pinned ? "Unpin session" : "Pin session" },
+    { action: "rename", label: "Rename", title: "Rename session" },
+    { action: "delete", label: "Delete", title: "Delete session" },
+    { action: "copy-session-id", label: "Copy ID", title: "Copy session ID" },
+    { action: "copy-markdown", label: "Copy Markdown", title: "Copy session as Markdown" },
   ] as const) {
     const button = element("button", "desktop-chat-surface__header-action", label);
     button.type = "button";
     button.setAttribute("data-chat-header-action", action);
+    button.setAttribute("aria-label", actionTitle);
+    button.title = actionTitle;
     button.addEventListener("click", () => actions.sessionAction(action));
     menu.append(button);
   }

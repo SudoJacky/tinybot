@@ -10198,27 +10198,18 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-chat-surface__header-action {
-      position: relative;
-      width: 30px;
-      max-width: 30px;
+      max-width: 132px;
       min-height: 30px;
       overflow: hidden;
       border: 0;
       border-radius: 999px;
-      padding: 0;
+      padding: 0 8px;
       background: transparent;
       color: #7f7972;
-      font: 0/1 var(--font-sans);
-      text-overflow: clip;
+      font: 650 12px/1.2 var(--font-sans);
+      text-overflow: ellipsis;
       white-space: nowrap;
       cursor: pointer;
-    }
-
-    body.desktop-native-workbench .desktop-chat-surface__header-action::before {
-      content: "...";
-      color: #7f7972;
-      font: 700 16px/1 var(--font-sans);
-      letter-spacing: 0;
     }
 
     body.desktop-native-workbench .desktop-chat-surface__header-action:hover,

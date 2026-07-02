@@ -910,6 +910,23 @@ describe("rebuilt chat surface", () => {
 
     mountChatSurface(host, { projection: fixtureProjection() });
 
+    const headerActions = Array.from(host.querySelectorAll<HTMLButtonElement>(".desktop-chat-surface__header-action"));
+    expect(headerActions.map((button) => button.textContent)).toEqual([
+      "Pin",
+      "Rename",
+      "Delete",
+      "Copy ID",
+      "Copy Markdown",
+    ]);
+    expect(headerActions.map((button) => button.getAttribute("aria-label"))).toEqual([
+      "Pin session",
+      "Rename session",
+      "Delete session",
+      "Copy session ID",
+      "Copy session as Markdown",
+    ]);
+    expect(headerActions.every((button) => Boolean(button.title))).toBe(true);
+
     host.querySelector<HTMLButtonElement>("[data-chat-header-action='pin']")?.click();
     host.querySelector<HTMLButtonElement>("[data-chat-header-action='copy-session-id']")?.click();
     host.querySelector<HTMLButtonElement>("[data-chat-header-action='copy-markdown']")?.click();
