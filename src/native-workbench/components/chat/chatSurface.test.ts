@@ -1,10 +1,19 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { mountChatSurface } from "./chatSurface";
 import type { ChatUiProjection } from "../../chat/chatUiProjection";
 
 describe("rebuilt chat surface", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T10:10:00Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   test("renders projection-driven two-column shell without legacy thread ownership", () => {
     const host = document.createElement("section");
 
@@ -40,6 +49,17 @@ describe("rebuilt chat surface", () => {
     const row = host.querySelector("[data-session-key='websocket:chat-1']");
     expect(row?.getAttribute("data-pinned")).toBe("true");
     expect(row?.querySelector("[data-session-pinned]")?.textContent).toBe("Pinned");
+  });
+
+  test("shows updated time as the fallback session badge", () => {
+    const host = document.createElement("section");
+    const projection = fixtureProjection();
+    projection.sessions[0].primaryBadge = "updated_time";
+    projection.sessions[0].updatedAt = "2026-07-01T10:05:00Z";
+
+    mountChatSurface(host, { projection });
+
+    expect(host.querySelector("[data-session-primary-badge='updated_time']")?.textContent).toBe("5 min");
   });
 
   test("renders tool detail in a right overlay drawer from projection state", () => {

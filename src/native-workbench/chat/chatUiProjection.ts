@@ -44,9 +44,9 @@ export const CHAT_RUNTIME_CAPABILITY_AUDIT = {
     notes: "Delegate trace can be queried, but a first-class full subagent transcript facade is not present in the current contract.",
   },
   branchSession: {
-    status: "missing",
-    source: "none",
-    notes: "No dedicated branch-session command was found; implementation needs a new facade or adapter path.",
+    status: "available",
+    source: "worker_session_branch / /api/sessions/branch",
+    notes: "Rust-owned branch session route creates history-only branches without copying runtime state.",
   },
   legacyConversationThread: {
     status: "frozen",

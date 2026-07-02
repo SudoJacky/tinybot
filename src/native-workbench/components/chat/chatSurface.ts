@@ -7,7 +7,6 @@ import type {
   ChatUiProjection,
   LiveSubagent,
   QueuedInput,
-  SessionPrimaryBadge,
   SubagentStatus,
   ToolCallSummary,
 } from "../../chat/chatUiProjection";
@@ -439,7 +438,7 @@ function renderSessionList(projection: ChatUiProjection, searchQuery: string, ac
     }
     row.addEventListener("click", () => actions.openSession(session.key, session.chatId));
     const title = element("span", "desktop-chat-surface__session-title", session.title);
-    const badge = element("span", "desktop-chat-surface__session-badge", badgeLabel(session.primaryBadge));
+    const badge = element("span", "desktop-chat-surface__session-badge", badgeLabel(session));
     badge.setAttribute("data-session-primary-badge", session.primaryBadge);
     if (session.pinned) {
       const pinned = element("span", "desktop-chat-surface__session-pinned", "Pinned");
@@ -975,8 +974,8 @@ function logChatSurfaceAction(host: HTMLElement, action: string, detail: unknown
   }));
 }
 
-function badgeLabel(badge: SessionPrimaryBadge): string {
-  switch (badge) {
+function badgeLabel(session: ChatUiProjection["sessions"][number]): string {
+  switch (session.primaryBadge) {
     case "waiting_approval":
       return "Waiting approval";
     case "running":
@@ -984,8 +983,36 @@ function badgeLabel(badge: SessionPrimaryBadge): string {
     case "unread":
       return "New output";
     case "updated_time":
-      return "Updated";
+      return sessionUpdatedLabel(session.updatedAt);
   }
+}
+
+function sessionUpdatedLabel(updatedAt: string): string {
+  if (!updatedAt) {
+    return "Updated";
+  }
+  const timestamp = Date.parse(updatedAt);
+  if (Number.isNaN(timestamp)) {
+    return updatedAt;
+  }
+  const now = Date.now();
+  const diffMs = now - timestamp;
+  if (diffMs < 0) {
+    return "Updated";
+  }
+  const minuteMs = 60 * 1000;
+  const hourMs = 60 * minuteMs;
+  const dayMs = 24 * hourMs;
+  if (diffMs < hourMs) {
+    const minutes = Math.max(1, Math.floor(diffMs / minuteMs));
+    return `${minutes} min`;
+  }
+  if (diffMs < dayMs) {
+    const hours = Math.floor(diffMs / hourMs);
+    return `${hours} h`;
+  }
+  const days = Math.floor(diffMs / dayMs);
+  return `${days} d`;
 }
 
 function approvalChoiceLabel(choice: ApprovalRequest["choices"][number]): string {

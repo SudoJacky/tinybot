@@ -468,6 +468,8 @@ describe("desktop workbench shell", () => {
   });
 
   test("renders chat sessions inside the rebuilt chat surface", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-22T11:35:00.000Z"));
     const targetDocument = new FakeDocument();
 
     installDesktopWorkbenchShell({
@@ -486,7 +488,7 @@ describe("desktop workbench shell", () => {
     });
 
     const rows = targetDocument.body.querySelector('[data-chat-region="session-list"]')?.querySelectorAll(".desktop-chat-surface__session-row");
-    expect(rows?.map((node) => node.textContent)).toEqual(["MinuteUpdated", "HourUpdated"]);
+    expect(rows?.map((node) => node.textContent)).toEqual(["Minute5 min", "Hour4 h"]);
     expect(targetDocument.body.querySelector(".desktop-recent-chat-list")).toBeNull();
   });
   test("renders the configured composer model and routes model selection", () => {
