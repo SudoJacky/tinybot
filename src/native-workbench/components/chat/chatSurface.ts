@@ -12,6 +12,11 @@ import type {
   ToolCallSummary,
 } from "../../chat/chatUiProjection";
 import {
+  closeChatDetailPanel,
+  type ChatDetailPanelKind,
+  openChatDetailPanel,
+} from "../../chat/chatDetailPanelState";
+import {
   canSendDirectSubagentMessage,
   requiresFirstDirectSubagentMessageConfirmation,
 } from "../../chat/chatSubagentForward";
@@ -28,10 +33,32 @@ export type MountedChatSurface = {
 let activeDocument: Document;
 
 export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions): MountedChatSurface {
-  renderChatSurface(host, options.projection);
+  let currentProjection = options.projection;
+  let currentDetailPanel = options.projection.detailPanel;
+  const renderCurrent = () => renderChatSurface(host, {
+    ...currentProjection,
+    detailPanel: currentDetailPanel,
+  }, {
+    closeDetail() {
+      currentDetailPanel = closeChatDetailPanel(chatSurfaceViewportWidth(host));
+      logChatSurfaceAction(host, "detail.close", currentDetailPanel);
+      renderCurrent();
+    },
+    openDetail(kind, targetId) {
+      currentDetailPanel = openChatDetailPanel(kind, targetId, chatSurfaceViewportWidth(host));
+      logChatSurfaceAction(host, "detail.open", currentDetailPanel);
+      renderCurrent();
+    },
+  });
+  renderCurrent();
   return {
     update(nextOptions: ChatSurfaceOptions) {
-      renderChatSurface(host, nextOptions.projection);
+      const previousSessionKey = currentProjection.activeSessionKey;
+      currentProjection = nextOptions.projection;
+      if (nextOptions.projection.detailPanel.open || previousSessionKey !== nextOptions.projection.activeSessionKey) {
+        currentDetailPanel = nextOptions.projection.detailPanel;
+      }
+      renderCurrent();
     },
     unmount() {
       host.replaceChildren();
@@ -41,7 +68,12 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
   };
 }
 
-function renderChatSurface(host: HTMLElement, projection: ChatUiProjection): void {
+type ChatSurfaceActions = {
+  closeDetail(): void;
+  openDetail(kind: ChatDetailPanelKind, targetId: string): void;
+};
+
+function renderChatSurface(host: HTMLElement, projection: ChatUiProjection, actions: ChatSurfaceActions): void {
   activeDocument = host.ownerDocument;
   host.replaceChildren();
   host.setAttribute("data-chat-surface", "rebuild-chat-agent-surface");
@@ -49,8 +81,8 @@ function renderChatSurface(host: HTMLElement, projection: ChatUiProjection): voi
 
   const shell = element("div", "desktop-chat-surface__shell");
   shell.append(renderSessionList(projection));
-  shell.append(renderChatDetail(projection));
-  const detailSurface = renderDetailSurface(projection);
+  shell.append(renderChatDetail(projection, actions));
+  const detailSurface = renderDetailSurface(projection, actions);
   if (detailSurface) {
     shell.append(detailSurface);
   }
@@ -76,12 +108,12 @@ function renderSessionList(projection: ChatUiProjection): HTMLElement {
   return list;
 }
 
-function renderChatDetail(projection: ChatUiProjection): HTMLElement {
+function renderChatDetail(projection: ChatUiProjection, actions: ChatSurfaceActions): HTMLElement {
   const detail = element("section", "desktop-chat-surface__detail");
   detail.setAttribute("data-chat-region", "chat-detail");
   const activeSession = projection.sessions.find((session) => session.key === projection.activeSessionKey);
   detail.append(renderHeader(activeSession?.title ?? "New session"));
-  detail.append(renderConversation(projection.turns));
+  detail.append(renderConversation(projection.turns, actions));
   const approvalCard = renderApprovalCard(projection.approvals);
   if (approvalCard) {
     detail.append(approvalCard);
@@ -89,7 +121,7 @@ function renderChatDetail(projection: ChatUiProjection): HTMLElement {
   for (const approvalResult of renderApprovalResults(projection.approvals)) {
     detail.append(approvalResult);
   }
-  const subagentStrip = renderSubagentStrip(projection.liveSubagents);
+  const subagentStrip = renderSubagentStrip(projection.liveSubagents, actions);
   if (subagentStrip) {
     detail.append(subagentStrip);
   }
@@ -110,16 +142,16 @@ function renderHeader(title: string): HTMLElement {
   return header;
 }
 
-function renderConversation(turns: ChatTurn[]): HTMLElement {
+function renderConversation(turns: ChatTurn[], actions: ChatSurfaceActions): HTMLElement {
   const conversation = element("div", "desktop-chat-surface__conversation");
   conversation.setAttribute("data-chat-region", "conversation");
   for (const turn of turns) {
-    conversation.append(renderTurn(turn));
+    conversation.append(renderTurn(turn, actions));
   }
   return conversation;
 }
 
-function renderTurn(turn: ChatTurn): HTMLElement {
+function renderTurn(turn: ChatTurn, actions: ChatSurfaceActions): HTMLElement {
   const article = element("article", "desktop-chat-surface__turn");
   article.setAttribute("data-chat-turn-id", turn.id);
   article.setAttribute("data-chat-turn-role", turn.role);
@@ -138,22 +170,23 @@ function renderTurn(turn: ChatTurn): HTMLElement {
     article.append(process);
   }
   for (const tool of turn.tools) {
-    article.append(renderToolRow(tool));
+    article.append(renderToolRow(tool, actions));
   }
   return article;
 }
 
-function renderToolRow(tool: ToolCallSummary): HTMLElement {
+function renderToolRow(tool: ToolCallSummary, actions: ChatSurfaceActions): HTMLElement {
   const row = element("button", "desktop-chat-surface__tool-row");
   row.type = "button";
   row.setAttribute("data-chat-region", "tool-row");
   row.setAttribute("data-tool-call-id", tool.id);
   row.setAttribute("data-tool-status", tool.status);
   row.textContent = `${tool.name} · ${statusLabel(tool.status)}${tool.preview ? ` · ${tool.preview}` : ""}`;
+  row.addEventListener("click", () => actions.openDetail("tool", tool.id));
   return row;
 }
 
-function renderDetailSurface(projection: ChatUiProjection): HTMLElement | null {
+function renderDetailSurface(projection: ChatUiProjection, actions: ChatSurfaceActions): HTMLElement | null {
   const panel = projection.detailPanel;
   if (!panel.open || panel.kind === "none") {
     return null;
@@ -163,20 +196,20 @@ function renderDetailSurface(projection: ChatUiProjection): HTMLElement | null {
   surface.setAttribute("data-detail-kind", panel.kind);
   surface.setAttribute("data-detail-presentation", panel.presentation);
   if (panel.kind === "tool") {
-    surface.append(renderToolDetail(projection.turns, panel));
+    surface.append(renderToolDetail(projection.turns, panel, actions));
   } else if (panel.kind === "subagent") {
-    surface.append(renderSubagentDetail(projection.liveSubagents, panel));
+    surface.append(renderSubagentDetail(projection.liveSubagents, panel, actions));
   } else if (panel.kind === "artifact") {
-    surface.append(renderArtifactDetail(projection.artifacts ?? [], panel));
+    surface.append(renderArtifactDetail(projection.artifacts ?? [], panel, actions));
   } else if (panel.kind === "error") {
-    surface.append(renderErrorDetail(projection.errors ?? [], panel));
+    surface.append(renderErrorDetail(projection.errors ?? [], panel, actions));
   } else {
     surface.append(element("div", "desktop-chat-surface__detail-empty", "Detail unavailable"));
   }
   return surface;
 }
 
-function renderSubagentStrip(subagents: LiveSubagent[]): HTMLElement | null {
+function renderSubagentStrip(subagents: LiveSubagent[], actions: ChatSurfaceActions): HTMLElement | null {
   if (!subagents.length) {
     return null;
   }
@@ -189,6 +222,7 @@ function renderSubagentStrip(subagents: LiveSubagent[]): HTMLElement | null {
     row.type = "button";
     row.setAttribute("data-subagent-id", subagent.id);
     row.setAttribute("data-subagent-status", subagent.status);
+    row.addEventListener("click", () => actions.openDetail("subagent", subagent.id));
     row.append(
       element("span", "desktop-chat-surface__subagent-name", subagent.name),
       element("span", "desktop-chat-surface__subagent-state", subagentStatusLabel(subagent.status)),
@@ -274,10 +308,10 @@ function renderComposer(mode: "normal" | "approval_guidance"): HTMLElement {
   return composer;
 }
 
-function renderSubagentDetail(subagents: LiveSubagent[], panel: DetailPanelState): HTMLElement {
+function renderSubagentDetail(subagents: LiveSubagent[], panel: DetailPanelState, actions: ChatSurfaceActions): HTMLElement {
   const subagent = subagents.find((candidate) => candidate.id === panel.targetId);
   const detail = element("section", "desktop-chat-surface__subagent-detail");
-  detail.append(renderCloseButton());
+  detail.append(renderCloseButton(actions));
   if (!subagent) {
     detail.append(element("p", "desktop-chat-surface__detail-empty", "Subagent detail unavailable"));
     return detail;
@@ -326,9 +360,10 @@ function renderSubagentDetail(subagents: LiveSubagent[], panel: DetailPanelState
   return detail;
 }
 
-function renderToolDetail(turns: ChatTurn[], panel: DetailPanelState): HTMLElement {
+function renderToolDetail(turns: ChatTurn[], panel: DetailPanelState, actions: ChatSurfaceActions): HTMLElement {
   const tool = findTool(turns, panel.targetId || "");
   const detail = element("section", "desktop-chat-surface__tool-detail");
+  detail.append(renderCloseButton(actions));
   if (!tool) {
     detail.append(element("p", "desktop-chat-surface__detail-empty", "Tool detail unavailable"));
     return detail;
@@ -373,10 +408,10 @@ function findTool(turns: ChatTurn[], toolId: string): ToolCallSummary | undefine
   return undefined;
 }
 
-function renderArtifactDetail(artifacts: ArtifactDetail[], panel: DetailPanelState): HTMLElement {
+function renderArtifactDetail(artifacts: ArtifactDetail[], panel: DetailPanelState, actions: ChatSurfaceActions): HTMLElement {
   const artifact = artifacts.find((candidate) => candidate.id === panel.targetId);
   const detail = element("section", "desktop-chat-surface__artifact-detail");
-  detail.append(renderCloseButton());
+  detail.append(renderCloseButton(actions));
   if (!artifact) {
     detail.append(element("p", "desktop-chat-surface__detail-empty", "Artifact detail unavailable"));
     return detail;
@@ -401,10 +436,10 @@ function renderArtifactDetail(artifacts: ArtifactDetail[], panel: DetailPanelSta
   return detail;
 }
 
-function renderErrorDetail(errors: ErrorDetail[], panel: DetailPanelState): HTMLElement {
+function renderErrorDetail(errors: ErrorDetail[], panel: DetailPanelState, actions: ChatSurfaceActions): HTMLElement {
   const error = errors.find((candidate) => candidate.id === panel.targetId);
   const detail = element("section", "desktop-chat-surface__error-detail");
-  detail.append(renderCloseButton());
+  detail.append(renderCloseButton(actions));
   if (!error) {
     detail.append(element("p", "desktop-chat-surface__detail-empty", "Error detail unavailable"));
     return detail;
@@ -426,11 +461,26 @@ function renderErrorDetail(errors: ErrorDetail[], panel: DetailPanelState): HTML
   return detail;
 }
 
-function renderCloseButton(): HTMLElement {
+function renderCloseButton(actions: ChatSurfaceActions): HTMLElement {
   const close = element("button", "desktop-chat-surface__detail-close", "Close");
   close.type = "button";
   close.setAttribute("data-detail-action", "close");
+  close.addEventListener("click", () => actions.closeDetail());
   return close;
+}
+
+function chatSurfaceViewportWidth(host: HTMLElement): number {
+  return host.ownerDocument.defaultView?.innerWidth ?? 1024;
+}
+
+function logChatSurfaceAction(host: HTMLElement, action: string, panel: DetailPanelState): void {
+  host.dispatchEvent(new CustomEvent("desktop-chat-surface-log", {
+    bubbles: true,
+    detail: {
+      action,
+      panel,
+    },
+  }));
 }
 
 function badgeLabel(badge: SessionPrimaryBadge): string {

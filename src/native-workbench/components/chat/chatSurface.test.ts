@@ -53,6 +53,47 @@ describe("rebuilt chat surface", () => {
     expect(drawer?.querySelector("[data-tool-detail-copy='full-result']")).not.toBeNull();
   });
 
+  test("opens and closes tool detail from a tool row click", () => {
+    const host = document.createElement("section");
+    const logEvents: unknown[] = [];
+    host.addEventListener("desktop-chat-surface-log", (event) => {
+      logEvents.push((event as CustomEvent).detail);
+    });
+
+    mountChatSurface(host, { projection: fixtureProjection() });
+
+    expect(host.querySelector("[data-chat-region='detail-surface']")).toBeNull();
+
+    host.querySelector<HTMLButtonElement>("[data-tool-call-id='tool-1']")?.click();
+
+    const detail = host.querySelector("[data-chat-region='detail-surface']");
+    expect(detail?.getAttribute("data-detail-kind")).toBe("tool");
+    expect(detail?.textContent).toContain("workspace.read_file");
+
+    host.querySelector<HTMLButtonElement>("[data-detail-action='close']")?.click();
+
+    expect(host.querySelector("[data-chat-region='detail-surface']")).toBeNull();
+    expect(logEvents).toEqual([
+      {
+        action: "detail.open",
+        panel: {
+          kind: "tool",
+          open: true,
+          presentation: "drawer",
+          targetId: "tool-1",
+        },
+      },
+      {
+        action: "detail.close",
+        panel: {
+          kind: "none",
+          open: false,
+          presentation: "drawer",
+        },
+      },
+    ]);
+  });
+
   test("renders fullscreen artifact and error detail from shared detail model", () => {
     const artifactHost = document.createElement("section");
     const artifactProjection = fixtureProjection();
@@ -155,6 +196,36 @@ describe("rebuilt chat surface", () => {
     expect(detail?.textContent).toContain("not a complete private thread");
     expect(detail?.querySelector("[data-subagent-input='message']")).toBeNull();
     expect(detail?.querySelector("[data-subagent-action='forward']")).not.toBeNull();
+  });
+
+  test("opens subagent detail from the active goals strip", () => {
+    const host = document.createElement("section");
+    const projection = fixtureProjection();
+    projection.liveSubagents = [{
+      id: "delegate-click",
+      sessionKey: "websocket:chat-1",
+      name: "Researcher",
+      task: "Check docs",
+      status: "waiting_main_agent",
+      latestActivity: "Waiting for main agent",
+      capabilities: ["partial_transcript", "can_forward"],
+      transcript: {
+        id: "delegate-click",
+        sessionKey: "websocket:chat-1",
+        capability: "partial_transcript",
+        messages: [{ id: "sub-msg-click", role: "assistant", content: "Partial answer." }],
+        toolSummaries: [],
+      },
+    }];
+
+    mountChatSurface(host, { projection });
+
+    host.querySelector<HTMLButtonElement>("[data-subagent-id='delegate-click']")?.click();
+
+    const detail = host.querySelector("[data-chat-region='detail-surface']");
+    expect(detail?.getAttribute("data-detail-kind")).toBe("subagent");
+    expect(detail?.textContent).toContain("Researcher");
+    expect(detail?.textContent).toContain("Partial answer.");
   });
 
   test("enables subagent input only for full sendable transcript", () => {
