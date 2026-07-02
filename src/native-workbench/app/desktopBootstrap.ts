@@ -978,6 +978,37 @@ function installNativeChatRuntimeActions(): void {
       usePersistentRag: Boolean(nativeWorkbenchRuntime?.chat.usePersistentRag),
     });
   });
+  document.addEventListener("desktop-chat-session-new", () => {
+    logDesktopNativeDebug("runtime.actions.sessionNew", {
+      hasRuntime: Boolean(nativeWorkbenchRuntime),
+    });
+    nativeChatActions().onNewChat();
+  });
+  document.addEventListener("desktop-chat-session-open", (event) => {
+    const detail = asRecord((event as CustomEvent).detail);
+    const chatId = typeof detail.chatId === "string" ? detail.chatId : "";
+    const sessionKey = typeof detail.sessionKey === "string" ? detail.sessionKey : "";
+    logDesktopNativeDebug("runtime.actions.sessionOpen", {
+      chatId,
+      hasRuntime: Boolean(nativeWorkbenchRuntime),
+      sessionKey,
+    });
+    if (!chatId || !sessionKey || !nativeWorkbenchRuntime) {
+      logDesktopNativeDebug("runtime.actions.sessionOpenSkipped", {
+        hasChatId: Boolean(chatId),
+        hasRuntime: Boolean(nativeWorkbenchRuntime),
+        hasSessionKey: Boolean(sessionKey),
+      });
+      return;
+    }
+    void nativeWorkbenchRuntime.selectChatSession(sessionKey, chatId).then(() => {
+      updateDesktopNativeChat(document, nativeWorkbenchRuntime!.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
+    }).catch((error: unknown) => {
+      logDesktopNativeDebug("runtime.actions.sessionOpenFailed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
+  });
   document.addEventListener("desktop-chat-subagent-message-submit", (event) => {
     const detail = asRecord((event as CustomEvent).detail);
     const content = typeof detail.content === "string" ? detail.content : "";

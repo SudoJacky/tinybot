@@ -92,6 +92,11 @@ describe("desktop bootstrap order", () => {
 
     expect(runtimeActionsSource).toContain('document.addEventListener("desktop-chat-message-submit"');
     expect(runtimeActionsSource).toContain("nativeChatActions().onComposerSubmit");
+    expect(runtimeActionsSource).toContain('document.addEventListener("desktop-chat-session-new"');
+    expect(runtimeActionsSource).toContain("nativeChatActions().onNewChat");
+    expect(runtimeActionsSource).toContain('document.addEventListener("desktop-chat-session-open"');
+    expect(runtimeActionsSource).toContain("runtime.actions.sessionOpen");
+    expect(runtimeActionsSource).toContain("nativeWorkbenchRuntime.selectChatSession");
     expect(runtimeActionsSource).toContain('document.addEventListener("desktop-chat-approval-guidance-submit"');
     expect(runtimeActionsSource).toContain('action: "deny"');
     expect(runtimeActionsSource).toContain("guidance");

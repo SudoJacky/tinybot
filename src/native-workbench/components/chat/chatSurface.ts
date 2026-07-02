@@ -44,6 +44,7 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
   let currentDetailPanel = options.projection.detailPanel;
   let currentQueuedInputs = options.projection.queuedInputs;
   let composerError = "";
+  let sessionSearchQuery = "";
   const composerDrafts = new Map<string, string>();
   const subagentDrafts = new Map<string, string>();
   const currentComposerDraftKey = () => currentProjection.activeSessionKey || "new-session";
@@ -59,7 +60,7 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
     ...currentProjection,
     detailPanel: currentDetailPanel,
     queuedInputs: currentQueuedInputs,
-  }, {
+  }, sessionSearchQuery, {
     closeDetail() {
       currentDetailPanel = closeChatDetailPanel(chatSurfaceViewportWidth(host));
       logChatSurfaceAction(host, "detail.close", currentDetailPanel);
@@ -115,6 +116,20 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
       currentDetailPanel = openChatDetailPanel(kind, targetId, chatSurfaceViewportWidth(host));
       logChatSurfaceAction(host, "detail.open", currentDetailPanel);
       renderCurrent();
+    },
+    openSession(sessionKey, chatId) {
+      host.dispatchEvent(new CustomEvent("desktop-chat-session-open", {
+        bubbles: true,
+        detail: { chatId, sessionKey },
+      }));
+      logChatSurfaceAction(host, "session.open", { chatId, sessionKey });
+    },
+    startNewSession() {
+      host.dispatchEvent(new CustomEvent("desktop-chat-session-new", {
+        bubbles: true,
+        detail: {},
+      }));
+      logChatSurfaceAction(host, "session.new", {});
     },
     submitSubagentMessage(subagentId, content) {
       const subagent = currentProjection.liveSubagents.find((candidate) => candidate.id === subagentId);
@@ -258,6 +273,11 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
     subagentDraft(subagentId) {
       return subagentDrafts.get(subagentId) ?? "";
     },
+    updateSessionSearch(query) {
+      sessionSearchQuery = query;
+      logChatSurfaceAction(host, "session.search", { queryLength: query.trim().length });
+      renderCurrent();
+    },
     sessionAction(action) {
       const activeSession = currentProjection.sessions.find((session) => session.key === currentProjection.activeSessionKey);
       if (!activeSession) {
@@ -321,22 +341,25 @@ type ChatSurfaceActions = {
   deleteQueuedInput(inputId: string): void;
   forwardSubagentMessages(subagentId: string, messageIds: string[]): void;
   openDetail(kind: ChatDetailPanelKind, targetId: string): void;
+  openSession(sessionKey: string, chatId: string): void;
   sessionAction(action: "pin" | "unpin" | "rename" | "delete" | "copy-session-id" | "copy-markdown"): void;
+  startNewSession(): void;
   subagentDraft(subagentId: string): string;
   submitComposer(content: string): { accepted: boolean };
   submitSubagentMessage(subagentId: string, content: string): { accepted: boolean };
   updateComposerDraft(content: string): void;
+  updateSessionSearch(query: string): void;
   updateSubagentDraft(subagentId: string, content: string): void;
 };
 
-function renderChatSurface(host: HTMLElement, projection: ChatUiProjection, actions: ChatSurfaceActions): void {
+function renderChatSurface(host: HTMLElement, projection: ChatUiProjection, sessionSearchQuery: string, actions: ChatSurfaceActions): void {
   activeDocument = host.ownerDocument;
   host.replaceChildren();
   host.setAttribute("data-chat-surface", "rebuild-chat-agent-surface");
   host.className = "desktop-conversation-thread desktop-chat-surface";
 
   const shell = element("div", "desktop-chat-surface__shell");
-  shell.append(renderSessionList(projection));
+  shell.append(renderSessionList(projection, sessionSearchQuery, actions));
   shell.append(renderChatDetail(projection, actions));
   const detailSurface = renderDetailSurface(projection, actions);
   if (detailSurface) {
@@ -351,23 +374,57 @@ function confirmSubagentForwardToApprovalGuidance(host: HTMLElement): boolean {
   ) ?? false;
 }
 
-function renderSessionList(projection: ChatUiProjection): HTMLElement {
+function renderSessionList(projection: ChatUiProjection, searchQuery: string, actions: ChatSurfaceActions): HTMLElement {
   const list = element("aside", "desktop-chat-surface__sessions");
   list.setAttribute("data-chat-region", "session-list");
-  for (const session of projection.sessions) {
+  const controls = element("div", "desktop-chat-surface__session-controls");
+  const newButton = element("button", "desktop-chat-surface__session-new", "New Chat");
+  newButton.type = "button";
+  newButton.setAttribute("data-session-action", "new");
+  newButton.addEventListener("click", () => actions.startNewSession());
+  const search = activeDocument.createElement("input");
+  search.className = "desktop-chat-surface__session-search";
+  search.type = "search";
+  search.placeholder = "Search sessions";
+  search.value = searchQuery;
+  search.setAttribute("data-session-search", "");
+  search.addEventListener("input", () => actions.updateSessionSearch(search.value));
+  controls.append(newButton, search);
+  list.append(controls);
+
+  const filteredSessions = projection.sessions.filter((session) => sessionMatchesSearch(session, searchQuery));
+  const rows = element("div", "desktop-chat-surface__session-rows");
+  rows.setAttribute("data-session-result-count", String(filteredSessions.length));
+  for (const session of filteredSessions) {
     const row = element("button", "desktop-chat-surface__session-row");
     row.type = "button";
     row.setAttribute("data-session-key", session.key);
+    row.setAttribute("data-session-chat-id", session.chatId);
     if (session.isActive) {
       row.setAttribute("aria-current", "true");
     }
+    row.addEventListener("click", () => actions.openSession(session.key, session.chatId));
     const title = element("span", "desktop-chat-surface__session-title", session.title);
     const badge = element("span", "desktop-chat-surface__session-badge", badgeLabel(session.primaryBadge));
     badge.setAttribute("data-session-primary-badge", session.primaryBadge);
     row.append(title, badge);
-    list.append(row);
+    rows.append(row);
   }
+  if (!filteredSessions.length) {
+    const empty = element("p", "desktop-chat-surface__session-empty", "No matching sessions");
+    empty.setAttribute("data-session-empty", "");
+    rows.append(empty);
+  }
+  list.append(rows);
   return list;
+}
+
+function sessionMatchesSearch(session: ChatUiProjection["sessions"][number], searchQuery: string): boolean {
+  const query = searchQuery.trim().toLocaleLowerCase();
+  if (!query) {
+    return true;
+  }
+  return [session.title, session.key, session.chatId].some((value) => value.toLocaleLowerCase().includes(query));
 }
 
 function renderChatDetail(projection: ChatUiProjection, actions: ChatSurfaceActions): HTMLElement {

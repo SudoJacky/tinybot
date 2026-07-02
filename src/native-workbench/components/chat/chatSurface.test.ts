@@ -570,6 +570,51 @@ describe("rebuilt chat surface", () => {
     }]);
   });
 
+  test("supports session list search, new chat, and opening a session", () => {
+    const host = document.createElement("section");
+    const newEvents: unknown[] = [];
+    const openEvents: unknown[] = [];
+    host.addEventListener("desktop-chat-session-new", (event) => {
+      newEvents.push((event as CustomEvent).detail);
+    });
+    host.addEventListener("desktop-chat-session-open", (event) => {
+      openEvents.push((event as CustomEvent).detail);
+    });
+    const projection = fixtureProjection();
+    projection.sessions.push({
+      key: "websocket:chat-2",
+      chatId: "chat-2",
+      title: "CloudFront certificate",
+      createdAt: "2026-07-01T09:00:00Z",
+      updatedAt: "2026-07-01T09:05:00Z",
+      primaryBadge: "updated_time",
+      isActive: false,
+    });
+
+    mountChatSurface(host, { projection });
+
+    expect(host.querySelectorAll("[data-session-key]")).toHaveLength(2);
+    host.querySelector<HTMLButtonElement>("[data-session-action='new']")?.click();
+    expect(newEvents).toEqual([{}]);
+
+    const search = host.querySelector<HTMLInputElement>("[data-session-search]");
+    search!.value = "cloud";
+    search!.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(Array.from(host.querySelectorAll("[data-session-key]")).map((row) => row.getAttribute("data-session-key"))).toEqual([
+      "websocket:chat-2",
+    ]);
+
+    host.querySelector<HTMLButtonElement>("[data-session-key='websocket:chat-2']")?.click();
+    expect(openEvents).toEqual([{
+      chatId: "chat-2",
+      sessionKey: "websocket:chat-2",
+    }]);
+
+    search!.value = "missing";
+    search!.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(host.querySelector("[data-session-empty]")?.textContent).toBe("No matching sessions");
+  });
+
   test("dispatches header session actions with copy payloads", () => {
     const host = document.createElement("section");
     const actions: unknown[] = [];
