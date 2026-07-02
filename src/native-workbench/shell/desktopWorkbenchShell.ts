@@ -10147,10 +10147,13 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-chat-surface__session-title {
       grid-column: 1;
+      grid-row: 1;
+      align-self: center;
     }
 
     body.desktop-native-workbench .desktop-chat-surface__session-pinned {
       grid-column: 1 / -1;
+      grid-row: 1;
       color: #b56e55;
       font-size: 11px;
       font-weight: 700;
@@ -10165,6 +10168,8 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-chat-surface__session-badge {
       grid-column: 2;
+      grid-row: 1;
+      align-self: center;
       justify-self: end;
       transition: opacity 140ms ease;
     }
@@ -10172,6 +10177,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-chat-surface__session-delete {
       grid-column: 2;
       grid-row: 1;
+      align-self: center;
       justify-self: end;
       max-width: 74px;
       min-height: 26px;
@@ -10191,6 +10197,12 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
         background 140ms ease,
         color 140ms ease,
         opacity 140ms ease;
+    }
+
+    body.desktop-native-workbench .desktop-chat-surface__session-row[data-pinned="true"] .desktop-chat-surface__session-title,
+    body.desktop-native-workbench .desktop-chat-surface__session-row[data-pinned="true"] .desktop-chat-surface__session-badge,
+    body.desktop-native-workbench .desktop-chat-surface__session-row[data-pinned="true"] .desktop-chat-surface__session-delete {
+      grid-row: 2;
     }
 
     body.desktop-native-workbench .desktop-chat-surface__session-row:hover .desktop-chat-surface__session-badge,

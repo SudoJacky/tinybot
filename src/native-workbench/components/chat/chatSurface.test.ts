@@ -145,6 +145,24 @@ describe("rebuilt chat surface", () => {
         updatedAt: "2026-07-01T10:05:00Z",
       },
       {
+        key: "websocket:chat-unix-ms",
+        chatId: "chat-unix-ms",
+        title: "Unix milliseconds old",
+        createdAt: "2026-07-01T00:00:00Z",
+        updatedAt: `unix-ms:${Date.parse("2026-07-01T10:03:00Z")}`,
+        primaryBadge: "updated_time",
+        isActive: false,
+      },
+      {
+        key: "websocket:chat-invalid-updated-at",
+        chatId: "chat-invalid-updated-at",
+        title: "Invalid timestamp",
+        createdAt: "2026-07-01T00:00:00Z",
+        updatedAt: "unix-ms:not-a-timestamp",
+        primaryBadge: "updated_time",
+        isActive: false,
+      },
+      {
         key: "websocket:chat-hours",
         chatId: "chat-hours",
         title: "Hours old",
@@ -186,6 +204,8 @@ describe("rebuilt chat surface", () => {
 
     expect(Array.from(host.querySelectorAll("[data-session-primary-badge='updated_time']")).map((node) => node.textContent)).toEqual([
       "5 分",
+      "7 分",
+      "Updated",
       "2 小时",
       "2 天",
       "2 周",

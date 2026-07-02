@@ -1209,9 +1209,9 @@ function sessionUpdatedLabel(updatedAt: string): string {
   if (!updatedAt) {
     return "Updated";
   }
-  const timestamp = Date.parse(updatedAt);
-  if (Number.isNaN(timestamp)) {
-    return updatedAt;
+  const timestamp = sessionUpdatedTimestamp(updatedAt);
+  if (timestamp === null) {
+    return "Updated";
   }
   const now = Date.now();
   const diffMs = now - timestamp;
@@ -1241,6 +1241,17 @@ function sessionUpdatedLabel(updatedAt: string): string {
   }
   const months = Math.floor(diffMs / monthMs);
   return `${months} 月`;
+}
+
+function sessionUpdatedTimestamp(updatedAt: string): number | null {
+  const normalized = updatedAt.trim();
+  const unixMsMatch = /^unix-ms:(\d+)$/.exec(normalized);
+  if (unixMsMatch) {
+    const timestamp = Number(unixMsMatch[1]);
+    return Number.isFinite(timestamp) ? timestamp : null;
+  }
+  const timestamp = Date.parse(normalized);
+  return Number.isNaN(timestamp) ? null : timestamp;
 }
 
 function approvalChoiceLabel(choice: ApprovalRequest["choices"][number]): string {
