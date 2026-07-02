@@ -120,6 +120,19 @@ describe("desktop bootstrap order", () => {
     expect(runtimeActionsSource).toContain("runtime.actions.branchSessionUnsupported");
   });
 
+  test("routes rebuilt header and message actions through native runtime handlers", () => {
+    const runtimeActionsSource = sourceBlock(
+      "function installNativeChatRuntimeActions(): void {",
+      "async function handleNativeInlineApprovalAction(",
+    );
+
+    expect(runtimeActionsSource).toContain('document.addEventListener("desktop-chat-session-action"');
+    expect(runtimeActionsSource).toContain("runtime.actions.sessionActionUnsupported");
+    expect(runtimeActionsSource).toContain("nativeWorkbenchRuntime.deleteChatSession");
+    expect(runtimeActionsSource).toContain('document.addEventListener("desktop-chat-message-copy"');
+    expect(bootstrapSource).toContain("writeNativeClipboardText(content,");
+  });
+
   test("routes native composer attach through the session temporary file upload control", () => {
     const attachActionPosition = callPosition("onAttachSessionFile: () => {");
     const uploadClickPosition = callPosition('document.getElementById("desktop-session-file-upload")?.click();');

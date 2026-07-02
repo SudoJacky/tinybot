@@ -95,6 +95,22 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
         turnId,
       });
     },
+    copyTurn(turnId) {
+      const turn = currentProjection.turns.find((candidate) => candidate.id === turnId);
+      if (!turn) {
+        logChatSurfaceAction(host, "message.copy.missing", { turnId });
+        return;
+      }
+      host.dispatchEvent(new CustomEvent("desktop-chat-message-copy", {
+        bubbles: true,
+        detail: {
+          content: turn.content,
+          messageId: turn.id,
+          role: turn.role,
+        },
+      }));
+      logChatSurfaceAction(host, "message.copy", { turnId });
+    },
     openDetail(kind, targetId) {
       currentDetailPanel = openChatDetailPanel(kind, targetId, chatSurfaceViewportWidth(host));
       logChatSurfaceAction(host, "detail.open", currentDetailPanel);
@@ -242,6 +258,29 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
     subagentDraft(subagentId) {
       return subagentDrafts.get(subagentId) ?? "";
     },
+    sessionAction(action) {
+      const activeSession = currentProjection.sessions.find((session) => session.key === currentProjection.activeSessionKey);
+      if (!activeSession) {
+        logChatSurfaceAction(host, "session.action.missing", { action });
+        return;
+      }
+      const detail: Record<string, unknown> = {
+        action,
+        chatId: activeSession.chatId,
+        sessionKey: activeSession.key,
+        title: activeSession.title,
+      };
+      if (action === "copy-session-id") {
+        detail.copyText = activeSession.key;
+      } else if (action === "copy-markdown") {
+        detail.copyText = currentProjection.turns.map((turn) => `${roleLabel(turn.role)}:\n${turn.content}`).join("\n\n");
+      }
+      host.dispatchEvent(new CustomEvent("desktop-chat-session-action", {
+        bubbles: true,
+        detail,
+      }));
+      logChatSurfaceAction(host, "session.action", { action, sessionKey: activeSession.key });
+    },
     updateSubagentDraft(subagentId, content) {
       if (content) {
         subagentDrafts.set(subagentId, content);
@@ -278,9 +317,11 @@ type ChatSurfaceActions = {
   composerDraft(): string;
   composerError(): string;
   continueQueuedInput(): void;
+  copyTurn(turnId: string): void;
   deleteQueuedInput(inputId: string): void;
   forwardSubagentMessages(subagentId: string, messageIds: string[]): void;
   openDetail(kind: ChatDetailPanelKind, targetId: string): void;
+  sessionAction(action: "pin" | "rename" | "delete" | "copy-session-id" | "copy-markdown"): void;
   subagentDraft(subagentId: string): string;
   submitComposer(content: string): { accepted: boolean };
   submitSubagentMessage(subagentId: string, content: string): { accepted: boolean };
@@ -333,7 +374,7 @@ function renderChatDetail(projection: ChatUiProjection, actions: ChatSurfaceActi
   const detail = element("section", "desktop-chat-surface__detail");
   detail.setAttribute("data-chat-region", "chat-detail");
   const activeSession = projection.sessions.find((session) => session.key === projection.activeSessionKey);
-  detail.append(renderHeader(activeSession?.title ?? "New session"));
+  detail.append(renderHeader(activeSession?.title ?? "New session", actions));
   detail.append(renderConversation(projection.turns, actions));
   const approvalCard = renderApprovalCard(projection.approvals);
   if (approvalCard) {
@@ -354,12 +395,26 @@ function renderChatDetail(projection: ChatUiProjection, actions: ChatSurfaceActi
   return detail;
 }
 
-function renderHeader(title: string): HTMLElement {
+function renderHeader(title: string, actions: ChatSurfaceActions): HTMLElement {
   const header = element("header", "desktop-chat-surface__header");
   header.setAttribute("data-chat-region", "chat-header");
   const heading = element("h2", "desktop-chat-surface__title", title);
   const summary = element("div", "desktop-chat-surface__runtime", "Agent · rust");
-  header.append(heading, summary);
+  const menu = element("div", "desktop-chat-surface__header-actions");
+  for (const [action, label] of [
+    ["pin", "Pin"],
+    ["rename", "Rename"],
+    ["delete", "Delete"],
+    ["copy-session-id", "Copy ID"],
+    ["copy-markdown", "Copy Markdown"],
+  ] as const) {
+    const button = element("button", "desktop-chat-surface__header-action", label);
+    button.type = "button";
+    button.setAttribute("data-chat-header-action", action);
+    button.addEventListener("click", () => actions.sessionAction(action));
+    menu.append(button);
+  }
+  header.append(heading, summary, menu);
   return header;
 }
 
@@ -398,7 +453,11 @@ function renderTurn(turn: ChatTurn, actions: ChatSurfaceActions): HTMLElement {
   branch.type = "button";
   branch.setAttribute("data-turn-action", "branch");
   branch.addEventListener("click", () => actions.branchFromTurn(turn.id));
-  actionsRow.append(branch);
+  const copy = element("button", "desktop-chat-surface__turn-copy", "Copy");
+  copy.type = "button";
+  copy.setAttribute("data-turn-action", "copy");
+  copy.addEventListener("click", () => actions.copyTurn(turn.id));
+  actionsRow.append(copy, branch);
   article.append(actionsRow);
   return article;
 }
@@ -764,6 +823,10 @@ function chatSurfaceViewportWidth(host: HTMLElement): number {
 
 function chatSurfaceHasRunningTurn(projection: ChatUiProjection): boolean {
   return projection.turns.some((turn) => turn.process?.state === "running");
+}
+
+function roleLabel(role: ChatTurn["role"]): string {
+  return role === "assistant" ? "Assistant" : "User";
 }
 
 function logChatSurfaceAction(host: HTMLElement, action: string, detail: unknown): void {

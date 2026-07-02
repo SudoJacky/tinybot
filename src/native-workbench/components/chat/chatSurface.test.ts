@@ -570,6 +570,61 @@ describe("rebuilt chat surface", () => {
     }]);
   });
 
+  test("dispatches header session actions with copy payloads", () => {
+    const host = document.createElement("section");
+    const actions: unknown[] = [];
+    host.addEventListener("desktop-chat-session-action", (event) => {
+      actions.push((event as CustomEvent).detail);
+    });
+
+    mountChatSurface(host, { projection: fixtureProjection() });
+
+    host.querySelector<HTMLButtonElement>("[data-chat-header-action='pin']")?.click();
+    host.querySelector<HTMLButtonElement>("[data-chat-header-action='copy-session-id']")?.click();
+    host.querySelector<HTMLButtonElement>("[data-chat-header-action='copy-markdown']")?.click();
+
+    expect(actions).toEqual([
+      {
+        action: "pin",
+        chatId: "chat-1",
+        sessionKey: "websocket:chat-1",
+        title: "Investigate IAM certificate",
+      },
+      {
+        action: "copy-session-id",
+        chatId: "chat-1",
+        copyText: "websocket:chat-1",
+        sessionKey: "websocket:chat-1",
+        title: "Investigate IAM certificate",
+      },
+      {
+        action: "copy-markdown",
+        chatId: "chat-1",
+        copyText: "User:\nCheck the cert setup.\n\nAssistant:\nI found the relevant file.",
+        sessionKey: "websocket:chat-1",
+        title: "Investigate IAM certificate",
+      },
+    ]);
+  });
+
+  test("dispatches message copy actions from turn rows", () => {
+    const host = document.createElement("section");
+    const copies: unknown[] = [];
+    host.addEventListener("desktop-chat-message-copy", (event) => {
+      copies.push((event as CustomEvent).detail);
+    });
+
+    mountChatSurface(host, { projection: fixtureProjection() });
+
+    host.querySelector<HTMLButtonElement>("[data-chat-turn-id='m-assistant'] [data-turn-action='copy']")?.click();
+
+    expect(copies).toEqual([{
+      content: "I found the relevant file.",
+      messageId: "m-assistant",
+      role: "assistant",
+    }]);
+  });
+
   test("submits normal composer text as a main chat message event", () => {
     const host = document.createElement("section");
     const submissions: unknown[] = [];

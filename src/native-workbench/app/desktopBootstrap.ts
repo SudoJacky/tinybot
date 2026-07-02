@@ -1001,6 +1001,39 @@ function installNativeChatRuntimeActions(): void {
       title: typeof detail.title === "string" ? detail.title : "",
     });
   });
+  document.addEventListener("desktop-chat-session-action", (event) => {
+    const detail = asRecord((event as CustomEvent).detail);
+    const action = typeof detail.action === "string" ? detail.action : "";
+    const copyText = typeof detail.copyText === "string" ? detail.copyText : "";
+    const sessionKey = typeof detail.sessionKey === "string" ? detail.sessionKey : "";
+    logDesktopNativeDebug("runtime.actions.sessionAction", {
+      action,
+      hasCopyText: Boolean(copyText),
+      hasRuntime: Boolean(nativeWorkbenchRuntime),
+      hasSessionKey: Boolean(sessionKey),
+    });
+    if (action === "copy-session-id" || action === "copy-markdown") {
+      void writeNativeClipboardText(copyText, "runtime.actions.sessionAction.copy");
+      return;
+    }
+    if (action === "delete" && sessionKey && nativeWorkbenchRuntime) {
+      void nativeWorkbenchRuntime.deleteChatSession(sessionKey).then(() => {
+        updateDesktopNativeChat(document, nativeWorkbenchRuntime!.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
+      });
+      return;
+    }
+    logDesktopNativeDebug("runtime.actions.sessionActionUnsupported", { action, sessionKey });
+  });
+  document.addEventListener("desktop-chat-message-copy", (event) => {
+    const detail = asRecord((event as CustomEvent).detail);
+    const content = typeof detail.content === "string" ? detail.content : "";
+    const messageId = typeof detail.messageId === "string" ? detail.messageId : "";
+    logDesktopNativeDebug("runtime.actions.messageCopy", {
+      contentLength: content.length,
+      messageId,
+    });
+    void writeNativeClipboardText(content, "runtime.actions.messageCopy");
+  });
   document.addEventListener("desktop-chat-approval-guidance-submit", (event) => {
     const detail = asRecord((event as CustomEvent).detail);
     const approvalId = typeof detail.approvalId === "string" ? detail.approvalId : "";
@@ -2242,13 +2275,17 @@ async function retryLoadNativeSettingsPane(): Promise<void> {
 }
 
 async function copyNativeSettingsDiagnostics(diagnostics: string): Promise<void> {
+  await writeNativeClipboardText(diagnostics || "No settings diagnostics", "settings.diagnostics.copy");
+}
+
+async function writeNativeClipboardText(text: string, logAction: string): Promise<void> {
   const clipboard = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
   if (!clipboard?.writeText) {
-    logDesktopNativeDebug("settings.diagnostics.copy.skipped", { reason: "clipboard unavailable" });
+    logDesktopNativeDebug(`${logAction}.skipped`, { reason: "clipboard unavailable" });
     return;
   }
-  await clipboard.writeText(diagnostics || "No settings diagnostics");
-  logDesktopNativeDebug("settings.diagnostics.copy.complete");
+  await clipboard.writeText(text);
+  logDesktopNativeDebug(`${logAction}.complete`);
 }
 
 async function saveNativeSettingsPane(): Promise<void> {
