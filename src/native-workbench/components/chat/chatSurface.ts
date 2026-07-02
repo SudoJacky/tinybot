@@ -767,17 +767,24 @@ function renderTurn(
     }
   }
   const actionsRow = element("div", "desktop-chat-surface__turn-actions");
-  const branch = element("button", "desktop-chat-surface__turn-branch", "Branch from here");
-  branch.type = "button";
-  branch.setAttribute("data-turn-action", "branch");
-  branch.addEventListener("click", () => actions.branchFromTurn(turn.id));
   const copy = element("button", "desktop-chat-surface__turn-copy", "Copy");
   copy.type = "button";
   copy.setAttribute("data-turn-action", "copy");
   copy.addEventListener("click", () => actions.copyTurn(turn.id));
-  actionsRow.append(copy, branch);
+  actionsRow.append(copy);
+  if (canBranchFromTurn(turn)) {
+    const branch = element("button", "desktop-chat-surface__turn-branch", "Branch from here");
+    branch.type = "button";
+    branch.setAttribute("data-turn-action", "branch");
+    branch.addEventListener("click", () => actions.branchFromTurn(turn.id));
+    actionsRow.append(branch);
+  }
   article.append(actionsRow);
   return article;
+}
+
+function canBranchFromTurn(turn: ChatTurn): boolean {
+  return turn.role === "assistant" && !turn.process && turn.tools.length === 0;
 }
 
 function renderToolRow(tool: ToolCallSummary, actions: ChatSurfaceActions): HTMLElement {

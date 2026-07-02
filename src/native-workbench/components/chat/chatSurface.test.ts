@@ -52,8 +52,10 @@ describe("rebuilt chat surface", () => {
     expect(host.querySelector("[data-chat-region='legacy-conversation-thread']")).toBeNull();
     expect(host.querySelector("[data-chat-turn-id='m-user']")?.getAttribute("data-chat-turn-align")).toBe("end");
     expect(host.querySelector("[data-chat-turn-id='m-user'] [data-chat-bubble]")?.getAttribute("data-chat-bubble")).toBe("user");
+    expect(host.querySelector("[data-chat-turn-id='m-user'] [data-turn-action='branch']")).toBeNull();
     expect(host.querySelector("[data-chat-turn-id='m-assistant']")?.getAttribute("data-chat-turn-align")).toBe("start");
     expect(host.querySelector("[data-chat-turn-id='m-assistant'] [data-chat-bubble]")?.getAttribute("data-chat-bubble")).toBe("assistant");
+    expect(host.querySelector("[data-chat-turn-id='m-assistant'] [data-turn-action='branch']")).toBeNull();
     expect(host.querySelector("[data-chat-rail-section='output']")?.textContent).toContain("No artifacts");
     expect(host.querySelector("[data-chat-rail-section='subagents']")?.textContent).toContain("No subagents");
     expect(host.querySelector("[data-chat-rail-section='sources']")?.textContent).toContain("No sources");
@@ -947,17 +949,30 @@ describe("rebuilt chat surface", () => {
       branchRequests.push((event as CustomEvent).detail);
     });
 
-    mountChatSurface(host, { projection: fixtureProjection() });
+    const projection = fixtureProjection();
+    projection.turns.push({
+      id: "m-final",
+      role: "assistant",
+      content: "The certificate setup is ready.",
+      reasoningContent: "",
+      timestamp: "2026-07-01T10:04:00Z",
+      tools: [],
+    });
 
-    host.querySelector<HTMLButtonElement>("[data-chat-turn-id='m-assistant'] [data-turn-action='branch']")?.click();
+    mountChatSurface(host, { projection });
+
+    expect(host.querySelector("[data-chat-turn-id='m-user'] [data-turn-action='branch']")).toBeNull();
+    expect(host.querySelector("[data-chat-turn-id='m-assistant'] [data-turn-action='branch']")).toBeNull();
+    host.querySelector<HTMLButtonElement>("[data-chat-turn-id='m-final'] [data-turn-action='branch']")?.click();
 
     expect(branchRequests).toEqual([{
       title: "Investigate IAM certificate · 分叉",
       branchedFromSessionId: "websocket:chat-1",
-      branchedFromMessageId: "m-assistant",
+      branchedFromMessageId: "m-final",
       messages: [
         { messageId: "m-user", role: "user", content: "Check the cert setup." },
         { messageId: "m-assistant", role: "assistant", content: "I found the relevant file." },
+        { messageId: "m-final", role: "assistant", content: "The certificate setup is ready." },
       ],
       portableContext: {
         chatId: "chat-1",
