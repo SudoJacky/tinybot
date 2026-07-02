@@ -84,6 +84,21 @@ describe("desktop bootstrap order", () => {
     expect(actionInstallPosition).toBeGreaterThan(nativeShellPosition);
   });
 
+  test("routes rebuilt chat surface submit events through native runtime actions", () => {
+    const runtimeActionsSource = sourceBlock(
+      "function installNativeChatRuntimeActions(): void {",
+      "async function handleNativeInlineApprovalAction(",
+    );
+
+    expect(runtimeActionsSource).toContain('document.addEventListener("desktop-chat-message-submit"');
+    expect(runtimeActionsSource).toContain("nativeChatActions().onComposerSubmit");
+    expect(runtimeActionsSource).toContain('document.addEventListener("desktop-chat-approval-guidance-submit"');
+    expect(runtimeActionsSource).toContain('action: "deny"');
+    expect(runtimeActionsSource).toContain("guidance");
+    expect(bootstrapSource).toContain("submitNativeApprovalAction(approvalId, sessionKey, action, guidance)");
+    expect(bootstrapSource).toContain("guidance: guidanceValue(guidance)");
+  });
+
   test("routes native composer attach through the session temporary file upload control", () => {
     const attachActionPosition = callPosition("onAttachSessionFile: () => {");
     const uploadClickPosition = callPosition('document.getElementById("desktop-session-file-upload")?.click();');

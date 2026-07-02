@@ -965,6 +965,35 @@ function installNativeChatRuntimeActions(): void {
     });
     void handleNativeInlineApprovalAction(detail);
   });
+  document.addEventListener("desktop-chat-message-submit", (event) => {
+    const detail = asRecord((event as CustomEvent).detail);
+    const content = typeof detail.content === "string" ? detail.content : "";
+    logDesktopNativeDebug("runtime.actions.chatSurfaceSubmit", {
+      contentLength: content.trim().length,
+      hasRuntime: Boolean(nativeWorkbenchRuntime),
+    });
+    nativeChatActions().onComposerSubmit({
+      content,
+      usePersistentRag: Boolean(nativeWorkbenchRuntime?.chat.usePersistentRag),
+    });
+  });
+  document.addEventListener("desktop-chat-approval-guidance-submit", (event) => {
+    const detail = asRecord((event as CustomEvent).detail);
+    const approvalId = typeof detail.approvalId === "string" ? detail.approvalId : "";
+    const guidance = typeof detail.guidance === "string" ? detail.guidance : "";
+    logDesktopNativeDebug("runtime.actions.approvalGuidanceEvent", {
+      approvalId,
+      guidanceLength: guidance.trim().length,
+      hasRuntime: Boolean(nativeWorkbenchRuntime),
+    });
+    void handleNativeInlineApprovalAction({
+      action: "deny",
+      approvalId,
+      guidance,
+      sessionKey: nativeWorkbenchRuntime?.chat.activeSessionKey ?? "",
+      toolName: "tool",
+    });
+  });
   window.addEventListener("tinybot:desktop-route", (event) => {
     const target = (event as CustomEvent<{ href?: unknown }>).detail;
     const href = typeof target?.href === "string" ? target.href : "";
@@ -1008,6 +1037,7 @@ async function handleNativeInlineApprovalAction(detail: unknown): Promise<void> 
     return;
   }
   const approvalId = typeof record.approvalId === "string" ? record.approvalId : "";
+  const guidance = typeof record.guidance === "string" ? record.guidance : "";
   const sessionKey = typeof record.sessionKey === "string" && record.sessionKey
     ? record.sessionKey
     : nativeWorkbenchRuntime?.chat.activeSessionKey || "";
@@ -1016,6 +1046,7 @@ async function handleNativeInlineApprovalAction(detail: unknown): Promise<void> 
   logDesktopNativeDebug("inlineApproval.start", {
     action,
     approvalId,
+    guidanceLength: guidance.trim().length,
     hasSessionKey: Boolean(sessionKey),
     toolName,
   });
@@ -1036,7 +1067,7 @@ async function handleNativeInlineApprovalAction(detail: unknown): Promise<void> 
     return;
   }
   try {
-    const resumeResult = await submitNativeApprovalAction(approvalId, sessionKey, action);
+    const resumeResult = await submitNativeApprovalAction(approvalId, sessionKey, action, guidance);
     const resumeSummary = summarizeDesktopApprovalResumeResult(resumeResult);
     const decision = action === "deny" ? "denied" : "approved";
     const resolvedLocally = nativeWorkbenchRuntime?.resolveApproval(approvalId, decision, sessionKey) ?? false;
@@ -1044,6 +1075,7 @@ async function handleNativeInlineApprovalAction(detail: unknown): Promise<void> 
       action,
       approvalId,
       decision,
+      guidanceLength: guidance.trim().length,
       resolvedLocally,
       sessionKeyPrefix: sessionKey.split(":")[0] || "",
       toolName,
@@ -1057,6 +1089,7 @@ async function handleNativeInlineApprovalAction(detail: unknown): Promise<void> 
     logDesktopNativeDebug("inlineApproval.complete", {
       action,
       approvalId,
+      guidanceLength: guidance.trim().length,
       resolvedLocally,
       resume: resumeSummary,
       toolName,
@@ -1078,6 +1111,7 @@ async function handleNativeInlineApprovalAction(detail: unknown): Promise<void> 
       action,
       approvalId,
       error: stringifyError(error),
+      guidanceLength: guidance.trim().length,
       toolName,
     });
   }
@@ -1087,14 +1121,17 @@ async function submitNativeApprovalAction(
   approvalId: string,
   sessionKey: string,
   action: string,
+  guidance = "",
 ): Promise<unknown> {
   if (!["approveOnce", "approveSession", "deny"].includes(action)) {
     return undefined;
   }
   const preferNativeWorkerResume = true;
+  const guidanceText = guidanceValue(guidance);
   logDesktopNativeDebug("approvalAction.route", {
     action,
     approvalId,
+    guidanceLength: guidanceText.length,
     hasSessionKey: Boolean(sessionKey),
     hasTauriRuntime: hasTauriRuntime(),
     nativeAgentRoute,
@@ -1105,17 +1142,20 @@ async function submitNativeApprovalAction(
     action: action as "approveOnce" | "approveSession" | "deny",
     approvalId,
     gatewayTools: gatewayApi.tools,
+    guidance: guidanceValue(guidance),
     invoke,
     onGatewayFallback: () => {
       logDesktopNativeDebug("approvalAction.gatewayFallback", {
         action,
         approvalId,
+        guidanceLength: guidanceText.length,
       });
     },
     onNativeResumeAttempt: () => {
       logDesktopNativeDebug("approvalAction.nativeResume.start", {
         action,
         approvalId,
+        guidanceLength: guidanceText.length,
       });
     },
     onNativeResumeFailed: (error) => {
@@ -1123,18 +1163,24 @@ async function submitNativeApprovalAction(
         action,
         approvalId,
         error: stringifyError(error),
+        guidanceLength: guidanceText.length,
       });
     },
     onNativeResumeSucceeded: (_context, result) => {
       logDesktopNativeDebug("approvalAction.nativeResume.complete", {
         action,
         approvalId,
+        guidanceLength: guidanceText.length,
         resume: summarizeDesktopApprovalResumeResult(result),
       });
     },
     preferNativeWorkerResume,
     sessionKey,
   });
+}
+
+function guidanceValue(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 async function selectNativeChatFromRoute(path: string): Promise<void> {
