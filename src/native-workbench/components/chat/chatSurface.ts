@@ -22,7 +22,9 @@ import {
 } from "../../chat/chatInputState";
 import {
   canSendDirectSubagentMessage,
+  createSubagentForwardBlock,
   requiresFirstDirectSubagentMessageConfirmation,
+  requiresForwardApprovalGuidanceConfirmation,
 } from "../../chat/chatSubagentForward";
 
 export type ChatSurfaceOptions = {
@@ -42,9 +44,15 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
   let currentQueuedInputs = options.projection.queuedInputs;
   let composerError = "";
   const composerDrafts = new Map<string, string>();
+  const subagentDrafts = new Map<string, string>();
   const currentComposerDraftKey = () => currentProjection.activeSessionKey || "new-session";
   const clearCurrentComposerDraft = () => {
     composerDrafts.delete(currentComposerDraftKey());
+  };
+  const appendCurrentComposerDraft = (content: string) => {
+    const key = currentComposerDraftKey();
+    const previous = composerDrafts.get(key)?.trimEnd() ?? "";
+    composerDrafts.set(key, previous ? `${previous}\n\n${content}` : content);
   };
   const renderCurrent = () => renderChatSurface(host, {
     ...currentProjection,
@@ -64,6 +72,32 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
     deleteQueuedInput(inputId) {
       currentQueuedInputs = currentQueuedInputs.filter((input) => input.id !== inputId);
       logChatSurfaceAction(host, "composer.queue.delete", { inputId });
+      renderCurrent();
+    },
+    forwardSubagentMessages(subagentId, messageIds) {
+      const subagent = currentProjection.liveSubagents.find((candidate) => candidate.id === subagentId);
+      if (!subagent) {
+        logChatSurfaceAction(host, "subagent.forward.missing", { subagentId });
+        return;
+      }
+      const selectedIds = messageIds.length > 0
+        ? messageIds
+        : subagent.transcript.messages.map((message) => message.id);
+      if (!selectedIds.length) {
+        logChatSurfaceAction(host, "subagent.forward.empty", { subagentId });
+        return;
+      }
+      const mode = currentProjection.approvals.length > 0 ? "approval_guidance" : "normal";
+      if (requiresForwardApprovalGuidanceConfirmation(mode) && !confirmSubagentForwardToApprovalGuidance(host)) {
+        logChatSurfaceAction(host, "subagent.forward.cancelled", { subagentId });
+        return;
+      }
+      const block = createSubagentForwardBlock(subagent, selectedIds);
+      appendCurrentComposerDraft(block.fallbackText);
+      logChatSurfaceAction(host, "subagent.forward.append", {
+        messageCount: block.messages.length,
+        subagentId,
+      });
       renderCurrent();
     },
     continueQueuedInput() {
@@ -148,6 +182,16 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
       }
       clearCurrentComposerDraft();
     },
+    subagentDraft(subagentId) {
+      return subagentDrafts.get(subagentId) ?? "";
+    },
+    updateSubagentDraft(subagentId, content) {
+      if (content) {
+        subagentDrafts.set(subagentId, content);
+        return;
+      }
+      subagentDrafts.delete(subagentId);
+    },
   });
   renderCurrent();
   return {
@@ -177,9 +221,12 @@ type ChatSurfaceActions = {
   composerError(): string;
   continueQueuedInput(): void;
   deleteQueuedInput(inputId: string): void;
+  forwardSubagentMessages(subagentId: string, messageIds: string[]): void;
   openDetail(kind: ChatDetailPanelKind, targetId: string): void;
+  subagentDraft(subagentId: string): string;
   submitComposer(content: string): { accepted: boolean };
   updateComposerDraft(content: string): void;
+  updateSubagentDraft(subagentId: string, content: string): void;
 };
 
 function renderChatSurface(host: HTMLElement, projection: ChatUiProjection, actions: ChatSurfaceActions): void {
@@ -196,6 +243,12 @@ function renderChatSurface(host: HTMLElement, projection: ChatUiProjection, acti
     shell.append(detailSurface);
   }
   host.append(shell);
+}
+
+function confirmSubagentForwardToApprovalGuidance(host: HTMLElement): boolean {
+  return host.ownerDocument.defaultView?.confirm(
+    "This will reject the current approval and append the forwarded content as guidance. Continue?",
+  ) ?? false;
 }
 
 function renderSessionList(projection: ChatUiProjection): HTMLElement {
@@ -466,8 +519,15 @@ function renderSubagentDetail(subagents: LiveSubagent[], panel: DetailPanelState
     detail.append(element("p", "desktop-chat-surface__partial-transcript", "partial transcript: this is not a complete private thread."));
   }
   for (const message of subagent.transcript.messages) {
-    const item = element("div", "desktop-chat-surface__subagent-message", `${message.role}: ${message.content}`);
+    const item = element("label", "desktop-chat-surface__subagent-message");
     item.setAttribute("data-subagent-message-id", message.id);
+    const selector = activeDocument.createElement("input");
+    selector.type = "checkbox";
+    selector.setAttribute("data-subagent-message-select", message.id);
+    item.append(
+      selector,
+      element("span", "desktop-chat-surface__subagent-message-content", `${message.role}: ${message.content}`),
+    );
     detail.append(item);
   }
   for (const tool of subagent.transcript.toolSummaries) {
@@ -479,6 +539,13 @@ function renderSubagentDetail(subagents: LiveSubagent[], panel: DetailPanelState
     const forward = element("button", "desktop-chat-surface__subagent-forward", "Forward to main composer");
     forward.type = "button";
     forward.setAttribute("data-subagent-action", "forward");
+    forward.addEventListener("click", () => {
+      const selectedMessageIds = [...detail.querySelectorAll<HTMLInputElement>("[data-subagent-message-select]")]
+        .filter((selector) => selector.checked)
+        .map((selector) => selector.getAttribute("data-subagent-message-select") ?? "")
+        .filter(Boolean);
+      actions.forwardSubagentMessages(subagent.id, selectedMessageIds);
+    });
     detail.append(forward);
   }
   if (requiresFirstDirectSubagentMessageConfirmation(subagent)) {
@@ -491,6 +558,10 @@ function renderSubagentDetail(subagents: LiveSubagent[], panel: DetailPanelState
     const input = activeDocument.createElement("textarea");
     input.className = "desktop-chat-surface__subagent-input";
     input.setAttribute("data-subagent-input", "message");
+    input.value = actions.subagentDraft(subagent.id);
+    input.addEventListener("input", () => {
+      actions.updateSubagentDraft(subagent.id, input.value);
+    });
     if (requiresFirstDirectSubagentMessageConfirmation(subagent)) {
       input.setAttribute("data-requires-confirmation", "true");
     }

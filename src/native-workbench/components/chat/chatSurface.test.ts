@@ -264,6 +264,111 @@ describe("rebuilt chat surface", () => {
     expect(host.querySelector("[data-chat-region='detail-surface']")?.textContent).toContain("Messages are sent only to this subagent");
   });
 
+  test("forwards selected subagent messages into the main composer draft", () => {
+    const host = document.createElement("section");
+    const projection = fixtureProjection();
+    projection.liveSubagents = [{
+      id: "delegate-forward",
+      sessionKey: "websocket:chat-1",
+      name: "Researcher",
+      task: "Review implementation",
+      status: "waiting_user",
+      latestActivity: "Needs product choice",
+      capabilities: ["full_transcript", "can_send_message", "can_forward"],
+      transcript: {
+        id: "delegate-forward",
+        sessionKey: "websocket:chat-1",
+        capability: "full_transcript",
+        messages: [
+          { id: "sub-msg-user", role: "user", content: "Prefer lower risk." },
+          { id: "sub-msg-assistant", role: "assistant", content: "Use read-only analysis." },
+        ],
+        toolSummaries: [],
+      },
+    }];
+    projection.detailPanel = {
+      kind: "subagent",
+      open: true,
+      presentation: "drawer",
+      targetId: "delegate-forward",
+    };
+
+    mountChatSurface(host, { projection });
+
+    const composerInput = host.querySelector<HTMLTextAreaElement>("[data-chat-composer-input]");
+    composerInput!.value = "Continue from this context.";
+    composerInput!.dispatchEvent(new Event("input", { bubbles: true }));
+    host.querySelector<HTMLInputElement>("[data-subagent-message-select='sub-msg-assistant']")!.checked = true;
+    host.querySelector<HTMLButtonElement>("[data-subagent-action='forward']")?.click();
+
+    const draft = host.querySelector<HTMLTextAreaElement>("[data-chat-composer-input]")?.value ?? "";
+    expect(draft).toContain("Continue from this context.");
+    expect(draft).toContain("Forwarded from subagent: Researcher");
+    expect(draft).toContain("assistant: Use read-only analysis.");
+    expect(draft).not.toContain("Prefer lower risk.");
+  });
+
+  test("preserves subagent message drafts by subagent panel", () => {
+    const host = document.createElement("section");
+    const projection = fixtureProjection();
+    projection.liveSubagents = [
+      {
+        id: "delegate-a",
+        sessionKey: "websocket:chat-1",
+        name: "Researcher A",
+        task: "Review A",
+        status: "waiting_user",
+        latestActivity: "Needs product choice",
+        capabilities: ["full_transcript", "can_send_message"],
+        transcript: {
+          id: "delegate-a",
+          sessionKey: "websocket:chat-1",
+          capability: "full_transcript",
+          messages: [],
+          toolSummaries: [],
+        },
+      },
+      {
+        id: "delegate-b",
+        sessionKey: "websocket:chat-1",
+        name: "Researcher B",
+        task: "Review B",
+        status: "waiting_user",
+        latestActivity: "Needs product choice",
+        capabilities: ["full_transcript", "can_send_message"],
+        transcript: {
+          id: "delegate-b",
+          sessionKey: "websocket:chat-1",
+          capability: "full_transcript",
+          messages: [],
+          toolSummaries: [],
+        },
+      },
+    ];
+    projection.detailPanel = {
+      kind: "subagent",
+      open: true,
+      presentation: "drawer",
+      targetId: "delegate-a",
+    };
+    const mounted = mountChatSurface(host, { projection });
+
+    const firstInput = host.querySelector<HTMLTextAreaElement>("[data-subagent-input='message']");
+    firstInput!.value = "Draft for A";
+    firstInput!.dispatchEvent(new Event("input", { bubbles: true }));
+
+    mounted.update({
+      projection: {
+        ...projection,
+        detailPanel: { ...projection.detailPanel, targetId: "delegate-b" },
+      },
+    });
+    expect(host.querySelector<HTMLTextAreaElement>("[data-subagent-input='message']")?.value).toBe("");
+
+    mounted.update({ projection });
+    expect(host.querySelector<HTMLTextAreaElement>("[data-subagent-input='message']")?.value).toBe("Draft for A");
+  });
+
   test("requires first-send confirmation for waiting-main-agent subagent messages", () => {
     const host = document.createElement("section");
     const projection = fixtureProjection();
