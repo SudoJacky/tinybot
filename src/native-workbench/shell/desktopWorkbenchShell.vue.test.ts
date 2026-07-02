@@ -292,7 +292,7 @@ describe("desktop workbench shell Vue integration", () => {
     expect(actions?.querySelector('[data-desktop-panel-control="sidebar"]')).toBeNull();
     expect(actions?.querySelector('[data-desktop-panel-control="inspector"]')).toBeNull();
     expect(titleRow?.children[0]?.className).toBe("desktop-chat-title-group");
-    expect(shell?.getAttribute("data-sidebar-visible")).toBe("true");
+    expect(shell?.getAttribute("data-sidebar-visible")).toBe("false");
   });
 
   test("renders the chat workbench chrome through the Vue shell island", () => {
@@ -369,7 +369,8 @@ describe("desktop workbench shell Vue integration", () => {
       gatewayHttp: "http://127.0.0.1:18790",
     });
 
-    for (const [region, visible] of [["sidebar", "true"], ["inspector", "false"], ["bottom", "false"]]) {
+    expect(document.querySelector('[data-workbench-region="sidebar"]')).toBeNull();
+    for (const [region, visible] of [["inspector", "false"], ["bottom", "false"]]) {
       const panel = document.querySelector<HTMLElement>(`[data-workbench-region="${region}"]`);
       expect(panel?.getAttribute("data-desktop-vue-island")).toBe("workbench-panel");
       expect(panel?.getAttribute("data-visible")).toBe(visible);
@@ -377,7 +378,7 @@ describe("desktop workbench shell Vue integration", () => {
     }
   });
 
-  test("renders sidebar content through the Vue shell island", () => {
+  test("renders chat sessions through the rebuilt ChatSurface", () => {
     document.body.replaceChildren();
     document.head.replaceChildren();
 
@@ -401,15 +402,12 @@ describe("desktop workbench shell Vue integration", () => {
       gatewayHttp: "http://127.0.0.1:18790",
     });
 
-    const sidebar = document.querySelector<HTMLElement>(".desktop-sidebar-content");
-    expect(sidebar?.getAttribute("data-desktop-vue-island")).toBe("sidebar-content");
-    expect(sidebar?.querySelector(".desktop-sidebar-actions")?.getAttribute("data-desktop-vue-island")).toBe("sidebar-actions");
-    expect(sidebar?.querySelector(".desktop-sidebar-list-section-workspaces")).toBeNull();
-    expect(sidebar?.querySelector(".desktop-sidebar-list-section-recent")?.getAttribute("data-desktop-vue-island")).toBe("sidebar-recent-chats");
-    expect(sidebar?.querySelector('[data-desktop-session-key="WebSocket:chat-live"]')?.textContent).toContain("Live session");
+    expect(document.querySelector(".desktop-sidebar-content")).toBeNull();
+    const sessionList = document.querySelector<HTMLElement>('[data-chat-region="session-list"]');
+    expect(sessionList?.querySelector('[data-session-key="WebSocket:chat-live"]')?.textContent).toContain("Live session");
   });
 
-  test("renders sidebar actions through the Vue shell island without an active chat", () => {
+  test("does not render legacy chat sidebar actions without an active chat", () => {
     document.body.replaceChildren();
     document.head.replaceChildren();
 
@@ -419,44 +417,12 @@ describe("desktop workbench shell Vue integration", () => {
       gatewayHttp: "http://127.0.0.1:18790",
     });
 
-    const actions = document.querySelector<HTMLElement>(".desktop-sidebar-actions");
-    expect(actions?.getAttribute("data-desktop-vue-island")).toBe("sidebar-actions");
-    expect(actions?.querySelector(".desktop-sidebar-primary-action")?.getAttribute("href")).toBe("/chat/new");
-    expect(actions?.querySelector(".desktop-sidebar-search")?.getAttribute("type")).toBe("search");
+    expect(document.querySelector(".desktop-sidebar-actions")).toBeNull();
+    expect(document.querySelector(".desktop-sidebar-list-section-workspaces")).toBeNull();
+    expect(document.querySelector(".desktop-sidebar-list-section-recent")).toBeNull();
   });
 
-  test("does not render the removed sidebar workspace list without an active chat", () => {
-    document.body.replaceChildren();
-    document.head.replaceChildren();
-
-    installDesktopWorkbenchShell({
-      targetDocument: document,
-      layout: createDefaultWorkbenchLayout(),
-      gatewayHttp: "http://127.0.0.1:18790",
-    });
-
-    const workspaces = document.querySelector<HTMLElement>(".desktop-sidebar-list-section-workspaces");
-    expect(workspaces).toBeNull();
-  });
-
-  test("renders sidebar recent chats through the Vue shell island without an active chat", () => {
-    document.body.replaceChildren();
-    document.head.replaceChildren();
-
-    installDesktopWorkbenchShell({
-      targetDocument: document,
-      layout: createDefaultWorkbenchLayout(),
-      gatewayHttp: "http://127.0.0.1:18790",
-    });
-
-    const recent = document.querySelector<HTMLElement>(".desktop-sidebar-list-section-recent");
-    expect(recent?.getAttribute("data-desktop-vue-island")).toBe("sidebar-recent-chats");
-    expect(recent?.querySelector(".desktop-sidebar-section-heading h2")?.textContent).toBe("Recent chats");
-    expect(recent?.querySelector(".desktop-recent-chat-list")?.getAttribute("role")).toBe("list");
-    expect(recent?.querySelector('[data-desktop-chat-id="Design native workbench"]')?.textContent).toContain("Design native workbench");
-  });
-
-  test("updates mounted sidebar recent chats when native chat sessions refresh", async () => {
+  test("updates rebuilt chat sessions when native chat sessions refresh", async () => {
     document.body.replaceChildren();
     document.head.replaceChildren();
 
@@ -476,7 +442,7 @@ describe("desktop workbench shell Vue integration", () => {
     });
     await nextTick();
 
-    expect(Array.from(document.querySelectorAll(".desktop-sidebar-chat-row")).map((row) => row.getAttribute("data-desktop-session-key"))).toEqual([
+    expect(Array.from(document.querySelectorAll(".desktop-chat-surface__session-row")).map((row) => row.getAttribute("data-session-key"))).toEqual([
       "WebSocket:chat-1",
       "WebSocket:chat-2",
     ]);
@@ -491,13 +457,12 @@ describe("desktop workbench shell Vue integration", () => {
     });
     await nextTick();
 
-    expect(Array.from(document.querySelectorAll(".desktop-sidebar-chat-row")).map((row) => row.getAttribute("data-desktop-session-key"))).toEqual([
+    expect(Array.from(document.querySelectorAll(".desktop-chat-surface__session-row")).map((row) => row.getAttribute("data-session-key"))).toEqual([
       "WebSocket:chat-1",
     ]);
     expect(document.body.textContent).toContain("Session one updated");
     expect(document.body.textContent).not.toContain("Session two");
   });
-
   test.skip("renders an empty conversation thread through the Vue shell island", () => {
     document.body.replaceChildren();
     document.head.replaceChildren();

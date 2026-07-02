@@ -107,14 +107,8 @@ import { mountKnowledgeReadinessIsland } from "../components/knowledge/knowledge
 import { mountMainUtilitiesRegionIsland } from "../components/shell/mainUtilitiesRegionIsland";
 import { mountModuleWorkSectionIsland } from "../components/shell/moduleWorkSectionIsland";
 import { mountPersistentRagToggleIsland } from "../components/knowledge/persistentRagToggleIsland";
-import { mountRecentChatRowIsland } from "../components/chat/recentChatRowIsland";
 import { mountRunChainInspectorIsland } from "../components/shell/runChainInspectorIsland";
 import { mountRunChainOverviewIsland } from "../components/shell/runChainOverviewIsland";
-import { mountSidebarActionsIsland } from "../components/shell/sidebarActionsIsland";
-import { mountSidebarContentIsland } from "../components/shell/sidebarContentIsland";
-import { mountSidebarRecentChatsIsland, type SidebarRecentChatRow } from "../components/shell/sidebarRecentChatsIsland";
-import { mountSidebarRowIsland } from "../components/shell/sidebarRowIsland";
-import { mountSidebarSectionHeadingIsland } from "../components/shell/sidebarSectionHeadingIsland";
 import { mountOrUpdateSettingsPaneIsland } from "../components/settings/settingsPaneIsland";
 import { mountSettingsPaneIsland } from "../components/settings/settingsPaneIsland";
 import { mountOrUpdateSessionFileListIsland } from "../components/chat/sessionFileListIsland";
@@ -580,14 +574,44 @@ export function syncDesktopWorkbenchRouteSidebar(
   if (activeModule !== "chat" && activeModule !== "settings") {
     return;
   }
-  const sidebarPanel = targetDocument.querySelector<HTMLElement>('[data-workbench-region="sidebar"]');
-  if (!sidebarPanel) {
+  if (activeModule === "chat") {
+    removeDesktopWorkbenchSideChrome(targetDocument);
     return;
   }
-  const nextContent = activeModule === "settings" && options.settingsPane
-    ? createSettingsWorkbenchSidebar(targetDocument, options.settingsPane, options.settingsActions ?? {})
-    : createSidebar(targetDocument, options.chat ?? null, options.chatActions ?? {});
+  const sidebarPanel = targetDocument.querySelector<HTMLElement>('[data-workbench-region="sidebar"]');
+  if (!options.settingsPane) {
+    return;
+  }
+  const nextContent = createSettingsWorkbenchSidebar(targetDocument, options.settingsPane, options.settingsActions ?? {});
+  if (!sidebarPanel) {
+    const shell = targetDocument.getElementById(SHELL_ID);
+    if (!shell) {
+      return;
+    }
+    shell.append(createPanel(targetDocument, "sidebar", currentDesktopSidebarPanelState(targetDocument), nextContent));
+    shell.setAttribute("data-sidebar-visible", "true");
+    return;
+  }
   replaceDesktopWorkbenchSidebarContent(sidebarPanel, nextContent);
+  sidebarPanel.setAttribute("data-visible", "true");
+  targetDocument.getElementById(SHELL_ID)?.setAttribute("data-sidebar-visible", "true");
+}
+
+function removeDesktopWorkbenchSideChrome(targetDocument: Document): void {
+  targetDocument.querySelector<HTMLElement>('[data-workbench-region="sidebar"]')?.remove();
+  targetDocument.querySelector<HTMLElement>('[data-workbench-region="inspector"]')?.remove();
+  const shell = targetDocument.getElementById(SHELL_ID);
+  shell?.setAttribute("data-sidebar-visible", "false");
+  shell?.setAttribute("data-inspector-visible", "false");
+}
+
+function currentDesktopSidebarPanelState(targetDocument: Document): WorkbenchPanelState {
+  const shell = targetDocument.getElementById(SHELL_ID);
+  const size = Number.parseFloat(shell?.style.getPropertyValue("--desktop-sidebar-size") || "");
+  return {
+    visible: true,
+    size: clampDesktopSidebarSize(Number.isFinite(size) ? size : 260),
+  };
 }
 
 function replaceDesktopWorkbenchSidebarContent(sidebarPanel: HTMLElement, content: HTMLElement): void {
@@ -758,15 +782,6 @@ export function updateDesktopNativeChat(
 
   syncChatWorkbenchChrome(targetDocument, chat);
 
-  const recentChats = targetDocument.querySelector<HTMLElement>(".desktop-recent-chat-list");
-  const recentChatsSection = targetDocument.querySelector<HTMLElement>(".desktop-sidebar-list-section-recent");
-  if (recentChatsSection && canMountVueIsland(recentChatsSection)) {
-    mountSidebarRecentChatsVueIsland(recentChatsSection, recentChatRowsForChat(targetDocument, chat), chatActions);
-  } else if (recentChats) {
-    const next = createSidebarRecentChats(targetDocument, chat, chatActions).querySelector<HTMLElement>(".desktop-recent-chat-list");
-    recentChats.replaceChildren(...Array.from(next?.children ?? []));
-  }
-
   const composer = targetDocument.getElementById("desktop-native-composer");
   if (composer) {
     composer.setAttribute("data-active-session-key", chat.activeSessionKey);
@@ -930,18 +945,21 @@ function createWorkbenchShell(
   taskActions: DesktopTaskCenterActionOptions,
   gatewayActions: DesktopGatewayRuntimeActionOptions,
 ): HTMLElement {
-  const inspectorContent = createInspector(targetDocument, runChainItems, taskCenterItems, selectedRunChainItemKey, workLens, workLensActions);
-  const inspectorState = hasInspectorContent(inspectorContent)
+  const activeModule = getDesktopActiveWorkbenchModule(targetDocument);
+  const usesLegacySideChrome = activeModule !== "chat" || chat === null;
+  const inspectorContent = usesLegacySideChrome
+    ? createInspector(targetDocument, runChainItems, taskCenterItems, selectedRunChainItemKey, workLens, workLensActions)
+    : null;
+  const inspectorState = inspectorContent && hasInspectorContent(inspectorContent)
     ? layout.inspector
     : { ...layout.inspector, visible: false };
-  const activeModule = getDesktopActiveWorkbenchModule(targetDocument);
-  const shouldShowSidebar = activeModule === "chat" || (activeModule === "settings" && settingsPane !== null);
+  const shouldShowSidebar = usesLegacySideChrome && activeModule === "settings" && settingsPane !== null;
   const sidebarState = shouldShowSidebar
     ? layout.sidebar
     : { ...layout.sidebar, visible: false };
-  const sidebarContent = activeModule === "settings" && settingsPane !== null
+  const sidebarContent = shouldShowSidebar
     ? createSettingsWorkbenchSidebar(targetDocument, settingsPane, settingsActions)
-    : createSidebar(targetDocument, chat, chatActions);
+    : null;
   const shell = targetDocument.createElement("main");
   shell.id = SHELL_ID;
   shell.className = "desktop-workbench-shell";
@@ -952,13 +970,15 @@ function createWorkbenchShell(
   shell.style.setProperty("--desktop-inspector-size", `${inspectorState.size}px`);
   shell.style.setProperty("--desktop-bottom-size", `${layout.bottom.size}px`);
 
-  shell.append(
-    createActivityRail(targetDocument),
-    createPanel(targetDocument, "sidebar", sidebarState, sidebarContent),
-    createMainRegion(targetDocument, gatewayHttp, layout, chat, chatActions, agentUiForms, agentUiActions, taskCenterItems, settingsPane, settingsActions, null, knowledgeActions, null, toolsSkillsActions, null, coworkActions, workLens, workLensActions),
-    createPanel(targetDocument, "inspector", inspectorState, inspectorContent),
-    createPanel(targetDocument, "bottom", layout.bottom, createBottomRegion(targetDocument, runtimeStatus, gatewayHttp, taskCenterItems, taskActions, gatewayActions)),
-  );
+  shell.append(createActivityRail(targetDocument));
+  if (sidebarContent) {
+    shell.append(createPanel(targetDocument, "sidebar", sidebarState, sidebarContent));
+  }
+  shell.append(createMainRegion(targetDocument, gatewayHttp, layout, chat, chatActions, agentUiForms, agentUiActions, taskCenterItems, settingsPane, settingsActions, null, knowledgeActions, null, toolsSkillsActions, null, coworkActions, workLens, workLensActions));
+  if (inspectorContent) {
+    shell.append(createPanel(targetDocument, "inspector", inspectorState, inspectorContent));
+  }
+  shell.append(createPanel(targetDocument, "bottom", layout.bottom, createBottomRegion(targetDocument, runtimeStatus, gatewayHttp, taskCenterItems, taskActions, gatewayActions)));
 
   return shell;
 }
@@ -1028,23 +1048,6 @@ function createActivityRail(targetDocument: Document): HTMLElement {
   return rail;
 }
 
-function createSidebar(
-  targetDocument: Document,
-  chat: DesktopNativeChatModel | null,
-  chatActions: DesktopNativeChatActionOptions,
-): HTMLElement {
-  const sidebar = targetDocument.createElement("div");
-  sidebar.className = "desktop-sidebar-content";
-  sidebar.append(
-    createSidebarActions(targetDocument),
-    createSidebarRecentChats(targetDocument, chat, chatActions),
-  );
-  if (chat) {
-    mountSidebarContentVueIsland(sidebar, targetDocument, chat);
-  }
-  return sidebar;
-}
-
 function createSettingsWorkbenchSidebar(
   targetDocument: Document,
   pane: DesktopSettingsPaneModel,
@@ -1065,366 +1068,6 @@ function createSettingsWorkbenchSidebar(
     (groupId) => renderFallbackSettingsContent(targetDocument, pane, settingsActions, groupId),
     activeGroupId,
   );
-}
-
-function mountSidebarContentVueIsland(
-  sidebar: HTMLElement,
-  targetDocument: Document,
-  chat: DesktopNativeChatModel,
-): void {
-  if (!canMountVueIsland(sidebar)) {
-    return;
-  }
-  const pinnedSessionKeys = pinnedSessionKeysForDocument(targetDocument);
-  const recentChats = sortPinnedSessionsFirst(chat.sessions, pinnedSessionKeys).map((session) => recentChatRowModel(
-    session,
-    session.key === chat.activeSessionKey,
-    pinnedSessionKeys.has(session.key),
-  ));
-  mountSidebarContentIsland(sidebar, {
-    commandItems: [],
-    recentChats,
-    resourceItems: [],
-    targetDocument,
-  });
-}
-
-function createSidebarActions(targetDocument: Document): HTMLElement {
-  const section = targetDocument.createElement("section");
-  section.className = "desktop-sidebar-actions";
-
-  const newChat = createWorkbenchLink(targetDocument, "+  New chat", "/chat/new", "desktop-sidebar-primary-action");
-  newChat.setAttribute("aria-label", "New chat");
-  const shortcut = targetDocument.createElement("span");
-  shortcut.className = "desktop-sidebar-shortcut";
-  shortcut.textContent = "Ctrl N";
-  newChat.append(shortcut);
-
-  const search = targetDocument.createElement("input");
-  search.className = "desktop-sidebar-search";
-  search.setAttribute("type", "search");
-  search.setAttribute("aria-label", "Search");
-  search.setAttribute("placeholder", "Search");
-
-  section.append(newChat, search);
-  mountSidebarActionsVueIsland(section);
-  return section;
-}
-
-function mountSidebarActionsVueIsland(section: HTMLElement): void {
-  if (!canMountVueIsland(section)) {
-    return;
-  }
-  mountSidebarActionsIsland(section);
-}
-
-function createSidebarRecentChats(
-  targetDocument: Document,
-  chat: DesktopNativeChatModel | null,
-  chatActions: DesktopNativeChatActionOptions = {},
-): HTMLElement {
-  const section = targetDocument.createElement("section");
-  section.className = "desktop-sidebar-list-section desktop-sidebar-list-section-recent";
-  section.append(createSidebarSectionHeading(targetDocument, "Recent chats"));
-
-  const list = targetDocument.createElement("div");
-  list.className = "desktop-recent-chat-list";
-  list.setAttribute("role", "list");
-  if (chat) {
-    const pinnedSessionKeys = pinnedSessionKeysForDocument(targetDocument);
-    const sessions = chat.sessions.length
-      ? sortPinnedSessionsFirst(chat.sessions, pinnedSessionKeys)
-      : [];
-    for (const session of sessions) {
-      const routeId = desktopChatRouteId(session);
-      list.append(createRecentChatRow(
-        targetDocument,
-        session,
-        session.key === chat.activeSessionKey,
-        chatActions,
-        routeId,
-        pinnedSessionKeys.has(session.key),
-      ));
-    }
-    if (!sessions.length) {
-      list.append(createText(targetDocument, "p", "No recent chats."));
-    }
-    section.append(list);
-    mountSidebarRecentChatsVueIsland(section, recentChatRowsForChat(targetDocument, chat), chatActions);
-    return section;
-  }
-
-  const fallbackRows = [
-    ["Design native workbench", "Just now"],
-    ["修复会话加载问题", "2h ago"],
-    ["实现文件上传功能", "Yesterday"],
-    ["项目启动优化", "2d ago"],
-    ["自动化脚本建议", "3d ago"],
-  ] as const;
-  for (const [name, meta] of fallbackRows) {
-    list.append(createSidebarRow(targetDocument, name, meta, false, "chat"));
-  }
-
-  section.append(list);
-  mountSidebarRecentChatsVueIsland(section, fallbackRows.map(([name, meta]) => ({
-    active: false,
-    chatId: name,
-    href: `/chat/${encodeURIComponent(name)}`,
-    pinned: false,
-    routeId: name,
-    sessionKey: name,
-    title: name,
-    updatedLabel: meta,
-  })), chatActions);
-  return section;
-}
-
-function recentChatRowModel(
-  session: NativeChatSession,
-  active: boolean,
-  pinned: boolean,
-): SidebarRecentChatRow {
-  const routeId = desktopChatRouteId(session);
-  const title = session.title || "New session";
-  return {
-    active,
-    chatId: session.chatId,
-    href: `/chat/${encodeURIComponent(routeId)}`,
-    pinned,
-    routeId,
-    sessionKey: session.key,
-    title,
-    updatedLabel: formatSessionRelativeTime(session.updatedAt || session.createdAt) || session.chatId,
-  };
-}
-
-function recentChatRowsForChat(targetDocument: Document, chat: DesktopNativeChatModel): SidebarRecentChatRow[] {
-  const pinnedSessionKeys = pinnedSessionKeysForDocument(targetDocument);
-  return sortPinnedSessionsFirst(chat.sessions, pinnedSessionKeys).map((session) => recentChatRowModel(
-    session,
-    session.key === chat.activeSessionKey,
-    pinnedSessionKeys.has(session.key),
-  ));
-}
-
-function mountSidebarRecentChatsVueIsland(
-  section: HTMLElement,
-  rows: Array<{
-    active: boolean;
-    chatId: string;
-    href: string;
-    pinned: boolean;
-    routeId: string;
-    sessionKey: string;
-    title: string;
-    updatedLabel: string;
-  }>,
-  chatActions: DesktopNativeChatActionOptions,
-): void {
-  if (!canMountVueIsland(section)) {
-    return;
-  }
-  mountSidebarRecentChatsIsland(section, {
-    rows,
-    onDeleteSession: chatActions.onDeleteSession,
-  });
-}
-
-function desktopChatRouteId(session: NativeChatSession): string {
-  if (session.key && !session.key.startsWith("WebSocket:")) {
-    return session.key;
-  }
-  return session.chatId || session.key;
-}
-
-function sortPinnedSessionsFirst(sessions: NativeChatSession[], pinnedSessionKeys: Set<string>): NativeChatSession[] {
-  return [...sessions].sort(
-    (left, right) => Number(pinnedSessionKeys.has(right.key)) - Number(pinnedSessionKeys.has(left.key)),
-  );
-}
-
-function createRecentChatRow(
-  targetDocument: Document,
-  session: NativeChatSession,
-  active: boolean,
-  chatActions: DesktopNativeChatActionOptions,
-  routeId = desktopChatRouteId(session),
-  pinned = false,
-): HTMLElement {
-  const row = targetDocument.createElement("div");
-  row.className = "desktop-sidebar-chat-row";
-  row.setAttribute("role", "listitem");
-  row.setAttribute("data-active", String(active));
-  row.setAttribute("data-sidebar-row-kind", "chat");
-  row.setAttribute("data-desktop-session-key", session.key);
-  row.setAttribute("data-desktop-chat-id", session.chatId);
-  row.setAttribute("data-desktop-route-id", routeId);
-  row.setAttribute("data-pinned", String(pinned));
-
-  const title = session.title || "New session";
-  const href = `/chat/${encodeURIComponent(routeId)}`;
-  const updatedLabel = formatSessionRelativeTime(session.updatedAt || session.createdAt) || session.chatId;
-
-  const link = targetDocument.createElement("a");
-  link.className = "desktop-sidebar-row desktop-sidebar-row-main";
-  link.setAttribute("href", href);
-  link.setAttribute("data-active", String(active));
-  link.setAttribute("data-sidebar-row-kind", "chat");
-  link.setAttribute("data-desktop-entity-module", "chat");
-  link.setAttribute("data-desktop-entity-id", routeId);
-
-  const titleWrap = targetDocument.createElement("span");
-  titleWrap.className = "desktop-sidebar-row-title";
-  const label = targetDocument.createElement("span");
-  label.className = "desktop-sidebar-row-label";
-  label.textContent = title;
-  titleWrap.append(label);
-  setSessionRowPinIcon(targetDocument, titleWrap, pinned);
-  const time = targetDocument.createElement("span");
-  time.className = "desktop-sidebar-row-meta";
-  time.textContent = updatedLabel;
-  link.append(titleWrap, time);
-
-  const deleteButton = targetDocument.createElement("button");
-  deleteButton.type = "button";
-  deleteButton.className = "desktop-sidebar-delete-session";
-  deleteButton.setAttribute("data-desktop-chat-delete", session.key);
-  deleteButton.setAttribute("aria-label", `Delete chat ${title}`);
-  deleteButton.textContent = "x";
-  let confirmDelete = false;
-  deleteButton.addEventListener("click", (event) => {
-    event.preventDefault?.();
-    event.stopPropagation?.();
-    if (!confirmDelete) {
-      confirmDelete = true;
-      deleteButton.setAttribute("aria-label", `Confirm delete chat ${title}`);
-      deleteButton.setAttribute("data-confirming", "true");
-      deleteButton.textContent = "确认";
-      return;
-    }
-    deleteButton.setAttribute("disabled", "");
-    deleteButton.setAttribute("data-deleting", "true");
-    deleteButton.textContent = "删除中";
-    chatActions.onDeleteSession?.({
-      sessionKey: session.key,
-      chatId: session.chatId,
-      title,
-    });
-  });
-
-  row.append(link, deleteButton);
-  mountRecentChatRowVueIsland(row, {
-    active,
-    chatId: session.chatId,
-    href,
-    onDeleteSession: chatActions.onDeleteSession,
-    pinned,
-    routeId,
-    sessionKey: session.key,
-    title,
-    updatedLabel,
-  });
-  return row;
-}
-
-function mountRecentChatRowVueIsland(
-  row: HTMLElement,
-  options: {
-    active: boolean;
-    chatId: string;
-    href: string;
-    onDeleteSession?: (event: { chatId: string; sessionKey: string; title: string }) => unknown | Promise<unknown>;
-    pinned: boolean;
-    routeId: string;
-    sessionKey: string;
-    title: string;
-    updatedLabel: string;
-  },
-): void {
-  if (!canMountVueIsland(row)) {
-    return;
-  }
-  mountRecentChatRowIsland(row, options);
-}
-
-function createSidebarSectionHeading(targetDocument: Document, title: string, action?: string): HTMLElement {
-  const heading = targetDocument.createElement("div");
-  heading.className = "desktop-sidebar-section-heading";
-  const label = targetDocument.createElement("h2");
-  label.textContent = title;
-  heading.append(label);
-  if (action) {
-    const button = targetDocument.createElement("button");
-    button.type = "button";
-    button.className = "desktop-sidebar-section-action";
-    button.setAttribute("aria-label", `${title} action`);
-    button.textContent = action;
-    heading.append(button);
-  }
-  mountSidebarSectionHeadingVueIsland(heading, title, action);
-  return heading;
-}
-
-function mountSidebarSectionHeadingVueIsland(heading: HTMLElement, title: string, action?: string): void {
-  if (!canMountVueIsland(heading)) {
-    return;
-  }
-  mountSidebarSectionHeadingIsland(heading, { title, action });
-}
-
-function createSidebarRow(
-  targetDocument: Document,
-  title: string,
-  meta: string,
-  active: boolean,
-  kind: "folder" | "chat",
-  entityModule?: string,
-  entityId?: string,
-): HTMLElement {
-  const row = targetDocument.createElement("a");
-  row.className = "desktop-sidebar-row";
-  const href = kind === "folder"
-    ? "/files"
-    : entityId
-      ? `/chat/${encodeURIComponent(entityId)}`
-      : "/chat";
-  row.setAttribute("href", href);
-  row.setAttribute("role", "listitem");
-  row.setAttribute("data-active", String(active));
-  row.setAttribute("data-sidebar-row-kind", kind);
-  if (entityModule) {
-    row.setAttribute("data-desktop-entity-module", entityModule);
-  }
-  if (entityId) {
-    row.setAttribute("data-desktop-entity-id", entityId);
-  }
-  const label = targetDocument.createElement("span");
-  label.className = "desktop-sidebar-row-label";
-  label.textContent = title;
-  const time = targetDocument.createElement("span");
-  time.className = "desktop-sidebar-row-meta";
-  time.textContent = meta;
-  row.append(label, time);
-  mountSidebarRowVueIsland(row, { active, entityId, entityModule, href, kind, meta, title });
-  return row;
-}
-
-function mountSidebarRowVueIsland(
-  row: HTMLAnchorElement,
-  options: {
-    active: boolean;
-    entityId?: string;
-    entityModule?: string;
-    href: string;
-    kind: "folder" | "chat";
-    meta: string;
-    title: string;
-  },
-): void {
-  if (!canMountVueIsland(row)) {
-    return;
-  }
-  mountSidebarRowIsland(row, options);
 }
 
 function createMainRegion(
@@ -1983,18 +1626,8 @@ function setSessionPinned(targetDocument: Document, sessionKey: string, pinned: 
 }
 
 function toggleActiveSessionPinned(targetDocument: Document, session: NativeChatSession): boolean {
-  const row = findSessionRow(targetDocument, session.key);
   const pinned = !isSessionPinned(targetDocument, session.key);
   setSessionPinned(targetDocument, session.key, pinned);
-  row?.setAttribute("data-pinned", String(pinned));
-  syncSessionRowPinIcon(targetDocument, session.key, pinned);
-  if (pinned) {
-    const list = targetDocument.querySelector<HTMLElement>(".desktop-recent-chat-list");
-    if (list && row) {
-      const rows = Array.from(list.children).filter((child) => child !== row);
-      list.replaceChildren(row, ...rows);
-    }
-  }
   return pinned;
 }
 
@@ -2033,7 +1666,6 @@ function startInlineSessionRename(
       return;
     }
     session.title = renamedTitle;
-    updateSessionRowTitle(targetDocument, session.key, renamedTitle);
     closeEditor(renamedTitle);
     chatActions.onRenameSession?.({
       sessionKey: session.key,
@@ -2067,44 +1699,6 @@ function startInlineSessionRename(
 function focusSessionTitleEditor(editor: HTMLInputElement): void {
   editor.focus?.({ preventScroll: true });
   editor.setSelectionRange?.(0, editor.value.length);
-}
-
-function updateSessionRowTitle(targetDocument: Document, sessionKey: string, title: string): void {
-  const row = findSessionRow(targetDocument, sessionKey);
-  const label = row?.querySelector<HTMLElement>(".desktop-sidebar-row-label");
-  if (label) {
-    label.textContent = title;
-  }
-}
-
-function syncSessionRowPinIcon(targetDocument: Document, sessionKey: string, pinned: boolean): void {
-  const row = findSessionRow(targetDocument, sessionKey);
-  const titleWrap = row?.querySelector<HTMLElement>(".desktop-sidebar-row-title");
-  if (titleWrap) {
-    setSessionRowPinIcon(targetDocument, titleWrap, pinned);
-  }
-}
-
-function setSessionRowPinIcon(targetDocument: Document, titleWrap: HTMLElement, pinned: boolean): void {
-  const label = titleWrap.querySelector<HTMLElement>(".desktop-sidebar-row-label");
-  if (!label) {
-    return;
-  }
-  if (!pinned) {
-    titleWrap.replaceChildren(label);
-    return;
-  }
-  const icon = targetDocument.createElement("span");
-  icon.className = "desktop-sidebar-pin-icon";
-  icon.setAttribute("data-desktop-session-pin-icon", "");
-  icon.setAttribute("aria-hidden", "true");
-  icon.textContent = "📌";
-  titleWrap.replaceChildren(icon, label);
-}
-
-function findSessionRow(targetDocument: Document, sessionKey: string): HTMLElement | null {
-  return Array.from(targetDocument.querySelectorAll<HTMLElement>("[data-desktop-session-key]"))
-    .find((row) => row.getAttribute("data-desktop-session-key") === sessionKey) ?? null;
 }
 
 function createConversationThread(
@@ -3027,45 +2621,6 @@ function activeChatTitle(chat: DesktopNativeChatModel | null): string {
 
 function nativeComposerState(chat: DesktopNativeChatModel | null): NonNullable<DesktopNativeChatModel["composerState"]> {
   return chat?.composerState ?? (chat?.responding ? "sending" : "idle");
-}
-
-function formatSessionRelativeTime(value: string): string {
-  const timestamp = parseSessionTimestampMs(value);
-  if (timestamp === null) {
-    return "";
-  }
-  const elapsedMs = Math.max(0, Date.now() - timestamp);
-  const minuteMs = 60_000;
-  const hourMs = 60 * minuteMs;
-  const dayMs = 24 * hourMs;
-  const weekMs = 7 * dayMs;
-  const monthMs = 30 * dayMs;
-  if (elapsedMs < hourMs) {
-    return `${Math.max(1, Math.floor(elapsedMs / minuteMs))}分`;
-  }
-  if (elapsedMs < dayMs) {
-    return `${Math.max(1, Math.floor(elapsedMs / hourMs))}小时`;
-  }
-  if (elapsedMs < weekMs) {
-    return `${Math.max(1, Math.floor(elapsedMs / dayMs))}天`;
-  }
-  if (elapsedMs < monthMs) {
-    return `${Math.max(1, Math.floor(elapsedMs / weekMs))}周`;
-  }
-  return `${Math.max(1, Math.floor(elapsedMs / monthMs))}月`;
-}
-
-function parseSessionTimestampMs(value: string): number | null {
-  if (!value) {
-    return null;
-  }
-  const unixMs = value.match(/^unix-ms:(\d+)$/);
-  if (unixMs) {
-    const timestamp = Number(unixMs[1]);
-    return Number.isFinite(timestamp) ? timestamp : null;
-  }
-  const timestamp = Date.parse(value);
-  return Number.isNaN(timestamp) ? null : timestamp;
 }
 
 function createComposerModelControl(
@@ -6338,6 +5893,9 @@ function desktopSettingsConfigurationModeLabel(mode: DesktopSettingsPaneField["c
 function toggleDesktopPanel(targetDocument: Document, panel: DesktopPanelControlId): void {
   const shell = targetDocument.getElementById(SHELL_ID);
   const panelElement = targetDocument.querySelector<HTMLElement>(`[data-workbench-region="${panel}"]`);
+  if (!panelElement) {
+    return;
+  }
   const stateAttribute = `data-${panel}-visible`;
   const currentValue = shell?.getAttribute(stateAttribute) ?? panelElement?.getAttribute("data-visible") ?? "true";
   logDesktopNativeDebug("shell.panel.toggle", {
@@ -6365,6 +5923,9 @@ function installDesktopPanelFrameEventBridge(targetDocument: Document): void {
 function setDesktopPanelVisible(targetDocument: Document, panel: DesktopPanelControlId, nextVisible: boolean): void {
   const shell = targetDocument.getElementById(SHELL_ID);
   const panelElement = targetDocument.querySelector<HTMLElement>(`[data-workbench-region="${panel}"]`);
+  if (!panelElement) {
+    return;
+  }
   if (panel === "inspector" && nextVisible && panelElement) {
     const inspectorContent = panelElement.querySelector<HTMLElement>(".desktop-inspector-content");
     if (inspectorContent && !hasInspectorContent(inspectorContent)) {

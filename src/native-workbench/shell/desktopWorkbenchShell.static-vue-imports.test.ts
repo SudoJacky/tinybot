@@ -73,14 +73,14 @@ describe("desktop workbench shell static Vue imports", () => {
     expect(source).not.toContain('void import("../components/shell/panelIconPartIsland")');
   });
 
-  test("statically imports the sidebar row islands", () => {
+  test("does not import retired chat sidebar row islands", () => {
     const source = readFileSync(resolve(__dirname, "desktopWorkbenchShell.ts"), "utf8");
 
-    expect(source).toContain('import { mountRecentChatRowIsland } from "../components/chat/recentChatRowIsland";');
+    expect(source).not.toContain('import { mountRecentChatRowIsland } from "../components/chat/recentChatRowIsland";');
     expect(source).not.toContain('void import("../components/chat/recentChatRowIsland")');
-    expect(source).toContain('import { mountSidebarSectionHeadingIsland } from "../components/shell/sidebarSectionHeadingIsland";');
+    expect(source).not.toContain('import { mountSidebarSectionHeadingIsland } from "../components/shell/sidebarSectionHeadingIsland";');
     expect(source).not.toContain('void import("../components/shell/sidebarSectionHeadingIsland")');
-    expect(source).toContain('import { mountSidebarRowIsland } from "../components/shell/sidebarRowIsland";');
+    expect(source).not.toContain('import { mountSidebarRowIsland } from "../components/shell/sidebarRowIsland";');
     expect(source).not.toContain('void import("../components/shell/sidebarRowIsland")');
   });
 

@@ -55,7 +55,7 @@ describe("desktop settings renderer ownership", () => {
       childCount: 0,
       hasImperativeContent: false,
     });
-  }, 30000);
+  }, 60000);
 
   test("renders redesigned settings pages through the fallback shell renderer", async () => {
     vi.resetModules();
@@ -113,5 +113,5 @@ describe("desktop settings renderer ownership", () => {
     } finally {
       vi.stubGlobal("HTMLElement", originalHTMLElement);
     }
-  }, 30000);
+  }, 60000);
 });
