@@ -4347,11 +4347,14 @@ describe("desktop workbench shell", () => {
     expect(styleText).toContain("--desktop-chat-composer-gutter: clamp(32px, 4vw, 72px);");
     expect(styleText).toContain("--desktop-chat-composer-bottom-offset: 8px;");
     expect(styleText).toContain("body.desktop-native-workbench .desktop-chat-workbench {");
+    expect(styleText).toContain("--desktop-chat-session-column-width: 284px;");
+    expect(styleText).toContain("--desktop-chat-status-column-width: 338px;");
+    expect(styleText).toContain("--desktop-chat-composer-side-padding: 48px;");
+    expect(styleText).toContain("position: relative;");
     expect(styleText).toContain("align-self: stretch;");
     expect(styleText).toContain("height: 100%;");
     expect(styleText).toContain("padding: 0 var(--desktop-chat-gutter);");
     expect(styleText).toContain("width: min(var(--desktop-chat-column-width), 100%);");
-    expect(styleText).toContain("width: min(var(--desktop-chat-column-width), calc(100% - var(--desktop-chat-composer-gutter)));");
     expect(styleText).toContain("grid-template-columns: minmax(0, 1fr) 0;");
     expect(styleText).toContain("grid-template-rows: auto minmax(0, 1fr) auto auto;");
     const emptyChromeRule = styleText.match(/body\.desktop-native-workbench \.desktop-chat-workbench-chrome \{([\s\S]*?)\n    \}/)?.[1] ?? "";
@@ -4366,7 +4369,7 @@ describe("desktop workbench shell", () => {
     expect(styleText).toContain("grid-template-columns 520ms cubic-bezier(0.16, 1, 0.3, 1);");
     const conversationThreadRule = styleText.match(/body\.desktop-native-workbench \.desktop-conversation-thread \{([\s\S]*?)\n    \}/)?.[1] ?? "";
     expect(conversationThreadRule).toContain("grid-column: 1 / -1;");
-    expect(conversationThreadRule).toContain("grid-row: 2;");
+    expect(conversationThreadRule).toContain("grid-row: 2 / -1;");
     expect(conversationThreadRule).toContain("display: grid;");
     expect(conversationThreadRule).toContain("height: 100%;");
     expect(conversationThreadRule).toContain("overflow: hidden;");
@@ -4392,8 +4395,23 @@ describe("desktop workbench shell", () => {
     expect(styleText).toContain("box-sizing: border-box;");
     expect(styleText).toContain("padding-bottom: var(--desktop-chat-composer-bottom-offset);");
     expect(styleText).toContain("grid-column: 2;\n      grid-row: 1 / 3;");
-    expect(styleText).toContain("grid-column: 1;\n      grid-row: 4;\n      justify-self: center;");
-    expect(styleText).toContain("margin: 0 auto var(--desktop-chat-composer-bottom-offset);");
+    const nativeComposerRules = [
+      ...styleText.matchAll(/body\.desktop-native-workbench \.desktop-native-composer \{(?<rule>[\s\S]*?)\n    \}/g),
+    ].map((match) => match.groups?.rule ?? "");
+    const finalNativeComposerRule = nativeComposerRules.find((rule) => rule.includes("position: absolute;")) ?? "";
+    expect(finalNativeComposerRule).toContain("position: absolute;");
+    expect(finalNativeComposerRule).toContain("z-index: 24;");
+    expect(finalNativeComposerRule).toContain("left: calc(var(--desktop-chat-gutter) + var(--desktop-chat-session-column-width) + var(--desktop-chat-composer-side-padding));");
+    expect(finalNativeComposerRule).toContain("right: calc(var(--desktop-chat-gutter) + var(--desktop-chat-status-column-width) + var(--desktop-chat-composer-side-padding));");
+    expect(finalNativeComposerRule).toContain("bottom: var(--desktop-chat-composer-bottom-offset);");
+    expect(finalNativeComposerRule).toContain("box-sizing: border-box;");
+    expect(finalNativeComposerRule).toContain("width: min(864px, calc(100% - var(--desktop-chat-gutter) - var(--desktop-chat-gutter) - var(--desktop-chat-session-column-width) - var(--desktop-chat-status-column-width) - var(--desktop-chat-composer-side-padding) - var(--desktop-chat-composer-side-padding)));");
+    expect(finalNativeComposerRule).toContain("margin: 0 auto;");
+    expect(finalNativeComposerRule).not.toContain("grid-row: 4;");
+    expect(styleText).toContain("@media (max-width: 1180px) {\n      body.desktop-native-workbench .desktop-chat-workbench {\n        --desktop-chat-session-column-width: 260px;\n        --desktop-chat-status-column-width: 0px;\n        --desktop-chat-composer-side-padding: 30px;");
+    expect(styleText).toContain("@media (max-width: 760px)");
+    expect(styleText).toContain("--desktop-chat-session-column-width: 0px;\n        --desktop-chat-status-column-width: 0px;\n        --desktop-chat-composer-side-padding: 0px;");
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-native-composer {\n        left: 14px;\n        right: 14px;\n        width: auto;");
     expect(styleText).toContain("body.desktop-native-workbench .desktop-detail-panel-slot[data-detail-panel-state=\"closing\"] {");
     expect(styleText).toContain("body.desktop-native-workbench .desktop-tool-detail-panel {\n      position: relative;");
     expect(styleText).toContain("height: 100%;\n      min-height: 0;\n      max-height: none;");

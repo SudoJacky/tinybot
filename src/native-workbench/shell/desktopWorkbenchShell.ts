@@ -9949,6 +9949,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-chat-workbench {
       --desktop-composer-reserve: 36px;
+      --desktop-chat-session-column-width: 284px;
+      --desktop-chat-status-column-width: 338px;
+      --desktop-chat-composer-side-padding: 48px;
+      position: relative;
       align-self: stretch;
       display: grid;
       grid-template-columns: minmax(0, 1fr) 0;
@@ -10013,7 +10017,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-conversation-thread {
       grid-column: 1 / -1;
-      grid-row: 2;
+      grid-row: 2 / -1;
       display: grid;
       grid-template-rows: minmax(0, 1fr);
       width: 100%;
@@ -10041,7 +10045,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-chat-surface__shell {
       position: relative;
       display: grid;
-      grid-template-columns: minmax(236px, 284px) minmax(0, 1fr) minmax(246px, 338px);
+      grid-template-columns: minmax(236px, var(--desktop-chat-session-column-width)) minmax(0, 1fr) minmax(246px, var(--desktop-chat-status-column-width));
       grid-template-rows: minmax(0, 1fr);
       width: 100%;
       height: 100%;
@@ -11891,13 +11895,16 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-native-composer {
-      position: relative;
-      grid-column: 1;
-      grid-row: 4;
+      position: absolute;
+      z-index: 24;
+      left: calc(var(--desktop-chat-gutter) + var(--desktop-chat-session-column-width) + var(--desktop-chat-composer-side-padding));
+      right: calc(var(--desktop-chat-gutter) + var(--desktop-chat-status-column-width) + var(--desktop-chat-composer-side-padding));
+      bottom: var(--desktop-chat-composer-bottom-offset);
       justify-self: center;
-      width: min(864px, calc(100% - var(--desktop-chat-composer-gutter)));
+      box-sizing: border-box;
+      width: min(864px, calc(100% - var(--desktop-chat-gutter) - var(--desktop-chat-gutter) - var(--desktop-chat-session-column-width) - var(--desktop-chat-status-column-width) - var(--desktop-chat-composer-side-padding) - var(--desktop-chat-composer-side-padding)));
       min-height: 0;
-      margin: 0 auto var(--desktop-chat-composer-bottom-offset);
+      margin: 0 auto;
       border-color: #ddd5cd;
       border-radius: 24px;
       padding: 14px 8px 8px 14px;
@@ -14603,8 +14610,14 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     @media (max-width: 1180px) {
+      body.desktop-native-workbench .desktop-chat-workbench {
+        --desktop-chat-session-column-width: 260px;
+        --desktop-chat-status-column-width: 0px;
+        --desktop-chat-composer-side-padding: 30px;
+      }
+
       body.desktop-native-workbench .desktop-chat-surface__shell {
-        grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
+        grid-template-columns: minmax(220px, var(--desktop-chat-session-column-width)) minmax(0, 1fr);
       }
 
       body.desktop-native-workbench .desktop-chat-surface__status-rail {
@@ -14634,6 +14647,12 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
       body.desktop-native-workbench .desktop-workbench-main {
         padding: 12px;
+      }
+
+      body.desktop-native-workbench .desktop-chat-workbench {
+        --desktop-chat-session-column-width: 0px;
+        --desktop-chat-status-column-width: 0px;
+        --desktop-chat-composer-side-padding: 0px;
       }
 
       body.desktop-native-workbench .desktop-conversation-thread {
@@ -14681,7 +14700,9 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       }
 
       body.desktop-native-workbench .desktop-native-composer {
-        width: min(var(--desktop-chat-column-width), calc(100% - 28px));
+        left: 14px;
+        right: 14px;
+        width: auto;
       }
 
       body.desktop-native-workbench .desktop-native-composer-layout {
