@@ -9952,6 +9952,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       --desktop-chat-session-column-width: 284px;
       --desktop-chat-status-column-width: 320px;
       --desktop-chat-composer-side-padding: 56px;
+      --desktop-chat-native-composer-reserve: 112px;
       position: relative;
       align-self: stretch;
       display: grid;
@@ -10244,7 +10245,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       grid-template-rows: auto minmax(0, 1fr) auto auto auto auto;
       min-width: 0;
       min-height: 0;
-      padding: 0 48px;
+      padding: 0 48px var(--desktop-chat-native-composer-reserve);
       overflow: hidden;
       background: #fcfbf8;
     }
@@ -10312,7 +10313,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       width: min(812px, 100%);
       min-width: 0;
       min-height: 0;
-      padding: 36px 0 154px;
+      padding: 36px 0 24px;
       overflow: auto;
     }
 
@@ -14768,7 +14769,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       }
 
       body.desktop-native-workbench .desktop-chat-surface__detail {
-        padding: 0 30px;
+        padding: 0 30px var(--desktop-chat-native-composer-reserve);
       }
 
       body.desktop-native-workbench .desktop-chat-surface__conversation {
@@ -14812,7 +14813,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       }
 
       body.desktop-native-workbench .desktop-chat-surface__detail {
-        padding: 0 16px;
+        padding: 0 16px var(--desktop-chat-native-composer-reserve);
       }
 
       body.desktop-native-workbench .desktop-chat-surface__header {

@@ -4352,7 +4352,11 @@ describe("desktop workbench shell", () => {
     expect(styleText).toContain("--desktop-chat-session-column-width: 284px;");
     expect(styleText).toContain("--desktop-chat-status-column-width: 320px;");
     expect(styleText).toContain("--desktop-chat-composer-side-padding: 56px;");
+    expect(styleText).toContain("--desktop-chat-native-composer-reserve: 112px;");
     expect(styleText).toContain("body.desktop-native-workbench .desktop-chat-surface__conversation {\n      justify-self: center;\n      display: grid;\n      align-content: start;\n      gap: 30px;\n      width: min(812px, 100%);");
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-chat-surface__detail {\n      position: relative;\n      display: grid;\n      grid-template-rows: auto minmax(0, 1fr) auto auto auto auto;\n      min-width: 0;\n      min-height: 0;\n      padding: 0 48px var(--desktop-chat-native-composer-reserve);");
+    expect(styleText).toContain("padding: 36px 0 24px;");
+    expect(styleText).not.toContain("padding: 36px 0 154px;");
     expect(styleText).toContain('body.desktop-native-workbench .desktop-chat-surface__process[data-agent-process-state="completed"]');
     expect(styleText).toContain('body.desktop-native-workbench .desktop-chat-surface__tool-row[data-tool-status="completed"]');
     expect(styleText).toContain("body.desktop-native-workbench .desktop-chat-surface__approval-card {\n      border-color: #ead8aa;\n      background: #fffaf0;");
