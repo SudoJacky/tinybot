@@ -17,6 +17,7 @@ import {
   openChatDetailPanel,
 } from "../../chat/chatDetailPanelState";
 import {
+  resumeNextQueuedInput,
   submitComposerText,
 } from "../../chat/chatInputState";
 import {
@@ -58,6 +59,23 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
     deleteQueuedInput(inputId) {
       currentQueuedInputs = currentQueuedInputs.filter((input) => input.id !== inputId);
       logChatSurfaceAction(host, "composer.queue.delete", { inputId });
+      renderCurrent();
+    },
+    continueQueuedInput() {
+      const { nextInput, remainingInputs } = resumeNextQueuedInput(currentQueuedInputs);
+      if (!nextInput) {
+        logChatSurfaceAction(host, "composer.queue.continue.empty", {});
+        return;
+      }
+      currentQueuedInputs = remainingInputs;
+      host.dispatchEvent(new CustomEvent("desktop-chat-message-submit", {
+        bubbles: true,
+        detail: { content: nextInput.content },
+      }));
+      logChatSurfaceAction(host, "composer.queue.continue", {
+        inputId: nextInput.id,
+        remaining: currentQueuedInputs.length,
+      });
       renderCurrent();
     },
     submitComposer(content) {
@@ -138,6 +156,7 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
 type ChatSurfaceActions = {
   closeDetail(): void;
   composerError(): string;
+  continueQueuedInput(): void;
   deleteQueuedInput(inputId: string): void;
   openDetail(kind: ChatDetailPanelKind, targetId: string): void;
   submitComposer(content: string): { accepted: boolean };
@@ -355,6 +374,15 @@ function renderQueuedInputs(inputs: QueuedInput[], actions: ChatSurfaceActions):
   const section = element("section", "desktop-chat-surface__queued-inputs");
   section.setAttribute("data-chat-region", "queued-inputs");
   section.append(element("h3", "desktop-chat-surface__queued-title", `Queued inputs · ${inputs.length}`));
+  if (inputs.some((input) => input.status === "paused")) {
+    const paused = element("div", "desktop-chat-surface__queued-paused", "Queue paused");
+    paused.setAttribute("data-queued-input-state", "paused");
+    const resume = element("button", "desktop-chat-surface__queued-continue", "Continue");
+    resume.type = "button";
+    resume.setAttribute("data-queued-input-action", "continue");
+    resume.addEventListener("click", () => actions.continueQueuedInput());
+    section.append(paused, resume);
+  }
   for (const input of inputs) {
     const row = element("div", "desktop-chat-surface__queued-row");
     row.setAttribute("data-queued-input-id", input.id);

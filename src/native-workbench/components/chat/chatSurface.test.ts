@@ -466,6 +466,40 @@ describe("rebuilt chat surface", () => {
     expect(host.querySelector("[data-chat-region='queued-inputs']")).toBeNull();
   });
 
+  test("continues a paused queue by sending only the next queued input", () => {
+    const host = document.createElement("section");
+    const submissions: unknown[] = [];
+    host.addEventListener("desktop-chat-message-submit", (event) => {
+      submissions.push((event as CustomEvent).detail);
+    });
+    const projection = fixtureProjection();
+    projection.queuedInputs = [
+      {
+        id: "queued-a",
+        mode: "queued",
+        content: "First paused message.",
+        createdAt: "2026-07-01T10:20:00Z",
+        status: "paused",
+      },
+      {
+        id: "queued-b",
+        mode: "queued",
+        content: "Second paused message.",
+        createdAt: "2026-07-01T10:21:00Z",
+        status: "paused",
+      },
+    ];
+
+    mountChatSurface(host, { projection });
+
+    expect(host.querySelector("[data-chat-region='queued-inputs']")?.textContent).toContain("Queue paused");
+    host.querySelector<HTMLButtonElement>("[data-queued-input-action='continue']")?.click();
+
+    expect(submissions).toEqual([{ content: "First paused message." }]);
+    expect(host.querySelector("[data-chat-region='queued-inputs']")?.textContent).not.toContain("First paused message.");
+    expect(host.querySelector("[data-chat-region='queued-inputs']")?.textContent).toContain("Second paused message.");
+  });
+
   test("renders resolved approvals as compact history results", () => {
     const host = document.createElement("section");
     const projection = fixtureProjection();
