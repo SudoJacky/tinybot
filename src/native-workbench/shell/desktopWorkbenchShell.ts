@@ -9615,7 +9615,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       padding: 4px 8px;
       background: #ffffff;
       color: var(--primary);
-      box-shadow: inset 3px 0 0 var(--primary);
+      box-shadow: inset 0 0 0 1px rgba(204, 120, 92, 0.18);
     }
 
     body.desktop-native-workbench .desktop-workbench-sidebar,
@@ -10127,7 +10127,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-chat-surface__session-row[aria-current="true"] {
       background: #eee6d9;
       color: #25231f;
-      box-shadow: inset 3px 0 0 #d4a017;
+      box-shadow: inset 0 0 0 1px #e3d8c9;
     }
 
     body.desktop-native-workbench .desktop-chat-surface__session-row:hover,

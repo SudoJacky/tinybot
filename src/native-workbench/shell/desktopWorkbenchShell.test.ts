@@ -4356,6 +4356,7 @@ describe("desktop workbench shell", () => {
     expect(styleText).toContain('body.desktop-native-workbench .desktop-chat-surface__process[data-agent-process-state="completed"]');
     expect(styleText).toContain('body.desktop-native-workbench .desktop-chat-surface__tool-row[data-tool-status="completed"]');
     expect(styleText).toContain("body.desktop-native-workbench .desktop-chat-surface__approval-card {\n      border-color: #ead8aa;\n      background: #fffaf0;");
+    expect(styleText).not.toContain("box-shadow: inset 3px 0 0");
     expect(styleText).toContain("position: relative;");
     expect(styleText).toContain("align-self: stretch;");
     expect(styleText).toContain("height: 100%;");
