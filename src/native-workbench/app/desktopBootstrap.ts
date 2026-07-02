@@ -1116,6 +1116,16 @@ function installNativeChatRuntimeActions(): void {
     });
     void writeNativeClipboardText(content, "runtime.actions.messageCopy");
   });
+  document.addEventListener("desktop-chat-detail-copy", (event) => {
+    const detail = asRecord((event as CustomEvent).detail);
+    const content = typeof detail.content === "string" ? detail.content : "";
+    const source = typeof detail.source === "string" ? detail.source : "";
+    logDesktopNativeDebug("runtime.actions.detailCopy", {
+      contentLength: content.length,
+      source,
+    });
+    void writeNativeClipboardText(content, "runtime.actions.detailCopy");
+  });
   document.addEventListener("desktop-chat-approval-guidance-submit", (event) => {
     const detail = asRecord((event as CustomEvent).detail);
     const approvalId = typeof detail.approvalId === "string" ? detail.approvalId : "";

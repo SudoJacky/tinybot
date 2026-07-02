@@ -32,6 +32,10 @@ describe("rebuilt chat surface", () => {
 
   test("renders tool detail in a right overlay drawer from projection state", () => {
     const host = document.createElement("section");
+    const copies: unknown[] = [];
+    host.addEventListener("desktop-chat-detail-copy", (event) => {
+      copies.push((event as CustomEvent).detail);
+    });
     const projection = fixtureProjection();
     projection.detailPanel = {
       kind: "tool",
@@ -51,6 +55,13 @@ describe("rebuilt chat surface", () => {
     expect(drawer?.querySelector("[data-tool-detail-section='full-result']")?.getAttribute("open")).toBeNull();
     expect(drawer?.querySelector("[data-tool-detail-copy='full-args']")).not.toBeNull();
     expect(drawer?.querySelector("[data-tool-detail-copy='full-result']")).not.toBeNull();
+
+    drawer?.querySelector<HTMLButtonElement>("[data-tool-detail-copy='full-args']")?.click();
+
+    expect(copies).toEqual([{
+      content: "{\"path\":\"README.md\"}",
+      source: "tool:full-args",
+    }]);
   });
 
   test("opens and closes tool detail from a tool row click", () => {
@@ -121,6 +132,10 @@ describe("rebuilt chat surface", () => {
 
   test("renders fullscreen artifact and error detail from shared detail model", () => {
     const artifactHost = document.createElement("section");
+    const artifactCopies: unknown[] = [];
+    artifactHost.addEventListener("desktop-chat-detail-copy", (event) => {
+      artifactCopies.push((event as CustomEvent).detail);
+    });
     const artifactProjection = fixtureProjection();
     artifactProjection.detailPanel = {
       kind: "artifact",
@@ -146,8 +161,17 @@ describe("rebuilt chat surface", () => {
     expect(artifactDetail?.textContent).toContain("Report preview");
     expect(artifactDetail?.querySelector("[data-detail-action='close']")).not.toBeNull();
     expect(artifactDetail?.querySelector("[data-artifact-action='future-management']")).not.toBeNull();
+    artifactDetail?.querySelector<HTMLButtonElement>("[data-artifact-action='copy']")?.click();
+    expect(artifactCopies).toEqual([{
+      content: "Report preview",
+      source: "artifact:artifact-1",
+    }]);
 
     const errorHost = document.createElement("section");
+    const errorCopies: unknown[] = [];
+    errorHost.addEventListener("desktop-chat-detail-copy", (event) => {
+      errorCopies.push((event as CustomEvent).detail);
+    });
     const errorProjection = fixtureProjection();
     errorProjection.detailPanel = {
       kind: "error",
@@ -169,6 +193,11 @@ describe("rebuilt chat surface", () => {
     expect(errorDetail?.textContent).toContain("Command failed");
     expect(errorDetail?.querySelector("[data-error-detail-section='raw']")?.getAttribute("open")).toBeNull();
     expect(errorDetail?.querySelector("[data-error-detail-copy='raw']")).not.toBeNull();
+    errorDetail?.querySelector<HTMLButtonElement>("[data-error-detail-copy='raw']")?.click();
+    expect(errorCopies).toEqual([{
+      content: "stack trace",
+      source: "error:error-1:raw",
+    }]);
   });
 
   test("renders live subagent strip and partial transcript as read-only detail", () => {

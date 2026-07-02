@@ -113,6 +113,16 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
       }));
       logChatSurfaceAction(host, "message.copy", { turnId });
     },
+    copyDetail(content, source) {
+      host.dispatchEvent(new CustomEvent("desktop-chat-detail-copy", {
+        bubbles: true,
+        detail: { content, source },
+      }));
+      logChatSurfaceAction(host, "detail.copy", {
+        contentLength: content.length,
+        source,
+      });
+    },
     openDetail(kind, targetId) {
       currentDetailPanel = openChatDetailPanel(kind, targetId, chatSurfaceViewportWidth(host));
       logChatSurfaceAction(host, "detail.open", currentDetailPanel);
@@ -352,6 +362,7 @@ type ChatSurfaceActions = {
   composerDraft(): string;
   composerError(): string;
   continueQueuedInput(): void;
+  copyDetail(content: string, source: string): void;
   copyTurn(turnId: string): void;
   deleteQueuedInput(inputId: string): void;
   forwardSubagentMessages(subagentId: string, messageIds: string[]): void;
@@ -834,16 +845,16 @@ function renderToolDetail(turns: ChatTurn[], panel: DetailPanelState, actions: C
   if (tool.resultPreview) {
     detail.append(element("p", "desktop-chat-surface__detail-result-preview", tool.resultPreview));
   }
-  detail.append(renderFoldedToolSection("full-args", "Full args", tool.detail.argsText));
-  detail.append(renderFoldedToolSection("full-result", "Full result", tool.detail.responseText));
-  detail.append(renderFoldedToolSection("stdout-stderr", "stdout / stderr", [tool.detail.stdout, tool.detail.stderr].filter(Boolean).join("\n")));
+  detail.append(renderFoldedToolSection("full-args", "Full args", tool.detail.argsText, actions));
+  detail.append(renderFoldedToolSection("full-result", "Full result", tool.detail.responseText, actions));
+  detail.append(renderFoldedToolSection("stdout-stderr", "stdout / stderr", [tool.detail.stdout, tool.detail.stderr].filter(Boolean).join("\n"), actions));
   if (tool.detail.rawEvent !== undefined) {
-    detail.append(renderFoldedToolSection("raw-event", "Raw event", JSON.stringify(tool.detail.rawEvent, null, 2)));
+    detail.append(renderFoldedToolSection("raw-event", "Raw event", JSON.stringify(tool.detail.rawEvent, null, 2), actions));
   }
   return detail;
 }
 
-function renderFoldedToolSection(section: string, label: string, content: string): HTMLElement {
+function renderFoldedToolSection(section: string, label: string, content: string, actions: ChatSurfaceActions): HTMLElement {
   const details = activeDocument.createElement("details");
   details.className = "desktop-chat-surface__tool-detail-section";
   details.setAttribute("data-tool-detail-section", section);
@@ -851,6 +862,10 @@ function renderFoldedToolSection(section: string, label: string, content: string
   const copy = element("button", "desktop-chat-surface__copy", "Copy");
   copy.type = "button";
   copy.setAttribute("data-tool-detail-copy", section);
+  copy.addEventListener("click", (event) => {
+    event.preventDefault();
+    actions.copyDetail(content, `tool:${section}`);
+  });
   const pre = element("pre", "desktop-chat-surface__tool-detail-content", content);
   details.append(summary, copy, pre);
   return details;
@@ -881,6 +896,7 @@ function renderArtifactDetail(artifacts: ArtifactDetail[], panel: DetailPanelSta
   const copy = element("button", "desktop-chat-surface__copy", "Copy");
   copy.type = "button";
   copy.setAttribute("data-artifact-action", "copy");
+  copy.addEventListener("click", () => actions.copyDetail(artifact.preview, `artifact:${artifact.id}`));
   detail.append(copy);
   if (artifact.openLabel) {
     const open = element("button", "desktop-chat-surface__open", artifact.openLabel);
@@ -914,6 +930,10 @@ function renderErrorDetail(errors: ErrorDetail[], panel: DetailPanelState, actio
   const copy = element("button", "desktop-chat-surface__copy", "Copy");
   copy.type = "button";
   copy.setAttribute("data-error-detail-copy", "raw");
+  copy.addEventListener("click", (event) => {
+    event.preventDefault();
+    actions.copyDetail(error.raw, `error:${error.id}:raw`);
+  });
   raw.append(copy, element("pre", "desktop-chat-surface__error-raw", error.raw));
   detail.append(raw);
   return detail;

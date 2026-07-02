@@ -141,6 +141,8 @@ describe("desktop bootstrap order", () => {
     expect(runtimeActionsSource).toContain("metadata: { pinned: action === \"pin\" }");
     expect(runtimeActionsSource).toContain("metadata: { title: renamedTitle }");
     expect(runtimeActionsSource).toContain('document.addEventListener("desktop-chat-message-copy"');
+    expect(runtimeActionsSource).toContain('document.addEventListener("desktop-chat-detail-copy"');
+    expect(runtimeActionsSource).toContain("runtime.actions.detailCopy");
     expect(bootstrapSource).toContain("writeNativeClipboardText(content,");
   });
 
