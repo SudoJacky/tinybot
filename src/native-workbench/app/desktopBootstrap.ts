@@ -481,6 +481,7 @@ async function loadNativeChatRuntime(): Promise<DesktopNativeWorkbenchRuntime> {
         ? (filter) => invoke("worker_background_trace_get_artifact", { input: { filter } })
         : undefined,
       deleteSession: (sessionKey) => gatewayApi.sessions.delete(sessionKey),
+      patchSession: (sessionKey, body) => gatewayApi.sessions.patch(sessionKey, body),
     },
     sendSocketMessage: (message) => sendNativeChatSocketMessage(message),
     agentRoute,
@@ -1046,6 +1047,28 @@ function installNativeChatRuntimeActions(): void {
     }
     if (action === "delete" && sessionKey && nativeWorkbenchRuntime) {
       void nativeWorkbenchRuntime.deleteChatSession(sessionKey).then(() => {
+        updateDesktopNativeChat(document, nativeWorkbenchRuntime!.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
+      });
+      return;
+    }
+    if ((action === "pin" || action === "unpin") && sessionKey && nativeWorkbenchRuntime) {
+      void nativeWorkbenchRuntime.patchChatSession(sessionKey, {
+        metadata: { pinned: action === "pin" },
+      }).then(() => {
+        updateDesktopNativeChat(document, nativeWorkbenchRuntime!.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
+      });
+      return;
+    }
+    if (action === "rename" && sessionKey && nativeWorkbenchRuntime) {
+      const currentTitle = typeof detail.title === "string" ? detail.title : "";
+      const renamedTitle = document.defaultView?.prompt("Rename session", currentTitle)?.trim() ?? "";
+      if (!renamedTitle || renamedTitle === currentTitle) {
+        logDesktopNativeDebug("runtime.actions.sessionActionRenameSkipped", { sessionKey });
+        return;
+      }
+      void nativeWorkbenchRuntime.patchChatSession(sessionKey, {
+        metadata: { title: renamedTitle },
+      }).then(() => {
         updateDesktopNativeChat(document, nativeWorkbenchRuntime!.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
       });
       return;

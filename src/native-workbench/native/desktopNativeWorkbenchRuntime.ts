@@ -104,6 +104,7 @@ export interface DesktopNativeWorkbenchRuntime {
   selectChatSession(sessionKey: string, chatId: string): Promise<void>;
   startNewChat(): void;
   deleteChatSession(sessionKey: string): Promise<void>;
+  patchChatSession(sessionKey: string, body: unknown): Promise<boolean>;
   setPersistentRag(enabled: boolean): void;
   submitComposerMessage(content: string, usePersistentRag?: boolean): ChatSubmitResult;
   interruptActiveChat(): boolean;
@@ -214,6 +215,21 @@ export function createDesktopNativeWorkbenchRuntime({
       ...summarizeRuntimeState(),
       status: result.status,
     });
+  }
+
+  async function patchChatSession(sessionKey: string, body: unknown): Promise<boolean> {
+    logDesktopNativeDebug("runtime.patchSession.start", {
+      ...summarizeRuntimeState(),
+      sessionKey,
+    });
+    const patched = await chatController.patchSession(sessionKey, body);
+    chatStatus = patched ? "Session updated." : "Session update unavailable.";
+    logDesktopNativeDebug("runtime.patchSession.complete", {
+      ...summarizeRuntimeState(),
+      patched,
+      sessionKey,
+    });
+    return patched;
   }
 
   function setPersistentRag(enabled: boolean): void {
@@ -1037,6 +1053,7 @@ export function createDesktopNativeWorkbenchRuntime({
     selectChatSession,
     startNewChat,
     deleteChatSession,
+    patchChatSession,
     setPersistentRag,
     submitComposerMessage,
     interruptActiveChat,

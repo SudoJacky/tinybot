@@ -607,6 +607,29 @@ describe("rebuilt chat surface", () => {
     ]);
   });
 
+  test("dispatches unpin when the active session is pinned", () => {
+    const host = document.createElement("section");
+    const actions: unknown[] = [];
+    host.addEventListener("desktop-chat-session-action", (event) => {
+      actions.push((event as CustomEvent).detail);
+    });
+    const projection = fixtureProjection();
+    projection.sessions[0].pinned = true;
+
+    mountChatSurface(host, { projection });
+
+    const pinButton = host.querySelector<HTMLButtonElement>("[data-chat-header-action='unpin']");
+    expect(pinButton?.textContent).toBe("Unpin");
+    pinButton?.click();
+
+    expect(actions).toEqual([{
+      action: "unpin",
+      chatId: "chat-1",
+      sessionKey: "websocket:chat-1",
+      title: "Investigate IAM certificate",
+    }]);
+  });
+
   test("dispatches message copy actions from turn rows", () => {
     const host = document.createElement("section");
     const copies: unknown[] = [];

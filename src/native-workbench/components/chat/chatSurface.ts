@@ -321,7 +321,7 @@ type ChatSurfaceActions = {
   deleteQueuedInput(inputId: string): void;
   forwardSubagentMessages(subagentId: string, messageIds: string[]): void;
   openDetail(kind: ChatDetailPanelKind, targetId: string): void;
-  sessionAction(action: "pin" | "rename" | "delete" | "copy-session-id" | "copy-markdown"): void;
+  sessionAction(action: "pin" | "unpin" | "rename" | "delete" | "copy-session-id" | "copy-markdown"): void;
   subagentDraft(subagentId: string): string;
   submitComposer(content: string): { accepted: boolean };
   submitSubagentMessage(subagentId: string, content: string): { accepted: boolean };
@@ -374,7 +374,7 @@ function renderChatDetail(projection: ChatUiProjection, actions: ChatSurfaceActi
   const detail = element("section", "desktop-chat-surface__detail");
   detail.setAttribute("data-chat-region", "chat-detail");
   const activeSession = projection.sessions.find((session) => session.key === projection.activeSessionKey);
-  detail.append(renderHeader(activeSession?.title ?? "New session", actions));
+  detail.append(renderHeader(activeSession?.title ?? "New session", Boolean(activeSession?.pinned), actions));
   detail.append(renderConversation(projection.turns, actions));
   const approvalCard = renderApprovalCard(projection.approvals);
   if (approvalCard) {
@@ -395,14 +395,14 @@ function renderChatDetail(projection: ChatUiProjection, actions: ChatSurfaceActi
   return detail;
 }
 
-function renderHeader(title: string, actions: ChatSurfaceActions): HTMLElement {
+function renderHeader(title: string, pinned: boolean, actions: ChatSurfaceActions): HTMLElement {
   const header = element("header", "desktop-chat-surface__header");
   header.setAttribute("data-chat-region", "chat-header");
   const heading = element("h2", "desktop-chat-surface__title", title);
   const summary = element("div", "desktop-chat-surface__runtime", "Agent · rust");
   const menu = element("div", "desktop-chat-surface__header-actions");
   for (const [action, label] of [
-    ["pin", "Pin"],
+    [pinned ? "unpin" : "pin", pinned ? "Unpin" : "Pin"],
     ["rename", "Rename"],
     ["delete", "Delete"],
     ["copy-session-id", "Copy ID"],

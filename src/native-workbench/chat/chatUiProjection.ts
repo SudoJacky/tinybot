@@ -89,6 +89,7 @@ export type SessionSummary = {
   title: string;
   createdAt: string;
   updatedAt: string;
+  pinned?: boolean;
   primaryBadge: SessionPrimaryBadge;
   isActive: boolean;
 };
@@ -266,6 +267,7 @@ export function projectNativeChatState(
       title: session.title,
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
+      ...(session.pinned ? { pinned: true } : {}),
       primaryBadge: primaryBadgeForSession(session.key, state, approvals),
       isActive: session.key === activeSessionKey,
     })),

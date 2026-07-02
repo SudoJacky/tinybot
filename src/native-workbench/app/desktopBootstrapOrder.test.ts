@@ -132,6 +132,9 @@ describe("desktop bootstrap order", () => {
     expect(runtimeActionsSource).toContain('document.addEventListener("desktop-chat-session-action"');
     expect(runtimeActionsSource).toContain("runtime.actions.sessionActionUnsupported");
     expect(runtimeActionsSource).toContain("nativeWorkbenchRuntime.deleteChatSession");
+    expect(runtimeActionsSource).toContain("nativeWorkbenchRuntime.patchChatSession");
+    expect(runtimeActionsSource).toContain("metadata: { pinned: action === \"pin\" }");
+    expect(runtimeActionsSource).toContain("metadata: { title: renamedTitle }");
     expect(runtimeActionsSource).toContain('document.addEventListener("desktop-chat-message-copy"');
     expect(bootstrapSource).toContain("writeNativeClipboardText(content,");
   });

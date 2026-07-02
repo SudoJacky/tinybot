@@ -15,6 +15,7 @@ export type NativeChatSession = {
   title: string;
   createdAt: string;
   updatedAt: string;
+  pinned?: boolean;
 };
 
 export type NativeChatMessage = {
@@ -125,12 +126,14 @@ export function normalizeSessionsPayload(payload: unknown): NativeChatSession[] 
   return payload.items.filter(isRecord).map((item) => {
     const chatId = stringValue(item.chat_id) || chatIdFromKey(stringValue(item.key));
     const key = stringValue(item.key) || sessionKeyForChat(chatId);
+    const metadata = isRecord(item.metadata) ? item.metadata : isRecord(item.extra) && isRecord(item.extra.metadata) ? item.extra.metadata : {};
     return {
       key,
       chatId,
       title: stringValue(item.title) || "New session",
       createdAt: stringValue(item.created_at),
       updatedAt: stringValue(item.updated_at),
+      ...(booleanValue(metadata.pinned) ? { pinned: true } : {}),
     };
   });
 }
