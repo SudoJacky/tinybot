@@ -410,6 +410,45 @@ describe("rebuilt chat surface", () => {
     expect(input?.value).toBe("");
   });
 
+  test("preserves composer drafts per active session across surface updates", () => {
+    const host = document.createElement("section");
+    const mounted = mountChatSurface(host, { projection: fixtureProjection() });
+    const firstInput = host.querySelector<HTMLTextAreaElement>("[data-chat-composer-input]");
+    firstInput!.value = "Draft for chat one";
+    firstInput!.dispatchEvent(new Event("input", { bubbles: true }));
+
+    mounted.update({ projection: fixtureProjection() });
+
+    expect(host.querySelector<HTMLTextAreaElement>("[data-chat-composer-input]")?.value).toBe("Draft for chat one");
+
+    const secondProjection = fixtureProjection();
+    secondProjection.activeSessionKey = "websocket:chat-2";
+    secondProjection.sessions = [
+      { ...secondProjection.sessions[0], isActive: false },
+      {
+        key: "websocket:chat-2",
+        chatId: "chat-2",
+        title: "Second chat",
+        createdAt: "2026-07-01T11:00:00Z",
+        updatedAt: "2026-07-01T11:05:00Z",
+        primaryBadge: "updated_time",
+        isActive: true,
+      },
+    ];
+    mounted.update({ projection: secondProjection });
+
+    const secondInput = host.querySelector<HTMLTextAreaElement>("[data-chat-composer-input]");
+    expect(secondInput?.value).toBe("");
+    secondInput!.value = "Draft for chat two";
+    secondInput!.dispatchEvent(new Event("input", { bubbles: true }));
+
+    mounted.update({ projection: fixtureProjection() });
+    expect(host.querySelector<HTMLTextAreaElement>("[data-chat-composer-input]")?.value).toBe("Draft for chat one");
+
+    mounted.update({ projection: secondProjection });
+    expect(host.querySelector<HTMLTextAreaElement>("[data-chat-composer-input]")?.value).toBe("Draft for chat two");
+  });
+
   test("submits composer text as approval guidance while approval is pending", () => {
     const host = document.createElement("section");
     const guidanceSubmissions: unknown[] = [];

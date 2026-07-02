@@ -41,6 +41,11 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
   let currentDetailPanel = options.projection.detailPanel;
   let currentQueuedInputs = options.projection.queuedInputs;
   let composerError = "";
+  const composerDrafts = new Map<string, string>();
+  const currentComposerDraftKey = () => currentProjection.activeSessionKey || "new-session";
+  const clearCurrentComposerDraft = () => {
+    composerDrafts.delete(currentComposerDraftKey());
+  };
   const renderCurrent = () => renderChatSurface(host, {
     ...currentProjection,
     detailPanel: currentDetailPanel,
@@ -88,6 +93,7 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
       });
       if (result.kind === "send_message") {
         composerError = "";
+        clearCurrentComposerDraft();
         host.dispatchEvent(new CustomEvent("desktop-chat-message-submit", {
           bubbles: true,
           detail: { content: result.content },
@@ -97,6 +103,7 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
       }
       if (result.kind === "reject_approval_with_guidance") {
         composerError = "";
+        clearCurrentComposerDraft();
         host.dispatchEvent(new CustomEvent("desktop-chat-approval-guidance-submit", {
           bubbles: true,
           detail: {
@@ -112,6 +119,7 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
       }
       if (result.kind === "queue_input") {
         composerError = "";
+        clearCurrentComposerDraft();
         currentQueuedInputs = [...currentQueuedInputs, result.input];
         logChatSurfaceAction(host, "composer.queue.add", {
           inputId: result.input.id,
@@ -129,6 +137,16 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
     },
     composerError() {
       return composerError;
+    },
+    composerDraft() {
+      return composerDrafts.get(currentComposerDraftKey()) ?? "";
+    },
+    updateComposerDraft(content) {
+      if (content) {
+        composerDrafts.set(currentComposerDraftKey(), content);
+        return;
+      }
+      clearCurrentComposerDraft();
     },
   });
   renderCurrent();
@@ -155,11 +173,13 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
 
 type ChatSurfaceActions = {
   closeDetail(): void;
+  composerDraft(): string;
   composerError(): string;
   continueQueuedInput(): void;
   deleteQueuedInput(inputId: string): void;
   openDetail(kind: ChatDetailPanelKind, targetId: string): void;
   submitComposer(content: string): { accepted: boolean };
+  updateComposerDraft(content: string): void;
 };
 
 function renderChatSurface(host: HTMLElement, projection: ChatUiProjection, actions: ChatSurfaceActions): void {
@@ -408,6 +428,10 @@ function renderComposer(mode: "normal" | "approval_guidance", actions: ChatSurfa
   input.className = "desktop-chat-surface__composer-input";
   input.setAttribute("data-chat-composer-input", "");
   input.setAttribute("placeholder", mode === "approval_guidance" ? "输入拒绝原因或下一步建议..." : "要求后续变更");
+  input.value = actions.composerDraft();
+  input.addEventListener("input", () => {
+    actions.updateComposerDraft(input.value);
+  });
   const button = element("button", "desktop-chat-surface__composer-send", "Send");
   button.type = "button";
   button.setAttribute("data-chat-composer-action", "send");
