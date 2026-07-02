@@ -51,20 +51,69 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
   let composerError = "";
   let sessionSearchQuery = "";
   const processExpansionOverrides = new Map<string, boolean>();
-  const composerDrafts = new Map<string, string>();
   const subagentDrafts = new Map<string, string>();
   const loadedSubagents = new Map<string, LiveSubagent>();
   const loadingSubagents = new Set<string>();
-  const currentComposerDraftKey = () => currentProjection.activeSessionKey || "new-session";
-  const clearCurrentComposerDraft = () => {
-    composerDrafts.delete(currentComposerDraftKey());
-  };
-  const appendCurrentComposerDraft = (content: string) => {
-    const key = currentComposerDraftKey();
-    const previous = composerDrafts.get(key)?.trimEnd() ?? "";
-    composerDrafts.set(key, previous ? `${previous}\n\n${content}` : content);
-  };
   const currentViewProjection = () => projectionWithLoadedSubagents(currentProjection, loadedSubagents);
+  const submitSharedComposerText = (content: string) => {
+    const result = submitComposerText({
+      approvals: currentProjection.approvals,
+      content,
+      isRunning: chatSurfaceHasRunningTurn(currentProjection),
+      now: new Date().toISOString(),
+      queuedInputs: currentQueuedInputs,
+    });
+    if (result.kind === "send_message") {
+      composerError = "";
+      host.dispatchEvent(new CustomEvent("desktop-chat-message-submit", {
+        bubbles: true,
+        detail: { content: result.content },
+      }));
+      logChatSurfaceAction(host, "composer.message.submit", { contentLength: result.content.length });
+      return { accepted: true };
+    }
+    if (result.kind === "reject_approval_with_guidance") {
+      composerError = "";
+      host.dispatchEvent(new CustomEvent("desktop-chat-approval-guidance-submit", {
+        bubbles: true,
+        detail: {
+          approvalId: result.approvalId,
+          guidance: result.guidance,
+        },
+      }));
+      logChatSurfaceAction(host, "composer.approval_guidance.submit", {
+        approvalId: result.approvalId,
+        guidanceLength: result.guidance.length,
+      });
+      return { accepted: true };
+    }
+    if (result.kind === "queue_input") {
+      composerError = "";
+      currentQueuedInputs = [...currentQueuedInputs, result.input];
+      logChatSurfaceAction(host, "composer.queue.add", {
+        inputId: result.input.id,
+        queueLength: currentQueuedInputs.length,
+      });
+      renderCurrent();
+      return { accepted: true };
+    }
+    composerError = result.message;
+    logChatSurfaceAction(host, "composer.queue.limit", {
+      maxQueuedInputs: result.maxQueuedInputs,
+    });
+    renderCurrent();
+    return { accepted: false };
+  };
+  const handleSharedComposerSubmit = (event: Event) => {
+    const detail = (event as CustomEvent).detail;
+    if (!detail || typeof detail.content !== "string") {
+      return;
+    }
+    const result = submitSharedComposerText(detail.content);
+    detail.handled = true;
+    detail.accepted = result.accepted;
+  };
+  host.addEventListener("desktop-chat-composer-submit-request", handleSharedComposerSubmit);
   const renderCurrent = () => renderChatSurface(host, {
     ...currentViewProjection(),
     detailPanel: currentDetailPanel,
@@ -206,7 +255,7 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
         return;
       }
       const block = createSubagentForwardBlock(subagent, selectedIds);
-      appendCurrentComposerDraft(block.fallbackText);
+      appendSharedComposerDraft(host, block.fallbackText);
       logChatSurfaceAction(host, "subagent.forward.append", {
         messageCount: block.messages.length,
         subagentId,
@@ -230,58 +279,6 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
       });
       renderCurrent();
     },
-    submitComposer(content) {
-      const result = submitComposerText({
-        approvals: currentProjection.approvals,
-        content,
-        isRunning: chatSurfaceHasRunningTurn(currentProjection),
-        now: new Date().toISOString(),
-        queuedInputs: currentQueuedInputs,
-      });
-      if (result.kind === "send_message") {
-        composerError = "";
-        clearCurrentComposerDraft();
-        host.dispatchEvent(new CustomEvent("desktop-chat-message-submit", {
-          bubbles: true,
-          detail: { content: result.content },
-        }));
-        logChatSurfaceAction(host, "composer.message.submit", { contentLength: result.content.length });
-        return { accepted: true };
-      }
-      if (result.kind === "reject_approval_with_guidance") {
-        composerError = "";
-        clearCurrentComposerDraft();
-        host.dispatchEvent(new CustomEvent("desktop-chat-approval-guidance-submit", {
-          bubbles: true,
-          detail: {
-            approvalId: result.approvalId,
-            guidance: result.guidance,
-          },
-        }));
-        logChatSurfaceAction(host, "composer.approval_guidance.submit", {
-          approvalId: result.approvalId,
-          guidanceLength: result.guidance.length,
-        });
-        return { accepted: true };
-      }
-      if (result.kind === "queue_input") {
-        composerError = "";
-        clearCurrentComposerDraft();
-        currentQueuedInputs = [...currentQueuedInputs, result.input];
-        logChatSurfaceAction(host, "composer.queue.add", {
-          inputId: result.input.id,
-          queueLength: currentQueuedInputs.length,
-        });
-        renderCurrent();
-        return { accepted: true };
-      }
-      composerError = result.message;
-      logChatSurfaceAction(host, "composer.queue.limit", {
-        maxQueuedInputs: result.maxQueuedInputs,
-      });
-      renderCurrent();
-      return { accepted: false };
-    },
     toggleProcess(turnId) {
       const turn = currentProjection.turns.find((candidate) => candidate.id === turnId);
       if (!turn?.process) {
@@ -298,16 +295,6 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
     },
     composerError() {
       return composerError;
-    },
-    composerDraft() {
-      return composerDrafts.get(currentComposerDraftKey()) ?? "";
-    },
-    updateComposerDraft(content) {
-      if (content) {
-        composerDrafts.set(currentComposerDraftKey(), content);
-        return;
-      }
-      clearCurrentComposerDraft();
     },
     subagentDraft(subagentId) {
       return subagentDrafts.get(subagentId) ?? "";
@@ -364,6 +351,7 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
       renderCurrent();
     },
     unmount() {
+      host.removeEventListener("desktop-chat-composer-submit-request", handleSharedComposerSubmit);
       host.replaceChildren();
       host.removeAttribute("data-chat-surface");
       host.className = "";
@@ -417,7 +405,6 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
 type ChatSurfaceActions = {
   branchFromTurn(turnId: string): void;
   closeDetail(): void;
-  composerDraft(): string;
   composerError(): string;
   continueQueuedInput(): void;
   copyDetail(content: string, source: string): void;
@@ -429,10 +416,8 @@ type ChatSurfaceActions = {
   sessionAction(action: "pin" | "unpin" | "rename" | "delete" | "copy-session-id" | "copy-markdown"): void;
   startNewSession(): void;
   subagentDraft(subagentId: string): string;
-  submitComposer(content: string): { accepted: boolean };
   submitSubagentMessage(subagentId: string, content: string): { accepted: boolean };
   toggleProcess(turnId: string): void;
-  updateComposerDraft(content: string): void;
   updateSessionSearch(query: string): void;
   updateSubagentDraft(subagentId: string, content: string): void;
 };
@@ -832,24 +817,6 @@ function renderComposer(mode: "normal" | "approval_guidance", actions: ChatSurfa
   if (mode === "approval_guidance") {
     composer.append(element("p", "desktop-chat-surface__composer-hint", "发送文字将拒绝此请求，并作为给 Tinybot 的指导。"));
   }
-  const input = activeDocument.createElement("textarea");
-  input.className = "desktop-chat-surface__composer-input";
-  input.setAttribute("data-chat-composer-input", "");
-  input.setAttribute("placeholder", mode === "approval_guidance" ? "输入拒绝原因或下一步建议..." : "要求后续变更");
-  input.value = actions.composerDraft();
-  input.addEventListener("input", () => {
-    actions.updateComposerDraft(input.value);
-  });
-  const button = element("button", "desktop-chat-surface__composer-send", "Send");
-  button.type = "button";
-  button.setAttribute("data-chat-composer-action", "send");
-  button.addEventListener("click", () => {
-    const result = actions.submitComposer(input.value);
-    if (result.accepted) {
-      input.value = "";
-    }
-  });
-  composer.append(input, button);
   const error = actions.composerError();
   if (error) {
     const errorNode = element("p", "desktop-chat-surface__composer-error", error);
@@ -857,6 +824,16 @@ function renderComposer(mode: "normal" | "approval_guidance", actions: ChatSurfa
     composer.append(errorNode);
   }
   return composer;
+}
+
+function appendSharedComposerDraft(host: HTMLElement, content: string): void {
+  const input = host.ownerDocument.getElementById("desktop-native-composer-input") as HTMLTextAreaElement | null;
+  if (!input) {
+    return;
+  }
+  const previous = input.value.trimEnd();
+  input.value = previous ? `${previous}\n\n${content}` : content;
+  input.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
 function renderSubagentDetail(subagents: LiveSubagent[], panel: DetailPanelState, actions: ChatSurfaceActions): HTMLElement {

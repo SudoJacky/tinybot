@@ -13,6 +13,7 @@ export interface ComposerSurfaceSubmitEvent {
 
 export interface ComposerSurfaceIslandOptions {
   activeSessionKey?: string | null;
+  canSubmitWhileBusy?: boolean;
   composerState: ComposerSurfaceState;
   model?: string | null;
   modelOptions?: string[];
@@ -107,7 +108,7 @@ function createComposerSurfaceApp(state: Ref<ComposerSurfaceIslandOptions>): App
     setup() {
       const content = ref("");
       const input = ref<HTMLTextAreaElement | null>(null);
-      const canSend = () => state.value.composerState === "idle" && Boolean(content.value.trim());
+      const canSend = () => Boolean(content.value.trim()) && (state.value.composerState === "idle" || state.value.canSubmitWhileBusy === true);
       const send = () => {
         if (!canSend()) {
           return;

@@ -902,6 +902,7 @@ describe("desktop workbench shell", () => {
   test("routes native composer send and temporary file attach actions", () => {
     const targetDocument = new FakeDocument();
     const composerActions: string[] = [];
+    const surfaceSubmissions: unknown[] = [];
 
     installDesktopWorkbenchShell({
       targetDocument: targetDocument as unknown as Document,
@@ -927,6 +928,9 @@ describe("desktop workbench shell", () => {
         },
       },
     });
+    targetDocument.body.querySelector(".desktop-chat-surface")?.addEventListener("desktop-chat-message-submit", (event) => {
+      surfaceSubmissions.push((event as CustomEvent).detail);
+    });
 
     const input = targetDocument.getElementById("desktop-native-composer-input");
     const send = targetDocument.getElementById("desktop-native-composer-send");
@@ -947,7 +951,52 @@ describe("desktop workbench shell", () => {
     expect(ragToggle?.getAttribute("aria-pressed")).toBe("false");
     ragToggle?.click();
 
-    expect(composerActions).toEqual(["send:Run live composer:false", "attach", "rag:true"]);
+    expect(surfaceSubmissions).toEqual([{ content: "Run live composer" }]);
+    expect(composerActions).toEqual(["attach", "rag:true"]);
+  });
+
+  test("routes native composer submit through the rebuilt chat surface when available", () => {
+    const targetDocument = new FakeDocument();
+    const composerActions: string[] = [];
+    const surfaceRequests: unknown[] = [];
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      chat: {
+        sessions: [{ key: "WebSocket:chat-live", chatId: "chat-live", title: "Live session", createdAt: "", updatedAt: "" }],
+        activeSessionKey: "WebSocket:chat-live",
+        activeChatId: "chat-live",
+        messages: [],
+        responding: true,
+        composerState: "sending",
+        usePersistentRag: false,
+      },
+      chatActions: {
+        onComposerSubmit: (event) => {
+          composerActions.push(`send:${event.content}:${event.usePersistentRag}`);
+        },
+      },
+    });
+    const thread = targetDocument.body.querySelector(".desktop-conversation-thread");
+    thread?.addEventListener("desktop-chat-composer-submit-request", (event) => {
+      const detail = (event as CustomEvent).detail;
+      surfaceRequests.push({ content: detail.content, usePersistentRag: detail.usePersistentRag });
+      detail.handled = true;
+      detail.accepted = true;
+    });
+
+    const input = targetDocument.getElementById("desktop-native-composer-input") as HTMLTextAreaElement | null;
+    const send = targetDocument.getElementById("desktop-native-composer-send");
+    input!.value = "Queue this while running";
+    input!.dispatchEvent(new Event("input"));
+    expect(send?.getAttribute("disabled")).toBeNull();
+
+    send?.click();
+
+    expect(surfaceRequests).toEqual([{ content: "Queue this while running", usePersistentRag: false }]);
+    expect(composerActions).toEqual([]);
   });
 
   test("styles native composer input without focus chrome or manual resizing", () => {
@@ -1092,14 +1141,12 @@ describe("desktop workbench shell", () => {
     expect(workbenchSettingsSidebarRule).toContain("min-height: 100%;");
     expect(workbenchSettingsSidebarRule).toContain("overflow: visible;");
 
-    const chatHeader = targetDocument.body.querySelector(".desktop-chat-header");
     const conversationThread = targetDocument.body.querySelector(".desktop-conversation-thread");
     const composerModel = targetDocument.body.querySelector(".desktop-native-composer-model");
-    expect(chatHeader).toBeTruthy();
+    expect(targetDocument.body.querySelector(".desktop-chat-header")).toBeNull();
+    expect(targetDocument.body.querySelector(".desktop-chat-surface__header")).toBeNull();
     expect(conversationThread).toBeTruthy();
     expect(composerModel).toBeTruthy();
-    expect(chatHeader?.querySelector(".desktop-chat-context")?.textContent).toBe("tinybot");
-    expect(chatHeader?.textContent).toContain("Design native workbench");
     expect(conversationThread?.textContent).toContain("这是目前的 native 界面");
     expect(composerModel?.textContent).toContain("Tinybot Pro");
 
@@ -1109,6 +1156,25 @@ describe("desktop workbench shell", () => {
     expect(inspector?.textContent).not.toContain("Gateway");
     expect(targetDocument.body.querySelector(".desktop-run-chain-tabs")).toBeNull();
     expect(targetDocument.body.querySelector(".desktop-run-chain-cards")).toBeNull();
+  });
+
+  test("uses the rebuilt chat surface header as the only chat title", () => {
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      chat: {
+        sessions: [{ key: "WebSocket:chat-live", chatId: "chat-live", title: "Live session", createdAt: "", updatedAt: "" }],
+        activeSessionKey: "WebSocket:chat-live",
+        activeChatId: "chat-live",
+        messages: [],
+      },
+    });
+
+    expect(targetDocument.body.querySelector(".desktop-chat-header")).toBeNull();
+    expect(targetDocument.body.querySelector(".desktop-chat-surface__header")?.textContent).toContain("Live session");
   });
 
   test.skip("renders explicit desktop navigation links for workbench, docs, gateway, and external routes", () => {
@@ -1405,11 +1471,12 @@ describe("desktop workbench shell", () => {
     const row = targetDocument.body.querySelector('[data-session-key="7e9e439b4487"]');
     expect(row?.getAttribute("aria-current")).toBe("true");
     expect(row?.textContent).toContain("你好");
-    expect(targetDocument.body.querySelector(".desktop-chat-header")?.textContent).toContain("你好");
-    expect(targetDocument.body.querySelector(".desktop-chat-header")?.textContent).not.toContain("New session");
+    expect(targetDocument.body.querySelector(".desktop-chat-header")).toBeNull();
+    expect(targetDocument.body.querySelector(".desktop-chat-surface__header")?.textContent).toContain("你好");
+    expect(targetDocument.body.querySelector(".desktop-chat-surface__header")?.textContent).not.toContain("New session");
   });
 
-  test("keeps panel controls out of the workbench chrome and chat header", () => {
+  test("keeps panel controls out of the workbench chrome and rebuilt chat header", () => {
     const targetDocument = new FakeDocument();
 
     installDesktopWorkbenchShell({
@@ -1425,35 +1492,25 @@ describe("desktop workbench shell", () => {
       },
     });
 
-    const header = targetDocument.body.querySelector(".desktop-chat-header");
+    const header = targetDocument.body.querySelector(".desktop-chat-surface__header");
+    expect(targetDocument.body.querySelector(".desktop-chat-header")).toBeNull();
     expect(header?.textContent).toContain("Session one");
-    expect(header?.textContent).toContain("...");
     expect(header?.textContent).not.toContain("Session loaded from gateway.");
     expect(targetDocument.body.querySelector(".desktop-chat-runtime-status")).toBeNull();
-    expect(header?.querySelector(".desktop-chat-menu")?.getAttribute("data-desktop-chat-menu")).toBe("more");
-    expect(header?.querySelector(".desktop-chat-menu")?.textContent).toBe("...");
-    const titleRow = header?.querySelector(".desktop-chat-title-row");
-    const headerActions = header?.querySelector(".desktop-chat-header-actions");
-    expect(titleRow?.children[0]?.className).toBe("desktop-chat-title-group");
-    expect(titleRow?.querySelector('[data-desktop-panel-control="sidebar"]')).toBeNull();
-    expect(headerActions?.querySelector('[data-desktop-panel-control="sidebar"]')).toBeNull();
-    expect(headerActions?.querySelector('[data-desktop-panel-control="inspector"]')).toBeNull();
+    expect(header?.querySelector('[data-desktop-panel-control="sidebar"]')).toBeNull();
+    expect(header?.querySelector('[data-desktop-panel-control="inspector"]')).toBeNull();
     expect(targetDocument.body.querySelector(".desktop-global-panel-controls")).toBeNull();
     expect(targetDocument.body.querySelectorAll("[data-desktop-panel-control]")).toEqual([]);
     expect(targetDocument.body.querySelector("[data-desktop-inspector-restore]")).toBeNull();
   });
 
-  test("keeps the chat header focused on title actions and stop state", () => {
+  test("keeps the rebuilt chat header focused on title actions", () => {
     const targetDocument = new FakeDocument();
-    const interrupts: string[] = [];
 
     installDesktopWorkbenchShell({
       targetDocument: targetDocument as unknown as Document,
       layout: createDefaultWorkbenchLayout(),
       gatewayHttp: "http://127.0.0.1:18790",
-      chatActions: {
-        onInterrupt: () => interrupts.push("stop"),
-      },
       chat: {
         sessions: [{ key: "WebSocket:chat-live", chatId: "chat-live", title: "Live session", createdAt: "", updatedAt: "" }],
         activeSessionKey: "WebSocket:chat-live",
@@ -1475,137 +1532,13 @@ describe("desktop workbench shell", () => {
       },
     });
 
-    const header = targetDocument.body.querySelector(".desktop-chat-header");
-    expect(header?.querySelectorAll(".desktop-chat-header-chip")).toHaveLength(0);
+    const header = targetDocument.body.querySelector(".desktop-chat-surface__header");
+    expect(targetDocument.body.querySelector(".desktop-chat-header")).toBeNull();
     expect(header?.textContent).not.toContain("Model deepseek-chat");
     expect(header?.textContent).not.toContain("Knowledge Off");
     expect(header?.textContent).not.toContain("1 ref");
     expect(header?.textContent).not.toContain("42% tokens");
-
-    const stop = header?.querySelector('[data-desktop-chat-action="stop"]') as HTMLButtonElement | null | undefined;
-    expect(stop?.getAttribute("aria-label")).toBe("Stop current response");
-    expect(stop?.textContent).toBe("Stop");
-    stop?.click();
-    expect(interrupts).toEqual(["stop"]);
-  });
-
-  test("opens chat header menu actions and updates the active session affordances", () => {
-    const targetDocument = new FakeDocument();
-    (targetDocument as unknown as { defaultView: { prompt: () => string } }).defaultView = {
-      prompt: () => {
-        throw new Error("Rename session should edit inline instead of opening a prompt.");
-      },
-    };
-    const pinEvents: unknown[] = [];
-    const renameEvents: unknown[] = [];
-
-    installDesktopWorkbenchShell({
-      targetDocument: targetDocument as unknown as Document,
-      layout: createDefaultWorkbenchLayout(),
-      gatewayHttp: "http://127.0.0.1:18790",
-      chat: {
-        sessions: [
-          { key: "WebSocket:chat-2", chatId: "chat-2", title: "Session two", createdAt: "", updatedAt: "" },
-          { key: "WebSocket:chat-1", chatId: "chat-1", title: "Session one", createdAt: "", updatedAt: "" },
-        ],
-        activeSessionKey: "WebSocket:chat-1",
-        activeChatId: "chat-1",
-        messages: [],
-      },
-      chatActions: {
-        onPinSession: (event) => pinEvents.push(event),
-        onRenameSession: (event) => renameEvents.push(event),
-      },
-    });
-
-    const header = targetDocument.body.querySelector(".desktop-chat-header");
-    const menu = header?.querySelector(".desktop-chat-menu");
-    const popover = header?.querySelector(".desktop-chat-menu-popover") as unknown as { hidden: boolean } | null;
-    expect(menu?.getAttribute("aria-expanded")).toBe("false");
-    expect(popover?.hidden).toBe(true);
-
-    menu?.click();
-    expect(menu?.getAttribute("aria-expanded")).toBe("true");
-    expect(popover?.hidden).toBe(false);
-    targetDocument.dispatchEvent({ type: "click" });
-    expect(menu?.getAttribute("aria-expanded")).toBe("false");
-    expect(popover?.hidden).toBe(true);
-
-    menu?.click();
-    expect(menu?.getAttribute("aria-expanded")).toBe("true");
-    expect(popover?.hidden).toBe(false);
-    header?.querySelector('[data-desktop-chat-menu-action="pin"]')?.click();
-    expect(pinEvents).toEqual([{ sessionKey: "WebSocket:chat-1", chatId: "chat-1", title: "Session one", pinned: true }]);
-    expect(targetDocument.body.querySelector('[data-desktop-session-key]')).toBeNull();
-    expect(header?.querySelector('[data-desktop-chat-menu-action="pin"]')?.textContent).toBe("Unpin session");
-    expect(menu?.getAttribute("aria-expanded")).toBe("false");
-
-    menu?.click();
-    header?.querySelector('[data-desktop-chat-menu-action="rename"]')?.click();
-    const editor = header?.querySelector(".desktop-chat-title-editor");
-    expect(editor).toBeTruthy();
-    expect(editor?.getAttribute("aria-label")).toBe("Rename session");
-    expect(editor?.value).toBe("Session one");
-    editor!.value = "Renamed session";
-    editor!.dispatchEvent({ type: "keydown", key: "Enter", preventDefault: () => undefined });
-    expect(renameEvents).toEqual([{ sessionKey: "WebSocket:chat-1", chatId: "chat-1", title: "Renamed session" }]);
-    expect(header?.querySelector(".desktop-chat-title")?.textContent).toBe("Renamed session");
-    expect(header?.querySelector('[data-desktop-panel-control="sidebar"]')).toBeNull();
-    expect(header?.querySelector('[data-desktop-panel-control="inspector"]')).toBeNull();
-    expect(targetDocument.body.querySelector(".desktop-global-panel-controls")).toBeNull();
-  });
-
-  test("anchors the chat header menu popover inside the main work area", () => {
-    const targetDocument = new FakeDocument();
-
-    installDesktopWorkbenchShell({
-      targetDocument: targetDocument as unknown as Document,
-      layout: createDefaultWorkbenchLayout(),
-      gatewayHttp: "http://127.0.0.1:18790",
-      chat: {
-        sessions: [{ key: "WebSocket:chat-1", chatId: "chat-1", title: "你好", createdAt: "", updatedAt: "" }],
-        activeSessionKey: "WebSocket:chat-1",
-        activeChatId: "chat-1",
-        messages: [],
-      },
-    });
-
-    const styleText = targetDocument.head.querySelector("#desktop-workbench-shell-style")?.textContent ?? "";
-    expect(styleText).toContain("body.desktop-native-workbench .desktop-chat-menu-popover");
-    expect(styleText).toContain("left: 0;");
-    expect(styleText).toContain("right: auto;");
-    expect(styleText).not.toContain("right: 0;\n      z-index: 8;");
-  });
-
-  test("preserves pinned sessions when native chat refreshes", () => {
-    const targetDocument = new FakeDocument();
-    const chat = {
-      sessions: [
-        { key: "WebSocket:chat-2", chatId: "chat-2", title: "Session two", createdAt: "", updatedAt: "" },
-        { key: "WebSocket:chat-1", chatId: "chat-1", title: "Session one", createdAt: "", updatedAt: "" },
-      ],
-      activeSessionKey: "WebSocket:chat-1",
-      activeChatId: "chat-1",
-      messages: [],
-    };
-
-    installDesktopWorkbenchShell({
-      targetDocument: targetDocument as unknown as Document,
-      layout: createDefaultWorkbenchLayout(),
-      gatewayHttp: "http://127.0.0.1:18790",
-      chat,
-    });
-
-    const header = targetDocument.body.querySelector(".desktop-chat-header");
-    header?.querySelector(".desktop-chat-menu")?.click();
-    header?.querySelector('[data-desktop-chat-menu-action="pin"]')?.click();
-
-    updateDesktopNativeChat(targetDocument as unknown as Document, chat, "http://127.0.0.1:18790");
-
-    expect(targetDocument.body.querySelector('[data-desktop-session-key]')).toBeNull();
-    const refreshedHeader = targetDocument.body.querySelector(".desktop-chat-header");
-    refreshedHeader?.querySelector(".desktop-chat-menu")?.click();
-    expect(refreshedHeader?.querySelector('[data-desktop-chat-menu-action="pin"]')?.textContent).toBe("Unpin session");
+    expect(header?.querySelector('[data-chat-header-action="pin"]')).toBeTruthy();
   });
 
   test("does not render duplicate panel controls inside the workbench shell", () => {
@@ -1618,7 +1551,8 @@ describe("desktop workbench shell", () => {
     });
 
     expect(targetDocument.body.querySelector(".desktop-global-panel-controls")).toBeNull();
-    expect(targetDocument.body.querySelector(".desktop-chat-header")?.querySelector("[data-desktop-panel-control]")).toBeNull();
+    expect(targetDocument.body.querySelector(".desktop-chat-header")).toBeNull();
+    expect(targetDocument.body.querySelector(".desktop-chat-surface__header")?.querySelector("[data-desktop-panel-control]") ?? null).toBeNull();
     expect(targetDocument.body.querySelectorAll("[data-desktop-panel-control]")).toEqual([]);
   });
 
@@ -4327,9 +4261,7 @@ describe("desktop workbench shell", () => {
     expect(styleText).toContain('html[data-theme="dark"] body.desktop-native-workbench .desktop-workspace-files');
     expect(styleText).toContain('html[data-theme="dark"] body.desktop-native-workbench .desktop-sidebar-chat-row[data-active="true"]');
     expect(styleText).toContain('html[data-theme="dark"] body.desktop-native-workbench .desktop-sidebar-chat-row:hover');
-    expect(styleText).toContain('html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-header h1');
     expect(styleText).toContain('html[data-theme="dark"] body.desktop-native-workbench .desktop-conversation-content');
-    expect(styleText).toContain('html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-menu-popover');
     expect(styleText).toContain('html[data-theme="dark"] body.desktop-native-workbench .desktop-sidebar-search');
     expect(styleText).toContain('html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-model');
   });

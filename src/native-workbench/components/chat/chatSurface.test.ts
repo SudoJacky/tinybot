@@ -4,6 +4,20 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { mountChatSurface } from "./chatSurface";
 import type { ChatUiProjection } from "../../chat/chatUiProjection";
 
+function dispatchSharedComposerSubmit(host: HTMLElement, content: string) {
+  const detail = {
+    accepted: false,
+    content,
+    handled: false,
+    usePersistentRag: false,
+  };
+  host.dispatchEvent(new CustomEvent("desktop-chat-composer-submit-request", {
+    bubbles: true,
+    detail,
+  }));
+  return detail;
+}
+
 describe("rebuilt chat surface", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -459,8 +473,12 @@ describe("rebuilt chat surface", () => {
     expect(host.querySelector("[data-chat-region='detail-surface']")?.textContent).toContain("Messages are sent only to this subagent");
   });
 
-  test("forwards selected subagent messages into the main composer draft", () => {
+  test("forwards selected subagent messages into the shared bottom composer draft", () => {
     const host = document.createElement("section");
+    const bottomComposer = document.createElement("textarea");
+    bottomComposer.id = "desktop-native-composer-input";
+    bottomComposer.value = "Continue from this context.";
+    document.body.append(bottomComposer);
     const projection = fixtureProjection();
     projection.liveSubagents = [{
       id: "delegate-forward",
@@ -490,17 +508,14 @@ describe("rebuilt chat surface", () => {
 
     mountChatSurface(host, { projection });
 
-    const composerInput = host.querySelector<HTMLTextAreaElement>("[data-chat-composer-input]");
-    composerInput!.value = "Continue from this context.";
-    composerInput!.dispatchEvent(new Event("input", { bubbles: true }));
     host.querySelector<HTMLInputElement>("[data-subagent-message-select='sub-msg-assistant']")!.checked = true;
     host.querySelector<HTMLButtonElement>("[data-subagent-action='forward']")?.click();
 
-    const draft = host.querySelector<HTMLTextAreaElement>("[data-chat-composer-input]")?.value ?? "";
-    expect(draft).toContain("Continue from this context.");
-    expect(draft).toContain("Forwarded from subagent: Researcher");
-    expect(draft).toContain("assistant: Use read-only analysis.");
-    expect(draft).not.toContain("Prefer lower risk.");
+    expect(bottomComposer.value).toContain("Continue from this context.");
+    expect(bottomComposer.value).toContain("Forwarded from subagent: Researcher");
+    expect(bottomComposer.value).toContain("assistant: Use read-only analysis.");
+    expect(bottomComposer.value).not.toContain("Prefer lower risk.");
+    bottomComposer.remove();
   });
 
   test("preserves subagent message drafts by subagent panel", () => {
@@ -894,7 +909,16 @@ describe("rebuilt chat surface", () => {
     }]);
   });
 
-  test("submits normal composer text as a main chat message event", () => {
+  test("does not render a second main composer inside the chat surface", () => {
+    const host = document.createElement("section");
+
+    mountChatSurface(host, { projection: fixtureProjection() });
+
+    expect(host.querySelector("[data-chat-composer-input]")).toBeNull();
+    expect(host.querySelector("[data-chat-composer-action='send']")).toBeNull();
+  });
+
+  test("submits shared bottom composer text as a main chat message event", () => {
     const host = document.createElement("section");
     const submissions: unknown[] = [];
     host.addEventListener("desktop-chat-message-submit", (event) => {
@@ -903,54 +927,14 @@ describe("rebuilt chat surface", () => {
 
     mountChatSurface(host, { projection: fixtureProjection() });
 
-    const input = host.querySelector<HTMLTextAreaElement>("[data-chat-composer-input]");
-    input!.value = "Continue with the local docs.";
-    host.querySelector<HTMLButtonElement>("[data-chat-composer-action='send']")?.click();
+    const request = dispatchSharedComposerSubmit(host, "Continue with the local docs.");
 
     expect(submissions).toEqual([{ content: "Continue with the local docs." }]);
-    expect(input?.value).toBe("");
+    expect(request.handled).toBe(true);
+    expect(request.accepted).toBe(true);
   });
 
-  test("preserves composer drafts per active session across surface updates", () => {
-    const host = document.createElement("section");
-    const mounted = mountChatSurface(host, { projection: fixtureProjection() });
-    const firstInput = host.querySelector<HTMLTextAreaElement>("[data-chat-composer-input]");
-    firstInput!.value = "Draft for chat one";
-    firstInput!.dispatchEvent(new Event("input", { bubbles: true }));
-
-    mounted.update({ projection: fixtureProjection() });
-
-    expect(host.querySelector<HTMLTextAreaElement>("[data-chat-composer-input]")?.value).toBe("Draft for chat one");
-
-    const secondProjection = fixtureProjection();
-    secondProjection.activeSessionKey = "websocket:chat-2";
-    secondProjection.sessions = [
-      { ...secondProjection.sessions[0], isActive: false },
-      {
-        key: "websocket:chat-2",
-        chatId: "chat-2",
-        title: "Second chat",
-        createdAt: "2026-07-01T11:00:00Z",
-        updatedAt: "2026-07-01T11:05:00Z",
-        primaryBadge: "updated_time",
-        isActive: true,
-      },
-    ];
-    mounted.update({ projection: secondProjection });
-
-    const secondInput = host.querySelector<HTMLTextAreaElement>("[data-chat-composer-input]");
-    expect(secondInput?.value).toBe("");
-    secondInput!.value = "Draft for chat two";
-    secondInput!.dispatchEvent(new Event("input", { bubbles: true }));
-
-    mounted.update({ projection: fixtureProjection() });
-    expect(host.querySelector<HTMLTextAreaElement>("[data-chat-composer-input]")?.value).toBe("Draft for chat one");
-
-    mounted.update({ projection: secondProjection });
-    expect(host.querySelector<HTMLTextAreaElement>("[data-chat-composer-input]")?.value).toBe("Draft for chat two");
-  });
-
-  test("submits composer text as approval guidance while approval is pending", () => {
+  test("submits shared bottom composer text as approval guidance while approval is pending", () => {
     const host = document.createElement("section");
     const guidanceSubmissions: unknown[] = [];
     host.addEventListener("desktop-chat-approval-guidance-submit", (event) => {
@@ -968,18 +952,18 @@ describe("rebuilt chat surface", () => {
 
     mountChatSurface(host, { projection });
 
-    const input = host.querySelector<HTMLTextAreaElement>("[data-chat-composer-input]");
-    input!.value = "Do not write files; summarize only.";
-    host.querySelector<HTMLButtonElement>("[data-chat-composer-action='send']")?.click();
+    const request = dispatchSharedComposerSubmit(host, "Do not write files; summarize only.");
 
     expect(guidanceSubmissions).toEqual([{
       approvalId: "approval-1",
       guidance: "Do not write files; summarize only.",
     }]);
+    expect(request.handled).toBe(true);
+    expect(request.accepted).toBe(true);
     expect(host.querySelector("[data-chat-region='queued-inputs']")).toBeNull();
   });
 
-  test("queues composer text while the assistant turn is running and supports deleting it", () => {
+  test("queues shared bottom composer text while the assistant turn is running and supports deleting it", () => {
     const host = document.createElement("section");
     const projection = fixtureProjection();
     projection.turns[1] = {
@@ -993,13 +977,12 @@ describe("rebuilt chat surface", () => {
 
     mountChatSurface(host, { projection });
 
-    const input = host.querySelector<HTMLTextAreaElement>("[data-chat-composer-input]");
-    input!.value = "Summarize after the tools finish.";
-    host.querySelector<HTMLButtonElement>("[data-chat-composer-action='send']")?.click();
+    const request = dispatchSharedComposerSubmit(host, "Summarize after the tools finish.");
 
     const queue = host.querySelector("[data-chat-region='queued-inputs']");
     expect(queue?.textContent).toContain("Summarize after the tools finish.");
-    expect(host.querySelector("[data-chat-composer-input]")?.textContent).toBe("");
+    expect(request.handled).toBe(true);
+    expect(request.accepted).toBe(true);
 
     host.querySelector<HTMLButtonElement>("[data-queued-input-action='delete']")?.click();
 
