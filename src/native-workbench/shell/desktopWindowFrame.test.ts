@@ -340,9 +340,9 @@ describe("desktop window frame", () => {
     expect(resourcesTrigger?.getAttribute("aria-expanded")).toBe("true");
     expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-chat"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Chat");
     expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-workspace"]')).toBeNull();
-    expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-files"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Files");
-    expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-knowledge"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Knowledge");
-    expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-cowork"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Cowork");
+    expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-files"]')).toBeNull();
+    expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-knowledge"]')).toBeNull();
+    expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-cowork"]')).toBeNull();
     expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-settings"]')).toBeNull();
     expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-docs"]')).toBeNull();
     expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-tinybot-repo"]')).toBeNull();
