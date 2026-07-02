@@ -198,6 +198,12 @@ struct WorkerSessionPatchInput {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct WorkerSessionBranchInput {
+    body: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct WorkerSessionTemporaryFileUploadInput {
     key: String,
     body: serde_json::Value,
@@ -699,6 +705,20 @@ fn worker_session_patch(
     worker_session_patch_with_options(
         state.inner(),
         input.key,
+        input.body,
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_session_branch(
+    input: WorkerSessionBranchInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_session_branch_with_options(
+        state.inner(),
         input.body,
         native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
@@ -2079,8 +2099,8 @@ fn worker_session_messages_with_options(
 ) -> Result<serde_json::Value, String> {
     let request_id = next_worker_request_correlation();
     let mut history = call_rust_state_service(
-        workspace_root,
-        config_snapshot,
+        workspace_root.clone(),
+        config_snapshot.clone(),
         WorkerRequest::new(
             request_id.id("session-messages"),
             request_id.trace_id("session-messages"),
@@ -2105,6 +2125,7 @@ fn worker_session_messages_with_options(
         "chat_id".to_string(),
         serde_json::Value::String(session_chat_id_from_key(&session_id)),
     );
+    enrich_session_history_metadata(object, &session_id, workspace_root, config_snapshot);
     Ok(history)
 }
 
@@ -2238,6 +2259,69 @@ fn worker_session_patch_with_options(
     webui_session_item(&session)
 }
 
+fn worker_session_branch_with_options(
+    _shared: &SharedGateway,
+    body: serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    let branch_key = branch_session_key(&body, request_id.suffix());
+    let messages = branch_messages(&body);
+    if messages.is_empty() {
+        return Err("worker session branch failed: branch messages are required".to_string());
+    }
+    let title = branch_string(&body, "title").unwrap_or_else(|| "Branched session".to_string());
+    let source_session = branch_string(&body, "branchedFromSessionId")
+        .or_else(|| branch_string(&body, "branched_from_session_id"))
+        .unwrap_or_default();
+    let source_message = branch_string(&body, "branchedFromMessageId")
+        .or_else(|| branch_string(&body, "branched_from_message_id"))
+        .unwrap_or_default();
+    let portable_context = body
+        .get("portableContext")
+        .or_else(|| body.get("portable_context"))
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    call_rust_state_service(
+        workspace_root.clone(),
+        config_snapshot.clone(),
+        WorkerRequest::new(
+            request_id.id("session-branch-append"),
+            request_id.trace_id("session-branch-append"),
+            "session.append_messages",
+            serde_json::json!({
+                "session_id": branch_key.clone(),
+                "messages": messages,
+            }),
+        ),
+        "worker session branch append",
+    )?;
+    let session = call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("session-branch-metadata"),
+            request_id.trace_id("session-branch-metadata"),
+            "session.patch_metadata",
+            serde_json::json!({
+                "session_id": branch_key,
+                "metadata": {
+                    "title": title,
+                    "branch": {
+                        "branchedFromSessionId": source_session,
+                        "branchedFromMessageId": source_message,
+                        "portableContext": portable_context,
+                    },
+                },
+            }),
+        ),
+        "worker session branch metadata",
+    )?;
+    webui_session_item(&session)
+}
+
 fn worker_session_clear_with_options(
     _shared: &SharedGateway,
     key: String,
@@ -2326,9 +2410,80 @@ fn webui_session_item(session: &serde_json::Value) -> Result<serde_json::Value, 
         .and_then(|extra| extra.get("metadata"))
         .cloned()
     {
+        if let Some(title) = metadata.get("title").and_then(serde_json::Value::as_str) {
+            item.insert(
+                "title".to_string(),
+                serde_json::Value::String(title.to_string()),
+            );
+        }
         item.insert("metadata".to_string(), metadata);
     }
     Ok(serde_json::Value::Object(item))
+}
+
+fn enrich_session_history_metadata(
+    object: &mut serde_json::Map<String, serde_json::Value>,
+    session_id: &str,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+) {
+    let request_id = next_worker_request_correlation();
+    let Ok(metadata) = call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("session-history-metadata"),
+            request_id.trace_id("session-history-metadata"),
+            "session.get_metadata",
+            serde_json::json!({ "session_id": session_id }),
+        ),
+        "worker session history metadata",
+    ) else {
+        return;
+    };
+    if let Some(branch) = metadata
+        .get("extra")
+        .and_then(|extra| extra.get("metadata"))
+        .and_then(|metadata| metadata.get("branch"))
+        .cloned()
+    {
+        object.insert("branch".to_string(), branch);
+    }
+}
+
+fn branch_session_key(body: &serde_json::Value, fallback_suffix: &str) -> String {
+    branch_string(body, "sessionKey")
+        .or_else(|| branch_string(body, "session_key"))
+        .unwrap_or_else(|| format!("websocket:branch-{fallback_suffix}"))
+}
+
+fn branch_messages(body: &serde_json::Value) -> Vec<serde_json::Value> {
+    body.get("messages")
+        .and_then(serde_json::Value::as_array)
+        .map(|messages| {
+            messages
+                .iter()
+                .map(|message| {
+                    serde_json::json!({
+                        "message_id": branch_string(message, "messageId")
+                            .or_else(|| branch_string(message, "message_id"))
+                            .unwrap_or_default(),
+                        "role": branch_string(message, "role").unwrap_or_else(|| "assistant".to_string()),
+                        "content": branch_string(message, "content").unwrap_or_default(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn branch_string(value: &serde_json::Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
 }
 
 fn add_session_key_fields(value: &mut serde_json::Value) -> Result<(), String> {
@@ -2606,6 +2761,13 @@ fn worker_webui_rust_route_with_options(
         ))),
         ("GET", "/api/sessions") => Some(worker_sessions_list_with_options(
             shared,
+            workspace_root.clone(),
+            config_snapshot.clone(),
+            timeout,
+        )),
+        ("POST", "/api/sessions/branch") => Some(worker_session_branch_with_options(
+            shared,
+            body,
             workspace_root.clone(),
             config_snapshot.clone(),
             timeout,
@@ -4898,6 +5060,7 @@ pub fn run() {
             worker_session_clear_temporary_files,
             worker_session_delete,
             worker_session_patch,
+            worker_session_branch,
             worker_session_clear,
             worker_session_task_progress,
             worker_cowork_route,
@@ -7135,6 +7298,77 @@ mod tests {
     }
 
     #[test]
+    fn worker_session_branch_creates_new_session_without_runtime_state() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write(
+            "sessions/store.json",
+            &serde_json::json!({
+                "version": 1,
+                "sessions": [{
+                    "session_id": "websocket:chat-1",
+                    "title": "Source session",
+                    "workspace_dir": "D:/Code/py/tinybot",
+                    "created_at": "2026-06-29T08:00:00Z",
+                    "updated_at": "2026-06-29T08:30:00Z",
+                    "extra": {
+                        "messages": [{ "role": "user", "content": "Keep this", "message_id": "m1" }],
+                        "runtime_checkpoint": { "phase": "running" }
+                    }
+                }]
+            })
+            .to_string(),
+        );
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+
+        let branch = worker_session_branch_with_options(
+            &shared,
+            serde_json::json!({
+                "title": "Source session · 分叉",
+                "branchedFromSessionId": "websocket:chat-1",
+                "branchedFromMessageId": "m1",
+                "messages": [
+                    { "messageId": "m1", "role": "user", "content": "Keep this" },
+                    { "messageId": "m2", "role": "assistant", "content": "Use this point" }
+                ],
+                "portableContext": {
+                    "chatId": "chat-1",
+                    "sessionKey": "websocket:chat-1"
+                },
+                "runtimeState": {
+                    "queuedInputs": [{ "id": "queued-1" }],
+                    "pendingApprovals": [{ "id": "approval-1" }]
+                }
+            }),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("branch session should be created by Rust session state");
+        let branch_key = branch["key"].as_str().expect("branch should include key");
+        let history = worker_session_messages_with_options(
+            &shared,
+            branch_key.to_string(),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("branch history should be readable");
+
+        assert!(branch_key.starts_with("websocket:branch-"));
+        assert_eq!(branch["title"], "Source session · 分叉");
+        assert_eq!(history["messages"][0]["content"], "Keep this");
+        assert_eq!(history["messages"][1]["content"], "Use this point");
+        assert_eq!(
+            history["branch"]["branchedFromSessionId"],
+            "websocket:chat-1"
+        );
+        assert_eq!(history["branch"]["branchedFromMessageId"], "m1");
+        assert_eq!(history["branch"]["portableContext"]["chatId"], "chat-1");
+        assert!(history["runtimeState"].is_null());
+        assert!(history["runtime_checkpoint"].is_null());
+    }
+
+    #[test]
     fn worker_cowork_route_serves_rust_sessions_on_rust_backend() {
         let fixture = WorkspaceFixture::new();
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
@@ -7315,6 +7549,29 @@ mod tests {
             Duration::from_millis(10),
         )
         .expect("session route should be Rust-owned");
+        let branch = worker_webui_route_with_options(
+            &shared,
+            WorkerWebuiRouteInput {
+                method: "POST".to_string(),
+                path: "/api/sessions/branch".to_string(),
+                headers: None,
+                body: Some(serde_json::json!({
+                    "title": "Route session · 分叉",
+                    "branchedFromSessionId": "websocket:chat-1",
+                    "branchedFromMessageId": "route-m1",
+                    "messages": [{
+                        "messageId": "route-m1",
+                        "role": "user",
+                        "content": "route"
+                    }],
+                    "portableContext": { "chatId": "chat-1" }
+                })),
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("session branch route should be Rust-owned");
         let workspace_file = worker_webui_route_with_options(
             &shared,
             WorkerWebuiRouteInput {
@@ -7441,6 +7698,8 @@ mod tests {
             .as_str()
             .is_some_and(|token| !token.is_empty()));
         assert_eq!(sessions["body"]["items"][0]["title"], "Route session");
+        assert_eq!(branch["headers"]["x-tinybot-route-owner"], "rust");
+        assert_eq!(branch["body"]["title"], "Route session · 分叉");
         assert_eq!(workspace_file["body"]["content"], "hello route");
         assert_eq!(knowledge["body"]["document"]["name"], "Route Knowledge.md");
         assert_eq!(approvals["headers"]["x-tinybot-route-owner"], "rust");

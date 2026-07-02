@@ -38,6 +38,10 @@ describe("desktop native sessions API", () => {
       command: "worker_session_patch",
       args: { input: { key: "websocket:chat-1", body: { metadata: { pinned: true } } } },
     });
+    await expect(api.branch!({ messages: [{ content: "Keep this" }] })).resolves.toEqual({
+      command: "worker_session_branch",
+      args: { input: { body: { messages: [{ content: "Keep this" }] } } },
+    });
     await expect(api.clear!("websocket:chat-1")).resolves.toEqual({
       command: "worker_session_clear",
       args: { input: { key: "websocket:chat-1" } },

@@ -48,6 +48,7 @@ export const NATIVE_BACKEND_COMMAND_NAMES = [
   "worker_session_clear_temporary_files",
   "worker_session_delete",
   "worker_session_patch",
+  "worker_session_branch",
   "worker_session_clear",
   "worker_session_task_progress",
 ] as const;

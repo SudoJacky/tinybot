@@ -993,12 +993,40 @@ function installNativeChatRuntimeActions(): void {
   document.addEventListener("desktop-chat-branch-session-request", (event) => {
     const detail = asRecord((event as CustomEvent).detail);
     const messages = Array.isArray(detail.messages) ? detail.messages : [];
-    logDesktopNativeDebug("runtime.actions.branchSessionUnsupported", {
+    logDesktopNativeDebug("runtime.actions.branchSession.start", {
       branchedFromMessageId: typeof detail.branchedFromMessageId === "string" ? detail.branchedFromMessageId : "",
       branchedFromSessionId: typeof detail.branchedFromSessionId === "string" ? detail.branchedFromSessionId : "",
       hasRuntime: Boolean(nativeWorkbenchRuntime),
       messageCount: messages.length,
       title: typeof detail.title === "string" ? detail.title : "",
+    });
+    void gatewayApi.sessions.branch(detail).then((session) => {
+      const record = asRecord(session);
+      const sessionKey = typeof record.key === "string" ? record.key : "";
+      const chatId = typeof record.chatId === "string"
+        ? record.chatId
+        : typeof record.chat_id === "string"
+          ? record.chat_id
+          : "";
+      if (!sessionKey || !chatId || !nativeWorkbenchRuntime) {
+        logDesktopNativeDebug("runtime.actions.branchSession.incomplete", {
+          hasChatId: Boolean(chatId),
+          hasRuntime: Boolean(nativeWorkbenchRuntime),
+          hasSessionKey: Boolean(sessionKey),
+        });
+        return;
+      }
+      return nativeWorkbenchRuntime.selectChatSession(sessionKey, chatId).then(() => {
+        updateDesktopNativeChat(document, nativeWorkbenchRuntime!.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
+        logDesktopNativeDebug("runtime.actions.branchSession.complete", {
+          chatId,
+          sessionKey,
+        });
+      });
+    }).catch((error: unknown) => {
+      logDesktopNativeDebug("runtime.actions.branchSession.failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
     });
   });
   document.addEventListener("desktop-chat-session-action", (event) => {

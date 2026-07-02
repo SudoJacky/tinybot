@@ -922,6 +922,54 @@ describe("gateway HTTP client", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
+  test("prefers native session branch adapter when available", async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
+    const nativeSessions = {
+      list: vi.fn(),
+      messages: vi.fn(),
+      branch: vi.fn(async (body: unknown) => ({
+        key: "websocket:branch-1",
+        chat_id: "branch-1",
+        body,
+      })),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeSessions,
+    });
+
+    await expect(client.sessions.branch({ messages: [{ content: "Keep this" }] })).resolves.toMatchObject({
+      key: "websocket:branch-1",
+      chat_id: "branch-1",
+    });
+    expect(nativeSessions.branch).toHaveBeenCalledWith({ messages: [{ content: "Keep this" }] });
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  test("posts session branch requests to the gateway when native routes are unavailable", async () => {
+    const fetchFn = vi.fn(async (url: RequestInfo | URL) => {
+      if (String(url).endsWith("/webui/bootstrap")) {
+        return new Response(JSON.stringify({ token: "token-1" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ key: "websocket:branch-1" }), { status: 200 });
+    });
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+    });
+
+    await expect(client.sessions.branch({ messages: [{ content: "Keep this" }] })).resolves.toEqual({
+      key: "websocket:branch-1",
+    });
+    expect(fetchFn).toHaveBeenCalledWith(
+      "http://127.0.0.1:18790/api/sessions/branch",
+      expect.objectContaining({
+        method: "POST",
+      }),
+    );
+  });
+
   test("prefers native WebUI session temporary files route when available", async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
     const nativeWebui = {

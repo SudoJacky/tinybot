@@ -110,14 +110,17 @@ describe("desktop bootstrap order", () => {
     expect(runtimeActionsSource).not.toContain("desktop-chat-subagent-message-submit\", (event) => {\n    const detail = asRecord((event as CustomEvent).detail);\n    const content = typeof detail.content === \"string\" ? detail.content : \"\";\n    logDesktopNativeDebug(\"runtime.actions.chatSurfaceSubmit\"");
   });
 
-  test("records rebuilt branch session requests until the backend adapter exists", () => {
+  test("routes rebuilt branch session requests through the backend adapter", () => {
     const runtimeActionsSource = sourceBlock(
       "function installNativeChatRuntimeActions(): void {",
       "async function handleNativeInlineApprovalAction(",
     );
 
     expect(runtimeActionsSource).toContain('document.addEventListener("desktop-chat-branch-session-request"');
-    expect(runtimeActionsSource).toContain("runtime.actions.branchSessionUnsupported");
+    expect(runtimeActionsSource).toContain("runtime.actions.branchSession.start");
+    expect(runtimeActionsSource).toContain("gatewayApi.sessions.branch");
+    expect(runtimeActionsSource).toContain("nativeWorkbenchRuntime.selectChatSession");
+    expect(runtimeActionsSource).toContain("runtime.actions.branchSession.complete");
   });
 
   test("routes rebuilt header and message actions through native runtime handlers", () => {
