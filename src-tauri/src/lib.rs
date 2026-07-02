@@ -1447,6 +1447,11 @@ fn worker_run_agent_with_options(
 ) -> Result<serde_json::Value, String> {
     let _ = timeout;
     let persistence_spec = spec.clone();
+    let runtime_spec = hydrate_native_agent_history_for_runtime(
+        spec,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+    )?;
     let services = {
         let runtime = lock_runtime(shared);
         runtime.native_agent_runtime.clone()
@@ -1457,7 +1462,8 @@ fn worker_run_agent_with_options(
         config_snapshot.clone(),
     )
     .err();
-    let mut result = run_native_agent_turn_with_config(&services, spec, config_snapshot.clone())?;
+    let mut result =
+        run_native_agent_turn_with_config(&services, runtime_spec, config_snapshot.clone())?;
     if let Err(error) = persist_native_agent_run_record(
         persistence_spec.clone(),
         &mut result,
@@ -1977,6 +1983,119 @@ fn native_agent_assistant_messages(result: &serde_json::Value) -> Vec<serde_json
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn hydrate_native_agent_history_for_runtime(
+    mut spec: serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let Some(session_id) = native_agent_session_id(&spec) else {
+        return Ok(spec);
+    };
+    let requested_messages = native_agent_runtime_messages(&spec);
+    if requested_messages.is_empty() {
+        return Ok(spec);
+    }
+    let history_messages =
+        native_agent_session_history_messages(&session_id, workspace_root, config_snapshot)?;
+    if history_messages.is_empty() {
+        return Ok(spec);
+    }
+
+    let combined_messages =
+        native_agent_merge_history_messages(&history_messages, &requested_messages);
+    if let Some(object) = spec.as_object_mut() {
+        object.insert(
+            "messages".to_string(),
+            serde_json::Value::Array(combined_messages),
+        );
+    }
+    Ok(spec)
+}
+
+fn native_agent_runtime_messages(spec: &serde_json::Value) -> Vec<serde_json::Value> {
+    if let Some(messages) = spec.get("messages").and_then(serde_json::Value::as_array) {
+        if !messages.is_empty() {
+            return messages.clone();
+        }
+    }
+    native_agent_user_messages(spec)
+}
+
+fn native_agent_session_history_messages(
+    session_id: &str,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+) -> Result<Vec<serde_json::Value>, String> {
+    let request_id = next_worker_request_correlation();
+    let history = call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("session-history-for-agent-run"),
+            request_id.trace_id("session-history-for-agent-run"),
+            "session.get_history",
+            serde_json::json!({ "session_id": session_id, "limit": 500 }),
+        ),
+        "native agent session history hydration",
+    )?;
+    Ok(history
+        .get("messages")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default())
+}
+
+fn native_agent_merge_history_messages(
+    history_messages: &[serde_json::Value],
+    requested_messages: &[serde_json::Value],
+) -> Vec<serde_json::Value> {
+    let mut combined = Vec::new();
+    for message in requested_messages
+        .iter()
+        .filter(|message| native_agent_instruction_message(message))
+    {
+        combined.push(message.clone());
+    }
+
+    let requested_body: Vec<_> = requested_messages
+        .iter()
+        .filter(|message| !native_agent_instruction_message(message))
+        .cloned()
+        .collect();
+    let history_body: Vec<_> = history_messages
+        .iter()
+        .filter(|message| !native_agent_instruction_message(message))
+        .cloned()
+        .collect();
+
+    if native_agent_messages_start_with(&requested_body, &history_body) {
+        combined.extend(requested_body);
+    } else {
+        combined.extend(history_body);
+        combined.extend(requested_body);
+    }
+    combined
+}
+
+fn native_agent_instruction_message(message: &serde_json::Value) -> bool {
+    matches!(
+        message.get("role").and_then(serde_json::Value::as_str),
+        Some("system" | "developer")
+    )
+}
+
+fn native_agent_messages_start_with(
+    messages: &[serde_json::Value],
+    prefix: &[serde_json::Value],
+) -> bool {
+    !prefix.is_empty()
+        && messages.len() >= prefix.len()
+        && messages
+            .iter()
+            .zip(prefix.iter())
+            .all(|(message, prefix)| message == prefix)
 }
 
 fn worker_run_agent_input_with_options(
@@ -5951,6 +6070,98 @@ mod tests {
         assert_eq!(history["messages"][0]["content"], "persist me");
         assert_eq!(history["messages"][1]["role"], "assistant");
         assert_eq!(history["messages"][1]["content"], "persisted assistant");
+    }
+
+    #[derive(Clone)]
+    struct RecordingNativeAgentProvider {
+        calls: Arc<Mutex<Vec<Vec<serde_json::Value>>>>,
+    }
+
+    impl crate::worker_agent_runtime::NativeAgentProvider for RecordingNativeAgentProvider {
+        fn complete(
+            &self,
+            context: &crate::worker_agent_runtime::NativeAgentRunContext,
+        ) -> Result<crate::worker_agent_runtime::NativeAgentProviderResponse, String> {
+            self.calls
+                .lock()
+                .expect("recording provider calls lock should not be poisoned")
+                .push(context.messages.clone());
+            Ok(crate::worker_agent_runtime::NativeAgentProviderResponse {
+                final_content: "remembered answer".to_string(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: Vec::new(),
+            })
+        }
+    }
+
+    #[test]
+    fn worker_run_agent_hydrates_session_history_before_provider_call() {
+        let fixture = WorkspaceFixture::new();
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let shared = Arc::new(Mutex::new(GatewayRuntime {
+            native_agent_runtime: NativeAgentRuntimeServices::new(
+                Arc::new(RecordingNativeAgentProvider {
+                    calls: calls.clone(),
+                }),
+                Arc::new(crate::worker_agent_runtime::FakeNativeAgentToolDispatcher),
+                Arc::new(
+                    crate::worker_agent_runtime::InMemoryNativeAgentCheckpointStore::default(),
+                ),
+                Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCancellation::default()),
+            ),
+            ..GatewayRuntime::default()
+        }));
+        let config = serde_json::json!({
+            "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+        });
+        call_rust_state_service(
+            fixture.root.clone(),
+            config.clone(),
+            WorkerRequest::new(
+                "req-seed-history",
+                "trace-seed-history",
+                "session.persist_turn",
+                serde_json::json!({
+                    "session_id": "websocket:chat-memory",
+                    "run_id": "run-previous",
+                    "messages": [
+                        { "role": "user", "content": "a" },
+                        { "role": "assistant", "content": "agent replied a" }
+                    ],
+                    "clear_checkpoint": true
+                }),
+            ),
+            "seed session history",
+        )
+        .expect("session history should seed");
+
+        let result = worker_run_agent_with_options(
+            &shared,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-next",
+                "sessionId": "websocket:chat-memory",
+                "input": { "role": "user", "content": "what did I say before?" }
+            }),
+            fixture.root.clone(),
+            config,
+            Duration::from_millis(10),
+        )
+        .expect("Rust runtime should complete with hydrated history");
+        let calls = calls
+            .lock()
+            .expect("recording provider calls lock should not be poisoned");
+        let messages = calls.first().expect("provider should be called once");
+
+        assert_eq!(result["stopReason"], "final_response");
+        assert_eq!(messages.len(), 3);
+        assert_eq!(messages[0]["role"], "user");
+        assert_eq!(messages[0]["content"], "a");
+        assert_eq!(messages[1]["role"], "assistant");
+        assert_eq!(messages[1]["content"], "agent replied a");
+        assert_eq!(messages[2]["role"], "user");
+        assert_eq!(messages[2]["content"], "what did I say before?");
     }
 
     #[test]
