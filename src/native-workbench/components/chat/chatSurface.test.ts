@@ -393,6 +393,79 @@ describe("rebuilt chat surface", () => {
     expect(queue?.querySelector("[data-queued-input-action='guide']")).toBeNull();
   });
 
+  test("submits normal composer text as a main chat message event", () => {
+    const host = document.createElement("section");
+    const submissions: unknown[] = [];
+    host.addEventListener("desktop-chat-message-submit", (event) => {
+      submissions.push((event as CustomEvent).detail);
+    });
+
+    mountChatSurface(host, { projection: fixtureProjection() });
+
+    const input = host.querySelector<HTMLTextAreaElement>("[data-chat-composer-input]");
+    input!.value = "Continue with the local docs.";
+    host.querySelector<HTMLButtonElement>("[data-chat-composer-action='send']")?.click();
+
+    expect(submissions).toEqual([{ content: "Continue with the local docs." }]);
+    expect(input?.value).toBe("");
+  });
+
+  test("submits composer text as approval guidance while approval is pending", () => {
+    const host = document.createElement("section");
+    const guidanceSubmissions: unknown[] = [];
+    host.addEventListener("desktop-chat-approval-guidance-submit", (event) => {
+      guidanceSubmissions.push((event as CustomEvent).detail);
+    });
+    const projection = fixtureProjection();
+    projection.approvals = [{
+      id: "approval-1",
+      sessionKey: "websocket:chat-1",
+      toolName: "workspace.write_file",
+      status: "pending",
+      prompt: "Allow writing notes.md?",
+      choices: ["allow_once", "allow_session", "deny"],
+    }];
+
+    mountChatSurface(host, { projection });
+
+    const input = host.querySelector<HTMLTextAreaElement>("[data-chat-composer-input]");
+    input!.value = "Do not write files; summarize only.";
+    host.querySelector<HTMLButtonElement>("[data-chat-composer-action='send']")?.click();
+
+    expect(guidanceSubmissions).toEqual([{
+      approvalId: "approval-1",
+      guidance: "Do not write files; summarize only.",
+    }]);
+    expect(host.querySelector("[data-chat-region='queued-inputs']")).toBeNull();
+  });
+
+  test("queues composer text while the assistant turn is running and supports deleting it", () => {
+    const host = document.createElement("section");
+    const projection = fixtureProjection();
+    projection.turns[1] = {
+      ...projection.turns[1],
+      process: {
+        state: "running",
+        summary: "Execution process · 2 tools",
+        toolCount: 2,
+      },
+    };
+
+    mountChatSurface(host, { projection });
+
+    const input = host.querySelector<HTMLTextAreaElement>("[data-chat-composer-input]");
+    input!.value = "Summarize after the tools finish.";
+    host.querySelector<HTMLButtonElement>("[data-chat-composer-action='send']")?.click();
+
+    const queue = host.querySelector("[data-chat-region='queued-inputs']");
+    expect(queue?.textContent).toContain("Summarize after the tools finish.");
+    expect(host.querySelector("[data-chat-composer-input]")?.textContent).toBe("");
+
+    host.querySelector<HTMLButtonElement>("[data-queued-input-action='delete']")?.click();
+
+    expect(host.querySelector("[data-chat-region='queued-inputs']")).toBeNull();
+  });
+
   test("renders resolved approvals as compact history results", () => {
     const host = document.createElement("section");
     const projection = fixtureProjection();

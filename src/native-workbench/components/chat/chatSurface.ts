@@ -17,6 +17,9 @@ import {
   openChatDetailPanel,
 } from "../../chat/chatDetailPanelState";
 import {
+  submitComposerText,
+} from "../../chat/chatInputState";
+import {
   canSendDirectSubagentMessage,
   requiresFirstDirectSubagentMessageConfirmation,
 } from "../../chat/chatSubagentForward";
@@ -35,9 +38,12 @@ let activeDocument: Document;
 export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions): MountedChatSurface {
   let currentProjection = options.projection;
   let currentDetailPanel = options.projection.detailPanel;
+  let currentQueuedInputs = options.projection.queuedInputs;
+  let composerError = "";
   const renderCurrent = () => renderChatSurface(host, {
     ...currentProjection,
     detailPanel: currentDetailPanel,
+    queuedInputs: currentQueuedInputs,
   }, {
     closeDetail() {
       currentDetailPanel = closeChatDetailPanel(chatSurfaceViewportWidth(host));
@@ -49,6 +55,63 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
       logChatSurfaceAction(host, "detail.open", currentDetailPanel);
       renderCurrent();
     },
+    deleteQueuedInput(inputId) {
+      currentQueuedInputs = currentQueuedInputs.filter((input) => input.id !== inputId);
+      logChatSurfaceAction(host, "composer.queue.delete", { inputId });
+      renderCurrent();
+    },
+    submitComposer(content) {
+      const result = submitComposerText({
+        approvals: currentProjection.approvals,
+        content,
+        isRunning: chatSurfaceHasRunningTurn(currentProjection),
+        now: new Date().toISOString(),
+        queuedInputs: currentQueuedInputs,
+      });
+      if (result.kind === "send_message") {
+        composerError = "";
+        host.dispatchEvent(new CustomEvent("desktop-chat-message-submit", {
+          bubbles: true,
+          detail: { content: result.content },
+        }));
+        logChatSurfaceAction(host, "composer.message.submit", { contentLength: result.content.length });
+        return { accepted: true };
+      }
+      if (result.kind === "reject_approval_with_guidance") {
+        composerError = "";
+        host.dispatchEvent(new CustomEvent("desktop-chat-approval-guidance-submit", {
+          bubbles: true,
+          detail: {
+            approvalId: result.approvalId,
+            guidance: result.guidance,
+          },
+        }));
+        logChatSurfaceAction(host, "composer.approval_guidance.submit", {
+          approvalId: result.approvalId,
+          guidanceLength: result.guidance.length,
+        });
+        return { accepted: true };
+      }
+      if (result.kind === "queue_input") {
+        composerError = "";
+        currentQueuedInputs = [...currentQueuedInputs, result.input];
+        logChatSurfaceAction(host, "composer.queue.add", {
+          inputId: result.input.id,
+          queueLength: currentQueuedInputs.length,
+        });
+        renderCurrent();
+        return { accepted: true };
+      }
+      composerError = result.message;
+      logChatSurfaceAction(host, "composer.queue.limit", {
+        maxQueuedInputs: result.maxQueuedInputs,
+      });
+      renderCurrent();
+      return { accepted: false };
+    },
+    composerError() {
+      return composerError;
+    },
   });
   renderCurrent();
   return {
@@ -57,6 +120,10 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
       currentProjection = nextOptions.projection;
       if (nextOptions.projection.detailPanel.open || previousSessionKey !== nextOptions.projection.activeSessionKey) {
         currentDetailPanel = nextOptions.projection.detailPanel;
+      }
+      if (previousSessionKey !== nextOptions.projection.activeSessionKey) {
+        currentQueuedInputs = nextOptions.projection.queuedInputs;
+        composerError = "";
       }
       renderCurrent();
     },
@@ -70,7 +137,10 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
 
 type ChatSurfaceActions = {
   closeDetail(): void;
+  composerError(): string;
+  deleteQueuedInput(inputId: string): void;
   openDetail(kind: ChatDetailPanelKind, targetId: string): void;
+  submitComposer(content: string): { accepted: boolean };
 };
 
 function renderChatSurface(host: HTMLElement, projection: ChatUiProjection, actions: ChatSurfaceActions): void {
@@ -125,11 +195,11 @@ function renderChatDetail(projection: ChatUiProjection, actions: ChatSurfaceActi
   if (subagentStrip) {
     detail.append(subagentStrip);
   }
-  const queue = renderQueuedInputs(projection.queuedInputs);
+  const queue = renderQueuedInputs(projection.queuedInputs, actions);
   if (queue) {
     detail.append(queue);
   }
-  detail.append(renderComposer(projection.approvals.length > 0 ? "approval_guidance" : "normal"));
+  detail.append(renderComposer(projection.approvals.length > 0 ? "approval_guidance" : "normal", actions));
   return detail;
 }
 
@@ -278,7 +348,7 @@ function renderApprovalResults(approvals: ApprovalRequest[]): HTMLElement[] {
     });
 }
 
-function renderQueuedInputs(inputs: QueuedInput[]): HTMLElement | null {
+function renderQueuedInputs(inputs: QueuedInput[], actions: ChatSurfaceActions): HTMLElement | null {
   if (!inputs.length) {
     return null;
   }
@@ -292,18 +362,39 @@ function renderQueuedInputs(inputs: QueuedInput[]): HTMLElement | null {
     const del = element("button", "desktop-chat-surface__queued-delete", "Delete");
     del.type = "button";
     del.setAttribute("data-queued-input-action", "delete");
+    del.addEventListener("click", () => actions.deleteQueuedInput(input.id));
     row.append(del);
     section.append(row);
   }
   return section;
 }
 
-function renderComposer(mode: "normal" | "approval_guidance"): HTMLElement {
+function renderComposer(mode: "normal" | "approval_guidance", actions: ChatSurfaceActions): HTMLElement {
   const composer = element("section", "desktop-chat-surface__composer");
   composer.setAttribute("data-chat-region", "composer");
   composer.setAttribute("data-composer-mode", mode);
   if (mode === "approval_guidance") {
     composer.append(element("p", "desktop-chat-surface__composer-hint", "发送文字将拒绝此请求，并作为给 Tinybot 的指导。"));
+  }
+  const input = activeDocument.createElement("textarea");
+  input.className = "desktop-chat-surface__composer-input";
+  input.setAttribute("data-chat-composer-input", "");
+  input.setAttribute("placeholder", mode === "approval_guidance" ? "输入拒绝原因或下一步建议..." : "要求后续变更");
+  const button = element("button", "desktop-chat-surface__composer-send", "Send");
+  button.type = "button";
+  button.setAttribute("data-chat-composer-action", "send");
+  button.addEventListener("click", () => {
+    const result = actions.submitComposer(input.value);
+    if (result.accepted) {
+      input.value = "";
+    }
+  });
+  composer.append(input, button);
+  const error = actions.composerError();
+  if (error) {
+    const errorNode = element("p", "desktop-chat-surface__composer-error", error);
+    errorNode.setAttribute("data-chat-region", "composer-error");
+    composer.append(errorNode);
   }
   return composer;
 }
@@ -473,13 +564,17 @@ function chatSurfaceViewportWidth(host: HTMLElement): number {
   return host.ownerDocument.defaultView?.innerWidth ?? 1024;
 }
 
-function logChatSurfaceAction(host: HTMLElement, action: string, panel: DetailPanelState): void {
+function chatSurfaceHasRunningTurn(projection: ChatUiProjection): boolean {
+  return projection.turns.some((turn) => turn.process?.state === "running");
+}
+
+function logChatSurfaceAction(host: HTMLElement, action: string, detail: unknown): void {
+  const eventDetail = action.startsWith("detail.")
+    ? { action, panel: detail }
+    : { action, payload: detail };
   host.dispatchEvent(new CustomEvent("desktop-chat-surface-log", {
     bubbles: true,
-    detail: {
-      action,
-      panel,
-    },
+    detail: eventDetail,
   }));
 }
 
