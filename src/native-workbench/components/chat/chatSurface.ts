@@ -454,8 +454,10 @@ function renderChatSurface(
   host.className = "desktop-conversation-thread desktop-chat-surface";
 
   const shell = element("div", "desktop-chat-surface__shell");
+  shell.setAttribute("data-chat-layout", "codex-reference");
   shell.append(renderSessionList(projection, sessionSearchQuery, actions));
   shell.append(renderChatDetail(projection, processExpansionOverrides, actions));
+  shell.append(renderStatusRail(projection, actions));
   const detailSurface = renderDetailSurface(projection, actions);
   if (detailSurface) {
     shell.append(detailSurface);
@@ -535,6 +537,7 @@ function renderChatDetail(
 ): HTMLElement {
   const detail = element("section", "desktop-chat-surface__detail");
   detail.setAttribute("data-chat-region", "chat-detail");
+  detail.setAttribute("data-chat-layout-role", "conversation-stage");
   const activeSession = projection.sessions.find((session) => session.key === projection.activeSessionKey);
   detail.append(renderHeader(activeSession?.title ?? "New session", Boolean(activeSession?.pinned), actions));
   detail.append(renderConversation(projection.turns, processExpansionOverrides, actions));
@@ -555,6 +558,79 @@ function renderChatDetail(
   }
   detail.append(renderComposer(projection.approvals.length > 0 ? "approval_guidance" : "normal", actions));
   return detail;
+}
+
+function renderStatusRail(projection: ChatUiProjection, actions: ChatSurfaceActions): HTMLElement {
+  const rail = element("aside", "desktop-chat-surface__status-rail");
+  rail.setAttribute("data-chat-region", "status-rail");
+  const card = element("div", "desktop-chat-surface__status-card");
+  card.append(
+    renderOutputRailSection(projection.artifacts ?? [], actions),
+    renderSubagentsRailSection(projection.liveSubagents, actions),
+    renderSourcesRailSection(),
+  );
+  rail.append(card);
+  return rail;
+}
+
+function renderOutputRailSection(artifacts: ArtifactDetail[], actions: ChatSurfaceActions): HTMLElement {
+  const section = renderRailSectionShell("output", "Output");
+  if (!artifacts.length) {
+    section.append(element("p", "desktop-chat-surface__rail-empty", "No artifacts"));
+    return section;
+  }
+  const list = element("div", "desktop-chat-surface__rail-list");
+  for (const artifact of artifacts.slice(0, 3)) {
+    const row = element("button", "desktop-chat-surface__rail-artifact");
+    row.type = "button";
+    row.setAttribute("data-rail-artifact-id", artifact.id);
+    row.addEventListener("click", () => actions.openDetail("artifact", artifact.id));
+    row.append(
+      element("span", "desktop-chat-surface__rail-artifact-title", artifact.title),
+      element("span", "desktop-chat-surface__rail-artifact-kind", artifact.kind),
+    );
+    list.append(row);
+  }
+  section.append(list);
+  return section;
+}
+
+function renderSubagentsRailSection(subagents: LiveSubagent[], actions: ChatSurfaceActions): HTMLElement {
+  const section = renderRailSectionShell("subagents", "Subagents");
+  if (!subagents.length) {
+    section.append(element("p", "desktop-chat-surface__rail-empty", "No subagents"));
+    return section;
+  }
+  const list = element("div", "desktop-chat-surface__rail-list");
+  subagents.slice(0, 4).forEach((subagent, index) => {
+    const row = element("button", "desktop-chat-surface__rail-subagent");
+    row.type = "button";
+    row.setAttribute("data-rail-subagent-id", subagent.id);
+    row.setAttribute("data-rail-subagent-status", subagent.status);
+    row.addEventListener("click", () => actions.openDetail("subagent", subagent.id));
+    const marker = element("span", "desktop-chat-surface__rail-subagent-mark", "");
+    marker.setAttribute("data-rail-subagent-index", String(index % 4));
+    row.append(
+      marker,
+      element("span", "desktop-chat-surface__rail-subagent-name", subagent.name),
+    );
+    list.append(row);
+  });
+  section.append(list);
+  return section;
+}
+
+function renderSourcesRailSection(): HTMLElement {
+  const section = renderRailSectionShell("sources", "Sources");
+  section.append(element("p", "desktop-chat-surface__rail-empty", "No sources"));
+  return section;
+}
+
+function renderRailSectionShell(key: string, label: string): HTMLElement {
+  const section = element("section", "desktop-chat-surface__rail-section");
+  section.setAttribute("data-chat-rail-section", key);
+  section.append(element("h3", "desktop-chat-surface__rail-heading", label));
+  return section;
 }
 
 function renderHeader(title: string, pinned: boolean, actions: ChatSurfaceActions): HTMLElement {
@@ -601,7 +677,9 @@ function renderTurn(
   const article = element("article", "desktop-chat-surface__turn");
   article.setAttribute("data-chat-turn-id", turn.id);
   article.setAttribute("data-chat-turn-role", turn.role);
+  article.setAttribute("data-chat-turn-align", turn.role === "user" ? "end" : "start");
   const body = element("div", "desktop-chat-surface__turn-body", turn.content);
+  body.setAttribute("data-chat-bubble", turn.role === "user" ? "user" : "assistant");
   article.append(body);
   if (turn.reasoningContent) {
     const thinking = element("div", "desktop-chat-surface__thinking", turn.reasoningContent);

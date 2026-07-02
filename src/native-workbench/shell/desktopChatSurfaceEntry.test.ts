@@ -23,11 +23,16 @@ describe("desktop chat surface entry", () => {
 
     const thread = document.querySelector<HTMLElement>(".desktop-conversation-thread");
     expect(thread?.getAttribute("data-chat-surface")).toBe("rebuild-chat-agent-surface");
+    expect(thread?.querySelector(".desktop-chat-surface__shell")?.getAttribute("data-chat-layout")).toBe("codex-reference");
     expect(thread?.getAttribute("data-desktop-vue-island")).toBeNull();
     expect(thread?.querySelector("[data-chat-region='session-list']")?.textContent).toContain("Live session");
+    expect(thread?.querySelector("[data-chat-region='status-rail']")).not.toBeNull();
     expect(thread?.querySelector("[data-chat-turn-id='assistant-1']")?.textContent).toContain("Initial answer");
+    expect(thread?.querySelector("[data-chat-turn-id='assistant-1']")?.getAttribute("data-chat-turn-align")).toBe("start");
+    thread?.querySelector<HTMLButtonElement>("[data-chat-region='agent-process-summary']")?.click();
     expect(thread?.querySelector("[data-chat-region='tool-row']")?.textContent).toContain("workspace.read_file");
     expect(thread?.querySelector(".desktop-conversation-message")).toBeNull();
+    expect(document.querySelector("#desktop-native-composer")?.getAttribute("data-chat-composer-layout")).toBe("floating");
   });
 
   test("updates the rebuilt surface from native chat state changes", () => {
