@@ -433,6 +433,7 @@ function renderSessionList(projection: ChatUiProjection, searchQuery: string, ac
     row.type = "button";
     row.setAttribute("data-session-key", session.key);
     row.setAttribute("data-session-chat-id", session.chatId);
+    row.setAttribute("data-pinned", String(Boolean(session.pinned)));
     if (session.isActive) {
       row.setAttribute("aria-current", "true");
     }
@@ -440,6 +441,11 @@ function renderSessionList(projection: ChatUiProjection, searchQuery: string, ac
     const title = element("span", "desktop-chat-surface__session-title", session.title);
     const badge = element("span", "desktop-chat-surface__session-badge", badgeLabel(session.primaryBadge));
     badge.setAttribute("data-session-primary-badge", session.primaryBadge);
+    if (session.pinned) {
+      const pinned = element("span", "desktop-chat-surface__session-pinned", "Pinned");
+      pinned.setAttribute("data-session-pinned", "");
+      row.append(pinned);
+    }
     row.append(title, badge);
     rows.append(row);
   }

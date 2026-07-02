@@ -30,6 +30,18 @@ describe("rebuilt chat surface", () => {
     expect(host.textContent).toBe("");
   });
 
+  test("marks pinned sessions in the rebuilt session list", () => {
+    const host = document.createElement("section");
+    const projection = fixtureProjection();
+    projection.sessions[0].pinned = true;
+
+    mountChatSurface(host, { projection });
+
+    const row = host.querySelector("[data-session-key='websocket:chat-1']");
+    expect(row?.getAttribute("data-pinned")).toBe("true");
+    expect(row?.querySelector("[data-session-pinned]")?.textContent).toBe("Pinned");
+  });
+
   test("renders tool detail in a right overlay drawer from projection state", () => {
     const host = document.createElement("section");
     const copies: unknown[] = [];
