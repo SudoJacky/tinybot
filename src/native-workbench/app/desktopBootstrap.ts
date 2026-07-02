@@ -977,6 +977,19 @@ function installNativeChatRuntimeActions(): void {
       usePersistentRag: Boolean(nativeWorkbenchRuntime?.chat.usePersistentRag),
     });
   });
+  document.addEventListener("desktop-chat-subagent-message-submit", (event) => {
+    const detail = asRecord((event as CustomEvent).detail);
+    const content = typeof detail.content === "string" ? detail.content : "";
+    const sessionKey = typeof detail.sessionKey === "string" ? detail.sessionKey : "";
+    const subagentId = typeof detail.subagentId === "string" ? detail.subagentId : "";
+    logDesktopNativeDebug("runtime.actions.subagentDirectMessageUnsupported", {
+      contentLength: content.trim().length,
+      hasRuntime: Boolean(nativeWorkbenchRuntime),
+      hasSessionKey: Boolean(sessionKey),
+      sessionKeyPrefix: sessionKey.split(":")[0] || "",
+      subagentId,
+    });
+  });
   document.addEventListener("desktop-chat-approval-guidance-submit", (event) => {
     const detail = asRecord((event as CustomEvent).detail);
     const approvalId = typeof detail.approvalId === "string" ? detail.approvalId : "";

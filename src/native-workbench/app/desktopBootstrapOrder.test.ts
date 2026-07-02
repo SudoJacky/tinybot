@@ -99,6 +99,17 @@ describe("desktop bootstrap order", () => {
     expect(bootstrapSource).toContain("guidance: guidanceValue(guidance)");
   });
 
+  test("keeps rebuilt subagent direct message submissions out of the main composer path", () => {
+    const runtimeActionsSource = sourceBlock(
+      "function installNativeChatRuntimeActions(): void {",
+      "async function handleNativeInlineApprovalAction(",
+    );
+
+    expect(runtimeActionsSource).toContain('document.addEventListener("desktop-chat-subagent-message-submit"');
+    expect(runtimeActionsSource).toContain("runtime.actions.subagentDirectMessageUnsupported");
+    expect(runtimeActionsSource).not.toContain("desktop-chat-subagent-message-submit\", (event) => {\n    const detail = asRecord((event as CustomEvent).detail);\n    const content = typeof detail.content === \"string\" ? detail.content : \"\";\n    logDesktopNativeDebug(\"runtime.actions.chatSurfaceSubmit\"");
+  });
+
   test("routes native composer attach through the session temporary file upload control", () => {
     const attachActionPosition = callPosition("onAttachSessionFile: () => {");
     const uploadClickPosition = callPosition('document.getElementById("desktop-session-file-upload")?.click();');

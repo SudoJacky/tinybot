@@ -69,6 +69,32 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
       logChatSurfaceAction(host, "detail.open", currentDetailPanel);
       renderCurrent();
     },
+    submitSubagentMessage(subagentId, content) {
+      const subagent = currentProjection.liveSubagents.find((candidate) => candidate.id === subagentId);
+      const message = content.trim();
+      if (!subagent || !message || !canSendDirectSubagentMessage(subagent)) {
+        logChatSurfaceAction(host, "subagent.message.ignored", {
+          contentLength: message.length,
+          subagentId,
+        });
+        return { accepted: false };
+      }
+      subagentDrafts.delete(subagentId);
+      host.dispatchEvent(new CustomEvent("desktop-chat-subagent-message-submit", {
+        bubbles: true,
+        detail: {
+          content: message,
+          sessionKey: subagent.sessionKey,
+          subagentId,
+        },
+      }));
+      logChatSurfaceAction(host, "subagent.message.submit", {
+        contentLength: message.length,
+        subagentId,
+      });
+      renderCurrent();
+      return { accepted: true };
+    },
     deleteQueuedInput(inputId) {
       currentQueuedInputs = currentQueuedInputs.filter((input) => input.id !== inputId);
       logChatSurfaceAction(host, "composer.queue.delete", { inputId });
@@ -225,6 +251,7 @@ type ChatSurfaceActions = {
   openDetail(kind: ChatDetailPanelKind, targetId: string): void;
   subagentDraft(subagentId: string): string;
   submitComposer(content: string): { accepted: boolean };
+  submitSubagentMessage(subagentId: string, content: string): { accepted: boolean };
   updateComposerDraft(content: string): void;
   updateSubagentDraft(subagentId: string, content: string): void;
 };
@@ -565,7 +592,16 @@ function renderSubagentDetail(subagents: LiveSubagent[], panel: DetailPanelState
     if (requiresFirstDirectSubagentMessageConfirmation(subagent)) {
       input.setAttribute("data-requires-confirmation", "true");
     }
-    detail.append(input);
+    const send = element("button", "desktop-chat-surface__subagent-send", "Send to subagent");
+    send.type = "button";
+    send.setAttribute("data-subagent-action", "send-message");
+    send.addEventListener("click", () => {
+      const result = actions.submitSubagentMessage(subagent.id, input.value);
+      if (result.accepted) {
+        input.value = "";
+      }
+    });
+    detail.append(input, send);
   } else if (subagent.status === "completed" || subagent.status === "idle") {
     detail.append(element("p", "desktop-chat-surface__readonly", "This subagent is closed and can only be reviewed."));
   } else {

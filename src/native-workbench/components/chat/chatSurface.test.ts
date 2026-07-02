@@ -369,6 +369,51 @@ describe("rebuilt chat surface", () => {
     expect(host.querySelector<HTMLTextAreaElement>("[data-subagent-input='message']")?.value).toBe("Draft for A");
   });
 
+  test("submits direct messages only to sendable subagents", () => {
+    const host = document.createElement("section");
+    const submissions: unknown[] = [];
+    host.addEventListener("desktop-chat-subagent-message-submit", (event) => {
+      submissions.push((event as CustomEvent).detail);
+    });
+    const projection = fixtureProjection();
+    projection.liveSubagents = [{
+      id: "delegate-send",
+      sessionKey: "websocket:chat-1",
+      name: "Reviewer",
+      task: "Review implementation",
+      status: "waiting_user",
+      latestActivity: "Needs product choice",
+      capabilities: ["full_transcript", "can_send_message"],
+      transcript: {
+        id: "delegate-send",
+        sessionKey: "websocket:chat-1",
+        capability: "full_transcript",
+        messages: [],
+        toolSummaries: [],
+      },
+    }];
+    projection.detailPanel = {
+      kind: "subagent",
+      open: true,
+      presentation: "drawer",
+      targetId: "delegate-send",
+    };
+
+    mountChatSurface(host, { projection });
+
+    const input = host.querySelector<HTMLTextAreaElement>("[data-subagent-input='message']");
+    input!.value = "Use the safer option.";
+    input!.dispatchEvent(new Event("input", { bubbles: true }));
+    host.querySelector<HTMLButtonElement>("[data-subagent-action='send-message']")?.click();
+
+    expect(submissions).toEqual([{
+      content: "Use the safer option.",
+      sessionKey: "websocket:chat-1",
+      subagentId: "delegate-send",
+    }]);
+    expect(host.querySelector<HTMLTextAreaElement>("[data-subagent-input='message']")?.value).toBe("");
+  });
+
   test("requires first-send confirmation for waiting-main-agent subagent messages", () => {
     const host = document.createElement("section");
     const projection = fixtureProjection();
