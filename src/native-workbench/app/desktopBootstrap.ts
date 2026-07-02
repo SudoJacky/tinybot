@@ -1014,12 +1014,16 @@ function installNativeChatRuntimeActions(): void {
     const content = typeof detail.content === "string" ? detail.content : "";
     const sessionKey = typeof detail.sessionKey === "string" ? detail.sessionKey : "";
     const subagentId = typeof detail.subagentId === "string" ? detail.subagentId : "";
+    const traceRef = typeof detail.traceRef === "string" ? detail.traceRef : "";
+    const childRunId = typeof detail.childRunId === "string" ? detail.childRunId : "";
     logDesktopNativeDebug("runtime.actions.subagentDirectMessage.start", {
+      childRunId,
       contentLength: content.trim().length,
       hasRuntime: Boolean(nativeWorkbenchRuntime),
       hasSessionKey: Boolean(sessionKey),
       sessionKeyPrefix: sessionKey.split(":")[0] || "",
       subagentId,
+      traceRef,
     });
     if (!content.trim() || !sessionKey || !subagentId) {
       logDesktopNativeDebug("runtime.actions.subagentDirectMessageSkipped", {
@@ -1031,6 +1035,7 @@ function installNativeChatRuntimeActions(): void {
     }
     void invoke("worker_background_subagent_enqueue_input", {
       input: {
+        childRunId: childRunId || undefined,
         content: content.trim(),
         createdAt: new Date().toISOString(),
         metadata: {
@@ -1039,6 +1044,7 @@ function installNativeChatRuntimeActions(): void {
         },
         sessionKey,
         subagentId,
+        traceRef: traceRef || undefined,
       },
     }).then((result) => {
       const record = asRecord(result);

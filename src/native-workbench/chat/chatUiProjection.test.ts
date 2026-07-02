@@ -146,6 +146,8 @@ describe("chat UI projection", () => {
     expect(projection.liveSubagents).toEqual([{
       id: "delegate-1",
       sessionKey: "websocket:chat-1",
+      traceRef: "trace-delegate-1",
+      childRunId: "child-delegate-1",
       name: "Researcher",
       task: "Check docs",
       status: "running",
@@ -306,6 +308,8 @@ function fixtureMessages(): NativeChatMessage[] {
           delegateId: "delegate-1",
           delegateTitle: "Researcher",
           delegateTask: "Check docs",
+          traceRef: "trace-delegate-1",
+          childRunId: "child-delegate-1",
         },
       ],
     },

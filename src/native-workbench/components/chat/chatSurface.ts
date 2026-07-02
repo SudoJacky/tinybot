@@ -167,9 +167,11 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
       host.dispatchEvent(new CustomEvent("desktop-chat-subagent-message-submit", {
         bubbles: true,
         detail: {
+          ...(subagent.childRunId ? { childRunId: subagent.childRunId } : {}),
           content: message,
           sessionKey: subagent.sessionKey,
           subagentId,
+          ...(subagent.traceRef ? { traceRef: subagent.traceRef } : {}),
         },
       }));
       loadedSubagents.set(subagentOverrideKey(subagent), appendDirectSubagentMessage(subagent, message));

@@ -13,6 +13,7 @@ export interface ToolActivityIslandOptions {
   approvalId?: string;
   argsText: string;
   approvalStatus: string;
+  childRunId?: string;
   delegatedTrace?: Record<string, unknown>;
   delegateId?: string;
   delegateTask?: string;

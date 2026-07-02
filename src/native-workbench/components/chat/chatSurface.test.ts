@@ -574,6 +574,8 @@ describe("rebuilt chat surface", () => {
     projection.liveSubagents = [{
       id: "delegate-send",
       sessionKey: "websocket:chat-1",
+      traceRef: "trace-send",
+      childRunId: "child-send",
       name: "Reviewer",
       task: "Review implementation",
       status: "waiting_user",
@@ -602,9 +604,11 @@ describe("rebuilt chat surface", () => {
     host.querySelector<HTMLButtonElement>("[data-subagent-action='send-message']")?.click();
 
     expect(submissions).toEqual([{
+      childRunId: "child-send",
       content: "Use the safer option.",
       sessionKey: "websocket:chat-1",
       subagentId: "delegate-send",
+      traceRef: "trace-send",
     }]);
     expect(host.querySelector<HTMLTextAreaElement>("[data-subagent-input='message']")?.value).toBe("");
     expect(host.querySelector("[data-chat-region='detail-surface']")?.textContent).toContain("Use the safer option.");

@@ -32,6 +32,7 @@ export type NativeChatMessage = {
 export type NativeChatToolActivity = {
   approvalId?: string;
   delegatedTrace?: Record<string, unknown>;
+  childRunId?: string;
   delegateId?: string;
   delegateTitle?: string;
   delegateTask?: string;
@@ -1239,6 +1240,7 @@ function delegatedToolActivityFromMessage(message: Record<string, unknown>, resp
     ...(approvalId ? { approvalId } : {}),
     ...(approvalStatus ? { approvalStatus } : {}),
     ...(delegatedTrace ? { delegatedTrace } : {}),
+    childRunId: stringValue(message._delegate_child_run_id ?? metadata._delegate_child_run_id),
     delegateId: stringValue(message._delegate_id ?? metadata._delegate_id),
     delegateTitle: stringValue(message._delegate_label ?? metadata._delegate_label ?? message.title),
     delegateTask: stringValue(message._delegate_task ?? metadata._delegate_task),

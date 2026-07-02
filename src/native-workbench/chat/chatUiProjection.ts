@@ -181,6 +181,8 @@ export type SubagentTranscript = {
 export type LiveSubagent = {
   id: string;
   sessionKey: string;
+  traceRef?: string;
+  childRunId?: string;
   name: string;
   task: string;
   status: SubagentStatus;
@@ -381,6 +383,8 @@ function liveSubagentsFromMessages(sessionKey: string, messages: NativeChatMessa
       subagents.set(activity.delegateId, {
         id: activity.delegateId,
         sessionKey,
+        ...(activity.traceRef ? { traceRef: activity.traceRef } : {}),
+        ...(activity.childRunId ? { childRunId: activity.childRunId } : {}),
         name: activity.delegateTitle || activity.delegateId,
         task: activity.delegateTask || "",
         status,
