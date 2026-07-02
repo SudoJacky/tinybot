@@ -33,7 +33,7 @@ describe("chat subagent transcript facade", () => {
     });
 
     expect(loaded.transcript.capability).toBe("full_transcript");
-    expect(loaded.capabilities).toEqual(["can_forward", "full_transcript"]);
+    expect(loaded.capabilities).toEqual(["can_forward", "full_transcript", "can_send_message"]);
     expect(loaded.latestActivity).toBe("Final delegated result.");
     expect(loaded.transcript.messages).toEqual([
       {

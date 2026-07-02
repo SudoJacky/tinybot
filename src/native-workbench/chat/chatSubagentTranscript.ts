@@ -38,7 +38,7 @@ export function applyLoadedSubagentTrace(subagent: LiveSubagent, payload: unknow
   return {
     ...subagent,
     latestActivity: finalOutput || messages[messages.length - 1]?.content || subagent.latestActivity,
-    capabilities: mergeCapabilities(subagent.capabilities, ["full_transcript", "can_forward"]),
+    capabilities: mergeCapabilities(subagent.capabilities, ["full_transcript", "can_forward", "can_send_message"]),
     transcript: {
       id: subagent.transcript.id,
       sessionKey: subagent.transcript.sessionKey,

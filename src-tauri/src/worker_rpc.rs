@@ -2,7 +2,8 @@ use crate::config_store::{ConfigPatchBridgeResult, ConfigStore};
 use crate::worker_background::{
     BackgroundRunCompleteParams, BackgroundRunUpsertParams, BackgroundSubagentEnqueueInputParams,
     BackgroundTraceAppendParams, BackgroundTraceGetArtifactParams,
-    BackgroundTraceGetDelegateTraceParams, BackgroundTraceListParams, WorkerBackgroundRpc,
+    BackgroundTraceGetDelegateTraceParams, BackgroundTraceListFilter, BackgroundTraceListParams,
+    WorkerBackgroundRpc,
 };
 use crate::worker_capability::CapabilityPolicy;
 use crate::worker_config::WorkerConfigRpc;
@@ -24,6 +25,10 @@ use crate::worker_protocol::{
 use crate::worker_secret::{ProviderResolveSecretParams, WorkerSecretRpc};
 use crate::worker_session::{AgentRunRecord, AgentRunSummary, SessionMetadata, WorkerSessionRpc};
 use crate::worker_shell::{ShellExecuteParams, WorkerShellRpc};
+use crate::worker_subagent_manager::{
+    SubagentInputSender, SubagentSendInputParams, SubagentSpawnParams, SubagentTargetParams,
+    SubagentThreadManager, SubagentWaitParams,
+};
 use crate::worker_task::{TaskPlanIdParams, TaskPlanListParams, TaskPlanSaveParams, WorkerTaskRpc};
 use crate::worker_workspace::{WorkerWorkspaceRpc, WorkspaceReadFormat, WorkspaceReadOptions};
 use serde::Deserialize;
@@ -69,6 +74,7 @@ pub struct WorkerRpcRouter {
     mcp: WorkerMcpRpc,
     channel_connector: WorkerChannelConnectorRpc,
     runtime: WorkerRuntimeRpc,
+    subagents: Option<SubagentThreadManager>,
     config_store: Option<ConfigStore>,
 }
 
@@ -97,6 +103,7 @@ impl WorkerRpcRouter {
             channel_connector: WorkerChannelConnectorRpc::new(policy.clone()),
             mcp: WorkerMcpRpc::new(config_snapshot, policy),
             runtime: WorkerRuntimeRpc::new(),
+            subagents: None,
             config_store: None,
         }
     }
@@ -129,6 +136,7 @@ impl WorkerRpcRouter {
             channel_connector: WorkerChannelConnectorRpc::new(policy.clone()),
             mcp: WorkerMcpRpc::new(config_snapshot, policy),
             runtime: WorkerRuntimeRpc::new(),
+            subagents: None,
             config_store: None,
         })
     }
@@ -157,6 +165,11 @@ impl WorkerRpcRouter {
         handler: impl Fn(RuntimeRestartRequest) + Send + Sync + 'static,
     ) -> Self {
         self.runtime = WorkerRuntimeRpc::with_restart_handler(handler);
+        self
+    }
+
+    pub fn with_subagent_manager(mut self, manager: SubagentThreadManager) -> Self {
+        self.subagents = Some(manager);
         self
     }
 
@@ -758,9 +771,95 @@ impl WorkerRpcRouter {
                     .map_err(serialization_error)
             }
             "background.subagent.enqueue_input" => {
-                let params: BackgroundSubagentEnqueueInputParams = parse_params(request)?;
+                let mut params: BackgroundSubagentEnqueueInputParams = parse_params(request)?;
+                if let Some(manager) = &self.subagents {
+                    let live = manager.enqueue_input(SubagentSendInputParams {
+                        session_key: params.session_key.clone(),
+                        subagent_id: params.subagent_id.clone(),
+                        content: params.content.clone(),
+                        sender: SubagentInputSender::User,
+                        turn_id: params.turn_id.clone(),
+                        child_run_id: params.child_run_id.clone(),
+                        trace_ref: params.trace_ref.clone(),
+                        created_at: params.created_at.clone(),
+                        metadata: params.metadata.clone(),
+                    });
+                    if !live.accepted {
+                        return serde_json::to_value(live).map_err(serialization_error);
+                    }
+                    if live.delivery == "live_delivered" {
+                        params.delivery = Some(live.delivery.clone());
+                        let persisted = self.background.enqueue_subagent_input(params)?;
+                        return Ok(serde_json::json!({
+                            "accepted": true,
+                            "delivery": live.delivery,
+                            "event": persisted.event,
+                            "input": live.input,
+                            "subagent": live.subagent,
+                        }));
+                    }
+                }
                 serde_json::to_value(self.background.enqueue_subagent_input(params)?)
                     .map_err(serialization_error)
+            }
+            "subagent.spawn" => {
+                let params: SubagentSpawnParams = parse_params(request)?;
+                let Some(manager) = &self.subagents else {
+                    return Err(unavailable_subagent_manager());
+                };
+                serde_json::to_value(manager.spawn(params)).map_err(serialization_error)
+            }
+            "subagent.list" => {
+                let params: SubagentListParams = parse_params(request)?;
+                let Some(manager) = &self.subagents else {
+                    return Err(unavailable_subagent_manager());
+                };
+                let trace_events = self
+                    .background
+                    .list_trace_events(BackgroundTraceListParams {
+                        filter: Some(BackgroundTraceListFilter {
+                            session_key: Some(params.session_key.clone()),
+                            ..Default::default()
+                        }),
+                    })?
+                    .events;
+                manager.restore_interrupted_from_trace_events(&params.session_key, &trace_events);
+                serde_json::to_value(manager.list(&params.session_key)).map_err(serialization_error)
+            }
+            "subagent.query" => {
+                let params: SubagentTargetParams = parse_params(request)?;
+                let Some(manager) = &self.subagents else {
+                    return Err(unavailable_subagent_manager());
+                };
+                serde_json::to_value(manager.query(params)).map_err(serialization_error)
+            }
+            "subagent.send_input" => {
+                let params: SubagentSendInputParams = parse_params(request)?;
+                let Some(manager) = &self.subagents else {
+                    return Err(unavailable_subagent_manager());
+                };
+                serde_json::to_value(manager.enqueue_input(params)).map_err(serialization_error)
+            }
+            "subagent.wait" => {
+                let params: SubagentWaitParams = parse_params(request)?;
+                let Some(manager) = &self.subagents else {
+                    return Err(unavailable_subagent_manager());
+                };
+                serde_json::to_value(manager.wait(params)).map_err(serialization_error)
+            }
+            "subagent.cancel" => {
+                let params: SubagentTargetParams = parse_params(request)?;
+                let Some(manager) = &self.subagents else {
+                    return Err(unavailable_subagent_manager());
+                };
+                serde_json::to_value(manager.cancel(params)).map_err(serialization_error)
+            }
+            "subagent.close" => {
+                let params: SubagentTargetParams = parse_params(request)?;
+                let Some(manager) = &self.subagents else {
+                    return Err(unavailable_subagent_manager());
+                };
+                serde_json::to_value(manager.close(params)).map_err(serialization_error)
             }
             "mcp.call_tool" => self.mcp.call_tool_from_request(request),
             "mcp.list_tools" => self.mcp.list_tools(),
@@ -1093,6 +1192,12 @@ struct RagQueryParams {
     limit: Option<usize>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SubagentListParams {
+    session_key: String,
+}
+
 fn deserialize_workspace_read_format<'de, D>(
     deserializer: D,
 ) -> Result<Option<WorkspaceReadFormat>, D::Error>
@@ -1140,6 +1245,16 @@ fn invalid_rag_request(message: impl Into<String>) -> crate::worker_protocol::Wo
         crate::worker_protocol::WorkerProtocolErrorCode::InvalidProtocol,
         message,
         serde_json::json!({ "method": "rag.query" }),
+        false,
+        crate::worker_protocol::WorkerProtocolErrorSource::RustCore,
+    )
+}
+
+fn unavailable_subagent_manager() -> crate::worker_protocol::WorkerProtocolError {
+    crate::worker_protocol::WorkerProtocolError::new(
+        crate::worker_protocol::WorkerProtocolErrorCode::WorkerError,
+        "subagent thread manager is unavailable",
+        serde_json::json!({ "methodGroup": "subagent" }),
         false,
         crate::worker_protocol::WorkerProtocolErrorSource::RustCore,
     )
@@ -1250,6 +1365,7 @@ mod tests {
     use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
     use crate::worker_protocol::WorkerRequest;
     use crate::worker_rpc::WorkerRpcRouter;
+    use crate::worker_subagent_manager::{SubagentSpawnParams, SubagentThreadManager};
     use serde_json::{json, Value};
     use std::{
         path::PathBuf,
@@ -3424,6 +3540,186 @@ mod tests {
             "Use the safer option."
         );
         assert_eq!(result["event"]["payload"]["source"], "user");
+    }
+
+    #[test]
+    fn dispatches_subagent_control_requests() {
+        let fixture = WorkspaceFixture::new();
+        let manager = SubagentThreadManager::default();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::BackgroundRead,
+                WorkerCapability::BackgroundWrite,
+            ]),
+        )
+        .with_subagent_manager(manager);
+
+        let spawn = router.dispatch(&WorkerRequest::new(
+            "req-subagent-spawn",
+            "trace-subagent",
+            "subagent.spawn",
+            json!({
+                "sessionKey": "desktop:chat-1",
+                "subagentId": "delegate-1",
+                "childRunId": "child-1",
+                "traceRef": "trace-delegate-1",
+                "name": "Goodall",
+                "task": "Inspect a narrow question"
+            }),
+        ));
+        assert_eq!(spawn.error, None);
+        assert_eq!(spawn.result.as_ref().unwrap()["accepted"], true);
+
+        let send = router.dispatch(&WorkerRequest::new(
+            "req-subagent-send",
+            "trace-subagent",
+            "subagent.send_input",
+            json!({
+                "sessionKey": "desktop:chat-1",
+                "subagentId": "delegate-1",
+                "content": "Please continue",
+                "sender": "main_agent"
+            }),
+        ));
+        assert_eq!(send.error, None);
+        assert_eq!(send.result.as_ref().unwrap()["delivery"], "live_delivered");
+        assert_eq!(send.result.as_ref().unwrap()["subagent"]["mailboxDepth"], 1);
+
+        let wait = router.dispatch(&WorkerRequest::new(
+            "req-subagent-wait",
+            "trace-subagent",
+            "subagent.wait",
+            json!({
+                "sessionKey": "desktop:chat-1",
+                "subagentIds": ["delegate-1"],
+                "timeoutMs": 1
+            }),
+        ));
+        assert_eq!(wait.error, None);
+        assert_eq!(wait.result.as_ref().unwrap()["timedOut"], true);
+
+        let close = router.dispatch(&WorkerRequest::new(
+            "req-subagent-close",
+            "trace-subagent",
+            "subagent.close",
+            json!({
+                "sessionKey": "desktop:chat-1",
+                "subagentId": "delegate-1"
+            }),
+        ));
+        assert_eq!(close.error, None);
+        assert_eq!(close.result.as_ref().unwrap()["accepted"], true);
+        assert_eq!(
+            close.result.as_ref().unwrap()["subagent"]["status"],
+            "closed"
+        );
+    }
+
+    #[test]
+    fn background_subagent_enqueue_input_live_delivers_when_manager_has_child() {
+        let fixture = WorkspaceFixture::new();
+        let manager = SubagentThreadManager::default();
+        manager.spawn(SubagentSpawnParams {
+            session_key: "desktop:chat-1".to_string(),
+            parent_run_id: Some("parent-run".to_string()),
+            subagent_id: Some("delegate-1".to_string()),
+            child_run_id: Some("child-1".to_string()),
+            trace_ref: Some("trace-delegate-1".to_string()),
+            name: Some("Goodall".to_string()),
+            task: Some("Inspect a narrow question".to_string()),
+            status: None,
+            created_at: None,
+            metadata: json!({}),
+        });
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::BackgroundRead,
+                WorkerCapability::BackgroundWrite,
+            ]),
+        )
+        .with_subagent_manager(manager);
+
+        let response = router.dispatch(&WorkerRequest::new(
+            "req-background-subagent-input",
+            "trace-1",
+            "background.subagent.enqueue_input",
+            json!({
+                "sessionKey": "desktop:chat-1",
+                "subagentId": "delegate-1",
+                "content": "User intervention",
+                "traceRef": "trace-delegate-1",
+                "childRunId": "child-1",
+                "createdAt": "2026-06-28T00:00:02.000Z"
+            }),
+        ));
+
+        assert_eq!(response.error, None);
+        let result = response.result.as_ref().unwrap();
+        assert_eq!(result["accepted"], true);
+        assert_eq!(result["delivery"], "live_delivered");
+        assert_eq!(result["event"]["payload"]["delivery"], "live_delivered");
+        assert_eq!(result["subagent"]["mailboxDepth"], 1);
+    }
+
+    #[test]
+    fn subagent_list_restores_interrupted_children_from_background_trace() {
+        let fixture = WorkspaceFixture::new();
+        let manager = SubagentThreadManager::default();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::BackgroundRead,
+                WorkerCapability::BackgroundWrite,
+            ]),
+        )
+        .with_subagent_manager(manager);
+
+        let append = router.dispatch(&WorkerRequest::new(
+            "req-background-trace-append",
+            "trace-1",
+            "background.trace.append",
+            json!({
+                "event": {
+                    "eventId": "event-running",
+                    "eventType": "agent.delegate.running",
+                    "sessionKey": "desktop:chat-1",
+                    "turnId": "parent-run",
+                    "delegateId": "delegate-1",
+                    "childRunId": "child-1",
+                    "traceRef": "trace-delegate-1",
+                    "sequence": 1,
+                    "createdAt": "2026-06-28T00:00:00.000Z",
+                    "payload": { "name": "Goodall", "task": "Inspect" }
+                }
+            }),
+        ));
+        assert_eq!(append.error, None);
+
+        let list = router.dispatch(&WorkerRequest::new(
+            "req-subagent-list",
+            "trace-1",
+            "subagent.list",
+            json!({ "sessionKey": "desktop:chat-1" }),
+        ));
+
+        assert_eq!(list.error, None);
+        let subagents = list.result.as_ref().unwrap()["subagents"]
+            .as_array()
+            .expect("subagent list should be an array");
+        assert_eq!(subagents.len(), 1);
+        assert_eq!(subagents[0]["subagentId"], "delegate-1");
+        assert_eq!(subagents[0]["status"], "interrupted");
     }
 
     #[test]

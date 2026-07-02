@@ -264,7 +264,12 @@ impl WorkerBackgroundRpc {
             .max()
             .unwrap_or(0)
             + 1;
-        let delivery = "queued_for_runtime".to_string();
+        let delivery = params
+            .delivery
+            .as_deref()
+            .filter(|delivery| !delivery.trim().is_empty())
+            .unwrap_or("queued_for_runtime")
+            .to_string();
         let event = BackgroundTraceEvent {
             event_id: format!(
                 "subagent-input-{}-{sequence}",
@@ -500,6 +505,8 @@ pub struct BackgroundSubagentEnqueueInputParams {
     pub trace_ref: Option<String>,
     pub child_run_id: Option<String>,
     pub created_at: Option<String>,
+    #[serde(default)]
+    pub delivery: Option<String>,
     #[serde(default)]
     pub metadata: Value,
 }
