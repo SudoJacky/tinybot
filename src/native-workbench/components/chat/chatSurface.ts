@@ -49,6 +49,7 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
   let currentQueuedInputs = options.projection.queuedInputs;
   let loadSubagentTranscript = options.loadSubagentTranscript;
   let composerError = "";
+  let pendingDeleteSessionKey = "";
   let sessionSearchQuery = "";
   const processExpansionOverrides = new Map<string, boolean>();
   const subagentDrafts = new Map<string, string>();
@@ -118,7 +119,7 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
     ...currentViewProjection(),
     detailPanel: currentDetailPanel,
     queuedInputs: currentQueuedInputs,
-  }, sessionSearchQuery, processExpansionOverrides, {
+  }, sessionSearchQuery, pendingDeleteSessionKey, processExpansionOverrides, {
     closeDetail() {
       currentDetailPanel = closeChatDetailPanel(chatSurfaceViewportWidth(host));
       logChatSurfaceAction(host, "detail.close", currentDetailPanel);
@@ -189,6 +190,7 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
       }
     },
     openSession(sessionKey, chatId) {
+      pendingDeleteSessionKey = "";
       host.dispatchEvent(new CustomEvent("desktop-chat-session-open", {
         bubbles: true,
         detail: { chatId, sessionKey },
@@ -196,6 +198,7 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
       logChatSurfaceAction(host, "session.open", { chatId, sessionKey });
     },
     startNewSession() {
+      pendingDeleteSessionKey = "";
       host.dispatchEvent(new CustomEvent("desktop-chat-session-new", {
         bubbles: true,
         detail: {},
@@ -301,7 +304,28 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
     },
     updateSessionSearch(query) {
       sessionSearchQuery = query;
+      pendingDeleteSessionKey = "";
       logChatSurfaceAction(host, "session.search", { queryLength: query.trim().length });
+      renderCurrent();
+    },
+    deleteSession(session) {
+      if (pendingDeleteSessionKey !== session.key) {
+        pendingDeleteSessionKey = session.key;
+        logChatSurfaceAction(host, "session.delete.confirm", { sessionKey: session.key });
+        renderCurrent();
+        return;
+      }
+      pendingDeleteSessionKey = "";
+      host.dispatchEvent(new CustomEvent("desktop-chat-session-action", {
+        bubbles: true,
+        detail: {
+          action: "delete",
+          chatId: session.chatId,
+          sessionKey: session.key,
+          title: session.title,
+        },
+      }));
+      logChatSurfaceAction(host, "session.delete", { sessionKey: session.key });
       renderCurrent();
     },
     sessionAction(action) {
@@ -410,6 +434,7 @@ type ChatSurfaceActions = {
   copyDetail(content: string, source: string): void;
   copyTurn(turnId: string): void;
   deleteQueuedInput(inputId: string): void;
+  deleteSession(session: ChatUiProjection["sessions"][number]): void;
   forwardSubagentMessages(subagentId: string, messageIds: string[]): void;
   openDetail(kind: ChatDetailPanelKind, targetId: string): void;
   openSession(sessionKey: string, chatId: string): void;
@@ -445,6 +470,7 @@ function renderChatSurface(
   host: HTMLElement,
   projection: ChatUiProjection,
   sessionSearchQuery: string,
+  pendingDeleteSessionKey: string,
   processExpansionOverrides: Map<string, boolean>,
   actions: ChatSurfaceActions,
 ): void {
@@ -455,7 +481,7 @@ function renderChatSurface(
 
   const shell = element("div", "desktop-chat-surface__shell");
   shell.setAttribute("data-chat-layout", "codex-reference");
-  shell.append(renderSessionList(projection, sessionSearchQuery, actions));
+  shell.append(renderSessionList(projection, sessionSearchQuery, pendingDeleteSessionKey, actions));
   shell.append(renderChatDetail(projection, processExpansionOverrides, actions));
   shell.append(renderStatusRail(projection, actions));
   const detailSurface = renderDetailSurface(projection, actions);
@@ -471,7 +497,12 @@ function confirmSubagentForwardToApprovalGuidance(host: HTMLElement): boolean {
   ) ?? false;
 }
 
-function renderSessionList(projection: ChatUiProjection, searchQuery: string, actions: ChatSurfaceActions): HTMLElement {
+function renderSessionList(
+  projection: ChatUiProjection,
+  searchQuery: string,
+  pendingDeleteSessionKey: string,
+  actions: ChatSurfaceActions,
+): HTMLElement {
   const list = element("aside", "desktop-chat-surface__sessions");
   list.setAttribute("data-chat-region", "session-list");
   const controls = element("div", "desktop-chat-surface__session-controls");
@@ -493,24 +524,50 @@ function renderSessionList(projection: ChatUiProjection, searchQuery: string, ac
   const rows = element("div", "desktop-chat-surface__session-rows");
   rows.setAttribute("data-session-result-count", String(filteredSessions.length));
   for (const session of filteredSessions) {
-    const row = element("button", "desktop-chat-surface__session-row");
-    row.type = "button";
+    const row = element("div", "desktop-chat-surface__session-row");
+    row.setAttribute("role", "button");
+    row.tabIndex = 0;
     row.setAttribute("data-session-key", session.key);
     row.setAttribute("data-session-chat-id", session.chatId);
     row.setAttribute("data-pinned", String(Boolean(session.pinned)));
+    row.setAttribute("data-delete-confirming", String(pendingDeleteSessionKey === session.key));
     if (session.isActive) {
       row.setAttribute("aria-current", "true");
     }
     row.addEventListener("click", () => actions.openSession(session.key, session.chatId));
+    row.addEventListener("keydown", (event) => {
+      if (event.target !== row) {
+        return;
+      }
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+      event.preventDefault();
+      actions.openSession(session.key, session.chatId);
+    });
     const title = element("span", "desktop-chat-surface__session-title", session.title);
     const badge = element("span", "desktop-chat-surface__session-badge", badgeLabel(session));
     badge.setAttribute("data-session-primary-badge", session.primaryBadge);
+    const deleteButton = element(
+      "button",
+      "desktop-chat-surface__session-delete",
+      pendingDeleteSessionKey === session.key ? "Confirm" : "Delete",
+    );
+    deleteButton.type = "button";
+    deleteButton.setAttribute("data-session-delete", session.key);
+    deleteButton.setAttribute("data-session-delete-confirming", String(pendingDeleteSessionKey === session.key));
+    deleteButton.setAttribute("aria-label", pendingDeleteSessionKey === session.key ? `Confirm delete ${session.title}` : `Delete ${session.title}`);
+    deleteButton.title = pendingDeleteSessionKey === session.key ? "Confirm delete session" : "Delete session";
+    deleteButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      actions.deleteSession(session);
+    });
     if (session.pinned) {
       const pinned = element("span", "desktop-chat-surface__session-pinned", "Pinned");
       pinned.setAttribute("data-session-pinned", "");
       row.append(pinned);
     }
-    row.append(title, badge);
+    row.append(title, badge, deleteButton);
     rows.append(row);
   }
   if (!filteredSessions.length) {
@@ -1164,16 +1221,26 @@ function sessionUpdatedLabel(updatedAt: string): string {
   const minuteMs = 60 * 1000;
   const hourMs = 60 * minuteMs;
   const dayMs = 24 * hourMs;
+  const weekMs = 7 * dayMs;
+  const monthMs = 30 * dayMs;
   if (diffMs < hourMs) {
     const minutes = Math.max(1, Math.floor(diffMs / minuteMs));
-    return `${minutes} min`;
+    return `${minutes} 分`;
   }
   if (diffMs < dayMs) {
     const hours = Math.floor(diffMs / hourMs);
-    return `${hours} h`;
+    return `${hours} 小时`;
   }
-  const days = Math.floor(diffMs / dayMs);
-  return `${days} d`;
+  if (diffMs < weekMs) {
+    const days = Math.floor(diffMs / dayMs);
+    return `${days} 天`;
+  }
+  if (diffMs < monthMs) {
+    const weeks = Math.floor(diffMs / weekMs);
+    return `${weeks} 周`;
+  }
+  const months = Math.floor(diffMs / monthMs);
+  return `${months} 月`;
 }
 
 function approvalChoiceLabel(choice: ApprovalRequest["choices"][number]): string {

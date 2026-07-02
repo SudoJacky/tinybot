@@ -138,12 +138,103 @@ describe("rebuilt chat surface", () => {
   test("shows updated time as the fallback session badge", () => {
     const host = document.createElement("section");
     const projection = fixtureProjection();
-    projection.sessions[0].primaryBadge = "updated_time";
-    projection.sessions[0].updatedAt = "2026-07-01T10:05:00Z";
+    projection.sessions = [
+      {
+        ...projection.sessions[0],
+        primaryBadge: "updated_time",
+        updatedAt: "2026-07-01T10:05:00Z",
+      },
+      {
+        key: "websocket:chat-hours",
+        chatId: "chat-hours",
+        title: "Hours old",
+        createdAt: "2026-07-01T00:00:00Z",
+        updatedAt: "2026-07-01T08:10:00Z",
+        primaryBadge: "updated_time",
+        isActive: false,
+      },
+      {
+        key: "websocket:chat-days",
+        chatId: "chat-days",
+        title: "Days old",
+        createdAt: "2026-06-29T00:00:00Z",
+        updatedAt: "2026-06-29T10:10:00Z",
+        primaryBadge: "updated_time",
+        isActive: false,
+      },
+      {
+        key: "websocket:chat-weeks",
+        chatId: "chat-weeks",
+        title: "Weeks old",
+        createdAt: "2026-06-15T00:00:00Z",
+        updatedAt: "2026-06-17T10:10:00Z",
+        primaryBadge: "updated_time",
+        isActive: false,
+      },
+      {
+        key: "websocket:chat-months",
+        chatId: "chat-months",
+        title: "Months old",
+        createdAt: "2026-05-01T00:00:00Z",
+        updatedAt: "2026-05-02T10:10:00Z",
+        primaryBadge: "updated_time",
+        isActive: false,
+      },
+    ];
 
     mountChatSurface(host, { projection });
 
-    expect(host.querySelector("[data-session-primary-badge='updated_time']")?.textContent).toBe("5 min");
+    expect(Array.from(host.querySelectorAll("[data-session-primary-badge='updated_time']")).map((node) => node.textContent)).toEqual([
+      "5 分",
+      "2 小时",
+      "2 天",
+      "2 周",
+      "2 月",
+    ]);
+  });
+
+  test("requires two clicks before deleting a session row", () => {
+    const host = document.createElement("section");
+    const openEvents: unknown[] = [];
+    const sessionActions: unknown[] = [];
+    const logEvents: unknown[] = [];
+    host.addEventListener("desktop-chat-session-open", (event) => {
+      openEvents.push((event as CustomEvent).detail);
+    });
+    host.addEventListener("desktop-chat-session-action", (event) => {
+      sessionActions.push((event as CustomEvent).detail);
+    });
+    host.addEventListener("desktop-chat-surface-log", (event) => {
+      logEvents.push((event as CustomEvent).detail);
+    });
+    const projection = fixtureProjection();
+
+    mountChatSurface(host, { projection });
+
+    const firstDelete = host.querySelector<HTMLButtonElement>("[data-session-delete='websocket:chat-1']");
+    expect(firstDelete?.textContent).toBe("Delete");
+    expect(firstDelete?.getAttribute("data-session-delete-confirming")).toBe("false");
+
+    firstDelete?.click();
+
+    expect(openEvents).toEqual([]);
+    expect(sessionActions).toEqual([]);
+    const confirmDelete = host.querySelector<HTMLButtonElement>("[data-session-delete='websocket:chat-1']");
+    expect(confirmDelete?.textContent).toBe("Confirm");
+    expect(confirmDelete?.getAttribute("data-session-delete-confirming")).toBe("true");
+    expect(host.querySelector("[data-session-key='websocket:chat-1']")?.getAttribute("data-delete-confirming")).toBe("true");
+
+    confirmDelete?.click();
+
+    expect(openEvents).toEqual([]);
+    expect(sessionActions).toEqual([{
+      action: "delete",
+      chatId: "chat-1",
+      sessionKey: "websocket:chat-1",
+      title: "Investigate IAM certificate",
+    }]);
+    expect(logEvents.map((event) => (event as { action: string }).action)).toContain("session.delete.confirm");
+    expect(logEvents.map((event) => (event as { action: string }).action)).toContain("session.delete");
   });
 
   test("renders tool detail in a right overlay drawer from projection state", () => {

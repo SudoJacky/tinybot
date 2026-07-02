@@ -488,7 +488,9 @@ describe("desktop workbench shell", () => {
     });
 
     const rows = targetDocument.body.querySelector('[data-chat-region="session-list"]')?.querySelectorAll(".desktop-chat-surface__session-row");
-    expect(rows?.map((node) => node.textContent)).toEqual(["Minute5 min", "Hour4 h"]);
+    expect(rows?.map((node) => node.querySelector(".desktop-chat-surface__session-title")?.textContent)).toEqual(["Minute", "Hour"]);
+    expect(rows?.map((node) => node.querySelector(".desktop-chat-surface__session-badge")?.textContent)).toEqual(["5 分", "4 小时"]);
+    expect(rows?.map((node) => node.querySelector(".desktop-chat-surface__session-delete")?.textContent)).toEqual(["Delete", "Delete"]);
     expect(targetDocument.body.querySelector(".desktop-recent-chat-list")).toBeNull();
   });
 
