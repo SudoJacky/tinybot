@@ -314,6 +314,75 @@ describe("rebuilt chat surface", () => {
     expect(detail?.textContent).toContain("Partial answer.");
   });
 
+  test("loads delegate trace when opening a partial subagent detail", async () => {
+    const host = document.createElement("section");
+    const logs: unknown[] = [];
+    host.addEventListener("desktop-chat-surface-log", (event) => {
+      logs.push((event as CustomEvent).detail);
+    });
+    const projection = fixtureProjection();
+    projection.liveSubagents = [{
+      id: "delegate-load",
+      sessionKey: "websocket:chat-1",
+      name: "Researcher",
+      task: "Check docs",
+      status: "running",
+      latestActivity: "Partial activity",
+      capabilities: ["partial_transcript", "can_forward"],
+      transcript: {
+        id: "delegate-load",
+        sessionKey: "websocket:chat-1",
+        capability: "partial_transcript",
+        messages: [{ id: "sub-msg-load", role: "assistant", content: "Partial answer." }],
+        toolSummaries: [],
+      },
+    }];
+    const loadSubagentTranscript = vi.fn(async () => ({
+      trace: {
+        finalOutput: "Loaded final answer.",
+        events: [{
+          eventId: "event-loaded",
+          eventType: "agent.delegate.completed",
+          createdAt: "2026-07-01T10:05:00Z",
+          payload: { finalOutput: "Loaded final answer." },
+        }],
+      },
+    }));
+
+    mountChatSurface(host, { projection, loadSubagentTranscript });
+
+    host.querySelector<HTMLButtonElement>("[data-subagent-id='delegate-load']")?.click();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(loadSubagentTranscript).toHaveBeenCalledWith({
+      activityId: "delegate-load",
+      sessionKey: "websocket:chat-1",
+      delegateId: "delegate-load",
+    });
+    const detail = host.querySelector("[data-chat-region='detail-surface']");
+    expect(detail?.textContent).toContain("Loaded final answer.");
+    expect(detail?.textContent).not.toContain("partial transcript");
+    expect(logs).toEqual(expect.arrayContaining([
+      {
+        action: "subagent.trace.load.start",
+        payload: {
+          sessionKey: "websocket:chat-1",
+          subagentId: "delegate-load",
+        },
+      },
+      {
+        action: "subagent.trace.load.complete",
+        payload: {
+          messageCount: 1,
+          sessionKey: "websocket:chat-1",
+          subagentId: "delegate-load",
+          toolCount: 1,
+        },
+      },
+    ]));
+  });
+
   test("enables subagent input only for full sendable transcript", () => {
     const host = document.createElement("section");
     const projection = fixtureProjection();

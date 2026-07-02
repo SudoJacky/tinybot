@@ -1101,7 +1101,7 @@ function createMainRegion(
   workbench.className = "desktop-empty-session desktop-chat-workbench";
   const workbenchChildren = [
     createChatHeader(targetDocument, chat, chatActions),
-    createConversationThread(targetDocument, chat),
+    createConversationThread(targetDocument, chat, chatActions),
   ];
   if (showEmptySession) {
     workbenchChildren.push(createChatWorkbenchEmptyState(targetDocument, chatWorkItems));
@@ -1704,6 +1704,7 @@ function focusSessionTitleEditor(editor: HTMLInputElement): void {
 function createConversationThread(
   targetDocument: Document,
   chat: DesktopNativeChatModel | null,
+  chatActions: DesktopNativeChatActionOptions = {},
   _inlineForms: AgentUiForm[] = [],
   _agentUiActions: DesktopAgentUiFormActionOptions = {},
 ): HTMLElement {
@@ -1714,7 +1715,7 @@ function createConversationThread(
   thread.setAttribute("data-desktop-chat-region", "message-timeline");
   thread.setAttribute("role", "log");
   if (chat) {
-    mountRebuiltChatSurface(thread, chat);
+    mountRebuiltChatSurface(thread, chat, chatActions);
     return thread;
   }
   thread.append(
@@ -1741,9 +1742,14 @@ function createConversationThread(
   return thread;
 }
 
-function mountRebuiltChatSurface(thread: HTMLElement, chat: DesktopNativeChatModel): void {
+function mountRebuiltChatSurface(
+  thread: HTMLElement,
+  chat: DesktopNativeChatModel,
+  chatActions: DesktopNativeChatActionOptions = {},
+): void {
   mountChatSurface(thread, {
     projection: projectDesktopNativeChat(thread.ownerDocument, chat),
+    loadSubagentTranscript: chatActions.onDelegateTraceLoad,
   });
 }
 

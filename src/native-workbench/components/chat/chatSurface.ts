@@ -26,9 +26,14 @@ import {
   requiresFirstDirectSubagentMessageConfirmation,
   requiresForwardApprovalGuidanceConfirmation,
 } from "../../chat/chatSubagentForward";
+import {
+  applyLoadedSubagentTrace,
+  type SubagentTraceSelection,
+} from "../../chat/chatSubagentTranscript";
 
 export type ChatSurfaceOptions = {
   projection: ChatUiProjection;
+  loadSubagentTranscript?: (selection: SubagentTraceSelection) => Promise<unknown>;
 };
 
 export type MountedChatSurface = {
@@ -42,11 +47,14 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
   let currentProjection = options.projection;
   let currentDetailPanel = options.projection.detailPanel;
   let currentQueuedInputs = options.projection.queuedInputs;
+  let loadSubagentTranscript = options.loadSubagentTranscript;
   let composerError = "";
   let sessionSearchQuery = "";
   const processExpansionOverrides = new Map<string, boolean>();
   const composerDrafts = new Map<string, string>();
   const subagentDrafts = new Map<string, string>();
+  const loadedSubagents = new Map<string, LiveSubagent>();
+  const loadingSubagents = new Set<string>();
   const currentComposerDraftKey = () => currentProjection.activeSessionKey || "new-session";
   const clearCurrentComposerDraft = () => {
     composerDrafts.delete(currentComposerDraftKey());
@@ -56,8 +64,9 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
     const previous = composerDrafts.get(key)?.trimEnd() ?? "";
     composerDrafts.set(key, previous ? `${previous}\n\n${content}` : content);
   };
+  const currentViewProjection = () => projectionWithLoadedSubagents(currentProjection, loadedSubagents);
   const renderCurrent = () => renderChatSurface(host, {
-    ...currentProjection,
+    ...currentViewProjection(),
     detailPanel: currentDetailPanel,
     queuedInputs: currentQueuedInputs,
   }, sessionSearchQuery, processExpansionOverrides, {
@@ -126,6 +135,9 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
       currentDetailPanel = openChatDetailPanel(kind, targetId, chatSurfaceViewportWidth(host));
       logChatSurfaceAction(host, "detail.open", currentDetailPanel);
       renderCurrent();
+      if (kind === "subagent") {
+        void loadCurrentSubagentTrace(targetId);
+      }
     },
     openSession(sessionKey, chatId) {
       host.dispatchEvent(new CustomEvent("desktop-chat-session-open", {
@@ -142,7 +154,7 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
       logChatSurfaceAction(host, "session.new", {});
     },
     submitSubagentMessage(subagentId, content) {
-      const subagent = currentProjection.liveSubagents.find((candidate) => candidate.id === subagentId);
+      const subagent = currentViewProjection().liveSubagents.find((candidate) => candidate.id === subagentId);
       const message = content.trim();
       if (!subagent || !message || !canSendDirectSubagentMessage(subagent)) {
         logChatSurfaceAction(host, "subagent.message.ignored", {
@@ -173,7 +185,7 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
       renderCurrent();
     },
     forwardSubagentMessages(subagentId, messageIds) {
-      const subagent = currentProjection.liveSubagents.find((candidate) => candidate.id === subagentId);
+      const subagent = currentViewProjection().liveSubagents.find((candidate) => candidate.id === subagentId);
       if (!subagent) {
         logChatSurfaceAction(host, "subagent.forward.missing", { subagentId });
         return;
@@ -338,6 +350,7 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
     update(nextOptions: ChatSurfaceOptions) {
       const previousSessionKey = currentProjection.activeSessionKey;
       currentProjection = nextOptions.projection;
+      loadSubagentTranscript = nextOptions.loadSubagentTranscript;
       if (nextOptions.projection.detailPanel.open || previousSessionKey !== nextOptions.projection.activeSessionKey) {
         currentDetailPanel = nextOptions.projection.detailPanel;
       }
@@ -353,6 +366,49 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
       host.className = "";
     },
   };
+
+  async function loadCurrentSubagentTrace(subagentId: string): Promise<void> {
+    if (!loadSubagentTranscript) {
+      logChatSurfaceAction(host, "subagent.trace.load.unavailable", { subagentId });
+      return;
+    }
+    const subagent = currentViewProjection().liveSubagents.find((candidate) => candidate.id === subagentId);
+    if (!subagent || subagent.transcript.capability === "full_transcript") {
+      return;
+    }
+    const key = subagentOverrideKey(subagent);
+    if (loadingSubagents.has(key)) {
+      return;
+    }
+    loadingSubagents.add(key);
+    logChatSurfaceAction(host, "subagent.trace.load.start", {
+      sessionKey: subagent.sessionKey,
+      subagentId,
+    });
+    try {
+      const payload = await loadSubagentTranscript({
+        activityId: subagent.id,
+        sessionKey: subagent.sessionKey,
+        delegateId: subagent.id,
+      });
+      const loaded = applyLoadedSubagentTrace(subagent, payload);
+      loadedSubagents.set(key, loaded);
+      logChatSurfaceAction(host, "subagent.trace.load.complete", {
+        messageCount: loaded.transcript.messages.length,
+        sessionKey: loaded.sessionKey,
+        subagentId,
+        toolCount: loaded.transcript.toolSummaries.length,
+      });
+      renderCurrent();
+    } catch (error) {
+      logChatSurfaceAction(host, "subagent.trace.load.failed", {
+        message: error instanceof Error ? error.message : String(error),
+        subagentId,
+      });
+    } finally {
+      loadingSubagents.delete(key);
+    }
+  }
 }
 
 type ChatSurfaceActions = {
@@ -377,6 +433,25 @@ type ChatSurfaceActions = {
   updateSessionSearch(query: string): void;
   updateSubagentDraft(subagentId: string, content: string): void;
 };
+
+function projectionWithLoadedSubagents(
+  projection: ChatUiProjection,
+  loadedSubagents: Map<string, LiveSubagent>,
+): ChatUiProjection {
+  if (!loadedSubagents.size) {
+    return projection;
+  }
+  return {
+    ...projection,
+    liveSubagents: projection.liveSubagents.map((subagent) =>
+      loadedSubagents.get(subagentOverrideKey(subagent)) ?? subagent,
+    ),
+  };
+}
+
+function subagentOverrideKey(subagent: Pick<LiveSubagent, "id" | "sessionKey">): string {
+  return `${subagent.sessionKey}:${subagent.id}`;
+}
 
 function renderChatSurface(
   host: HTMLElement,
