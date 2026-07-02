@@ -45,6 +45,7 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
   let currentQueuedInputs = options.projection.queuedInputs;
   let composerError = "";
   let sessionSearchQuery = "";
+  const processExpansionOverrides = new Map<string, boolean>();
   const composerDrafts = new Map<string, string>();
   const subagentDrafts = new Map<string, string>();
   const currentComposerDraftKey = () => currentProjection.activeSessionKey || "new-session";
@@ -60,7 +61,7 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
     ...currentProjection,
     detailPanel: currentDetailPanel,
     queuedInputs: currentQueuedInputs,
-  }, sessionSearchQuery, {
+  }, sessionSearchQuery, processExpansionOverrides, {
     closeDetail() {
       currentDetailPanel = closeChatDetailPanel(chatSurfaceViewportWidth(host));
       logChatSurfaceAction(host, "detail.close", currentDetailPanel);
@@ -257,6 +258,20 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
       renderCurrent();
       return { accepted: false };
     },
+    toggleProcess(turnId) {
+      const turn = currentProjection.turns.find((candidate) => candidate.id === turnId);
+      if (!turn?.process) {
+        logChatSurfaceAction(host, "process.toggle.missing", { turnId });
+        return;
+      }
+      const nextExpanded = !isProcessExpanded(turn, processExpansionOverrides);
+      processExpansionOverrides.set(turnId, nextExpanded);
+      logChatSurfaceAction(host, "process.toggle", {
+        expanded: nextExpanded,
+        turnId,
+      });
+      renderCurrent();
+    },
     composerError() {
       return composerError;
     },
@@ -347,12 +362,19 @@ type ChatSurfaceActions = {
   subagentDraft(subagentId: string): string;
   submitComposer(content: string): { accepted: boolean };
   submitSubagentMessage(subagentId: string, content: string): { accepted: boolean };
+  toggleProcess(turnId: string): void;
   updateComposerDraft(content: string): void;
   updateSessionSearch(query: string): void;
   updateSubagentDraft(subagentId: string, content: string): void;
 };
 
-function renderChatSurface(host: HTMLElement, projection: ChatUiProjection, sessionSearchQuery: string, actions: ChatSurfaceActions): void {
+function renderChatSurface(
+  host: HTMLElement,
+  projection: ChatUiProjection,
+  sessionSearchQuery: string,
+  processExpansionOverrides: Map<string, boolean>,
+  actions: ChatSurfaceActions,
+): void {
   activeDocument = host.ownerDocument;
   host.replaceChildren();
   host.setAttribute("data-chat-surface", "rebuild-chat-agent-surface");
@@ -360,7 +382,7 @@ function renderChatSurface(host: HTMLElement, projection: ChatUiProjection, sess
 
   const shell = element("div", "desktop-chat-surface__shell");
   shell.append(renderSessionList(projection, sessionSearchQuery, actions));
-  shell.append(renderChatDetail(projection, actions));
+  shell.append(renderChatDetail(projection, processExpansionOverrides, actions));
   const detailSurface = renderDetailSurface(projection, actions);
   if (detailSurface) {
     shell.append(detailSurface);
@@ -427,12 +449,16 @@ function sessionMatchesSearch(session: ChatUiProjection["sessions"][number], sea
   return [session.title, session.key, session.chatId].some((value) => value.toLocaleLowerCase().includes(query));
 }
 
-function renderChatDetail(projection: ChatUiProjection, actions: ChatSurfaceActions): HTMLElement {
+function renderChatDetail(
+  projection: ChatUiProjection,
+  processExpansionOverrides: Map<string, boolean>,
+  actions: ChatSurfaceActions,
+): HTMLElement {
   const detail = element("section", "desktop-chat-surface__detail");
   detail.setAttribute("data-chat-region", "chat-detail");
   const activeSession = projection.sessions.find((session) => session.key === projection.activeSessionKey);
   detail.append(renderHeader(activeSession?.title ?? "New session", Boolean(activeSession?.pinned), actions));
-  detail.append(renderConversation(projection.turns, actions));
+  detail.append(renderConversation(projection.turns, processExpansionOverrides, actions));
   const approvalCard = renderApprovalCard(projection.approvals);
   if (approvalCard) {
     detail.append(approvalCard);
@@ -475,16 +501,24 @@ function renderHeader(title: string, pinned: boolean, actions: ChatSurfaceAction
   return header;
 }
 
-function renderConversation(turns: ChatTurn[], actions: ChatSurfaceActions): HTMLElement {
+function renderConversation(
+  turns: ChatTurn[],
+  processExpansionOverrides: Map<string, boolean>,
+  actions: ChatSurfaceActions,
+): HTMLElement {
   const conversation = element("div", "desktop-chat-surface__conversation");
   conversation.setAttribute("data-chat-region", "conversation");
   for (const turn of turns) {
-    conversation.append(renderTurn(turn, actions));
+    conversation.append(renderTurn(turn, processExpansionOverrides, actions));
   }
   return conversation;
 }
 
-function renderTurn(turn: ChatTurn, actions: ChatSurfaceActions): HTMLElement {
+function renderTurn(
+  turn: ChatTurn,
+  processExpansionOverrides: Map<string, boolean>,
+  actions: ChatSurfaceActions,
+): HTMLElement {
   const article = element("article", "desktop-chat-surface__turn");
   article.setAttribute("data-chat-turn-id", turn.id);
   article.setAttribute("data-chat-turn-role", turn.role);
@@ -496,14 +530,25 @@ function renderTurn(turn: ChatTurn, actions: ChatSurfaceActions): HTMLElement {
     article.append(thinking);
   }
   if (turn.process) {
+    const expanded = isProcessExpanded(turn, processExpansionOverrides);
     const process = element("button", "desktop-chat-surface__process", turn.process.summary);
     process.type = "button";
     process.setAttribute("data-chat-region", "agent-process-summary");
     process.setAttribute("data-agent-process-state", turn.process.state);
+    process.setAttribute("data-agent-process-expanded", String(expanded));
+    process.setAttribute("aria-expanded", String(expanded));
+    process.addEventListener("click", () => actions.toggleProcess(turn.id));
     article.append(process);
   }
-  for (const tool of turn.tools) {
-    article.append(renderToolRow(tool, actions));
+  if (!turn.process || isProcessExpanded(turn, processExpansionOverrides)) {
+    const tools = element("div", "desktop-chat-surface__tool-rows");
+    tools.setAttribute("data-chat-region", "agent-process-tools");
+    for (const tool of turn.tools) {
+      tools.append(renderToolRow(tool, actions));
+    }
+    if (turn.tools.length) {
+      article.append(tools);
+    }
   }
   const actionsRow = element("div", "desktop-chat-surface__turn-actions");
   const branch = element("button", "desktop-chat-surface__turn-branch", "Branch from here");
@@ -528,6 +573,14 @@ function renderToolRow(tool: ToolCallSummary, actions: ChatSurfaceActions): HTML
   row.textContent = `${tool.name} · ${statusLabel(tool.status)}${tool.preview ? ` · ${tool.preview}` : ""}`;
   row.addEventListener("click", () => actions.openDetail("tool", tool.id));
   return row;
+}
+
+function isProcessExpanded(turn: ChatTurn, overrides: Map<string, boolean>): boolean {
+  const override = overrides.get(turn.id);
+  if (typeof override === "boolean") {
+    return override;
+  }
+  return turn.process?.state === "running" || turn.process?.state === "waiting_approval";
 }
 
 function renderDetailSurface(projection: ChatUiProjection, actions: ChatSurfaceActions): HTMLElement | null {

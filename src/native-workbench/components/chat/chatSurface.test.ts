@@ -94,6 +94,31 @@ describe("rebuilt chat surface", () => {
     ]);
   });
 
+  test("collapses completed process tools until the summary is expanded", () => {
+    const host = document.createElement("section");
+    const projection = fixtureProjection();
+    const assistant = projection.turns.find((turn) => turn.id === "m-assistant");
+    if (assistant?.process) {
+      assistant.process.state = "completed";
+    }
+
+    mountChatSurface(host, { projection });
+
+    const process = host.querySelector<HTMLButtonElement>("[data-chat-region='agent-process-summary']");
+    expect(process?.getAttribute("data-agent-process-expanded")).toBe("false");
+    expect(host.querySelector("[data-tool-call-id='tool-1']")).toBeNull();
+
+    process?.click();
+
+    expect(host.querySelector("[data-chat-region='agent-process-summary']")?.getAttribute("data-agent-process-expanded")).toBe("true");
+    expect(host.querySelector("[data-tool-call-id='tool-1']")).not.toBeNull();
+
+    host.querySelector<HTMLButtonElement>("[data-chat-region='agent-process-summary']")?.click();
+
+    expect(host.querySelector("[data-chat-region='agent-process-summary']")?.getAttribute("data-agent-process-expanded")).toBe("false");
+    expect(host.querySelector("[data-tool-call-id='tool-1']")).toBeNull();
+  });
+
   test("renders fullscreen artifact and error detail from shared detail model", () => {
     const artifactHost = document.createElement("section");
     const artifactProjection = fixtureProjection();
