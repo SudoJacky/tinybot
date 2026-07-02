@@ -260,6 +260,7 @@ export function projectNativeChatState(
   const approvals = approvalRequestsFromMessages(activeSessionKey, messages);
   const liveSubagents = liveSubagentsFromMessages(activeSessionKey, messages);
   const queuedInputs = options.queuedInputsBySession?.get(activeSessionKey) ?? [];
+  const artifacts = artifactDetailsFromMessages(messages);
   return {
     sessions: state.sessions.map((session) => ({
       key: session.key,
@@ -276,6 +277,7 @@ export function projectNativeChatState(
     approvals,
     liveSubagents,
     queuedInputs,
+    ...(artifacts.length ? { artifacts } : {}),
     detailPanel: options.detailPanel ?? createEmptyChatDetailPanelState(),
     branchSource: {
       canBranchSession: true,
@@ -395,6 +397,25 @@ function liveSubagentsFromMessages(sessionKey: string, messages: NativeChatMessa
     }
   }
   return [...subagents.values()];
+}
+
+function artifactDetailsFromMessages(messages: NativeChatMessage[]): ArtifactDetail[] {
+  return messages.flatMap((message) =>
+    (message.toolActivities ?? [])
+      .filter((activity) => activity.name.startsWith("Artifact:"))
+      .map((activity) => ({
+        id: activity.id,
+        kind: "artifact",
+        title: activity.name.replace(/^Artifact:\s*/, "") || activity.name,
+        preview: activity.responseText,
+        metadataSummary: [
+          activity.status ? `Status: ${activity.status}` : "",
+          message.messageId ? `Turn: ${message.messageId}` : "",
+        ].filter(Boolean).join(" / "),
+        sourceTurnId: message.messageId,
+        sourceToolId: activity.id,
+      })),
+  );
 }
 
 function hasPendingApproval(messages: NativeChatMessage[]): boolean {

@@ -232,6 +232,46 @@ describe("rebuilt chat surface", () => {
     }]);
   });
 
+  test("opens artifact detail from an artifact tool row", () => {
+    const host = document.createElement("section");
+    const projection = fixtureProjection();
+    projection.turns[1].tools = [{
+      id: "artifact-1",
+      name: "Artifact: Release draft",
+      status: "completed",
+      preview: "Release draft preview",
+      argsPreview: "",
+      resultPreview: "Release draft preview",
+      detail: {
+        argsText: "",
+        responseText: "Release draft preview",
+        stdout: "",
+        stderr: "",
+      },
+      kind: "result",
+    }];
+    projection.artifacts = [{
+      id: "artifact-1",
+      kind: "artifact",
+      title: "Release draft",
+      preview: "Release draft preview",
+      metadataSummary: "Status: completed",
+      sourceTurnId: "m-assistant",
+      sourceToolId: "artifact-1",
+    }];
+
+    mountChatSurface(host, { projection });
+
+    const row = host.querySelector<HTMLButtonElement>("[data-tool-call-id='artifact-1']");
+    expect(row?.getAttribute("data-tool-detail-kind")).toBe("artifact");
+    row?.click();
+
+    const detail = host.querySelector("[data-chat-region='detail-surface']");
+    expect(detail?.getAttribute("data-detail-kind")).toBe("artifact");
+    expect(detail?.textContent).toContain("Release draft");
+    expect(detail?.textContent).toContain("Release draft preview");
+  });
+
   test("renders live subagent strip and partial transcript as read-only detail", () => {
     const host = document.createElement("section");
     const projection = fixtureProjection();

@@ -657,13 +657,19 @@ function renderTurn(
 
 function renderToolRow(tool: ToolCallSummary, actions: ChatSurfaceActions): HTMLElement {
   const row = element("button", "desktop-chat-surface__tool-row");
+  const detailKind = toolDetailKind(tool);
   row.type = "button";
   row.setAttribute("data-chat-region", "tool-row");
+  row.setAttribute("data-tool-detail-kind", detailKind);
   row.setAttribute("data-tool-call-id", tool.id);
   row.setAttribute("data-tool-status", tool.status);
   row.textContent = `${tool.name} · ${statusLabel(tool.status)}${tool.preview ? ` · ${tool.preview}` : ""}`;
-  row.addEventListener("click", () => actions.openDetail("tool", tool.id));
+  row.addEventListener("click", () => actions.openDetail(detailKind, tool.id));
   return row;
+}
+
+function toolDetailKind(tool: ToolCallSummary): ChatDetailPanelKind {
+  return tool.name.startsWith("Artifact:") ? "artifact" : "tool";
 }
 
 function isProcessExpanded(turn: ChatTurn, overrides: Map<string, boolean>): boolean {

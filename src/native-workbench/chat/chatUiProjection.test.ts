@@ -220,6 +220,46 @@ describe("chat UI projection", () => {
       choices: ["allow_once", "allow_session", "deny"],
     }]);
   });
+
+  test("projects artifact tool activities into artifact detail data", () => {
+    const state = createNativeChatState();
+    setSessions(state, [{
+      key: "websocket:chat-artifact",
+      chatId: "chat-artifact",
+      title: "Artifact output",
+      createdAt: "2026-07-01T12:00:00Z",
+      updatedAt: "2026-07-01T12:01:00Z",
+    }]);
+    state.activeSessionKey = "websocket:chat-artifact";
+    state.activeChatId = "chat-artifact";
+    setMessages(state, "websocket:chat-artifact", [{
+      role: "assistant",
+      content: "Created an artifact.",
+      reasoningContent: "",
+      timestamp: "2026-07-01T12:01:00Z",
+      messageId: "m-artifact",
+      toolActivities: [{
+        id: "artifact-1",
+        name: "Artifact: Release draft",
+        argsText: "",
+        responseText: "Release draft preview",
+        kind: "result",
+        status: "completed",
+      }],
+    }]);
+
+    const projection = projectNativeChatState(state);
+
+    expect(projection.artifacts).toEqual([{
+      id: "artifact-1",
+      kind: "artifact",
+      title: "Release draft",
+      preview: "Release draft preview",
+      metadataSummary: "Status: completed / Turn: m-artifact",
+      sourceTurnId: "m-artifact",
+      sourceToolId: "artifact-1",
+    }]);
+  });
 });
 
 function fixtureMessages(): NativeChatMessage[] {
