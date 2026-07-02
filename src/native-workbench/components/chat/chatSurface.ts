@@ -7,17 +7,33 @@ import type {
   ChatUiProjection,
   LiveSubagent,
   QueuedInput,
-  SessionPrimaryBadge,
   SubagentStatus,
   ToolCallSummary,
 } from "../../chat/chatUiProjection";
 import {
+  closeChatDetailPanel,
+  type ChatDetailPanelKind,
+  openChatDetailPanel,
+} from "../../chat/chatDetailPanelState";
+import { createBranchSessionDraft } from "../../chat/chatBranchSession";
+import {
+  resumeNextQueuedInput,
+  submitComposerText,
+} from "../../chat/chatInputState";
+import {
   canSendDirectSubagentMessage,
+  createSubagentForwardBlock,
   requiresFirstDirectSubagentMessageConfirmation,
+  requiresForwardApprovalGuidanceConfirmation,
 } from "../../chat/chatSubagentForward";
+import {
+  applyLoadedSubagentTrace,
+  type SubagentTraceSelection,
+} from "../../chat/chatSubagentTranscript";
 
 export type ChatSurfaceOptions = {
   projection: ChatUiProjection;
+  loadSubagentTranscript?: (selection: SubagentTraceSelection) => Promise<unknown>;
 };
 
 export type MountedChatSurface = {
@@ -28,10 +44,324 @@ export type MountedChatSurface = {
 let activeDocument: Document;
 
 export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions): MountedChatSurface {
-  renderChatSurface(host, options.projection);
+  let currentProjection = options.projection;
+  let currentDetailPanel = options.projection.detailPanel;
+  let currentQueuedInputs = options.projection.queuedInputs;
+  let loadSubagentTranscript = options.loadSubagentTranscript;
+  let composerError = "";
+  let sessionSearchQuery = "";
+  const processExpansionOverrides = new Map<string, boolean>();
+  const composerDrafts = new Map<string, string>();
+  const subagentDrafts = new Map<string, string>();
+  const loadedSubagents = new Map<string, LiveSubagent>();
+  const loadingSubagents = new Set<string>();
+  const currentComposerDraftKey = () => currentProjection.activeSessionKey || "new-session";
+  const clearCurrentComposerDraft = () => {
+    composerDrafts.delete(currentComposerDraftKey());
+  };
+  const appendCurrentComposerDraft = (content: string) => {
+    const key = currentComposerDraftKey();
+    const previous = composerDrafts.get(key)?.trimEnd() ?? "";
+    composerDrafts.set(key, previous ? `${previous}\n\n${content}` : content);
+  };
+  const currentViewProjection = () => projectionWithLoadedSubagents(currentProjection, loadedSubagents);
+  const renderCurrent = () => renderChatSurface(host, {
+    ...currentViewProjection(),
+    detailPanel: currentDetailPanel,
+    queuedInputs: currentQueuedInputs,
+  }, sessionSearchQuery, processExpansionOverrides, {
+    closeDetail() {
+      currentDetailPanel = closeChatDetailPanel(chatSurfaceViewportWidth(host));
+      logChatSurfaceAction(host, "detail.close", currentDetailPanel);
+      renderCurrent();
+    },
+    branchFromTurn(turnId) {
+      const activeSession = currentProjection.sessions.find((session) => session.key === currentProjection.activeSessionKey);
+      if (!activeSession || !currentProjection.branchSource.canBranchSession) {
+        logChatSurfaceAction(host, "branch.request.unavailable", { turnId });
+        return;
+      }
+      const draft = createBranchSessionDraft({
+        sessionId: currentProjection.activeSessionKey,
+        chatId: activeSession.chatId,
+        title: activeSession.title,
+        messages: currentProjection.turns.map((turn) => ({
+          messageId: turn.id,
+          role: turn.role,
+          content: turn.content,
+        })),
+        portableContext: {
+          chatId: activeSession.chatId,
+          sessionKey: currentProjection.activeSessionKey,
+        },
+        runtimeState: {},
+      }, turnId);
+      host.dispatchEvent(new CustomEvent("desktop-chat-branch-session-request", {
+        bubbles: true,
+        detail: draft,
+      }));
+      logChatSurfaceAction(host, "branch.request", {
+        messageCount: draft.messages.length,
+        turnId,
+      });
+    },
+    copyTurn(turnId) {
+      const turn = currentProjection.turns.find((candidate) => candidate.id === turnId);
+      if (!turn) {
+        logChatSurfaceAction(host, "message.copy.missing", { turnId });
+        return;
+      }
+      host.dispatchEvent(new CustomEvent("desktop-chat-message-copy", {
+        bubbles: true,
+        detail: {
+          content: turn.content,
+          messageId: turn.id,
+          role: turn.role,
+        },
+      }));
+      logChatSurfaceAction(host, "message.copy", { turnId });
+    },
+    copyDetail(content, source) {
+      host.dispatchEvent(new CustomEvent("desktop-chat-detail-copy", {
+        bubbles: true,
+        detail: { content, source },
+      }));
+      logChatSurfaceAction(host, "detail.copy", {
+        contentLength: content.length,
+        source,
+      });
+    },
+    openDetail(kind, targetId) {
+      currentDetailPanel = openChatDetailPanel(kind, targetId, chatSurfaceViewportWidth(host));
+      logChatSurfaceAction(host, "detail.open", currentDetailPanel);
+      renderCurrent();
+      if (kind === "subagent") {
+        void loadCurrentSubagentTrace(targetId);
+      }
+    },
+    openSession(sessionKey, chatId) {
+      host.dispatchEvent(new CustomEvent("desktop-chat-session-open", {
+        bubbles: true,
+        detail: { chatId, sessionKey },
+      }));
+      logChatSurfaceAction(host, "session.open", { chatId, sessionKey });
+    },
+    startNewSession() {
+      host.dispatchEvent(new CustomEvent("desktop-chat-session-new", {
+        bubbles: true,
+        detail: {},
+      }));
+      logChatSurfaceAction(host, "session.new", {});
+    },
+    submitSubagentMessage(subagentId, content) {
+      const subagent = currentViewProjection().liveSubagents.find((candidate) => candidate.id === subagentId);
+      const message = content.trim();
+      if (!subagent || !message || !canSendDirectSubagentMessage(subagent)) {
+        logChatSurfaceAction(host, "subagent.message.ignored", {
+          contentLength: message.length,
+          subagentId,
+        });
+        return { accepted: false };
+      }
+      subagentDrafts.delete(subagentId);
+      host.dispatchEvent(new CustomEvent("desktop-chat-subagent-message-submit", {
+        bubbles: true,
+        detail: {
+          ...(subagent.childRunId ? { childRunId: subagent.childRunId } : {}),
+          content: message,
+          sessionKey: subagent.sessionKey,
+          subagentId,
+          ...(subagent.traceRef ? { traceRef: subagent.traceRef } : {}),
+        },
+      }));
+      loadedSubagents.set(subagentOverrideKey(subagent), appendDirectSubagentMessage(subagent, message));
+      logChatSurfaceAction(host, "subagent.message.submit", {
+        contentLength: message.length,
+        subagentId,
+      });
+      renderCurrent();
+      return { accepted: true };
+    },
+    deleteQueuedInput(inputId) {
+      currentQueuedInputs = currentQueuedInputs.filter((input) => input.id !== inputId);
+      logChatSurfaceAction(host, "composer.queue.delete", { inputId });
+      renderCurrent();
+    },
+    forwardSubagentMessages(subagentId, messageIds) {
+      const subagent = currentViewProjection().liveSubagents.find((candidate) => candidate.id === subagentId);
+      if (!subagent) {
+        logChatSurfaceAction(host, "subagent.forward.missing", { subagentId });
+        return;
+      }
+      const selectedIds = messageIds.length > 0
+        ? messageIds
+        : subagent.transcript.messages.map((message) => message.id);
+      if (!selectedIds.length) {
+        logChatSurfaceAction(host, "subagent.forward.empty", { subagentId });
+        return;
+      }
+      const mode = currentProjection.approvals.length > 0 ? "approval_guidance" : "normal";
+      if (requiresForwardApprovalGuidanceConfirmation(mode) && !confirmSubagentForwardToApprovalGuidance(host)) {
+        logChatSurfaceAction(host, "subagent.forward.cancelled", { subagentId });
+        return;
+      }
+      const block = createSubagentForwardBlock(subagent, selectedIds);
+      appendCurrentComposerDraft(block.fallbackText);
+      logChatSurfaceAction(host, "subagent.forward.append", {
+        messageCount: block.messages.length,
+        subagentId,
+      });
+      renderCurrent();
+    },
+    continueQueuedInput() {
+      const { nextInput, remainingInputs } = resumeNextQueuedInput(currentQueuedInputs);
+      if (!nextInput) {
+        logChatSurfaceAction(host, "composer.queue.continue.empty", {});
+        return;
+      }
+      currentQueuedInputs = remainingInputs;
+      host.dispatchEvent(new CustomEvent("desktop-chat-message-submit", {
+        bubbles: true,
+        detail: { content: nextInput.content },
+      }));
+      logChatSurfaceAction(host, "composer.queue.continue", {
+        inputId: nextInput.id,
+        remaining: currentQueuedInputs.length,
+      });
+      renderCurrent();
+    },
+    submitComposer(content) {
+      const result = submitComposerText({
+        approvals: currentProjection.approvals,
+        content,
+        isRunning: chatSurfaceHasRunningTurn(currentProjection),
+        now: new Date().toISOString(),
+        queuedInputs: currentQueuedInputs,
+      });
+      if (result.kind === "send_message") {
+        composerError = "";
+        clearCurrentComposerDraft();
+        host.dispatchEvent(new CustomEvent("desktop-chat-message-submit", {
+          bubbles: true,
+          detail: { content: result.content },
+        }));
+        logChatSurfaceAction(host, "composer.message.submit", { contentLength: result.content.length });
+        return { accepted: true };
+      }
+      if (result.kind === "reject_approval_with_guidance") {
+        composerError = "";
+        clearCurrentComposerDraft();
+        host.dispatchEvent(new CustomEvent("desktop-chat-approval-guidance-submit", {
+          bubbles: true,
+          detail: {
+            approvalId: result.approvalId,
+            guidance: result.guidance,
+          },
+        }));
+        logChatSurfaceAction(host, "composer.approval_guidance.submit", {
+          approvalId: result.approvalId,
+          guidanceLength: result.guidance.length,
+        });
+        return { accepted: true };
+      }
+      if (result.kind === "queue_input") {
+        composerError = "";
+        clearCurrentComposerDraft();
+        currentQueuedInputs = [...currentQueuedInputs, result.input];
+        logChatSurfaceAction(host, "composer.queue.add", {
+          inputId: result.input.id,
+          queueLength: currentQueuedInputs.length,
+        });
+        renderCurrent();
+        return { accepted: true };
+      }
+      composerError = result.message;
+      logChatSurfaceAction(host, "composer.queue.limit", {
+        maxQueuedInputs: result.maxQueuedInputs,
+      });
+      renderCurrent();
+      return { accepted: false };
+    },
+    toggleProcess(turnId) {
+      const turn = currentProjection.turns.find((candidate) => candidate.id === turnId);
+      if (!turn?.process) {
+        logChatSurfaceAction(host, "process.toggle.missing", { turnId });
+        return;
+      }
+      const nextExpanded = !isProcessExpanded(turn, processExpansionOverrides);
+      processExpansionOverrides.set(turnId, nextExpanded);
+      logChatSurfaceAction(host, "process.toggle", {
+        expanded: nextExpanded,
+        turnId,
+      });
+      renderCurrent();
+    },
+    composerError() {
+      return composerError;
+    },
+    composerDraft() {
+      return composerDrafts.get(currentComposerDraftKey()) ?? "";
+    },
+    updateComposerDraft(content) {
+      if (content) {
+        composerDrafts.set(currentComposerDraftKey(), content);
+        return;
+      }
+      clearCurrentComposerDraft();
+    },
+    subagentDraft(subagentId) {
+      return subagentDrafts.get(subagentId) ?? "";
+    },
+    updateSessionSearch(query) {
+      sessionSearchQuery = query;
+      logChatSurfaceAction(host, "session.search", { queryLength: query.trim().length });
+      renderCurrent();
+    },
+    sessionAction(action) {
+      const activeSession = currentProjection.sessions.find((session) => session.key === currentProjection.activeSessionKey);
+      if (!activeSession) {
+        logChatSurfaceAction(host, "session.action.missing", { action });
+        return;
+      }
+      const detail: Record<string, unknown> = {
+        action,
+        chatId: activeSession.chatId,
+        sessionKey: activeSession.key,
+        title: activeSession.title,
+      };
+      if (action === "copy-session-id") {
+        detail.copyText = activeSession.key;
+      } else if (action === "copy-markdown") {
+        detail.copyText = currentProjection.turns.map((turn) => `${roleLabel(turn.role)}:\n${turn.content}`).join("\n\n");
+      }
+      host.dispatchEvent(new CustomEvent("desktop-chat-session-action", {
+        bubbles: true,
+        detail,
+      }));
+      logChatSurfaceAction(host, "session.action", { action, sessionKey: activeSession.key });
+    },
+    updateSubagentDraft(subagentId, content) {
+      if (content) {
+        subagentDrafts.set(subagentId, content);
+        return;
+      }
+      subagentDrafts.delete(subagentId);
+    },
+  });
+  renderCurrent();
   return {
     update(nextOptions: ChatSurfaceOptions) {
-      renderChatSurface(host, nextOptions.projection);
+      const previousSessionKey = currentProjection.activeSessionKey;
+      currentProjection = nextOptions.projection;
+      loadSubagentTranscript = nextOptions.loadSubagentTranscript;
+      if (nextOptions.projection.detailPanel.open || previousSessionKey !== nextOptions.projection.activeSessionKey) {
+        currentDetailPanel = nextOptions.projection.detailPanel;
+      }
+      if (previousSessionKey !== nextOptions.projection.activeSessionKey) {
+        currentQueuedInputs = nextOptions.projection.queuedInputs;
+        composerError = "";
+      }
+      renderCurrent();
     },
     unmount() {
       host.replaceChildren();
@@ -39,49 +369,190 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
       host.className = "";
     },
   };
+
+  async function loadCurrentSubagentTrace(subagentId: string): Promise<void> {
+    if (!loadSubagentTranscript) {
+      logChatSurfaceAction(host, "subagent.trace.load.unavailable", { subagentId });
+      return;
+    }
+    const subagent = currentViewProjection().liveSubagents.find((candidate) => candidate.id === subagentId);
+    if (!subagent || subagent.transcript.capability === "full_transcript") {
+      return;
+    }
+    const key = subagentOverrideKey(subagent);
+    if (loadingSubagents.has(key)) {
+      return;
+    }
+    loadingSubagents.add(key);
+    logChatSurfaceAction(host, "subagent.trace.load.start", {
+      sessionKey: subagent.sessionKey,
+      subagentId,
+    });
+    try {
+      const payload = await loadSubagentTranscript({
+        activityId: subagent.id,
+        sessionKey: subagent.sessionKey,
+        delegateId: subagent.id,
+      });
+      const loaded = applyLoadedSubagentTrace(subagent, payload);
+      loadedSubagents.set(key, loaded);
+      logChatSurfaceAction(host, "subagent.trace.load.complete", {
+        messageCount: loaded.transcript.messages.length,
+        sessionKey: loaded.sessionKey,
+        subagentId,
+        toolCount: loaded.transcript.toolSummaries.length,
+      });
+      renderCurrent();
+    } catch (error) {
+      logChatSurfaceAction(host, "subagent.trace.load.failed", {
+        message: error instanceof Error ? error.message : String(error),
+        subagentId,
+      });
+    } finally {
+      loadingSubagents.delete(key);
+    }
+  }
 }
 
-function renderChatSurface(host: HTMLElement, projection: ChatUiProjection): void {
+type ChatSurfaceActions = {
+  branchFromTurn(turnId: string): void;
+  closeDetail(): void;
+  composerDraft(): string;
+  composerError(): string;
+  continueQueuedInput(): void;
+  copyDetail(content: string, source: string): void;
+  copyTurn(turnId: string): void;
+  deleteQueuedInput(inputId: string): void;
+  forwardSubagentMessages(subagentId: string, messageIds: string[]): void;
+  openDetail(kind: ChatDetailPanelKind, targetId: string): void;
+  openSession(sessionKey: string, chatId: string): void;
+  sessionAction(action: "pin" | "unpin" | "rename" | "delete" | "copy-session-id" | "copy-markdown"): void;
+  startNewSession(): void;
+  subagentDraft(subagentId: string): string;
+  submitComposer(content: string): { accepted: boolean };
+  submitSubagentMessage(subagentId: string, content: string): { accepted: boolean };
+  toggleProcess(turnId: string): void;
+  updateComposerDraft(content: string): void;
+  updateSessionSearch(query: string): void;
+  updateSubagentDraft(subagentId: string, content: string): void;
+};
+
+function projectionWithLoadedSubagents(
+  projection: ChatUiProjection,
+  loadedSubagents: Map<string, LiveSubagent>,
+): ChatUiProjection {
+  if (!loadedSubagents.size) {
+    return projection;
+  }
+  return {
+    ...projection,
+    liveSubagents: projection.liveSubagents.map((subagent) =>
+      loadedSubagents.get(subagentOverrideKey(subagent)) ?? subagent,
+    ),
+  };
+}
+
+function subagentOverrideKey(subagent: Pick<LiveSubagent, "id" | "sessionKey">): string {
+  return `${subagent.sessionKey}:${subagent.id}`;
+}
+
+function renderChatSurface(
+  host: HTMLElement,
+  projection: ChatUiProjection,
+  sessionSearchQuery: string,
+  processExpansionOverrides: Map<string, boolean>,
+  actions: ChatSurfaceActions,
+): void {
   activeDocument = host.ownerDocument;
   host.replaceChildren();
   host.setAttribute("data-chat-surface", "rebuild-chat-agent-surface");
   host.className = "desktop-conversation-thread desktop-chat-surface";
 
   const shell = element("div", "desktop-chat-surface__shell");
-  shell.append(renderSessionList(projection));
-  shell.append(renderChatDetail(projection));
-  const detailSurface = renderDetailSurface(projection);
+  shell.append(renderSessionList(projection, sessionSearchQuery, actions));
+  shell.append(renderChatDetail(projection, processExpansionOverrides, actions));
+  const detailSurface = renderDetailSurface(projection, actions);
   if (detailSurface) {
     shell.append(detailSurface);
   }
   host.append(shell);
 }
 
-function renderSessionList(projection: ChatUiProjection): HTMLElement {
+function confirmSubagentForwardToApprovalGuidance(host: HTMLElement): boolean {
+  return host.ownerDocument.defaultView?.confirm(
+    "This will reject the current approval and append the forwarded content as guidance. Continue?",
+  ) ?? false;
+}
+
+function renderSessionList(projection: ChatUiProjection, searchQuery: string, actions: ChatSurfaceActions): HTMLElement {
   const list = element("aside", "desktop-chat-surface__sessions");
   list.setAttribute("data-chat-region", "session-list");
-  for (const session of projection.sessions) {
+  const controls = element("div", "desktop-chat-surface__session-controls");
+  const newButton = element("button", "desktop-chat-surface__session-new", "New Chat");
+  newButton.type = "button";
+  newButton.setAttribute("data-session-action", "new");
+  newButton.addEventListener("click", () => actions.startNewSession());
+  const search = activeDocument.createElement("input");
+  search.className = "desktop-chat-surface__session-search";
+  search.type = "search";
+  search.placeholder = "Search sessions";
+  search.value = searchQuery;
+  search.setAttribute("data-session-search", "");
+  search.addEventListener("input", () => actions.updateSessionSearch(search.value));
+  controls.append(newButton, search);
+  list.append(controls);
+
+  const filteredSessions = projection.sessions.filter((session) => sessionMatchesSearch(session, searchQuery));
+  const rows = element("div", "desktop-chat-surface__session-rows");
+  rows.setAttribute("data-session-result-count", String(filteredSessions.length));
+  for (const session of filteredSessions) {
     const row = element("button", "desktop-chat-surface__session-row");
     row.type = "button";
     row.setAttribute("data-session-key", session.key);
+    row.setAttribute("data-session-chat-id", session.chatId);
+    row.setAttribute("data-pinned", String(Boolean(session.pinned)));
     if (session.isActive) {
       row.setAttribute("aria-current", "true");
     }
+    row.addEventListener("click", () => actions.openSession(session.key, session.chatId));
     const title = element("span", "desktop-chat-surface__session-title", session.title);
-    const badge = element("span", "desktop-chat-surface__session-badge", badgeLabel(session.primaryBadge));
+    const badge = element("span", "desktop-chat-surface__session-badge", badgeLabel(session));
     badge.setAttribute("data-session-primary-badge", session.primaryBadge);
+    if (session.pinned) {
+      const pinned = element("span", "desktop-chat-surface__session-pinned", "Pinned");
+      pinned.setAttribute("data-session-pinned", "");
+      row.append(pinned);
+    }
     row.append(title, badge);
-    list.append(row);
+    rows.append(row);
   }
+  if (!filteredSessions.length) {
+    const empty = element("p", "desktop-chat-surface__session-empty", "No matching sessions");
+    empty.setAttribute("data-session-empty", "");
+    rows.append(empty);
+  }
+  list.append(rows);
   return list;
 }
 
-function renderChatDetail(projection: ChatUiProjection): HTMLElement {
+function sessionMatchesSearch(session: ChatUiProjection["sessions"][number], searchQuery: string): boolean {
+  const query = searchQuery.trim().toLocaleLowerCase();
+  if (!query) {
+    return true;
+  }
+  return [session.title, session.key, session.chatId].some((value) => value.toLocaleLowerCase().includes(query));
+}
+
+function renderChatDetail(
+  projection: ChatUiProjection,
+  processExpansionOverrides: Map<string, boolean>,
+  actions: ChatSurfaceActions,
+): HTMLElement {
   const detail = element("section", "desktop-chat-surface__detail");
   detail.setAttribute("data-chat-region", "chat-detail");
   const activeSession = projection.sessions.find((session) => session.key === projection.activeSessionKey);
-  detail.append(renderHeader(activeSession?.title ?? "New session"));
-  detail.append(renderConversation(projection.turns));
+  detail.append(renderHeader(activeSession?.title ?? "New session", Boolean(activeSession?.pinned), actions));
+  detail.append(renderConversation(projection.turns, processExpansionOverrides, actions));
   const approvalCard = renderApprovalCard(projection.approvals);
   if (approvalCard) {
     detail.append(approvalCard);
@@ -89,37 +560,59 @@ function renderChatDetail(projection: ChatUiProjection): HTMLElement {
   for (const approvalResult of renderApprovalResults(projection.approvals)) {
     detail.append(approvalResult);
   }
-  const subagentStrip = renderSubagentStrip(projection.liveSubagents);
+  const subagentStrip = renderSubagentStrip(projection.liveSubagents, actions);
   if (subagentStrip) {
     detail.append(subagentStrip);
   }
-  const queue = renderQueuedInputs(projection.queuedInputs);
+  const queue = renderQueuedInputs(projection.queuedInputs, actions);
   if (queue) {
     detail.append(queue);
   }
-  detail.append(renderComposer(projection.approvals.length > 0 ? "approval_guidance" : "normal"));
+  detail.append(renderComposer(projection.approvals.length > 0 ? "approval_guidance" : "normal", actions));
   return detail;
 }
 
-function renderHeader(title: string): HTMLElement {
+function renderHeader(title: string, pinned: boolean, actions: ChatSurfaceActions): HTMLElement {
   const header = element("header", "desktop-chat-surface__header");
   header.setAttribute("data-chat-region", "chat-header");
   const heading = element("h2", "desktop-chat-surface__title", title);
   const summary = element("div", "desktop-chat-surface__runtime", "Agent · rust");
-  header.append(heading, summary);
+  const menu = element("div", "desktop-chat-surface__header-actions");
+  for (const [action, label] of [
+    [pinned ? "unpin" : "pin", pinned ? "Unpin" : "Pin"],
+    ["rename", "Rename"],
+    ["delete", "Delete"],
+    ["copy-session-id", "Copy ID"],
+    ["copy-markdown", "Copy Markdown"],
+  ] as const) {
+    const button = element("button", "desktop-chat-surface__header-action", label);
+    button.type = "button";
+    button.setAttribute("data-chat-header-action", action);
+    button.addEventListener("click", () => actions.sessionAction(action));
+    menu.append(button);
+  }
+  header.append(heading, summary, menu);
   return header;
 }
 
-function renderConversation(turns: ChatTurn[]): HTMLElement {
+function renderConversation(
+  turns: ChatTurn[],
+  processExpansionOverrides: Map<string, boolean>,
+  actions: ChatSurfaceActions,
+): HTMLElement {
   const conversation = element("div", "desktop-chat-surface__conversation");
   conversation.setAttribute("data-chat-region", "conversation");
   for (const turn of turns) {
-    conversation.append(renderTurn(turn));
+    conversation.append(renderTurn(turn, processExpansionOverrides, actions));
   }
   return conversation;
 }
 
-function renderTurn(turn: ChatTurn): HTMLElement {
+function renderTurn(
+  turn: ChatTurn,
+  processExpansionOverrides: Map<string, boolean>,
+  actions: ChatSurfaceActions,
+): HTMLElement {
   const article = element("article", "desktop-chat-surface__turn");
   article.setAttribute("data-chat-turn-id", turn.id);
   article.setAttribute("data-chat-turn-role", turn.role);
@@ -131,29 +624,86 @@ function renderTurn(turn: ChatTurn): HTMLElement {
     article.append(thinking);
   }
   if (turn.process) {
+    const expanded = isProcessExpanded(turn, processExpansionOverrides);
     const process = element("button", "desktop-chat-surface__process", turn.process.summary);
     process.type = "button";
     process.setAttribute("data-chat-region", "agent-process-summary");
     process.setAttribute("data-agent-process-state", turn.process.state);
+    process.setAttribute("data-agent-process-expanded", String(expanded));
+    process.setAttribute("aria-expanded", String(expanded));
+    process.addEventListener("click", () => actions.toggleProcess(turn.id));
     article.append(process);
   }
-  for (const tool of turn.tools) {
-    article.append(renderToolRow(tool));
+  if (!turn.process || isProcessExpanded(turn, processExpansionOverrides)) {
+    const tools = element("div", "desktop-chat-surface__tool-rows");
+    tools.setAttribute("data-chat-region", "agent-process-tools");
+    for (const tool of turn.tools) {
+      tools.append(renderToolRow(tool, actions));
+    }
+    if (turn.tools.length) {
+      article.append(tools);
+    }
   }
+  const actionsRow = element("div", "desktop-chat-surface__turn-actions");
+  const branch = element("button", "desktop-chat-surface__turn-branch", "Branch from here");
+  branch.type = "button";
+  branch.setAttribute("data-turn-action", "branch");
+  branch.addEventListener("click", () => actions.branchFromTurn(turn.id));
+  const copy = element("button", "desktop-chat-surface__turn-copy", "Copy");
+  copy.type = "button";
+  copy.setAttribute("data-turn-action", "copy");
+  copy.addEventListener("click", () => actions.copyTurn(turn.id));
+  actionsRow.append(copy, branch);
+  article.append(actionsRow);
   return article;
 }
 
-function renderToolRow(tool: ToolCallSummary): HTMLElement {
+function renderToolRow(tool: ToolCallSummary, actions: ChatSurfaceActions): HTMLElement {
   const row = element("button", "desktop-chat-surface__tool-row");
+  const detailKind = toolDetailKind(tool);
   row.type = "button";
   row.setAttribute("data-chat-region", "tool-row");
+  row.setAttribute("data-tool-detail-kind", detailKind);
   row.setAttribute("data-tool-call-id", tool.id);
   row.setAttribute("data-tool-status", tool.status);
   row.textContent = `${tool.name} · ${statusLabel(tool.status)}${tool.preview ? ` · ${tool.preview}` : ""}`;
+  row.addEventListener("click", () => actions.openDetail(detailKind, tool.id));
   return row;
 }
 
-function renderDetailSurface(projection: ChatUiProjection): HTMLElement | null {
+function toolDetailKind(tool: ToolCallSummary): ChatDetailPanelKind {
+  return tool.name.startsWith("Artifact:") ? "artifact" : "tool";
+}
+
+function appendDirectSubagentMessage(subagent: LiveSubagent, content: string): LiveSubagent {
+  return {
+    ...subagent,
+    latestActivity: "User input queued",
+    status: "user_intervened_unsynced",
+    transcript: {
+      ...subagent.transcript,
+      messages: [
+        ...subagent.transcript.messages,
+        {
+          id: `${subagent.id}:direct-input:${Date.now()}`,
+          role: "user",
+          content,
+          timestamp: new Date().toISOString(),
+        },
+      ],
+    },
+  };
+}
+
+function isProcessExpanded(turn: ChatTurn, overrides: Map<string, boolean>): boolean {
+  const override = overrides.get(turn.id);
+  if (typeof override === "boolean") {
+    return override;
+  }
+  return turn.process?.state === "running" || turn.process?.state === "waiting_approval";
+}
+
+function renderDetailSurface(projection: ChatUiProjection, actions: ChatSurfaceActions): HTMLElement | null {
   const panel = projection.detailPanel;
   if (!panel.open || panel.kind === "none") {
     return null;
@@ -163,20 +713,20 @@ function renderDetailSurface(projection: ChatUiProjection): HTMLElement | null {
   surface.setAttribute("data-detail-kind", panel.kind);
   surface.setAttribute("data-detail-presentation", panel.presentation);
   if (panel.kind === "tool") {
-    surface.append(renderToolDetail(projection.turns, panel));
+    surface.append(renderToolDetail(projection.turns, panel, actions));
   } else if (panel.kind === "subagent") {
-    surface.append(renderSubagentDetail(projection.liveSubagents, panel));
+    surface.append(renderSubagentDetail(projection.liveSubagents, panel, actions));
   } else if (panel.kind === "artifact") {
-    surface.append(renderArtifactDetail(projection.artifacts ?? [], panel));
+    surface.append(renderArtifactDetail(projection.artifacts ?? [], panel, actions));
   } else if (panel.kind === "error") {
-    surface.append(renderErrorDetail(projection.errors ?? [], panel));
+    surface.append(renderErrorDetail(projection.errors ?? [], panel, actions));
   } else {
     surface.append(element("div", "desktop-chat-surface__detail-empty", "Detail unavailable"));
   }
   return surface;
 }
 
-function renderSubagentStrip(subagents: LiveSubagent[]): HTMLElement | null {
+function renderSubagentStrip(subagents: LiveSubagent[], actions: ChatSurfaceActions): HTMLElement | null {
   if (!subagents.length) {
     return null;
   }
@@ -189,6 +739,7 @@ function renderSubagentStrip(subagents: LiveSubagent[]): HTMLElement | null {
     row.type = "button";
     row.setAttribute("data-subagent-id", subagent.id);
     row.setAttribute("data-subagent-status", subagent.status);
+    row.addEventListener("click", () => actions.openDetail("subagent", subagent.id));
     row.append(
       element("span", "desktop-chat-surface__subagent-name", subagent.name),
       element("span", "desktop-chat-surface__subagent-state", subagentStatusLabel(subagent.status)),
@@ -244,13 +795,22 @@ function renderApprovalResults(approvals: ApprovalRequest[]): HTMLElement[] {
     });
 }
 
-function renderQueuedInputs(inputs: QueuedInput[]): HTMLElement | null {
+function renderQueuedInputs(inputs: QueuedInput[], actions: ChatSurfaceActions): HTMLElement | null {
   if (!inputs.length) {
     return null;
   }
   const section = element("section", "desktop-chat-surface__queued-inputs");
   section.setAttribute("data-chat-region", "queued-inputs");
   section.append(element("h3", "desktop-chat-surface__queued-title", `Queued inputs · ${inputs.length}`));
+  if (inputs.some((input) => input.status === "paused")) {
+    const paused = element("div", "desktop-chat-surface__queued-paused", "Queue paused");
+    paused.setAttribute("data-queued-input-state", "paused");
+    const resume = element("button", "desktop-chat-surface__queued-continue", "Continue");
+    resume.type = "button";
+    resume.setAttribute("data-queued-input-action", "continue");
+    resume.addEventListener("click", () => actions.continueQueuedInput());
+    section.append(paused, resume);
+  }
   for (const input of inputs) {
     const row = element("div", "desktop-chat-surface__queued-row");
     row.setAttribute("data-queued-input-id", input.id);
@@ -258,26 +818,51 @@ function renderQueuedInputs(inputs: QueuedInput[]): HTMLElement | null {
     const del = element("button", "desktop-chat-surface__queued-delete", "Delete");
     del.type = "button";
     del.setAttribute("data-queued-input-action", "delete");
+    del.addEventListener("click", () => actions.deleteQueuedInput(input.id));
     row.append(del);
     section.append(row);
   }
   return section;
 }
 
-function renderComposer(mode: "normal" | "approval_guidance"): HTMLElement {
+function renderComposer(mode: "normal" | "approval_guidance", actions: ChatSurfaceActions): HTMLElement {
   const composer = element("section", "desktop-chat-surface__composer");
   composer.setAttribute("data-chat-region", "composer");
   composer.setAttribute("data-composer-mode", mode);
   if (mode === "approval_guidance") {
     composer.append(element("p", "desktop-chat-surface__composer-hint", "发送文字将拒绝此请求，并作为给 Tinybot 的指导。"));
   }
+  const input = activeDocument.createElement("textarea");
+  input.className = "desktop-chat-surface__composer-input";
+  input.setAttribute("data-chat-composer-input", "");
+  input.setAttribute("placeholder", mode === "approval_guidance" ? "输入拒绝原因或下一步建议..." : "要求后续变更");
+  input.value = actions.composerDraft();
+  input.addEventListener("input", () => {
+    actions.updateComposerDraft(input.value);
+  });
+  const button = element("button", "desktop-chat-surface__composer-send", "Send");
+  button.type = "button";
+  button.setAttribute("data-chat-composer-action", "send");
+  button.addEventListener("click", () => {
+    const result = actions.submitComposer(input.value);
+    if (result.accepted) {
+      input.value = "";
+    }
+  });
+  composer.append(input, button);
+  const error = actions.composerError();
+  if (error) {
+    const errorNode = element("p", "desktop-chat-surface__composer-error", error);
+    errorNode.setAttribute("data-chat-region", "composer-error");
+    composer.append(errorNode);
+  }
   return composer;
 }
 
-function renderSubagentDetail(subagents: LiveSubagent[], panel: DetailPanelState): HTMLElement {
+function renderSubagentDetail(subagents: LiveSubagent[], panel: DetailPanelState, actions: ChatSurfaceActions): HTMLElement {
   const subagent = subagents.find((candidate) => candidate.id === panel.targetId);
   const detail = element("section", "desktop-chat-surface__subagent-detail");
-  detail.append(renderCloseButton());
+  detail.append(renderCloseButton(actions));
   if (!subagent) {
     detail.append(element("p", "desktop-chat-surface__detail-empty", "Subagent detail unavailable"));
     return detail;
@@ -289,8 +874,15 @@ function renderSubagentDetail(subagents: LiveSubagent[], panel: DetailPanelState
     detail.append(element("p", "desktop-chat-surface__partial-transcript", "partial transcript: this is not a complete private thread."));
   }
   for (const message of subagent.transcript.messages) {
-    const item = element("div", "desktop-chat-surface__subagent-message", `${message.role}: ${message.content}`);
+    const item = element("label", "desktop-chat-surface__subagent-message");
     item.setAttribute("data-subagent-message-id", message.id);
+    const selector = activeDocument.createElement("input");
+    selector.type = "checkbox";
+    selector.setAttribute("data-subagent-message-select", message.id);
+    item.append(
+      selector,
+      element("span", "desktop-chat-surface__subagent-message-content", `${message.role}: ${message.content}`),
+    );
     detail.append(item);
   }
   for (const tool of subagent.transcript.toolSummaries) {
@@ -302,6 +894,13 @@ function renderSubagentDetail(subagents: LiveSubagent[], panel: DetailPanelState
     const forward = element("button", "desktop-chat-surface__subagent-forward", "Forward to main composer");
     forward.type = "button";
     forward.setAttribute("data-subagent-action", "forward");
+    forward.addEventListener("click", () => {
+      const selectedMessageIds = [...detail.querySelectorAll<HTMLInputElement>("[data-subagent-message-select]")]
+        .filter((selector) => selector.checked)
+        .map((selector) => selector.getAttribute("data-subagent-message-select") ?? "")
+        .filter(Boolean);
+      actions.forwardSubagentMessages(subagent.id, selectedMessageIds);
+    });
     detail.append(forward);
   }
   if (requiresFirstDirectSubagentMessageConfirmation(subagent)) {
@@ -314,10 +913,23 @@ function renderSubagentDetail(subagents: LiveSubagent[], panel: DetailPanelState
     const input = activeDocument.createElement("textarea");
     input.className = "desktop-chat-surface__subagent-input";
     input.setAttribute("data-subagent-input", "message");
+    input.value = actions.subagentDraft(subagent.id);
+    input.addEventListener("input", () => {
+      actions.updateSubagentDraft(subagent.id, input.value);
+    });
     if (requiresFirstDirectSubagentMessageConfirmation(subagent)) {
       input.setAttribute("data-requires-confirmation", "true");
     }
-    detail.append(input);
+    const send = element("button", "desktop-chat-surface__subagent-send", "Send to subagent");
+    send.type = "button";
+    send.setAttribute("data-subagent-action", "send-message");
+    send.addEventListener("click", () => {
+      const result = actions.submitSubagentMessage(subagent.id, input.value);
+      if (result.accepted) {
+        input.value = "";
+      }
+    });
+    detail.append(input, send);
   } else if (subagent.status === "completed" || subagent.status === "idle") {
     detail.append(element("p", "desktop-chat-surface__readonly", "This subagent is closed and can only be reviewed."));
   } else {
@@ -326,9 +938,10 @@ function renderSubagentDetail(subagents: LiveSubagent[], panel: DetailPanelState
   return detail;
 }
 
-function renderToolDetail(turns: ChatTurn[], panel: DetailPanelState): HTMLElement {
+function renderToolDetail(turns: ChatTurn[], panel: DetailPanelState, actions: ChatSurfaceActions): HTMLElement {
   const tool = findTool(turns, panel.targetId || "");
   const detail = element("section", "desktop-chat-surface__tool-detail");
+  detail.append(renderCloseButton(actions));
   if (!tool) {
     detail.append(element("p", "desktop-chat-surface__detail-empty", "Tool detail unavailable"));
     return detail;
@@ -341,16 +954,16 @@ function renderToolDetail(turns: ChatTurn[], panel: DetailPanelState): HTMLEleme
   if (tool.resultPreview) {
     detail.append(element("p", "desktop-chat-surface__detail-result-preview", tool.resultPreview));
   }
-  detail.append(renderFoldedToolSection("full-args", "Full args", tool.detail.argsText));
-  detail.append(renderFoldedToolSection("full-result", "Full result", tool.detail.responseText));
-  detail.append(renderFoldedToolSection("stdout-stderr", "stdout / stderr", [tool.detail.stdout, tool.detail.stderr].filter(Boolean).join("\n")));
+  detail.append(renderFoldedToolSection("full-args", "Full args", tool.detail.argsText, actions));
+  detail.append(renderFoldedToolSection("full-result", "Full result", tool.detail.responseText, actions));
+  detail.append(renderFoldedToolSection("stdout-stderr", "stdout / stderr", [tool.detail.stdout, tool.detail.stderr].filter(Boolean).join("\n"), actions));
   if (tool.detail.rawEvent !== undefined) {
-    detail.append(renderFoldedToolSection("raw-event", "Raw event", JSON.stringify(tool.detail.rawEvent, null, 2)));
+    detail.append(renderFoldedToolSection("raw-event", "Raw event", JSON.stringify(tool.detail.rawEvent, null, 2), actions));
   }
   return detail;
 }
 
-function renderFoldedToolSection(section: string, label: string, content: string): HTMLElement {
+function renderFoldedToolSection(section: string, label: string, content: string, actions: ChatSurfaceActions): HTMLElement {
   const details = activeDocument.createElement("details");
   details.className = "desktop-chat-surface__tool-detail-section";
   details.setAttribute("data-tool-detail-section", section);
@@ -358,6 +971,10 @@ function renderFoldedToolSection(section: string, label: string, content: string
   const copy = element("button", "desktop-chat-surface__copy", "Copy");
   copy.type = "button";
   copy.setAttribute("data-tool-detail-copy", section);
+  copy.addEventListener("click", (event) => {
+    event.preventDefault();
+    actions.copyDetail(content, `tool:${section}`);
+  });
   const pre = element("pre", "desktop-chat-surface__tool-detail-content", content);
   details.append(summary, copy, pre);
   return details;
@@ -373,10 +990,10 @@ function findTool(turns: ChatTurn[], toolId: string): ToolCallSummary | undefine
   return undefined;
 }
 
-function renderArtifactDetail(artifacts: ArtifactDetail[], panel: DetailPanelState): HTMLElement {
+function renderArtifactDetail(artifacts: ArtifactDetail[], panel: DetailPanelState, actions: ChatSurfaceActions): HTMLElement {
   const artifact = artifacts.find((candidate) => candidate.id === panel.targetId);
   const detail = element("section", "desktop-chat-surface__artifact-detail");
-  detail.append(renderCloseButton());
+  detail.append(renderCloseButton(actions));
   if (!artifact) {
     detail.append(element("p", "desktop-chat-surface__detail-empty", "Artifact detail unavailable"));
     return detail;
@@ -388,6 +1005,7 @@ function renderArtifactDetail(artifacts: ArtifactDetail[], panel: DetailPanelSta
   const copy = element("button", "desktop-chat-surface__copy", "Copy");
   copy.type = "button";
   copy.setAttribute("data-artifact-action", "copy");
+  copy.addEventListener("click", () => actions.copyDetail(artifact.preview, `artifact:${artifact.id}`));
   detail.append(copy);
   if (artifact.openLabel) {
     const open = element("button", "desktop-chat-surface__open", artifact.openLabel);
@@ -401,10 +1019,10 @@ function renderArtifactDetail(artifacts: ArtifactDetail[], panel: DetailPanelSta
   return detail;
 }
 
-function renderErrorDetail(errors: ErrorDetail[], panel: DetailPanelState): HTMLElement {
+function renderErrorDetail(errors: ErrorDetail[], panel: DetailPanelState, actions: ChatSurfaceActions): HTMLElement {
   const error = errors.find((candidate) => candidate.id === panel.targetId);
   const detail = element("section", "desktop-chat-surface__error-detail");
-  detail.append(renderCloseButton());
+  detail.append(renderCloseButton(actions));
   if (!error) {
     detail.append(element("p", "desktop-chat-surface__detail-empty", "Error detail unavailable"));
     return detail;
@@ -421,20 +1039,47 @@ function renderErrorDetail(errors: ErrorDetail[], panel: DetailPanelState): HTML
   const copy = element("button", "desktop-chat-surface__copy", "Copy");
   copy.type = "button";
   copy.setAttribute("data-error-detail-copy", "raw");
+  copy.addEventListener("click", (event) => {
+    event.preventDefault();
+    actions.copyDetail(error.raw, `error:${error.id}:raw`);
+  });
   raw.append(copy, element("pre", "desktop-chat-surface__error-raw", error.raw));
   detail.append(raw);
   return detail;
 }
 
-function renderCloseButton(): HTMLElement {
+function renderCloseButton(actions: ChatSurfaceActions): HTMLElement {
   const close = element("button", "desktop-chat-surface__detail-close", "Close");
   close.type = "button";
   close.setAttribute("data-detail-action", "close");
+  close.addEventListener("click", () => actions.closeDetail());
   return close;
 }
 
-function badgeLabel(badge: SessionPrimaryBadge): string {
-  switch (badge) {
+function chatSurfaceViewportWidth(host: HTMLElement): number {
+  return host.ownerDocument.defaultView?.innerWidth ?? 1024;
+}
+
+function chatSurfaceHasRunningTurn(projection: ChatUiProjection): boolean {
+  return projection.turns.some((turn) => turn.process?.state === "running");
+}
+
+function roleLabel(role: ChatTurn["role"]): string {
+  return role === "assistant" ? "Assistant" : "User";
+}
+
+function logChatSurfaceAction(host: HTMLElement, action: string, detail: unknown): void {
+  const eventDetail = action.startsWith("detail.")
+    ? { action, panel: detail }
+    : { action, payload: detail };
+  host.dispatchEvent(new CustomEvent("desktop-chat-surface-log", {
+    bubbles: true,
+    detail: eventDetail,
+  }));
+}
+
+function badgeLabel(session: ChatUiProjection["sessions"][number]): string {
+  switch (session.primaryBadge) {
     case "waiting_approval":
       return "Waiting approval";
     case "running":
@@ -442,8 +1087,36 @@ function badgeLabel(badge: SessionPrimaryBadge): string {
     case "unread":
       return "New output";
     case "updated_time":
-      return "Updated";
+      return sessionUpdatedLabel(session.updatedAt);
   }
+}
+
+function sessionUpdatedLabel(updatedAt: string): string {
+  if (!updatedAt) {
+    return "Updated";
+  }
+  const timestamp = Date.parse(updatedAt);
+  if (Number.isNaN(timestamp)) {
+    return updatedAt;
+  }
+  const now = Date.now();
+  const diffMs = now - timestamp;
+  if (diffMs < 0) {
+    return "Updated";
+  }
+  const minuteMs = 60 * 1000;
+  const hourMs = 60 * minuteMs;
+  const dayMs = 24 * hourMs;
+  if (diffMs < hourMs) {
+    const minutes = Math.max(1, Math.floor(diffMs / minuteMs));
+    return `${minutes} min`;
+  }
+  if (diffMs < dayMs) {
+    const hours = Math.floor(diffMs / hourMs);
+    return `${hours} h`;
+  }
+  const days = Math.floor(diffMs / dayMs);
+  return `${days} d`;
 }
 
 function approvalChoiceLabel(choice: ApprovalRequest["choices"][number]): string {

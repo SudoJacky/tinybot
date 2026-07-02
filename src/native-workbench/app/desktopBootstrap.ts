@@ -481,6 +481,7 @@ async function loadNativeChatRuntime(): Promise<DesktopNativeWorkbenchRuntime> {
         ? (filter) => invoke("worker_background_trace_get_artifact", { input: { filter } })
         : undefined,
       deleteSession: (sessionKey) => gatewayApi.sessions.delete(sessionKey),
+      patchSession: (sessionKey, body) => gatewayApi.sessions.patch(sessionKey, body),
     },
     sendSocketMessage: (message) => sendNativeChatSocketMessage(message),
     agentRoute,
@@ -965,6 +966,222 @@ function installNativeChatRuntimeActions(): void {
     });
     void handleNativeInlineApprovalAction(detail);
   });
+  document.addEventListener("desktop-chat-message-submit", (event) => {
+    const detail = asRecord((event as CustomEvent).detail);
+    const content = typeof detail.content === "string" ? detail.content : "";
+    logDesktopNativeDebug("runtime.actions.chatSurfaceSubmit", {
+      contentLength: content.trim().length,
+      hasRuntime: Boolean(nativeWorkbenchRuntime),
+    });
+    nativeChatActions().onComposerSubmit({
+      content,
+      usePersistentRag: Boolean(nativeWorkbenchRuntime?.chat.usePersistentRag),
+    });
+  });
+  document.addEventListener("desktop-chat-session-new", () => {
+    logDesktopNativeDebug("runtime.actions.sessionNew", {
+      hasRuntime: Boolean(nativeWorkbenchRuntime),
+    });
+    nativeChatActions().onNewChat();
+  });
+  document.addEventListener("desktop-chat-session-open", (event) => {
+    const detail = asRecord((event as CustomEvent).detail);
+    const chatId = typeof detail.chatId === "string" ? detail.chatId : "";
+    const sessionKey = typeof detail.sessionKey === "string" ? detail.sessionKey : "";
+    logDesktopNativeDebug("runtime.actions.sessionOpen", {
+      chatId,
+      hasRuntime: Boolean(nativeWorkbenchRuntime),
+      sessionKey,
+    });
+    if (!chatId || !sessionKey || !nativeWorkbenchRuntime) {
+      logDesktopNativeDebug("runtime.actions.sessionOpenSkipped", {
+        hasChatId: Boolean(chatId),
+        hasRuntime: Boolean(nativeWorkbenchRuntime),
+        hasSessionKey: Boolean(sessionKey),
+      });
+      return;
+    }
+    void nativeWorkbenchRuntime.selectChatSession(sessionKey, chatId).then(() => {
+      updateDesktopNativeChat(document, nativeWorkbenchRuntime!.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
+    }).catch((error: unknown) => {
+      logDesktopNativeDebug("runtime.actions.sessionOpenFailed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
+  });
+  document.addEventListener("desktop-chat-subagent-message-submit", (event) => {
+    const detail = asRecord((event as CustomEvent).detail);
+    const content = typeof detail.content === "string" ? detail.content : "";
+    const sessionKey = typeof detail.sessionKey === "string" ? detail.sessionKey : "";
+    const subagentId = typeof detail.subagentId === "string" ? detail.subagentId : "";
+    const traceRef = typeof detail.traceRef === "string" ? detail.traceRef : "";
+    const childRunId = typeof detail.childRunId === "string" ? detail.childRunId : "";
+    logDesktopNativeDebug("runtime.actions.subagentDirectMessage.start", {
+      childRunId,
+      contentLength: content.trim().length,
+      hasRuntime: Boolean(nativeWorkbenchRuntime),
+      hasSessionKey: Boolean(sessionKey),
+      sessionKeyPrefix: sessionKey.split(":")[0] || "",
+      subagentId,
+      traceRef,
+    });
+    if (!content.trim() || !sessionKey || !subagentId) {
+      logDesktopNativeDebug("runtime.actions.subagentDirectMessageSkipped", {
+        hasContent: Boolean(content.trim()),
+        hasSessionKey: Boolean(sessionKey),
+        hasSubagentId: Boolean(subagentId),
+      });
+      return;
+    }
+    void invoke("worker_background_subagent_enqueue_input", {
+      input: {
+        childRunId: childRunId || undefined,
+        content: content.trim(),
+        createdAt: new Date().toISOString(),
+        metadata: {
+          surface: "rebuilt-chat",
+          source: "desktop-chat-subagent-message-submit",
+        },
+        sessionKey,
+        subagentId,
+        traceRef: traceRef || undefined,
+      },
+    }).then((result) => {
+      const record = asRecord(result);
+      logDesktopNativeDebug("runtime.actions.subagentDirectMessage.complete", {
+        accepted: record.accepted === true,
+        delivery: typeof record.delivery === "string" ? record.delivery : "",
+        eventType: asRecord(record.event).eventType,
+        subagentId,
+      });
+    }).catch((error: unknown) => {
+      logDesktopNativeDebug("runtime.actions.subagentDirectMessage.failed", {
+        message: error instanceof Error ? error.message : String(error),
+        subagentId,
+      });
+    });
+  });
+  document.addEventListener("desktop-chat-branch-session-request", (event) => {
+    const detail = asRecord((event as CustomEvent).detail);
+    const messages = Array.isArray(detail.messages) ? detail.messages : [];
+    logDesktopNativeDebug("runtime.actions.branchSession.start", {
+      branchedFromMessageId: typeof detail.branchedFromMessageId === "string" ? detail.branchedFromMessageId : "",
+      branchedFromSessionId: typeof detail.branchedFromSessionId === "string" ? detail.branchedFromSessionId : "",
+      hasRuntime: Boolean(nativeWorkbenchRuntime),
+      messageCount: messages.length,
+      title: typeof detail.title === "string" ? detail.title : "",
+    });
+    void gatewayApi.sessions.branch(detail).then((session) => {
+      const record = asRecord(session);
+      const sessionKey = typeof record.key === "string" ? record.key : "";
+      const chatId = typeof record.chatId === "string"
+        ? record.chatId
+        : typeof record.chat_id === "string"
+          ? record.chat_id
+          : "";
+      if (!sessionKey || !chatId || !nativeWorkbenchRuntime) {
+        logDesktopNativeDebug("runtime.actions.branchSession.incomplete", {
+          hasChatId: Boolean(chatId),
+          hasRuntime: Boolean(nativeWorkbenchRuntime),
+          hasSessionKey: Boolean(sessionKey),
+        });
+        return;
+      }
+      return nativeWorkbenchRuntime.selectChatSession(sessionKey, chatId).then(() => {
+        updateDesktopNativeChat(document, nativeWorkbenchRuntime!.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
+        logDesktopNativeDebug("runtime.actions.branchSession.complete", {
+          chatId,
+          sessionKey,
+        });
+      });
+    }).catch((error: unknown) => {
+      logDesktopNativeDebug("runtime.actions.branchSession.failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
+  });
+  document.addEventListener("desktop-chat-session-action", (event) => {
+    const detail = asRecord((event as CustomEvent).detail);
+    const action = typeof detail.action === "string" ? detail.action : "";
+    const copyText = typeof detail.copyText === "string" ? detail.copyText : "";
+    const sessionKey = typeof detail.sessionKey === "string" ? detail.sessionKey : "";
+    logDesktopNativeDebug("runtime.actions.sessionAction", {
+      action,
+      hasCopyText: Boolean(copyText),
+      hasRuntime: Boolean(nativeWorkbenchRuntime),
+      hasSessionKey: Boolean(sessionKey),
+    });
+    if (action === "copy-session-id" || action === "copy-markdown") {
+      void writeNativeClipboardText(copyText, "runtime.actions.sessionAction.copy");
+      return;
+    }
+    if (action === "delete" && sessionKey && nativeWorkbenchRuntime) {
+      void nativeWorkbenchRuntime.deleteChatSession(sessionKey).then(() => {
+        updateDesktopNativeChat(document, nativeWorkbenchRuntime!.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
+      });
+      return;
+    }
+    if ((action === "pin" || action === "unpin") && sessionKey && nativeWorkbenchRuntime) {
+      void nativeWorkbenchRuntime.patchChatSession(sessionKey, {
+        metadata: { pinned: action === "pin" },
+      }).then(() => {
+        updateDesktopNativeChat(document, nativeWorkbenchRuntime!.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
+      });
+      return;
+    }
+    if (action === "rename" && sessionKey && nativeWorkbenchRuntime) {
+      const currentTitle = typeof detail.title === "string" ? detail.title : "";
+      const renamedTitle = document.defaultView?.prompt("Rename session", currentTitle)?.trim() ?? "";
+      if (!renamedTitle || renamedTitle === currentTitle) {
+        logDesktopNativeDebug("runtime.actions.sessionActionRenameSkipped", { sessionKey });
+        return;
+      }
+      void nativeWorkbenchRuntime.patchChatSession(sessionKey, {
+        metadata: { title: renamedTitle },
+      }).then(() => {
+        updateDesktopNativeChat(document, nativeWorkbenchRuntime!.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
+      });
+      return;
+    }
+    logDesktopNativeDebug("runtime.actions.sessionActionUnsupported", { action, sessionKey });
+  });
+  document.addEventListener("desktop-chat-message-copy", (event) => {
+    const detail = asRecord((event as CustomEvent).detail);
+    const content = typeof detail.content === "string" ? detail.content : "";
+    const messageId = typeof detail.messageId === "string" ? detail.messageId : "";
+    logDesktopNativeDebug("runtime.actions.messageCopy", {
+      contentLength: content.length,
+      messageId,
+    });
+    void writeNativeClipboardText(content, "runtime.actions.messageCopy");
+  });
+  document.addEventListener("desktop-chat-detail-copy", (event) => {
+    const detail = asRecord((event as CustomEvent).detail);
+    const content = typeof detail.content === "string" ? detail.content : "";
+    const source = typeof detail.source === "string" ? detail.source : "";
+    logDesktopNativeDebug("runtime.actions.detailCopy", {
+      contentLength: content.length,
+      source,
+    });
+    void writeNativeClipboardText(content, "runtime.actions.detailCopy");
+  });
+  document.addEventListener("desktop-chat-approval-guidance-submit", (event) => {
+    const detail = asRecord((event as CustomEvent).detail);
+    const approvalId = typeof detail.approvalId === "string" ? detail.approvalId : "";
+    const guidance = typeof detail.guidance === "string" ? detail.guidance : "";
+    logDesktopNativeDebug("runtime.actions.approvalGuidanceEvent", {
+      approvalId,
+      guidanceLength: guidance.trim().length,
+      hasRuntime: Boolean(nativeWorkbenchRuntime),
+    });
+    void handleNativeInlineApprovalAction({
+      action: "deny",
+      approvalId,
+      guidance,
+      sessionKey: nativeWorkbenchRuntime?.chat.activeSessionKey ?? "",
+      toolName: "tool",
+    });
+  });
   window.addEventListener("tinybot:desktop-route", (event) => {
     const target = (event as CustomEvent<{ href?: unknown }>).detail;
     const href = typeof target?.href === "string" ? target.href : "";
@@ -1008,6 +1225,7 @@ async function handleNativeInlineApprovalAction(detail: unknown): Promise<void> 
     return;
   }
   const approvalId = typeof record.approvalId === "string" ? record.approvalId : "";
+  const guidance = typeof record.guidance === "string" ? record.guidance : "";
   const sessionKey = typeof record.sessionKey === "string" && record.sessionKey
     ? record.sessionKey
     : nativeWorkbenchRuntime?.chat.activeSessionKey || "";
@@ -1016,6 +1234,7 @@ async function handleNativeInlineApprovalAction(detail: unknown): Promise<void> 
   logDesktopNativeDebug("inlineApproval.start", {
     action,
     approvalId,
+    guidanceLength: guidance.trim().length,
     hasSessionKey: Boolean(sessionKey),
     toolName,
   });
@@ -1036,7 +1255,7 @@ async function handleNativeInlineApprovalAction(detail: unknown): Promise<void> 
     return;
   }
   try {
-    const resumeResult = await submitNativeApprovalAction(approvalId, sessionKey, action);
+    const resumeResult = await submitNativeApprovalAction(approvalId, sessionKey, action, guidance);
     const resumeSummary = summarizeDesktopApprovalResumeResult(resumeResult);
     const decision = action === "deny" ? "denied" : "approved";
     const resolvedLocally = nativeWorkbenchRuntime?.resolveApproval(approvalId, decision, sessionKey) ?? false;
@@ -1044,6 +1263,7 @@ async function handleNativeInlineApprovalAction(detail: unknown): Promise<void> 
       action,
       approvalId,
       decision,
+      guidanceLength: guidance.trim().length,
       resolvedLocally,
       sessionKeyPrefix: sessionKey.split(":")[0] || "",
       toolName,
@@ -1057,6 +1277,7 @@ async function handleNativeInlineApprovalAction(detail: unknown): Promise<void> 
     logDesktopNativeDebug("inlineApproval.complete", {
       action,
       approvalId,
+      guidanceLength: guidance.trim().length,
       resolvedLocally,
       resume: resumeSummary,
       toolName,
@@ -1078,6 +1299,7 @@ async function handleNativeInlineApprovalAction(detail: unknown): Promise<void> 
       action,
       approvalId,
       error: stringifyError(error),
+      guidanceLength: guidance.trim().length,
       toolName,
     });
   }
@@ -1087,14 +1309,17 @@ async function submitNativeApprovalAction(
   approvalId: string,
   sessionKey: string,
   action: string,
+  guidance = "",
 ): Promise<unknown> {
   if (!["approveOnce", "approveSession", "deny"].includes(action)) {
     return undefined;
   }
   const preferNativeWorkerResume = true;
+  const guidanceText = guidanceValue(guidance);
   logDesktopNativeDebug("approvalAction.route", {
     action,
     approvalId,
+    guidanceLength: guidanceText.length,
     hasSessionKey: Boolean(sessionKey),
     hasTauriRuntime: hasTauriRuntime(),
     nativeAgentRoute,
@@ -1105,17 +1330,20 @@ async function submitNativeApprovalAction(
     action: action as "approveOnce" | "approveSession" | "deny",
     approvalId,
     gatewayTools: gatewayApi.tools,
+    guidance: guidanceValue(guidance),
     invoke,
     onGatewayFallback: () => {
       logDesktopNativeDebug("approvalAction.gatewayFallback", {
         action,
         approvalId,
+        guidanceLength: guidanceText.length,
       });
     },
     onNativeResumeAttempt: () => {
       logDesktopNativeDebug("approvalAction.nativeResume.start", {
         action,
         approvalId,
+        guidanceLength: guidanceText.length,
       });
     },
     onNativeResumeFailed: (error) => {
@@ -1123,18 +1351,24 @@ async function submitNativeApprovalAction(
         action,
         approvalId,
         error: stringifyError(error),
+        guidanceLength: guidanceText.length,
       });
     },
     onNativeResumeSucceeded: (_context, result) => {
       logDesktopNativeDebug("approvalAction.nativeResume.complete", {
         action,
         approvalId,
+        guidanceLength: guidanceText.length,
         resume: summarizeDesktopApprovalResumeResult(result),
       });
     },
     preferNativeWorkerResume,
     sessionKey,
   });
+}
+
+function guidanceValue(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 async function selectNativeChatFromRoute(path: string): Promise<void> {
@@ -2172,13 +2406,17 @@ async function retryLoadNativeSettingsPane(): Promise<void> {
 }
 
 async function copyNativeSettingsDiagnostics(diagnostics: string): Promise<void> {
+  await writeNativeClipboardText(diagnostics || "No settings diagnostics", "settings.diagnostics.copy");
+}
+
+async function writeNativeClipboardText(text: string, logAction: string): Promise<void> {
   const clipboard = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
   if (!clipboard?.writeText) {
-    logDesktopNativeDebug("settings.diagnostics.copy.skipped", { reason: "clipboard unavailable" });
+    logDesktopNativeDebug(`${logAction}.skipped`, { reason: "clipboard unavailable" });
     return;
   }
-  await clipboard.writeText(diagnostics || "No settings diagnostics");
-  logDesktopNativeDebug("settings.diagnostics.copy.complete");
+  await clipboard.writeText(text);
+  logDesktopNativeDebug(`${logAction}.complete`);
 }
 
 async function saveNativeSettingsPane(): Promise<void> {

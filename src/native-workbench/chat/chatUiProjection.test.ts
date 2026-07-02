@@ -20,7 +20,7 @@ describe("chat UI projection", () => {
     expect(CHAT_RUNTIME_CAPABILITY_AUDIT.runInput.status).toBe("available");
     expect(CHAT_RUNTIME_CAPABILITY_AUDIT.approvalResume.status).toBe("route");
     expect(CHAT_RUNTIME_CAPABILITY_AUDIT.subagentTranscript.status).toBe("partial");
-    expect(CHAT_RUNTIME_CAPABILITY_AUDIT.branchSession.status).toBe("missing");
+    expect(CHAT_RUNTIME_CAPABILITY_AUDIT.branchSession.status).toBe("available");
     expect(CHAT_RUNTIME_CAPABILITY_AUDIT.legacyConversationThread.status).toBe("frozen");
     expect(CHAT_SURFACE_OWNERSHIP.legacyConversationThread.allowedChanges).toEqual([
       "compatibility",
@@ -146,6 +146,8 @@ describe("chat UI projection", () => {
     expect(projection.liveSubagents).toEqual([{
       id: "delegate-1",
       sessionKey: "websocket:chat-1",
+      traceRef: "trace-delegate-1",
+      childRunId: "child-delegate-1",
       name: "Researcher",
       task: "Check docs",
       status: "running",
@@ -220,6 +222,46 @@ describe("chat UI projection", () => {
       choices: ["allow_once", "allow_session", "deny"],
     }]);
   });
+
+  test("projects artifact tool activities into artifact detail data", () => {
+    const state = createNativeChatState();
+    setSessions(state, [{
+      key: "websocket:chat-artifact",
+      chatId: "chat-artifact",
+      title: "Artifact output",
+      createdAt: "2026-07-01T12:00:00Z",
+      updatedAt: "2026-07-01T12:01:00Z",
+    }]);
+    state.activeSessionKey = "websocket:chat-artifact";
+    state.activeChatId = "chat-artifact";
+    setMessages(state, "websocket:chat-artifact", [{
+      role: "assistant",
+      content: "Created an artifact.",
+      reasoningContent: "",
+      timestamp: "2026-07-01T12:01:00Z",
+      messageId: "m-artifact",
+      toolActivities: [{
+        id: "artifact-1",
+        name: "Artifact: Release draft",
+        argsText: "",
+        responseText: "Release draft preview",
+        kind: "result",
+        status: "completed",
+      }],
+    }]);
+
+    const projection = projectNativeChatState(state);
+
+    expect(projection.artifacts).toEqual([{
+      id: "artifact-1",
+      kind: "artifact",
+      title: "Release draft",
+      preview: "Release draft preview",
+      metadataSummary: "Status: completed / Turn: m-artifact",
+      sourceTurnId: "m-artifact",
+      sourceToolId: "artifact-1",
+    }]);
+  });
 });
 
 function fixtureMessages(): NativeChatMessage[] {
@@ -266,6 +308,8 @@ function fixtureMessages(): NativeChatMessage[] {
           delegateId: "delegate-1",
           delegateTitle: "Researcher",
           delegateTask: "Check docs",
+          traceRef: "trace-delegate-1",
+          childRunId: "child-delegate-1",
         },
       ],
     },

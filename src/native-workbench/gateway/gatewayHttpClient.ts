@@ -72,6 +72,7 @@ export type NativeSessionsApi = {
   clearTemporaryFiles?: (key: string) => Promise<unknown>;
   delete?: (key: string) => Promise<unknown>;
   patch?: (key: string, body: unknown) => Promise<unknown>;
+  branch?: (body: unknown) => Promise<unknown>;
   clear?: (key: string) => Promise<unknown>;
   upsertTaskProgress?: (key: string, body: unknown) => Promise<unknown>;
 };
@@ -433,6 +434,15 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         }),
         () => request(`/api/sessions/${encodePathSegment(key)}`, jsonRequest("PATCH", body)),
         "webui.sessions.patch",
+      ),
+      branch: (body: unknown) => nativeOrGateway(
+        () => options.nativeSessions?.branch?.(body) ?? options.nativeWebui?.route({
+          method: "POST",
+          path: "/api/sessions/branch",
+          body,
+        }),
+        () => request("/api/sessions/branch", jsonRequest("POST", body)),
+        "webui.sessions.branch",
       ),
       clear: (key: string) => nativeOrGateway(
         () => options.nativeSessions?.clear?.(key) ?? options.nativeWebui?.route({

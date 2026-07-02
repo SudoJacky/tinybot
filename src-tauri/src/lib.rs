@@ -40,6 +40,7 @@ pub mod worker_session;
 pub mod worker_shell;
 pub mod worker_stdio;
 pub mod worker_storage;
+pub mod worker_subagent_manager;
 pub mod worker_task;
 pub mod worker_workspace;
 
@@ -64,6 +65,7 @@ use crate::native_backend_contract::{
     webui_route_inventory_entry, NativeCompatibilityFallbackDiagnostic,
 };
 use crate::worker_agent_runtime::{run_native_agent_turn_with_config, NativeAgentRuntimeServices};
+use crate::worker_background::BackgroundTraceEvent;
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_client::WorkerClient;
 use crate::worker_cowork_runtime::WorkerCoworkRuntime;
@@ -74,6 +76,10 @@ use crate::worker_protocol::WorkerRequest;
 use crate::worker_request_id::{next_worker_request_correlation, WorkerRequestCorrelation};
 use crate::worker_rpc::WorkerRpcRouter;
 use crate::worker_runtime::WorkerRuntimeStatus;
+use crate::worker_subagent_manager::{
+    SubagentSendInputParams, SubagentSpawnParams, SubagentTargetParams, SubagentThreadManager,
+    SubagentWaitParams,
+};
 
 #[derive(Serialize)]
 struct DesktopStatus {
@@ -103,6 +109,7 @@ const NATIVE_AGENT_RUN_TRACE_STRING_LIMIT: usize = 256;
 struct GatewayRuntime {
     experimental_worker: WorkerManager,
     native_agent_runtime: NativeAgentRuntimeServices,
+    subagent_manager: SubagentThreadManager,
     logs: VecDeque<String>,
     compatibility_fallbacks: VecDeque<NativeCompatibilityFallbackDiagnostic>,
     persistent_log_path: PathBuf,
@@ -115,9 +122,13 @@ struct GatewayRuntime {
 
 impl Default for GatewayRuntime {
     fn default() -> Self {
+        let subagent_manager = SubagentThreadManager::default();
         Self {
             experimental_worker: WorkerManager::new(200),
-            native_agent_runtime: NativeAgentRuntimeServices::default(),
+            native_agent_runtime: NativeAgentRuntimeServices::with_subagent_manager(
+                subagent_manager.clone(),
+            ),
+            subagent_manager,
             logs: VecDeque::with_capacity(200),
             compatibility_fallbacks: VecDeque::with_capacity(50),
             persistent_log_path: native_backend_log_path(),
@@ -193,6 +204,12 @@ struct WorkerSessionInput {
 #[serde(rename_all = "camelCase")]
 struct WorkerSessionPatchInput {
     key: String,
+    body: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerSessionBranchInput {
     body: serde_json::Value,
 }
 
@@ -344,6 +361,24 @@ struct WorkerBackgroundTraceAppendInput {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct WorkerBackgroundSubagentInputInput {
+    session_key: String,
+    subagent_id: String,
+    content: String,
+    #[serde(default)]
+    turn_id: Option<String>,
+    #[serde(default)]
+    trace_ref: Option<String>,
+    #[serde(default)]
+    child_run_id: Option<String>,
+    #[serde(default)]
+    created_at: Option<String>,
+    #[serde(default)]
+    metadata: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct WorkerTaskPlanListInput {
     #[serde(default)]
     include_completed: bool,
@@ -431,6 +466,8 @@ struct WorkerResumeAgentApprovalInput {
     approved: bool,
     #[serde(default)]
     scope: Option<String>,
+    #[serde(default)]
+    guidance: Option<String>,
 }
 
 #[tauri::command]
@@ -705,6 +742,20 @@ fn worker_session_patch(
 }
 
 #[tauri::command]
+fn worker_session_branch(
+    input: WorkerSessionBranchInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_session_branch_with_options(
+        state.inner(),
+        input.body,
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
 fn worker_session_clear(
     input: WorkerSessionInput,
     state: State<'_, SharedGateway>,
@@ -954,6 +1005,141 @@ fn worker_background_trace_append(
 }
 
 #[tauri::command]
+fn worker_background_subagent_enqueue_input(
+    input: WorkerBackgroundSubagentInputInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_background_subagent_enqueue_input_with_options(
+        state.inner(),
+        input,
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerSubagentListInput {
+    session_key: String,
+}
+
+#[tauri::command]
+fn worker_subagent_spawn(
+    input: SubagentSpawnParams,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    let manager = {
+        let runtime = lock_runtime(state.inner());
+        runtime.subagent_manager.clone()
+    };
+    let result = manager.spawn(input);
+    persist_subagent_manager_event_if_present(
+        result.event.as_ref(),
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+    )?;
+    serde_json::to_value(result)
+        .map_err(|error| format!("worker subagent spawn serialization failed: {error}"))
+}
+
+#[tauri::command]
+fn worker_subagent_list(
+    input: WorkerSubagentListInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    let manager = {
+        let runtime = lock_runtime(state.inner());
+        runtime.subagent_manager.clone()
+    };
+    serde_json::to_value(manager.list(&input.session_key))
+        .map_err(|error| format!("worker subagent list serialization failed: {error}"))
+}
+
+#[tauri::command]
+fn worker_subagent_query(
+    input: SubagentTargetParams,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    let manager = {
+        let runtime = lock_runtime(state.inner());
+        runtime.subagent_manager.clone()
+    };
+    serde_json::to_value(manager.query(input))
+        .map_err(|error| format!("worker subagent query serialization failed: {error}"))
+}
+
+#[tauri::command]
+fn worker_subagent_send_input(
+    input: SubagentSendInputParams,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    let manager = {
+        let runtime = lock_runtime(state.inner());
+        runtime.subagent_manager.clone()
+    };
+    let result = manager.enqueue_input(input);
+    persist_subagent_manager_event_if_present(
+        result.event.as_ref(),
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+    )?;
+    serde_json::to_value(result)
+        .map_err(|error| format!("worker subagent send input serialization failed: {error}"))
+}
+
+#[tauri::command]
+fn worker_subagent_wait(
+    input: SubagentWaitParams,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    let manager = {
+        let runtime = lock_runtime(state.inner());
+        runtime.subagent_manager.clone()
+    };
+    serde_json::to_value(manager.wait(input))
+        .map_err(|error| format!("worker subagent wait serialization failed: {error}"))
+}
+
+#[tauri::command]
+fn worker_subagent_cancel(
+    input: SubagentTargetParams,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    let manager = {
+        let runtime = lock_runtime(state.inner());
+        runtime.subagent_manager.clone()
+    };
+    let result = manager.cancel(input);
+    persist_subagent_manager_event_if_present(
+        result.event.as_ref(),
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+    )?;
+    serde_json::to_value(result)
+        .map_err(|error| format!("worker subagent cancel serialization failed: {error}"))
+}
+
+#[tauri::command]
+fn worker_subagent_close(
+    input: SubagentTargetParams,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    let manager = {
+        let runtime = lock_runtime(state.inner());
+        runtime.subagent_manager.clone()
+    };
+    let result = manager.close(input);
+    persist_subagent_manager_event_if_present(
+        result.event.as_ref(),
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+    )?;
+    serde_json::to_value(result)
+        .map_err(|error| format!("worker subagent close serialization failed: {error}"))
+}
+
+#[tauri::command]
 fn worker_task_plan_list(
     input: WorkerTaskPlanListInput,
     state: State<'_, SharedGateway>,
@@ -1145,6 +1331,7 @@ fn worker_resume_agent_approval(
         input.approval_id,
         input.approved,
         input.scope,
+        input.guidance,
         native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(120),
@@ -1260,6 +1447,11 @@ fn worker_run_agent_with_options(
 ) -> Result<serde_json::Value, String> {
     let _ = timeout;
     let persistence_spec = spec.clone();
+    let runtime_spec = hydrate_native_agent_history_for_runtime(
+        spec,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+    )?;
     let services = {
         let runtime = lock_runtime(shared);
         runtime.native_agent_runtime.clone()
@@ -1270,7 +1462,8 @@ fn worker_run_agent_with_options(
         config_snapshot.clone(),
     )
     .err();
-    let mut result = run_native_agent_turn_with_config(&services, spec, config_snapshot.clone())?;
+    let mut result =
+        run_native_agent_turn_with_config(&services, runtime_spec, config_snapshot.clone())?;
     if let Err(error) = persist_native_agent_run_record(
         persistence_spec.clone(),
         &mut result,
@@ -1792,6 +1985,119 @@ fn native_agent_assistant_messages(result: &serde_json::Value) -> Vec<serde_json
         .unwrap_or_default()
 }
 
+fn hydrate_native_agent_history_for_runtime(
+    mut spec: serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let Some(session_id) = native_agent_session_id(&spec) else {
+        return Ok(spec);
+    };
+    let requested_messages = native_agent_runtime_messages(&spec);
+    if requested_messages.is_empty() {
+        return Ok(spec);
+    }
+    let history_messages =
+        native_agent_session_history_messages(&session_id, workspace_root, config_snapshot)?;
+    if history_messages.is_empty() {
+        return Ok(spec);
+    }
+
+    let combined_messages =
+        native_agent_merge_history_messages(&history_messages, &requested_messages);
+    if let Some(object) = spec.as_object_mut() {
+        object.insert(
+            "messages".to_string(),
+            serde_json::Value::Array(combined_messages),
+        );
+    }
+    Ok(spec)
+}
+
+fn native_agent_runtime_messages(spec: &serde_json::Value) -> Vec<serde_json::Value> {
+    if let Some(messages) = spec.get("messages").and_then(serde_json::Value::as_array) {
+        if !messages.is_empty() {
+            return messages.clone();
+        }
+    }
+    native_agent_user_messages(spec)
+}
+
+fn native_agent_session_history_messages(
+    session_id: &str,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+) -> Result<Vec<serde_json::Value>, String> {
+    let request_id = next_worker_request_correlation();
+    let history = call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("session-history-for-agent-run"),
+            request_id.trace_id("session-history-for-agent-run"),
+            "session.get_history",
+            serde_json::json!({ "session_id": session_id, "limit": 500 }),
+        ),
+        "native agent session history hydration",
+    )?;
+    Ok(history
+        .get("messages")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default())
+}
+
+fn native_agent_merge_history_messages(
+    history_messages: &[serde_json::Value],
+    requested_messages: &[serde_json::Value],
+) -> Vec<serde_json::Value> {
+    let mut combined = Vec::new();
+    for message in requested_messages
+        .iter()
+        .filter(|message| native_agent_instruction_message(message))
+    {
+        combined.push(message.clone());
+    }
+
+    let requested_body: Vec<_> = requested_messages
+        .iter()
+        .filter(|message| !native_agent_instruction_message(message))
+        .cloned()
+        .collect();
+    let history_body: Vec<_> = history_messages
+        .iter()
+        .filter(|message| !native_agent_instruction_message(message))
+        .cloned()
+        .collect();
+
+    if native_agent_messages_start_with(&requested_body, &history_body) {
+        combined.extend(requested_body);
+    } else {
+        combined.extend(history_body);
+        combined.extend(requested_body);
+    }
+    combined
+}
+
+fn native_agent_instruction_message(message: &serde_json::Value) -> bool {
+    matches!(
+        message.get("role").and_then(serde_json::Value::as_str),
+        Some("system" | "developer")
+    )
+}
+
+fn native_agent_messages_start_with(
+    messages: &[serde_json::Value],
+    prefix: &[serde_json::Value],
+) -> bool {
+    !prefix.is_empty()
+        && messages.len() >= prefix.len()
+        && messages
+            .iter()
+            .zip(prefix.iter())
+            .all(|(message, prefix)| message == prefix)
+}
+
 fn worker_run_agent_input_with_options(
     shared: &SharedGateway,
     input: serde_json::Value,
@@ -2076,8 +2382,8 @@ fn worker_session_messages_with_options(
 ) -> Result<serde_json::Value, String> {
     let request_id = next_worker_request_correlation();
     let mut history = call_rust_state_service(
-        workspace_root,
-        config_snapshot,
+        workspace_root.clone(),
+        config_snapshot.clone(),
         WorkerRequest::new(
             request_id.id("session-messages"),
             request_id.trace_id("session-messages"),
@@ -2102,6 +2408,7 @@ fn worker_session_messages_with_options(
         "chat_id".to_string(),
         serde_json::Value::String(session_chat_id_from_key(&session_id)),
     );
+    enrich_session_history_metadata(object, &session_id, workspace_root, config_snapshot);
     Ok(history)
 }
 
@@ -2235,6 +2542,69 @@ fn worker_session_patch_with_options(
     webui_session_item(&session)
 }
 
+fn worker_session_branch_with_options(
+    _shared: &SharedGateway,
+    body: serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    let branch_key = branch_session_key(&body, request_id.suffix());
+    let messages = branch_messages(&body);
+    if messages.is_empty() {
+        return Err("worker session branch failed: branch messages are required".to_string());
+    }
+    let title = branch_string(&body, "title").unwrap_or_else(|| "Branched session".to_string());
+    let source_session = branch_string(&body, "branchedFromSessionId")
+        .or_else(|| branch_string(&body, "branched_from_session_id"))
+        .unwrap_or_default();
+    let source_message = branch_string(&body, "branchedFromMessageId")
+        .or_else(|| branch_string(&body, "branched_from_message_id"))
+        .unwrap_or_default();
+    let portable_context = body
+        .get("portableContext")
+        .or_else(|| body.get("portable_context"))
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    call_rust_state_service(
+        workspace_root.clone(),
+        config_snapshot.clone(),
+        WorkerRequest::new(
+            request_id.id("session-branch-append"),
+            request_id.trace_id("session-branch-append"),
+            "session.append_messages",
+            serde_json::json!({
+                "session_id": branch_key.clone(),
+                "messages": messages,
+            }),
+        ),
+        "worker session branch append",
+    )?;
+    let session = call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("session-branch-metadata"),
+            request_id.trace_id("session-branch-metadata"),
+            "session.patch_metadata",
+            serde_json::json!({
+                "session_id": branch_key,
+                "metadata": {
+                    "title": title,
+                    "branch": {
+                        "branchedFromSessionId": source_session,
+                        "branchedFromMessageId": source_message,
+                        "portableContext": portable_context,
+                    },
+                },
+            }),
+        ),
+        "worker session branch metadata",
+    )?;
+    webui_session_item(&session)
+}
+
 fn worker_session_clear_with_options(
     _shared: &SharedGateway,
     key: String,
@@ -2323,9 +2693,80 @@ fn webui_session_item(session: &serde_json::Value) -> Result<serde_json::Value, 
         .and_then(|extra| extra.get("metadata"))
         .cloned()
     {
+        if let Some(title) = metadata.get("title").and_then(serde_json::Value::as_str) {
+            item.insert(
+                "title".to_string(),
+                serde_json::Value::String(title.to_string()),
+            );
+        }
         item.insert("metadata".to_string(), metadata);
     }
     Ok(serde_json::Value::Object(item))
+}
+
+fn enrich_session_history_metadata(
+    object: &mut serde_json::Map<String, serde_json::Value>,
+    session_id: &str,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+) {
+    let request_id = next_worker_request_correlation();
+    let Ok(metadata) = call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("session-history-metadata"),
+            request_id.trace_id("session-history-metadata"),
+            "session.get_metadata",
+            serde_json::json!({ "session_id": session_id }),
+        ),
+        "worker session history metadata",
+    ) else {
+        return;
+    };
+    if let Some(branch) = metadata
+        .get("extra")
+        .and_then(|extra| extra.get("metadata"))
+        .and_then(|metadata| metadata.get("branch"))
+        .cloned()
+    {
+        object.insert("branch".to_string(), branch);
+    }
+}
+
+fn branch_session_key(body: &serde_json::Value, fallback_suffix: &str) -> String {
+    branch_string(body, "sessionKey")
+        .or_else(|| branch_string(body, "session_key"))
+        .unwrap_or_else(|| format!("websocket:branch-{fallback_suffix}"))
+}
+
+fn branch_messages(body: &serde_json::Value) -> Vec<serde_json::Value> {
+    body.get("messages")
+        .and_then(serde_json::Value::as_array)
+        .map(|messages| {
+            messages
+                .iter()
+                .map(|message| {
+                    serde_json::json!({
+                        "message_id": branch_string(message, "messageId")
+                            .or_else(|| branch_string(message, "message_id"))
+                            .unwrap_or_default(),
+                        "role": branch_string(message, "role").unwrap_or_else(|| "assistant".to_string()),
+                        "content": branch_string(message, "content").unwrap_or_default(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn branch_string(value: &serde_json::Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
 }
 
 fn add_session_key_fields(value: &mut serde_json::Value) -> Result<(), String> {
@@ -2603,6 +3044,13 @@ fn worker_webui_rust_route_with_options(
         ))),
         ("GET", "/api/sessions") => Some(worker_sessions_list_with_options(
             shared,
+            workspace_root.clone(),
+            config_snapshot.clone(),
+            timeout,
+        )),
+        ("POST", "/api/sessions/branch") => Some(worker_session_branch_with_options(
+            shared,
+            body,
             workspace_root.clone(),
             config_snapshot.clone(),
             timeout,
@@ -3150,6 +3598,9 @@ fn native_webui_approval_resolution_body(
     continuation["scope"] = serde_json::Value::String(scope.to_string());
     continuation["session_key"] = serde_json::Value::String(session_key.to_string());
     continuation["source"] = serde_json::Value::String("rust".to_string());
+    if let Some(guidance) = approval_guidance_value(body) {
+        continuation["guidance"] = serde_json::Value::String(guidance);
+    }
     continuation["operation"] = approval
         .get("operation")
         .cloned()
@@ -3207,12 +3658,23 @@ fn native_approval_continuation_spec(
         .or_else(|| operation.get("tool_name"))
         .and_then(serde_json::Value::as_str)
         .unwrap_or("approval");
+    let guidance = approval_guidance_value(body);
+    let tool_result = if approved {
+        "approved".to_string()
+    } else if let Some(guidance) = guidance.as_deref() {
+        format!("denied: {guidance}")
+    } else {
+        "denied".to_string()
+    };
     let mut resume = serde_json::json!({
         "approved": approved,
         "toolCallId": approval_id,
         "toolName": tool_name,
-        "toolResult": if approved { "approved" } else { "denied" },
+        "toolResult": tool_result,
     });
+    if let Some(guidance) = guidance {
+        resume["guidance"] = serde_json::Value::String(guidance);
+    }
     if let Some(final_content) = body
         .get("finalContent")
         .or_else(|| body.get("final_content"))
@@ -3233,6 +3695,15 @@ fn native_approval_continuation_spec(
             "fakeApprovalResume": resume,
         },
     })
+}
+
+fn approval_guidance_value(body: &serde_json::Value) -> Option<String> {
+    body.get("guidance")
+        .or_else(|| body.get("user_guidance"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
 }
 
 fn native_webui_approval_not_found_body(
@@ -4243,6 +4714,56 @@ fn worker_background_trace_append_with_options(
     )
 }
 
+fn worker_background_subagent_enqueue_input_with_options(
+    shared: &SharedGateway,
+    input: WorkerBackgroundSubagentInputInput,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let request = build_worker_background_subagent_enqueue_input_request(
+        next_worker_request_correlation(),
+        input,
+    );
+    let manager = {
+        let runtime = lock_runtime(shared);
+        runtime.subagent_manager.clone()
+    };
+    let mut router =
+        experimental_worker_router(workspace_root, config_snapshot).with_subagent_manager(manager);
+    let response = router.dispatch(&request);
+    if let Some(error) = response.error {
+        return Err(format!(
+            "worker background subagent input enqueue returned error: {}",
+            error.message
+        ));
+    }
+    response.result.ok_or_else(|| {
+        "worker background subagent input enqueue response missing result".to_string()
+    })
+}
+
+fn build_worker_background_subagent_enqueue_input_request(
+    request_id: WorkerRequestCorrelation,
+    input: WorkerBackgroundSubagentInputInput,
+) -> WorkerRequest {
+    WorkerRequest::new(
+        request_id.id("background-subagent-enqueue-input"),
+        request_id.trace_id("background-subagent-enqueue-input"),
+        "background.subagent.enqueue_input",
+        serde_json::json!({
+            "sessionKey": input.session_key,
+            "subagentId": input.subagent_id,
+            "content": input.content,
+            "turnId": input.turn_id,
+            "traceRef": input.trace_ref,
+            "childRunId": input.child_run_id,
+            "createdAt": input.created_at,
+            "metadata": input.metadata,
+        }),
+    )
+}
+
 fn dispatch_worker_background_trace_request(
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -4257,6 +4778,29 @@ fn dispatch_worker_background_trace_request(
     response
         .result
         .ok_or_else(|| format!("{context} response missing result"))
+}
+
+fn persist_subagent_manager_event_if_present(
+    event: Option<&BackgroundTraceEvent>,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+) -> Result<(), String> {
+    let Some(event) = event else {
+        return Ok(());
+    };
+    let request_id = next_worker_request_correlation();
+    call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("subagent-manager-trace-append"),
+            request_id.trace_id("subagent-manager-trace-append"),
+            "background.trace.append",
+            serde_json::json!({ "event": event }),
+        ),
+        "subagent manager trace append",
+    )?;
+    Ok(())
 }
 
 fn worker_task_plan_list_with_options(
@@ -4548,6 +5092,7 @@ fn worker_resume_agent_approval_with_options(
     _approval_id: String,
     _approved: bool,
     _scope: Option<String>,
+    _guidance: Option<String>,
     _workspace_root: PathBuf,
     _config_snapshot: serde_json::Value,
     _timeout: Duration,
@@ -4871,6 +5416,7 @@ pub fn run() {
             worker_session_clear_temporary_files,
             worker_session_delete,
             worker_session_patch,
+            worker_session_branch,
             worker_session_clear,
             worker_session_task_progress,
             worker_cowork_route,
@@ -4889,6 +5435,14 @@ pub fn run() {
             worker_background_trace_get_delegate_trace,
             worker_background_trace_get_artifact,
             worker_background_trace_append,
+            worker_background_subagent_enqueue_input,
+            worker_subagent_spawn,
+            worker_subagent_list,
+            worker_subagent_query,
+            worker_subagent_send_input,
+            worker_subagent_wait,
+            worker_subagent_cancel,
+            worker_subagent_close,
             worker_task_plan_list,
             worker_task_plan_get,
             worker_task_plan_save,
@@ -5516,6 +6070,98 @@ mod tests {
         assert_eq!(history["messages"][0]["content"], "persist me");
         assert_eq!(history["messages"][1]["role"], "assistant");
         assert_eq!(history["messages"][1]["content"], "persisted assistant");
+    }
+
+    #[derive(Clone)]
+    struct RecordingNativeAgentProvider {
+        calls: Arc<Mutex<Vec<Vec<serde_json::Value>>>>,
+    }
+
+    impl crate::worker_agent_runtime::NativeAgentProvider for RecordingNativeAgentProvider {
+        fn complete(
+            &self,
+            context: &crate::worker_agent_runtime::NativeAgentRunContext,
+        ) -> Result<crate::worker_agent_runtime::NativeAgentProviderResponse, String> {
+            self.calls
+                .lock()
+                .expect("recording provider calls lock should not be poisoned")
+                .push(context.messages.clone());
+            Ok(crate::worker_agent_runtime::NativeAgentProviderResponse {
+                final_content: "remembered answer".to_string(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: Vec::new(),
+            })
+        }
+    }
+
+    #[test]
+    fn worker_run_agent_hydrates_session_history_before_provider_call() {
+        let fixture = WorkspaceFixture::new();
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let shared = Arc::new(Mutex::new(GatewayRuntime {
+            native_agent_runtime: NativeAgentRuntimeServices::new(
+                Arc::new(RecordingNativeAgentProvider {
+                    calls: calls.clone(),
+                }),
+                Arc::new(crate::worker_agent_runtime::FakeNativeAgentToolDispatcher),
+                Arc::new(
+                    crate::worker_agent_runtime::InMemoryNativeAgentCheckpointStore::default(),
+                ),
+                Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCancellation::default()),
+            ),
+            ..GatewayRuntime::default()
+        }));
+        let config = serde_json::json!({
+            "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+        });
+        call_rust_state_service(
+            fixture.root.clone(),
+            config.clone(),
+            WorkerRequest::new(
+                "req-seed-history",
+                "trace-seed-history",
+                "session.persist_turn",
+                serde_json::json!({
+                    "session_id": "websocket:chat-memory",
+                    "run_id": "run-previous",
+                    "messages": [
+                        { "role": "user", "content": "a" },
+                        { "role": "assistant", "content": "agent replied a" }
+                    ],
+                    "clear_checkpoint": true
+                }),
+            ),
+            "seed session history",
+        )
+        .expect("session history should seed");
+
+        let result = worker_run_agent_with_options(
+            &shared,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-next",
+                "sessionId": "websocket:chat-memory",
+                "input": { "role": "user", "content": "what did I say before?" }
+            }),
+            fixture.root.clone(),
+            config,
+            Duration::from_millis(10),
+        )
+        .expect("Rust runtime should complete with hydrated history");
+        let calls = calls
+            .lock()
+            .expect("recording provider calls lock should not be poisoned");
+        let messages = calls.first().expect("provider should be called once");
+
+        assert_eq!(result["stopReason"], "final_response");
+        assert_eq!(messages.len(), 3);
+        assert_eq!(messages[0]["role"], "user");
+        assert_eq!(messages[0]["content"], "a");
+        assert_eq!(messages[1]["role"], "assistant");
+        assert_eq!(messages[1]["content"], "agent replied a");
+        assert_eq!(messages[2]["role"], "user");
+        assert_eq!(messages[2]["content"], "what did I say before?");
     }
 
     #[test]
@@ -6298,7 +6944,8 @@ mod tests {
                 path: "/api/approvals/approval-deny/deny".to_string(),
                 headers: None,
                 body: Some(serde_json::json!({
-                    "session_key": session_id
+                    "session_key": session_id,
+                    "guidance": "Do not write files; summarize instead."
                 })),
             },
             fixture.root.clone(),
@@ -6324,7 +6971,11 @@ mod tests {
         assert_eq!(approval_resolution["body"]["stopReason"], "approval_denied");
         assert_eq!(
             approval_resolution["body"]["error"],
-            "Rust agent approval was denied."
+            "Rust agent approval was denied. User guidance: Do not write files; summarize instead."
+        );
+        assert_eq!(
+            approval_resolution["body"]["guidance"],
+            "Do not write files; summarize instead."
         );
         assert!(restored_after_resolution["checkpoint"].is_null());
     }
@@ -7103,6 +7754,77 @@ mod tests {
     }
 
     #[test]
+    fn worker_session_branch_creates_new_session_without_runtime_state() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write(
+            "sessions/store.json",
+            &serde_json::json!({
+                "version": 1,
+                "sessions": [{
+                    "session_id": "websocket:chat-1",
+                    "title": "Source session",
+                    "workspace_dir": "D:/Code/py/tinybot",
+                    "created_at": "2026-06-29T08:00:00Z",
+                    "updated_at": "2026-06-29T08:30:00Z",
+                    "extra": {
+                        "messages": [{ "role": "user", "content": "Keep this", "message_id": "m1" }],
+                        "runtime_checkpoint": { "phase": "running" }
+                    }
+                }]
+            })
+            .to_string(),
+        );
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+
+        let branch = worker_session_branch_with_options(
+            &shared,
+            serde_json::json!({
+                "title": "Source session · 分叉",
+                "branchedFromSessionId": "websocket:chat-1",
+                "branchedFromMessageId": "m1",
+                "messages": [
+                    { "messageId": "m1", "role": "user", "content": "Keep this" },
+                    { "messageId": "m2", "role": "assistant", "content": "Use this point" }
+                ],
+                "portableContext": {
+                    "chatId": "chat-1",
+                    "sessionKey": "websocket:chat-1"
+                },
+                "runtimeState": {
+                    "queuedInputs": [{ "id": "queued-1" }],
+                    "pendingApprovals": [{ "id": "approval-1" }]
+                }
+            }),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("branch session should be created by Rust session state");
+        let branch_key = branch["key"].as_str().expect("branch should include key");
+        let history = worker_session_messages_with_options(
+            &shared,
+            branch_key.to_string(),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("branch history should be readable");
+
+        assert!(branch_key.starts_with("websocket:branch-"));
+        assert_eq!(branch["title"], "Source session · 分叉");
+        assert_eq!(history["messages"][0]["content"], "Keep this");
+        assert_eq!(history["messages"][1]["content"], "Use this point");
+        assert_eq!(
+            history["branch"]["branchedFromSessionId"],
+            "websocket:chat-1"
+        );
+        assert_eq!(history["branch"]["branchedFromMessageId"], "m1");
+        assert_eq!(history["branch"]["portableContext"]["chatId"], "chat-1");
+        assert!(history["runtimeState"].is_null());
+        assert!(history["runtime_checkpoint"].is_null());
+    }
+
+    #[test]
     fn worker_cowork_route_serves_rust_sessions_on_rust_backend() {
         let fixture = WorkspaceFixture::new();
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
@@ -7283,6 +8005,29 @@ mod tests {
             Duration::from_millis(10),
         )
         .expect("session route should be Rust-owned");
+        let branch = worker_webui_route_with_options(
+            &shared,
+            WorkerWebuiRouteInput {
+                method: "POST".to_string(),
+                path: "/api/sessions/branch".to_string(),
+                headers: None,
+                body: Some(serde_json::json!({
+                    "title": "Route session · 分叉",
+                    "branchedFromSessionId": "websocket:chat-1",
+                    "branchedFromMessageId": "route-m1",
+                    "messages": [{
+                        "messageId": "route-m1",
+                        "role": "user",
+                        "content": "route"
+                    }],
+                    "portableContext": { "chatId": "chat-1" }
+                })),
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("session branch route should be Rust-owned");
         let workspace_file = worker_webui_route_with_options(
             &shared,
             WorkerWebuiRouteInput {
@@ -7409,6 +8154,8 @@ mod tests {
             .as_str()
             .is_some_and(|token| !token.is_empty()));
         assert_eq!(sessions["body"]["items"][0]["title"], "Route session");
+        assert_eq!(branch["headers"]["x-tinybot-route-owner"], "rust");
+        assert_eq!(branch["body"]["title"], "Route session · 分叉");
         assert_eq!(workspace_file["body"]["content"], "hello route");
         assert_eq!(knowledge["body"]["document"]["name"], "Route Knowledge.md");
         assert_eq!(approvals["headers"]["x-tinybot-route-owner"], "rust");
@@ -7995,6 +8742,83 @@ mod tests {
                     "artifactId": "artifact-1"
                 }
             })
+        );
+    }
+
+    #[test]
+    fn worker_background_subagent_enqueue_input_request_wraps_subagent_payload() {
+        let request = build_worker_background_subagent_enqueue_input_request(
+            test_request_correlation("42"),
+            WorkerBackgroundSubagentInputInput {
+                session_key: "WebSocket:chat-1".to_string(),
+                subagent_id: "delegate-1".to_string(),
+                content: "Use the safer option.".to_string(),
+                turn_id: Some("turn-1".to_string()),
+                trace_ref: Some("trace-1".to_string()),
+                child_run_id: Some("run-1".to_string()),
+                created_at: Some("2026-06-29T02:25:31.000Z".to_string()),
+                metadata: serde_json::json!({ "surface": "rebuilt-chat" }),
+            },
+        );
+
+        assert_eq!(request.id, "background-subagent-enqueue-input-42");
+        assert_eq!(
+            request.trace_id,
+            "trace-background-subagent-enqueue-input-42"
+        );
+        assert_eq!(request.method, "background.subagent.enqueue_input");
+        assert_eq!(
+            request.params,
+            serde_json::json!({
+                "sessionKey": "WebSocket:chat-1",
+                "subagentId": "delegate-1",
+                "content": "Use the safer option.",
+                "turnId": "turn-1",
+                "traceRef": "trace-1",
+                "childRunId": "run-1",
+                "createdAt": "2026-06-29T02:25:31.000Z",
+                "metadata": { "surface": "rebuilt-chat" }
+            })
+        );
+    }
+
+    #[test]
+    fn worker_background_subagent_enqueue_input_writes_rust_registry() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+
+        let result = worker_background_subagent_enqueue_input_with_options(
+            &shared,
+            WorkerBackgroundSubagentInputInput {
+                session_key: "WebSocket:chat-1".to_string(),
+                subagent_id: "delegate-1".to_string(),
+                content: "Use the safer option.".to_string(),
+                turn_id: Some("turn-1".to_string()),
+                trace_ref: Some("trace-1".to_string()),
+                child_run_id: Some("run-1".to_string()),
+                created_at: Some("2026-06-29T02:25:31.000Z".to_string()),
+                metadata: serde_json::json!({ "surface": "rebuilt-chat" }),
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("subagent input enqueue should write the Rust background registry");
+
+        assert_eq!(result["accepted"], true);
+        assert_eq!(result["delivery"], "queued_for_runtime");
+        assert_eq!(
+            result["event"]["eventType"],
+            "agent.delegate.message_queued"
+        );
+        assert_eq!(result["event"]["delegateId"], "delegate-1");
+        assert_eq!(
+            result["event"]["payload"]["content"],
+            "Use the safer option."
+        );
+        assert_eq!(
+            lock_runtime(&shared).experimental_worker.status().state,
+            WorkerManagerState::Stopped
         );
     }
 

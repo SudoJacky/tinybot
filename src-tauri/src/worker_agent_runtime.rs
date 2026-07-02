@@ -1,3 +1,7 @@
+use crate::worker_subagent_manager::{
+    SubagentInputSender, SubagentSendInputParams, SubagentSpawnParams, SubagentTargetParams,
+    SubagentThreadManager, SubagentThreadStatus, SubagentWaitParams,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
@@ -405,6 +409,7 @@ pub struct NativeAgentRuntimeServices {
     tools: Arc<dyn NativeAgentToolDispatcher>,
     checkpoints: Arc<dyn NativeAgentCheckpointStore>,
     cancellations: Arc<dyn NativeAgentCancellation>,
+    subagents: SubagentThreadManager,
 }
 
 impl NativeAgentRuntimeServices {
@@ -419,7 +424,27 @@ impl NativeAgentRuntimeServices {
             tools,
             checkpoints,
             cancellations,
+            subagents: SubagentThreadManager::default(),
         }
+    }
+
+    pub fn with_subagent_manager(subagents: SubagentThreadManager) -> Self {
+        Self::new(
+            Arc::new(RustNativeAgentProvider),
+            Arc::new(SubagentNativeAgentToolDispatcher::new(subagents.clone())),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        )
+        .with_subagents(subagents)
+    }
+
+    fn with_subagents(mut self, subagents: SubagentThreadManager) -> Self {
+        self.subagents = subagents;
+        self
+    }
+
+    pub fn subagent_manager(&self) -> SubagentThreadManager {
+        self.subagents.clone()
     }
 
     pub fn cancel(&self, run_id: &str) -> Value {
@@ -475,12 +500,14 @@ impl NativeAgentRuntimeServices {
 
 impl Default for NativeAgentRuntimeServices {
     fn default() -> Self {
+        let subagents = SubagentThreadManager::default();
         Self::new(
             Arc::new(RustNativeAgentProvider),
-            Arc::new(FakeNativeAgentToolDispatcher),
+            Arc::new(SubagentNativeAgentToolDispatcher::new(subagents.clone())),
             Arc::new(InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(InMemoryNativeAgentCancellation::default()),
         )
+        .with_subagents(subagents)
     }
 }
 
@@ -671,11 +698,200 @@ impl NativeAgentToolDispatcher for FakeNativeAgentToolDispatcher {
     }
 }
 
+pub struct SubagentNativeAgentToolDispatcher {
+    subagents: SubagentThreadManager,
+    fallback: FakeNativeAgentToolDispatcher,
+}
+
+impl SubagentNativeAgentToolDispatcher {
+    pub fn new(subagents: SubagentThreadManager) -> Self {
+        Self {
+            subagents,
+            fallback: FakeNativeAgentToolDispatcher,
+        }
+    }
+}
+
+impl NativeAgentToolDispatcher for SubagentNativeAgentToolDispatcher {
+    fn dispatch(
+        &self,
+        context: &NativeAgentRunContext,
+        tool_call: &NativeAgentToolCall,
+    ) -> Result<NativeAgentToolResult, String> {
+        if !is_subagent_tool(&tool_call.name) {
+            return self.fallback.dispatch(context, tool_call);
+        }
+        if !native_tool_is_permitted(&tool_call.name) {
+            return Err(format!(
+                "native tool `{}` is not permitted by Rust capability policy",
+                tool_call.name
+            ));
+        }
+        let args: Value = serde_json::from_str(&tool_call.arguments_json).map_err(|error| {
+            format!(
+                "native tool `{}` arguments are invalid JSON: {error}",
+                tool_call.name
+            )
+        })?;
+        let raw = match tool_call.name.as_str() {
+            "subagent.spawn" | "spawn_agent" => serde_json::to_value(
+                self.subagents.spawn(SubagentSpawnParams {
+                    session_key: tool_arg_string(&args, "sessionKey")
+                        .or_else(|| tool_arg_string(&args, "session_key"))
+                        .unwrap_or_else(|| context.session_id.clone()),
+                    parent_run_id: Some(context.run_id.clone()),
+                    subagent_id: tool_arg_string(&args, "subagentId")
+                        .or_else(|| tool_arg_string(&args, "subagent_id"))
+                        .or_else(|| tool_arg_string(&args, "agentId"))
+                        .or_else(|| tool_arg_string(&args, "agent_id")),
+                    child_run_id: tool_arg_string(&args, "childRunId")
+                        .or_else(|| tool_arg_string(&args, "child_run_id")),
+                    trace_ref: tool_arg_string(&args, "traceRef")
+                        .or_else(|| tool_arg_string(&args, "trace_ref")),
+                    name: tool_arg_string(&args, "name")
+                        .or_else(|| tool_arg_string(&args, "agentName"))
+                        .or_else(|| tool_arg_string(&args, "agent_name")),
+                    task: tool_arg_string(&args, "task")
+                        .or_else(|| tool_arg_string(&args, "prompt"))
+                        .or_else(|| tool_arg_string(&args, "message")),
+                    status: Some(SubagentThreadStatus::Running),
+                    created_at: None,
+                    metadata: args.clone(),
+                }),
+            ),
+            "subagent.send_input" | "send_input" => serde_json::to_value(
+                self.subagents.enqueue_input(SubagentSendInputParams {
+                    session_key: tool_arg_string(&args, "sessionKey")
+                        .or_else(|| tool_arg_string(&args, "session_key"))
+                        .unwrap_or_else(|| context.session_id.clone()),
+                    subagent_id: tool_arg_string(&args, "subagentId")
+                        .or_else(|| tool_arg_string(&args, "subagent_id"))
+                        .or_else(|| tool_arg_string(&args, "target"))
+                        .unwrap_or_default(),
+                    content: tool_arg_string(&args, "content")
+                        .or_else(|| tool_arg_string(&args, "message"))
+                        .unwrap_or_default(),
+                    sender: SubagentInputSender::MainAgent,
+                    turn_id: Some(context.run_id.clone()),
+                    child_run_id: tool_arg_string(&args, "childRunId")
+                        .or_else(|| tool_arg_string(&args, "child_run_id")),
+                    trace_ref: tool_arg_string(&args, "traceRef")
+                        .or_else(|| tool_arg_string(&args, "trace_ref")),
+                    created_at: None,
+                    metadata: args.clone(),
+                }),
+            ),
+            "subagent.wait" | "wait_agent" => {
+                let ids = args
+                    .get("targets")
+                    .or_else(|| args.get("subagentIds"))
+                    .or_else(|| args.get("subagent_ids"))
+                    .and_then(Value::as_array)
+                    .map(|values| {
+                        values
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_string)
+                            .collect::<Vec<_>>()
+                    })
+                    .or_else(|| tool_arg_string(&args, "target").map(|value| vec![value]))
+                    .unwrap_or_default();
+                serde_json::to_value(
+                    self.subagents.wait(SubagentWaitParams {
+                        session_key: tool_arg_string(&args, "sessionKey")
+                            .or_else(|| tool_arg_string(&args, "session_key"))
+                            .unwrap_or_else(|| context.session_id.clone()),
+                        subagent_ids: ids,
+                        timeout_ms: args
+                            .get("timeoutMs")
+                            .or_else(|| args.get("timeout_ms"))
+                            .and_then(Value::as_u64),
+                    }),
+                )
+            }
+            "subagent.query" => serde_json::to_value(
+                self.subagents.query(SubagentTargetParams {
+                    session_key: tool_arg_string(&args, "sessionKey")
+                        .or_else(|| tool_arg_string(&args, "session_key"))
+                        .unwrap_or_else(|| context.session_id.clone()),
+                    subagent_id: tool_arg_string(&args, "subagentId")
+                        .or_else(|| tool_arg_string(&args, "subagent_id"))
+                        .or_else(|| tool_arg_string(&args, "target"))
+                        .unwrap_or_default(),
+                }),
+            ),
+            "subagent.cancel" => serde_json::to_value(
+                self.subagents.cancel(SubagentTargetParams {
+                    session_key: tool_arg_string(&args, "sessionKey")
+                        .or_else(|| tool_arg_string(&args, "session_key"))
+                        .unwrap_or_else(|| context.session_id.clone()),
+                    subagent_id: tool_arg_string(&args, "subagentId")
+                        .or_else(|| tool_arg_string(&args, "subagent_id"))
+                        .or_else(|| tool_arg_string(&args, "target"))
+                        .unwrap_or_default(),
+                }),
+            ),
+            "subagent.close" | "close_agent" => serde_json::to_value(
+                self.subagents.close(SubagentTargetParams {
+                    session_key: tool_arg_string(&args, "sessionKey")
+                        .or_else(|| tool_arg_string(&args, "session_key"))
+                        .unwrap_or_else(|| context.session_id.clone()),
+                    subagent_id: tool_arg_string(&args, "subagentId")
+                        .or_else(|| tool_arg_string(&args, "subagent_id"))
+                        .or_else(|| tool_arg_string(&args, "target"))
+                        .unwrap_or_default(),
+                }),
+            ),
+            _ => unreachable!("subagent tool dispatch should be exhaustive"),
+        }
+        .map_err(|error| format!("native subagent tool result serialization failed: {error}"))?;
+        Ok(NativeAgentToolResult::generic_success(tool_call, raw))
+    }
+}
+
 fn native_tool_is_permitted(name: &str) -> bool {
     matches!(
         name,
-        "workspace.read_file" | "workspace.list_files" | "knowledge.search" | "mcp.call_tool"
+        "workspace.read_file"
+            | "workspace.list_files"
+            | "knowledge.search"
+            | "mcp.call_tool"
+            | "subagent.spawn"
+            | "subagent.send_input"
+            | "subagent.wait"
+            | "subagent.query"
+            | "subagent.cancel"
+            | "subagent.close"
+            | "spawn_agent"
+            | "send_input"
+            | "wait_agent"
+            | "close_agent"
     )
+}
+
+fn is_subagent_tool(name: &str) -> bool {
+    matches!(
+        name,
+        "subagent.spawn"
+            | "subagent.send_input"
+            | "subagent.wait"
+            | "subagent.query"
+            | "subagent.cancel"
+            | "subagent.close"
+            | "spawn_agent"
+            | "send_input"
+            | "wait_agent"
+            | "close_agent"
+    )
+}
+
+fn tool_arg_string(value: &Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 fn agent_chat_completion_request(context: &NativeAgentRunContext) -> Result<Value, String> {
@@ -1655,11 +1871,14 @@ fn maybe_approval_resume_result(
         services
             .checkpoints
             .clear_for_run(&context.session_id, &context.run_id);
+        let message = string_field(&approval, "guidance")
+            .map(|guidance| format!("Rust agent approval was denied. User guidance: {guidance}"))
+            .unwrap_or_else(|| "Rust agent approval was denied.".to_string());
         return Some(error_result(
             &context.run_id,
             &context.session_id,
             "approval_denied",
-            "Rust agent approval was denied.",
+            &message,
         ));
     }
     services
@@ -2393,6 +2612,97 @@ mod tests {
         assert_eq!(
             payload["envelope"]["trace"]["toolName"],
             "workspace.read_file"
+        );
+    }
+
+    #[test]
+    fn subagent_tools_share_manager_state_without_copying_child_transcript_to_parent() {
+        let services = NativeAgentRuntimeServices::default();
+        let result = run_native_agent_turn_with_config(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-subagent-tools",
+                "sessionId": "websocket:chat-subagent-tools",
+                "maxIterations": 5,
+                "messages": [{ "role": "user", "content": "delegate then close" }]
+            }),
+            json!({
+                "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+                "providers": {
+                    "fixture": {
+                        "responses": [
+                            {
+                                "content": "",
+                                "toolCalls": [{
+                                    "id": "call-spawn",
+                                    "name": "subagent.spawn",
+                                    "argumentsJson": "{\"subagentId\":\"delegate-1\",\"childRunId\":\"child-1\",\"traceRef\":\"trace-delegate-1\",\"name\":\"Goodall\",\"task\":\"Inspect a bounded topic\"}"
+                                }]
+                            },
+                            {
+                                "content": "",
+                                "toolCalls": [{
+                                    "id": "call-send",
+                                    "name": "subagent.send_input",
+                                    "argumentsJson": "{\"subagentId\":\"delegate-1\",\"content\":\"Please continue\"}"
+                                }]
+                            },
+                            {
+                                "content": "",
+                                "toolCalls": [{
+                                    "id": "call-wait",
+                                    "name": "subagent.wait",
+                                    "argumentsJson": "{\"subagentIds\":[\"delegate-1\"],\"timeoutMs\":1}"
+                                }]
+                            },
+                            {
+                                "content": "",
+                                "toolCalls": [{
+                                    "id": "call-close",
+                                    "name": "subagent.close",
+                                    "argumentsJson": "{\"subagentId\":\"delegate-1\"}"
+                                }]
+                            },
+                            { "content": "Subagent lifecycle handled." }
+                        ]
+                    }
+                }
+            }),
+        )
+        .expect("subagent tool run should succeed");
+
+        assert_eq!(result["stopReason"], "final_response");
+        assert_eq!(
+            result["toolsUsed"],
+            json!([
+                "subagent.spawn",
+                "subagent.send_input",
+                "subagent.wait",
+                "subagent.close"
+            ])
+        );
+        let completed = result["completedToolResults"]
+            .as_array()
+            .expect("completed tool results should be present");
+        assert_eq!(completed.len(), 4);
+        assert_eq!(completed[0]["envelope"]["raw"]["accepted"], true);
+        assert_eq!(
+            completed[1]["envelope"]["raw"]["delivery"],
+            "live_delivered"
+        );
+        assert_eq!(
+            completed[1]["envelope"]["raw"]["subagent"]["mailboxDepth"],
+            1
+        );
+        assert_eq!(completed[2]["envelope"]["raw"]["timedOut"], true);
+        assert_eq!(
+            completed[3]["envelope"]["raw"]["subagent"]["status"],
+            "closed"
+        );
+        assert_eq!(
+            result["messages"],
+            json!([{ "role": "assistant", "content": "Subagent lifecycle handled." }])
         );
     }
 

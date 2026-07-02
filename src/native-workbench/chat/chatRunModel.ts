@@ -618,6 +618,7 @@ function stepToToolActivities(step: ChatStep): ConversationMessageIslandOptions[
       approvalId: step.delegate.approvalId,
       approvalStatus: step.delegate.approvalStatus ?? "",
       argsText: delegatedActivityArgsText(step.delegate),
+      childRunId: step.delegate.childRunId,
       delegatedTrace: step.delegate.trace as Record<string, unknown> | undefined,
       delegateId: step.delegate.id,
       delegateTask: step.delegate.task,

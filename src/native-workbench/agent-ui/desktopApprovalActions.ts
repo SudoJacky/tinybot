@@ -9,6 +9,7 @@ export type SubmitDesktopApprovalActionOptions = {
   action: DesktopApprovalAction;
   approvalId: string;
   gatewayTools: DesktopApprovalGatewayTools;
+  guidance?: string;
   invoke?: (command: string, args?: DesktopApprovalResumeArgs) => Promise<unknown> | unknown;
   onGatewayFallback?: (context: DesktopApprovalActionContext) => void;
   onNativeResumeAttempt?: (context: DesktopApprovalActionContext) => void;
@@ -43,6 +44,7 @@ type DesktopApprovalResumeArgs = {
     approved: boolean;
     scope: "once" | "session";
     sessionId: string;
+    guidance?: string;
   };
 };
 
@@ -93,12 +95,14 @@ export async function submitDesktopApprovalAction(options: SubmitDesktopApproval
   if (options.preferNativeWorkerResume && options.invoke) {
     try {
       options.onNativeResumeAttempt?.(context);
+      const guidance = guidanceValue(options.guidance);
       const result = await options.invoke("worker_resume_agent_approval", {
         input: {
           sessionId: compatibleSessionKey,
           approvalId: options.approvalId,
           approved,
           scope,
+          ...(guidance ? { guidance } : {}),
         },
       });
       options.onNativeResumeSucceeded?.(context, result);
@@ -114,9 +118,11 @@ export async function submitDesktopApprovalAction(options: SubmitDesktopApproval
     : { ...context, sessionKey: gatewaySessionKey };
   options.onGatewayFallback?.(gatewayContext);
   if (!approved) {
+    const guidance = guidanceValue(options.guidance);
     await options.gatewayTools.denyApproval(options.approvalId, {
       session_key: gatewaySessionKey,
       auto_retry: true,
+      ...(guidance ? { guidance } : {}),
     });
     return undefined;
   }
@@ -160,4 +166,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value : "";
+}
+
+function guidanceValue(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
 }

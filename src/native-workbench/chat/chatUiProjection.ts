@@ -43,10 +43,15 @@ export const CHAT_RUNTIME_CAPABILITY_AUDIT = {
     source: "worker_background_trace_get_delegate_trace",
     notes: "Delegate trace can be queried, but a first-class full subagent transcript facade is not present in the current contract.",
   },
+  subagentDirectInput: {
+    status: "available",
+    source: "worker_subagent_send_input / worker_background_subagent_enqueue_input",
+    notes: "Rust subagent thread manager accepts live direct input for active child threads and falls back to trace-only queued input when no live child is present.",
+  },
   branchSession: {
-    status: "missing",
-    source: "none",
-    notes: "No dedicated branch-session command was found; implementation needs a new facade or adapter path.",
+    status: "available",
+    source: "worker_session_branch / /api/sessions/branch",
+    notes: "Rust-owned branch session route creates history-only branches without copying runtime state.",
   },
   legacyConversationThread: {
     status: "frozen",
@@ -89,6 +94,7 @@ export type SessionSummary = {
   title: string;
   createdAt: string;
   updatedAt: string;
+  pinned?: boolean;
   primaryBadge: SessionPrimaryBadge;
   isActive: boolean;
 };
@@ -175,6 +181,8 @@ export type SubagentTranscript = {
 export type LiveSubagent = {
   id: string;
   sessionKey: string;
+  traceRef?: string;
+  childRunId?: string;
   name: string;
   task: string;
   status: SubagentStatus;
@@ -259,6 +267,7 @@ export function projectNativeChatState(
   const approvals = approvalRequestsFromMessages(activeSessionKey, messages);
   const liveSubagents = liveSubagentsFromMessages(activeSessionKey, messages);
   const queuedInputs = options.queuedInputsBySession?.get(activeSessionKey) ?? [];
+  const artifacts = artifactDetailsFromMessages(messages);
   return {
     sessions: state.sessions.map((session) => ({
       key: session.key,
@@ -266,6 +275,7 @@ export function projectNativeChatState(
       title: session.title,
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
+      ...(session.pinned ? { pinned: true } : {}),
       primaryBadge: primaryBadgeForSession(session.key, state, approvals),
       isActive: session.key === activeSessionKey,
     })),
@@ -274,6 +284,7 @@ export function projectNativeChatState(
     approvals,
     liveSubagents,
     queuedInputs,
+    ...(artifacts.length ? { artifacts } : {}),
     detailPanel: options.detailPanel ?? createEmptyChatDetailPanelState(),
     branchSource: {
       canBranchSession: true,
@@ -372,6 +383,8 @@ function liveSubagentsFromMessages(sessionKey: string, messages: NativeChatMessa
       subagents.set(activity.delegateId, {
         id: activity.delegateId,
         sessionKey,
+        ...(activity.traceRef ? { traceRef: activity.traceRef } : {}),
+        ...(activity.childRunId ? { childRunId: activity.childRunId } : {}),
         name: activity.delegateTitle || activity.delegateId,
         task: activity.delegateTask || "",
         status,
@@ -393,6 +406,25 @@ function liveSubagentsFromMessages(sessionKey: string, messages: NativeChatMessa
     }
   }
   return [...subagents.values()];
+}
+
+function artifactDetailsFromMessages(messages: NativeChatMessage[]): ArtifactDetail[] {
+  return messages.flatMap((message) =>
+    (message.toolActivities ?? [])
+      .filter((activity) => activity.name.startsWith("Artifact:"))
+      .map((activity) => ({
+        id: activity.id,
+        kind: "artifact",
+        title: activity.name.replace(/^Artifact:\s*/, "") || activity.name,
+        preview: activity.responseText,
+        metadataSummary: [
+          activity.status ? `Status: ${activity.status}` : "",
+          message.messageId ? `Turn: ${message.messageId}` : "",
+        ].filter(Boolean).join(" / "),
+        sourceTurnId: message.messageId,
+        sourceToolId: activity.id,
+      })),
+  );
 }
 
 function hasPendingApproval(messages: NativeChatMessage[]): boolean {

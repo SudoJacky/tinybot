@@ -1,10 +1,19 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { mountChatSurface } from "./chatSurface";
 import type { ChatUiProjection } from "../../chat/chatUiProjection";
 
 describe("rebuilt chat surface", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T10:10:00Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   test("renders projection-driven two-column shell without legacy thread ownership", () => {
     const host = document.createElement("section");
 
@@ -30,8 +39,35 @@ describe("rebuilt chat surface", () => {
     expect(host.textContent).toBe("");
   });
 
+  test("marks pinned sessions in the rebuilt session list", () => {
+    const host = document.createElement("section");
+    const projection = fixtureProjection();
+    projection.sessions[0].pinned = true;
+
+    mountChatSurface(host, { projection });
+
+    const row = host.querySelector("[data-session-key='websocket:chat-1']");
+    expect(row?.getAttribute("data-pinned")).toBe("true");
+    expect(row?.querySelector("[data-session-pinned]")?.textContent).toBe("Pinned");
+  });
+
+  test("shows updated time as the fallback session badge", () => {
+    const host = document.createElement("section");
+    const projection = fixtureProjection();
+    projection.sessions[0].primaryBadge = "updated_time";
+    projection.sessions[0].updatedAt = "2026-07-01T10:05:00Z";
+
+    mountChatSurface(host, { projection });
+
+    expect(host.querySelector("[data-session-primary-badge='updated_time']")?.textContent).toBe("5 min");
+  });
+
   test("renders tool detail in a right overlay drawer from projection state", () => {
     const host = document.createElement("section");
+    const copies: unknown[] = [];
+    host.addEventListener("desktop-chat-detail-copy", (event) => {
+      copies.push((event as CustomEvent).detail);
+    });
     const projection = fixtureProjection();
     projection.detailPanel = {
       kind: "tool",
@@ -51,10 +87,87 @@ describe("rebuilt chat surface", () => {
     expect(drawer?.querySelector("[data-tool-detail-section='full-result']")?.getAttribute("open")).toBeNull();
     expect(drawer?.querySelector("[data-tool-detail-copy='full-args']")).not.toBeNull();
     expect(drawer?.querySelector("[data-tool-detail-copy='full-result']")).not.toBeNull();
+
+    drawer?.querySelector<HTMLButtonElement>("[data-tool-detail-copy='full-args']")?.click();
+
+    expect(copies).toEqual([{
+      content: "{\"path\":\"README.md\"}",
+      source: "tool:full-args",
+    }]);
+  });
+
+  test("opens and closes tool detail from a tool row click", () => {
+    const host = document.createElement("section");
+    const logEvents: unknown[] = [];
+    host.addEventListener("desktop-chat-surface-log", (event) => {
+      logEvents.push((event as CustomEvent).detail);
+    });
+
+    mountChatSurface(host, { projection: fixtureProjection() });
+
+    expect(host.querySelector("[data-chat-region='detail-surface']")).toBeNull();
+
+    host.querySelector<HTMLButtonElement>("[data-tool-call-id='tool-1']")?.click();
+
+    const detail = host.querySelector("[data-chat-region='detail-surface']");
+    expect(detail?.getAttribute("data-detail-kind")).toBe("tool");
+    expect(detail?.textContent).toContain("workspace.read_file");
+
+    host.querySelector<HTMLButtonElement>("[data-detail-action='close']")?.click();
+
+    expect(host.querySelector("[data-chat-region='detail-surface']")).toBeNull();
+    expect(logEvents).toEqual([
+      {
+        action: "detail.open",
+        panel: {
+          kind: "tool",
+          open: true,
+          presentation: "drawer",
+          targetId: "tool-1",
+        },
+      },
+      {
+        action: "detail.close",
+        panel: {
+          kind: "none",
+          open: false,
+          presentation: "drawer",
+        },
+      },
+    ]);
+  });
+
+  test("collapses completed process tools until the summary is expanded", () => {
+    const host = document.createElement("section");
+    const projection = fixtureProjection();
+    const assistant = projection.turns.find((turn) => turn.id === "m-assistant");
+    if (assistant?.process) {
+      assistant.process.state = "completed";
+    }
+
+    mountChatSurface(host, { projection });
+
+    const process = host.querySelector<HTMLButtonElement>("[data-chat-region='agent-process-summary']");
+    expect(process?.getAttribute("data-agent-process-expanded")).toBe("false");
+    expect(host.querySelector("[data-tool-call-id='tool-1']")).toBeNull();
+
+    process?.click();
+
+    expect(host.querySelector("[data-chat-region='agent-process-summary']")?.getAttribute("data-agent-process-expanded")).toBe("true");
+    expect(host.querySelector("[data-tool-call-id='tool-1']")).not.toBeNull();
+
+    host.querySelector<HTMLButtonElement>("[data-chat-region='agent-process-summary']")?.click();
+
+    expect(host.querySelector("[data-chat-region='agent-process-summary']")?.getAttribute("data-agent-process-expanded")).toBe("false");
+    expect(host.querySelector("[data-tool-call-id='tool-1']")).toBeNull();
   });
 
   test("renders fullscreen artifact and error detail from shared detail model", () => {
     const artifactHost = document.createElement("section");
+    const artifactCopies: unknown[] = [];
+    artifactHost.addEventListener("desktop-chat-detail-copy", (event) => {
+      artifactCopies.push((event as CustomEvent).detail);
+    });
     const artifactProjection = fixtureProjection();
     artifactProjection.detailPanel = {
       kind: "artifact",
@@ -80,8 +193,17 @@ describe("rebuilt chat surface", () => {
     expect(artifactDetail?.textContent).toContain("Report preview");
     expect(artifactDetail?.querySelector("[data-detail-action='close']")).not.toBeNull();
     expect(artifactDetail?.querySelector("[data-artifact-action='future-management']")).not.toBeNull();
+    artifactDetail?.querySelector<HTMLButtonElement>("[data-artifact-action='copy']")?.click();
+    expect(artifactCopies).toEqual([{
+      content: "Report preview",
+      source: "artifact:artifact-1",
+    }]);
 
     const errorHost = document.createElement("section");
+    const errorCopies: unknown[] = [];
+    errorHost.addEventListener("desktop-chat-detail-copy", (event) => {
+      errorCopies.push((event as CustomEvent).detail);
+    });
     const errorProjection = fixtureProjection();
     errorProjection.detailPanel = {
       kind: "error",
@@ -103,6 +225,51 @@ describe("rebuilt chat surface", () => {
     expect(errorDetail?.textContent).toContain("Command failed");
     expect(errorDetail?.querySelector("[data-error-detail-section='raw']")?.getAttribute("open")).toBeNull();
     expect(errorDetail?.querySelector("[data-error-detail-copy='raw']")).not.toBeNull();
+    errorDetail?.querySelector<HTMLButtonElement>("[data-error-detail-copy='raw']")?.click();
+    expect(errorCopies).toEqual([{
+      content: "stack trace",
+      source: "error:error-1:raw",
+    }]);
+  });
+
+  test("opens artifact detail from an artifact tool row", () => {
+    const host = document.createElement("section");
+    const projection = fixtureProjection();
+    projection.turns[1].tools = [{
+      id: "artifact-1",
+      name: "Artifact: Release draft",
+      status: "completed",
+      preview: "Release draft preview",
+      argsPreview: "",
+      resultPreview: "Release draft preview",
+      detail: {
+        argsText: "",
+        responseText: "Release draft preview",
+        stdout: "",
+        stderr: "",
+      },
+      kind: "result",
+    }];
+    projection.artifacts = [{
+      id: "artifact-1",
+      kind: "artifact",
+      title: "Release draft",
+      preview: "Release draft preview",
+      metadataSummary: "Status: completed",
+      sourceTurnId: "m-assistant",
+      sourceToolId: "artifact-1",
+    }];
+
+    mountChatSurface(host, { projection });
+
+    const row = host.querySelector<HTMLButtonElement>("[data-tool-call-id='artifact-1']");
+    expect(row?.getAttribute("data-tool-detail-kind")).toBe("artifact");
+    row?.click();
+
+    const detail = host.querySelector("[data-chat-region='detail-surface']");
+    expect(detail?.getAttribute("data-detail-kind")).toBe("artifact");
+    expect(detail?.textContent).toContain("Release draft");
+    expect(detail?.textContent).toContain("Release draft preview");
   });
 
   test("renders live subagent strip and partial transcript as read-only detail", () => {
@@ -157,6 +324,105 @@ describe("rebuilt chat surface", () => {
     expect(detail?.querySelector("[data-subagent-action='forward']")).not.toBeNull();
   });
 
+  test("opens subagent detail from the active goals strip", () => {
+    const host = document.createElement("section");
+    const projection = fixtureProjection();
+    projection.liveSubagents = [{
+      id: "delegate-click",
+      sessionKey: "websocket:chat-1",
+      name: "Researcher",
+      task: "Check docs",
+      status: "waiting_main_agent",
+      latestActivity: "Waiting for main agent",
+      capabilities: ["partial_transcript", "can_forward"],
+      transcript: {
+        id: "delegate-click",
+        sessionKey: "websocket:chat-1",
+        capability: "partial_transcript",
+        messages: [{ id: "sub-msg-click", role: "assistant", content: "Partial answer." }],
+        toolSummaries: [],
+      },
+    }];
+
+    mountChatSurface(host, { projection });
+
+    host.querySelector<HTMLButtonElement>("[data-subagent-id='delegate-click']")?.click();
+
+    const detail = host.querySelector("[data-chat-region='detail-surface']");
+    expect(detail?.getAttribute("data-detail-kind")).toBe("subagent");
+    expect(detail?.textContent).toContain("Researcher");
+    expect(detail?.textContent).toContain("Partial answer.");
+  });
+
+  test("loads delegate trace when opening a partial subagent detail", async () => {
+    const host = document.createElement("section");
+    const logs: unknown[] = [];
+    host.addEventListener("desktop-chat-surface-log", (event) => {
+      logs.push((event as CustomEvent).detail);
+    });
+    const projection = fixtureProjection();
+    projection.liveSubagents = [{
+      id: "delegate-load",
+      sessionKey: "websocket:chat-1",
+      name: "Researcher",
+      task: "Check docs",
+      status: "running",
+      latestActivity: "Partial activity",
+      capabilities: ["partial_transcript", "can_forward"],
+      transcript: {
+        id: "delegate-load",
+        sessionKey: "websocket:chat-1",
+        capability: "partial_transcript",
+        messages: [{ id: "sub-msg-load", role: "assistant", content: "Partial answer." }],
+        toolSummaries: [],
+      },
+    }];
+    const loadSubagentTranscript = vi.fn(async () => ({
+      trace: {
+        finalOutput: "Loaded final answer.",
+        events: [{
+          eventId: "event-loaded",
+          eventType: "agent.delegate.completed",
+          createdAt: "2026-07-01T10:05:00Z",
+          payload: { finalOutput: "Loaded final answer." },
+        }],
+      },
+    }));
+
+    mountChatSurface(host, { projection, loadSubagentTranscript });
+
+    host.querySelector<HTMLButtonElement>("[data-subagent-id='delegate-load']")?.click();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(loadSubagentTranscript).toHaveBeenCalledWith({
+      activityId: "delegate-load",
+      sessionKey: "websocket:chat-1",
+      delegateId: "delegate-load",
+    });
+    const detail = host.querySelector("[data-chat-region='detail-surface']");
+    expect(detail?.textContent).toContain("Loaded final answer.");
+    expect(detail?.textContent).not.toContain("partial transcript");
+    expect(logs).toEqual(expect.arrayContaining([
+      {
+        action: "subagent.trace.load.start",
+        payload: {
+          sessionKey: "websocket:chat-1",
+          subagentId: "delegate-load",
+        },
+      },
+      {
+        action: "subagent.trace.load.complete",
+        payload: {
+          messageCount: 1,
+          sessionKey: "websocket:chat-1",
+          subagentId: "delegate-load",
+          toolCount: 1,
+        },
+      },
+    ]));
+  });
+
   test("enables subagent input only for full sendable transcript", () => {
     const host = document.createElement("section");
     const projection = fixtureProjection();
@@ -191,6 +457,162 @@ describe("rebuilt chat surface", () => {
 
     expect(host.querySelector("[data-subagent-input='message']")).not.toBeNull();
     expect(host.querySelector("[data-chat-region='detail-surface']")?.textContent).toContain("Messages are sent only to this subagent");
+  });
+
+  test("forwards selected subagent messages into the main composer draft", () => {
+    const host = document.createElement("section");
+    const projection = fixtureProjection();
+    projection.liveSubagents = [{
+      id: "delegate-forward",
+      sessionKey: "websocket:chat-1",
+      name: "Researcher",
+      task: "Review implementation",
+      status: "waiting_user",
+      latestActivity: "Needs product choice",
+      capabilities: ["full_transcript", "can_send_message", "can_forward"],
+      transcript: {
+        id: "delegate-forward",
+        sessionKey: "websocket:chat-1",
+        capability: "full_transcript",
+        messages: [
+          { id: "sub-msg-user", role: "user", content: "Prefer lower risk." },
+          { id: "sub-msg-assistant", role: "assistant", content: "Use read-only analysis." },
+        ],
+        toolSummaries: [],
+      },
+    }];
+    projection.detailPanel = {
+      kind: "subagent",
+      open: true,
+      presentation: "drawer",
+      targetId: "delegate-forward",
+    };
+
+    mountChatSurface(host, { projection });
+
+    const composerInput = host.querySelector<HTMLTextAreaElement>("[data-chat-composer-input]");
+    composerInput!.value = "Continue from this context.";
+    composerInput!.dispatchEvent(new Event("input", { bubbles: true }));
+    host.querySelector<HTMLInputElement>("[data-subagent-message-select='sub-msg-assistant']")!.checked = true;
+    host.querySelector<HTMLButtonElement>("[data-subagent-action='forward']")?.click();
+
+    const draft = host.querySelector<HTMLTextAreaElement>("[data-chat-composer-input]")?.value ?? "";
+    expect(draft).toContain("Continue from this context.");
+    expect(draft).toContain("Forwarded from subagent: Researcher");
+    expect(draft).toContain("assistant: Use read-only analysis.");
+    expect(draft).not.toContain("Prefer lower risk.");
+  });
+
+  test("preserves subagent message drafts by subagent panel", () => {
+    const host = document.createElement("section");
+    const projection = fixtureProjection();
+    projection.liveSubagents = [
+      {
+        id: "delegate-a",
+        sessionKey: "websocket:chat-1",
+        name: "Researcher A",
+        task: "Review A",
+        status: "waiting_user",
+        latestActivity: "Needs product choice",
+        capabilities: ["full_transcript", "can_send_message"],
+        transcript: {
+          id: "delegate-a",
+          sessionKey: "websocket:chat-1",
+          capability: "full_transcript",
+          messages: [],
+          toolSummaries: [],
+        },
+      },
+      {
+        id: "delegate-b",
+        sessionKey: "websocket:chat-1",
+        name: "Researcher B",
+        task: "Review B",
+        status: "waiting_user",
+        latestActivity: "Needs product choice",
+        capabilities: ["full_transcript", "can_send_message"],
+        transcript: {
+          id: "delegate-b",
+          sessionKey: "websocket:chat-1",
+          capability: "full_transcript",
+          messages: [],
+          toolSummaries: [],
+        },
+      },
+    ];
+    projection.detailPanel = {
+      kind: "subagent",
+      open: true,
+      presentation: "drawer",
+      targetId: "delegate-a",
+    };
+    const mounted = mountChatSurface(host, { projection });
+
+    const firstInput = host.querySelector<HTMLTextAreaElement>("[data-subagent-input='message']");
+    firstInput!.value = "Draft for A";
+    firstInput!.dispatchEvent(new Event("input", { bubbles: true }));
+
+    mounted.update({
+      projection: {
+        ...projection,
+        detailPanel: { ...projection.detailPanel, targetId: "delegate-b" },
+      },
+    });
+    expect(host.querySelector<HTMLTextAreaElement>("[data-subagent-input='message']")?.value).toBe("");
+
+    mounted.update({ projection });
+    expect(host.querySelector<HTMLTextAreaElement>("[data-subagent-input='message']")?.value).toBe("Draft for A");
+  });
+
+  test("submits direct messages only to sendable subagents", () => {
+    const host = document.createElement("section");
+    const submissions: unknown[] = [];
+    host.addEventListener("desktop-chat-subagent-message-submit", (event) => {
+      submissions.push((event as CustomEvent).detail);
+    });
+    const projection = fixtureProjection();
+    projection.liveSubagents = [{
+      id: "delegate-send",
+      sessionKey: "websocket:chat-1",
+      traceRef: "trace-send",
+      childRunId: "child-send",
+      name: "Reviewer",
+      task: "Review implementation",
+      status: "waiting_user",
+      latestActivity: "Needs product choice",
+      capabilities: ["full_transcript", "can_send_message"],
+      transcript: {
+        id: "delegate-send",
+        sessionKey: "websocket:chat-1",
+        capability: "full_transcript",
+        messages: [],
+        toolSummaries: [],
+      },
+    }];
+    projection.detailPanel = {
+      kind: "subagent",
+      open: true,
+      presentation: "drawer",
+      targetId: "delegate-send",
+    };
+
+    mountChatSurface(host, { projection });
+
+    const input = host.querySelector<HTMLTextAreaElement>("[data-subagent-input='message']");
+    input!.value = "Use the safer option.";
+    input!.dispatchEvent(new Event("input", { bubbles: true }));
+    host.querySelector<HTMLButtonElement>("[data-subagent-action='send-message']")?.click();
+
+    expect(submissions).toEqual([{
+      childRunId: "child-send",
+      content: "Use the safer option.",
+      sessionKey: "websocket:chat-1",
+      subagentId: "delegate-send",
+      traceRef: "trace-send",
+    }]);
+    expect(host.querySelector<HTMLTextAreaElement>("[data-subagent-input='message']")?.value).toBe("");
+    expect(host.querySelector("[data-chat-region='detail-surface']")?.textContent).toContain("Use the safer option.");
+    expect(host.querySelector("[data-subagent-status]")?.getAttribute("data-subagent-status")).toBe("user_intervened_unsynced");
   });
 
   test("requires first-send confirmation for waiting-main-agent subagent messages", () => {
@@ -320,6 +742,302 @@ describe("rebuilt chat surface", () => {
     expect(queue?.textContent).toContain("Summarize after this.");
     expect(queue?.querySelector("[data-queued-input-action='delete']")).not.toBeNull();
     expect(queue?.querySelector("[data-queued-input-action='guide']")).toBeNull();
+  });
+
+  test("dispatches a branch session draft from a selected turn", () => {
+    const host = document.createElement("section");
+    const branchRequests: unknown[] = [];
+    host.addEventListener("desktop-chat-branch-session-request", (event) => {
+      branchRequests.push((event as CustomEvent).detail);
+    });
+
+    mountChatSurface(host, { projection: fixtureProjection() });
+
+    host.querySelector<HTMLButtonElement>("[data-chat-turn-id='m-assistant'] [data-turn-action='branch']")?.click();
+
+    expect(branchRequests).toEqual([{
+      title: "Investigate IAM certificate · 分叉",
+      branchedFromSessionId: "websocket:chat-1",
+      branchedFromMessageId: "m-assistant",
+      messages: [
+        { messageId: "m-user", role: "user", content: "Check the cert setup." },
+        { messageId: "m-assistant", role: "assistant", content: "I found the relevant file." },
+      ],
+      portableContext: {
+        chatId: "chat-1",
+        sessionKey: "websocket:chat-1",
+      },
+      runtimeState: {},
+    }]);
+  });
+
+  test("supports session list search, new chat, and opening a session", () => {
+    const host = document.createElement("section");
+    const newEvents: unknown[] = [];
+    const openEvents: unknown[] = [];
+    host.addEventListener("desktop-chat-session-new", (event) => {
+      newEvents.push((event as CustomEvent).detail);
+    });
+    host.addEventListener("desktop-chat-session-open", (event) => {
+      openEvents.push((event as CustomEvent).detail);
+    });
+    const projection = fixtureProjection();
+    projection.sessions.push({
+      key: "websocket:chat-2",
+      chatId: "chat-2",
+      title: "CloudFront certificate",
+      createdAt: "2026-07-01T09:00:00Z",
+      updatedAt: "2026-07-01T09:05:00Z",
+      primaryBadge: "updated_time",
+      isActive: false,
+    });
+
+    mountChatSurface(host, { projection });
+
+    expect(host.querySelectorAll("[data-session-key]")).toHaveLength(2);
+    host.querySelector<HTMLButtonElement>("[data-session-action='new']")?.click();
+    expect(newEvents).toEqual([{}]);
+
+    const search = host.querySelector<HTMLInputElement>("[data-session-search]");
+    search!.value = "cloud";
+    search!.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(Array.from(host.querySelectorAll("[data-session-key]")).map((row) => row.getAttribute("data-session-key"))).toEqual([
+      "websocket:chat-2",
+    ]);
+
+    host.querySelector<HTMLButtonElement>("[data-session-key='websocket:chat-2']")?.click();
+    expect(openEvents).toEqual([{
+      chatId: "chat-2",
+      sessionKey: "websocket:chat-2",
+    }]);
+
+    search!.value = "missing";
+    search!.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(host.querySelector("[data-session-empty]")?.textContent).toBe("No matching sessions");
+  });
+
+  test("dispatches header session actions with copy payloads", () => {
+    const host = document.createElement("section");
+    const actions: unknown[] = [];
+    host.addEventListener("desktop-chat-session-action", (event) => {
+      actions.push((event as CustomEvent).detail);
+    });
+
+    mountChatSurface(host, { projection: fixtureProjection() });
+
+    host.querySelector<HTMLButtonElement>("[data-chat-header-action='pin']")?.click();
+    host.querySelector<HTMLButtonElement>("[data-chat-header-action='copy-session-id']")?.click();
+    host.querySelector<HTMLButtonElement>("[data-chat-header-action='copy-markdown']")?.click();
+
+    expect(actions).toEqual([
+      {
+        action: "pin",
+        chatId: "chat-1",
+        sessionKey: "websocket:chat-1",
+        title: "Investigate IAM certificate",
+      },
+      {
+        action: "copy-session-id",
+        chatId: "chat-1",
+        copyText: "websocket:chat-1",
+        sessionKey: "websocket:chat-1",
+        title: "Investigate IAM certificate",
+      },
+      {
+        action: "copy-markdown",
+        chatId: "chat-1",
+        copyText: "User:\nCheck the cert setup.\n\nAssistant:\nI found the relevant file.",
+        sessionKey: "websocket:chat-1",
+        title: "Investigate IAM certificate",
+      },
+    ]);
+  });
+
+  test("dispatches unpin when the active session is pinned", () => {
+    const host = document.createElement("section");
+    const actions: unknown[] = [];
+    host.addEventListener("desktop-chat-session-action", (event) => {
+      actions.push((event as CustomEvent).detail);
+    });
+    const projection = fixtureProjection();
+    projection.sessions[0].pinned = true;
+
+    mountChatSurface(host, { projection });
+
+    const pinButton = host.querySelector<HTMLButtonElement>("[data-chat-header-action='unpin']");
+    expect(pinButton?.textContent).toBe("Unpin");
+    pinButton?.click();
+
+    expect(actions).toEqual([{
+      action: "unpin",
+      chatId: "chat-1",
+      sessionKey: "websocket:chat-1",
+      title: "Investigate IAM certificate",
+    }]);
+  });
+
+  test("dispatches message copy actions from turn rows", () => {
+    const host = document.createElement("section");
+    const copies: unknown[] = [];
+    host.addEventListener("desktop-chat-message-copy", (event) => {
+      copies.push((event as CustomEvent).detail);
+    });
+
+    mountChatSurface(host, { projection: fixtureProjection() });
+
+    host.querySelector<HTMLButtonElement>("[data-chat-turn-id='m-assistant'] [data-turn-action='copy']")?.click();
+
+    expect(copies).toEqual([{
+      content: "I found the relevant file.",
+      messageId: "m-assistant",
+      role: "assistant",
+    }]);
+  });
+
+  test("submits normal composer text as a main chat message event", () => {
+    const host = document.createElement("section");
+    const submissions: unknown[] = [];
+    host.addEventListener("desktop-chat-message-submit", (event) => {
+      submissions.push((event as CustomEvent).detail);
+    });
+
+    mountChatSurface(host, { projection: fixtureProjection() });
+
+    const input = host.querySelector<HTMLTextAreaElement>("[data-chat-composer-input]");
+    input!.value = "Continue with the local docs.";
+    host.querySelector<HTMLButtonElement>("[data-chat-composer-action='send']")?.click();
+
+    expect(submissions).toEqual([{ content: "Continue with the local docs." }]);
+    expect(input?.value).toBe("");
+  });
+
+  test("preserves composer drafts per active session across surface updates", () => {
+    const host = document.createElement("section");
+    const mounted = mountChatSurface(host, { projection: fixtureProjection() });
+    const firstInput = host.querySelector<HTMLTextAreaElement>("[data-chat-composer-input]");
+    firstInput!.value = "Draft for chat one";
+    firstInput!.dispatchEvent(new Event("input", { bubbles: true }));
+
+    mounted.update({ projection: fixtureProjection() });
+
+    expect(host.querySelector<HTMLTextAreaElement>("[data-chat-composer-input]")?.value).toBe("Draft for chat one");
+
+    const secondProjection = fixtureProjection();
+    secondProjection.activeSessionKey = "websocket:chat-2";
+    secondProjection.sessions = [
+      { ...secondProjection.sessions[0], isActive: false },
+      {
+        key: "websocket:chat-2",
+        chatId: "chat-2",
+        title: "Second chat",
+        createdAt: "2026-07-01T11:00:00Z",
+        updatedAt: "2026-07-01T11:05:00Z",
+        primaryBadge: "updated_time",
+        isActive: true,
+      },
+    ];
+    mounted.update({ projection: secondProjection });
+
+    const secondInput = host.querySelector<HTMLTextAreaElement>("[data-chat-composer-input]");
+    expect(secondInput?.value).toBe("");
+    secondInput!.value = "Draft for chat two";
+    secondInput!.dispatchEvent(new Event("input", { bubbles: true }));
+
+    mounted.update({ projection: fixtureProjection() });
+    expect(host.querySelector<HTMLTextAreaElement>("[data-chat-composer-input]")?.value).toBe("Draft for chat one");
+
+    mounted.update({ projection: secondProjection });
+    expect(host.querySelector<HTMLTextAreaElement>("[data-chat-composer-input]")?.value).toBe("Draft for chat two");
+  });
+
+  test("submits composer text as approval guidance while approval is pending", () => {
+    const host = document.createElement("section");
+    const guidanceSubmissions: unknown[] = [];
+    host.addEventListener("desktop-chat-approval-guidance-submit", (event) => {
+      guidanceSubmissions.push((event as CustomEvent).detail);
+    });
+    const projection = fixtureProjection();
+    projection.approvals = [{
+      id: "approval-1",
+      sessionKey: "websocket:chat-1",
+      toolName: "workspace.write_file",
+      status: "pending",
+      prompt: "Allow writing notes.md?",
+      choices: ["allow_once", "allow_session", "deny"],
+    }];
+
+    mountChatSurface(host, { projection });
+
+    const input = host.querySelector<HTMLTextAreaElement>("[data-chat-composer-input]");
+    input!.value = "Do not write files; summarize only.";
+    host.querySelector<HTMLButtonElement>("[data-chat-composer-action='send']")?.click();
+
+    expect(guidanceSubmissions).toEqual([{
+      approvalId: "approval-1",
+      guidance: "Do not write files; summarize only.",
+    }]);
+    expect(host.querySelector("[data-chat-region='queued-inputs']")).toBeNull();
+  });
+
+  test("queues composer text while the assistant turn is running and supports deleting it", () => {
+    const host = document.createElement("section");
+    const projection = fixtureProjection();
+    projection.turns[1] = {
+      ...projection.turns[1],
+      process: {
+        state: "running",
+        summary: "Execution process · 2 tools",
+        toolCount: 2,
+      },
+    };
+
+    mountChatSurface(host, { projection });
+
+    const input = host.querySelector<HTMLTextAreaElement>("[data-chat-composer-input]");
+    input!.value = "Summarize after the tools finish.";
+    host.querySelector<HTMLButtonElement>("[data-chat-composer-action='send']")?.click();
+
+    const queue = host.querySelector("[data-chat-region='queued-inputs']");
+    expect(queue?.textContent).toContain("Summarize after the tools finish.");
+    expect(host.querySelector("[data-chat-composer-input]")?.textContent).toBe("");
+
+    host.querySelector<HTMLButtonElement>("[data-queued-input-action='delete']")?.click();
+
+    expect(host.querySelector("[data-chat-region='queued-inputs']")).toBeNull();
+  });
+
+  test("continues a paused queue by sending only the next queued input", () => {
+    const host = document.createElement("section");
+    const submissions: unknown[] = [];
+    host.addEventListener("desktop-chat-message-submit", (event) => {
+      submissions.push((event as CustomEvent).detail);
+    });
+    const projection = fixtureProjection();
+    projection.queuedInputs = [
+      {
+        id: "queued-a",
+        mode: "queued",
+        content: "First paused message.",
+        createdAt: "2026-07-01T10:20:00Z",
+        status: "paused",
+      },
+      {
+        id: "queued-b",
+        mode: "queued",
+        content: "Second paused message.",
+        createdAt: "2026-07-01T10:21:00Z",
+        status: "paused",
+      },
+    ];
+
+    mountChatSurface(host, { projection });
+
+    expect(host.querySelector("[data-chat-region='queued-inputs']")?.textContent).toContain("Queue paused");
+    host.querySelector<HTMLButtonElement>("[data-queued-input-action='continue']")?.click();
+
+    expect(submissions).toEqual([{ content: "First paused message." }]);
+    expect(host.querySelector("[data-chat-region='queued-inputs']")?.textContent).not.toContain("First paused message.");
+    expect(host.querySelector("[data-chat-region='queued-inputs']")?.textContent).toContain("Second paused message.");
   });
 
   test("renders resolved approvals as compact history results", () => {

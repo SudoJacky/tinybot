@@ -43,6 +43,47 @@ describe("desktop native workbench runtime", () => {
     expect(sentSocketMessages).toContainEqual({ type: "attach", chat_id: "chat-live" });
   });
 
+  test("patches session metadata through the native chat runtime", async () => {
+    const patched: unknown[] = [];
+    let sessions = [{
+      key: "WebSocket:chat-live",
+      chat_id: "chat-live",
+      title: "Live gateway session",
+      metadata: { pinned: false },
+    }];
+    const runtime = createDesktopNativeWorkbenchRuntime({
+      api: {
+        listSessions: async () => ({ items: sessions }),
+        loadMessages: async () => ({ messages: [] }),
+        patchSession: async (sessionKey: string, body: unknown) => {
+          patched.push({ body, sessionKey });
+          sessions = [{
+            key: "WebSocket:chat-live",
+            chat_id: "chat-live",
+            title: "Pinned gateway session",
+            metadata: { pinned: true },
+          }];
+          return { key: sessionKey };
+        },
+      },
+      sendSocketMessage: vi.fn(),
+    });
+
+    await runtime.loadInitialChatState();
+
+    await expect(runtime.patchChatSession("WebSocket:chat-live", { metadata: { pinned: true } })).resolves.toBe(true);
+
+    expect(patched).toEqual([{
+      body: { metadata: { pinned: true } },
+      sessionKey: "WebSocket:chat-live",
+    }]);
+    expect(runtime.chat.sessions[0]).toMatchObject({
+      pinned: true,
+      title: "Pinned gateway session",
+    });
+    expect(runtime.chat.status).toBe("Session updated.");
+  });
+
   test("loads delegated artifacts through the native chat runtime", async () => {
     const getArtifact = vi.fn(async () => ({
       artifact: {

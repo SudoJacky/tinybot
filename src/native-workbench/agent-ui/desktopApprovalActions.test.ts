@@ -118,6 +118,42 @@ describe("desktop approval actions", () => {
     });
   });
 
+  test("passes denial guidance through native resume and gateway fallback", async () => {
+    const error = new Error("native command unavailable");
+    const invoke = vi.fn(async () => {
+      throw error;
+    });
+    const gatewayTools = {
+      approveApproval: vi.fn(async () => ({})),
+      denyApproval: vi.fn(async () => ({})),
+    };
+
+    await submitDesktopApprovalAction({
+      action: "deny",
+      approvalId: "approval-1",
+      gatewayTools,
+      guidance: "Do not write files; summarize instead.",
+      invoke,
+      preferNativeWorkerResume: true,
+      sessionKey: "WebSocket:chat-1",
+    });
+
+    expect(invoke).toHaveBeenCalledWith("worker_resume_agent_approval", {
+      input: {
+        approvalId: "approval-1",
+        approved: false,
+        guidance: "Do not write files; summarize instead.",
+        scope: "once",
+        sessionId: "websocket:chat-1",
+      },
+    });
+    expect(gatewayTools.denyApproval).toHaveBeenCalledWith("approval-1", {
+      session_key: "websocket:chat-1",
+      auto_retry: true,
+      guidance: "Do not write files; summarize instead.",
+    });
+  });
+
   test("normalizes synthetic WebSocket approval session keys for gateway-compatible routes", async () => {
     const gatewayTools = {
       approveApproval: vi.fn(async () => ({ approved: true })),

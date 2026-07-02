@@ -468,6 +468,8 @@ describe("desktop workbench shell", () => {
   });
 
   test("renders chat sessions inside the rebuilt chat surface", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-22T11:35:00.000Z"));
     const targetDocument = new FakeDocument();
 
     installDesktopWorkbenchShell({
@@ -486,8 +488,66 @@ describe("desktop workbench shell", () => {
     });
 
     const rows = targetDocument.body.querySelector('[data-chat-region="session-list"]')?.querySelectorAll(".desktop-chat-surface__session-row");
-    expect(rows?.map((node) => node.textContent)).toEqual(["MinuteUpdated", "HourUpdated"]);
+    expect(rows?.map((node) => node.textContent)).toEqual(["Minute5 min", "Hour4 h"]);
     expect(targetDocument.body.querySelector(".desktop-recent-chat-list")).toBeNull();
+  });
+
+  test("routes rebuilt subagent detail trace loads through chat actions", async () => {
+    const targetDocument = new FakeDocument();
+    const onDelegateTraceLoad = vi.fn(async () => ({
+      trace: {
+        finalOutput: "Shell loaded delegate result.",
+        events: [{
+          eventId: "delegate-event",
+          eventType: "agent.delegate.completed",
+          createdAt: "2026-07-01T10:05:00Z",
+          payload: { finalOutput: "Shell loaded delegate result." },
+        }],
+      },
+    }));
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      chatActions: { onDelegateTraceLoad },
+      chat: {
+        sessions: [{ key: "WebSocket:chat-1", chatId: "chat-1", title: "Delegate chat", createdAt: "", updatedAt: "" }],
+        activeSessionKey: "WebSocket:chat-1",
+        activeChatId: "chat-1",
+        messages: [{
+          role: "assistant",
+          content: "Delegating.",
+          reasoningContent: "",
+          timestamp: "2026-07-01T10:00:00Z",
+          messageId: "message-delegate",
+          toolActivities: [{
+            id: "tool-delegate",
+            name: "subagent.wait",
+            argsText: "",
+            responseText: "Waiting on child",
+            kind: "result",
+            delegateId: "delegate-shell",
+            delegateTitle: "Shell Delegate",
+            delegateTask: "Check shell trace route",
+            status: "running",
+          }],
+        }],
+      },
+    });
+
+    const subagentRow = targetDocument.body.querySelector('[data-subagent-id="delegate-shell"]');
+    expect(subagentRow).not.toBeNull();
+    subagentRow?.click();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(onDelegateTraceLoad).toHaveBeenCalledWith({
+      activityId: "delegate-shell",
+      sessionKey: "WebSocket:chat-1",
+      delegateId: "delegate-shell",
+    });
+    expect(targetDocument.body.querySelector('[data-chat-region="detail-surface"]')?.textContent).toContain("Shell loaded delegate result.");
   });
   test("renders the configured composer model and routes model selection", () => {
     const targetDocument = new FakeDocument();

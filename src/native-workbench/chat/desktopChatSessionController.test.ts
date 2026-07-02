@@ -241,6 +241,40 @@ describe("desktop chat session controller", () => {
     expect(controller.state.activeSessionKey).toBe("WebSocket:f9387efaabab");
   });
 
+  test("patches session metadata and refreshes the local session list", async () => {
+    const patched: unknown[] = [];
+    let sessions = [
+      { key: "WebSocket:chat-1", chat_id: "chat-1", title: "First chat", metadata: { pinned: false } },
+    ];
+    const controller = createDesktopChatSessionController({
+      api: {
+        listSessions: vi.fn(async () => ({ items: sessions })),
+        loadMessages: vi.fn(async () => ({ messages: [] })),
+        patchSession: vi.fn(async (sessionKey: string, body: unknown) => {
+          patched.push({ body, sessionKey });
+          sessions = [
+            { key: "WebSocket:chat-1", chat_id: "chat-1", title: "Renamed chat", metadata: { pinned: true } },
+          ];
+          return { key: sessionKey };
+        }),
+      },
+      sendSocketMessage: vi.fn(),
+    });
+
+    await controller.loadSessions();
+
+    await expect(controller.patchSession("WebSocket:chat-1", { metadata: { pinned: true, title: "Renamed chat" } })).resolves.toBe(true);
+
+    expect(patched).toEqual([{
+      body: { metadata: { pinned: true, title: "Renamed chat" } },
+      sessionKey: "WebSocket:chat-1",
+    }]);
+    expect(controller.state.sessions[0]).toMatchObject({
+      pinned: true,
+      title: "Renamed chat",
+    });
+  });
+
   test("queues a new chat before sending pending content without changing WebSocket payload semantics", async () => {
     const sent: unknown[] = [];
     const controller = createDesktopChatSessionController({

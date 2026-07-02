@@ -84,6 +84,70 @@ describe("desktop bootstrap order", () => {
     expect(actionInstallPosition).toBeGreaterThan(nativeShellPosition);
   });
 
+  test("routes rebuilt chat surface submit events through native runtime actions", () => {
+    const runtimeActionsSource = sourceBlock(
+      "function installNativeChatRuntimeActions(): void {",
+      "async function handleNativeInlineApprovalAction(",
+    );
+
+    expect(runtimeActionsSource).toContain('document.addEventListener("desktop-chat-message-submit"');
+    expect(runtimeActionsSource).toContain("nativeChatActions().onComposerSubmit");
+    expect(runtimeActionsSource).toContain('document.addEventListener("desktop-chat-session-new"');
+    expect(runtimeActionsSource).toContain("nativeChatActions().onNewChat");
+    expect(runtimeActionsSource).toContain('document.addEventListener("desktop-chat-session-open"');
+    expect(runtimeActionsSource).toContain("runtime.actions.sessionOpen");
+    expect(runtimeActionsSource).toContain("nativeWorkbenchRuntime.selectChatSession");
+    expect(runtimeActionsSource).toContain('document.addEventListener("desktop-chat-approval-guidance-submit"');
+    expect(runtimeActionsSource).toContain('action: "deny"');
+    expect(runtimeActionsSource).toContain("guidance");
+    expect(bootstrapSource).toContain("submitNativeApprovalAction(approvalId, sessionKey, action, guidance)");
+    expect(bootstrapSource).toContain("guidance: guidanceValue(guidance)");
+  });
+
+  test("keeps rebuilt subagent direct message submissions out of the main composer path", () => {
+    const runtimeActionsSource = sourceBlock(
+      "function installNativeChatRuntimeActions(): void {",
+      "async function handleNativeInlineApprovalAction(",
+    );
+
+    expect(runtimeActionsSource).toContain('document.addEventListener("desktop-chat-subagent-message-submit"');
+    expect(runtimeActionsSource).toContain("runtime.actions.subagentDirectMessage.start");
+    expect(runtimeActionsSource).toContain('invoke("worker_background_subagent_enqueue_input"');
+    expect(runtimeActionsSource).toContain("runtime.actions.subagentDirectMessage.complete");
+    expect(runtimeActionsSource).not.toContain("desktop-chat-subagent-message-submit\", (event) => {\n    const detail = asRecord((event as CustomEvent).detail);\n    const content = typeof detail.content === \"string\" ? detail.content : \"\";\n    logDesktopNativeDebug(\"runtime.actions.chatSurfaceSubmit\"");
+  });
+
+  test("routes rebuilt branch session requests through the backend adapter", () => {
+    const runtimeActionsSource = sourceBlock(
+      "function installNativeChatRuntimeActions(): void {",
+      "async function handleNativeInlineApprovalAction(",
+    );
+
+    expect(runtimeActionsSource).toContain('document.addEventListener("desktop-chat-branch-session-request"');
+    expect(runtimeActionsSource).toContain("runtime.actions.branchSession.start");
+    expect(runtimeActionsSource).toContain("gatewayApi.sessions.branch");
+    expect(runtimeActionsSource).toContain("nativeWorkbenchRuntime.selectChatSession");
+    expect(runtimeActionsSource).toContain("runtime.actions.branchSession.complete");
+  });
+
+  test("routes rebuilt header and message actions through native runtime handlers", () => {
+    const runtimeActionsSource = sourceBlock(
+      "function installNativeChatRuntimeActions(): void {",
+      "async function handleNativeInlineApprovalAction(",
+    );
+
+    expect(runtimeActionsSource).toContain('document.addEventListener("desktop-chat-session-action"');
+    expect(runtimeActionsSource).toContain("runtime.actions.sessionActionUnsupported");
+    expect(runtimeActionsSource).toContain("nativeWorkbenchRuntime.deleteChatSession");
+    expect(runtimeActionsSource).toContain("nativeWorkbenchRuntime.patchChatSession");
+    expect(runtimeActionsSource).toContain("metadata: { pinned: action === \"pin\" }");
+    expect(runtimeActionsSource).toContain("metadata: { title: renamedTitle }");
+    expect(runtimeActionsSource).toContain('document.addEventListener("desktop-chat-message-copy"');
+    expect(runtimeActionsSource).toContain('document.addEventListener("desktop-chat-detail-copy"');
+    expect(runtimeActionsSource).toContain("runtime.actions.detailCopy");
+    expect(bootstrapSource).toContain("writeNativeClipboardText(content,");
+  });
+
   test("routes native composer attach through the session temporary file upload control", () => {
     const attachActionPosition = callPosition("onAttachSessionFile: () => {");
     const uploadClickPosition = callPosition('document.getElementById("desktop-session-file-upload")?.click();');

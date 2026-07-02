@@ -22,6 +22,7 @@ export interface DesktopChatSessionControllerApi {
   getDelegateTrace?: (filter: { sessionKey: string; delegateId?: string; traceRef?: string }) => Promise<unknown>;
   getArtifact?: (filter: { sessionKey: string; delegateId?: string; traceRef?: string; artifactId: string }) => Promise<unknown>;
   deleteSession?: (sessionKey: string) => Promise<unknown>;
+  patchSession?: (sessionKey: string, body: unknown) => Promise<unknown>;
 }
 
 export interface DesktopChatSessionControllerOptions {
@@ -52,6 +53,7 @@ export interface DesktopChatSessionController {
   selectSession(sessionKey: string, chatId: string): Promise<void>;
   startNewChat(): void;
   deleteSession(sessionKey: string): Promise<ChatDeleteSessionResult>;
+  patchSession(sessionKey: string, body: unknown): Promise<boolean>;
   submitMessage(content: string, usePersistentRag?: boolean): ChatSubmitResult;
   interruptActiveChat(): boolean;
   handleGatewayEvent(event: NormalizedGatewayEvent): Promise<ChatGatewayEventResult>;
@@ -224,6 +226,30 @@ export function createDesktopChatSessionController({
     }
   }
 
+  async function patchSession(sessionKey: string, body: unknown): Promise<boolean> {
+    const target = state.sessions.find((session) => session.key === sessionKey);
+    logDesktopNativeDebug("session.patch.start", {
+      ...summarizeSessionState(),
+      found: Boolean(target),
+      sessionKey,
+    });
+    if (!target || !api.patchSession) {
+      logDesktopNativeDebug("session.patch.unavailable", {
+        hasPatchSession: Boolean(api.patchSession),
+        sessionKey,
+      });
+      return false;
+    }
+    await api.patchSession(sessionKey, body);
+    const sessions = normalizeSessionsPayload(await api.listSessions());
+    setSessions(state, sessions);
+    logDesktopNativeDebug("session.patch.complete", {
+      ...summarizeSessionState(),
+      sessionKey,
+    });
+    return true;
+  }
+
   function submitMessage(content: string, usePersistentRag = true): ChatSubmitResult {
     const trimmed = content.trim();
     if (!trimmed) {
@@ -365,6 +391,7 @@ export function createDesktopChatSessionController({
     selectSession,
     startNewChat,
     deleteSession,
+    patchSession,
     submitMessage,
     interruptActiveChat,
     handleGatewayEvent,
