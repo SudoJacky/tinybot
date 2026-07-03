@@ -11,6 +11,8 @@ import {
   captureConversationThreadScroll,
   installDesktopWorkbenchShell,
   syncDesktopWorkbenchRouteSidebar,
+  updateDesktopAgentUiForms,
+  updateDesktopCoworkPane,
   updateDesktopGatewayRuntimeStatus,
   updateDesktopKnowledgePane,
   updateDesktopNativeChat,
@@ -488,7 +490,9 @@ describe("desktop workbench shell", () => {
     });
 
     const rows = targetDocument.body.querySelector('[data-chat-region="session-list"]')?.querySelectorAll(".desktop-chat-surface__session-row");
-    expect(rows?.map((node) => node.textContent)).toEqual(["Minute5 min", "Hour4 h"]);
+    expect(rows?.map((node) => node.querySelector(".desktop-chat-surface__session-title")?.textContent)).toEqual(["Minute", "Hour"]);
+    expect(rows?.map((node) => node.querySelector(".desktop-chat-surface__session-badge")?.textContent)).toEqual(["5 分", "4 小时"]);
+    expect(rows?.map((node) => node.querySelector(".desktop-chat-surface__session-delete")?.textContent)).toEqual(["Delete", "Delete"]);
     expect(targetDocument.body.querySelector(".desktop-recent-chat-list")).toBeNull();
   });
 
@@ -999,6 +1003,76 @@ describe("desktop workbench shell", () => {
     expect(composerActions).toEqual([]);
   });
 
+  test("routes rebuilt chat surface new session actions through chat actions", () => {
+    const targetDocument = new FakeDocument();
+    const onNewChat = vi.fn();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      chat: {
+        sessions: [{ key: "WebSocket:chat-live", chatId: "chat-live", title: "Live session", createdAt: "", updatedAt: "" }],
+        activeSessionKey: "WebSocket:chat-live",
+        activeChatId: "chat-live",
+        messages: [],
+      },
+      chatActions: { onNewChat },
+    });
+
+    targetDocument.body.querySelector('[data-session-action="new"]')?.click();
+
+    expect(onNewChat).toHaveBeenCalledTimes(1);
+  });
+
+  test("preserves rebuilt chat surface actions after agent form remounts", () => {
+    const targetDocument = new FakeDocument();
+    const onNewChat = vi.fn();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      chat: {
+        sessions: [{ key: "WebSocket:chat-live", chatId: "chat-live", title: "Live session", createdAt: "", updatedAt: "" }],
+        activeSessionKey: "WebSocket:chat-live",
+        activeChatId: "chat-live",
+        messages: [],
+      },
+      chatActions: { onNewChat },
+    });
+
+    updateDesktopAgentUiForms(targetDocument as unknown as Document, []);
+    targetDocument.body.querySelector('[data-session-action="new"]')?.click();
+
+    expect(onNewChat).toHaveBeenCalledTimes(1);
+  });
+
+  test("preserves rebuilt chat surface actions after cowork pane remounts", () => {
+    const targetDocument = new FakeDocument();
+    const onNewChat = vi.fn();
+    const coworkPane = { sessionRows: [], cockpitView: null };
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      chat: {
+        sessions: [{ key: "WebSocket:chat-live", chatId: "chat-live", title: "Live session", createdAt: "", updatedAt: "" }],
+        activeSessionKey: "WebSocket:chat-live",
+        activeChatId: "chat-live",
+        messages: [],
+      },
+      chatActions: { onNewChat },
+      coworkPane,
+    });
+
+    updateDesktopCoworkPane(targetDocument as unknown as Document, coworkPane);
+    targetDocument.body.querySelector('[data-session-action="new"]')?.click();
+
+    expect(onNewChat).toHaveBeenCalledTimes(1);
+  });
+
   test("styles native composer input without focus chrome or manual resizing", () => {
     const targetDocument = new FakeDocument();
 
@@ -1032,14 +1106,14 @@ describe("desktop workbench shell", () => {
     expect(styleText).toContain("border: 0;");
     expect(styleText).toContain("box-shadow: none;");
     expect(styleText).toContain("background: transparent;");
-    expect(styleText).toContain("background: #fff7ef;");
+    expect(styleText).toContain("background: #f7f1e8;");
     expect(styleText).toContain(".desktop-native-composer-model:hover");
     expect(styleText).toContain(".desktop-native-composer-model:focus-visible");
     expect(styleText).toContain(".desktop-native-composer-rag-toggle:hover");
     expect(styleText).toContain('.desktop-native-composer-rag-toggle[aria-pressed="true"]');
     expect(styleText).toContain('.desktop-native-composer-rag-toggle[aria-pressed="false"]:not(:hover):not(:focus-visible)');
     expect(styleText).not.toContain("box-shadow: 0 8px 20px rgba(216, 112, 72, 0.18);");
-    expect(styleText).toContain("padding: 14px 8px 8px 14px;");
+    expect(styleText).toContain("padding: 12px 8px 8px 12px;");
     expect(styleText).toContain("grid-template-rows: auto auto;");
     expect(styleText).toContain("min-height: 0;");
     expect(styleText).toContain(".desktop-run-chain-tabs {\n      display: flex;");
@@ -4334,8 +4408,8 @@ describe("desktop workbench shell", () => {
     expect(styleText).toContain("grid-template-rows: auto auto;");
     expect(styleText).not.toContain(".desktop-native-composer-context {\n      grid-area: context;");
     expect(styleText).not.toContain("microphone");
-    expect(styleText).toContain("border-radius: 24px;");
-    expect(styleText).toContain("padding: 14px 8px 8px 14px;");
+    expect(styleText).toContain("border-radius: 22px;");
+    expect(styleText).toContain("padding: 12px 8px 8px 12px;");
     expect(styleText).toContain("min-height: 0;");
     expect(styleText).not.toContain("min-height: 118px;");
     expect(styleText).not.toContain("min-height: 88px;");
@@ -4347,11 +4421,23 @@ describe("desktop workbench shell", () => {
     expect(styleText).toContain("--desktop-chat-composer-gutter: clamp(32px, 4vw, 72px);");
     expect(styleText).toContain("--desktop-chat-composer-bottom-offset: 8px;");
     expect(styleText).toContain("body.desktop-native-workbench .desktop-chat-workbench {");
+    expect(styleText).toContain("--desktop-chat-session-column-width: 284px;");
+    expect(styleText).toContain("--desktop-chat-status-column-width: 320px;");
+    expect(styleText).toContain("--desktop-chat-composer-side-padding: 56px;");
+    expect(styleText).toContain("--desktop-chat-native-composer-reserve: 112px;");
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-chat-surface__conversation {\n      justify-self: center;\n      display: grid;\n      align-content: start;\n      gap: 30px;\n      width: min(812px, 100%);");
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-chat-surface__detail {\n      position: relative;\n      display: grid;\n      grid-template-rows: auto minmax(0, 1fr) auto auto auto auto;\n      min-width: 0;\n      min-height: 0;\n      padding: 0 48px var(--desktop-chat-native-composer-reserve);");
+    expect(styleText).toContain("padding: 36px 0 24px;");
+    expect(styleText).not.toContain("padding: 36px 0 154px;");
+    expect(styleText).toContain('body.desktop-native-workbench .desktop-chat-surface__process[data-agent-process-state="completed"]');
+    expect(styleText).toContain('body.desktop-native-workbench .desktop-chat-surface__tool-row[data-tool-status="completed"]');
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-chat-surface__approval-card {\n      border-color: #ead8aa;\n      background: #fffaf0;");
+    expect(styleText).not.toContain("box-shadow: inset 3px 0 0");
+    expect(styleText).toContain("position: relative;");
     expect(styleText).toContain("align-self: stretch;");
     expect(styleText).toContain("height: 100%;");
     expect(styleText).toContain("padding: 0 var(--desktop-chat-gutter);");
     expect(styleText).toContain("width: min(var(--desktop-chat-column-width), 100%);");
-    expect(styleText).toContain("width: min(var(--desktop-chat-column-width), calc(100% - var(--desktop-chat-composer-gutter)));");
     expect(styleText).toContain("grid-template-columns: minmax(0, 1fr) 0;");
     expect(styleText).toContain("grid-template-rows: auto minmax(0, 1fr) auto auto;");
     const emptyChromeRule = styleText.match(/body\.desktop-native-workbench \.desktop-chat-workbench-chrome \{([\s\S]*?)\n    \}/)?.[1] ?? "";
@@ -4366,7 +4452,7 @@ describe("desktop workbench shell", () => {
     expect(styleText).toContain("grid-template-columns 520ms cubic-bezier(0.16, 1, 0.3, 1);");
     const conversationThreadRule = styleText.match(/body\.desktop-native-workbench \.desktop-conversation-thread \{([\s\S]*?)\n    \}/)?.[1] ?? "";
     expect(conversationThreadRule).toContain("grid-column: 1 / -1;");
-    expect(conversationThreadRule).toContain("grid-row: 2;");
+    expect(conversationThreadRule).toContain("grid-row: 2 / -1;");
     expect(conversationThreadRule).toContain("display: grid;");
     expect(conversationThreadRule).toContain("height: 100%;");
     expect(conversationThreadRule).toContain("overflow: hidden;");
@@ -4392,8 +4478,23 @@ describe("desktop workbench shell", () => {
     expect(styleText).toContain("box-sizing: border-box;");
     expect(styleText).toContain("padding-bottom: var(--desktop-chat-composer-bottom-offset);");
     expect(styleText).toContain("grid-column: 2;\n      grid-row: 1 / 3;");
-    expect(styleText).toContain("grid-column: 1;\n      grid-row: 4;\n      justify-self: center;");
-    expect(styleText).toContain("margin: 0 auto var(--desktop-chat-composer-bottom-offset);");
+    const nativeComposerRules = [
+      ...styleText.matchAll(/body\.desktop-native-workbench \.desktop-native-composer \{(?<rule>[\s\S]*?)\n    \}/g),
+    ].map((match) => match.groups?.rule ?? "");
+    const finalNativeComposerRule = nativeComposerRules.find((rule) => rule.includes("position: absolute;")) ?? "";
+    expect(finalNativeComposerRule).toContain("position: absolute;");
+    expect(finalNativeComposerRule).toContain("z-index: 24;");
+    expect(finalNativeComposerRule).toContain("left: calc(var(--desktop-chat-gutter) + var(--desktop-chat-session-column-width) + var(--desktop-chat-composer-side-padding));");
+    expect(finalNativeComposerRule).toContain("right: calc(var(--desktop-chat-gutter) + var(--desktop-chat-status-column-width) + var(--desktop-chat-composer-side-padding));");
+    expect(finalNativeComposerRule).toContain("bottom: var(--desktop-chat-composer-bottom-offset);");
+    expect(finalNativeComposerRule).toContain("box-sizing: border-box;");
+    expect(finalNativeComposerRule).toContain("width: min(812px, calc(100% - var(--desktop-chat-gutter) - var(--desktop-chat-gutter) - var(--desktop-chat-session-column-width) - var(--desktop-chat-status-column-width) - var(--desktop-chat-composer-side-padding) - var(--desktop-chat-composer-side-padding)));");
+    expect(finalNativeComposerRule).toContain("margin: 0 auto;");
+    expect(finalNativeComposerRule).not.toContain("grid-row: 4;");
+    expect(styleText).toContain("@media (max-width: 1180px) {\n      body.desktop-native-workbench .desktop-chat-workbench {\n        --desktop-chat-session-column-width: 260px;\n        --desktop-chat-status-column-width: 0px;\n        --desktop-chat-composer-side-padding: 30px;");
+    expect(styleText).toContain("@media (max-width: 760px)");
+    expect(styleText).toContain("--desktop-chat-session-column-width: 0px;\n        --desktop-chat-status-column-width: 0px;\n        --desktop-chat-composer-side-padding: 0px;");
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-native-composer {\n        left: 14px;\n        right: 14px;\n        width: auto;");
     expect(styleText).toContain("body.desktop-native-workbench .desktop-detail-panel-slot[data-detail-panel-state=\"closing\"] {");
     expect(styleText).toContain("body.desktop-native-workbench .desktop-tool-detail-panel {\n      position: relative;");
     expect(styleText).toContain("height: 100%;\n      min-height: 0;\n      max-height: none;");

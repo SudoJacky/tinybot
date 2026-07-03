@@ -161,7 +161,7 @@ describe("desktop workbench shell Vue integration", () => {
     expect(status?.textContent).toContain("http://127.0.0.1:18790");
   });
 
-  test("renders the active chat title through the Vue shell island", () => {
+  test("renders the active chat title through the rebuilt chat surface", () => {
     document.body.replaceChildren();
     document.head.replaceChildren();
 
@@ -173,6 +173,7 @@ describe("desktop workbench shell Vue integration", () => {
         chatId: "chat-live",
         createdAt: "",
         key: "WebSocket:chat-live",
+        pinned: true,
         title: "Live session",
         updatedAt: "",
       }],
@@ -185,12 +186,12 @@ describe("desktop workbench shell Vue integration", () => {
       gatewayHttp: "http://127.0.0.1:18790",
     });
 
-    const title = document.querySelector<HTMLElement>(".desktop-chat-title");
-    expect(title?.getAttribute("data-desktop-vue-island")).toBe("chat-title");
+    const title = document.querySelector<HTMLElement>(".desktop-chat-surface__title");
+    expect(document.querySelector(".desktop-chat-title")).toBeNull();
     expect(title?.textContent).toBe("Live session");
   });
 
-  test("renders the chat menu trigger through the Vue shell island", () => {
+  test("renders the chat header actions through the rebuilt chat surface", () => {
     document.body.replaceChildren();
     document.head.replaceChildren();
 
@@ -214,63 +215,63 @@ describe("desktop workbench shell Vue integration", () => {
       gatewayHttp: "http://127.0.0.1:18790",
     });
 
-    const menu = document.querySelector<HTMLButtonElement>(".desktop-chat-menu");
-    const popover = document.querySelector<HTMLElement>(".desktop-chat-menu-popover");
-    expect(menu?.getAttribute("data-desktop-vue-island")).toBe("chat-menu-button");
-    expect(menu?.getAttribute("aria-expanded")).toBe("false");
-    expect(menu?.textContent).toBe("...");
-    expect(popover?.hidden).toBe(true);
-
-    menu?.click();
-
-    expect(menu?.getAttribute("aria-expanded")).toBe("true");
-    expect(popover?.hidden).toBe(false);
-    document.body.click();
-    expect(menu?.getAttribute("aria-expanded")).toBe("false");
-    expect(popover?.hidden).toBe(true);
-  });
-
-  test("renders the chat menu popover through the Vue shell island", () => {
-    document.body.replaceChildren();
-    document.head.replaceChildren();
-
-    const chat: DesktopNativeChatModel = {
-      activeChatId: "chat-live",
-      activeSessionKey: "WebSocket:chat-live",
-      messages: [],
-      sessions: [{
-        chatId: "chat-live",
-        createdAt: "",
-        key: "WebSocket:chat-live",
-        title: "Live session",
-        updatedAt: "",
-      }],
-    };
-
-    installDesktopWorkbenchShell({
-      targetDocument: document,
-      layout: createDefaultWorkbenchLayout(),
-      chat,
-      gatewayHttp: "http://127.0.0.1:18790",
-    });
-
-    const popover = document.querySelector<HTMLElement>(".desktop-chat-menu-popover");
-    const actions = Array.from(document.querySelectorAll<HTMLElement>(".desktop-chat-menu-action"));
-    expect(popover?.getAttribute("data-desktop-vue-island")).toBe("chat-menu-popover");
-    expect(popover?.getAttribute("role")).toBe("menu");
-    expect(popover?.getAttribute("aria-label")).toBe("Chat session actions");
-    expect(actions.map((action) => action.getAttribute("data-desktop-vue-island"))).toEqual([
-      "chat-menu-action",
-      "chat-menu-action",
-      "chat-menu-action",
+    const header = document.querySelector<HTMLElement>(".desktop-chat-surface__header");
+    const actions = Array.from(document.querySelectorAll<HTMLElement>("[data-chat-header-action]"));
+    expect(document.querySelector(".desktop-chat-menu")).toBeNull();
+    expect(document.querySelector(".desktop-chat-menu-popover")).toBeNull();
+    expect(header?.getAttribute("data-chat-region")).toBe("chat-header");
+    expect(actions.map((action) => action.getAttribute("data-chat-header-action"))).toEqual([
+      "pin",
+      "rename",
+      "delete",
+      "copy-session-id",
+      "copy-markdown",
     ]);
     expect(actions.map((action) => action.textContent)).toEqual([
-      "Pin session",
-      "Rename session",
-      "New chat",
+      "Pin",
+      "Rename",
+      "Delete",
+      "Copy ID",
+      "Copy Markdown",
     ]);
-    expect(actions.every((action) => action.querySelector(".desktop-chat-menu-action") === null)).toBe(true);
-    expect(popover?.querySelector(".desktop-chat-menu-popover-card")).toBeNull();
+  });
+
+  test("renders pinned chat header actions through the rebuilt chat surface", () => {
+    document.body.replaceChildren();
+    document.head.replaceChildren();
+
+    const chat: DesktopNativeChatModel = {
+      activeChatId: "chat-live",
+      activeSessionKey: "WebSocket:chat-live",
+      messages: [],
+      sessions: [{
+        chatId: "chat-live",
+        createdAt: "",
+        key: "WebSocket:chat-live",
+        pinned: true,
+        title: "Live session",
+        updatedAt: "",
+      }],
+    };
+
+    installDesktopWorkbenchShell({
+      targetDocument: document,
+      layout: createDefaultWorkbenchLayout(),
+      chat,
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const actions = Array.from(document.querySelectorAll<HTMLElement>("[data-chat-header-action]"));
+    expect(document.querySelector(".desktop-chat-menu-popover")).toBeNull();
+    expect(actions.map((action) => action.getAttribute("aria-label"))).toEqual([
+      "Unpin session",
+      "Rename session",
+      "Delete session",
+      "Copy session ID",
+      "Copy session as Markdown",
+    ]);
+    expect(actions[0]?.getAttribute("data-chat-header-action")).toBe("unpin");
+    expect(actions[0]?.textContent).toBe("Unpin");
   });
 
   test("keeps panel actions out of the Vue shell island", () => {
@@ -284,14 +285,14 @@ describe("desktop workbench shell Vue integration", () => {
     });
 
     const shell = document.getElementById("desktop-workbench-shell");
-    const titleRow = document.querySelector<HTMLElement>(".desktop-chat-title-row");
-    const actions = document.querySelector<HTMLElement>(".desktop-chat-header-actions");
+    const header = document.querySelector<HTMLElement>(".desktop-chat-surface__header");
+    const actions = document.querySelector<HTMLElement>(".desktop-chat-surface__header-actions");
 
     expect(document.querySelector(".desktop-global-panel-controls")).toBeNull();
-    expect(titleRow?.querySelector('[data-desktop-panel-control="sidebar"]')).toBeNull();
-    expect(actions?.querySelector('[data-desktop-panel-control="sidebar"]')).toBeNull();
-    expect(actions?.querySelector('[data-desktop-panel-control="inspector"]')).toBeNull();
-    expect(titleRow?.children[0]?.className).toBe("desktop-chat-title-group");
+    expect(document.querySelector(".desktop-chat-title-row")).toBeNull();
+    expect(header?.querySelector('[data-desktop-panel-control="sidebar"]') ?? null).toBeNull();
+    expect(actions?.querySelector('[data-desktop-panel-control="sidebar"]') ?? null).toBeNull();
+    expect(actions?.querySelector('[data-desktop-panel-control="inspector"]') ?? null).toBeNull();
     expect(shell?.getAttribute("data-sidebar-visible")).toBe("false");
   });
 
@@ -390,6 +391,7 @@ describe("desktop workbench shell Vue integration", () => {
         chatId: "chat-live",
         createdAt: "",
         key: "WebSocket:chat-live",
+        pinned: true,
         title: "Live session",
         updatedAt: "",
       }],
@@ -783,6 +785,9 @@ describe("desktop workbench shell Vue integration", () => {
       },
       gatewayHttp: "http://127.0.0.1:18790",
     });
+    document.querySelector(".desktop-chat-surface")?.addEventListener("desktop-chat-message-submit", (event) => {
+      submissions.push((event as CustomEvent).detail);
+    });
 
     const composer = document.getElementById("desktop-native-composer");
     const input = document.getElementById("desktop-native-composer-input") as HTMLTextAreaElement | null;
@@ -804,7 +809,7 @@ describe("desktop workbench shell Vue integration", () => {
     expect(send?.getAttribute("disabled")).toBeNull();
     send?.click();
 
-    expect(submissions).toEqual([{ content: "Run from shell", usePersistentRag: false }]);
+    expect(submissions).toEqual([{ content: "Run from shell" }]);
   });
 
   test("keeps the native composer editable while chat stream updates", async () => {
@@ -874,7 +879,7 @@ describe("desktop workbench shell Vue integration", () => {
     expect(document.getElementById("desktop-native-composer")).toBe(composer);
     expect(document.getElementById("desktop-native-composer-input")).toBe(input);
     expect(input?.value).toBe("Draft while streaming");
-    expect(send?.getAttribute("disabled")).toBe("");
+    expect(send?.getAttribute("disabled")).toBeNull();
     expect(composer?.querySelector("#desktop-native-composer-runtime")?.textContent).toContain("deepseek-v4-flash");
     expect(composer?.querySelector(".desktop-native-token-orb")?.getAttribute("data-token-usage")).toBe("57");
   });
