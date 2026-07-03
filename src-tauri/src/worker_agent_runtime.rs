@@ -3476,6 +3476,128 @@ mod tests {
     }
 
     #[test]
+    fn private_user_subagent_input_is_not_added_to_main_model_context() {
+        struct SpawnThenFinalProvider {
+            seen_messages: Mutex<Vec<Vec<Value>>>,
+        }
+
+        impl NativeAgentProvider for SpawnThenFinalProvider {
+            fn complete(
+                &self,
+                context: &NativeAgentRunContext,
+            ) -> Result<NativeAgentProviderResponse, String> {
+                let call_count = {
+                    let mut seen_messages = self
+                        .seen_messages
+                        .lock()
+                        .expect("seen messages lock should not be poisoned");
+                    seen_messages.push(context.messages.clone());
+                    seen_messages.len()
+                };
+                if call_count == 1 {
+                    Ok(NativeAgentProviderResponse {
+                        final_content: String::new(),
+                        reasoning_delta: None,
+                        usage: None,
+                        tool_calls: vec![NativeAgentToolCall {
+                            id: "call-private-spawn".to_string(),
+                            name: "subagent.spawn".to_string(),
+                            arguments_json:
+                                "{\"subagentId\":\"private-child\",\"task\":\"Private work\"}"
+                                    .to_string(),
+                            result: Value::Null,
+                        }],
+                    })
+                } else {
+                    Ok(NativeAgentProviderResponse {
+                        final_content: "Main thread finished.".to_string(),
+                        reasoning_delta: None,
+                        usage: None,
+                        tool_calls: Vec::new(),
+                    })
+                }
+            }
+        }
+
+        struct DirectUserInputAfterSpawnDispatcher {
+            manager: SubagentThreadManager,
+            fallback: SubagentNativeAgentToolDispatcher,
+        }
+
+        impl NativeAgentToolDispatcher for DirectUserInputAfterSpawnDispatcher {
+            fn dispatch(
+                &self,
+                context: &NativeAgentRunContext,
+                tool_call: &NativeAgentToolCall,
+            ) -> Result<NativeAgentToolResult, String> {
+                let result = self.fallback.dispatch(context, tool_call)?;
+                if matches!(tool_call.name.as_str(), "subagent.spawn" | "spawn_agent") {
+                    self.manager.enqueue_input(SubagentSendInputParams {
+                        session_key: context.session_id.clone(),
+                        subagent_id: "private-child".to_string(),
+                        content: "private child-only instruction".to_string(),
+                        sender: SubagentInputSender::User,
+                        turn_id: None,
+                        child_run_id: None,
+                        trace_ref: None,
+                        created_at: None,
+                        metadata: json!({ "source": "direct_user_subagent_chat" }),
+                    });
+                }
+                Ok(result)
+            }
+        }
+
+        let provider = Arc::new(SpawnThenFinalProvider {
+            seen_messages: Mutex::new(Vec::new()),
+        });
+        let manager = SubagentThreadManager::default();
+        let services = NativeAgentRuntimeServices::new(
+            provider.clone(),
+            Arc::new(DirectUserInputAfterSpawnDispatcher {
+                manager: manager.clone(),
+                fallback: SubagentNativeAgentToolDispatcher::new(manager.clone()),
+            }),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        );
+
+        let result = run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-private-subagent-input",
+                "sessionId": "websocket:chat-private-subagent-input",
+                "maxIterations": 3,
+                "messages": [{ "role": "user", "content": "start private subagent" }]
+            }),
+        )
+        .expect("subagent run should complete without leaking private child input");
+
+        let seen_messages = provider
+            .seen_messages
+            .lock()
+            .expect("seen messages lock should not be poisoned");
+        let child = manager
+            .query(SubagentTargetParams {
+                session_key: "websocket:chat-private-subagent-input".to_string(),
+                subagent_id: "private-child".to_string(),
+            })
+            .subagent
+            .expect("private child subagent should exist");
+
+        assert_eq!(result["stopReason"], "final_response");
+        assert_eq!(seen_messages.len(), 2);
+        assert_eq!(child.mailbox_depth, 1);
+        assert!(!seen_messages[1].iter().any(|message| {
+            message
+                .get("content")
+                .and_then(Value::as_str)
+                .is_some_and(|content| content.contains("private child-only instruction"))
+        }));
+    }
+
+    #[test]
     fn tool_result_projection_redacts_and_truncates_model_content() {
         let result = run_native_agent_turn_with_config(
             &NativeAgentRuntimeServices::default(),
