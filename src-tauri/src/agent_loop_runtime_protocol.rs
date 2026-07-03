@@ -334,7 +334,7 @@ pub fn project_turn_items_from_trace_events(
     let mut items = HashMap::<String, AgentTurnItem>::new();
 
     for event in events {
-        let Some(kind) = AgentTurnItemKind::for_legacy_event(&event.event_name) else {
+        let Some(kind) = projected_item_kind(event) else {
             continue;
         };
         let item_id = event
@@ -384,6 +384,7 @@ pub fn project_turn_items_from_trace_events(
 
 fn projected_item_id(event: &AgentRuntimeEventEnvelope, kind: &AgentTurnItemKind) -> String {
     match kind {
+        AgentTurnItemKind::UserMessage => format!("{}:user", event.turn_id),
         AgentTurnItemKind::AssistantMessage => format!("{}:assistant", event.turn_id),
         AgentTurnItemKind::Reasoning => format!("{}:reasoning", event.turn_id),
         AgentTurnItemKind::SystemNotice => {
@@ -403,11 +404,20 @@ fn projected_item_id(event: &AgentRuntimeEventEnvelope, kind: &AgentTurnItemKind
     }
 }
 
+fn projected_item_kind(event: &AgentRuntimeEventEnvelope) -> Option<AgentTurnItemKind> {
+    match event.event_name.as_str() {
+        "agent.turn.started" => Some(AgentTurnItemKind::UserMessage),
+        "agent.done" if !done_event_has_final_content(&event.payload) => None,
+        _ => AgentTurnItemKind::for_legacy_event(&event.event_name),
+    }
+}
+
 fn projected_item_status(event: &AgentRuntimeEventEnvelope) -> AgentTurnItemStatus {
     match event.event_name.as_str() {
-        "agent.done" | "agent.tool.result" | "agent.approval.decision" | "agent.form.resolution" => {
-            AgentTurnItemStatus::Completed
-        }
+        "agent.done"
+        | "agent.tool.result"
+        | "agent.approval.decision"
+        | "agent.form.resolution" => AgentTurnItemStatus::Completed,
         "agent.error" => AgentTurnItemStatus::Failed,
         "agent.cancelled" => AgentTurnItemStatus::Cancelled,
         "agent.awaiting_approval" | "agent.awaiting_form" => AgentTurnItemStatus::Waiting,
@@ -428,6 +438,7 @@ fn projected_item_payload(
     event: &AgentRuntimeEventEnvelope,
 ) -> Value {
     match event.event_name.as_str() {
+        "agent.turn.started" => projected_user_payload(event),
         "agent.delta" | "agent.reasoning_delta" => {
             let mut content = existing_payload
                 .and_then(|payload| payload.get("content"))
@@ -453,6 +464,60 @@ fn projected_item_payload(
         }
         _ => event.payload.clone(),
     }
+}
+
+fn projected_user_payload(event: &AgentRuntimeEventEnvelope) -> Value {
+    let user_message = event
+        .payload
+        .get("userMessage")
+        .or_else(|| event.payload.get("user_message"));
+    if let Some(message) = user_message {
+        let mut payload = serde_json::Map::new();
+        if let Some(id) = message.get("id").and_then(Value::as_str) {
+            payload.insert("messageId".to_string(), Value::String(id.to_string()));
+        }
+        if let Some(content) = message
+            .get("content")
+            .or_else(|| message.get("text"))
+            .and_then(Value::as_str)
+        {
+            payload.insert("content".to_string(), Value::String(content.to_string()));
+        }
+        if !payload.contains_key("messageId") {
+            if let Some(id) = event
+                .payload
+                .get("userMessageId")
+                .or_else(|| event.payload.get("user_message_id"))
+                .and_then(Value::as_str)
+            {
+                payload.insert("messageId".to_string(), Value::String(id.to_string()));
+            }
+        }
+        if !payload.is_empty() {
+            return Value::Object(payload);
+        }
+    }
+
+    let mut payload = serde_json::Map::new();
+    if let Some(id) = event
+        .payload
+        .get("userMessageId")
+        .or_else(|| event.payload.get("user_message_id"))
+        .and_then(Value::as_str)
+    {
+        payload.insert("messageId".to_string(), Value::String(id.to_string()));
+    }
+    if let Some(content) = event
+        .payload
+        .get("input")
+        .and_then(|input| input.get("content").or_else(|| input.get("text")))
+        .and_then(Value::as_str)
+        .or_else(|| event.payload.get("content").and_then(Value::as_str))
+        .or_else(|| event.payload.get("text").and_then(Value::as_str))
+    {
+        payload.insert("content".to_string(), Value::String(content.to_string()));
+    }
+    Value::Object(payload)
 }
 
 fn projected_tool_payload(
@@ -607,8 +672,8 @@ fn projected_approval_payload(
         }
     }
 
-    let approval_id = string_from_map(&payload, &["approvalId", "approval_id"])
-        .or_else(|| event.item_id.clone());
+    let approval_id =
+        string_from_map(&payload, &["approvalId", "approval_id"]).or_else(|| event.item_id.clone());
     if let Some(approval_id) = approval_id.clone() {
         payload
             .entry("approvalId".to_string())
@@ -696,6 +761,13 @@ fn payload_text_fragment(payload: &Value) -> Option<&str> {
     ["delta", "finalContent", "content", "text", "message"]
         .into_iter()
         .find_map(|key| payload.get(key).and_then(Value::as_str))
+}
+
+fn done_event_has_final_content(payload: &Value) -> bool {
+    ["finalContent", "content", "text"]
+        .into_iter()
+        .filter_map(|key| payload.get(key).and_then(Value::as_str))
+        .any(|value| !value.trim().is_empty())
 }
 
 impl AgentRuntimeEventEnvelope {
@@ -989,6 +1061,62 @@ mod tests {
     }
 
     #[test]
+    fn trace_projection_restores_user_prompt_from_turn_started() {
+        let mut appender = AgentRuntimeEventAppender::new("session-1", "turn-1");
+        let events = vec![appender.append(AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id: None,
+            event_name: "agent.turn.started".to_string(),
+            phase: AgentRuntimePhase::Planning,
+            timestamp: "2026-07-03T00:00:00Z".to_string(),
+            source: AgentRuntimeEventSource::RustBackend,
+            visibility: AgentRuntimeEventVisibility::User,
+            payload: json!({
+                "userMessageId": "user-1",
+                "userMessage": { "id": "user-1", "content": "Approve the write" }
+            }),
+        })];
+
+        let items = project_turn_items_from_trace_events(&events);
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].item_id, "turn-1:user");
+        assert_eq!(items[0].kind, AgentTurnItemKind::UserMessage);
+        assert_eq!(
+            items[0].payload,
+            json!({
+                "messageId": "user-1",
+                "content": "Approve the write"
+            })
+        );
+    }
+
+    #[test]
+    fn trace_projection_ignores_waiting_done_without_final_content() {
+        let mut appender = AgentRuntimeEventAppender::new("session-1", "turn-1");
+        let events = vec![
+            appender.append_legacy_native_event(
+                "agent.awaiting_approval",
+                Some("approval-1".to_string()),
+                "2026-07-03T00:00:01Z",
+                json!({ "approvalId": "approval-1", "reason": "Needs write approval" }),
+            ),
+            appender.append_legacy_native_event(
+                "agent.done",
+                None,
+                "2026-07-03T00:00:02Z",
+                json!({ "stopReason": "awaiting_approval" }),
+            ),
+        ];
+
+        let items = project_turn_items_from_trace_events(&events);
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].kind, AgentTurnItemKind::ApprovalRequest);
+        assert_eq!(items[0].status, AgentTurnItemStatus::Waiting);
+    }
+
+    #[test]
     fn trace_projection_combines_tool_lifecycle_into_one_item() {
         let mut appender = AgentRuntimeEventAppender::new("session-1", "turn-1");
         let events = vec![
@@ -1074,14 +1202,23 @@ mod tests {
         assert_eq!(items[0].item_id, "approval-1");
         assert_eq!(items[0].kind, AgentTurnItemKind::ApprovalRequest);
         assert_eq!(items[0].status, AgentTurnItemStatus::Completed);
-        assert_eq!(items[0].title.as_deref(), Some("Allow workspace.write_file?"));
-        assert_eq!(items[0].summary.as_deref(), Some("Allow workspace.write_file?"));
+        assert_eq!(
+            items[0].title.as_deref(),
+            Some("Allow workspace.write_file?")
+        );
+        assert_eq!(
+            items[0].summary.as_deref(),
+            Some("Allow workspace.write_file?")
+        );
         assert_eq!(items[0].payload["status"], "completed");
         assert_eq!(items[0].payload["decision"], "denied");
         assert_eq!(items[0].payload["scope"], "once");
         assert_eq!(items[0].payload["guidance"], "Do not write files.");
         assert_eq!(items[0].payload["detailId"], "approval:approval-1");
-        assert_eq!(items[0].payload["options"].as_array().map(Vec::len), Some(3));
+        assert_eq!(
+            items[0].payload["options"].as_array().map(Vec::len),
+            Some(3)
+        );
         assert_eq!(items[0].created_at, "2026-07-03T00:00:01Z");
         assert_eq!(items[0].updated_at.as_deref(), Some("2026-07-03T00:00:02Z"));
     }

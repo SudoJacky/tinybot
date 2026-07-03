@@ -659,6 +659,18 @@ function runtimeStateToTurn(
 function applyTurnItemToTurn(turn: ChatTurn, item: BackendAgentTurnItem, sequence: number): void {
   const payload = item.payload ?? {};
   const status = itemStatusToStepStatus(item.status);
+  if (item.kind === "user_message") {
+    const messageId = stringValue(payload.messageId ?? payload.message_id) || turn.userMessage.id;
+    const text = stringValue(payload.content ?? payload.text ?? item.summary);
+    turn.userMessage = {
+      id: messageId,
+      role: "user",
+      text: text || turn.userMessage.text,
+      timestamp: item.createdAt || turn.userMessage.timestamp,
+    };
+    turn.userMessageId = messageId;
+    return;
+  }
   if (item.kind === "assistant_message") {
     const text = safeArtifactText(stringValue(payload.content ?? payload.text ?? payload.finalContent ?? item.summary));
     if (status === "completed") {

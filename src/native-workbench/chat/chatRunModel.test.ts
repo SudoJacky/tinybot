@@ -154,6 +154,53 @@ describe("chat run model", () => {
     });
   });
 
+  test("restores runtime-only blocked turns with their original user prompt", () => {
+    const runtimeState = normalizeAgentRunRuntimeStatePayload({
+      sessionId: "WebSocket:chat-1",
+      runId: "run-approval",
+      runtimeEvents: [],
+      turnItems: [
+        {
+          itemId: "run-approval:user",
+          sessionId: "WebSocket:chat-1",
+          turnId: "run-approval",
+          kind: "user_message",
+          status: "completed",
+          createdAt: "2026-07-03T01:00:00Z",
+          payload: {
+            messageId: "user-approval",
+            content: "Write the config file",
+          },
+        },
+        {
+          itemId: "approval-1",
+          sessionId: "WebSocket:chat-1",
+          turnId: "run-approval",
+          kind: "approval_request",
+          status: "waiting",
+          createdAt: "2026-07-03T01:00:04Z",
+          title: "Allow file write?",
+          payload: {
+            approvalId: "approval-1",
+            reason: "Needs file write approval",
+          },
+        },
+      ],
+    });
+
+    expect(runtimeState).not.toBeNull();
+    const turns = backendRuntimeStatesToTurns("WebSocket:chat-1", [runtimeState!], []);
+
+    expect(turns).toHaveLength(1);
+    expect(turns[0]).toMatchObject({
+      id: "run-approval",
+      status: "awaiting_approval",
+      userMessageId: "user-approval",
+      userMessage: { text: "Write the config file" },
+    });
+    expect(turns[0].finalMessage).toBeUndefined();
+  });
+
   test("replays structured events with deduplication, delegated workflows, and artifacts", () => {
     const state = createChatRunState();
     const started = {
