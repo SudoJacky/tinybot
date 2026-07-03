@@ -741,4 +741,105 @@ mod tests {
         assert_eq!(items[0].created_at, "2026-07-03T00:00:01Z");
         assert_eq!(items[0].updated_at.as_deref(), Some("2026-07-03T00:00:02Z"));
     }
+
+    #[test]
+    fn trace_projection_restores_active_terminal_and_waiting_items() {
+        let events = vec![
+            runtime_event(
+                "turn-1",
+                "agent.delta",
+                AgentRuntimePhase::StreamingModel,
+                None,
+                1,
+                json!({ "delta": "working" }),
+            ),
+            runtime_event(
+                "turn-2",
+                "agent.done",
+                AgentRuntimePhase::Completed,
+                None,
+                1,
+                json!({ "finalContent": "done" }),
+            ),
+            runtime_event(
+                "turn-3",
+                "agent.error",
+                AgentRuntimePhase::Failed,
+                None,
+                1,
+                json!({ "message": "failed" }),
+            ),
+            runtime_event(
+                "turn-4",
+                "agent.cancelled",
+                AgentRuntimePhase::Cancelled,
+                None,
+                1,
+                json!({ "message": "cancelled" }),
+            ),
+            runtime_event(
+                "turn-5",
+                "agent.awaiting_approval",
+                AgentRuntimePhase::AwaitingApproval,
+                Some("approval-1"),
+                1,
+                json!({ "approvalId": "approval-1" }),
+            ),
+            runtime_event(
+                "turn-6",
+                "agent.awaiting_form",
+                AgentRuntimePhase::AwaitingForm,
+                Some("form-1"),
+                1,
+                json!({ "formId": "form-1" }),
+            ),
+            runtime_event(
+                "turn-7",
+                "agent.delegate.running",
+                AgentRuntimePhase::AwaitingSubagent,
+                Some("subagent-1"),
+                1,
+                json!({ "delegateId": "subagent-1" }),
+            ),
+        ];
+
+        let items = project_turn_items_from_trace_events(&events);
+
+        assert_eq!(items.len(), 7);
+        assert_eq!(items[0].status, AgentTurnItemStatus::Running);
+        assert_eq!(items[1].status, AgentTurnItemStatus::Completed);
+        assert_eq!(items[2].status, AgentTurnItemStatus::Failed);
+        assert_eq!(items[3].status, AgentTurnItemStatus::Cancelled);
+        assert_eq!(items[4].kind, AgentTurnItemKind::ApprovalRequest);
+        assert_eq!(items[4].status, AgentTurnItemStatus::Waiting);
+        assert_eq!(items[5].kind, AgentTurnItemKind::FormRequest);
+        assert_eq!(items[5].status, AgentTurnItemStatus::Waiting);
+        assert_eq!(items[6].kind, AgentTurnItemKind::SubagentActivity);
+        assert_eq!(items[6].status, AgentTurnItemStatus::Waiting);
+    }
+
+    fn runtime_event(
+        turn_id: &str,
+        event_name: &str,
+        phase: AgentRuntimePhase,
+        item_id: Option<&str>,
+        sequence: u64,
+        payload: Value,
+    ) -> AgentRuntimeEventEnvelope {
+        AgentRuntimeEventEnvelope {
+            schema_version: AGENT_RUNTIME_EVENT_SCHEMA_VERSION.to_string(),
+            event_id: format!("{turn_id}:{event_name}:{sequence}"),
+            sequence,
+            session_id: "session-1".to_string(),
+            turn_id: turn_id.to_string(),
+            parent_turn_id: None,
+            item_id: item_id.map(str::to_string),
+            event_name: event_name.to_string(),
+            phase,
+            timestamp: format!("2026-07-03T00:00:{sequence:02}Z"),
+            source: AgentRuntimeEventSource::RustBackend,
+            visibility: AgentRuntimeEventVisibility::User,
+            payload,
+        }
+    }
 }
