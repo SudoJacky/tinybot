@@ -1883,6 +1883,14 @@ fn native_agent_runtime_trace_events(
     run_id: &str,
     timestamp: &str,
 ) -> Vec<serde_json::Value> {
+    if let Some(runtime_events) = result
+        .get("runtimeEvents")
+        .and_then(serde_json::Value::as_array)
+        .filter(|events| !events.is_empty())
+    {
+        return native_agent_persisted_trace_values(runtime_events);
+    }
+
     let mut appender = AgentRuntimeEventAppender::new(session_id, run_id);
     let user_message = native_agent_current_user_message(spec);
     let user_message_id = user_message.as_ref().and_then(native_agent_message_id);
@@ -6885,21 +6893,24 @@ mod tests {
         let trace_events = run["traceEvents"]
             .as_array()
             .expect("trace events should be an array");
+        let result_runtime_events = result["runtimeEvents"]
+            .as_array()
+            .expect("runtime events should be returned");
+        assert_eq!(trace_events.len(), result_runtime_events.len());
+        for (persisted, emitted) in trace_events.iter().zip(result_runtime_events) {
+            assert_eq!(persisted["eventId"], emitted["eventId"]);
+        }
         assert_eq!(trace_events[0]["schemaVersion"], "tinybot.agent_event.v1");
         assert_eq!(trace_events[0]["eventName"], "agent.turn.started");
         assert_eq!(trace_events[0]["sequence"], 1);
         assert_eq!(
-            trace_events[0]["payload"]["userMessage"]["messageId"],
+            trace_events[0]["payload"]["userMessageId"],
             "user-read-answer"
         );
         assert_eq!(
             trace_events[0]["payload"]["userMessage"]["content"],
             "read and answer"
         );
-        assert!(trace_events.iter().any(|event| {
-            event["eventName"] == "agent.phase.changed"
-                && event["payload"]["nextPhase"] == "hydrating_history"
-        }));
         assert!(trace_events.iter().any(|event| {
             event["eventName"] == "agent.phase.changed"
                 && event["payload"]["nextPhase"] == "calling_model"
