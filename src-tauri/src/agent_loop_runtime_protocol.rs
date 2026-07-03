@@ -204,6 +204,106 @@ pub struct LegacyNativeAgentEventEnvelopeInput {
     pub payload: Value,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentRuntimeEventAppendInput {
+    #[serde(default)]
+    pub parent_turn_id: Option<String>,
+    #[serde(default)]
+    pub item_id: Option<String>,
+    pub event_name: String,
+    pub phase: AgentRuntimePhase,
+    pub timestamp: String,
+    pub source: AgentRuntimeEventSource,
+    pub visibility: AgentRuntimeEventVisibility,
+    pub payload: Value,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AgentRuntimeEventAppender {
+    session_id: String,
+    turn_id: String,
+    next_sequence: u64,
+}
+
+impl AgentRuntimeEventAppender {
+    pub fn new(session_id: impl Into<String>, turn_id: impl Into<String>) -> Self {
+        Self {
+            session_id: session_id.into(),
+            turn_id: turn_id.into(),
+            next_sequence: 1,
+        }
+    }
+
+    pub fn from_existing_events(
+        session_id: impl Into<String>,
+        turn_id: impl Into<String>,
+        events: &[AgentRuntimeEventEnvelope],
+    ) -> Self {
+        let next_sequence = events
+            .iter()
+            .map(|event| event.sequence)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1);
+        Self {
+            session_id: session_id.into(),
+            turn_id: turn_id.into(),
+            next_sequence,
+        }
+    }
+
+    pub fn append(&mut self, input: AgentRuntimeEventAppendInput) -> AgentRuntimeEventEnvelope {
+        let sequence = self.take_next_sequence();
+        AgentRuntimeEventEnvelope {
+            schema_version: AGENT_RUNTIME_EVENT_SCHEMA_VERSION.to_string(),
+            event_id: deterministic_event_id(&self.turn_id, &input.event_name, sequence),
+            sequence,
+            session_id: self.session_id.clone(),
+            turn_id: self.turn_id.clone(),
+            parent_turn_id: input.parent_turn_id,
+            item_id: input.item_id,
+            event_name: input.event_name,
+            phase: input.phase,
+            timestamp: input.timestamp,
+            source: input.source,
+            visibility: input.visibility,
+            payload: input.payload,
+        }
+    }
+
+    pub fn append_legacy_native_event(
+        &mut self,
+        event_name: impl Into<String>,
+        item_id: Option<String>,
+        timestamp: impl Into<String>,
+        payload: Value,
+    ) -> AgentRuntimeEventEnvelope {
+        let event_name = event_name.into();
+        let sequence = self.take_next_sequence();
+        AgentRuntimeEventEnvelope::from_legacy_native_event(LegacyNativeAgentEventEnvelopeInput {
+            session_id: self.session_id.clone(),
+            turn_id: self.turn_id.clone(),
+            parent_turn_id: None,
+            item_id,
+            event_name,
+            sequence,
+            timestamp: timestamp.into(),
+            payload,
+        })
+    }
+
+    pub fn next_sequence(&self) -> u64 {
+        self.next_sequence
+    }
+
+    fn take_next_sequence(&mut self) -> u64 {
+        let sequence = self.next_sequence;
+        self.next_sequence = self.next_sequence.saturating_add(1);
+        sequence
+    }
+}
+
 impl AgentRuntimeEventEnvelope {
     pub fn from_legacy_native_event(input: LegacyNativeAgentEventEnvelopeInput) -> Self {
         let phase = AgentRuntimePhase::for_legacy_event(&input.event_name);
@@ -387,5 +487,67 @@ mod tests {
             AgentTurnItemKind::for_legacy_event("agent.delegate.completed"),
             Some(AgentTurnItemKind::SubagentActivity)
         );
+    }
+
+    #[test]
+    fn event_appender_assigns_monotonic_sequences_and_stable_ids() {
+        let mut appender = AgentRuntimeEventAppender::new("session-1", "turn-1");
+
+        let first = appender.append(AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id: None,
+            event_name: "agent.turn.started".to_string(),
+            phase: AgentRuntimePhase::Planning,
+            timestamp: "2026-07-03T00:00:00Z".to_string(),
+            source: AgentRuntimeEventSource::RustBackend,
+            visibility: AgentRuntimeEventVisibility::User,
+            payload: json!({}),
+        });
+        let second = appender.append(AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id: Some("item-1".to_string()),
+            event_name: "agent.delta".to_string(),
+            phase: AgentRuntimePhase::StreamingModel,
+            timestamp: "2026-07-03T00:00:01Z".to_string(),
+            source: AgentRuntimeEventSource::Provider,
+            visibility: AgentRuntimeEventVisibility::User,
+            payload: json!({ "delta": "hello" }),
+        });
+
+        assert_eq!(first.sequence, 1);
+        assert_eq!(first.event_id, "turn-1:agent-turn-started:0000000000000001");
+        assert_eq!(second.sequence, 2);
+        assert_eq!(second.event_id, "turn-1:agent-delta:0000000000000002");
+        assert_eq!(appender.next_sequence(), 3);
+    }
+
+    #[test]
+    fn event_appender_resumes_after_existing_events() {
+        let existing = AgentRuntimeEventEnvelope::from_legacy_native_event(
+            LegacyNativeAgentEventEnvelopeInput {
+                session_id: "session-1".to_string(),
+                turn_id: "turn-1".to_string(),
+                parent_turn_id: None,
+                item_id: None,
+                event_name: "agent.delta".to_string(),
+                sequence: 12,
+                timestamp: "2026-07-03T00:00:12Z".to_string(),
+                payload: json!({ "delta": "existing" }),
+            },
+        );
+        let mut appender =
+            AgentRuntimeEventAppender::from_existing_events("session-1", "turn-1", &[existing]);
+
+        let next = appender.append_legacy_native_event(
+            "agent.done",
+            None,
+            "2026-07-03T00:00:13Z",
+            json!({ "finalContent": "done" }),
+        );
+
+        assert_eq!(next.sequence, 13);
+        assert_eq!(next.event_id, "turn-1:agent-done:0000000000000013");
+        assert_eq!(next.phase, AgentRuntimePhase::Completed);
+        assert_eq!(appender.next_sequence(), 14);
     }
 }
