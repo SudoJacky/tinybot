@@ -1039,7 +1039,9 @@ describe("rebuilt chat surface", () => {
 
     expect(host.querySelector("[data-chat-header-action]")).toBeNull();
     const trigger = host.querySelector<HTMLButtonElement>("[data-chat-header-menu-trigger]");
-    expect(trigger?.textContent).toBe("...");
+    expect(trigger?.textContent).toBe("");
+    expect(trigger?.querySelector(".desktop-chat-surface__header-menu-dots")?.getAttribute("aria-hidden")).toBe("true");
+    expect(trigger?.querySelectorAll(".desktop-chat-surface__header-menu-dot")).toHaveLength(3);
     expect(trigger?.getAttribute("aria-haspopup")).toBe("menu");
     expect(trigger?.getAttribute("aria-expanded")).toBe("false");
     trigger?.click();

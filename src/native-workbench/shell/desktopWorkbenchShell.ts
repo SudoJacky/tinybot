@@ -10320,8 +10320,22 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       padding: 0;
       background: transparent;
       color: #4d4841;
-      font: 700 16px/1 var(--font-sans);
       cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-chat-surface__header-menu-dots {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      line-height: 0;
+    }
+
+    body.desktop-native-workbench .desktop-chat-surface__header-menu-dot {
+      width: 3px;
+      height: 3px;
+      border-radius: 999px;
+      background: currentColor;
     }
 
     body.desktop-native-workbench .desktop-chat-surface__header-menu-button:hover {

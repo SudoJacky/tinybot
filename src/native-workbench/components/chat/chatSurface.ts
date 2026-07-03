@@ -726,7 +726,13 @@ function renderHeader(title: string, pinned: boolean, menuOpen: boolean, actions
   const heading = element("h2", "desktop-chat-surface__title", title);
   const titleGroup = element("div", "desktop-chat-surface__title-group");
   const menuShell = element("div", "desktop-chat-surface__header-menu");
-  const menuButton = element("button", "desktop-chat-surface__header-menu-button", "...");
+  const menuButton = element("button", "desktop-chat-surface__header-menu-button");
+  const menuDots = element("span", "desktop-chat-surface__header-menu-dots");
+  menuDots.setAttribute("aria-hidden", "true");
+  for (let index = 0; index < 3; index += 1) {
+    menuDots.append(element("span", "desktop-chat-surface__header-menu-dot"));
+  }
+  menuButton.append(menuDots);
   menuButton.type = "button";
   menuButton.setAttribute("aria-expanded", String(menuOpen));
   menuButton.setAttribute("aria-haspopup", "menu");
