@@ -1452,6 +1452,13 @@ fn worker_run_agent_with_options(
 ) -> Result<serde_json::Value, String> {
     let _ = timeout;
     let persistence_spec = spec.clone();
+    if let Some(rejection) = reject_native_agent_terminal_run_reentry(
+        &persistence_spec,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+    )? {
+        return Ok(rejection);
+    }
     let runtime_spec = hydrate_native_agent_history_for_runtime(
         spec,
         workspace_root.clone(),
@@ -1499,6 +1506,74 @@ fn worker_run_agent_with_options(
         config_snapshot,
     )?;
     Ok(result)
+}
+
+fn reject_native_agent_terminal_run_reentry(
+    spec: &serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+) -> Result<Option<serde_json::Value>, String> {
+    let Some(session_id) = native_agent_session_id(spec) else {
+        return Ok(None);
+    };
+    let Some(run_id) = native_agent_run_id(spec) else {
+        return Ok(None);
+    };
+    let request_id = next_worker_request_correlation();
+    let existing = call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("agent-run-terminal-check"),
+            request_id.trace_id("agent-run-terminal-check"),
+            "agent_run.get",
+            serde_json::json!({
+                "session_id": session_id,
+                "run_id": run_id,
+            }),
+        ),
+        "native agent terminal run check",
+    );
+    let Ok(existing) = existing else {
+        return Ok(None);
+    };
+    let status = existing
+        .get("status")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    if !matches!(status, "completed" | "failed" | "cancelled") {
+        return Ok(None);
+    }
+    let phase = existing
+        .get("phase")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(status);
+    let message = format!("agent run `{run_id}` is terminal ({status}) and cannot continue");
+    Ok(Some(serde_json::json!({
+        "runtime": "rust",
+        "runId": run_id,
+        "sessionId": session_id,
+        "finalContent": "",
+        "stopReason": "terminal_turn",
+        "messages": [],
+        "toolsUsed": [],
+        "completedToolResults": [],
+        "error": message,
+        "terminalRun": {
+            "status": status,
+            "phase": phase,
+        },
+        "events": [{
+            "eventName": "agent.error",
+            "payload": {
+                "runId": run_id,
+                "sessionId": session_id,
+                "stopReason": "terminal_turn",
+                "message": message,
+                "error": message,
+            }
+        }],
+    })))
 }
 
 fn persist_native_agent_run_start(
@@ -6310,6 +6385,75 @@ mod tests {
         assert_eq!(messages[1]["content"], "agent replied a");
         assert_eq!(messages[2]["role"], "user");
         assert_eq!(messages[2]["content"], "what did I say before?");
+    }
+
+    #[test]
+    fn worker_run_agent_rejects_terminal_run_reentry_before_provider_call() {
+        let fixture = WorkspaceFixture::new();
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let shared = Arc::new(Mutex::new(GatewayRuntime {
+            native_agent_runtime: NativeAgentRuntimeServices::new(
+                Arc::new(RecordingNativeAgentProvider {
+                    calls: calls.clone(),
+                }),
+                Arc::new(crate::worker_agent_runtime::FakeNativeAgentToolDispatcher),
+                Arc::new(
+                    crate::worker_agent_runtime::InMemoryNativeAgentCheckpointStore::default(),
+                ),
+                Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCancellation::default()),
+            ),
+            ..GatewayRuntime::default()
+        }));
+        let config = serde_json::json!({
+            "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+        });
+
+        let first = worker_run_agent_with_options(
+            &shared,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-terminal-reentry",
+                "sessionId": "websocket:chat-terminal-reentry",
+                "messages": [{ "role": "user", "content": "finish once" }]
+            }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("first Rust runtime turn should complete");
+        let second = worker_run_agent_with_options(
+            &shared,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-terminal-reentry",
+                "sessionId": "websocket:chat-terminal-reentry",
+                "messages": [{ "role": "user", "content": "try to continue" }]
+            }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("terminal reentry should return structured rejection");
+        let run = read_agent_run_record(
+            fixture.root.clone(),
+            config,
+            "websocket:chat-terminal-reentry",
+            "run-terminal-reentry",
+        );
+
+        assert_eq!(first["stopReason"], "final_response");
+        assert_eq!(second["stopReason"], "terminal_turn");
+        assert_eq!(second["terminalRun"]["status"], "completed");
+        assert_eq!(second["events"][0]["eventName"], "agent.error");
+        assert_eq!(
+            calls
+                .lock()
+                .expect("recording provider calls lock should not be poisoned")
+                .len(),
+            1
+        );
+        assert_eq!(run["status"], "completed");
+        assert_eq!(run["phase"], "completed");
     }
 
     #[test]
