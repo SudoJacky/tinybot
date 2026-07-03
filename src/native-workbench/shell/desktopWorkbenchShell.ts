@@ -10339,6 +10339,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-chat-surface__header-menu-button:hover {
+      background: #e5e1da;
       color: #2c2925;
       outline: 0;
     }
