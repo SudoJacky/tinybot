@@ -51,6 +51,8 @@ export const NATIVE_BACKEND_COMMAND_NAMES = [
   "worker_workspace_put_file",
   "worker_sessions_list",
   "worker_session_messages",
+  "worker_agent_runs_list",
+  "worker_agent_run_runtime_state",
   "worker_session_temporary_files",
   "worker_session_upload_temporary_file",
   "worker_session_clear_temporary_files",

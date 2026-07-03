@@ -200,6 +200,26 @@ export type AgentEventEnvelope = {
   turn_id: string;
 };
 
+export type BackendAgentTurnItem = {
+  itemId: string;
+  sessionId: string;
+  turnId: string;
+  kind: string;
+  status: string;
+  createdAt: string;
+  updatedAt?: string;
+  title?: string;
+  summary?: string;
+  payload?: Record<string, unknown>;
+};
+
+export type BackendAgentRunRuntimeState = {
+  sessionId: string;
+  runId: string;
+  runtimeEvents?: unknown[];
+  turnItems: BackendAgentTurnItem[];
+};
+
 export type ChatInspectorPanel = {
   body: string;
   kind: ChatInspectorSelection["kind"];
@@ -306,6 +326,79 @@ export function legacyMessagesToTurns(sessionKey: string, messages: NativeChatMe
     }
   }
   return turns;
+}
+
+export function normalizeAgentRunRuntimeStatePayload(payload: unknown): BackendAgentRunRuntimeState | null {
+  const value = recordValue(payload);
+  const sessionId = stringValue(value.sessionId ?? value.session_id);
+  const runId = stringValue(value.runId ?? value.run_id);
+  const rawTurnItems = Array.isArray(value.turnItems)
+    ? value.turnItems
+    : Array.isArray(value.turn_items)
+      ? value.turn_items
+      : [];
+  if (!sessionId || !runId) {
+    return null;
+  }
+  const turnItems = rawTurnItems
+    .filter(isRecord)
+    .map((item): BackendAgentTurnItem => {
+      const itemId = stringValue(item.itemId ?? item.item_id) || stableId("item", runId, stringValue(item.kind), rawTurnItems.indexOf(item));
+      return {
+        itemId,
+        sessionId: stringValue(item.sessionId ?? item.session_id) || sessionId,
+        turnId: stringValue(item.turnId ?? item.turn_id) || runId,
+        kind: stringValue(item.kind),
+        status: stringValue(item.status),
+        createdAt: stringValue(item.createdAt ?? item.created_at),
+        updatedAt: stringValue(item.updatedAt ?? item.updated_at),
+        title: stringValue(item.title),
+        summary: safeArtifactText(stringValue(item.summary)),
+        payload: recordValue(item.payload),
+      };
+    });
+  return {
+    sessionId,
+    runId,
+    runtimeEvents: Array.isArray(value.runtimeEvents) ? value.runtimeEvents : Array.isArray(value.runtime_events) ? value.runtime_events : [],
+    turnItems,
+  };
+}
+
+export function backendRuntimeStatesToTurns(
+  sessionKey: string,
+  runtimeStates: BackendAgentRunRuntimeState[],
+  legacyMessages: NativeChatMessage[] = [],
+): ChatTurn[] {
+  const legacyTurns = legacyMessagesToTurns(sessionKey, legacyMessages);
+  const statesWithItems = runtimeStates
+    .filter((state) => state.sessionId === sessionKey && state.turnItems.length > 0)
+    .sort(compareRuntimeStatesByStart);
+  if (!statesWithItems.length) {
+    return legacyTurns;
+  }
+  const legacyOffset = Math.max(0, legacyTurns.length - statesWithItems.length);
+  const backendTurns = statesWithItems.map((runtimeState, index) =>
+    runtimeStateToTurn(sessionKey, runtimeState, legacyTurns[legacyOffset + index]),
+  );
+  return [
+    ...legacyTurns.slice(0, legacyOffset),
+    ...backendTurns,
+  ];
+}
+
+export function applyBackendRuntimeStates(
+  state: ChatRunState,
+  sessionKey: string,
+  runtimeStates: BackendAgentRunRuntimeState[],
+): boolean {
+  const legacyMessages = state.legacyMessagesBySession.get(sessionKey) ?? [];
+  const turns = backendRuntimeStatesToTurns(sessionKey, runtimeStates, legacyMessages);
+  if (turns.length === legacyMessagesToTurns(sessionKey, legacyMessages).length && !runtimeStates.some((runtimeState) => runtimeState.turnItems.length)) {
+    return false;
+  }
+  state.turnsBySession.set(sessionKey, turns);
+  return runtimeStates.some((runtimeState) => runtimeState.turnItems.length > 0);
 }
 
 export function reduceAgentEvent(state: ChatRunState, event: AgentEventEnvelope): ChatRunState {
@@ -509,6 +602,288 @@ export function reduceAgentEvent(state: ChatRunState, event: AgentEventEnvelope)
   }
 
   return state;
+}
+
+function compareRuntimeStatesByStart(left: BackendAgentRunRuntimeState, right: BackendAgentRunRuntimeState): number {
+  return compareRuntimeTimestamps(runtimeStateStart(left), runtimeStateStart(right))
+    || left.runId.localeCompare(right.runId);
+}
+
+function runtimeStateStart(state: BackendAgentRunRuntimeState): string {
+  return state.turnItems
+    .map((item) => item.createdAt)
+    .filter(Boolean)
+    .sort(compareRuntimeTimestamps)[0] || "";
+}
+
+function runtimeStateToTurn(
+  sessionKey: string,
+  runtimeState: BackendAgentRunRuntimeState,
+  legacyTurn: ChatTurn | undefined,
+): ChatTurn {
+  const startedAt = runtimeStateStart(runtimeState) || legacyTurn?.startedAt || new Date().toISOString();
+  const updatedAt = runtimeState.turnItems
+    .map((item) => item.updatedAt || item.createdAt)
+    .filter(Boolean)
+    .sort(compareRuntimeTimestamps);
+  const lastUpdatedAt = updatedAt[updatedAt.length - 1] || legacyTurn?.updatedAt || startedAt;
+  const turn: ChatTurn = {
+    id: runtimeState.runId,
+    sessionKey,
+    userMessage: legacyTurn?.userMessage ?? {
+      id: stableId("user", runtimeState.runId),
+      role: "user",
+      text: "",
+      timestamp: startedAt,
+    },
+    userMessageId: legacyTurn?.userMessageId ?? stableId("user", runtimeState.runId),
+    status: legacyTurn?.status ?? "running",
+    steps: [],
+    startedAt,
+    updatedAt: lastUpdatedAt,
+  };
+
+  for (const [index, item] of runtimeState.turnItems.entries()) {
+    applyTurnItemToTurn(turn, item, index + 1);
+  }
+  if (!turn.finalMessage && legacyTurn?.finalMessage) {
+    turn.finalMessage = legacyTurn.finalMessage;
+  }
+  turn.status = statusForTurnItems(runtimeState.turnItems, turn.status);
+  if (turn.status === "completed" || turn.status === "failed" || turn.status === "interrupted") {
+    turn.completedAt = turn.completedAt ?? lastUpdatedAt;
+  }
+  return turn;
+}
+
+function compareRuntimeTimestamps(left: string, right: string): number {
+  const leftMillis = runtimeTimestampMillis(left);
+  const rightMillis = runtimeTimestampMillis(right);
+  if (Number.isFinite(leftMillis) && Number.isFinite(rightMillis) && leftMillis !== rightMillis) {
+    return leftMillis - rightMillis;
+  }
+  if (Number.isFinite(leftMillis) !== Number.isFinite(rightMillis)) {
+    return Number.isFinite(leftMillis) ? -1 : 1;
+  }
+  return left.localeCompare(right);
+}
+
+function runtimeTimestampMillis(value: string): number {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return Number.NaN;
+  }
+  if (/^\d+$/.test(trimmed)) {
+    return Number(trimmed);
+  }
+  return Date.parse(trimmed);
+}
+
+function applyTurnItemToTurn(turn: ChatTurn, item: BackendAgentTurnItem, sequence: number): void {
+  const payload = item.payload ?? {};
+  const status = itemStatusToStepStatus(item.status);
+  if (item.kind === "user_message") {
+    const messageId = stringValue(payload.messageId ?? payload.message_id) || turn.userMessage.id;
+    const text = stringValue(payload.content ?? payload.text ?? item.summary);
+    turn.userMessage = {
+      id: messageId,
+      role: "user",
+      text: text || turn.userMessage.text,
+      timestamp: item.createdAt || turn.userMessage.timestamp,
+    };
+    turn.userMessageId = messageId;
+    return;
+  }
+  if (item.kind === "assistant_message") {
+    const text = safeArtifactText(stringValue(payload.content ?? payload.text ?? payload.finalContent ?? item.summary));
+    if (status === "completed") {
+      turn.finalMessage = {
+        id: item.itemId,
+        role: "assistant",
+        text,
+        timestamp: item.updatedAt || item.createdAt || turn.updatedAt,
+      };
+      return;
+    }
+    if (text) {
+      turn.steps.push(runtimeStep(item, sequence, {
+        kind: "message",
+        status,
+        summary: text,
+        title: item.title || "Assistant message",
+      }));
+    }
+    return;
+  }
+  if (item.kind === "reasoning") {
+    turn.steps.push(runtimeStep(item, sequence, {
+      kind: "reasoning",
+      status,
+      summary: safeArtifactText(stringValue(payload.content ?? payload.summary ?? item.summary)),
+      title: item.title || (status === "completed" ? "Thinking complete" : "Thinking"),
+    }));
+    return;
+  }
+  if (item.kind === "tool_call") {
+    const toolCall = toolCallFromRuntimeItem(item);
+    turn.steps.push(runtimeStep(item, sequence, {
+      kind: "tool_call",
+      status,
+      title: item.title || toolCall.name,
+      toolCall,
+    }));
+    return;
+  }
+  if (item.kind === "approval_request") {
+    turn.steps.push(runtimeStep(item, sequence, {
+      approval: approvalFromRuntimeItem(item),
+      kind: "approval",
+      status: status === "completed" ? "completed" : "blocked",
+      summary: safeArtifactText(stringValue(payload.summary ?? payload.reason ?? item.summary)),
+      title: item.title || "Approval",
+    }));
+    return;
+  }
+  if (item.kind === "form_request") {
+    turn.steps.push(runtimeStep(item, sequence, {
+      kind: "form",
+      status: status === "completed" ? "completed" : "blocked",
+      summary: safeArtifactText(stringValue(payload.summary ?? payload.title ?? item.summary)),
+      title: item.title || safeArtifactText(stringValue(payload.title)) || "Form requested",
+    }));
+    return;
+  }
+  if (item.kind === "subagent_activity") {
+    const delegate = delegateFromRuntimeItem(item);
+    turn.steps.push(runtimeStep(item, sequence, {
+      delegate,
+      kind: "delegate",
+      status: delegate.status,
+      title: delegate.title,
+    }));
+    return;
+  }
+  if (item.kind === "system_notice") {
+    turn.steps.push(runtimeStep(item, sequence, {
+      error: payload.error,
+      kind: status === "failed" ? "error" : "message",
+      status,
+      summary: safeArtifactText(stringValue(payload.message ?? payload.content ?? item.summary ?? item.title)),
+      title: item.title || (status === "failed" ? "Error" : "Runtime notice"),
+    }));
+  }
+}
+
+function runtimeStep(
+  item: BackendAgentTurnItem,
+  sequence: number,
+  patch: Partial<ChatStep> & Pick<ChatStep, "kind" | "status" | "title">,
+): ChatStep {
+  return {
+    agentContext: mainContext(),
+    id: item.itemId,
+    kind: patch.kind,
+    sequence,
+    startedAt: item.createdAt,
+    ...(item.updatedAt && (patch.status === "completed" || patch.status === "failed" || patch.status === "cancelled") ? { completedAt: item.updatedAt } : {}),
+    status: patch.status,
+    title: patch.title,
+    ...(patch.approval ? { approval: patch.approval } : {}),
+    ...(patch.delegate ? { delegate: patch.delegate } : {}),
+    ...(patch.error !== undefined ? { error: patch.error } : {}),
+    ...(patch.summary ? { summary: patch.summary } : {}),
+    ...(patch.toolCall ? { toolCall: patch.toolCall } : {}),
+  };
+}
+
+function toolCallFromRuntimeItem(item: BackendAgentTurnItem): ToolCallState {
+  const payload = item.payload ?? {};
+  const envelope = recordValue(payload.envelope);
+  const timing = recordValue(payload.timing);
+  return {
+    approvalId: stringValue(payload.approvalId ?? payload.approval_id),
+    approvalStatus: stringValue(payload.approvalStatus ?? payload.approval_status),
+    argsJson: payload.argsJson ?? payload.args_json ?? payload.argumentsJson,
+    argsPreview: safeArtifactText(stringValue(payload.argsPreview ?? payload.args_preview ?? payload.arguments ?? payload.argumentsJson)),
+    durationMs: numberValue(timing.durationMs ?? timing.duration_ms),
+    id: stringValue(payload.toolCallId ?? payload.tool_call_id) || item.itemId,
+    name: stringValue(payload.toolName ?? payload.tool_name ?? payload.name) || item.title || "tool",
+    resultJson: payload.resultJson ?? payload.result_json ?? envelope.structured,
+    resultPreview: safeArtifactText(stringValue(payload.resultPreview ?? payload.result_preview ?? payload.summary ?? envelope.summary ?? payload.content)),
+    resultRef: stringValue(payload.resultRef ?? payload.result_ref ?? payload.detailId),
+    stderrPreview: safeArtifactText(stringValue(payload.stderrPreview ?? payload.stderr_preview)),
+  };
+}
+
+function approvalFromRuntimeItem(item: BackendAgentTurnItem): ApprovalState {
+  const payload = item.payload ?? {};
+  return {
+    actions: Array.isArray(payload.actions) ? payload.actions.map(String) : undefined,
+    approvalId: stringValue(payload.approvalId ?? payload.approval_id) || item.itemId,
+    decision: stringValue(payload.decision),
+    riskLevel: stringValue(payload.riskLevel ?? payload.risk_level),
+    title: item.title || stringValue(payload.title),
+    toolCallId: stringValue(payload.toolCallId ?? payload.tool_call_id),
+  };
+}
+
+function delegateFromRuntimeItem(item: BackendAgentTurnItem): DelegatedAgentState {
+  const payload = item.payload ?? {};
+  const status = itemStatusToStepStatus(item.status);
+  return {
+    childRunId: stringValue(payload.childRunId ?? payload.child_run_id),
+    finalOutput: stringValue(payload.finalOutput ?? payload.final_output),
+    id: stringValue(payload.delegateId ?? payload.delegate_id ?? payload.subagentId ?? payload.subagent_id) || item.itemId,
+    latestActivity: safeArtifactText(stringValue(payload.summary ?? payload.latestActivity ?? payload.latest_activity ?? item.summary)),
+    parentToolCallId: stringValue(payload.toolCallId ?? payload.tool_call_id ?? payload.parentToolCallId ?? payload.parent_tool_call_id),
+    status,
+    task: stringValue(payload.task),
+    title: item.title || stringValue(payload.title ?? payload.task) || "Subagent activity",
+    toolName: stringValue(payload.toolName ?? payload.tool_name),
+    traceRef: stringValue(payload.traceRef ?? payload.trace_ref),
+    type: "subagent",
+  };
+}
+
+function itemStatusToStepStatus(status: string): ChatStepStatus {
+  switch (status.toLowerCase()) {
+    case "queued":
+      return "pending";
+    case "waiting":
+      return "blocked";
+    case "completed":
+      return "completed";
+    case "failed":
+      return "failed";
+    case "cancelled":
+    case "canceled":
+      return "cancelled";
+    case "running":
+    default:
+      return "running";
+  }
+}
+
+function statusForTurnItems(items: BackendAgentTurnItem[], fallback: ChatTurnStatus): ChatTurnStatus {
+  if (items.some((item) => item.kind === "approval_request" && item.status === "waiting")) {
+    return "awaiting_approval";
+  }
+  if (items.some((item) => item.status === "waiting")) {
+    return "awaiting_user";
+  }
+  if (items.some((item) => item.status === "failed")) {
+    return "failed";
+  }
+  if (items.some((item) => item.status === "cancelled")) {
+    return "interrupted";
+  }
+  if (items.some((item) => item.kind === "assistant_message" && item.status === "completed")) {
+    return "completed";
+  }
+  if (items.some((item) => item.status === "running" || item.status === "queued")) {
+    return "running";
+  }
+  return fallback;
 }
 
 function isDelegatedRunEventType(eventType: string): boolean {

@@ -3,7 +3,9 @@ import {
   applyChatEvent,
   createNativeChatState,
   activateSession,
+  hydrateAgentRunRuntimeStates,
   hydrateDelegatedRunsFromTraceEvents,
+  normalizeAgentRunRuntimeStatesPayload,
   normalizeMessagesPayload,
   normalizeSessionsPayload,
   setMessages,
@@ -18,6 +20,8 @@ import { logDesktopNativeDebug, summarizeDebugText } from "../native/desktopNati
 export interface DesktopChatSessionControllerApi {
   listSessions(): Promise<unknown>;
   loadMessages(sessionKey: string): Promise<unknown>;
+  listAgentRuns?: (sessionKey: string) => Promise<unknown>;
+  getAgentRunRuntimeState?: (sessionKey: string, runId: string) => Promise<unknown>;
   listTraceEvents?: (filter: { sessionKey: string }) => Promise<unknown>;
   getDelegateTrace?: (filter: { sessionKey: string; delegateId?: string; traceRef?: string }) => Promise<unknown>;
   getArtifact?: (filter: { sessionKey: string; delegateId?: string; traceRef?: string; artifactId: string }) => Promise<unknown>;
@@ -95,6 +99,7 @@ export function createDesktopChatSessionController({
       const payload = await api.loadMessages(sessionKey);
       const messages = normalizeMessagesPayload(payload);
       setMessages(state, sessionKey, messages);
+      await loadAgentRunRuntimeStatesForSession(sessionKey);
       await loadTraceEventsForSession(sessionKey);
       state.error = "";
     } catch (error) {
@@ -226,6 +231,36 @@ export function createDesktopChatSessionController({
     }
   }
 
+  async function loadAgentRunRuntimeStatesForSession(sessionKey: string): Promise<void> {
+    if (!api.listAgentRuns || !api.getAgentRunRuntimeState) {
+      return;
+    }
+    logDesktopNativeDebug("session.agentRunRuntime.load.start", {
+      ...summarizeSessionState(),
+      sessionKey,
+    });
+    try {
+      const runsPayload = await api.listAgentRuns(sessionKey);
+      const runIds = normalizeAgentRunIdsPayload(runsPayload);
+      const payloads = await Promise.all(runIds.map((runId) => api.getAgentRunRuntimeState?.(sessionKey, runId)));
+      const runtimeStates = normalizeAgentRunRuntimeStatesPayload(payloads);
+      const changed = hydrateAgentRunRuntimeStates(state, sessionKey, runtimeStates);
+      logDesktopNativeDebug("session.agentRunRuntime.load.complete", {
+        ...summarizeSessionState(),
+        changed,
+        runCount: runIds.length,
+        runtimeStateCount: runtimeStates.length,
+        sessionKey,
+      });
+    } catch (error) {
+      logDesktopNativeDebug("session.agentRunRuntime.load.failed", {
+        ...summarizeSessionState(),
+        error: error instanceof Error ? error.message : String(error),
+        sessionKey,
+      });
+    }
+  }
+
   async function patchSession(sessionKey: string, body: unknown): Promise<boolean> {
     const target = state.sessions.find((session) => session.key === sessionKey);
     logDesktopNativeDebug("session.patch.start", {
@@ -331,6 +366,7 @@ export function createDesktopChatSessionController({
     const payload = await api.loadMessages(sessionKey);
     const messages = normalizeMessagesPayload(payload);
     setMessages(state, sessionKey, messages);
+    await loadAgentRunRuntimeStatesForSession(sessionKey);
     await loadTraceEventsForSession(sessionKey);
     logDesktopNativeDebug("session.messages.loaded", {
       chatId,
@@ -420,6 +456,29 @@ function normalizeTraceEventsPayload(payload: unknown): NativeBackgroundTraceEve
   return [];
 }
 
+function normalizeAgentRunIdsPayload(payload: unknown): string[] {
+  if (!isRecord(payload) || !Array.isArray(payload.runs)) {
+    return [];
+  }
+  return payload.runs
+    .filter(isRecord)
+    .map((run) => stringValue(run.runId ?? run.run_id))
+    .filter(Boolean);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringValue(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (value === undefined || value === null) {
+    return "";
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return "";
 }

@@ -97,6 +97,30 @@ impl WorkerSessionRpc {
         })
     }
 
+    pub fn get_agent_run_runtime_state(
+        &self,
+        session_id: &str,
+        run_id: &str,
+    ) -> Result<AgentRunRuntimeState, WorkerProtocolError> {
+        let record = self.get_agent_run(session_id, run_id)?;
+        let runtime_events = record
+            .trace_events
+            .iter()
+            .enumerate()
+            .filter_map(|(index, event)| runtime_event_from_trace_value(&record, index, event))
+            .collect::<Vec<_>>();
+        let turn_items =
+            crate::agent_loop_runtime_protocol::project_turn_items_from_trace_events(
+                &runtime_events,
+            );
+        Ok(AgentRunRuntimeState {
+            session_id: record.session_id,
+            run_id: record.run_id,
+            runtime_events,
+            turn_items,
+        })
+    }
+
     pub fn append_agent_run_trace_event(
         &mut self,
         session_id: &str,
@@ -165,7 +189,7 @@ impl WorkerSessionRpc {
             }));
         }
         record.status = AgentRunStatus::Completed;
-        record.phase = "done".to_string();
+        record.phase = "completed".to_string();
         record.stop_reason = Some(stop_reason.to_string());
         record.completed_at = Some(timestamp.clone());
         record.updated_at = timestamp;
@@ -463,7 +487,7 @@ fn agent_run_status_from_checkpoint(checkpoint: &Value) -> AgentRunStatus {
         .and_then(Value::as_str)
         .or_else(|| checkpoint.get("phase").and_then(Value::as_str))
     {
-        Some("final_response") | Some("done") | Some("terminal") => AgentRunStatus::Completed,
+        Some("final_response") | Some("completed") | Some("done") | Some("terminal") => AgentRunStatus::Completed,
         Some("cancelled") => AgentRunStatus::Cancelled,
         Some("provider_error")
         | Some("tool_error")
@@ -514,6 +538,81 @@ fn parse_trace_cursor(cursor: Option<&str>) -> Result<usize, WorkerProtocolError
             false,
             WorkerProtocolErrorSource::RustCore,
         ))
+}
+
+fn runtime_event_from_trace_value(
+    record: &AgentRunRecord,
+    index: usize,
+    event: &Value,
+) -> Option<crate::agent_loop_runtime_protocol::AgentRuntimeEventEnvelope> {
+    if let Ok(envelope) =
+        serde_json::from_value::<crate::agent_loop_runtime_protocol::AgentRuntimeEventEnvelope>(
+            event.clone(),
+        )
+    {
+        return Some(envelope);
+    }
+    let event_name = event.get("eventName").and_then(Value::as_str)?.to_string();
+    let payload = event
+        .get("payload")
+        .cloned()
+        .unwrap_or_else(|| event.clone());
+    let sequence = event
+        .get("sequence")
+        .and_then(Value::as_u64)
+        .unwrap_or_else(|| index as u64 + 1);
+    Some(
+        crate::agent_loop_runtime_protocol::AgentRuntimeEventEnvelope::from_legacy_native_event(
+            crate::agent_loop_runtime_protocol::LegacyNativeAgentEventEnvelopeInput {
+                session_id: record.session_id.clone(),
+                turn_id: record.run_id.clone(),
+                parent_turn_id: event
+                    .get("parentTurnId")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                item_id: event
+                    .get("itemId")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .or_else(|| legacy_trace_item_id(&event_name, &payload)),
+                event_name,
+                sequence,
+                timestamp: event
+                    .get("timestamp")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .unwrap_or_else(|| record.updated_at.clone()),
+                payload,
+            },
+        ),
+    )
+}
+
+fn legacy_trace_item_id(event_name: &str, payload: &Value) -> Option<String> {
+    match event_name {
+        "agent.tool_call.delta" | "agent.tool.start" | "agent.tool.result" => {
+            string_from_trace_payload(payload, &["toolCallId", "tool_call_id"])
+        }
+        "agent.awaiting_approval" | "agent.approval.decision" => {
+            string_from_trace_payload(payload, &["approvalId", "approval_id"])
+        }
+        "agent.awaiting_form" | "agent.form.resolution" => {
+            string_from_trace_payload(payload, &["formId", "form_id"])
+        }
+        event_name if event_name.starts_with("agent.delegate.") => {
+            string_from_trace_payload(payload, &["delegateId", "subagentId", "delegate_id"])
+        }
+        _ => None,
+    }
+}
+
+fn string_from_trace_payload(payload: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| {
+        payload
+            .get(*key)
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    })
 }
 
 fn unknown_agent_run_error(session_id: &str, run_id: &str) -> WorkerProtocolError {

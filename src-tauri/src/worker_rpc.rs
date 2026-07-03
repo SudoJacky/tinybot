@@ -488,6 +488,14 @@ impl WorkerRpcRouter {
                 )?)
                 .map_err(serialization_error)
             }
+            "agent_run.runtime_state" => {
+                let params: AgentRunIdParams = parse_params(request)?;
+                serde_json::to_value(
+                    self.session
+                        .get_agent_run_runtime_state(&params.session_id, &params.run_id)?,
+                )
+                .map_err(serialization_error)
+            }
             "agent_run.append_trace" => {
                 let params: AgentRunAppendTraceParams = parse_params(request)?;
                 serde_json::to_value(self.session.append_agent_run_trace_event(
@@ -2562,7 +2570,14 @@ mod tests {
             json!({
                 "session_id": "session-1",
                 "run_id": "run-1",
-                "event": { "eventName": "agent.tool.result" }
+                "event": {
+                    "eventName": "agent.tool.result",
+                    "payload": {
+                        "toolCallId": "call-1",
+                        "toolName": "workspace.read_file",
+                        "content": "README"
+                    }
+                }
             }),
         ));
         let append_second_trace = router.dispatch(&WorkerRequest::new(
@@ -2572,7 +2587,10 @@ mod tests {
             json!({
                 "session_id": "session-1",
                 "run_id": "run-1",
-                "event": { "eventName": "agent.done" }
+                "event": {
+                    "eventName": "agent.done",
+                    "payload": { "finalContent": "done" }
+                }
             }),
         ));
         let set_checkpoint = router.dispatch(&WorkerRequest::new(
@@ -2608,6 +2626,12 @@ mod tests {
             "trace-agent-run",
             "agent_run.list_trace",
             json!({ "session_id": "session-1", "run_id": "run-1", "limit": 1 }),
+        ));
+        let runtime_state = router.dispatch(&WorkerRequest::new(
+            "req-runtime-state",
+            "trace-agent-run",
+            "agent_run.runtime_state",
+            json!({ "session_id": "session-1", "run_id": "run-1" }),
         ));
         let completed = router.dispatch(&WorkerRequest::new(
             "req-complete",
@@ -2653,8 +2677,24 @@ mod tests {
             "agent.tool.result"
         );
         assert_eq!(trace_page.result.as_ref().unwrap()["nextCursor"], "1");
+        assert_eq!(runtime_state.error, None);
+        assert_eq!(
+            runtime_state.result.as_ref().unwrap()["runtimeEvents"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(
+            runtime_state.result.as_ref().unwrap()["turnItems"][0]["kind"],
+            "tool_call"
+        );
+        assert_eq!(
+            runtime_state.result.as_ref().unwrap()["turnItems"][1]["kind"],
+            "assistant_message"
+        );
         assert_eq!(completed.result.as_ref().unwrap()["status"], "completed");
-        assert_eq!(completed.result.as_ref().unwrap()["phase"], "done");
+        assert_eq!(completed.result.as_ref().unwrap()["phase"], "completed");
         assert_eq!(
             clear_checkpoint.result.as_ref().unwrap()["checkpoint"],
             json!(null)

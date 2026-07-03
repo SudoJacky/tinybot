@@ -1,3 +1,7 @@
+use crate::agent_loop_runtime_protocol::{
+    AgentApprovalDecision, AgentApprovalScope, AgentContinuationInput, AgentFormAction,
+    AgentRuntimePhase,
+};
 use crate::worker_subagent_manager::{
     SubagentInputSender, SubagentSendInputParams, SubagentSpawnParams, SubagentTargetParams,
     SubagentThreadManager, SubagentThreadStatus, SubagentWaitParams,
@@ -6,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
+    fmt,
     ops::{Deref, DerefMut},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -16,6 +21,34 @@ use std::{
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum NativeAgentRuntimeMode {
     Rust,
+}
+
+#[derive(Clone)]
+pub struct NativeAgentCancellationContext {
+    run_id: String,
+    cancellations: Arc<dyn NativeAgentCancellation>,
+}
+
+impl NativeAgentCancellationContext {
+    fn new(run_id: String, cancellations: Arc<dyn NativeAgentCancellation>) -> Self {
+        Self {
+            run_id,
+            cancellations,
+        }
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancellations.is_cancelled(&self.run_id)
+    }
+}
+
+impl fmt::Debug for NativeAgentCancellationContext {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("NativeAgentCancellationContext")
+            .field("run_id", &self.run_id)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -37,30 +70,12 @@ pub struct NativeAgentRunContext {
     pub provider: Option<String>,
     pub stream: bool,
     pub max_iterations: i64,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum NativeAgentRunPhase {
-    ActiveTurn,
-    AwaitingTool,
-    Cancelled,
-    Terminal,
-}
-
-impl NativeAgentRunPhase {
-    fn as_str(&self) -> &'static str {
-        match self {
-            Self::ActiveTurn => "active_turn",
-            Self::AwaitingTool => "awaiting_tool",
-            Self::Cancelled => "cancelled",
-            Self::Terminal => "terminal",
-        }
-    }
+    pub cancellation: Option<NativeAgentCancellationContext>,
 }
 
 #[derive(Clone, Debug)]
 struct NativeAgentRunState {
-    phase: NativeAgentRunPhase,
+    phase: AgentRuntimePhase,
     iteration: i64,
     max_iterations: i64,
     pending_tool_calls: Vec<Value>,
@@ -70,12 +85,13 @@ struct NativeAgentRunState {
     usage: Vec<Value>,
     tools_used: Vec<String>,
     stop_reason: Option<String>,
+    pending_guidance_message: Option<Value>,
 }
 
 impl NativeAgentRunState {
     fn new(context: &NativeAgentRunContext) -> Self {
         Self {
-            phase: NativeAgentRunPhase::ActiveTurn,
+            phase: AgentRuntimePhase::Planning,
             iteration: 0,
             max_iterations: context.max_iterations,
             pending_tool_calls: Vec::new(),
@@ -85,17 +101,22 @@ impl NativeAgentRunState {
             usage: Vec::new(),
             tools_used: Vec::new(),
             stop_reason: None,
+            pending_guidance_message: guidance_continuation_message(&context.metadata),
         }
     }
 
-    fn set_phase(&mut self, phase: NativeAgentRunPhase, iteration: i64) {
+    fn set_phase(&mut self, phase: AgentRuntimePhase, iteration: i64) {
         self.phase = phase;
         self.iteration = iteration;
     }
 
     fn set_stop_reason(&mut self, stop_reason: &str) {
         self.stop_reason = Some(stop_reason.to_string());
-        self.phase = NativeAgentRunPhase::Terminal;
+        self.phase = match stop_reason {
+            "final_response" => AgentRuntimePhase::Completed,
+            "cancelled" => AgentRuntimePhase::Cancelled,
+            _ => AgentRuntimePhase::Failed,
+        };
     }
 
     fn active_checkpoint_payload(&self, status: &str) -> Value {
@@ -110,7 +131,7 @@ impl NativeAgentRunState {
     }
 
     fn set_pending_tool_call(&mut self, tool_call: &NativeAgentToolCall) {
-        self.phase = NativeAgentRunPhase::AwaitingTool;
+        self.phase = AgentRuntimePhase::ToolRunning;
         self.pending_tool_calls = vec![serde_json::json!({
             "toolCallId": tool_call.id,
             "toolName": tool_call.name,
@@ -120,6 +141,12 @@ impl NativeAgentRunState {
 
     fn clear_pending_tool_calls(&mut self) {
         self.pending_tool_calls.clear();
+    }
+
+    fn drain_pending_guidance(&mut self) -> Option<Value> {
+        let message = self.pending_guidance_message.take()?;
+        self.messages.push(message.clone());
+        Some(message)
     }
 }
 
@@ -192,6 +219,31 @@ impl NativeToolResultEnvelope {
             serde_json::json!([]),
             tool_call,
             raw_content,
+        )
+    }
+
+    pub fn approval_denied(
+        tool_call: &NativeAgentToolCall,
+        summary: String,
+        guidance: String,
+    ) -> Self {
+        Self::from_parts(
+            "denied",
+            summary.clone(),
+            summary.clone(),
+            "approval_denied",
+            tool_call.name.clone(),
+            serde_json::json!({
+                "kind": "approval_denied",
+                "guidance": guidance,
+            }),
+            serde_json::json!([]),
+            serde_json::json!([]),
+            serde_json::json!([]),
+            tool_call,
+            serde_json::json!({
+                "guidance": guidance,
+            }),
         )
     }
 
@@ -980,6 +1032,40 @@ fn initial_agent_messages(spec: &Value) -> Vec<Value> {
     Vec::new()
 }
 
+fn typed_continuation_from_metadata(metadata: &Value) -> Option<AgentContinuationInput> {
+    metadata
+        .get("agentContinuation")
+        .or_else(|| metadata.get("continuation"))
+        .cloned()
+        .and_then(|value| serde_json::from_value(value).ok())
+}
+
+fn queued_user_continuation_message(metadata: &Value) -> Option<Value> {
+    let AgentContinuationInput::QueuedUserMessage { content, .. } =
+        typed_continuation_from_metadata(metadata)?
+    else {
+        return None;
+    };
+    user_continuation_message(content)
+}
+
+fn guidance_continuation_message(metadata: &Value) -> Option<Value> {
+    let AgentContinuationInput::Guidance { content, .. } =
+        typed_continuation_from_metadata(metadata)?
+    else {
+        return None;
+    };
+    user_continuation_message(content)
+}
+
+fn user_continuation_message(content: String) -> Option<Value> {
+    if content.trim().is_empty() {
+        None
+    } else {
+        Some(serde_json::json!({ "role": "user", "content": content }))
+    }
+}
+
 fn chat_completion_content(completion: &Value) -> String {
     completion
         .pointer("/choices/0/message/content")
@@ -1100,6 +1186,7 @@ pub fn run_native_agent_turn_with_config(
     config_snapshot: Value,
 ) -> Result<Value, String> {
     let mut context = NativeAgentRunContext::from_spec(spec, config_snapshot);
+    context.attach_cancellation(services.cancellations.clone());
     if context.max_iterations <= 0 {
         return Ok(error_result(
             &context.run_id,
@@ -1146,9 +1233,9 @@ pub fn run_native_agent_turn_with_config(
 
     let mut state = NativeAgentRunState::new(&context);
     for iteration in 0..context.max_iterations {
-        state.set_phase(NativeAgentRunPhase::ActiveTurn, iteration);
+        state.set_phase(AgentRuntimePhase::CallingModel, iteration);
         if services.cancellations.is_cancelled(&context.run_id) {
-            state.phase = NativeAgentRunPhase::Cancelled;
+            state.phase = AgentRuntimePhase::Cancelled;
             return Ok(cancelled_run_result(
                 services,
                 &context,
@@ -1196,8 +1283,9 @@ pub fn run_native_agent_turn_with_config(
             }
         };
 
-        maybe_emit_checkpoint(services, &context, &mut state.events, "running");
+        maybe_emit_checkpoint(services, &context, &mut state.events, state.phase.as_str());
         if let Some(reasoning_delta) = provider_response.reasoning_delta.clone() {
+            state.set_phase(AgentRuntimePhase::StreamingModel, iteration);
             state.events.push(event(
                 "agent.reasoning_delta",
                 serde_json::json!({
@@ -1209,6 +1297,7 @@ pub fn run_native_agent_turn_with_config(
             ));
         }
         if context.stream && !provider_response.final_content.is_empty() {
+            state.set_phase(AgentRuntimePhase::StreamingModel, iteration);
             state.events.push(event(
                 "agent.delta",
                 serde_json::json!({
@@ -1222,6 +1311,7 @@ pub fn run_native_agent_turn_with_config(
 
         if !provider_response.tool_calls.is_empty() {
             let tool_calls = provider_response.tool_calls;
+            state.set_phase(AgentRuntimePhase::ToolCalling, iteration);
             state.messages.push(assistant_tool_calls_message(
                 &provider_response.final_content,
                 &tool_calls,
@@ -1271,7 +1361,7 @@ pub fn run_native_agent_turn_with_config(
                     }));
                 }
                 if services.cancellations.is_cancelled(&context.run_id) {
-                    state.phase = NativeAgentRunPhase::Cancelled;
+                    state.phase = AgentRuntimePhase::Cancelled;
                     return Ok(cancelled_run_result(
                         services,
                         &context,
@@ -1291,6 +1381,8 @@ pub fn run_native_agent_turn_with_config(
                         "toolCallId": tool_call.id,
                         "toolName": tool_call.name,
                         "name": tool_call.name,
+                        "detailId": format!("tool:{}", tool_call.id),
+                        "status": "running",
                     }),
                 ));
                 state.set_pending_tool_call(&tool_call);
@@ -1356,13 +1448,33 @@ pub fn run_native_agent_turn_with_config(
                         "toolCallId": tool_call.id,
                         "toolName": tool_call.name,
                         "name": tool_call.name,
+                        "detailId": format!("tool:{}", tool_call.id),
+                        "status": "completed",
+                        "resultStatus": result.envelope.get("status").cloned().unwrap_or_else(|| serde_json::json!("ok")),
+                        "summary": result.envelope.get("summary").cloned().unwrap_or_else(|| Value::String(observation_content.clone())),
+                        "timing": {
+                            "durationMs": result
+                                .envelope
+                                .get("metrics")
+                                .and_then(|metrics| metrics.get("durationMs"))
+                                .cloned()
+                                .unwrap_or(Value::Null),
+                        },
                         "content": observation_content,
                         "envelope": result.envelope.clone(),
                     }),
                 ));
+                if let Some(link_event) =
+                    subagent_link_event_from_tool_result(&context, &tool_call, &result)
+                {
+                    state.events.push(link_event);
+                }
+                state.events.extend(subagent_activity_events_from_tool_result(
+                    &context, &tool_call, &result,
+                ));
                 state.completed_tool_results.push(completed_result);
                 state.clear_pending_tool_calls();
-                state.set_phase(NativeAgentRunPhase::ActiveTurn, iteration);
+                state.set_phase(AgentRuntimePhase::Planning, iteration);
                 save_phase_checkpoint(
                     services,
                     &context,
@@ -1370,7 +1482,7 @@ pub fn run_native_agent_turn_with_config(
                     state.active_checkpoint_payload("tool_completed"),
                 );
                 if services.cancellations.is_cancelled(&context.run_id) {
-                    state.phase = NativeAgentRunPhase::Cancelled;
+                    state.phase = AgentRuntimePhase::Cancelled;
                     return Ok(cancelled_run_result(
                         services,
                         &context,
@@ -1380,6 +1492,18 @@ pub fn run_native_agent_turn_with_config(
                         iteration,
                     ));
                 }
+            }
+
+            if let Some(message) = state.drain_pending_guidance() {
+                state.events.push(event(
+                    "agent.guidance",
+                    serde_json::json!({
+                        "runId": context.run_id,
+                        "sessionId": context.session_id,
+                        "iteration": iteration,
+                        "content": message.get("content").cloned().unwrap_or(Value::Null),
+                    }),
+                ));
             }
 
             if let Some(usage) = provider_response.usage {
@@ -1501,10 +1625,14 @@ impl NativeAgentRunContext {
             .or_else(|| metadata.get("_wants_stream"))
             .and_then(Value::as_bool)
             .unwrap_or(false);
+        let mut messages = initial_agent_messages(&spec);
+        if let Some(message) = queued_user_continuation_message(&metadata) {
+            messages.push(message);
+        }
         Self {
             run_id,
             session_id,
-            messages: initial_agent_messages(&spec),
+            messages,
             spec,
             config_snapshot,
             metadata,
@@ -1512,7 +1640,15 @@ impl NativeAgentRunContext {
             provider,
             stream,
             max_iterations,
+            cancellation: None,
         }
+    }
+
+    fn attach_cancellation(&mut self, cancellations: Arc<dyn NativeAgentCancellation>) {
+        self.cancellation = Some(NativeAgentCancellationContext::new(
+            self.run_id.clone(),
+            cancellations,
+        ));
     }
 }
 
@@ -1550,6 +1686,194 @@ fn tool_observation_content(result: &NativeAgentToolResult) -> String {
         return content.to_string();
     }
     legacy_tool_content(&result.content)
+}
+
+fn subagent_link_event_from_tool_result(
+    context: &NativeAgentRunContext,
+    tool_call: &NativeAgentToolCall,
+    result: &NativeAgentToolResult,
+) -> Option<NativeAgentEvent> {
+    if !matches!(tool_call.name.as_str(), "subagent.spawn" | "spawn_agent") {
+        return None;
+    }
+    let raw = result.envelope.get("raw")?;
+    if raw.get("accepted").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
+    let subagent = raw.get("subagent")?;
+    let subagent_id = string_field(subagent, "subagentId")
+        .or_else(|| raw.get("event").and_then(|event| string_field(event, "delegateId")))?;
+    let child_run_id = string_field(subagent, "childRunId")
+        .or_else(|| raw.get("event").and_then(|event| string_field(event, "childRunId")))
+        .unwrap_or_else(|| subagent_id.clone());
+    Some(event(
+        "agent.delegate.linked",
+        serde_json::json!({
+            "runId": context.run_id,
+            "sessionId": context.session_id,
+            "parentTurnId": context.run_id,
+            "parentRunId": context.run_id,
+            "delegateId": subagent_id,
+            "subagentId": subagent_id,
+            "childRunId": child_run_id,
+            "traceRef": subagent.get("traceRef").cloned().unwrap_or(Value::Null),
+            "name": subagent.get("name").cloned().unwrap_or(Value::Null),
+            "task": subagent.get("task").cloned().unwrap_or(Value::Null),
+            "status": subagent.get("status").cloned().unwrap_or(Value::Null),
+            "linkType": "parent_child",
+            "sourceToolCallId": tool_call.id,
+        }),
+    ))
+}
+
+fn subagent_activity_events_from_tool_result(
+    context: &NativeAgentRunContext,
+    tool_call: &NativeAgentToolCall,
+    result: &NativeAgentToolResult,
+) -> Vec<NativeAgentEvent> {
+    if !is_subagent_tool(&tool_call.name) {
+        return Vec::new();
+    }
+    let Some(raw) = result.envelope.get("raw") else {
+        return Vec::new();
+    };
+    let mut events = Vec::new();
+    if let Some(background_event) = raw.get("event") {
+        if background_event
+            .get("eventType")
+            .and_then(Value::as_str)
+            != Some("agent.delegate.started")
+        {
+            if let Some(event) = subagent_background_activity_event(context, background_event) {
+                events.push(event);
+            }
+        }
+    }
+
+    match tool_call.name.as_str() {
+        "subagent.wait" | "wait_agent" => {
+            events.push(event(
+                "agent.delegate.wait",
+                serde_json::json!({
+                    "runId": context.run_id,
+                    "sessionId": context.session_id,
+                    "parentTurnId": context.run_id,
+                    "parentRunId": context.run_id,
+                    "timedOut": raw.get("timedOut").cloned().unwrap_or(Value::Null),
+                    "statuses": raw.get("statuses").cloned().unwrap_or_else(|| serde_json::json!([])),
+                    "sourceToolCallId": tool_call.id,
+                }),
+            ));
+            if let Some(statuses) = raw.get("statuses").and_then(Value::as_array) {
+                for status in statuses {
+                    if status.get("terminalResult").and_then(Value::as_str).is_some() {
+                        events.push(subagent_status_activity_event(
+                            context,
+                            "agent.delegate.result",
+                            "result",
+                            status,
+                            &tool_call.id,
+                        ));
+                    }
+                    if status.get("blockerSummary").and_then(Value::as_str).is_some()
+                        || status.get("pendingApproval").is_some_and(|value| !value.is_null())
+                    {
+                        events.push(subagent_status_activity_event(
+                            context,
+                            "agent.delegate.notification",
+                            "notification",
+                            status,
+                            &tool_call.id,
+                        ));
+                    }
+                }
+            }
+        }
+        "subagent.query" => {
+            if let Some(subagent) = raw.get("subagent") {
+                events.push(subagent_status_activity_event(
+                    context,
+                    "agent.delegate.queried",
+                    "query",
+                    subagent,
+                    &tool_call.id,
+                ));
+            }
+        }
+        _ => {}
+    }
+    events
+}
+
+fn subagent_background_activity_event(
+    context: &NativeAgentRunContext,
+    background_event: &Value,
+) -> Option<NativeAgentEvent> {
+    let event_name = string_field(background_event, "eventType")?;
+    let mut payload = background_event
+        .get("payload")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    payload.insert("runId".to_string(), Value::String(context.run_id.clone()));
+    payload.insert(
+        "sessionId".to_string(),
+        Value::String(context.session_id.clone()),
+    );
+    if let Some(parent_turn_id) = string_field(background_event, "turnId") {
+        payload.insert(
+            "parentTurnId".to_string(),
+            Value::String(parent_turn_id.clone()),
+        );
+        payload.insert("parentRunId".to_string(), Value::String(parent_turn_id));
+    }
+    if let Some(delegate_id) = string_field(background_event, "delegateId") {
+        payload.insert("delegateId".to_string(), Value::String(delegate_id.clone()));
+        payload.insert("subagentId".to_string(), Value::String(delegate_id));
+    }
+    if let Some(child_run_id) = string_field(background_event, "childRunId") {
+        payload.insert("childRunId".to_string(), Value::String(child_run_id));
+    }
+    if let Some(trace_ref) = string_field(background_event, "traceRef") {
+        payload.insert("traceRef".to_string(), Value::String(trace_ref));
+    }
+    if let Some(sequence) = background_event.get("sequence").cloned() {
+        payload.insert("delegateSequence".to_string(), sequence);
+    }
+    if let Some(event_id) = string_field(background_event, "eventId") {
+        payload.insert("delegateEventId".to_string(), Value::String(event_id));
+    }
+    Some(event(&event_name, Value::Object(payload)))
+}
+
+fn subagent_status_activity_event(
+    context: &NativeAgentRunContext,
+    event_name: &str,
+    activity: &str,
+    subagent: &Value,
+    source_tool_call_id: &str,
+) -> NativeAgentEvent {
+    event(
+        event_name,
+        serde_json::json!({
+            "runId": context.run_id,
+            "sessionId": context.session_id,
+            "parentTurnId": subagent.get("parentRunId").cloned().unwrap_or_else(|| Value::String(context.run_id.clone())),
+            "parentRunId": subagent.get("parentRunId").cloned().unwrap_or_else(|| Value::String(context.run_id.clone())),
+            "delegateId": subagent.get("subagentId").cloned().unwrap_or(Value::Null),
+            "subagentId": subagent.get("subagentId").cloned().unwrap_or(Value::Null),
+            "childRunId": subagent.get("childRunId").cloned().unwrap_or(Value::Null),
+            "traceRef": subagent.get("traceRef").cloned().unwrap_or(Value::Null),
+            "name": subagent.get("name").cloned().unwrap_or(Value::Null),
+            "task": subagent.get("task").cloned().unwrap_or(Value::Null),
+            "status": subagent.get("status").cloned().unwrap_or(Value::Null),
+            "terminalResult": subagent.get("terminalResult").cloned().unwrap_or(Value::Null),
+            "blockerSummary": subagent.get("blockerSummary").cloned().unwrap_or(Value::Null),
+            "pendingApproval": subagent.get("pendingApproval").cloned().unwrap_or(Value::Null),
+            "activity": activity,
+            "sourceToolCallId": source_tool_call_id,
+        }),
+    )
 }
 
 fn normalize_tool_result_for_context(
@@ -1829,6 +2153,10 @@ fn maybe_awaiting_approval_result(
                 "sessionId": context.session_id,
                 "approvalId": approval_id,
                 "toolName": tool_name,
+                "detailId": format!("approval:{approval_id}"),
+                "status": "waiting",
+                "summary": format!("Approval required: {tool_name}"),
+                "options": approval_request_options(),
                 "operation": approval,
                 "content": format!("Approval required: {tool_name}"),
             }),
@@ -1859,27 +2187,55 @@ fn maybe_approval_resume_result(
     services: &NativeAgentRuntimeServices,
     context: &NativeAgentRunContext,
 ) -> Option<Value> {
-    let approval = context.metadata.get("fakeApprovalResume")?.clone();
-    let approved = approval
-        .get("approved")
-        .and_then(Value::as_bool)
-        .unwrap_or_else(|| string_field(&approval, "decision").as_deref() == Some("approved"));
+    let (approval, continuation) = approval_resume_metadata(context)?;
+    let approved = matches!(continuation.decision, AgentApprovalDecision::Approved);
     let checkpoint = services
         .checkpoints
         .restore_for_run(&context.session_id, &context.run_id);
     if !approved {
+        if let Some(guidance) = continuation.guidance.clone() {
+            return Some(approval_denied_guidance_result(
+                services,
+                context,
+                &approval,
+                &continuation,
+                guidance,
+                checkpoint,
+            ));
+        }
         services
             .checkpoints
             .clear_for_run(&context.session_id, &context.run_id);
-        let message = string_field(&approval, "guidance")
+        let message = continuation
+            .guidance
+            .clone()
+            .or_else(|| string_field(&approval, "guidance"))
             .map(|guidance| format!("Rust agent approval was denied. User guidance: {guidance}"))
             .unwrap_or_else(|| "Rust agent approval was denied.".to_string());
-        return Some(error_result(
-            &context.run_id,
-            &context.session_id,
-            "approval_denied",
-            &message,
-        ));
+        let events = vec![
+            approval_decision_event(context, &continuation),
+            event(
+                "agent.error",
+                serde_json::json!({
+                    "runId": context.run_id,
+                    "sessionId": context.session_id,
+                    "stopReason": "approval_denied",
+                    "message": message,
+                    "error": message,
+                }),
+            ),
+        ];
+        return Some(serde_json::json!({
+            "runtime": "rust",
+            "runId": context.run_id,
+            "sessionId": context.session_id,
+            "finalContent": "",
+            "stopReason": "approval_denied",
+            "messages": [],
+            "toolsUsed": [],
+            "error": message,
+            "events": events,
+        }));
     }
     services
         .checkpoints
@@ -1888,12 +2244,13 @@ fn maybe_approval_resume_result(
         .or_else(|| string_field(&approval, "final_content"))
         .unwrap_or_else(|| "Approved tool completed.".to_string());
     let events = vec![
+        approval_decision_event(context, &continuation),
         event(
             "agent.tool.result",
             serde_json::json!({
                 "runId": context.run_id,
                 "sessionId": context.session_id,
-                "toolCallId": string_field(&approval, "toolCallId").unwrap_or_else(|| "approval-1".to_string()),
+                "toolCallId": string_field(&approval, "toolCallId").unwrap_or(continuation.approval_id.clone()),
                 "toolName": string_field(&approval, "toolName").unwrap_or_else(|| "approval".to_string()),
                 "content": string_field(&approval, "toolResult").unwrap_or_else(|| "approved".to_string()),
             }),
@@ -1924,8 +2281,263 @@ fn maybe_approval_resume_result(
         "messages": [{ "role": "assistant", "content": final_content }],
         "toolsUsed": [],
         "restoredCheckpoint": checkpoint,
+        "continuation": {
+            "kind": "approval",
+            "approvalId": continuation.approval_id,
+            "decision": if approved { "approved" } else { "denied" },
+            "scope": match continuation.scope {
+                crate::agent_loop_runtime_protocol::AgentApprovalScope::Once => "once",
+                crate::agent_loop_runtime_protocol::AgentApprovalScope::Session => "session",
+            },
+            "guidance": continuation.guidance,
+        },
         "events": events,
     }))
+}
+
+fn approval_denied_guidance_result(
+    services: &NativeAgentRuntimeServices,
+    context: &NativeAgentRunContext,
+    approval: &Value,
+    continuation: &ApprovalContinuationData,
+    guidance: String,
+    checkpoint: Option<Value>,
+) -> Value {
+    services
+        .checkpoints
+        .clear_for_run(&context.session_id, &context.run_id);
+    let tool_call = approval_resume_tool_call(checkpoint.as_ref(), approval, continuation);
+    let summary = format!("Approval denied by user. Guidance: {guidance}");
+    let result = NativeAgentToolResult {
+        content: Value::String(summary.clone()),
+        envelope: NativeToolResultEnvelope::approval_denied(
+            &tool_call,
+            summary.clone(),
+            guidance.clone(),
+        ),
+    };
+    let completed_result = completed_tool_result_entry(&tool_call, &result);
+    let mut messages = checkpoint
+        .as_ref()
+        .and_then(|checkpoint| checkpoint.get("messages"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_else(|| context.messages.clone());
+    messages.push(assistant_tool_calls_message("", &[tool_call.clone()]));
+    messages.push(tool_observation_message(&tool_call, &summary));
+
+    let mut resumed_context = context.clone();
+    resumed_context.messages = messages.clone();
+    resumed_context.spec["messages"] = Value::Array(messages);
+    let mut events = vec![
+        approval_decision_event(context, continuation),
+        event(
+            "agent.tool.result",
+            serde_json::json!({
+                "runId": context.run_id,
+                "sessionId": context.session_id,
+                "toolCallId": tool_call.id,
+                "toolName": tool_call.name,
+                "name": tool_call.name,
+                "detailId": format!("tool:{}", tool_call.id),
+                "status": "completed",
+                "resultStatus": result.envelope.get("status").cloned().unwrap_or(Value::Null),
+                "summary": summary,
+                "content": summary,
+                "envelope": result.envelope.clone(),
+            }),
+        ),
+    ];
+
+    match services.provider.complete(&resumed_context) {
+        Ok(provider_response) => {
+            let final_content = provider_response.final_content;
+            if let Some(usage) = provider_response.usage {
+                events.push(event(
+                    "agent.usage",
+                    serde_json::json!({
+                        "runId": context.run_id,
+                        "sessionId": context.session_id,
+                        "usage": usage,
+                    }),
+                ));
+            }
+            events.push(event(
+                "agent.done",
+                serde_json::json!({
+                    "runId": context.run_id,
+                    "sessionId": context.session_id,
+                    "stopReason": "final_response",
+                }),
+            ));
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": context.run_id,
+                "sessionId": context.session_id,
+                "finalContent": final_content,
+                "stopReason": "final_response",
+                "messages": [{ "role": "assistant", "content": final_content }],
+                "toolsUsed": [],
+                "completedToolResults": [completed_result],
+                "restoredCheckpoint": checkpoint,
+                "continuation": {
+                    "kind": "approval",
+                    "approvalId": continuation.approval_id,
+                    "decision": "denied",
+                    "scope": approval_scope_str(&continuation.scope),
+                    "guidance": guidance,
+                },
+                "events": events,
+            })
+        }
+        Err(error) => {
+            events.push(event(
+                "agent.error",
+                serde_json::json!({
+                    "runId": context.run_id,
+                    "sessionId": context.session_id,
+                    "stopReason": "provider_error",
+                    "message": error,
+                    "error": error,
+                }),
+            ));
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": context.run_id,
+                "sessionId": context.session_id,
+                "finalContent": "",
+                "stopReason": "provider_error",
+                "messages": [],
+                "toolsUsed": [],
+                "completedToolResults": [completed_result],
+                "restoredCheckpoint": checkpoint,
+                "error": error,
+                "events": events,
+            })
+        }
+    }
+}
+
+fn approval_resume_tool_call(
+    checkpoint: Option<&Value>,
+    approval: &Value,
+    continuation: &ApprovalContinuationData,
+) -> NativeAgentToolCall {
+    let pending_tool_call = checkpoint
+        .and_then(|checkpoint| checkpoint.get("pendingToolCalls"))
+        .and_then(Value::as_array)
+        .and_then(|pending_tool_calls| pending_tool_calls.first());
+    NativeAgentToolCall {
+        id: pending_tool_call
+            .and_then(|tool_call| string_field(tool_call, "toolCallId"))
+            .or_else(|| string_field(approval, "toolCallId"))
+            .unwrap_or_else(|| continuation.approval_id.clone()),
+        name: pending_tool_call
+            .and_then(|tool_call| string_field(tool_call, "toolName"))
+            .or_else(|| string_field(approval, "toolName"))
+            .unwrap_or_else(|| "approval".to_string()),
+        arguments_json: pending_tool_call
+            .and_then(|tool_call| string_field(tool_call, "argumentsJson"))
+            .or_else(|| string_field(approval, "argumentsJson"))
+            .unwrap_or_else(|| "{}".to_string()),
+        result: Value::Null,
+    }
+}
+
+fn approval_request_options() -> Value {
+    serde_json::json!([
+        { "decision": "approved", "scope": "once" },
+        { "decision": "approved", "scope": "session" },
+        { "decision": "denied" }
+    ])
+}
+
+fn approval_decision_event(
+    context: &NativeAgentRunContext,
+    continuation: &ApprovalContinuationData,
+) -> NativeAgentEvent {
+    event(
+        "agent.approval.decision",
+        serde_json::json!({
+            "runId": context.run_id,
+            "sessionId": context.session_id,
+            "approvalId": continuation.approval_id,
+            "detailId": format!("approval:{}", continuation.approval_id),
+            "status": "completed",
+            "decision": match continuation.decision {
+                AgentApprovalDecision::Approved => "approved",
+                AgentApprovalDecision::Denied => "denied",
+            },
+            "scope": approval_scope_str(&continuation.scope),
+            "guidance": continuation.guidance,
+        }),
+    )
+}
+
+fn approval_scope_str(scope: &AgentApprovalScope) -> &'static str {
+    match scope {
+        AgentApprovalScope::Once => "once",
+        AgentApprovalScope::Session => "session",
+    }
+}
+
+#[derive(Clone, Debug)]
+struct ApprovalContinuationData {
+    approval_id: String,
+    decision: AgentApprovalDecision,
+    scope: AgentApprovalScope,
+    guidance: Option<String>,
+}
+
+fn approval_resume_metadata(
+    context: &NativeAgentRunContext,
+) -> Option<(Value, ApprovalContinuationData)> {
+    if let Some(AgentContinuationInput::Approval {
+        approval_id,
+        decision,
+        scope,
+        guidance,
+    }) = typed_continuation_metadata(context)
+    {
+        let approved = matches!(decision, AgentApprovalDecision::Approved);
+        let tool_result = if approved {
+            "approved".to_string()
+        } else if let Some(guidance) = guidance.as_deref() {
+            format!("denied: {guidance}")
+        } else {
+            "denied".to_string()
+        };
+        let mut approval = serde_json::json!({
+            "approvalId": approval_id,
+            "approved": approved,
+            "toolCallId": approval_id,
+            "toolName": "approval",
+            "toolResult": tool_result,
+        });
+        if let Some(guidance) = guidance.as_ref() {
+            approval["guidance"] = Value::String(guidance.clone());
+        }
+        if let Some(final_content) = string_field(&context.metadata, "finalContent")
+            .or_else(|| string_field(&context.metadata, "final_content"))
+        {
+            approval["finalContent"] = Value::String(final_content);
+        }
+        return Some((
+            approval,
+            ApprovalContinuationData {
+                approval_id,
+                decision,
+                scope,
+                guidance,
+            },
+        ));
+    }
+
+    None
+}
+
+fn typed_continuation_metadata(context: &NativeAgentRunContext) -> Option<AgentContinuationInput> {
+    typed_continuation_from_metadata(&context.metadata)
 }
 
 fn maybe_awaiting_form_result(
@@ -1966,6 +2578,10 @@ fn maybe_awaiting_form_result(
                 "runId": context.run_id,
                 "sessionId": context.session_id,
                 "formId": form_id,
+                "detailId": format!("form:{form_id}"),
+                "status": "waiting",
+                "summary": string_field(&form, "title")
+                    .unwrap_or_else(|| "Form input required".to_string()),
                 "form": form,
             }),
         ),
@@ -1995,17 +2611,36 @@ fn maybe_form_submit_result(
     services: &NativeAgentRuntimeServices,
     context: &NativeAgentRunContext,
 ) -> Option<Value> {
-    let form = context.metadata.get("fakeFormSubmit")?.clone();
-    if bool_field(&form, "cancelled") {
+    let (form, continuation) = form_submit_metadata(context)?;
+    if matches!(continuation.action, AgentFormAction::Cancel) {
         services
             .checkpoints
             .clear_for_run(&context.session_id, &context.run_id);
-        return Some(error_result(
-            &context.run_id,
-            &context.session_id,
-            "form_cancelled",
-            "Rust agent form was cancelled.",
-        ));
+        let message = "Rust agent form was cancelled.";
+        let events = vec![
+            form_resolution_event(context, &continuation),
+            event(
+                "agent.error",
+                serde_json::json!({
+                    "runId": context.run_id,
+                    "sessionId": context.session_id,
+                    "stopReason": "form_cancelled",
+                    "message": message,
+                    "error": message,
+                }),
+            ),
+        ];
+        return Some(serde_json::json!({
+            "runtime": "rust",
+            "runId": context.run_id,
+            "sessionId": context.session_id,
+            "finalContent": "",
+            "stopReason": "form_cancelled",
+            "messages": [],
+            "toolsUsed": [],
+            "error": message,
+            "events": events,
+        }));
     }
     let checkpoint = services
         .checkpoints
@@ -2017,6 +2652,7 @@ fn maybe_form_submit_result(
         .or_else(|| string_field(&form, "final_content"))
         .unwrap_or_else(|| "Form submitted.".to_string());
     let events = vec![
+        form_resolution_event(context, &continuation),
         event(
             "agent.delta",
             serde_json::json!({
@@ -2043,8 +2679,75 @@ fn maybe_form_submit_result(
         "messages": [{ "role": "assistant", "content": final_content }],
         "toolsUsed": [],
         "restoredCheckpoint": checkpoint,
+        "continuation": {
+            "kind": "form",
+            "formId": continuation.form_id,
+            "action": match continuation.action {
+                AgentFormAction::Submit => "submit",
+                AgentFormAction::Cancel => "cancel",
+            },
+            "values": continuation.values,
+        },
         "events": events,
     }))
+}
+
+fn form_resolution_event(
+    context: &NativeAgentRunContext,
+    continuation: &FormContinuationData,
+) -> NativeAgentEvent {
+    event(
+        "agent.form.resolution",
+        serde_json::json!({
+            "runId": context.run_id,
+            "sessionId": context.session_id,
+            "formId": continuation.form_id,
+            "detailId": format!("form:{}", continuation.form_id),
+            "status": "completed",
+            "action": match continuation.action {
+                AgentFormAction::Submit => "submit",
+                AgentFormAction::Cancel => "cancel",
+            },
+            "values": continuation.values.clone(),
+        }),
+    )
+}
+
+#[derive(Clone, Debug)]
+struct FormContinuationData {
+    form_id: String,
+    action: AgentFormAction,
+    values: Option<Value>,
+}
+
+fn form_submit_metadata(context: &NativeAgentRunContext) -> Option<(Value, FormContinuationData)> {
+    if let Some(AgentContinuationInput::Form {
+        form_id,
+        action,
+        values,
+    }) = typed_continuation_metadata(context)
+    {
+        let mut form = serde_json::json!({
+            "formId": form_id,
+            "values": values.clone().unwrap_or(Value::Null),
+            "cancelled": matches!(action, AgentFormAction::Cancel),
+        });
+        if let Some(final_content) = string_field(&context.metadata, "finalContent")
+            .or_else(|| string_field(&context.metadata, "final_content"))
+        {
+            form["finalContent"] = Value::String(final_content);
+        }
+        return Some((
+            form,
+            FormContinuationData {
+                form_id,
+                action,
+                values,
+            },
+        ));
+    }
+
+    None
 }
 
 fn maybe_emit_checkpoint(
@@ -2589,15 +3292,29 @@ mod tests {
         )
         .expect("fixture tool run should succeed");
 
+        let tool_start = result["events"]
+            .as_array()
+            .expect("events should be an array")
+            .iter()
+            .find(|event| event["eventName"] == "agent.tool.start")
+            .expect("tool start event should be emitted");
         let tool_result = result["events"]
             .as_array()
             .expect("events should be an array")
             .iter()
             .find(|event| event["eventName"] == "agent.tool.result")
             .expect("tool result event should be emitted");
+        let start_payload = &tool_start["payload"];
         let payload = &tool_result["payload"];
 
+        assert_eq!(start_payload["status"], "running");
+        assert_eq!(start_payload["detailId"], "tool:call-envelope");
         assert_eq!(payload["content"], "README envelope body");
+        assert_eq!(payload["status"], "completed");
+        assert_eq!(payload["resultStatus"], "ok");
+        assert_eq!(payload["summary"], "README envelope body");
+        assert_eq!(payload["detailId"], "tool:call-envelope");
+        assert!(payload["timing"].get("durationMs").is_some());
         assert_eq!(payload["envelope"]["status"], "ok");
         assert_eq!(payload["envelope"]["summary"], "README envelope body");
         assert_eq!(payload["envelope"]["modelContent"], "README envelope body");
@@ -2624,7 +3341,7 @@ mod tests {
                 "runtime": "rust",
                 "runId": "run-subagent-tools",
                 "sessionId": "websocket:chat-subagent-tools",
-                "maxIterations": 5,
+                "maxIterations": 7,
                 "messages": [{ "role": "user", "content": "delegate then close" }]
             }),
             json!({
@@ -2651,9 +3368,25 @@ mod tests {
                             {
                                 "content": "",
                                 "toolCalls": [{
+                                    "id": "call-query",
+                                    "name": "subagent.query",
+                                    "argumentsJson": "{\"subagentId\":\"delegate-1\"}"
+                                }]
+                            },
+                            {
+                                "content": "",
+                                "toolCalls": [{
                                     "id": "call-wait",
                                     "name": "subagent.wait",
                                     "argumentsJson": "{\"subagentIds\":[\"delegate-1\"],\"timeoutMs\":1}"
+                                }]
+                            },
+                            {
+                                "content": "",
+                                "toolCalls": [{
+                                    "id": "call-cancel",
+                                    "name": "subagent.cancel",
+                                    "argumentsJson": "{\"subagentId\":\"delegate-1\"}"
                                 }]
                             },
                             {
@@ -2678,14 +3411,16 @@ mod tests {
             json!([
                 "subagent.spawn",
                 "subagent.send_input",
+                "subagent.query",
                 "subagent.wait",
+                "subagent.cancel",
                 "subagent.close"
             ])
         );
         let completed = result["completedToolResults"]
             .as_array()
             .expect("completed tool results should be present");
-        assert_eq!(completed.len(), 4);
+        assert_eq!(completed.len(), 6);
         assert_eq!(completed[0]["envelope"]["raw"]["accepted"], true);
         assert_eq!(
             completed[1]["envelope"]["raw"]["delivery"],
@@ -2695,15 +3430,160 @@ mod tests {
             completed[1]["envelope"]["raw"]["subagent"]["mailboxDepth"],
             1
         );
-        assert_eq!(completed[2]["envelope"]["raw"]["timedOut"], true);
+        assert_eq!(completed[2]["envelope"]["raw"]["found"], true);
+        assert_eq!(completed[3]["envelope"]["raw"]["timedOut"], true);
         assert_eq!(
-            completed[3]["envelope"]["raw"]["subagent"]["status"],
+            completed[4]["envelope"]["raw"]["subagent"]["status"],
+            "cancelled"
+        );
+        assert_eq!(
+            completed[5]["envelope"]["raw"]["subagent"]["status"],
             "closed"
         );
+        let event_names = event_names(&result);
+        assert!(event_names.contains(&"agent.delegate.message_queued"));
+        assert!(event_names.contains(&"agent.delegate.queried"));
+        assert!(event_names.contains(&"agent.delegate.wait"));
+        assert!(event_names.contains(&"agent.delegate.cancelled"));
+        assert!(event_names.contains(&"agent.delegate.closed"));
+        let link_event = result["events"]
+            .as_array()
+            .expect("events should be present")
+            .iter()
+            .find(|event| event["eventName"] == "agent.delegate.linked")
+            .expect("subagent spawn should emit a parent-child link event");
+        assert_eq!(link_event["payload"]["parentTurnId"], "run-subagent-tools");
+        assert_eq!(link_event["payload"]["delegateId"], "delegate-1");
+        assert_eq!(link_event["payload"]["subagentId"], "delegate-1");
+        assert_eq!(link_event["payload"]["childRunId"], "child-1");
+        assert_eq!(link_event["payload"]["traceRef"], "trace-delegate-1");
+        assert_eq!(link_event["payload"]["sourceToolCallId"], "call-spawn");
         assert_eq!(
             result["messages"],
             json!([{ "role": "assistant", "content": "Subagent lifecycle handled." }])
         );
+    }
+
+    #[test]
+    fn private_user_subagent_input_is_not_added_to_main_model_context() {
+        struct SpawnThenFinalProvider {
+            seen_messages: Mutex<Vec<Vec<Value>>>,
+        }
+
+        impl NativeAgentProvider for SpawnThenFinalProvider {
+            fn complete(
+                &self,
+                context: &NativeAgentRunContext,
+            ) -> Result<NativeAgentProviderResponse, String> {
+                let call_count = {
+                    let mut seen_messages = self
+                        .seen_messages
+                        .lock()
+                        .expect("seen messages lock should not be poisoned");
+                    seen_messages.push(context.messages.clone());
+                    seen_messages.len()
+                };
+                if call_count == 1 {
+                    Ok(NativeAgentProviderResponse {
+                        final_content: String::new(),
+                        reasoning_delta: None,
+                        usage: None,
+                        tool_calls: vec![NativeAgentToolCall {
+                            id: "call-private-spawn".to_string(),
+                            name: "subagent.spawn".to_string(),
+                            arguments_json:
+                                "{\"subagentId\":\"private-child\",\"task\":\"Private work\"}"
+                                    .to_string(),
+                            result: Value::Null,
+                        }],
+                    })
+                } else {
+                    Ok(NativeAgentProviderResponse {
+                        final_content: "Main thread finished.".to_string(),
+                        reasoning_delta: None,
+                        usage: None,
+                        tool_calls: Vec::new(),
+                    })
+                }
+            }
+        }
+
+        struct DirectUserInputAfterSpawnDispatcher {
+            manager: SubagentThreadManager,
+            fallback: SubagentNativeAgentToolDispatcher,
+        }
+
+        impl NativeAgentToolDispatcher for DirectUserInputAfterSpawnDispatcher {
+            fn dispatch(
+                &self,
+                context: &NativeAgentRunContext,
+                tool_call: &NativeAgentToolCall,
+            ) -> Result<NativeAgentToolResult, String> {
+                let result = self.fallback.dispatch(context, tool_call)?;
+                if matches!(tool_call.name.as_str(), "subagent.spawn" | "spawn_agent") {
+                    self.manager.enqueue_input(SubagentSendInputParams {
+                        session_key: context.session_id.clone(),
+                        subagent_id: "private-child".to_string(),
+                        content: "private child-only instruction".to_string(),
+                        sender: SubagentInputSender::User,
+                        turn_id: None,
+                        child_run_id: None,
+                        trace_ref: None,
+                        created_at: None,
+                        metadata: json!({ "source": "direct_user_subagent_chat" }),
+                    });
+                }
+                Ok(result)
+            }
+        }
+
+        let provider = Arc::new(SpawnThenFinalProvider {
+            seen_messages: Mutex::new(Vec::new()),
+        });
+        let manager = SubagentThreadManager::default();
+        let services = NativeAgentRuntimeServices::new(
+            provider.clone(),
+            Arc::new(DirectUserInputAfterSpawnDispatcher {
+                manager: manager.clone(),
+                fallback: SubagentNativeAgentToolDispatcher::new(manager.clone()),
+            }),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        );
+
+        let result = run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-private-subagent-input",
+                "sessionId": "websocket:chat-private-subagent-input",
+                "maxIterations": 3,
+                "messages": [{ "role": "user", "content": "start private subagent" }]
+            }),
+        )
+        .expect("subagent run should complete without leaking private child input");
+
+        let seen_messages = provider
+            .seen_messages
+            .lock()
+            .expect("seen messages lock should not be poisoned");
+        let child = manager
+            .query(SubagentTargetParams {
+                session_key: "websocket:chat-private-subagent-input".to_string(),
+                subagent_id: "private-child".to_string(),
+            })
+            .subagent
+            .expect("private child subagent should exist");
+
+        assert_eq!(result["stopReason"], "final_response");
+        assert_eq!(seen_messages.len(), 2);
+        assert_eq!(child.mailbox_depth, 1);
+        assert!(!seen_messages[1].iter().any(|message| {
+            message
+                .get("content")
+                .and_then(Value::as_str)
+                .is_some_and(|content| content.contains("private child-only instruction"))
+        }));
     }
 
     #[test]
@@ -3153,6 +4033,99 @@ mod tests {
     }
 
     #[test]
+    fn cancellation_context_is_available_to_provider_and_tool_dispatch() {
+        struct ContextAwareProvider {
+            saw_context: Arc<Mutex<bool>>,
+        }
+
+        impl NativeAgentProvider for ContextAwareProvider {
+            fn complete(
+                &self,
+                context: &NativeAgentRunContext,
+            ) -> Result<NativeAgentProviderResponse, String> {
+                *self
+                    .saw_context
+                    .lock()
+                    .expect("provider observation lock should not be poisoned") = context
+                    .cancellation
+                    .as_ref()
+                    .is_some_and(|cancellation| !cancellation.is_cancelled());
+                Ok(NativeAgentProviderResponse {
+                    final_content: "dispatch cancellable tool".to_string(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: vec![NativeAgentToolCall {
+                        id: "call-cancellable-tool".to_string(),
+                        name: "workspace.read_file".to_string(),
+                        arguments_json: "{\"path\":\"README.md\"}".to_string(),
+                        result: json!({ "content": "unused" }),
+                    }],
+                })
+            }
+        }
+
+        struct ContextAwareToolDispatcher {
+            cancellations: Arc<InMemoryNativeAgentCancellation>,
+            saw_cancelled_context: Arc<Mutex<bool>>,
+        }
+
+        impl NativeAgentToolDispatcher for ContextAwareToolDispatcher {
+            fn dispatch(
+                &self,
+                context: &NativeAgentRunContext,
+                tool_call: &NativeAgentToolCall,
+            ) -> Result<NativeAgentToolResult, String> {
+                self.cancellations.cancel(&context.run_id);
+                *self
+                    .saw_cancelled_context
+                    .lock()
+                    .expect("tool observation lock should not be poisoned") = context
+                    .cancellation
+                    .as_ref()
+                    .is_some_and(NativeAgentCancellationContext::is_cancelled);
+                Ok(NativeAgentToolResult::generic_success(
+                    tool_call,
+                    json!({ "content": "cancelled after dispatch" }),
+                ))
+            }
+        }
+
+        let cancellations = Arc::new(InMemoryNativeAgentCancellation::default());
+        let provider_saw_context = Arc::new(Mutex::new(false));
+        let tool_saw_cancelled_context = Arc::new(Mutex::new(false));
+        let services = NativeAgentRuntimeServices::new(
+            Arc::new(ContextAwareProvider {
+                saw_context: provider_saw_context.clone(),
+            }),
+            Arc::new(ContextAwareToolDispatcher {
+                cancellations: cancellations.clone(),
+                saw_cancelled_context: tool_saw_cancelled_context.clone(),
+            }),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            cancellations,
+        );
+
+        let result = run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-cancellation-context",
+                "sessionId": "websocket:chat-cancellation-context",
+                "messages": [{ "role": "user", "content": "use cancellable tool" }]
+            }),
+        )
+        .expect("cancellation context run should return a structured result");
+
+        assert_eq!(result["stopReason"], "cancelled");
+        assert!(*provider_saw_context
+            .lock()
+            .expect("provider observation lock should not be poisoned"));
+        assert!(*tool_saw_cancelled_context
+            .lock()
+            .expect("tool observation lock should not be poisoned"));
+    }
+
+    #[test]
     fn cancellation_after_tool_result_preserves_completed_tool_state() {
         struct SingleToolProvider {
             calls: Mutex<u32>,
@@ -3205,10 +4178,11 @@ mod tests {
         }
 
         let cancellations = Arc::new(InMemoryNativeAgentCancellation::default());
+        let provider = Arc::new(SingleToolProvider {
+            calls: Mutex::new(0),
+        });
         let services = NativeAgentRuntimeServices::new(
-            Arc::new(SingleToolProvider {
-                calls: Mutex::new(0),
-            }),
+            provider.clone(),
             Arc::new(CancellingToolDispatcher {
                 cancellations: cancellations.clone(),
             }),
@@ -3229,6 +4203,13 @@ mod tests {
         .expect("cancelled run should preserve completed tool result state");
 
         assert_eq!(result["stopReason"], "cancelled");
+        assert_eq!(
+            *provider
+                .calls
+                .lock()
+                .expect("provider calls lock should not be poisoned"),
+            1
+        );
         assert_eq!(result["toolsUsed"], json!(["workspace.read_file"]));
         assert_eq!(
             result["completedToolResults"][0]["toolCallId"],
@@ -3244,9 +4225,168 @@ mod tests {
             ]
         );
         assert_eq!(
+            result["events"]
+                .as_array()
+                .expect("events should be an array")
+                .last()
+                .expect("cancelled event should be present")["eventName"],
+            "agent.cancelled"
+        );
+        assert_eq!(result["checkpoint"]["phase"], "cancelled");
+        assert_eq!(
             result["checkpoint"]["completedToolResults"][0]["toolCallId"],
             "call-cancel-after-result"
         );
+    }
+
+    #[test]
+    fn cancellation_during_approval_wait_reaches_cancelled_without_resume() {
+        let services = NativeAgentRuntimeServices::default();
+        run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-cancel-approval-wait",
+                "sessionId": "websocket:chat-cancel-approval-wait",
+                "metadata": {
+                    "fakeAwaitingApproval": {
+                        "approvalId": "approval-cancel",
+                        "toolName": "workspace.write_file"
+                    }
+                }
+            }),
+        )
+        .expect("approval wait checkpoint should be created");
+
+        services.cancel("run-cancel-approval-wait");
+        let result = run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-cancel-approval-wait",
+                "sessionId": "websocket:chat-cancel-approval-wait",
+                "metadata": {
+                    "agentContinuation": {
+                        "kind": "approval",
+                        "approvalId": "approval-cancel",
+                        "decision": "approved",
+                        "scope": "once"
+                    }
+                }
+            }),
+        )
+        .expect("cancelled approval wait should return cancellation result");
+
+        assert_eq!(result["stopReason"], "cancelled");
+        assert_eq!(result["checkpoint"]["phase"], "cancelled");
+        assert_eq!(event_names(&result), vec!["agent.cancelled"]);
+    }
+
+    #[test]
+    fn cancellation_during_subagent_wait_prevents_followup_model_call() {
+        struct SpawnWaitProvider {
+            calls: Mutex<u32>,
+        }
+
+        impl NativeAgentProvider for SpawnWaitProvider {
+            fn complete(
+                &self,
+                _context: &NativeAgentRunContext,
+            ) -> Result<NativeAgentProviderResponse, String> {
+                let mut calls = self
+                    .calls
+                    .lock()
+                    .expect("provider calls lock should not be poisoned");
+                *calls += 1;
+                match *calls {
+                    1 => Ok(NativeAgentProviderResponse {
+                        final_content: String::new(),
+                        reasoning_delta: None,
+                        usage: None,
+                        tool_calls: vec![NativeAgentToolCall {
+                            id: "call-cancel-wait-spawn".to_string(),
+                            name: "subagent.spawn".to_string(),
+                            arguments_json:
+                                "{\"subagentId\":\"wait-child\",\"task\":\"Wait boundary\"}"
+                                    .to_string(),
+                            result: Value::Null,
+                        }],
+                    }),
+                    2 => Ok(NativeAgentProviderResponse {
+                        final_content: String::new(),
+                        reasoning_delta: None,
+                        usage: None,
+                        tool_calls: vec![NativeAgentToolCall {
+                            id: "call-cancel-wait".to_string(),
+                            name: "subagent.wait".to_string(),
+                            arguments_json:
+                                "{\"subagentIds\":[\"wait-child\"],\"timeoutMs\":1}".to_string(),
+                            result: Value::Null,
+                        }],
+                    }),
+                    _ => panic!("provider should not be called after subagent wait cancellation"),
+                }
+            }
+        }
+
+        struct CancellingSubagentWaitDispatcher {
+            cancellations: Arc<InMemoryNativeAgentCancellation>,
+            fallback: SubagentNativeAgentToolDispatcher,
+        }
+
+        impl NativeAgentToolDispatcher for CancellingSubagentWaitDispatcher {
+            fn dispatch(
+                &self,
+                context: &NativeAgentRunContext,
+                tool_call: &NativeAgentToolCall,
+            ) -> Result<NativeAgentToolResult, String> {
+                let result = self.fallback.dispatch(context, tool_call)?;
+                if matches!(tool_call.name.as_str(), "subagent.wait" | "wait_agent") {
+                    self.cancellations.cancel(&context.run_id);
+                }
+                Ok(result)
+            }
+        }
+
+        let manager = SubagentThreadManager::default();
+        let cancellations = Arc::new(InMemoryNativeAgentCancellation::default());
+        let provider = Arc::new(SpawnWaitProvider {
+            calls: Mutex::new(0),
+        });
+        let services = NativeAgentRuntimeServices::new(
+            provider.clone(),
+            Arc::new(CancellingSubagentWaitDispatcher {
+                cancellations: cancellations.clone(),
+                fallback: SubagentNativeAgentToolDispatcher::new(manager),
+            }),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            cancellations,
+        );
+
+        let result = run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-cancel-subagent-wait",
+                "sessionId": "websocket:chat-cancel-subagent-wait",
+                "maxIterations": 4,
+                "messages": [{ "role": "user", "content": "spawn then wait" }]
+            }),
+        )
+        .expect("subagent wait cancellation should return cancellation result");
+
+        let event_names = event_names(&result);
+        assert_eq!(result["stopReason"], "cancelled");
+        assert_eq!(
+            *provider
+                .calls
+                .lock()
+                .expect("provider calls lock should not be poisoned"),
+            2
+        );
+        assert!(event_names.contains(&"agent.delegate.wait"));
+        assert_eq!(event_names.last(), Some(&"agent.cancelled"));
+        assert_eq!(result["checkpoint"]["phase"], "cancelled");
     }
 
     #[test]
@@ -3265,7 +4405,7 @@ mod tests {
                     .checkpoints
                     .restore(&context.session_id)
                     .expect("active turn checkpoint should be present during provider call");
-                assert_eq!(checkpoint["phase"], "active_turn");
+                assert_eq!(checkpoint["phase"], "calling_model");
                 let mut calls = self
                     .calls
                     .lock()
@@ -3308,7 +4448,7 @@ mod tests {
                     .checkpoints
                     .restore(&context.session_id)
                     .expect("tool wait checkpoint should be present during tool dispatch");
-                assert_eq!(checkpoint["phase"], "awaiting_tool");
+                assert_eq!(checkpoint["phase"], "tool_running");
                 assert_eq!(checkpoint["schemaVersion"], 1);
                 assert_eq!(checkpoint["runtime"], "rust");
                 assert_eq!(checkpoint["runId"], context.run_id);
@@ -3392,7 +4532,7 @@ mod tests {
             json!({
                 "sessionId": "websocket:chat-1",
                 "runId": "run-1",
-                "phase": "awaiting_tool"
+                "phase": "tool_running"
             }),
         );
         services.save_run_checkpoint(
@@ -3433,7 +4573,7 @@ mod tests {
             json!({
                 "sessionId": "websocket:chat-1",
                 "runId": "run-old",
-                "phase": "awaiting_tool"
+                "phase": "tool_running"
             }),
         );
         services.save_run_checkpoint(
@@ -3471,6 +4611,18 @@ mod tests {
         .expect("approval checkpoint should be created");
 
         assert_eq!(awaiting["stopReason"], "awaiting_approval");
+        assert_eq!(awaiting["events"][1]["eventName"], "agent.awaiting_approval");
+        assert_eq!(awaiting["events"][1]["payload"]["status"], "waiting");
+        assert_eq!(
+            awaiting["events"][1]["payload"]["detailId"],
+            "approval:approval-1"
+        );
+        assert_eq!(
+            awaiting["events"][1]["payload"]["options"]
+                .as_array()
+                .map(Vec::len),
+            Some(3)
+        );
         assert_eq!(awaiting["checkpoint"]["schemaVersion"], 1);
         assert_eq!(awaiting["checkpoint"]["runId"], "run-approval");
         assert_eq!(
@@ -3505,16 +4657,22 @@ mod tests {
                 "runId": "run-approval",
                 "sessionId": "websocket:chat-approval",
                 "metadata": {
-                    "fakeApprovalResume": {
-                        "approved": true,
-                        "finalContent": "Approved write completed."
-                    }
+                    "agentContinuation": {
+                        "kind": "approval",
+                        "approvalId": "approval-1",
+                        "decision": "approved",
+                        "scope": "once"
+                    },
+                    "finalContent": "Approved write completed."
                 }
             }),
         )
         .expect("approval resume should complete");
 
         assert_eq!(resumed["stopReason"], "final_response");
+        assert_eq!(resumed["events"][0]["eventName"], "agent.approval.decision");
+        assert_eq!(resumed["events"][0]["payload"]["decision"], "approved");
+        assert_eq!(resumed["events"][0]["payload"]["scope"], "once");
         assert_eq!(resumed["restoredCheckpoint"]["phase"], "awaiting_approval");
         assert!(services.restore_checkpoint("websocket:chat-approval")["checkpoint"].is_null());
     }
@@ -3528,10 +4686,17 @@ mod tests {
                 "runtime": "rust",
                 "runId": "run-denied",
                 "sessionId": "websocket:chat-denied",
-                "metadata": { "fakeApprovalResume": { "approved": false } }
+                "metadata": {
+                    "agentContinuation": {
+                        "kind": "approval",
+                        "approvalId": "approval-1",
+                        "decision": "denied",
+                        "scope": "once"
+                    }
+                }
             }),
         )
-        .expect("approval denial should return error compatibility result");
+        .expect("approval denial should return error result");
         let awaiting_form = run_native_agent_turn_with_services(
             &services,
             json!({
@@ -3554,13 +4719,34 @@ mod tests {
                 "runId": "run-form",
                 "sessionId": "websocket:chat-form",
                 "metadata": {
-                    "fakeFormSubmit": {
-                        "finalContent": "Form values accepted."
-                    }
+                    "agentContinuation": {
+                        "kind": "form",
+                        "formId": "form-1",
+                        "action": "submit",
+                        "values": {}
+                    },
+                    "finalContent": "Form values accepted."
                 }
             }),
         )
         .expect("form submit should complete");
+        let form_cancelled = run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-form-cancelled",
+                "sessionId": "websocket:chat-form-cancelled",
+                "metadata": {
+                    "agentContinuation": {
+                        "kind": "form",
+                        "formId": "form-cancelled",
+                        "action": "cancel",
+                        "values": {}
+                    }
+                }
+            }),
+        )
+        .expect("form cancellation should return error result");
         let cancelled = services.cancel("run-cancel");
         let cancel_result = run_native_agent_turn_with_services(
             &services,
@@ -3573,9 +4759,20 @@ mod tests {
         .expect("cancelled run should return cancellation result");
 
         assert_eq!(denied["stopReason"], "approval_denied");
+        assert_eq!(denied["events"][0]["eventName"], "agent.approval.decision");
+        assert_eq!(denied["events"][0]["payload"]["decision"], "denied");
         assert_eq!(
             awaiting_form["events"][1]["eventName"],
             "agent.awaiting_form"
+        );
+        assert_eq!(awaiting_form["events"][1]["payload"]["status"], "waiting");
+        assert_eq!(
+            awaiting_form["events"][1]["payload"]["detailId"],
+            "form:form-1"
+        );
+        assert_eq!(
+            awaiting_form["events"][1]["payload"]["summary"],
+            "Configure run"
         );
         assert_eq!(awaiting_form["checkpoint"]["schemaVersion"], 1);
         assert_eq!(awaiting_form["checkpoint"]["runId"], "run-form");
@@ -3596,11 +4793,399 @@ mod tests {
             .is_empty());
         assert_eq!(awaiting_form["checkpoint"]["resumeToken"], "form:form-1");
         assert_eq!(submitted["finalContent"], "Form values accepted.");
+        assert_eq!(submitted["events"][0]["eventName"], "agent.form.resolution");
+        assert_eq!(submitted["events"][0]["payload"]["status"], "completed");
+        assert_eq!(submitted["events"][0]["payload"]["action"], "submit");
+        assert_eq!(submitted["events"][0]["payload"]["detailId"], "form:form-1");
+        assert_eq!(form_cancelled["stopReason"], "form_cancelled");
+        assert_eq!(
+            form_cancelled["events"][0]["eventName"],
+            "agent.form.resolution"
+        );
+        assert_eq!(form_cancelled["events"][0]["payload"]["action"], "cancel");
+        assert_eq!(
+            form_cancelled["events"][0]["payload"]["detailId"],
+            "form:form-cancelled"
+        );
+        assert_eq!(form_cancelled["events"][1]["eventName"], "agent.error");
         assert_eq!(cancelled["stopReason"], "cancelled");
         assert_eq!(cancelled["error"], "cancelled");
         assert_eq!(cancelled["events"][0]["eventName"], "agent.cancelled");
         assert_eq!(cancelled["events"][0]["payload"]["stopReason"], "cancelled");
         assert_eq!(cancel_result["stopReason"], "cancelled");
+    }
+
+    #[test]
+    fn accepts_typed_approval_and_form_continuations_without_legacy_metadata() {
+        let services = NativeAgentRuntimeServices::default();
+        run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-typed-approval",
+                "sessionId": "websocket:chat-typed-approval",
+                "metadata": {
+                    "fakeAwaitingApproval": {
+                        "approvalId": "approval-typed",
+                        "toolName": "workspace.write_file"
+                    }
+                }
+            }),
+        )
+        .expect("approval checkpoint should be created");
+
+        let approval = run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-typed-approval",
+                "sessionId": "websocket:chat-typed-approval",
+                "metadata": {
+                    "agentContinuation": {
+                        "kind": "approval",
+                        "approvalId": "approval-typed",
+                        "decision": "approved",
+                        "scope": "session"
+                    },
+                    "finalContent": "Typed approval completed."
+                }
+            }),
+        )
+        .expect("typed approval continuation should complete");
+
+        run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-typed-form",
+                "sessionId": "websocket:chat-typed-form",
+                "metadata": {
+                    "fakeAwaitingForm": {
+                        "formId": "form-typed",
+                        "title": "Configure run"
+                    }
+                }
+            }),
+        )
+        .expect("form checkpoint should be created");
+
+        let form = run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-typed-form",
+                "sessionId": "websocket:chat-typed-form",
+                "metadata": {
+                    "agentContinuation": {
+                        "kind": "form",
+                        "formId": "form-typed",
+                        "action": "submit",
+                        "values": { "destination": "Tokyo" }
+                    },
+                    "finalContent": "Typed form submitted."
+                }
+            }),
+        )
+        .expect("typed form continuation should complete");
+
+        assert_eq!(approval["stopReason"], "final_response");
+        assert_eq!(approval["finalContent"], "Typed approval completed.");
+        assert_eq!(approval["continuation"]["kind"], "approval");
+        assert_eq!(approval["continuation"]["approvalId"], "approval-typed");
+        assert_eq!(approval["continuation"]["decision"], "approved");
+        assert_eq!(approval["continuation"]["scope"], "session");
+        assert_eq!(approval["restoredCheckpoint"]["phase"], "awaiting_approval");
+        assert!(
+            services.restore_checkpoint("websocket:chat-typed-approval")["checkpoint"].is_null()
+        );
+
+        assert_eq!(form["stopReason"], "final_response");
+        assert_eq!(form["finalContent"], "Typed form submitted.");
+        assert_eq!(form["continuation"]["kind"], "form");
+        assert_eq!(form["continuation"]["formId"], "form-typed");
+        assert_eq!(form["continuation"]["action"], "submit");
+        assert_eq!(form["continuation"]["values"]["destination"], "Tokyo");
+        assert_eq!(form["restoredCheckpoint"]["phase"], "awaiting_form");
+        assert_eq!(form["events"][0]["eventName"], "agent.form.resolution");
+        assert_eq!(form["events"][0]["payload"]["status"], "completed");
+        assert_eq!(form["events"][0]["payload"]["action"], "submit");
+        assert_eq!(form["events"][0]["payload"]["values"]["destination"], "Tokyo");
+        assert!(services.restore_checkpoint("websocket:chat-typed-form")["checkpoint"].is_null());
+    }
+
+    #[test]
+    fn queued_user_message_continuation_becomes_next_turn_input() {
+        struct RecordingProvider {
+            seen_messages: Mutex<Vec<Vec<Value>>>,
+        }
+
+        impl NativeAgentProvider for RecordingProvider {
+            fn complete(
+                &self,
+                context: &NativeAgentRunContext,
+            ) -> Result<NativeAgentProviderResponse, String> {
+                self.seen_messages
+                    .lock()
+                    .expect("seen messages lock should not be poisoned")
+                    .push(context.messages.clone());
+                Ok(NativeAgentProviderResponse {
+                    final_content: "queued response".to_string(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: Vec::new(),
+                })
+            }
+        }
+
+        let provider = Arc::new(RecordingProvider {
+            seen_messages: Mutex::new(Vec::new()),
+        });
+        let services = NativeAgentRuntimeServices::new(
+            provider.clone(),
+            Arc::new(FakeNativeAgentToolDispatcher),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        );
+
+        let result = run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-queued-message",
+                "sessionId": "websocket:chat-queued-message",
+                "metadata": {
+                    "agentContinuation": {
+                        "kind": "queued_user_message",
+                        "messageId": "queued-1",
+                        "content": "queued hello"
+                    }
+                }
+            }),
+        )
+        .expect("queued message continuation should become provider input");
+        let seen_messages = provider
+            .seen_messages
+            .lock()
+            .expect("seen messages lock should not be poisoned");
+
+        assert_eq!(result["stopReason"], "final_response");
+        assert_eq!(seen_messages.len(), 1);
+        assert_eq!(seen_messages[0][0]["role"], "user");
+        assert_eq!(seen_messages[0][0]["content"], "queued hello");
+    }
+
+    #[test]
+    fn guidance_continuation_is_inserted_before_next_model_call_after_tools() {
+        struct ToolThenFinalProvider {
+            seen_messages: Mutex<Vec<Vec<Value>>>,
+        }
+
+        impl NativeAgentProvider for ToolThenFinalProvider {
+            fn complete(
+                &self,
+                context: &NativeAgentRunContext,
+            ) -> Result<NativeAgentProviderResponse, String> {
+                let call_count = {
+                    let mut seen_messages = self
+                        .seen_messages
+                        .lock()
+                        .expect("seen messages lock should not be poisoned");
+                    seen_messages.push(context.messages.clone());
+                    seen_messages.len()
+                };
+                if call_count == 1 {
+                    Ok(NativeAgentProviderResponse {
+                        final_content: String::new(),
+                        reasoning_delta: None,
+                        usage: None,
+                        tool_calls: vec![NativeAgentToolCall {
+                            id: "call-guidance-read".to_string(),
+                            name: "workspace.read_file".to_string(),
+                            arguments_json: "{\"path\":\"README.md\"}".to_string(),
+                            result: json!({ "content": "README body" }),
+                        }],
+                    })
+                } else {
+                    Ok(NativeAgentProviderResponse {
+                        final_content: "guided response".to_string(),
+                        reasoning_delta: None,
+                        usage: None,
+                        tool_calls: Vec::new(),
+                    })
+                }
+            }
+        }
+
+        let provider = Arc::new(ToolThenFinalProvider {
+            seen_messages: Mutex::new(Vec::new()),
+        });
+        let services = NativeAgentRuntimeServices::new(
+            provider.clone(),
+            Arc::new(FakeNativeAgentToolDispatcher),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        );
+
+        let result = run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-guided-message",
+                "sessionId": "websocket:chat-guided-message",
+                "maxIterations": 3,
+                "messages": [{ "role": "user", "content": "read first" }],
+                "metadata": {
+                    "agentContinuation": {
+                        "kind": "guidance",
+                        "messageId": "guidance-1",
+                        "content": "use the README result carefully"
+                    }
+                }
+            }),
+        )
+        .expect("guidance continuation should be inserted after tool boundary");
+        let seen_messages = provider
+            .seen_messages
+            .lock()
+            .expect("seen messages lock should not be poisoned");
+
+        assert_eq!(result["stopReason"], "final_response");
+        assert_eq!(seen_messages.len(), 2);
+        assert!(!seen_messages[0]
+            .iter()
+            .any(|message| message["content"] == "use the README result carefully"));
+        assert!(seen_messages[1]
+            .iter()
+            .any(|message| message["content"] == "use the README result carefully"));
+        assert!(seen_messages[1]
+            .iter()
+            .any(|message| message["role"] == "tool"
+                && message["tool_call_id"] == "call-guidance-read"));
+        assert!(result["events"]
+            .as_array()
+            .expect("events should be an array")
+            .iter()
+            .any(|event| event["eventName"] == "agent.guidance"));
+    }
+
+    #[test]
+    fn approval_denial_guidance_becomes_tool_result_before_next_model_call() {
+        struct RecordingProvider {
+            seen_messages: Mutex<Vec<Vec<Value>>>,
+        }
+
+        impl NativeAgentProvider for RecordingProvider {
+            fn complete(
+                &self,
+                context: &NativeAgentRunContext,
+            ) -> Result<NativeAgentProviderResponse, String> {
+                self.seen_messages
+                    .lock()
+                    .expect("seen messages lock should not be poisoned")
+                    .push(context.messages.clone());
+                Ok(NativeAgentProviderResponse {
+                    final_content: "I will avoid writing and explain instead.".to_string(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: Vec::new(),
+                })
+            }
+        }
+
+        let provider = Arc::new(RecordingProvider {
+            seen_messages: Mutex::new(Vec::new()),
+        });
+        let services = NativeAgentRuntimeServices::new(
+            provider.clone(),
+            Arc::new(FakeNativeAgentToolDispatcher),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        );
+
+        run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-approval-guidance",
+                "sessionId": "websocket:chat-approval-guidance",
+                "messages": [{ "role": "user", "content": "write the file" }],
+                "metadata": {
+                    "fakeAwaitingApproval": {
+                        "approvalId": "approval-guidance",
+                        "toolName": "workspace.write_file"
+                    }
+                }
+            }),
+        )
+        .expect("approval checkpoint should be created");
+
+        let result = run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-approval-guidance",
+                "sessionId": "websocket:chat-approval-guidance",
+                "metadata": {
+                    "agentContinuation": {
+                        "kind": "approval",
+                        "approvalId": "approval-guidance",
+                        "decision": "denied",
+                        "scope": "once",
+                        "guidance": "Do not write files; explain the manual steps instead."
+                    }
+                }
+            }),
+        )
+        .expect("approval denial guidance should continue through the model");
+
+        let seen_messages = provider
+            .seen_messages
+            .lock()
+            .expect("seen messages lock should not be poisoned");
+        let events = event_names(&result);
+
+        assert_eq!(result["stopReason"], "final_response");
+        assert_eq!(
+            result["finalContent"],
+            "I will avoid writing and explain instead."
+        );
+        assert_eq!(seen_messages.len(), 1);
+        assert_eq!(seen_messages[0][0]["role"], "user");
+        assert_eq!(seen_messages[0][0]["content"], "write the file");
+        assert_eq!(seen_messages[0][1]["role"], "assistant");
+        assert_eq!(
+            seen_messages[0][1]["tool_calls"][0]["id"],
+            "approval-guidance"
+        );
+        assert_eq!(seen_messages[0][2]["role"], "tool");
+        assert_eq!(
+            seen_messages[0][2]["tool_call_id"],
+            "approval-guidance"
+        );
+        assert!(seen_messages[0][2]["content"]
+            .as_str()
+            .expect("tool result content should be text")
+            .contains("Do not write files"));
+        assert_eq!(result["completedToolResults"][0]["status"], "denied");
+        assert_eq!(
+            result["completedToolResults"][0]["toolCallId"],
+            "approval-guidance"
+        );
+        assert_eq!(result["events"][0]["eventName"], "agent.approval.decision");
+        assert_eq!(result["events"][0]["payload"]["decision"], "denied");
+        assert_eq!(
+            result["events"][0]["payload"]["guidance"],
+            "Do not write files; explain the manual steps instead."
+        );
+        assert_eq!(result["events"][1]["eventName"], "agent.tool.result");
+        assert_eq!(result["events"][1]["payload"]["resultStatus"], "denied");
+        assert_eq!(
+            events,
+            vec!["agent.approval.decision", "agent.tool.result", "agent.done"]
+        );
+        assert!(
+            services.restore_checkpoint("websocket:chat-approval-guidance")["checkpoint"].is_null()
+        );
     }
 
     fn event_names(result: &Value) -> Vec<&str> {

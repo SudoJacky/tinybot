@@ -24,6 +24,72 @@ describe("desktop chat session controller", () => {
     expect(sent).toEqual([{ type: "attach", chat_id: "chat-1" }]);
   });
 
+  test("hydrates restored chat surface messages from backend turn items when available", async () => {
+    const sent: unknown[] = [];
+    const listAgentRuns = vi.fn(async () => ({
+      sessionId: "WebSocket:chat-1",
+      runs: [{ runId: "run-1", startedAt: "2026-07-03T01:00:00Z" }],
+    }));
+    const getAgentRunRuntimeState = vi.fn(async () => ({
+      sessionId: "WebSocket:chat-1",
+      runId: "run-1",
+      runtimeEvents: [],
+      turnItems: [{
+        itemId: "call-read",
+        sessionId: "WebSocket:chat-1",
+        turnId: "run-1",
+        kind: "tool_call",
+        status: "completed",
+        createdAt: "2026-07-03T01:00:01Z",
+        title: "read_file",
+        summary: "README contents",
+        payload: {
+          toolCallId: "call-read",
+          toolName: "read_file",
+          argsPreview: "{\"path\":\"README.md\"}",
+          resultPreview: "README contents",
+        },
+      }],
+    }));
+    const controller = createDesktopChatSessionController({
+      api: {
+        listSessions: vi.fn(async () => ({
+          items: [{ key: "WebSocket:chat-1", chat_id: "chat-1", title: "Plan", updated_at: "2026-07-03T01:00:00Z" }],
+        })),
+        loadMessages: vi.fn(async () => ({
+          messages: [{ role: "user", content: "Read README", timestamp: "2026-07-03T01:00:00Z", message_id: "m-user" }],
+        })),
+        listAgentRuns,
+        getAgentRunRuntimeState,
+      },
+      sendSocketMessage: (message) => sent.push(message),
+    });
+
+    await controller.loadSessions();
+
+    expect(listAgentRuns).toHaveBeenCalledWith("WebSocket:chat-1");
+    expect(getAgentRunRuntimeState).toHaveBeenCalledWith("WebSocket:chat-1", "run-1");
+    expect(controller.state.chatRuns.turnsBySession.get("WebSocket:chat-1")?.[0]).toMatchObject({
+      id: "run-1",
+      userMessage: { text: "Read README" },
+      steps: [expect.objectContaining({
+        kind: "tool_call",
+        toolCall: expect.objectContaining({
+          id: "call-read",
+          resultPreview: "README contents",
+        }),
+      })],
+    });
+    expect(controller.state.messages.get("WebSocket:chat-1")?.flatMap((message) => message.toolActivities ?? [])).toEqual([
+      expect.objectContaining({
+        id: "call-read",
+        name: "read_file",
+        responseText: "README contents",
+      }),
+    ]);
+    expect(sent).toEqual([{ type: "attach", chat_id: "chat-1" }]);
+  });
+
   test("replays delegated trace events when selecting a persisted native session", async () => {
     const sent: unknown[] = [];
     const listTraceEvents = vi.fn(async () => ({

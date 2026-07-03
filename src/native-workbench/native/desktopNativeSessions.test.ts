@@ -18,6 +18,14 @@ describe("desktop native sessions API", () => {
       command: "worker_session_messages",
       args: { input: { key: "websocket:chat-1" } },
     });
+    await expect(api.agentRuns!("websocket:chat-1")).resolves.toEqual({
+      command: "worker_agent_runs_list",
+      args: { input: { key: "websocket:chat-1" } },
+    });
+    await expect(api.agentRunRuntimeState!("websocket:chat-1", "run-1")).resolves.toEqual({
+      command: "worker_agent_run_runtime_state",
+      args: { input: { sessionKey: "websocket:chat-1", runId: "run-1" } },
+    });
     await expect(api.temporaryFiles!("websocket:chat-1")).resolves.toEqual({
       command: "worker_session_temporary_files",
       args: { input: { key: "websocket:chat-1" } },

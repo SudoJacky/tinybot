@@ -2,7 +2,9 @@ import { describe, expect, test } from "vitest";
 import {
   createChatRunState,
   getArtifactRef,
+  backendRuntimeStatesToTurns,
   legacyMessagesToTurns,
+  normalizeAgentRunRuntimeStatePayload,
   reduceAgentEvent,
   redactedPreview,
   resolveChatInspectorPanel,
@@ -70,6 +72,169 @@ describe("chat run model", () => {
       argsPreview: "{\"path\":\".\"}",
       name: "list_dir",
     });
+  });
+
+  test("projects backend turn items into restored chat turns before legacy adapters are removed", () => {
+    const runtimeState = normalizeAgentRunRuntimeStatePayload({
+      sessionId: "WebSocket:chat-1",
+      runId: "run-1",
+      runtimeEvents: [],
+      turnItems: [
+        {
+          itemId: "reasoning-1",
+          sessionId: "WebSocket:chat-1",
+          turnId: "run-1",
+          kind: "reasoning",
+          status: "completed",
+          createdAt: "2026-07-03T01:00:01Z",
+          summary: "Need to inspect files.",
+        },
+        {
+          itemId: "call-read",
+          sessionId: "WebSocket:chat-1",
+          turnId: "run-1",
+          kind: "tool_call",
+          status: "completed",
+          createdAt: "2026-07-03T01:00:02Z",
+          updatedAt: "2026-07-03T01:00:03Z",
+          title: "read_file",
+          summary: "README contents",
+          payload: {
+            toolCallId: "call-read",
+            toolName: "read_file",
+            argsPreview: "{\"path\":\"README.md\"}",
+            resultPreview: "README contents",
+          },
+        },
+        {
+          itemId: "approval-1",
+          sessionId: "WebSocket:chat-1",
+          turnId: "run-1",
+          kind: "approval_request",
+          status: "waiting",
+          createdAt: "2026-07-03T01:00:04Z",
+          title: "Run command?",
+          payload: {
+            approvalId: "approval-1",
+            toolCallId: "call-shell",
+            reason: "Needs command approval",
+          },
+        },
+      ],
+    });
+
+    expect(runtimeState).not.toBeNull();
+    const turns = backendRuntimeStatesToTurns("WebSocket:chat-1", [runtimeState!], [{
+      role: "user",
+      content: "Check the README",
+      reasoningContent: "",
+      timestamp: "2026-07-03T01:00:00Z",
+      messageId: "user-1",
+    }]);
+
+    expect(turns).toHaveLength(1);
+    expect(turns[0]).toMatchObject({
+      id: "run-1",
+      status: "awaiting_approval",
+      userMessage: { text: "Check the README" },
+    });
+    expect(turns[0].steps.map((step) => [step.kind, step.title, step.status])).toEqual([
+      ["reasoning", "Thinking complete", "completed"],
+      ["tool_call", "read_file", "completed"],
+      ["approval", "Run command?", "blocked"],
+    ]);
+    expect(turns[0].steps[1].toolCall).toMatchObject({
+      id: "call-read",
+      name: "read_file",
+      resultPreview: "README contents",
+    });
+    expect(turns[0].steps[2].approval).toMatchObject({
+      approvalId: "approval-1",
+      toolCallId: "call-shell",
+    });
+  });
+
+  test("restores runtime-only blocked turns with their original user prompt", () => {
+    const runtimeState = normalizeAgentRunRuntimeStatePayload({
+      sessionId: "WebSocket:chat-1",
+      runId: "run-approval",
+      runtimeEvents: [],
+      turnItems: [
+        {
+          itemId: "run-approval:user",
+          sessionId: "WebSocket:chat-1",
+          turnId: "run-approval",
+          kind: "user_message",
+          status: "completed",
+          createdAt: "2026-07-03T01:00:00Z",
+          payload: {
+            messageId: "user-approval",
+            content: "Write the config file",
+          },
+        },
+        {
+          itemId: "approval-1",
+          sessionId: "WebSocket:chat-1",
+          turnId: "run-approval",
+          kind: "approval_request",
+          status: "waiting",
+          createdAt: "2026-07-03T01:00:04Z",
+          title: "Allow file write?",
+          payload: {
+            approvalId: "approval-1",
+            reason: "Needs file write approval",
+          },
+        },
+      ],
+    });
+
+    expect(runtimeState).not.toBeNull();
+    const turns = backendRuntimeStatesToTurns("WebSocket:chat-1", [runtimeState!], []);
+
+    expect(turns).toHaveLength(1);
+    expect(turns[0]).toMatchObject({
+      id: "run-approval",
+      status: "awaiting_approval",
+      userMessageId: "user-approval",
+      userMessage: { text: "Write the config file" },
+    });
+    expect(turns[0].finalMessage).toBeUndefined();
+  });
+
+  test("orders restored runtime states by numeric millisecond timestamps", () => {
+    const early = normalizeAgentRunRuntimeStatePayload({
+      sessionId: "WebSocket:chat-1",
+      runId: "z-run-early",
+      turnItems: [{
+        itemId: "z-run-early:user",
+        sessionId: "WebSocket:chat-1",
+        turnId: "z-run-early",
+        kind: "user_message",
+        status: "completed",
+        createdAt: "1782961828408",
+        payload: { content: "first restored prompt" },
+      }],
+    });
+    const late = normalizeAgentRunRuntimeStatePayload({
+      sessionId: "WebSocket:chat-1",
+      runId: "a-run-late",
+      turnItems: [{
+        itemId: "a-run-late:user",
+        sessionId: "WebSocket:chat-1",
+        turnId: "a-run-late",
+        kind: "user_message",
+        status: "completed",
+        createdAt: "1782961829408",
+        payload: { content: "second restored prompt" },
+      }],
+    });
+
+    expect(early).not.toBeNull();
+    expect(late).not.toBeNull();
+    const turns = backendRuntimeStatesToTurns("WebSocket:chat-1", [late!, early!], []);
+
+    expect(turns.map((turn) => turn.id)).toEqual(["z-run-early", "a-run-late"]);
+    expect(turns.map((turn) => turn.userMessage.text)).toEqual(["first restored prompt", "second restored prompt"]);
   });
 
   test("replays structured events with deduplication, delegated workflows, and artifacts", () => {

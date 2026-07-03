@@ -67,6 +67,8 @@ export type NativeSkillsApi = {
 export type NativeSessionsApi = {
   list: () => Promise<unknown>;
   messages: (key: string) => Promise<unknown>;
+  agentRuns?: (key: string) => Promise<unknown>;
+  agentRunRuntimeState?: (key: string, runId: string) => Promise<unknown>;
   temporaryFiles?: (key: string) => Promise<unknown>;
   uploadTemporaryFile?: (key: string, body: unknown) => Promise<unknown>;
   clearTemporaryFiles?: (key: string) => Promise<unknown>;
@@ -379,6 +381,16 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         () => options.nativeSessions?.messages(key) ?? options.nativeWebui?.route({ method: "GET", path: `/api/sessions/${encodePathSegment(key)}/messages` }),
         () => request(`/api/sessions/${encodePathSegment(key)}/messages`),
         "webui.sessions.messages",
+      ),
+      agentRuns: (key: string) => nativeOrGateway(
+        () => options.nativeSessions?.agentRuns?.(key),
+        () => Promise.resolve({ sessionId: key, runs: [] }),
+        "webui.sessions.agentRuns",
+      ),
+      agentRunRuntimeState: (key: string, runId: string) => nativeOrGateway(
+        () => options.nativeSessions?.agentRunRuntimeState?.(key, runId),
+        () => Promise.resolve(null),
+        "webui.sessions.agentRunRuntimeState",
       ),
       profile: (key: string) => nativeOrGateway(
         () => options.nativeWebui?.route({ method: "GET", path: `/api/sessions/${encodePathSegment(key)}/profile` }),
