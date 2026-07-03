@@ -84,7 +84,7 @@ pub struct NativeAgentRunContext {
     pub cancellation: Option<NativeAgentCancellationContext>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct NativeAgentRunState {
     run_id: String,
     session_id: String,
@@ -99,10 +99,14 @@ struct NativeAgentRunState {
     tools_used: Vec<String>,
     stop_reason: Option<String>,
     pending_guidance_message: Option<Value>,
+    trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 }
 
 impl NativeAgentRunState {
-    fn new(context: &NativeAgentRunContext) -> Self {
+    fn new(
+        context: &NativeAgentRunContext,
+        trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
+    ) -> Self {
         Self {
             run_id: context.run_id.clone(),
             session_id: context.session_id.clone(),
@@ -117,6 +121,13 @@ impl NativeAgentRunState {
             tools_used: Vec::new(),
             stop_reason: None,
             pending_guidance_message: guidance_continuation_message(&context.metadata),
+            trace_sink,
+        }
+    }
+
+    fn append_trace_event(&self, event: &AgentRuntimeEventEnvelope) {
+        if let Some(trace_sink) = self.trace_sink.as_ref() {
+            let _ = trace_sink.append_trace_event(&self.session_id, &self.run_id, event);
         }
     }
 
@@ -133,7 +144,7 @@ impl NativeAgentRunState {
             return;
         }
         self.phase = phase.clone();
-        self.emitter.emit(AgentRuntimeEventAppendInput {
+        let event = self.emitter.emit(AgentRuntimeEventAppendInput {
             parent_turn_id: None,
             item_id: None,
             event_name: "agent.phase.changed".to_string(),
@@ -150,6 +161,7 @@ impl NativeAgentRunState {
                 "triggerEventName": trigger_event_name,
             }),
         });
+        self.append_trace_event(&event);
     }
 
     fn set_stop_reason(&mut self, stop_reason: &str, iteration: i64, trigger_event_name: &str) {
@@ -187,7 +199,7 @@ impl NativeAgentRunState {
     }
 
     fn emit_event(&mut self, event_name: &str, payload: Value) {
-        self.emitter.emit(AgentRuntimeEventAppendInput {
+        let event = self.emitter.emit(AgentRuntimeEventAppendInput {
             parent_turn_id: None,
             item_id: runtime_event_item_id(event_name, &payload),
             event_name: event_name.to_string(),
@@ -197,6 +209,7 @@ impl NativeAgentRunState {
             visibility: runtime_event_visibility(event_name),
             payload,
         });
+        self.append_trace_event(&event);
     }
 
     fn emit_native_event(&mut self, event: NativeAgentEvent) {
@@ -229,8 +242,10 @@ impl NativeAgentRunState {
                     .map(str::to_string)
             })
             .unwrap_or_default();
-        self.emitter
-            .user_turn_started(runtime_event_timestamp(), Some(message_id), content);
+        let event =
+            self.emitter
+                .user_turn_started(runtime_event_timestamp(), Some(message_id), content);
+        self.append_trace_event(&event);
     }
 
     fn runtime_events(&self) -> Vec<AgentRuntimeEventEnvelope> {
@@ -557,6 +572,15 @@ pub trait NativeAgentCancellation: Send + Sync {
     fn is_cancelled(&self, run_id: &str) -> bool;
 }
 
+pub trait NativeAgentTraceSink: Send + Sync {
+    fn append_trace_event(
+        &self,
+        session_id: &str,
+        run_id: &str,
+        event: &AgentRuntimeEventEnvelope,
+    ) -> Result<(), String>;
+}
+
 #[derive(Clone)]
 pub struct NativeAgentRuntimeServices {
     provider: Arc<dyn NativeAgentProvider>,
@@ -564,6 +588,7 @@ pub struct NativeAgentRuntimeServices {
     checkpoints: Arc<dyn NativeAgentCheckpointStore>,
     cancellations: Arc<dyn NativeAgentCancellation>,
     subagents: SubagentThreadManager,
+    trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 }
 
 impl NativeAgentRuntimeServices {
@@ -579,6 +604,7 @@ impl NativeAgentRuntimeServices {
             checkpoints,
             cancellations,
             subagents: SubagentThreadManager::default(),
+            trace_sink: None,
         }
     }
 
@@ -594,6 +620,11 @@ impl NativeAgentRuntimeServices {
 
     fn with_subagents(mut self, subagents: SubagentThreadManager) -> Self {
         self.subagents = subagents;
+        self
+    }
+
+    pub fn with_trace_sink(mut self, trace_sink: Arc<dyn NativeAgentTraceSink>) -> Self {
+        self.trace_sink = Some(trace_sink);
         self
     }
 
@@ -1333,7 +1364,7 @@ pub fn run_native_agent_turn_with_config(
         ));
     }
 
-    let mut state = NativeAgentRunState::new(&context);
+    let mut state = NativeAgentRunState::new(&context, services.trace_sink.clone());
     state.transition_phase(
         AgentRuntimePhase::HydratingHistory,
         0,
@@ -2347,6 +2378,7 @@ fn maybe_awaiting_approval_result(
             ),
         ],
     );
+    append_runtime_events_to_sink(context, services.trace_sink.as_ref(), &runtime_events);
     let events = legacy_result_events_from_runtime_events(&runtime_events);
     Some(serde_json::json!({
         "runtime": "rust",
@@ -2784,6 +2816,7 @@ fn maybe_awaiting_form_result(
             ),
         ],
     );
+    append_runtime_events_to_sink(context, services.trace_sink.as_ref(), &runtime_events);
     let events = legacy_result_events_from_runtime_events(&runtime_events);
     Some(serde_json::json!({
         "runtime": "rust",
@@ -3146,6 +3179,18 @@ fn waiting_runtime_events(
     emitter.take_events()
 }
 
+fn append_runtime_events_to_sink(
+    context: &NativeAgentRunContext,
+    trace_sink: Option<&Arc<dyn NativeAgentTraceSink>>,
+    events: &[AgentRuntimeEventEnvelope],
+) {
+    if let Some(trace_sink) = trace_sink {
+        for event in events {
+            let _ = trace_sink.append_trace_event(&context.session_id, &context.run_id, event);
+        }
+    }
+}
+
 fn event(event_name: &str, payload: Value) -> NativeAgentEvent {
     NativeAgentEvent {
         event_name: event_name.to_string(),
@@ -3256,6 +3301,66 @@ mod tests {
     use super::*;
     use serde_json::json;
     use std::sync::{Arc, Mutex};
+
+    #[derive(Default)]
+    struct RecordingTraceSink {
+        events: Arc<Mutex<Vec<AgentRuntimeEventEnvelope>>>,
+    }
+
+    impl NativeAgentTraceSink for RecordingTraceSink {
+        fn append_trace_event(
+            &self,
+            _session_id: &str,
+            _run_id: &str,
+            event: &AgentRuntimeEventEnvelope,
+        ) -> Result<(), String> {
+            self.events
+                .lock()
+                .expect("trace sink lock should not be poisoned")
+                .push(event.clone());
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn trace_sink_receives_waiting_boundary_before_runtime_returns() {
+        let sink = Arc::new(RecordingTraceSink::default());
+        let events = sink.events.clone();
+        let services = NativeAgentRuntimeServices::default().with_trace_sink(sink);
+
+        let result = run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-sink-waiting",
+                "sessionId": "websocket:chat-sink-waiting",
+                "metadata": {
+                    "fakeAwaitingApproval": {
+                        "approvalId": "approval-sink",
+                        "toolName": "workspace.write_file"
+                    }
+                }
+            }),
+        )
+        .expect("waiting run should return");
+        let recorded = events
+            .lock()
+            .expect("trace sink lock should not be poisoned")
+            .clone();
+
+        assert_eq!(result["stopReason"], "awaiting_approval");
+        assert!(recorded.iter().any(|event| {
+            event.event_name == "agent.phase.changed"
+                && event.payload["nextPhase"] == "awaiting_approval"
+        }));
+        assert!(recorded
+            .iter()
+            .any(|event| event.event_name == "agent.awaiting_approval"));
+        assert_eq!(
+            recorded.last().map(|event| event.event_name.as_str()),
+            Some("agent.done")
+        );
+    }
 
     #[test]
     fn selects_rust_runtime_from_spec_or_config() {
