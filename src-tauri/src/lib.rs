@@ -1714,7 +1714,7 @@ fn native_agent_run_record(
         "currentIteration": native_agent_current_iteration(result, checkpoint.as_ref()),
         "conversationMessageIds": [],
         "traceMessages": native_agent_assistant_messages(result),
-        "traceEvents": native_agent_runtime_trace_events(result, session_id, run_id, &timestamp),
+        "traceEvents": native_agent_runtime_trace_events(spec, result, session_id, run_id, &timestamp),
         "completedToolResults": result
             .get("completedToolResults")
             .or_else(|| result.get("completed_tool_results"))
@@ -1877,12 +1877,15 @@ fn native_agent_usage(result: &serde_json::Value) -> Vec<serde_json::Value> {
 }
 
 fn native_agent_runtime_trace_events(
+    spec: &serde_json::Value,
     result: &serde_json::Value,
     session_id: &str,
     run_id: &str,
     timestamp: &str,
 ) -> Vec<serde_json::Value> {
     let mut appender = AgentRuntimeEventAppender::new(session_id, run_id);
+    let user_message = native_agent_current_user_message(spec);
+    let user_message_id = user_message.as_ref().and_then(native_agent_message_id);
     let mut trace_events = vec![native_agent_persisted_runtime_event(appender.append(
         AgentRuntimeEventAppendInput {
             parent_turn_id: None,
@@ -1895,6 +1898,8 @@ fn native_agent_runtime_trace_events(
             payload: serde_json::json!({
                 "sessionId": session_id,
                 "runId": run_id,
+                "userMessageId": user_message_id,
+                "userMessage": user_message,
             }),
         },
     ))];
@@ -2226,6 +2231,20 @@ fn native_agent_user_messages(spec: &serde_json::Value) -> Vec<serde_json::Value
             "content": content,
         })]
     }
+}
+
+fn native_agent_current_user_message(spec: &serde_json::Value) -> Option<serde_json::Value> {
+    native_agent_user_messages(spec).into_iter().last()
+}
+
+fn native_agent_message_id(message: &serde_json::Value) -> Option<String> {
+    message
+        .get("messageId")
+        .or_else(|| message.get("message_id"))
+        .or_else(|| message.get("id"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string)
 }
 
 fn native_agent_assistant_messages(result: &serde_json::Value) -> Vec<serde_json::Value> {
@@ -6825,7 +6844,7 @@ mod tests {
                 "runId": "run-trace-persist",
                 "sessionId": "websocket:chat-run-trace",
                 "maxIterations": 2,
-                "messages": [{ "role": "user", "content": "read and answer" }]
+                "messages": [{ "role": "user", "content": "read and answer", "messageId": "user-read-answer" }]
             }),
             fixture.root.clone(),
             config.clone(),
@@ -6869,6 +6888,14 @@ mod tests {
         assert_eq!(trace_events[0]["schemaVersion"], "tinybot.agent_event.v1");
         assert_eq!(trace_events[0]["eventName"], "agent.turn.started");
         assert_eq!(trace_events[0]["sequence"], 1);
+        assert_eq!(
+            trace_events[0]["payload"]["userMessage"]["messageId"],
+            "user-read-answer"
+        );
+        assert_eq!(
+            trace_events[0]["payload"]["userMessage"]["content"],
+            "read and answer"
+        );
         assert!(trace_events.iter().any(|event| {
             event["eventName"] == "agent.phase.changed"
                 && event["payload"]["nextPhase"] == "hydrating_history"

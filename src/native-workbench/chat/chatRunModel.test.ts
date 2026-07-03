@@ -201,6 +201,42 @@ describe("chat run model", () => {
     expect(turns[0].finalMessage).toBeUndefined();
   });
 
+  test("orders restored runtime states by numeric millisecond timestamps", () => {
+    const early = normalizeAgentRunRuntimeStatePayload({
+      sessionId: "WebSocket:chat-1",
+      runId: "z-run-early",
+      turnItems: [{
+        itemId: "z-run-early:user",
+        sessionId: "WebSocket:chat-1",
+        turnId: "z-run-early",
+        kind: "user_message",
+        status: "completed",
+        createdAt: "1782961828408",
+        payload: { content: "first restored prompt" },
+      }],
+    });
+    const late = normalizeAgentRunRuntimeStatePayload({
+      sessionId: "WebSocket:chat-1",
+      runId: "a-run-late",
+      turnItems: [{
+        itemId: "a-run-late:user",
+        sessionId: "WebSocket:chat-1",
+        turnId: "a-run-late",
+        kind: "user_message",
+        status: "completed",
+        createdAt: "1782961829408",
+        payload: { content: "second restored prompt" },
+      }],
+    });
+
+    expect(early).not.toBeNull();
+    expect(late).not.toBeNull();
+    const turns = backendRuntimeStatesToTurns("WebSocket:chat-1", [late!, early!], []);
+
+    expect(turns.map((turn) => turn.id)).toEqual(["z-run-early", "a-run-late"]);
+    expect(turns.map((turn) => turn.userMessage.text)).toEqual(["first restored prompt", "second restored prompt"]);
+  });
+
   test("replays structured events with deduplication, delegated workflows, and artifacts", () => {
     const state = createChatRunState();
     const started = {

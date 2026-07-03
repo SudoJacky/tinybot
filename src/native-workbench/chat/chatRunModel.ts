@@ -605,7 +605,7 @@ export function reduceAgentEvent(state: ChatRunState, event: AgentEventEnvelope)
 }
 
 function compareRuntimeStatesByStart(left: BackendAgentRunRuntimeState, right: BackendAgentRunRuntimeState): number {
-  return Date.parse(runtimeStateStart(left) || "") - Date.parse(runtimeStateStart(right) || "")
+  return compareRuntimeTimestamps(runtimeStateStart(left), runtimeStateStart(right))
     || left.runId.localeCompare(right.runId);
 }
 
@@ -613,7 +613,7 @@ function runtimeStateStart(state: BackendAgentRunRuntimeState): string {
   return state.turnItems
     .map((item) => item.createdAt)
     .filter(Boolean)
-    .sort()[0] || "";
+    .sort(compareRuntimeTimestamps)[0] || "";
 }
 
 function runtimeStateToTurn(
@@ -625,7 +625,7 @@ function runtimeStateToTurn(
   const updatedAt = runtimeState.turnItems
     .map((item) => item.updatedAt || item.createdAt)
     .filter(Boolean)
-    .sort();
+    .sort(compareRuntimeTimestamps);
   const lastUpdatedAt = updatedAt[updatedAt.length - 1] || legacyTurn?.updatedAt || startedAt;
   const turn: ChatTurn = {
     id: runtimeState.runId,
@@ -654,6 +654,29 @@ function runtimeStateToTurn(
     turn.completedAt = turn.completedAt ?? lastUpdatedAt;
   }
   return turn;
+}
+
+function compareRuntimeTimestamps(left: string, right: string): number {
+  const leftMillis = runtimeTimestampMillis(left);
+  const rightMillis = runtimeTimestampMillis(right);
+  if (Number.isFinite(leftMillis) && Number.isFinite(rightMillis) && leftMillis !== rightMillis) {
+    return leftMillis - rightMillis;
+  }
+  if (Number.isFinite(leftMillis) !== Number.isFinite(rightMillis)) {
+    return Number.isFinite(leftMillis) ? -1 : 1;
+  }
+  return left.localeCompare(right);
+}
+
+function runtimeTimestampMillis(value: string): number {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return Number.NaN;
+  }
+  if (/^\d+$/.test(trimmed)) {
+    return Number(trimmed);
+  }
+  return Date.parse(trimmed);
 }
 
 function applyTurnItemToTurn(turn: ChatTurn, item: BackendAgentTurnItem, sequence: number): void {
