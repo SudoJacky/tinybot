@@ -3964,22 +3964,6 @@ fn native_approval_continuation_spec(
         .and_then(serde_json::Value::as_str)
         .unwrap_or("approval");
     let guidance = approval_guidance_value(body);
-    let tool_result = if approved {
-        "approved".to_string()
-    } else if let Some(guidance) = guidance.as_deref() {
-        format!("denied: {guidance}")
-    } else {
-        "denied".to_string()
-    };
-    let mut resume = serde_json::json!({
-        "approved": approved,
-        "toolCallId": approval_id,
-        "toolName": tool_name,
-        "toolResult": tool_result,
-    });
-    if let Some(guidance) = guidance {
-        resume["guidance"] = serde_json::Value::String(guidance);
-    }
     let mut agent_continuation = serde_json::json!({
         "kind": "approval",
         "approvalId": approval_id,
@@ -3990,16 +3974,22 @@ fn native_approval_continuation_spec(
             "once"
         },
     });
-    if let Some(guidance) = resume.get("guidance").cloned() {
-        agent_continuation["guidance"] = guidance;
+    if let Some(guidance) = guidance {
+        agent_continuation["guidance"] = serde_json::Value::String(guidance);
     }
+    let mut metadata = serde_json::json!({
+        "agentContinuation": agent_continuation,
+    });
     if let Some(final_content) = body
         .get("finalContent")
         .or_else(|| body.get("final_content"))
         .and_then(serde_json::Value::as_str)
         .filter(|value| !value.trim().is_empty())
     {
-        resume["finalContent"] = serde_json::Value::String(final_content.to_string());
+        metadata["finalContent"] = serde_json::Value::String(final_content.to_string());
+    }
+    if tool_name != "approval" {
+        metadata["toolName"] = serde_json::Value::String(tool_name.to_string());
     }
     serde_json::json!({
         "runtime": "rust",
@@ -4009,10 +3999,7 @@ fn native_approval_continuation_spec(
             .get("messages")
             .cloned()
             .unwrap_or_else(|| serde_json::json!([])),
-        "metadata": {
-            "agentContinuation": agent_continuation,
-            "fakeApprovalResume": resume,
-        },
+        "metadata": metadata,
     })
 }
 
@@ -4223,10 +4210,13 @@ fn native_agent_ui_form_continuation_spec(
         .or_else(|| checkpoint.get("session_id"))
         .and_then(serde_json::Value::as_str)
         .unwrap_or("native-rust-session");
-    let mut form_submit = serde_json::json!({
-        "formId": form_id,
-        "values": values,
-        "cancelled": cancelled,
+    let mut metadata = serde_json::json!({
+        "agentContinuation": {
+            "kind": "form",
+            "formId": form_id,
+            "action": if cancelled { "cancel" } else { "submit" },
+            "values": values,
+        },
     });
     if let Some(final_content) = body
         .get("finalContent")
@@ -4234,7 +4224,7 @@ fn native_agent_ui_form_continuation_spec(
         .and_then(serde_json::Value::as_str)
         .filter(|value| !value.trim().is_empty())
     {
-        form_submit["finalContent"] = serde_json::Value::String(final_content.to_string());
+        metadata["finalContent"] = serde_json::Value::String(final_content.to_string());
     }
     serde_json::json!({
         "runtime": "rust",
@@ -4244,15 +4234,7 @@ fn native_agent_ui_form_continuation_spec(
             .get("messages")
             .cloned()
             .unwrap_or_else(|| serde_json::json!([])),
-        "metadata": {
-            "agentContinuation": {
-                "kind": "form",
-                "formId": form_id,
-                "action": if cancelled { "cancel" } else { "submit" },
-                "values": values,
-            },
-            "fakeFormSubmit": form_submit,
-        },
+        "metadata": metadata,
     })
 }
 
@@ -7645,14 +7627,21 @@ mod tests {
         );
         assert_eq!(approval_resolution["body"]["ok"], true);
         assert_eq!(approval_resolution["body"]["status"], "denied");
-        assert_eq!(approval_resolution["body"]["stopReason"], "approval_denied");
         assert_eq!(
-            approval_resolution["body"]["error"],
-            "Rust agent approval was denied. User guidance: Do not write files; summarize instead."
+            approval_resolution["body"]["stopReason"],
+            "provider_error"
         );
+        assert!(approval_resolution["body"]["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("provider"));
         assert_eq!(
             approval_resolution["body"]["guidance"],
             "Do not write files; summarize instead."
+        );
+        assert_eq!(
+            approval_resolution["body"]["completedToolResults"][0]["status"],
+            "denied"
         );
         assert!(restored_after_resolution["checkpoint"].is_null());
     }

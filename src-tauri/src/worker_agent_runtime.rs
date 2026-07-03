@@ -2492,7 +2492,6 @@ struct ApprovalContinuationData {
 fn approval_resume_metadata(
     context: &NativeAgentRunContext,
 ) -> Option<(Value, ApprovalContinuationData)> {
-    let legacy = context.metadata.get("fakeApprovalResume").cloned();
     if let Some(AgentContinuationInput::Approval {
         approval_id,
         decision,
@@ -2500,32 +2499,29 @@ fn approval_resume_metadata(
         guidance,
     }) = typed_continuation_metadata(context)
     {
-        let approval = legacy.unwrap_or_else(|| {
-            let approved = matches!(decision, AgentApprovalDecision::Approved);
-            let tool_result = if approved {
-                "approved".to_string()
-            } else if let Some(guidance) = guidance.as_deref() {
-                format!("denied: {guidance}")
-            } else {
-                "denied".to_string()
-            };
-            let mut approval = serde_json::json!({
-                "approvalId": approval_id,
-                "approved": approved,
-                "toolCallId": approval_id,
-                "toolName": "approval",
-                "toolResult": tool_result,
-            });
-            if let Some(guidance) = guidance.as_ref() {
-                approval["guidance"] = Value::String(guidance.clone());
-            }
-            if let Some(final_content) = string_field(&context.metadata, "finalContent")
-                .or_else(|| string_field(&context.metadata, "final_content"))
-            {
-                approval["finalContent"] = Value::String(final_content);
-            }
-            approval
+        let approved = matches!(decision, AgentApprovalDecision::Approved);
+        let tool_result = if approved {
+            "approved".to_string()
+        } else if let Some(guidance) = guidance.as_deref() {
+            format!("denied: {guidance}")
+        } else {
+            "denied".to_string()
+        };
+        let mut approval = serde_json::json!({
+            "approvalId": approval_id,
+            "approved": approved,
+            "toolCallId": approval_id,
+            "toolName": "approval",
+            "toolResult": tool_result,
         });
+        if let Some(guidance) = guidance.as_ref() {
+            approval["guidance"] = Value::String(guidance.clone());
+        }
+        if let Some(final_content) = string_field(&context.metadata, "finalContent")
+            .or_else(|| string_field(&context.metadata, "final_content"))
+        {
+            approval["finalContent"] = Value::String(final_content);
+        }
         return Some((
             approval,
             ApprovalContinuationData {
@@ -2537,38 +2533,11 @@ fn approval_resume_metadata(
         ));
     }
 
-    let approval = legacy?;
-    let approved = approval
-        .get("approved")
-        .and_then(Value::as_bool)
-        .unwrap_or_else(|| string_field(&approval, "decision").as_deref() == Some("approved"));
-    Some((
-        approval.clone(),
-        ApprovalContinuationData {
-            approval_id: string_field(&approval, "approvalId")
-                .or_else(|| string_field(&approval, "toolCallId"))
-                .unwrap_or_else(|| "approval-1".to_string()),
-            decision: if approved {
-                AgentApprovalDecision::Approved
-            } else {
-                AgentApprovalDecision::Denied
-            },
-            scope: approval_scope_from_value(approval.get("scope")),
-            guidance: string_field(&approval, "guidance"),
-        },
-    ))
+    None
 }
 
 fn typed_continuation_metadata(context: &NativeAgentRunContext) -> Option<AgentContinuationInput> {
     typed_continuation_from_metadata(&context.metadata)
-}
-
-fn approval_scope_from_value(value: Option<&Value>) -> AgentApprovalScope {
-    if value.and_then(Value::as_str) == Some("session") {
-        AgentApprovalScope::Session
-    } else {
-        AgentApprovalScope::Once
-    }
 }
 
 fn maybe_awaiting_form_result(
@@ -2752,26 +2721,22 @@ struct FormContinuationData {
 }
 
 fn form_submit_metadata(context: &NativeAgentRunContext) -> Option<(Value, FormContinuationData)> {
-    let legacy = context.metadata.get("fakeFormSubmit").cloned();
     if let Some(AgentContinuationInput::Form {
         form_id,
         action,
         values,
     }) = typed_continuation_metadata(context)
     {
-        let form = legacy.unwrap_or_else(|| {
-            let mut form = serde_json::json!({
-                "formId": form_id,
-                "values": values.clone().unwrap_or(Value::Null),
-                "cancelled": matches!(action, AgentFormAction::Cancel),
-            });
-            if let Some(final_content) = string_field(&context.metadata, "finalContent")
-                .or_else(|| string_field(&context.metadata, "final_content"))
-            {
-                form["finalContent"] = Value::String(final_content);
-            }
-            form
+        let mut form = serde_json::json!({
+            "formId": form_id,
+            "values": values.clone().unwrap_or(Value::Null),
+            "cancelled": matches!(action, AgentFormAction::Cancel),
         });
+        if let Some(final_content) = string_field(&context.metadata, "finalContent")
+            .or_else(|| string_field(&context.metadata, "final_content"))
+        {
+            form["finalContent"] = Value::String(final_content);
+        }
         return Some((
             form,
             FormContinuationData {
@@ -2782,22 +2747,7 @@ fn form_submit_metadata(context: &NativeAgentRunContext) -> Option<(Value, FormC
         ));
     }
 
-    let form = legacy?;
-    let action = if bool_field(&form, "cancelled") {
-        AgentFormAction::Cancel
-    } else {
-        AgentFormAction::Submit
-    };
-    Some((
-        form.clone(),
-        FormContinuationData {
-            form_id: string_field(&form, "formId")
-                .or_else(|| string_field(&form, "form_id"))
-                .unwrap_or_else(|| "form-1".to_string()),
-            action,
-            values: form.get("values").cloned(),
-        },
-    ))
+    None
 }
 
 fn maybe_emit_checkpoint(
@@ -4707,10 +4657,13 @@ mod tests {
                 "runId": "run-approval",
                 "sessionId": "websocket:chat-approval",
                 "metadata": {
-                    "fakeApprovalResume": {
-                        "approved": true,
-                        "finalContent": "Approved write completed."
-                    }
+                    "agentContinuation": {
+                        "kind": "approval",
+                        "approvalId": "approval-1",
+                        "decision": "approved",
+                        "scope": "once"
+                    },
+                    "finalContent": "Approved write completed."
                 }
             }),
         )
@@ -4733,10 +4686,17 @@ mod tests {
                 "runtime": "rust",
                 "runId": "run-denied",
                 "sessionId": "websocket:chat-denied",
-                "metadata": { "fakeApprovalResume": { "approved": false } }
+                "metadata": {
+                    "agentContinuation": {
+                        "kind": "approval",
+                        "approvalId": "approval-1",
+                        "decision": "denied",
+                        "scope": "once"
+                    }
+                }
             }),
         )
-        .expect("approval denial should return error compatibility result");
+        .expect("approval denial should return error result");
         let awaiting_form = run_native_agent_turn_with_services(
             &services,
             json!({
@@ -4759,9 +4719,13 @@ mod tests {
                 "runId": "run-form",
                 "sessionId": "websocket:chat-form",
                 "metadata": {
-                    "fakeFormSubmit": {
-                        "finalContent": "Form values accepted."
-                    }
+                    "agentContinuation": {
+                        "kind": "form",
+                        "formId": "form-1",
+                        "action": "submit",
+                        "values": {}
+                    },
+                    "finalContent": "Form values accepted."
                 }
             }),
         )
@@ -4773,14 +4737,16 @@ mod tests {
                 "runId": "run-form-cancelled",
                 "sessionId": "websocket:chat-form-cancelled",
                 "metadata": {
-                    "fakeFormSubmit": {
+                    "agentContinuation": {
+                        "kind": "form",
                         "formId": "form-cancelled",
-                        "cancelled": true
+                        "action": "cancel",
+                        "values": {}
                     }
                 }
             }),
         )
-        .expect("form cancellation should return error compatibility result");
+        .expect("form cancellation should return error result");
         let cancelled = services.cancel("run-cancel");
         let cancel_result = run_native_agent_turn_with_services(
             &services,
