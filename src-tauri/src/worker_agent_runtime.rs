@@ -152,13 +152,14 @@ impl NativeAgentRunState {
         });
     }
 
-    fn set_stop_reason(&mut self, stop_reason: &str) {
+    fn set_stop_reason(&mut self, stop_reason: &str, iteration: i64, trigger_event_name: &str) {
         self.stop_reason = Some(stop_reason.to_string());
-        self.phase = match stop_reason {
+        let phase = match stop_reason {
             "final_response" => AgentRuntimePhase::Completed,
             "cancelled" => AgentRuntimePhase::Cancelled,
             _ => AgentRuntimePhase::Failed,
         };
+        self.transition_phase(phase, iteration, trigger_event_name);
     }
 
     fn active_checkpoint_payload(&self, status: &str) -> Value {
@@ -1337,7 +1338,7 @@ pub fn run_native_agent_turn_with_config(
     for iteration in 0..context.max_iterations {
         state.transition_phase(AgentRuntimePhase::CallingModel, iteration, "provider_call");
         if services.cancellations.is_cancelled(&context.run_id) {
-            state.phase = AgentRuntimePhase::Cancelled;
+            state.transition_phase(AgentRuntimePhase::Cancelled, iteration, "agent.cancelled");
             return Ok(cancelled_run_result(
                 services,
                 &context,
@@ -1358,7 +1359,7 @@ pub fn run_native_agent_turn_with_config(
         let provider_response = match services.provider.complete(&context) {
             Ok(response) => response,
             Err(error) => {
-                state.set_stop_reason("provider_error");
+                state.set_stop_reason("provider_error", iteration, "agent.error");
                 state.emit_event(
                     "agent.error",
                     serde_json::json!({
@@ -1444,7 +1445,7 @@ pub fn run_native_agent_turn_with_config(
                     }),
                 );
                 if !native_tool_is_permitted(&tool_call.name) {
-                    state.set_stop_reason("policy_denied");
+                    state.set_stop_reason("policy_denied", iteration, "agent.error");
                     state.emit_event(
                         "agent.error",
                         serde_json::json!({
@@ -1478,7 +1479,7 @@ pub fn run_native_agent_turn_with_config(
                     }));
                 }
                 if services.cancellations.is_cancelled(&context.run_id) {
-                    state.phase = AgentRuntimePhase::Cancelled;
+                    state.transition_phase(AgentRuntimePhase::Cancelled, iteration, "agent.cancelled");
                     return Ok(cancelled_run_result(
                         services,
                         &context,
@@ -1520,7 +1521,7 @@ pub fn run_native_agent_turn_with_config(
                 let result = match services.tools.dispatch(&context, &tool_call) {
                     Ok(result) => result,
                     Err(error) => {
-                        state.set_stop_reason("tool_error");
+                        state.set_stop_reason("tool_error", iteration, "agent.error");
                         state.emit_event(
                             "agent.error",
                             serde_json::json!({
@@ -1605,7 +1606,7 @@ pub fn run_native_agent_turn_with_config(
                     state.active_checkpoint_payload("tool_completed"),
                 );
                 if services.cancellations.is_cancelled(&context.run_id) {
-                    state.phase = AgentRuntimePhase::Cancelled;
+                    state.transition_phase(AgentRuntimePhase::Cancelled, iteration, "agent.cancelled");
                     return Ok(cancelled_run_result(
                         services,
                         &context,
@@ -1657,7 +1658,7 @@ pub fn run_native_agent_turn_with_config(
                 }),
             );
         }
-        state.set_stop_reason("final_response");
+        state.transition_phase(AgentRuntimePhase::Finalizing, iteration, "agent.message.completed");
         services
             .checkpoints
             .clear_for_run(&context.session_id, &context.run_id);
@@ -1671,6 +1672,7 @@ pub fn run_native_agent_turn_with_config(
                 "content": final_content.clone(),
             }),
         );
+        state.set_stop_reason("final_response", iteration, "agent.done");
         state.emit_event(
             "agent.done",
             serde_json::json!({
@@ -1701,7 +1703,7 @@ pub fn run_native_agent_turn_with_config(
     }
 
     let error = "Rust agent runtime reached max iterations before final response.";
-    state.set_stop_reason("max_iterations");
+    state.set_stop_reason("max_iterations", state.iteration, "agent.error");
     state.emit_event(
         "agent.error",
         serde_json::json!({
@@ -4304,6 +4306,11 @@ mod tests {
             event_names(&result),
             vec!["agent.tool_call.delta", "agent.cancelled"]
         );
+        assert!(result["runtimeEvents"].as_array().unwrap().iter().any(|event| {
+            event["eventName"] == "agent.phase.changed"
+                && event["payload"]["nextPhase"] == "cancelled"
+                && event["payload"]["triggerEventName"] == "agent.cancelled"
+        }));
         assert_eq!(result["checkpoint"]["phase"], "cancelled");
         assert_eq!(result["checkpoint"]["iteration"], 0);
     }
