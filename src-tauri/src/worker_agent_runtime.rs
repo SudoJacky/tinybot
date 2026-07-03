@@ -55,6 +55,7 @@ struct NativeAgentRunState {
     usage: Vec<Value>,
     tools_used: Vec<String>,
     stop_reason: Option<String>,
+    pending_guidance_message: Option<Value>,
 }
 
 impl NativeAgentRunState {
@@ -70,6 +71,7 @@ impl NativeAgentRunState {
             usage: Vec::new(),
             tools_used: Vec::new(),
             stop_reason: None,
+            pending_guidance_message: guidance_continuation_message(&context.metadata),
         }
     }
 
@@ -109,6 +111,12 @@ impl NativeAgentRunState {
 
     fn clear_pending_tool_calls(&mut self) {
         self.pending_tool_calls.clear();
+    }
+
+    fn drain_pending_guidance(&mut self) -> Option<Value> {
+        let message = self.pending_guidance_message.take()?;
+        self.messages.push(message.clone());
+        Some(message)
     }
 }
 
@@ -969,6 +977,40 @@ fn initial_agent_messages(spec: &Value) -> Vec<Value> {
     Vec::new()
 }
 
+fn typed_continuation_from_metadata(metadata: &Value) -> Option<AgentContinuationInput> {
+    metadata
+        .get("agentContinuation")
+        .or_else(|| metadata.get("continuation"))
+        .cloned()
+        .and_then(|value| serde_json::from_value(value).ok())
+}
+
+fn queued_user_continuation_message(metadata: &Value) -> Option<Value> {
+    let AgentContinuationInput::QueuedUserMessage { content, .. } =
+        typed_continuation_from_metadata(metadata)?
+    else {
+        return None;
+    };
+    user_continuation_message(content)
+}
+
+fn guidance_continuation_message(metadata: &Value) -> Option<Value> {
+    let AgentContinuationInput::Guidance { content, .. } =
+        typed_continuation_from_metadata(metadata)?
+    else {
+        return None;
+    };
+    user_continuation_message(content)
+}
+
+fn user_continuation_message(content: String) -> Option<Value> {
+    if content.trim().is_empty() {
+        None
+    } else {
+        Some(serde_json::json!({ "role": "user", "content": content }))
+    }
+}
+
 fn chat_completion_content(completion: &Value) -> String {
     completion
         .pointer("/choices/0/message/content")
@@ -1374,6 +1416,18 @@ pub fn run_native_agent_turn_with_config(
                 }
             }
 
+            if let Some(message) = state.drain_pending_guidance() {
+                state.events.push(event(
+                    "agent.guidance",
+                    serde_json::json!({
+                        "runId": context.run_id,
+                        "sessionId": context.session_id,
+                        "iteration": iteration,
+                        "content": message.get("content").cloned().unwrap_or(Value::Null),
+                    }),
+                ));
+            }
+
             if let Some(usage) = provider_response.usage {
                 state.usage.push(usage.clone());
                 state.events.push(event(
@@ -1493,10 +1547,14 @@ impl NativeAgentRunContext {
             .or_else(|| metadata.get("_wants_stream"))
             .and_then(Value::as_bool)
             .unwrap_or(false);
+        let mut messages = initial_agent_messages(&spec);
+        if let Some(message) = queued_user_continuation_message(&metadata) {
+            messages.push(message);
+        }
         Self {
             run_id,
             session_id,
-            messages: initial_agent_messages(&spec),
+            messages,
             spec,
             config_snapshot,
             metadata,
@@ -2009,12 +2067,7 @@ fn approval_resume_metadata(
 }
 
 fn typed_continuation_metadata(context: &NativeAgentRunContext) -> Option<AgentContinuationInput> {
-    context
-        .metadata
-        .get("agentContinuation")
-        .or_else(|| context.metadata.get("continuation"))
-        .cloned()
-        .and_then(|value| serde_json::from_value(value).ok())
+    typed_continuation_from_metadata(&context.metadata)
 }
 
 fn approval_scope_from_value(value: Option<&Value>) -> AgentApprovalScope {
@@ -3857,6 +3910,161 @@ mod tests {
         assert_eq!(form["continuation"]["values"]["destination"], "Tokyo");
         assert_eq!(form["restoredCheckpoint"]["phase"], "awaiting_form");
         assert!(services.restore_checkpoint("websocket:chat-typed-form")["checkpoint"].is_null());
+    }
+
+    #[test]
+    fn queued_user_message_continuation_becomes_next_turn_input() {
+        struct RecordingProvider {
+            seen_messages: Mutex<Vec<Vec<Value>>>,
+        }
+
+        impl NativeAgentProvider for RecordingProvider {
+            fn complete(
+                &self,
+                context: &NativeAgentRunContext,
+            ) -> Result<NativeAgentProviderResponse, String> {
+                self.seen_messages
+                    .lock()
+                    .expect("seen messages lock should not be poisoned")
+                    .push(context.messages.clone());
+                Ok(NativeAgentProviderResponse {
+                    final_content: "queued response".to_string(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: Vec::new(),
+                })
+            }
+        }
+
+        let provider = Arc::new(RecordingProvider {
+            seen_messages: Mutex::new(Vec::new()),
+        });
+        let services = NativeAgentRuntimeServices::new(
+            provider.clone(),
+            Arc::new(FakeNativeAgentToolDispatcher),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        );
+
+        let result = run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-queued-message",
+                "sessionId": "websocket:chat-queued-message",
+                "metadata": {
+                    "agentContinuation": {
+                        "kind": "queued_user_message",
+                        "messageId": "queued-1",
+                        "content": "queued hello"
+                    }
+                }
+            }),
+        )
+        .expect("queued message continuation should become provider input");
+        let seen_messages = provider
+            .seen_messages
+            .lock()
+            .expect("seen messages lock should not be poisoned");
+
+        assert_eq!(result["stopReason"], "final_response");
+        assert_eq!(seen_messages.len(), 1);
+        assert_eq!(seen_messages[0][0]["role"], "user");
+        assert_eq!(seen_messages[0][0]["content"], "queued hello");
+    }
+
+    #[test]
+    fn guidance_continuation_is_inserted_before_next_model_call_after_tools() {
+        struct ToolThenFinalProvider {
+            seen_messages: Mutex<Vec<Vec<Value>>>,
+        }
+
+        impl NativeAgentProvider for ToolThenFinalProvider {
+            fn complete(
+                &self,
+                context: &NativeAgentRunContext,
+            ) -> Result<NativeAgentProviderResponse, String> {
+                let call_count = {
+                    let mut seen_messages = self
+                        .seen_messages
+                        .lock()
+                        .expect("seen messages lock should not be poisoned");
+                    seen_messages.push(context.messages.clone());
+                    seen_messages.len()
+                };
+                if call_count == 1 {
+                    Ok(NativeAgentProviderResponse {
+                        final_content: String::new(),
+                        reasoning_delta: None,
+                        usage: None,
+                        tool_calls: vec![NativeAgentToolCall {
+                            id: "call-guidance-read".to_string(),
+                            name: "workspace.read_file".to_string(),
+                            arguments_json: "{\"path\":\"README.md\"}".to_string(),
+                            result: json!({ "content": "README body" }),
+                        }],
+                    })
+                } else {
+                    Ok(NativeAgentProviderResponse {
+                        final_content: "guided response".to_string(),
+                        reasoning_delta: None,
+                        usage: None,
+                        tool_calls: Vec::new(),
+                    })
+                }
+            }
+        }
+
+        let provider = Arc::new(ToolThenFinalProvider {
+            seen_messages: Mutex::new(Vec::new()),
+        });
+        let services = NativeAgentRuntimeServices::new(
+            provider.clone(),
+            Arc::new(FakeNativeAgentToolDispatcher),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        );
+
+        let result = run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-guided-message",
+                "sessionId": "websocket:chat-guided-message",
+                "maxIterations": 3,
+                "messages": [{ "role": "user", "content": "read first" }],
+                "metadata": {
+                    "agentContinuation": {
+                        "kind": "guidance",
+                        "messageId": "guidance-1",
+                        "content": "use the README result carefully"
+                    }
+                }
+            }),
+        )
+        .expect("guidance continuation should be inserted after tool boundary");
+        let seen_messages = provider
+            .seen_messages
+            .lock()
+            .expect("seen messages lock should not be poisoned");
+
+        assert_eq!(result["stopReason"], "final_response");
+        assert_eq!(seen_messages.len(), 2);
+        assert!(!seen_messages[0]
+            .iter()
+            .any(|message| message["content"] == "use the README result carefully"));
+        assert!(seen_messages[1]
+            .iter()
+            .any(|message| message["content"] == "use the README result carefully"));
+        assert!(seen_messages[1]
+            .iter()
+            .any(|message| message["role"] == "tool"
+                && message["tool_call_id"] == "call-guidance-read"));
+        assert!(result["events"]
+            .as_array()
+            .expect("events should be an array")
+            .iter()
+            .any(|event| event["eventName"] == "agent.guidance"));
     }
 
     fn event_names(result: &Value) -> Vec<&str> {
