@@ -386,6 +386,37 @@ mod tests {
     }
 
     #[test]
+    fn append_agent_run_trace_event_deduplicates_stable_event_ids() {
+        let mut rpc = WorkerSessionRpc::new(vec![session_fixture()], read_write_policy());
+        rpc.upsert_agent_run(agent_run_fixture(
+            "session-1",
+            "run-1",
+            AgentRunStatus::Running,
+        ))
+        .expect("run should upsert");
+        let event = json!({
+            "schemaVersion": "tinybot.agent_event.v1",
+            "eventId": "run-1:agent-done:0000000000000001",
+            "eventName": "agent.done",
+            "payload": { "stopReason": "final_response" }
+        });
+
+        rpc.append_agent_run_trace_event("session-1", "run-1", event.clone())
+            .expect("first append should persist");
+        rpc.append_agent_run_trace_event("session-1", "run-1", event)
+            .expect("duplicate append should be accepted");
+        let restored = rpc
+            .get_agent_run("session-1", "run-1")
+            .expect("run should read");
+
+        assert_eq!(restored.trace_events.len(), 1);
+        assert_eq!(
+            restored.trace_events[0]["eventId"],
+            "run-1:agent-done:0000000000000001"
+        );
+    }
+
+    #[test]
     fn agent_run_trace_pages_are_bounded_by_cursor_and_limit() {
         let mut rpc = WorkerSessionRpc::new(vec![session_fixture()], read_write_policy());
         let mut record = agent_run_fixture("session-1", "run-1", AgentRunStatus::Running);
