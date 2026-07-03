@@ -192,6 +192,31 @@ impl NativeToolResultEnvelope {
         )
     }
 
+    pub fn approval_denied(
+        tool_call: &NativeAgentToolCall,
+        summary: String,
+        guidance: String,
+    ) -> Self {
+        Self::from_parts(
+            "denied",
+            summary.clone(),
+            summary.clone(),
+            "approval_denied",
+            tool_call.name.clone(),
+            serde_json::json!({
+                "kind": "approval_denied",
+                "guidance": guidance,
+            }),
+            serde_json::json!([]),
+            serde_json::json!([]),
+            serde_json::json!([]),
+            tool_call,
+            serde_json::json!({
+                "guidance": guidance,
+            }),
+        )
+    }
+
     pub fn file_excerpt(tool_call: &NativeAgentToolCall, path: String, excerpt: String) -> Self {
         Self::from_parts(
             "ok",
@@ -1933,6 +1958,16 @@ fn maybe_approval_resume_result(
         .checkpoints
         .restore_for_run(&context.session_id, &context.run_id);
     if !approved {
+        if let Some(guidance) = continuation.guidance.clone() {
+            return Some(approval_denied_guidance_result(
+                services,
+                context,
+                &approval,
+                &continuation,
+                guidance,
+                checkpoint,
+            ));
+        }
         services
             .checkpoints
             .clear_for_run(&context.session_id, &context.run_id);
@@ -2023,6 +2058,155 @@ fn maybe_approval_resume_result(
         },
         "events": events,
     }))
+}
+
+fn approval_denied_guidance_result(
+    services: &NativeAgentRuntimeServices,
+    context: &NativeAgentRunContext,
+    approval: &Value,
+    continuation: &ApprovalContinuationData,
+    guidance: String,
+    checkpoint: Option<Value>,
+) -> Value {
+    services
+        .checkpoints
+        .clear_for_run(&context.session_id, &context.run_id);
+    let tool_call = approval_resume_tool_call(checkpoint.as_ref(), approval, continuation);
+    let summary = format!("Approval denied by user. Guidance: {guidance}");
+    let result = NativeAgentToolResult {
+        content: Value::String(summary.clone()),
+        envelope: NativeToolResultEnvelope::approval_denied(
+            &tool_call,
+            summary.clone(),
+            guidance.clone(),
+        ),
+    };
+    let completed_result = completed_tool_result_entry(&tool_call, &result);
+    let mut messages = checkpoint
+        .as_ref()
+        .and_then(|checkpoint| checkpoint.get("messages"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_else(|| context.messages.clone());
+    messages.push(assistant_tool_calls_message("", &[tool_call.clone()]));
+    messages.push(tool_observation_message(&tool_call, &summary));
+
+    let mut resumed_context = context.clone();
+    resumed_context.messages = messages.clone();
+    resumed_context.spec["messages"] = Value::Array(messages);
+    let mut events = vec![
+        approval_decision_event(context, continuation),
+        event(
+            "agent.tool.result",
+            serde_json::json!({
+                "runId": context.run_id,
+                "sessionId": context.session_id,
+                "toolCallId": tool_call.id,
+                "toolName": tool_call.name,
+                "name": tool_call.name,
+                "detailId": format!("tool:{}", tool_call.id),
+                "status": "completed",
+                "resultStatus": result.envelope.get("status").cloned().unwrap_or(Value::Null),
+                "summary": summary,
+                "content": summary,
+                "envelope": result.envelope.clone(),
+            }),
+        ),
+    ];
+
+    match services.provider.complete(&resumed_context) {
+        Ok(provider_response) => {
+            let final_content = provider_response.final_content;
+            if let Some(usage) = provider_response.usage {
+                events.push(event(
+                    "agent.usage",
+                    serde_json::json!({
+                        "runId": context.run_id,
+                        "sessionId": context.session_id,
+                        "usage": usage,
+                    }),
+                ));
+            }
+            events.push(event(
+                "agent.done",
+                serde_json::json!({
+                    "runId": context.run_id,
+                    "sessionId": context.session_id,
+                    "stopReason": "final_response",
+                }),
+            ));
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": context.run_id,
+                "sessionId": context.session_id,
+                "finalContent": final_content,
+                "stopReason": "final_response",
+                "messages": [{ "role": "assistant", "content": final_content }],
+                "toolsUsed": [],
+                "completedToolResults": [completed_result],
+                "restoredCheckpoint": checkpoint,
+                "continuation": {
+                    "kind": "approval",
+                    "approvalId": continuation.approval_id,
+                    "decision": "denied",
+                    "scope": approval_scope_str(&continuation.scope),
+                    "guidance": guidance,
+                },
+                "events": events,
+            })
+        }
+        Err(error) => {
+            events.push(event(
+                "agent.error",
+                serde_json::json!({
+                    "runId": context.run_id,
+                    "sessionId": context.session_id,
+                    "stopReason": "provider_error",
+                    "message": error,
+                    "error": error,
+                }),
+            ));
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": context.run_id,
+                "sessionId": context.session_id,
+                "finalContent": "",
+                "stopReason": "provider_error",
+                "messages": [],
+                "toolsUsed": [],
+                "completedToolResults": [completed_result],
+                "restoredCheckpoint": checkpoint,
+                "error": error,
+                "events": events,
+            })
+        }
+    }
+}
+
+fn approval_resume_tool_call(
+    checkpoint: Option<&Value>,
+    approval: &Value,
+    continuation: &ApprovalContinuationData,
+) -> NativeAgentToolCall {
+    let pending_tool_call = checkpoint
+        .and_then(|checkpoint| checkpoint.get("pendingToolCalls"))
+        .and_then(Value::as_array)
+        .and_then(|pending_tool_calls| pending_tool_calls.first());
+    NativeAgentToolCall {
+        id: pending_tool_call
+            .and_then(|tool_call| string_field(tool_call, "toolCallId"))
+            .or_else(|| string_field(approval, "toolCallId"))
+            .unwrap_or_else(|| continuation.approval_id.clone()),
+        name: pending_tool_call
+            .and_then(|tool_call| string_field(tool_call, "toolName"))
+            .or_else(|| string_field(approval, "toolName"))
+            .unwrap_or_else(|| "approval".to_string()),
+        arguments_json: pending_tool_call
+            .and_then(|tool_call| string_field(tool_call, "argumentsJson"))
+            .or_else(|| string_field(approval, "argumentsJson"))
+            .unwrap_or_else(|| "{}".to_string()),
+        result: Value::Null,
+    }
 }
 
 fn approval_request_options() -> Value {
@@ -4258,6 +4442,126 @@ mod tests {
             .expect("events should be an array")
             .iter()
             .any(|event| event["eventName"] == "agent.guidance"));
+    }
+
+    #[test]
+    fn approval_denial_guidance_becomes_tool_result_before_next_model_call() {
+        struct RecordingProvider {
+            seen_messages: Mutex<Vec<Vec<Value>>>,
+        }
+
+        impl NativeAgentProvider for RecordingProvider {
+            fn complete(
+                &self,
+                context: &NativeAgentRunContext,
+            ) -> Result<NativeAgentProviderResponse, String> {
+                self.seen_messages
+                    .lock()
+                    .expect("seen messages lock should not be poisoned")
+                    .push(context.messages.clone());
+                Ok(NativeAgentProviderResponse {
+                    final_content: "I will avoid writing and explain instead.".to_string(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: Vec::new(),
+                })
+            }
+        }
+
+        let provider = Arc::new(RecordingProvider {
+            seen_messages: Mutex::new(Vec::new()),
+        });
+        let services = NativeAgentRuntimeServices::new(
+            provider.clone(),
+            Arc::new(FakeNativeAgentToolDispatcher),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        );
+
+        run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-approval-guidance",
+                "sessionId": "websocket:chat-approval-guidance",
+                "messages": [{ "role": "user", "content": "write the file" }],
+                "metadata": {
+                    "fakeAwaitingApproval": {
+                        "approvalId": "approval-guidance",
+                        "toolName": "workspace.write_file"
+                    }
+                }
+            }),
+        )
+        .expect("approval checkpoint should be created");
+
+        let result = run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-approval-guidance",
+                "sessionId": "websocket:chat-approval-guidance",
+                "metadata": {
+                    "agentContinuation": {
+                        "kind": "approval",
+                        "approvalId": "approval-guidance",
+                        "decision": "denied",
+                        "scope": "once",
+                        "guidance": "Do not write files; explain the manual steps instead."
+                    }
+                }
+            }),
+        )
+        .expect("approval denial guidance should continue through the model");
+
+        let seen_messages = provider
+            .seen_messages
+            .lock()
+            .expect("seen messages lock should not be poisoned");
+        let events = event_names(&result);
+
+        assert_eq!(result["stopReason"], "final_response");
+        assert_eq!(
+            result["finalContent"],
+            "I will avoid writing and explain instead."
+        );
+        assert_eq!(seen_messages.len(), 1);
+        assert_eq!(seen_messages[0][0]["role"], "user");
+        assert_eq!(seen_messages[0][0]["content"], "write the file");
+        assert_eq!(seen_messages[0][1]["role"], "assistant");
+        assert_eq!(
+            seen_messages[0][1]["tool_calls"][0]["id"],
+            "approval-guidance"
+        );
+        assert_eq!(seen_messages[0][2]["role"], "tool");
+        assert_eq!(
+            seen_messages[0][2]["tool_call_id"],
+            "approval-guidance"
+        );
+        assert!(seen_messages[0][2]["content"]
+            .as_str()
+            .expect("tool result content should be text")
+            .contains("Do not write files"));
+        assert_eq!(result["completedToolResults"][0]["status"], "denied");
+        assert_eq!(
+            result["completedToolResults"][0]["toolCallId"],
+            "approval-guidance"
+        );
+        assert_eq!(result["events"][0]["eventName"], "agent.approval.decision");
+        assert_eq!(result["events"][0]["payload"]["decision"], "denied");
+        assert_eq!(
+            result["events"][0]["payload"]["guidance"],
+            "Do not write files; explain the manual steps instead."
+        );
+        assert_eq!(result["events"][1]["eventName"], "agent.tool.result");
+        assert_eq!(result["events"][1]["payload"]["resultStatus"], "denied");
+        assert_eq!(
+            events,
+            vec!["agent.approval.decision", "agent.tool.result", "agent.done"]
+        );
+        assert!(
+            services.restore_checkpoint("websocket:chat-approval-guidance")["checkpoint"].is_null()
+        );
     }
 
     fn event_names(result: &Value) -> Vec<&str> {
