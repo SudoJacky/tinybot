@@ -4290,6 +4290,156 @@ mod tests {
     }
 
     #[test]
+    fn cancellation_during_approval_wait_reaches_cancelled_without_resume() {
+        let services = NativeAgentRuntimeServices::default();
+        run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-cancel-approval-wait",
+                "sessionId": "websocket:chat-cancel-approval-wait",
+                "metadata": {
+                    "fakeAwaitingApproval": {
+                        "approvalId": "approval-cancel",
+                        "toolName": "workspace.write_file"
+                    }
+                }
+            }),
+        )
+        .expect("approval wait checkpoint should be created");
+
+        services.cancel("run-cancel-approval-wait");
+        let result = run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-cancel-approval-wait",
+                "sessionId": "websocket:chat-cancel-approval-wait",
+                "metadata": {
+                    "agentContinuation": {
+                        "kind": "approval",
+                        "approvalId": "approval-cancel",
+                        "decision": "approved",
+                        "scope": "once"
+                    }
+                }
+            }),
+        )
+        .expect("cancelled approval wait should return cancellation result");
+
+        assert_eq!(result["stopReason"], "cancelled");
+        assert_eq!(result["checkpoint"]["phase"], "cancelled");
+        assert_eq!(event_names(&result), vec!["agent.cancelled"]);
+    }
+
+    #[test]
+    fn cancellation_during_subagent_wait_prevents_followup_model_call() {
+        struct SpawnWaitProvider {
+            calls: Mutex<u32>,
+        }
+
+        impl NativeAgentProvider for SpawnWaitProvider {
+            fn complete(
+                &self,
+                _context: &NativeAgentRunContext,
+            ) -> Result<NativeAgentProviderResponse, String> {
+                let mut calls = self
+                    .calls
+                    .lock()
+                    .expect("provider calls lock should not be poisoned");
+                *calls += 1;
+                match *calls {
+                    1 => Ok(NativeAgentProviderResponse {
+                        final_content: String::new(),
+                        reasoning_delta: None,
+                        usage: None,
+                        tool_calls: vec![NativeAgentToolCall {
+                            id: "call-cancel-wait-spawn".to_string(),
+                            name: "subagent.spawn".to_string(),
+                            arguments_json:
+                                "{\"subagentId\":\"wait-child\",\"task\":\"Wait boundary\"}"
+                                    .to_string(),
+                            result: Value::Null,
+                        }],
+                    }),
+                    2 => Ok(NativeAgentProviderResponse {
+                        final_content: String::new(),
+                        reasoning_delta: None,
+                        usage: None,
+                        tool_calls: vec![NativeAgentToolCall {
+                            id: "call-cancel-wait".to_string(),
+                            name: "subagent.wait".to_string(),
+                            arguments_json:
+                                "{\"subagentIds\":[\"wait-child\"],\"timeoutMs\":1}".to_string(),
+                            result: Value::Null,
+                        }],
+                    }),
+                    _ => panic!("provider should not be called after subagent wait cancellation"),
+                }
+            }
+        }
+
+        struct CancellingSubagentWaitDispatcher {
+            cancellations: Arc<InMemoryNativeAgentCancellation>,
+            fallback: SubagentNativeAgentToolDispatcher,
+        }
+
+        impl NativeAgentToolDispatcher for CancellingSubagentWaitDispatcher {
+            fn dispatch(
+                &self,
+                context: &NativeAgentRunContext,
+                tool_call: &NativeAgentToolCall,
+            ) -> Result<NativeAgentToolResult, String> {
+                let result = self.fallback.dispatch(context, tool_call)?;
+                if matches!(tool_call.name.as_str(), "subagent.wait" | "wait_agent") {
+                    self.cancellations.cancel(&context.run_id);
+                }
+                Ok(result)
+            }
+        }
+
+        let manager = SubagentThreadManager::default();
+        let cancellations = Arc::new(InMemoryNativeAgentCancellation::default());
+        let provider = Arc::new(SpawnWaitProvider {
+            calls: Mutex::new(0),
+        });
+        let services = NativeAgentRuntimeServices::new(
+            provider.clone(),
+            Arc::new(CancellingSubagentWaitDispatcher {
+                cancellations: cancellations.clone(),
+                fallback: SubagentNativeAgentToolDispatcher::new(manager),
+            }),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            cancellations,
+        );
+
+        let result = run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-cancel-subagent-wait",
+                "sessionId": "websocket:chat-cancel-subagent-wait",
+                "maxIterations": 4,
+                "messages": [{ "role": "user", "content": "spawn then wait" }]
+            }),
+        )
+        .expect("subagent wait cancellation should return cancellation result");
+
+        let event_names = event_names(&result);
+        assert_eq!(result["stopReason"], "cancelled");
+        assert_eq!(
+            *provider
+                .calls
+                .lock()
+                .expect("provider calls lock should not be poisoned"),
+            2
+        );
+        assert!(event_names.contains(&"agent.delegate.wait"));
+        assert_eq!(event_names.last(), Some(&"agent.cancelled"));
+        assert_eq!(result["checkpoint"]["phase"], "cancelled");
+    }
+
+    #[test]
     fn stores_active_turn_tool_wait_and_cancellation_checkpoints() {
         struct CheckpointAwareProvider {
             checkpoints: Arc<InMemoryNativeAgentCheckpointStore>,
