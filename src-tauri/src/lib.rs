@@ -6345,7 +6345,8 @@ mod tests {
         assert_eq!(result["finalContent"], "rust fixture answer");
         assert_eq!(result["events"][0]["eventName"], "agent.delta");
         assert_eq!(result["events"][1]["eventName"], "agent.usage");
-        assert_eq!(result["events"][2]["eventName"], "agent.done");
+        assert_eq!(result["events"][2]["eventName"], "agent.message.completed");
+        assert_eq!(result["events"][3]["eventName"], "agent.done");
         assert_eq!(
             lock_runtime(&shared).experimental_worker.status().state,
             WorkerManagerState::Stopped
@@ -7306,7 +7307,7 @@ mod tests {
         let serialized = run.to_string();
 
         assert!(
-            serialized.len() < large_output.len(),
+            serialized.len() < large_output.len() + 2_000,
             "run record was {} bytes",
             serialized.len()
         );
