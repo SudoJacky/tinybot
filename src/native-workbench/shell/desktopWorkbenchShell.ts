@@ -1353,7 +1353,7 @@ function createConversationThread(
       author: "You",
       time: "10:28 AM",
       tone: "user",
-      body: ["这是目前的 native 界面，我希望你帮我设计一个更接近 codex 风格的界面。"],
+      body: ["这是目前的 native 界面，我希望你帮我设计一个更接近 Tinybot 风格的界面。"],
     }),
     createConversationMessage(targetDocument, {
       author: "Tinybot",
@@ -1363,7 +1363,7 @@ function createConversationThread(
         "好的，根据你的需求，我为 Tinybot native workbench 设计了一个更统一、简洁、专业的界面方向。",
         "三栏布局：左侧导航 + 主会话区 + 右侧运行链面板",
         "采用轻量配色与更清晰的层级，提升可读性和信息密度",
-        "底部 Composer 贴合 Codex 风格，支持附件与模型选择",
+        "底部 Composer 贴合 Tinybot 风格，支持附件与模型选择",
         "运行链面板提供上下文、文件与任务的快速访问",
       ],
       attachment: "tinybot_native_workbench_design.png",

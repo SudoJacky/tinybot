@@ -1172,7 +1172,7 @@ describe("desktop workbench shell", () => {
     expect(targetDocument.getElementById("desktop-native-composer-runtime")?.getAttribute("aria-label")).toBe("Runtime status");
   });
 
-  test("renders the native workbench in the latest Codex-style three-column layout", () => {
+  test("renders the native workbench in the latest native three-column layout", () => {
     const targetDocument = new FakeDocument();
 
     installDesktopWorkbenchShell({

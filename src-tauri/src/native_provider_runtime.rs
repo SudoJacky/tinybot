@@ -85,7 +85,6 @@ const PROVIDER_CATALOG: &[NativeProviderCatalogEntry] = &[
             "gpt-5.4-mini",
             "gpt-5.4-nano",
             "gpt-5-mini",
-            "gpt-5.3-codex",
             "gpt-4.1",
             "gpt-4o",
             "gpt-4o-mini",
