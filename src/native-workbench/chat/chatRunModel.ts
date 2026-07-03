@@ -696,9 +696,10 @@ function applyTurnItemToTurn(turn: ChatTurn, item: BackendAgentTurnItem, sequenc
   }
   if (item.kind === "assistant_message") {
     const text = safeArtifactText(stringValue(payload.content ?? payload.text ?? payload.finalContent ?? item.summary));
+    const messageId = stringValue(payload.messageId ?? payload.message_id) || item.itemId;
     if (status === "completed") {
       turn.finalMessage = {
-        id: item.itemId,
+        id: messageId,
         role: "assistant",
         text,
         timestamp: item.updatedAt || item.createdAt || turn.updatedAt,

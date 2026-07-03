@@ -55,7 +55,7 @@ impl AgentRuntimePhase {
             event_name if event_name.starts_with("agent.delegate.") => Self::AwaitingSubagent,
             "agent.checkpoint" => Self::Planning,
             "agent.usage" => Self::CallingModel,
-            "agent.done" => Self::Completed,
+            "agent.message.completed" | "agent.done" => Self::Completed,
             "agent.error" => Self::Failed,
             "agent.cancelled" => Self::Cancelled,
             _ => Self::Planning,
@@ -80,7 +80,9 @@ impl AgentTurnItemKind {
     pub fn for_legacy_event(event_name: &str) -> Option<Self> {
         match event_name {
             "agent.reasoning_delta" => Some(Self::Reasoning),
-            "agent.delta" | "agent.done" => Some(Self::AssistantMessage),
+            "agent.delta" | "agent.message.completed" | "agent.done" => {
+                Some(Self::AssistantMessage)
+            }
             "agent.tool_call.delta" | "agent.tool.start" | "agent.tool.result" => {
                 Some(Self::ToolCall)
             }
@@ -242,6 +244,13 @@ pub struct AgentRuntimeEventAppendInput {
     pub payload: Value,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct LegacyNativeAgentEventProjection {
+    #[serde(rename = "eventName")]
+    pub event_name: String,
+    pub payload: Value,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AgentRuntimeEventAppender {
     session_id: String,
@@ -325,6 +334,420 @@ impl AgentRuntimeEventAppender {
         self.next_sequence = self.next_sequence.saturating_add(1);
         sequence
     }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AgentRunEmitter {
+    appender: AgentRuntimeEventAppender,
+    events: Vec<AgentRuntimeEventEnvelope>,
+}
+
+impl AgentRunEmitter {
+    pub fn new(session_id: impl Into<String>, turn_id: impl Into<String>) -> Self {
+        Self {
+            appender: AgentRuntimeEventAppender::new(session_id, turn_id),
+            events: Vec::new(),
+        }
+    }
+
+    pub fn from_existing_events(
+        session_id: impl Into<String>,
+        turn_id: impl Into<String>,
+        events: &[AgentRuntimeEventEnvelope],
+    ) -> Self {
+        Self {
+            appender: AgentRuntimeEventAppender::from_existing_events(session_id, turn_id, events),
+            events: Vec::new(),
+        }
+    }
+
+    pub fn emit(&mut self, input: AgentRuntimeEventAppendInput) -> AgentRuntimeEventEnvelope {
+        let event = self.appender.append(input);
+        self.events.push(event.clone());
+        event
+    }
+
+    pub fn events(&self) -> &[AgentRuntimeEventEnvelope] {
+        &self.events
+    }
+
+    pub fn take_events(&mut self) -> Vec<AgentRuntimeEventEnvelope> {
+        std::mem::take(&mut self.events)
+    }
+
+    pub fn next_sequence(&self) -> u64 {
+        self.appender.next_sequence()
+    }
+
+    pub fn phase_changed(
+        &mut self,
+        timestamp: impl Into<String>,
+        from: AgentRuntimePhase,
+        to: AgentRuntimePhase,
+    ) -> AgentRuntimeEventEnvelope {
+        let to_phase = to.clone();
+        self.emit(AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id: None,
+            event_name: "agent.phase.changed".to_string(),
+            phase: to_phase,
+            timestamp: timestamp.into(),
+            source: AgentRuntimeEventSource::RustBackend,
+            visibility: AgentRuntimeEventVisibility::Debug,
+            payload: serde_json::json!({
+                "from": from.as_str(),
+                "to": to.as_str()
+            }),
+        })
+    }
+
+    pub fn user_turn_started(
+        &mut self,
+        timestamp: impl Into<String>,
+        message_id: Option<String>,
+        content: impl Into<String>,
+    ) -> AgentRuntimeEventEnvelope {
+        let content = content.into();
+        self.emit(AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id: None,
+            event_name: "agent.turn.started".to_string(),
+            phase: AgentRuntimePhase::Planning,
+            timestamp: timestamp.into(),
+            source: AgentRuntimeEventSource::User,
+            visibility: AgentRuntimeEventVisibility::User,
+            payload: serde_json::json!({
+                "userMessageId": message_id,
+                "userMessage": {
+                    "id": message_id,
+                    "content": content
+                }
+            }),
+        })
+    }
+
+    pub fn assistant_delta(
+        &mut self,
+        timestamp: impl Into<String>,
+        delta: impl Into<String>,
+    ) -> AgentRuntimeEventEnvelope {
+        self.emit(AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id: None,
+            event_name: "agent.delta".to_string(),
+            phase: AgentRuntimePhase::StreamingModel,
+            timestamp: timestamp.into(),
+            source: AgentRuntimeEventSource::Provider,
+            visibility: AgentRuntimeEventVisibility::User,
+            payload: serde_json::json!({ "delta": delta.into() }),
+        })
+    }
+
+    pub fn message_completed(
+        &mut self,
+        timestamp: impl Into<String>,
+        message_id: Option<String>,
+        content: impl Into<String>,
+    ) -> AgentRuntimeEventEnvelope {
+        self.emit(AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id: None,
+            event_name: "agent.message.completed".to_string(),
+            phase: AgentRuntimePhase::Completed,
+            timestamp: timestamp.into(),
+            source: AgentRuntimeEventSource::Provider,
+            visibility: AgentRuntimeEventVisibility::User,
+            payload: serde_json::json!({
+                "messageId": message_id,
+                "content": content.into()
+            }),
+        })
+    }
+
+    pub fn tool_start(
+        &mut self,
+        timestamp: impl Into<String>,
+        tool_call_id: impl Into<String>,
+        tool_name: impl Into<String>,
+        args: Value,
+    ) -> AgentRuntimeEventEnvelope {
+        let tool_call_id = tool_call_id.into();
+        self.emit(AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id: Some(tool_call_id.clone()),
+            event_name: "agent.tool.start".to_string(),
+            phase: AgentRuntimePhase::ToolRunning,
+            timestamp: timestamp.into(),
+            source: AgentRuntimeEventSource::Tool,
+            visibility: AgentRuntimeEventVisibility::User,
+            payload: serde_json::json!({
+                "toolCallId": tool_call_id,
+                "toolName": tool_name.into(),
+                "args": args
+            }),
+        })
+    }
+
+    pub fn tool_result(
+        &mut self,
+        timestamp: impl Into<String>,
+        tool_call_id: impl Into<String>,
+        tool_name: impl Into<String>,
+        envelope: Value,
+    ) -> AgentRuntimeEventEnvelope {
+        let tool_call_id = tool_call_id.into();
+        self.emit(AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id: Some(tool_call_id.clone()),
+            event_name: "agent.tool.result".to_string(),
+            phase: AgentRuntimePhase::ToolRunning,
+            timestamp: timestamp.into(),
+            source: AgentRuntimeEventSource::Tool,
+            visibility: AgentRuntimeEventVisibility::User,
+            payload: serde_json::json!({
+                "toolCallId": tool_call_id,
+                "toolName": tool_name.into(),
+                "envelope": envelope
+            }),
+        })
+    }
+
+    pub fn checkpoint(
+        &mut self,
+        timestamp: impl Into<String>,
+        payload: Value,
+    ) -> AgentRuntimeEventEnvelope {
+        self.emit(AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id: None,
+            event_name: "agent.checkpoint".to_string(),
+            phase: AgentRuntimePhase::Planning,
+            timestamp: timestamp.into(),
+            source: AgentRuntimeEventSource::RustBackend,
+            visibility: AgentRuntimeEventVisibility::Debug,
+            payload,
+        })
+    }
+
+    pub fn awaiting_approval(
+        &mut self,
+        timestamp: impl Into<String>,
+        approval_id: impl Into<String>,
+        payload: Value,
+    ) -> AgentRuntimeEventEnvelope {
+        let approval_id = approval_id.into();
+        let mut payload = object_payload(payload);
+        payload
+            .entry("approvalId".to_string())
+            .or_insert_with(|| Value::String(approval_id.clone()));
+        self.emit(AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id: Some(approval_id),
+            event_name: "agent.awaiting_approval".to_string(),
+            phase: AgentRuntimePhase::AwaitingApproval,
+            timestamp: timestamp.into(),
+            source: AgentRuntimeEventSource::RustBackend,
+            visibility: AgentRuntimeEventVisibility::User,
+            payload: Value::Object(payload),
+        })
+    }
+
+    pub fn approval_decision(
+        &mut self,
+        timestamp: impl Into<String>,
+        approval_id: impl Into<String>,
+        decision: AgentApprovalDecision,
+        scope: AgentApprovalScope,
+        guidance: Option<String>,
+    ) -> AgentRuntimeEventEnvelope {
+        let approval_id = approval_id.into();
+        let mut payload = serde_json::Map::new();
+        payload.insert("approvalId".to_string(), Value::String(approval_id.clone()));
+        payload.insert(
+            "decision".to_string(),
+            serde_json::to_value(decision).unwrap_or(Value::Null),
+        );
+        payload.insert(
+            "scope".to_string(),
+            serde_json::to_value(scope).unwrap_or(Value::Null),
+        );
+        if let Some(guidance) = guidance {
+            payload.insert("guidance".to_string(), Value::String(guidance));
+        }
+        self.emit(AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id: Some(approval_id),
+            event_name: "agent.approval.decision".to_string(),
+            phase: AgentRuntimePhase::AwaitingApproval,
+            timestamp: timestamp.into(),
+            source: AgentRuntimeEventSource::User,
+            visibility: AgentRuntimeEventVisibility::User,
+            payload: Value::Object(payload),
+        })
+    }
+
+    pub fn awaiting_form(
+        &mut self,
+        timestamp: impl Into<String>,
+        form_id: impl Into<String>,
+        payload: Value,
+    ) -> AgentRuntimeEventEnvelope {
+        let form_id = form_id.into();
+        let mut payload = object_payload(payload);
+        payload
+            .entry("formId".to_string())
+            .or_insert_with(|| Value::String(form_id.clone()));
+        self.emit(AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id: Some(form_id),
+            event_name: "agent.awaiting_form".to_string(),
+            phase: AgentRuntimePhase::AwaitingForm,
+            timestamp: timestamp.into(),
+            source: AgentRuntimeEventSource::RustBackend,
+            visibility: AgentRuntimeEventVisibility::User,
+            payload: Value::Object(payload),
+        })
+    }
+
+    pub fn form_resolution(
+        &mut self,
+        timestamp: impl Into<String>,
+        form_id: impl Into<String>,
+        action: AgentFormAction,
+        values: Option<Value>,
+    ) -> AgentRuntimeEventEnvelope {
+        let form_id = form_id.into();
+        let mut payload = serde_json::Map::new();
+        payload.insert("formId".to_string(), Value::String(form_id.clone()));
+        payload.insert(
+            "action".to_string(),
+            serde_json::to_value(action).unwrap_or(Value::Null),
+        );
+        if let Some(values) = values {
+            payload.insert("values".to_string(), values);
+        }
+        self.emit(AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id: Some(form_id),
+            event_name: "agent.form.resolution".to_string(),
+            phase: AgentRuntimePhase::AwaitingForm,
+            timestamp: timestamp.into(),
+            source: AgentRuntimeEventSource::User,
+            visibility: AgentRuntimeEventVisibility::User,
+            payload: Value::Object(payload),
+        })
+    }
+
+    pub fn guidance(
+        &mut self,
+        timestamp: impl Into<String>,
+        message_id: Option<String>,
+        content: impl Into<String>,
+    ) -> AgentRuntimeEventEnvelope {
+        self.emit(AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id: message_id.clone(),
+            event_name: "agent.guidance".to_string(),
+            phase: AgentRuntimePhase::Planning,
+            timestamp: timestamp.into(),
+            source: AgentRuntimeEventSource::User,
+            visibility: AgentRuntimeEventVisibility::User,
+            payload: serde_json::json!({
+                "messageId": message_id,
+                "content": content.into()
+            }),
+        })
+    }
+
+    pub fn error(
+        &mut self,
+        timestamp: impl Into<String>,
+        message: impl Into<String>,
+    ) -> AgentRuntimeEventEnvelope {
+        self.emit(AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id: None,
+            event_name: "agent.error".to_string(),
+            phase: AgentRuntimePhase::Failed,
+            timestamp: timestamp.into(),
+            source: AgentRuntimeEventSource::RustBackend,
+            visibility: AgentRuntimeEventVisibility::User,
+            payload: serde_json::json!({ "message": message.into() }),
+        })
+    }
+
+    pub fn cancelled(
+        &mut self,
+        timestamp: impl Into<String>,
+        reason: impl Into<String>,
+    ) -> AgentRuntimeEventEnvelope {
+        self.cancelled_with_payload(timestamp, reason, Value::Null)
+    }
+
+    pub fn cancelled_with_payload(
+        &mut self,
+        timestamp: impl Into<String>,
+        reason: impl Into<String>,
+        payload: Value,
+    ) -> AgentRuntimeEventEnvelope {
+        let reason = reason.into();
+        let mut payload = object_payload(payload);
+        payload
+            .entry("reason".to_string())
+            .or_insert_with(|| Value::String(reason));
+        self.emit(AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id: None,
+            event_name: "agent.cancelled".to_string(),
+            phase: AgentRuntimePhase::Cancelled,
+            timestamp: timestamp.into(),
+            source: AgentRuntimeEventSource::RustBackend,
+            visibility: AgentRuntimeEventVisibility::User,
+            payload: Value::Object(payload),
+        })
+    }
+
+    pub fn done(
+        &mut self,
+        timestamp: impl Into<String>,
+        stop_reason: impl Into<String>,
+        payload: Value,
+    ) -> AgentRuntimeEventEnvelope {
+        let mut payload = object_payload(payload);
+        payload.insert("stopReason".to_string(), Value::String(stop_reason.into()));
+        self.emit(AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id: None,
+            event_name: "agent.done".to_string(),
+            phase: AgentRuntimePhase::Completed,
+            timestamp: timestamp.into(),
+            source: AgentRuntimeEventSource::RustBackend,
+            visibility: AgentRuntimeEventVisibility::Debug,
+            payload: Value::Object(payload),
+        })
+    }
+}
+
+pub fn project_legacy_native_agent_events(
+    events: &[AgentRuntimeEventEnvelope],
+) -> Vec<LegacyNativeAgentEventProjection> {
+    events
+        .iter()
+        .map(project_legacy_native_agent_event)
+        .collect()
+}
+
+pub fn project_legacy_native_agent_event(
+    event: &AgentRuntimeEventEnvelope,
+) -> LegacyNativeAgentEventProjection {
+    LegacyNativeAgentEventProjection {
+        event_name: event.event_name.clone(),
+        payload: event.payload.clone(),
+    }
+}
+
+fn object_payload(payload: Value) -> serde_json::Map<String, Value> {
+    payload.as_object().cloned().unwrap_or_default()
 }
 
 pub fn project_turn_items_from_trace_events(
@@ -414,7 +837,8 @@ fn projected_item_kind(event: &AgentRuntimeEventEnvelope) -> Option<AgentTurnIte
 
 fn projected_item_status(event: &AgentRuntimeEventEnvelope) -> AgentTurnItemStatus {
     match event.event_name.as_str() {
-        "agent.done"
+        "agent.message.completed"
+        | "agent.done"
         | "agent.tool.result"
         | "agent.approval.decision"
         | "agent.form.resolution" => AgentTurnItemStatus::Completed,
@@ -448,13 +872,8 @@ fn projected_item_payload(
             content.push_str(payload_text_fragment(&event.payload).unwrap_or_default());
             serde_json::json!({ "content": content })
         }
-        "agent.done" => {
-            if let Some(content) = payload_text_fragment(&event.payload) {
-                serde_json::json!({ "content": content })
-            } else {
-                event.payload.clone()
-            }
-        }
+        "agent.message.completed" => projected_completed_message_payload(event),
+        "agent.done" => projected_legacy_done_payload(event),
         "agent.tool.start" | "agent.tool.result" => projected_tool_payload(existing_payload, event),
         "agent.awaiting_approval" | "agent.approval.decision" => {
             projected_approval_payload(existing_payload, event)
@@ -463,6 +882,24 @@ fn projected_item_payload(
             projected_form_payload(existing_payload, event)
         }
         _ => event.payload.clone(),
+    }
+}
+
+fn projected_completed_message_payload(event: &AgentRuntimeEventEnvelope) -> Value {
+    let mut payload = event.payload.as_object().cloned().unwrap_or_default();
+    if !payload.contains_key("content") {
+        if let Some(content) = payload_text_fragment(&event.payload) {
+            payload.insert("content".to_string(), Value::String(content.to_string()));
+        }
+    }
+    Value::Object(payload)
+}
+
+fn projected_legacy_done_payload(event: &AgentRuntimeEventEnvelope) -> Value {
+    if let Some(content) = payload_text_fragment(&event.payload) {
+        serde_json::json!({ "content": content })
+    } else {
+        event.payload.clone()
     }
 }
 
@@ -1026,6 +1463,113 @@ mod tests {
     }
 
     #[test]
+    fn run_emitter_buffers_events_and_takes_them_in_sequence_order() {
+        let mut emitter = AgentRunEmitter::new("session-1", "turn-1");
+
+        let first = emitter.phase_changed(
+            "2026-07-03T00:00:00Z",
+            AgentRuntimePhase::Planning,
+            AgentRuntimePhase::CallingModel,
+        );
+        let second = emitter.message_completed(
+            "2026-07-03T00:00:01Z",
+            Some("assistant-1".to_string()),
+            "Hello",
+        );
+
+        assert_eq!(first.sequence, 1);
+        assert_eq!(second.sequence, 2);
+        assert_eq!(
+            second.event_id,
+            "turn-1:agent-message-completed:0000000000000002"
+        );
+        assert_eq!(emitter.events().len(), 2);
+
+        let events = emitter.take_events();
+        assert_eq!(
+            events
+                .iter()
+                .map(|event| event.event_name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["agent.phase.changed", "agent.message.completed"]
+        );
+        assert!(emitter.events().is_empty());
+        assert_eq!(emitter.next_sequence(), 3);
+    }
+
+    #[test]
+    fn run_emitter_helpers_emit_canonical_payloads() {
+        let mut emitter = AgentRunEmitter::new("session-1", "turn-1");
+
+        emitter.user_turn_started("2026-07-03T00:00:00Z", Some("user-1".to_string()), "Start");
+        emitter.tool_start(
+            "2026-07-03T00:00:01Z",
+            "call-1",
+            "workspace.read_file",
+            json!({ "path": "README.md" }),
+        );
+        emitter.tool_result(
+            "2026-07-03T00:00:02Z",
+            "call-1",
+            "workspace.read_file",
+            json!({ "status": "ok", "summary": "read README" }),
+        );
+        emitter.awaiting_approval(
+            "2026-07-03T00:00:03Z",
+            "approval-1",
+            json!({ "summary": "Allow write?" }),
+        );
+        emitter.approval_decision(
+            "2026-07-03T00:00:04Z",
+            "approval-1",
+            AgentApprovalDecision::Denied,
+            AgentApprovalScope::Once,
+            Some("Do not write.".to_string()),
+        );
+
+        let events = emitter.take_events();
+        assert_eq!(events[0].event_name, "agent.turn.started");
+        assert_eq!(events[0].payload["userMessage"]["content"], "Start");
+        assert_eq!(events[1].item_id.as_deref(), Some("call-1"));
+        assert_eq!(events[1].payload["args"]["path"], "README.md");
+        assert_eq!(events[2].payload["envelope"]["summary"], "read README");
+        assert_eq!(events[3].phase, AgentRuntimePhase::AwaitingApproval);
+        assert_eq!(events[4].payload["decision"], "denied");
+        assert_eq!(events[4].payload["guidance"], "Do not write.");
+    }
+
+    #[test]
+    fn runtime_events_project_to_legacy_native_event_shape() {
+        let mut emitter = AgentRunEmitter::new("session-1", "turn-1");
+        emitter.message_completed(
+            "2026-07-03T00:00:01Z",
+            Some("assistant-1".to_string()),
+            "Hello",
+        );
+        emitter.done(
+            "2026-07-03T00:00:02Z",
+            "final_response",
+            json!({ "iterationCount": 1 }),
+        );
+
+        let legacy = project_legacy_native_agent_events(emitter.events());
+
+        assert_eq!(legacy.len(), 2);
+        assert_eq!(
+            serde_json::to_value(&legacy[0]).unwrap(),
+            json!({
+                "eventName": "agent.message.completed",
+                "payload": {
+                    "messageId": "assistant-1",
+                    "content": "Hello"
+                }
+            })
+        );
+        assert_eq!(legacy[1].event_name, "agent.done");
+        assert_eq!(legacy[1].payload["stopReason"], "final_response");
+    }
+
+    #[test]
     fn trace_projection_combines_assistant_deltas_into_one_item() {
         let mut appender = AgentRuntimeEventAppender::new("session-1", "turn-1");
         let events = vec![
@@ -1114,6 +1658,75 @@ mod tests {
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].kind, AgentTurnItemKind::ApprovalRequest);
         assert_eq!(items[0].status, AgentTurnItemStatus::Waiting);
+    }
+
+    #[test]
+    fn trace_projection_restores_message_completed_without_legacy_done_content() {
+        let mut appender = AgentRuntimeEventAppender::new("session-1", "turn-1");
+        let events = vec![
+            appender.append(AgentRuntimeEventAppendInput {
+                parent_turn_id: None,
+                item_id: None,
+                event_name: "agent.message.completed".to_string(),
+                phase: AgentRuntimePhase::Completed,
+                timestamp: "2026-07-03T00:00:01Z".to_string(),
+                source: AgentRuntimeEventSource::RustBackend,
+                visibility: AgentRuntimeEventVisibility::User,
+                payload: json!({
+                    "messageId": "assistant-1",
+                    "content": "Hello from canonical completion"
+                }),
+            }),
+            appender.append(AgentRuntimeEventAppendInput {
+                parent_turn_id: None,
+                item_id: None,
+                event_name: "agent.done".to_string(),
+                phase: AgentRuntimePhase::Completed,
+                timestamp: "2026-07-03T00:00:02Z".to_string(),
+                source: AgentRuntimeEventSource::RustBackend,
+                visibility: AgentRuntimeEventVisibility::Debug,
+                payload: json!({ "stopReason": "final_response" }),
+            }),
+        ];
+
+        let items = project_turn_items_from_trace_events(&events);
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].item_id, "turn-1:assistant");
+        assert_eq!(items[0].kind, AgentTurnItemKind::AssistantMessage);
+        assert_eq!(items[0].status, AgentTurnItemStatus::Completed);
+        assert_eq!(
+            items[0].payload,
+            json!({
+                "messageId": "assistant-1",
+                "content": "Hello from canonical completion"
+            })
+        );
+        assert_eq!(items[0].created_at, "2026-07-03T00:00:01Z");
+        assert_eq!(items[0].updated_at, None);
+    }
+
+    #[test]
+    fn trace_projection_restores_canonical_phase_changed_without_turn_item() {
+        let event = runtime_event(
+            "turn-1",
+            "agent.phase.changed",
+            AgentRuntimePhase::CallingModel,
+            None,
+            1,
+            json!({
+                "from": "planning",
+                "to": "calling_model"
+            }),
+        );
+        let encoded = serde_json::to_value(&event).expect("serialize phase event");
+        let restored: AgentRuntimeEventEnvelope =
+            serde_json::from_value(encoded).expect("deserialize phase event");
+
+        assert_eq!(restored.event_name, "agent.phase.changed");
+        assert_eq!(restored.phase, AgentRuntimePhase::CallingModel);
+        assert_eq!(restored.payload["to"], "calling_model");
+        assert!(project_turn_items_from_trace_events(&[restored]).is_empty());
     }
 
     #[test]

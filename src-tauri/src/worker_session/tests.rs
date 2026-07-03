@@ -1,6 +1,7 @@
 ﻿#[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent_loop_runtime_protocol::AgentTurnItemKind;
     use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
     use crate::worker_protocol::{WorkerProtocolErrorCode, WorkerProtocolErrorSource};
     use serde_json::json;
@@ -362,6 +363,53 @@ mod tests {
     }
 
     #[test]
+    fn runtime_state_restores_legacy_stored_trace_events() {
+        let mut rpc = WorkerSessionRpc::new(vec![session_fixture()], read_write_policy());
+        let mut record = agent_run_fixture("session-1", "run-legacy", AgentRunStatus::Completed);
+        record.phase = "completed".to_string();
+        record.completed_at = Some("unix-ms:2".to_string());
+        record.stop_reason = Some("final_response".to_string());
+        record.trace_events = vec![
+            json!({
+                "eventName": "agent.tool.result",
+                "payload": {
+                    "toolCallId": "call-legacy",
+                    "toolName": "workspace.read_file",
+                    "content": "README excerpt"
+                }
+            }),
+            json!({
+                "eventName": "agent.done",
+                "payload": {
+                    "finalContent": "Legacy final answer"
+                }
+            }),
+        ];
+        rpc.upsert_agent_run(record)
+            .expect("legacy run should upsert");
+
+        let runtime_state = rpc
+            .get_agent_run_runtime_state("session-1", "run-legacy")
+            .expect("legacy runtime state should restore");
+
+        assert_eq!(runtime_state.runtime_events.len(), 2);
+        assert_eq!(
+            runtime_state.runtime_events[0].schema_version,
+            "tinybot.agent_event.v1"
+        );
+        assert_eq!(runtime_state.turn_items[0].kind, AgentTurnItemKind::ToolCall);
+        assert_eq!(runtime_state.turn_items[0].item_id, "call-legacy");
+        assert_eq!(
+            runtime_state.turn_items[1].kind,
+            AgentTurnItemKind::AssistantMessage
+        );
+        assert_eq!(
+            runtime_state.turn_items[1].payload["content"],
+            "Legacy final answer"
+        );
+    }
+
+    #[test]
     fn agent_run_upsert_preserves_original_started_at() {
         let mut rpc = WorkerSessionRpc::new(vec![session_fixture()], read_write_policy());
         let mut running = agent_run_fixture("session-1", "run-1", AgentRunStatus::Running);
@@ -383,6 +431,37 @@ mod tests {
         assert_eq!(restored.started_at, "unix-ms:1");
         assert_eq!(restored.updated_at, "unix-ms:3");
         assert_eq!(restored.completed_at.as_deref(), Some("unix-ms:3"));
+    }
+
+    #[test]
+    fn append_agent_run_trace_event_deduplicates_stable_event_ids() {
+        let mut rpc = WorkerSessionRpc::new(vec![session_fixture()], read_write_policy());
+        rpc.upsert_agent_run(agent_run_fixture(
+            "session-1",
+            "run-1",
+            AgentRunStatus::Running,
+        ))
+        .expect("run should upsert");
+        let event = json!({
+            "schemaVersion": "tinybot.agent_event.v1",
+            "eventId": "run-1:agent-done:0000000000000001",
+            "eventName": "agent.done",
+            "payload": { "stopReason": "final_response" }
+        });
+
+        rpc.append_agent_run_trace_event("session-1", "run-1", event.clone())
+            .expect("first append should persist");
+        rpc.append_agent_run_trace_event("session-1", "run-1", event)
+            .expect("duplicate append should be accepted");
+        let restored = rpc
+            .get_agent_run("session-1", "run-1")
+            .expect("run should read");
+
+        assert_eq!(restored.trace_events.len(), 1);
+        assert_eq!(
+            restored.trace_events[0]["eventId"],
+            "run-1:agent-done:0000000000000001"
+        );
     }
 
     #[test]

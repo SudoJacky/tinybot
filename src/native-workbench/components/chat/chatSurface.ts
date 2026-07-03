@@ -480,7 +480,7 @@ function renderChatSurface(
   host.className = "desktop-conversation-thread desktop-chat-surface";
 
   const shell = element("div", "desktop-chat-surface__shell");
-  shell.setAttribute("data-chat-layout", "codex-reference");
+  shell.setAttribute("data-chat-layout", "native-reference");
   shell.append(renderSessionList(projection, sessionSearchQuery, pendingDeleteSessionKey, actions));
   shell.append(renderChatDetail(projection, processExpansionOverrides, actions));
   shell.append(renderStatusRail(projection, actions));

@@ -639,6 +639,50 @@ describe("desktop native workbench runtime", () => {
     expect(runtime.chat.status).toBe("TS agent response received.");
   });
 
+  test("completes TS agent runs from returned cancelled events with run ids", async () => {
+    const runSpecs: unknown[] = [];
+    const runtime = createDesktopNativeWorkbenchRuntime({
+      api: {
+        listSessions: async () => ({
+          items: [{ key: "WebSocket:chat-ts-cancelled", chat_id: "chat-ts-cancelled", title: "TS cancelled route" }],
+        }),
+        loadMessages: async () => ({ messages: [] }),
+      },
+      sendSocketMessage: () => undefined,
+      agentRoute: "ts-agent",
+      runTsAgent: async (spec) => {
+        runSpecs.push(spec);
+        return {
+          finalContent: "",
+          stopReason: "cancelled",
+          messages: [],
+          toolsUsed: [],
+          error: "cancelled",
+          events: [{
+            eventName: "agent.cancelled",
+            payload: {
+              runId: spec.runId,
+              sessionId: spec.sessionId,
+              cancelled: true,
+              stopReason: "cancelled",
+            },
+          }],
+        };
+      },
+      now: () => "2026-06-03T08:16:00.000Z",
+    });
+    await runtime.loadInitialChatState();
+
+    runtime.submitComposerMessage("Cancel with returned event");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(runSpecs).toHaveLength(1);
+    expect(runtime.chat.responding).toBe(false);
+    expect(runtime.chat.composerState).toBe("idle");
+    expect(runtime.chat.status).toBe("TS agent cancelled.");
+  });
+
   test("projects Rust native backend event envelopes into the active native chat", async () => {
     let resolveRun: ((value: {
       finalContent: string;

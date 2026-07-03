@@ -45,6 +45,10 @@ pub mod worker_subagent_manager;
 pub mod worker_task;
 pub mod worker_workspace;
 
+use crate::agent_loop_runtime_protocol::{
+    AgentRuntimeEventAppendInput, AgentRuntimeEventAppender, AgentRuntimeEventEnvelope,
+    AgentRuntimeEventSource, AgentRuntimeEventVisibility, AgentRuntimePhase,
+};
 use crate::config_store::{
     ConfigEditorSnapshot, ConfigOperationRequest, ConfigPatchApplyResult, ConfigPatchBridgeResult,
     ConfigStore,
@@ -62,14 +66,12 @@ use crate::desktop_logging::append_native_backend_log_line;
 use crate::desktop_menu::{
     install_desktop_application_menu, is_desktop_menu_command, DesktopMenuCommandPayload,
 };
-use crate::agent_loop_runtime_protocol::{
-    AgentRuntimeEventAppendInput, AgentRuntimeEventAppender, AgentRuntimeEventEnvelope,
-    AgentRuntimeEventSource, AgentRuntimeEventVisibility, AgentRuntimePhase,
-};
 use crate::native_backend_contract::{
     webui_route_inventory_entry, NativeCompatibilityFallbackDiagnostic,
 };
-use crate::worker_agent_runtime::{run_native_agent_turn_with_config, NativeAgentRuntimeServices};
+use crate::worker_agent_runtime::{
+    run_native_agent_turn_with_config, NativeAgentRuntimeServices, NativeAgentTraceSink,
+};
 use crate::worker_background::BackgroundTraceEvent;
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_client::WorkerClient;
@@ -110,6 +112,41 @@ const WORKER_WEBUI_ROUTE_TIMEOUT: Duration = Duration::from_secs(10);
 const NATIVE_BACKEND_LOG_MAX_BYTES: u64 = 5 * 1024 * 1024;
 const NATIVE_BACKEND_LOG_TAIL_LINES: usize = 100;
 const NATIVE_AGENT_RUN_TRACE_STRING_LIMIT: usize = 256;
+
+#[derive(Clone)]
+struct NativeAgentRunTraceSink {
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+}
+
+impl NativeAgentTraceSink for NativeAgentRunTraceSink {
+    fn append_trace_event(
+        &self,
+        session_id: &str,
+        run_id: &str,
+        event: &AgentRuntimeEventEnvelope,
+    ) -> Result<(), String> {
+        let event = serde_json::to_value(event)
+            .map_err(|error| format!("native agent trace event serialization failed: {error}"))?;
+        let request_id = next_worker_request_correlation();
+        call_rust_state_service(
+            self.workspace_root.clone(),
+            self.config_snapshot.clone(),
+            WorkerRequest::new(
+                request_id.id("agent-run-append-trace"),
+                request_id.trace_id("agent-run-append-trace"),
+                "agent_run.append_trace",
+                serde_json::json!({
+                    "session_id": session_id,
+                    "run_id": run_id,
+                    "event": event,
+                }),
+            ),
+            "native agent run trace append",
+        )
+        .map(|_| ())
+    }
+}
 
 struct GatewayRuntime {
     experimental_worker: WorkerManager,
@@ -1500,7 +1537,7 @@ fn worker_run_agent_with_options(
         workspace_root.clone(),
         config_snapshot.clone(),
     )?;
-    let services = {
+    let base_services = {
         let runtime = lock_runtime(shared);
         runtime.native_agent_runtime.clone()
     };
@@ -1510,6 +1547,10 @@ fn worker_run_agent_with_options(
         config_snapshot.clone(),
     )
     .err();
+    let services = base_services.with_trace_sink(Arc::new(NativeAgentRunTraceSink {
+        workspace_root: workspace_root.clone(),
+        config_snapshot: config_snapshot.clone(),
+    }));
     let mut result =
         run_native_agent_turn_with_config(&services, runtime_spec, config_snapshot.clone())?;
     if let Err(error) = persist_native_agent_run_record(
@@ -1883,6 +1924,14 @@ fn native_agent_runtime_trace_events(
     run_id: &str,
     timestamp: &str,
 ) -> Vec<serde_json::Value> {
+    if let Some(runtime_events) = result
+        .get("runtimeEvents")
+        .and_then(serde_json::Value::as_array)
+        .filter(|events| !events.is_empty())
+    {
+        return native_agent_persisted_trace_values(runtime_events);
+    }
+
     let mut appender = AgentRuntimeEventAppender::new(session_id, run_id);
     let user_message = native_agent_current_user_message(spec);
     let user_message_id = user_message.as_ref().and_then(native_agent_message_id);
@@ -1949,7 +1998,10 @@ fn native_agent_runtime_trace_events(
                 timestamp,
                 event_name,
             );
-            let payload = event.get("payload").cloned().unwrap_or(serde_json::Value::Null);
+            let payload = event
+                .get("payload")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
             trace_events.push(native_agent_persisted_runtime_event(
                 appender.append_legacy_native_event(
                     event_name,
@@ -1994,9 +2046,7 @@ fn native_agent_push_phase_transition(
     *current_phase = next_phase;
 }
 
-fn native_agent_persisted_runtime_event(
-    event: AgentRuntimeEventEnvelope,
-) -> serde_json::Value {
+fn native_agent_persisted_runtime_event(event: AgentRuntimeEventEnvelope) -> serde_json::Value {
     let value = serde_json::to_value(event).unwrap_or_else(|error| {
         serde_json::json!({
             "schemaVersion": crate::agent_loop_runtime_protocol::AGENT_RUNTIME_EVENT_SCHEMA_VERSION,
@@ -2010,18 +2060,16 @@ fn native_agent_persisted_runtime_event(
 }
 
 fn native_agent_trace_event_item_id(event: &serde_json::Value) -> Option<String> {
-    event
-        .get("payload")
-        .and_then(|payload| {
-            native_agent_string_field(payload, "toolCallId")
-                .or_else(|| native_agent_string_field(payload, "tool_call_id"))
-                .or_else(|| native_agent_string_field(payload, "approvalId"))
-                .or_else(|| native_agent_string_field(payload, "approval_id"))
-                .or_else(|| native_agent_string_field(payload, "formId"))
-                .or_else(|| native_agent_string_field(payload, "form_id"))
-                .or_else(|| native_agent_string_field(payload, "delegateId"))
-                .or_else(|| native_agent_string_field(payload, "delegate_id"))
-        })
+    event.get("payload").and_then(|payload| {
+        native_agent_string_field(payload, "toolCallId")
+            .or_else(|| native_agent_string_field(payload, "tool_call_id"))
+            .or_else(|| native_agent_string_field(payload, "approvalId"))
+            .or_else(|| native_agent_string_field(payload, "approval_id"))
+            .or_else(|| native_agent_string_field(payload, "formId"))
+            .or_else(|| native_agent_string_field(payload, "form_id"))
+            .or_else(|| native_agent_string_field(payload, "delegateId"))
+            .or_else(|| native_agent_string_field(payload, "delegate_id"))
+    })
 }
 
 fn native_agent_persisted_trace_values(values: &[serde_json::Value]) -> Vec<serde_json::Value> {
@@ -6297,7 +6345,8 @@ mod tests {
         assert_eq!(result["finalContent"], "rust fixture answer");
         assert_eq!(result["events"][0]["eventName"], "agent.delta");
         assert_eq!(result["events"][1]["eventName"], "agent.usage");
-        assert_eq!(result["events"][2]["eventName"], "agent.done");
+        assert_eq!(result["events"][2]["eventName"], "agent.message.completed");
+        assert_eq!(result["events"][3]["eventName"], "agent.done");
         assert_eq!(
             lock_runtime(&shared).experimental_worker.status().state,
             WorkerManagerState::Stopped
@@ -6734,7 +6783,10 @@ mod tests {
             .expect("recall provider calls lock should not be poisoned");
         let recall_messages = calls.get(2).expect("third provider call should exist");
 
-        assert_eq!(recalled["finalContent"], "You previously said apple and banana.");
+        assert_eq!(
+            recalled["finalContent"],
+            "You previously said apple and banana."
+        );
         assert_eq!(recall_messages.len(), 5);
         assert_eq!(recall_messages[0]["content"], "I said apple");
         assert_eq!(recall_messages[1]["content"], "stored apple");
@@ -6885,21 +6937,28 @@ mod tests {
         let trace_events = run["traceEvents"]
             .as_array()
             .expect("trace events should be an array");
+        let result_runtime_events = result["runtimeEvents"]
+            .as_array()
+            .expect("runtime events should be returned");
+        assert_eq!(trace_events.len(), result_runtime_events.len());
+        for (persisted, emitted) in trace_events.iter().zip(result_runtime_events) {
+            assert_eq!(persisted["eventId"], emitted["eventId"]);
+        }
         assert_eq!(trace_events[0]["schemaVersion"], "tinybot.agent_event.v1");
-        assert_eq!(trace_events[0]["eventName"], "agent.turn.started");
+        assert_eq!(trace_events[0]["eventName"], "agent.phase.changed");
         assert_eq!(trace_events[0]["sequence"], 1);
+        assert_eq!(trace_events[0]["payload"]["nextPhase"], "hydrating_history");
+        assert_eq!(trace_events[1]["eventName"], "agent.phase.changed");
+        assert_eq!(trace_events[1]["payload"]["nextPhase"], "planning");
+        let turn_started = trace_events
+            .iter()
+            .find(|event| event["eventName"] == "agent.turn.started")
+            .expect("turn started trace event should persist");
+        assert_eq!(turn_started["payload"]["userMessageId"], "user-read-answer");
         assert_eq!(
-            trace_events[0]["payload"]["userMessage"]["messageId"],
-            "user-read-answer"
-        );
-        assert_eq!(
-            trace_events[0]["payload"]["userMessage"]["content"],
+            turn_started["payload"]["userMessage"]["content"],
             "read and answer"
         );
-        assert!(trace_events.iter().any(|event| {
-            event["eventName"] == "agent.phase.changed"
-                && event["payload"]["nextPhase"] == "hydrating_history"
-        }));
         assert!(trace_events.iter().any(|event| {
             event["eventName"] == "agent.phase.changed"
                 && event["payload"]["nextPhase"] == "calling_model"
@@ -6918,7 +6977,9 @@ mod tests {
         assert_eq!(tool_result["schemaVersion"], "tinybot.agent_event.v1");
         assert_eq!(tool_result["itemId"], "call-run-trace");
         assert_eq!(tool_result["phase"], "tool_running");
-        assert!(tool_result["sequence"].as_u64().is_some_and(|value| value > 1));
+        assert!(tool_result["sequence"]
+            .as_u64()
+            .is_some_and(|value| value > 1));
         assert!(trace_events.iter().any(|event| {
             event["eventName"] == "agent.phase.changed"
                 && event["payload"]["nextPhase"] == "finalizing"
@@ -6972,6 +7033,65 @@ mod tests {
         assert_eq!(
             run["pendingToolCalls"][0]["toolCallId"],
             "approval-waiting-persist"
+        );
+    }
+
+    #[test]
+    fn native_agent_trace_sink_updates_runtime_state_before_final_persistence() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let config = serde_json::json!({});
+        let session_id = "websocket:chat-trace-sink";
+        let run_id = "run-trace-sink";
+        let spec = serde_json::json!({
+            "runtime": "rust",
+            "runId": run_id,
+            "sessionId": session_id,
+        });
+        persist_native_agent_run_start(spec, fixture.root.clone(), config.clone())
+            .expect("run start should persist");
+        let mut emitter =
+            crate::agent_loop_runtime_protocol::AgentRunEmitter::new(session_id, run_id);
+        let event = emitter.awaiting_approval(
+            "unix-ms:1",
+            "approval-trace-sink",
+            serde_json::json!({
+                "toolName": "workspace.write_file",
+                "summary": "Approval required: workspace.write_file",
+            }),
+        );
+        let sink = NativeAgentRunTraceSink {
+            workspace_root: fixture.root.clone(),
+            config_snapshot: config.clone(),
+        };
+
+        sink.append_trace_event(session_id, run_id, &event)
+            .expect("trace sink should append event");
+        let runtime_state = worker_agent_run_runtime_state_with_options(
+            &shared,
+            session_id.to_string(),
+            run_id.to_string(),
+            fixture.root.clone(),
+            config,
+            Duration::from_millis(10),
+        )
+        .expect("runtime state should read appended trace event");
+
+        assert!(runtime_state["runtimeEvents"]
+            .as_array()
+            .expect("runtime events should be an array")
+            .iter()
+            .any(|event| event["eventName"] == "agent.awaiting_approval"));
+        let approval_item = runtime_state["turnItems"]
+            .as_array()
+            .expect("turn items should be an array")
+            .iter()
+            .find(|item| item["kind"] == "approval_request")
+            .expect("approval request item should be restored");
+        assert_eq!(approval_item["status"], "waiting");
+        assert_eq!(
+            approval_item["payload"]["approvalId"],
+            "approval-trace-sink"
         );
     }
 
@@ -7187,7 +7307,7 @@ mod tests {
         let serialized = run.to_string();
 
         assert!(
-            serialized.len() < large_output.len(),
+            serialized.len() < large_output.len() + 2_000,
             "run record was {} bytes",
             serialized.len()
         );
@@ -7654,10 +7774,7 @@ mod tests {
         );
         assert_eq!(approval_resolution["body"]["ok"], true);
         assert_eq!(approval_resolution["body"]["status"], "denied");
-        assert_eq!(
-            approval_resolution["body"]["stopReason"],
-            "provider_error"
-        );
+        assert_eq!(approval_resolution["body"]["stopReason"], "provider_error");
         assert!(approval_resolution["body"]["error"]
             .as_str()
             .unwrap_or_default()

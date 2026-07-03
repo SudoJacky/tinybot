@@ -23,7 +23,7 @@ describe("desktop chat surface entry", () => {
 
     const thread = document.querySelector<HTMLElement>(".desktop-conversation-thread");
     expect(thread?.getAttribute("data-chat-surface")).toBe("rebuild-chat-agent-surface");
-    expect(thread?.querySelector(".desktop-chat-surface__shell")?.getAttribute("data-chat-layout")).toBe("codex-reference");
+    expect(thread?.querySelector(".desktop-chat-surface__shell")?.getAttribute("data-chat-layout")).toBe("native-reference");
     expect(thread?.getAttribute("data-desktop-vue-island")).toBeNull();
     expect(thread?.querySelector("[data-chat-region='session-list']")?.textContent).toContain("Live session");
     expect(thread?.querySelector("[data-chat-region='status-rail']")).not.toBeNull();

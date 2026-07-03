@@ -129,7 +129,20 @@ impl WorkerSessionRpc {
     ) -> Result<AgentRunRecord, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
         let mut record = self.get_agent_run_for_update(session_id, run_id)?;
-        record.trace_events.push(event);
+        if let Some(event_id) = event.get("eventId").and_then(Value::as_str) {
+            if let Some(existing) = record.trace_events.iter_mut().find(|existing| {
+                existing
+                    .get("eventId")
+                    .and_then(Value::as_str)
+                    == Some(event_id)
+            }) {
+                *existing = event;
+            } else {
+                record.trace_events.push(event);
+            }
+        } else {
+            record.trace_events.push(event);
+        }
         record.updated_at = now_session_timestamp();
         self.upsert_agent_run(record)
     }

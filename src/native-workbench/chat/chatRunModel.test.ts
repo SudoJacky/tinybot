@@ -201,6 +201,54 @@ describe("chat run model", () => {
     expect(turns[0].finalMessage).toBeUndefined();
   });
 
+  test("restores runtime-only completed assistant messages without legacy final messages", () => {
+    const runtimeState = normalizeAgentRunRuntimeStatePayload({
+      sessionId: "WebSocket:chat-1",
+      runId: "run-completed",
+      runtimeEvents: [],
+      turnItems: [
+        {
+          itemId: "run-completed:user",
+          sessionId: "WebSocket:chat-1",
+          turnId: "run-completed",
+          kind: "user_message",
+          status: "completed",
+          createdAt: "2026-07-03T01:00:00Z",
+          payload: {
+            messageId: "user-completed",
+            content: "Say hello",
+          },
+        },
+        {
+          itemId: "run-completed:assistant",
+          sessionId: "WebSocket:chat-1",
+          turnId: "run-completed",
+          kind: "assistant_message",
+          status: "completed",
+          createdAt: "2026-07-03T01:00:01Z",
+          payload: {
+            messageId: "assistant-completed",
+            content: "Hello",
+          },
+        },
+      ],
+    });
+
+    expect(runtimeState).not.toBeNull();
+    const turns = backendRuntimeStatesToTurns("WebSocket:chat-1", [runtimeState!], []);
+
+    expect(turns).toHaveLength(1);
+    expect(turns[0]).toMatchObject({
+      id: "run-completed",
+      status: "completed",
+      userMessage: { text: "Say hello" },
+      finalMessage: {
+        id: "assistant-completed",
+        text: "Hello",
+      },
+    });
+  });
+
   test("orders restored runtime states by numeric millisecond timestamps", () => {
     const early = normalizeAgentRunRuntimeStatePayload({
       sessionId: "WebSocket:chat-1",

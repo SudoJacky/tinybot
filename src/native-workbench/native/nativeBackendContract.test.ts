@@ -3,6 +3,7 @@ import {
   isNativeBackendEventEnvelope,
   NATIVE_BACKEND_AGENT_EVENT_NAMES,
   NATIVE_BACKEND_COMMAND_NAMES,
+  NATIVE_BACKEND_RUNTIME_EVENT_VISIBILITY,
   normalizeNativeBackendEventPayload,
   type NativeBackendRuntimeStatus,
 } from "./nativeBackendContract";
@@ -29,6 +30,25 @@ describe("native backend contract", () => {
       "diagnostics.log",
       "worker.status",
     ]));
+  });
+
+  test("covers canonical runtime events and their visibility classes", () => {
+    expect(NATIVE_BACKEND_AGENT_EVENT_NAMES).toEqual(expect.arrayContaining([
+      "agent.turn.started",
+      "agent.phase.changed",
+      "agent.guidance",
+      "agent.approval.decision",
+      "agent.form.resolution",
+      "agent.message.completed",
+    ]));
+    expect(NATIVE_BACKEND_RUNTIME_EVENT_VISIBILITY).toMatchObject({
+      "agent.turn.started": "user-visible",
+      "agent.phase.changed": "debug",
+      "agent.guidance": "status",
+      "agent.approval.decision": "websocket-visible",
+      "agent.form.resolution": "websocket-visible",
+      "agent.message.completed": "user-visible",
+    });
   });
 
   test("normalizes Rust event envelopes while preserving payloads", () => {

@@ -1,6 +1,8 @@
 use crate::agent_loop_runtime_protocol::{
-    AgentApprovalDecision, AgentApprovalScope, AgentContinuationInput, AgentFormAction,
-    AgentRuntimePhase,
+    project_legacy_native_agent_events, AgentApprovalDecision, AgentApprovalScope,
+    AgentContinuationInput, AgentFormAction, AgentRunEmitter, AgentRuntimeEventAppendInput,
+    AgentRuntimeEventEnvelope, AgentRuntimeEventSource, AgentRuntimeEventVisibility,
+    AgentRuntimePhase, LegacyNativeAgentEventProjection,
 };
 use crate::worker_subagent_manager::{
     SubagentInputSender, SubagentSendInputParams, SubagentSpawnParams, SubagentTargetParams,
@@ -22,6 +24,10 @@ use std::{
 pub enum NativeAgentRuntimeMode {
     Rust,
 }
+
+const TEST_COMPAT_FAKE_AWAITING_APPROVAL: &str = "fakeAwaitingApproval";
+const TEST_COMPAT_FAKE_AWAITING_FORM: &str = "fakeAwaitingForm";
+const TEST_COMPAT_FAKE_CHECKPOINT: &str = "fakeCheckpoint";
 
 #[derive(Clone)]
 pub struct NativeAgentCancellationContext {
@@ -58,6 +64,15 @@ pub struct NativeAgentEvent {
     pub payload: Value,
 }
 
+impl From<LegacyNativeAgentEventProjection> for NativeAgentEvent {
+    fn from(event: LegacyNativeAgentEventProjection) -> Self {
+        Self {
+            event_name: event.event_name,
+            payload: event.payload,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct NativeAgentRunContext {
     pub run_id: String,
@@ -73,50 +88,94 @@ pub struct NativeAgentRunContext {
     pub cancellation: Option<NativeAgentCancellationContext>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct NativeAgentRunState {
+    run_id: String,
+    session_id: String,
     phase: AgentRuntimePhase,
     iteration: i64,
     max_iterations: i64,
     pending_tool_calls: Vec<Value>,
     completed_tool_results: Vec<Value>,
     messages: Vec<Value>,
-    events: Vec<NativeAgentEvent>,
+    emitter: AgentRunEmitter,
     usage: Vec<Value>,
     tools_used: Vec<String>,
     stop_reason: Option<String>,
     pending_guidance_message: Option<Value>,
+    trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 }
 
 impl NativeAgentRunState {
-    fn new(context: &NativeAgentRunContext) -> Self {
+    fn new(
+        context: &NativeAgentRunContext,
+        trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
+    ) -> Self {
         Self {
-            phase: AgentRuntimePhase::Planning,
+            run_id: context.run_id.clone(),
+            session_id: context.session_id.clone(),
+            phase: AgentRuntimePhase::Queued,
             iteration: 0,
             max_iterations: context.max_iterations,
             pending_tool_calls: Vec::new(),
             completed_tool_results: Vec::new(),
             messages: context.messages.clone(),
-            events: Vec::new(),
+            emitter: AgentRunEmitter::new(&context.session_id, &context.run_id),
             usage: Vec::new(),
             tools_used: Vec::new(),
             stop_reason: None,
             pending_guidance_message: guidance_continuation_message(&context.metadata),
+            trace_sink,
         }
     }
 
-    fn set_phase(&mut self, phase: AgentRuntimePhase, iteration: i64) {
-        self.phase = phase;
-        self.iteration = iteration;
+    fn append_trace_event(&self, event: &AgentRuntimeEventEnvelope) {
+        if let Some(trace_sink) = self.trace_sink.as_ref() {
+            let _ = trace_sink.append_trace_event(&self.session_id, &self.run_id, event);
+        }
     }
 
-    fn set_stop_reason(&mut self, stop_reason: &str) {
+    fn transition_phase(
+        &mut self,
+        phase: AgentRuntimePhase,
+        iteration: i64,
+        trigger_event_name: &str,
+    ) {
+        let previous_phase = self.phase.clone();
+        self.iteration = iteration;
+        if previous_phase == phase {
+            self.phase = phase;
+            return;
+        }
+        self.phase = phase.clone();
+        let event = self.emitter.emit(AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id: None,
+            event_name: "agent.phase.changed".to_string(),
+            phase,
+            timestamp: runtime_event_timestamp(),
+            source: AgentRuntimeEventSource::RustBackend,
+            visibility: AgentRuntimeEventVisibility::Debug,
+            payload: serde_json::json!({
+                "runId": self.run_id,
+                "sessionId": self.session_id,
+                "iteration": iteration,
+                "previousPhase": previous_phase.as_str(),
+                "nextPhase": self.phase.as_str(),
+                "triggerEventName": trigger_event_name,
+            }),
+        });
+        self.append_trace_event(&event);
+    }
+
+    fn set_stop_reason(&mut self, stop_reason: &str, iteration: i64, trigger_event_name: &str) {
         self.stop_reason = Some(stop_reason.to_string());
-        self.phase = match stop_reason {
+        let phase = match stop_reason {
             "final_response" => AgentRuntimePhase::Completed,
             "cancelled" => AgentRuntimePhase::Cancelled,
             _ => AgentRuntimePhase::Failed,
         };
+        self.transition_phase(phase, iteration, trigger_event_name);
     }
 
     fn active_checkpoint_payload(&self, status: &str) -> Value {
@@ -141,6 +200,68 @@ impl NativeAgentRunState {
 
     fn clear_pending_tool_calls(&mut self) {
         self.pending_tool_calls.clear();
+    }
+
+    fn emit_event(&mut self, event_name: &str, payload: Value) {
+        let event = self.emitter.emit(AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id: runtime_event_item_id(event_name, &payload),
+            event_name: event_name.to_string(),
+            phase: AgentRuntimePhase::for_legacy_event(event_name),
+            timestamp: runtime_event_timestamp(),
+            source: runtime_event_source(event_name),
+            visibility: runtime_event_visibility(event_name),
+            payload,
+        });
+        self.append_trace_event(&event);
+    }
+
+    fn emit_native_event(&mut self, event: NativeAgentEvent) {
+        self.emit_event(&event.event_name, event.payload);
+    }
+
+    fn emit_turn_started(&mut self, context: &NativeAgentRunContext) {
+        let current = current_user_message(&context.messages);
+        let message_id = current
+            .as_ref()
+            .and_then(|message| string_field(message, "messageId"))
+            .or_else(|| {
+                current
+                    .as_ref()
+                    .and_then(|message| string_field(message, "message_id"))
+            })
+            .or_else(|| {
+                current
+                    .as_ref()
+                    .and_then(|message| string_field(message, "id"))
+            })
+            .unwrap_or_else(|| format!("{}:user", context.run_id));
+        let content = current
+            .as_ref()
+            .and_then(|message| {
+                message
+                    .get("content")
+                    .or_else(|| message.get("text"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })
+            .unwrap_or_default();
+        let event =
+            self.emitter
+                .user_turn_started(runtime_event_timestamp(), Some(message_id), content);
+        self.append_trace_event(&event);
+    }
+
+    fn runtime_events(&self) -> Vec<AgentRuntimeEventEnvelope> {
+        self.emitter.events().to_vec()
+    }
+
+    fn legacy_events(&self) -> Vec<NativeAgentEvent> {
+        legacy_result_events_from_runtime_events(self.emitter.events())
+    }
+
+    fn take_runtime_events(&mut self) -> Vec<AgentRuntimeEventEnvelope> {
+        self.emitter.take_events()
     }
 
     fn drain_pending_guidance(&mut self) -> Option<Value> {
@@ -455,6 +576,15 @@ pub trait NativeAgentCancellation: Send + Sync {
     fn is_cancelled(&self, run_id: &str) -> bool;
 }
 
+pub trait NativeAgentTraceSink: Send + Sync {
+    fn append_trace_event(
+        &self,
+        session_id: &str,
+        run_id: &str,
+        event: &AgentRuntimeEventEnvelope,
+    ) -> Result<(), String>;
+}
+
 #[derive(Clone)]
 pub struct NativeAgentRuntimeServices {
     provider: Arc<dyn NativeAgentProvider>,
@@ -462,6 +592,7 @@ pub struct NativeAgentRuntimeServices {
     checkpoints: Arc<dyn NativeAgentCheckpointStore>,
     cancellations: Arc<dyn NativeAgentCancellation>,
     subagents: SubagentThreadManager,
+    trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 }
 
 impl NativeAgentRuntimeServices {
@@ -477,6 +608,7 @@ impl NativeAgentRuntimeServices {
             checkpoints,
             cancellations,
             subagents: SubagentThreadManager::default(),
+            trace_sink: None,
         }
     }
 
@@ -492,6 +624,11 @@ impl NativeAgentRuntimeServices {
 
     fn with_subagents(mut self, subagents: SubagentThreadManager) -> Self {
         self.subagents = subagents;
+        self
+    }
+
+    pub fn with_trace_sink(mut self, trace_sink: Arc<dyn NativeAgentTraceSink>) -> Self {
+        self.trace_sink = Some(trace_sink);
         self
     }
 
@@ -1231,15 +1368,22 @@ pub fn run_native_agent_turn_with_config(
         ));
     }
 
-    let mut state = NativeAgentRunState::new(&context);
+    let mut state = NativeAgentRunState::new(&context, services.trace_sink.clone());
+    state.transition_phase(
+        AgentRuntimePhase::HydratingHistory,
+        0,
+        "agent.history.hydrated",
+    );
+    state.transition_phase(AgentRuntimePhase::Planning, 0, "agent.turn.started");
+    state.emit_turn_started(&context);
     for iteration in 0..context.max_iterations {
-        state.set_phase(AgentRuntimePhase::CallingModel, iteration);
+        state.transition_phase(AgentRuntimePhase::CallingModel, iteration, "provider_call");
         if services.cancellations.is_cancelled(&context.run_id) {
-            state.phase = AgentRuntimePhase::Cancelled;
+            state.transition_phase(AgentRuntimePhase::Cancelled, iteration, "agent.cancelled");
             return Ok(cancelled_run_result(
                 services,
                 &context,
-                std::mem::take(&mut state.events),
+                state.take_runtime_events(),
                 std::mem::take(&mut state.tools_used),
                 std::mem::take(&mut state.completed_tool_results),
                 iteration,
@@ -1256,8 +1400,8 @@ pub fn run_native_agent_turn_with_config(
         let provider_response = match services.provider.complete(&context) {
             Ok(response) => response,
             Err(error) => {
-                state.set_stop_reason("provider_error");
-                state.events.push(event(
+                state.set_stop_reason("provider_error", iteration, "agent.error");
+                state.emit_event(
                     "agent.error",
                     serde_json::json!({
                         "runId": context.run_id,
@@ -1267,7 +1411,9 @@ pub fn run_native_agent_turn_with_config(
                         "message": error,
                         "error": error,
                     }),
-                ));
+                );
+                let runtime_events = state.runtime_events();
+                let events = state.legacy_events();
                 return Ok(serde_json::json!({
                     "runtime": "rust",
                     "runId": context.run_id,
@@ -1278,15 +1424,21 @@ pub fn run_native_agent_turn_with_config(
                     "toolsUsed": state.tools_used,
                     "completedToolResults": state.completed_tool_results,
                     "error": error,
-                    "events": state.events,
+                    "events": events,
+                    "runtimeEvents": runtime_events,
                 }));
             }
         };
 
-        maybe_emit_checkpoint(services, &context, &mut state.events, state.phase.as_str());
+        let current_phase = state.phase.as_str().to_string();
+        maybe_emit_checkpoint(services, &context, &mut state, &current_phase);
         if let Some(reasoning_delta) = provider_response.reasoning_delta.clone() {
-            state.set_phase(AgentRuntimePhase::StreamingModel, iteration);
-            state.events.push(event(
+            state.transition_phase(
+                AgentRuntimePhase::StreamingModel,
+                iteration,
+                "agent.reasoning_delta",
+            );
+            state.emit_event(
                 "agent.reasoning_delta",
                 serde_json::json!({
                     "runId": context.run_id,
@@ -1294,11 +1446,11 @@ pub fn run_native_agent_turn_with_config(
                     "iteration": iteration,
                     "delta": reasoning_delta,
                 }),
-            ));
+            );
         }
         if context.stream && !provider_response.final_content.is_empty() {
-            state.set_phase(AgentRuntimePhase::StreamingModel, iteration);
-            state.events.push(event(
+            state.transition_phase(AgentRuntimePhase::StreamingModel, iteration, "agent.delta");
+            state.emit_event(
                 "agent.delta",
                 serde_json::json!({
                     "runId": context.run_id,
@@ -1306,18 +1458,22 @@ pub fn run_native_agent_turn_with_config(
                     "iteration": iteration,
                     "delta": provider_response.final_content,
                 }),
-            ));
+            );
         }
 
         if !provider_response.tool_calls.is_empty() {
             let tool_calls = provider_response.tool_calls;
-            state.set_phase(AgentRuntimePhase::ToolCalling, iteration);
+            state.transition_phase(
+                AgentRuntimePhase::ToolCalling,
+                iteration,
+                "agent.tool_call.delta",
+            );
             state.messages.push(assistant_tool_calls_message(
                 &provider_response.final_content,
                 &tool_calls,
             ));
             for tool_call in tool_calls {
-                state.events.push(event(
+                state.emit_event(
                     "agent.tool_call.delta",
                     serde_json::json!({
                         "runId": context.run_id,
@@ -1328,10 +1484,10 @@ pub fn run_native_agent_turn_with_config(
                         "name": tool_call.name,
                         "argumentsDelta": tool_call.arguments_json,
                     }),
-                ));
+                );
                 if !native_tool_is_permitted(&tool_call.name) {
-                    state.set_stop_reason("policy_denied");
-                    state.events.push(event(
+                    state.set_stop_reason("policy_denied", iteration, "agent.error");
+                    state.emit_event(
                         "agent.error",
                         serde_json::json!({
                             "runId": context.run_id,
@@ -1343,10 +1499,12 @@ pub fn run_native_agent_turn_with_config(
                             "toolName": tool_call.name,
                             "name": tool_call.name,
                         }),
-                    ));
+                    );
                     services
                         .checkpoints
                         .clear_for_run(&context.session_id, &context.run_id);
+                    let runtime_events = state.runtime_events();
+                    let events = state.legacy_events();
                     return Ok(serde_json::json!({
                         "runtime": "rust",
                         "runId": context.run_id,
@@ -1357,22 +1515,32 @@ pub fn run_native_agent_turn_with_config(
                         "toolsUsed": state.tools_used,
                         "completedToolResults": state.completed_tool_results,
                         "error": format!("native tool `{}` is not permitted by Rust capability policy", tool_call.name),
-                        "events": state.events,
+                        "events": events,
+                        "runtimeEvents": runtime_events,
                     }));
                 }
                 if services.cancellations.is_cancelled(&context.run_id) {
-                    state.phase = AgentRuntimePhase::Cancelled;
+                    state.transition_phase(
+                        AgentRuntimePhase::Cancelled,
+                        iteration,
+                        "agent.cancelled",
+                    );
                     return Ok(cancelled_run_result(
                         services,
                         &context,
-                        std::mem::take(&mut state.events),
+                        state.take_runtime_events(),
                         std::mem::take(&mut state.tools_used),
                         std::mem::take(&mut state.completed_tool_results),
                         iteration,
                     ));
                 }
                 state.tools_used.push(tool_call.name.clone());
-                state.events.push(event(
+                state.transition_phase(
+                    AgentRuntimePhase::ToolRunning,
+                    iteration,
+                    "agent.tool.start",
+                );
+                state.emit_event(
                     "agent.tool.start",
                     serde_json::json!({
                         "runId": context.run_id,
@@ -1384,7 +1552,7 @@ pub fn run_native_agent_turn_with_config(
                         "detailId": format!("tool:{}", tool_call.id),
                         "status": "running",
                     }),
-                ));
+                );
                 state.set_pending_tool_call(&tool_call);
                 save_phase_checkpoint(
                     services,
@@ -1402,8 +1570,8 @@ pub fn run_native_agent_turn_with_config(
                 let result = match services.tools.dispatch(&context, &tool_call) {
                     Ok(result) => result,
                     Err(error) => {
-                        state.set_stop_reason("tool_error");
-                        state.events.push(event(
+                        state.set_stop_reason("tool_error", iteration, "agent.error");
+                        state.emit_event(
                             "agent.error",
                             serde_json::json!({
                                 "runId": context.run_id,
@@ -1415,10 +1583,12 @@ pub fn run_native_agent_turn_with_config(
                                 "toolName": tool_call.name,
                                 "name": tool_call.name,
                             }),
-                        ));
+                        );
                         services
                             .checkpoints
                             .clear_for_run(&context.session_id, &context.run_id);
+                        let runtime_events = state.runtime_events();
+                        let events = state.legacy_events();
                         return Ok(serde_json::json!({
                             "runtime": "rust",
                             "runId": context.run_id,
@@ -1429,7 +1599,8 @@ pub fn run_native_agent_turn_with_config(
                             "toolsUsed": state.tools_used,
                             "completedToolResults": state.completed_tool_results,
                             "error": error,
-                            "events": state.events,
+                            "events": events,
+                            "runtimeEvents": runtime_events,
                         }));
                     }
                 };
@@ -1439,7 +1610,7 @@ pub fn run_native_agent_turn_with_config(
                 state
                     .messages
                     .push(tool_observation_message(&tool_call, &observation_content));
-                state.events.push(event(
+                state.emit_event(
                     "agent.tool.result",
                     serde_json::json!({
                         "runId": context.run_id,
@@ -1463,18 +1634,27 @@ pub fn run_native_agent_turn_with_config(
                         "content": observation_content,
                         "envelope": result.envelope.clone(),
                     }),
-                ));
+                );
                 if let Some(link_event) =
                     subagent_link_event_from_tool_result(&context, &tool_call, &result)
                 {
-                    state.events.push(link_event);
+                    state.emit_native_event(link_event);
                 }
-                state.events.extend(subagent_activity_events_from_tool_result(
-                    &context, &tool_call, &result,
-                ));
+                for event in
+                    subagent_activity_events_from_tool_result(&context, &tool_call, &result)
+                {
+                    if event.event_name == "agent.delegate.wait" {
+                        state.transition_phase(
+                            AgentRuntimePhase::AwaitingSubagent,
+                            iteration,
+                            "agent.delegate.wait",
+                        );
+                    }
+                    state.emit_native_event(event);
+                }
                 state.completed_tool_results.push(completed_result);
                 state.clear_pending_tool_calls();
-                state.set_phase(AgentRuntimePhase::Planning, iteration);
+                state.transition_phase(AgentRuntimePhase::Planning, iteration, "agent.tool.result");
                 save_phase_checkpoint(
                     services,
                     &context,
@@ -1482,11 +1662,15 @@ pub fn run_native_agent_turn_with_config(
                     state.active_checkpoint_payload("tool_completed"),
                 );
                 if services.cancellations.is_cancelled(&context.run_id) {
-                    state.phase = AgentRuntimePhase::Cancelled;
+                    state.transition_phase(
+                        AgentRuntimePhase::Cancelled,
+                        iteration,
+                        "agent.cancelled",
+                    );
                     return Ok(cancelled_run_result(
                         services,
                         &context,
-                        std::mem::take(&mut state.events),
+                        state.take_runtime_events(),
                         std::mem::take(&mut state.tools_used),
                         std::mem::take(&mut state.completed_tool_results),
                         iteration,
@@ -1495,7 +1679,7 @@ pub fn run_native_agent_turn_with_config(
             }
 
             if let Some(message) = state.drain_pending_guidance() {
-                state.events.push(event(
+                state.emit_event(
                     "agent.guidance",
                     serde_json::json!({
                         "runId": context.run_id,
@@ -1503,12 +1687,12 @@ pub fn run_native_agent_turn_with_config(
                         "iteration": iteration,
                         "content": message.get("content").cloned().unwrap_or(Value::Null),
                     }),
-                ));
+                );
             }
 
             if let Some(usage) = provider_response.usage {
                 state.usage.push(usage.clone());
-                state.events.push(event(
+                state.emit_event(
                     "agent.usage",
                     serde_json::json!({
                         "runId": context.run_id,
@@ -1516,7 +1700,7 @@ pub fn run_native_agent_turn_with_config(
                         "iteration": iteration,
                         "usage": usage,
                     }),
-                ));
+                );
             }
             continue;
         }
@@ -1524,7 +1708,7 @@ pub fn run_native_agent_turn_with_config(
         let final_content = provider_response.final_content;
         if let Some(usage) = provider_response.usage {
             state.usage.push(usage.clone());
-            state.events.push(event(
+            state.emit_event(
                 "agent.usage",
                 serde_json::json!({
                     "runId": context.run_id,
@@ -1532,13 +1716,28 @@ pub fn run_native_agent_turn_with_config(
                     "iteration": iteration,
                     "usage": usage,
                 }),
-            ));
+            );
         }
-        state.set_stop_reason("final_response");
+        state.transition_phase(
+            AgentRuntimePhase::Finalizing,
+            iteration,
+            "agent.message.completed",
+        );
         services
             .checkpoints
             .clear_for_run(&context.session_id, &context.run_id);
-        state.events.push(event(
+        state.emit_event(
+            "agent.message.completed",
+            serde_json::json!({
+                "runId": context.run_id,
+                "sessionId": context.session_id,
+                "iteration": iteration,
+                "messageId": format!("{}:assistant", context.run_id),
+                "content": final_content.clone(),
+            }),
+        );
+        state.set_stop_reason("final_response", iteration, "agent.done");
+        state.emit_event(
             "agent.done",
             serde_json::json!({
                 "runId": context.run_id,
@@ -1546,7 +1745,9 @@ pub fn run_native_agent_turn_with_config(
                 "iteration": iteration,
                 "stopReason": "final_response",
             }),
-        ));
+        );
+        let runtime_events = state.runtime_events();
+        let events = state.legacy_events();
 
         return Ok(serde_json::json!({
             "runtime": "rust",
@@ -1560,13 +1761,14 @@ pub fn run_native_agent_turn_with_config(
             }],
             "toolsUsed": state.tools_used,
             "completedToolResults": state.completed_tool_results,
-            "events": state.events,
+            "events": events,
+            "runtimeEvents": runtime_events,
         }));
     }
 
     let error = "Rust agent runtime reached max iterations before final response.";
-    state.set_stop_reason("max_iterations");
-    state.events.push(event(
+    state.set_stop_reason("max_iterations", state.iteration, "agent.error");
+    state.emit_event(
         "agent.error",
         serde_json::json!({
             "runId": context.run_id,
@@ -1574,7 +1776,9 @@ pub fn run_native_agent_turn_with_config(
             "stopReason": "max_iterations",
             "error": error,
         }),
-    ));
+    );
+    let runtime_events = state.runtime_events();
+    let events = state.legacy_events();
     Ok(serde_json::json!({
         "runtime": "rust",
         "runId": context.run_id,
@@ -1585,7 +1789,8 @@ pub fn run_native_agent_turn_with_config(
         "toolsUsed": state.tools_used,
         "completedToolResults": state.completed_tool_results,
         "error": error,
-        "events": state.events,
+        "events": events,
+        "runtimeEvents": runtime_events,
     }))
 }
 
@@ -1701,10 +1906,15 @@ fn subagent_link_event_from_tool_result(
         return None;
     }
     let subagent = raw.get("subagent")?;
-    let subagent_id = string_field(subagent, "subagentId")
-        .or_else(|| raw.get("event").and_then(|event| string_field(event, "delegateId")))?;
+    let subagent_id = string_field(subagent, "subagentId").or_else(|| {
+        raw.get("event")
+            .and_then(|event| string_field(event, "delegateId"))
+    })?;
     let child_run_id = string_field(subagent, "childRunId")
-        .or_else(|| raw.get("event").and_then(|event| string_field(event, "childRunId")))
+        .or_else(|| {
+            raw.get("event")
+                .and_then(|event| string_field(event, "childRunId"))
+        })
         .unwrap_or_else(|| subagent_id.clone());
     Some(event(
         "agent.delegate.linked",
@@ -1739,9 +1949,7 @@ fn subagent_activity_events_from_tool_result(
     };
     let mut events = Vec::new();
     if let Some(background_event) = raw.get("event") {
-        if background_event
-            .get("eventType")
-            .and_then(Value::as_str)
+        if background_event.get("eventType").and_then(Value::as_str)
             != Some("agent.delegate.started")
         {
             if let Some(event) = subagent_background_activity_event(context, background_event) {
@@ -1766,7 +1974,11 @@ fn subagent_activity_events_from_tool_result(
             ));
             if let Some(statuses) = raw.get("statuses").and_then(Value::as_array) {
                 for status in statuses {
-                    if status.get("terminalResult").and_then(Value::as_str).is_some() {
+                    if status
+                        .get("terminalResult")
+                        .and_then(Value::as_str)
+                        .is_some()
+                    {
                         events.push(subagent_status_activity_event(
                             context,
                             "agent.delegate.result",
@@ -1775,8 +1987,13 @@ fn subagent_activity_events_from_tool_result(
                             &tool_call.id,
                         ));
                     }
-                    if status.get("blockerSummary").and_then(Value::as_str).is_some()
-                        || status.get("pendingApproval").is_some_and(|value| !value.is_null())
+                    if status
+                        .get("blockerSummary")
+                        .and_then(Value::as_str)
+                        .is_some()
+                        || status
+                            .get("pendingApproval")
+                            .is_some_and(|value| !value.is_null())
                     {
                         events.push(subagent_status_activity_event(
                             context,
@@ -2111,7 +2328,9 @@ fn maybe_awaiting_approval_result(
     services: &NativeAgentRuntimeServices,
     context: &NativeAgentRunContext,
 ) -> Option<Value> {
-    let approval = context.metadata.get("fakeAwaitingApproval")?.clone();
+    let approval =
+        test_compat_runtime_metadata(&context.metadata, TEST_COMPAT_FAKE_AWAITING_APPROVAL)?
+            .clone();
     let approval_id = string_field(&approval, "approvalId")
         .or_else(|| string_field(&approval, "approval_id"))
         .unwrap_or_else(|| "approval-1".to_string());
@@ -2136,40 +2355,53 @@ fn maybe_awaiting_approval_result(
     services
         .checkpoints
         .save_for_run(&context.session_id, &context.run_id, checkpoint.clone());
-    let events = vec![
-        event(
-            "agent.checkpoint",
-            serde_json::json!({
-                "runId": context.run_id,
-                "sessionId": context.session_id,
-                "phase": "awaiting_approval",
-                "checkpoint": checkpoint,
-            }),
-        ),
-        event(
-            "agent.awaiting_approval",
-            serde_json::json!({
-                "runId": context.run_id,
-                "sessionId": context.session_id,
-                "approvalId": approval_id,
-                "toolName": tool_name,
-                "detailId": format!("approval:{approval_id}"),
-                "status": "waiting",
-                "summary": format!("Approval required: {tool_name}"),
-                "options": approval_request_options(),
-                "operation": approval,
-                "content": format!("Approval required: {tool_name}"),
-            }),
-        ),
-        event(
-            "agent.done",
-            serde_json::json!({
-                "runId": context.run_id,
-                "sessionId": context.session_id,
-                "stopReason": "awaiting_approval",
-            }),
-        ),
-    ];
+    let runtime_events = waiting_runtime_events(
+        context,
+        AgentRuntimePhase::AwaitingApproval,
+        "agent.awaiting_approval",
+        vec![
+            (
+                "agent.checkpoint",
+                None,
+                AgentRuntimePhase::Planning,
+                serde_json::json!({
+                    "runId": context.run_id,
+                    "sessionId": context.session_id,
+                    "phase": "awaiting_approval",
+                    "checkpoint": checkpoint.clone(),
+                }),
+            ),
+            (
+                "agent.awaiting_approval",
+                Some(approval_id.clone()),
+                AgentRuntimePhase::AwaitingApproval,
+                serde_json::json!({
+                    "runId": context.run_id,
+                    "sessionId": context.session_id,
+                    "approvalId": approval_id.clone(),
+                    "toolName": tool_name.clone(),
+                    "detailId": format!("approval:{approval_id}"),
+                    "status": "waiting",
+                    "summary": format!("Approval required: {tool_name}"),
+                    "options": approval_request_options(),
+                    "operation": approval.clone(),
+                    "content": format!("Approval required: {tool_name}"),
+                }),
+            ),
+            (
+                "agent.done",
+                None,
+                AgentRuntimePhase::AwaitingApproval,
+                serde_json::json!({
+                    "runId": context.run_id,
+                    "sessionId": context.session_id,
+                    "stopReason": "awaiting_approval",
+                }),
+            ),
+        ],
+    );
+    append_runtime_events_to_sink(context, services.trace_sink.as_ref(), &runtime_events);
+    let events = legacy_result_events_from_runtime_events(&runtime_events);
     Some(serde_json::json!({
         "runtime": "rust",
         "runId": context.run_id,
@@ -2180,6 +2412,7 @@ fn maybe_awaiting_approval_result(
         "toolsUsed": [],
         "checkpoint": checkpoint,
         "events": events,
+        "runtimeEvents": runtime_events,
     }))
 }
 
@@ -2544,7 +2777,8 @@ fn maybe_awaiting_form_result(
     services: &NativeAgentRuntimeServices,
     context: &NativeAgentRunContext,
 ) -> Option<Value> {
-    let form = context.metadata.get("fakeAwaitingForm")?.clone();
+    let form =
+        test_compat_runtime_metadata(&context.metadata, TEST_COMPAT_FAKE_AWAITING_FORM)?.clone();
     let form_id = string_field(&form, "formId")
         .or_else(|| string_field(&form, "form_id"))
         .unwrap_or_else(|| "form-1".to_string());
@@ -2562,38 +2796,51 @@ fn maybe_awaiting_form_result(
     services
         .checkpoints
         .save_for_run(&context.session_id, &context.run_id, checkpoint.clone());
-    let events = vec![
-        event(
-            "agent.checkpoint",
-            serde_json::json!({
-                "runId": context.run_id,
-                "sessionId": context.session_id,
-                "phase": "awaiting_form",
-                "checkpoint": checkpoint,
-            }),
-        ),
-        event(
-            "agent.awaiting_form",
-            serde_json::json!({
-                "runId": context.run_id,
-                "sessionId": context.session_id,
-                "formId": form_id,
-                "detailId": format!("form:{form_id}"),
-                "status": "waiting",
-                "summary": string_field(&form, "title")
-                    .unwrap_or_else(|| "Form input required".to_string()),
-                "form": form,
-            }),
-        ),
-        event(
-            "agent.done",
-            serde_json::json!({
-                "runId": context.run_id,
-                "sessionId": context.session_id,
-                "stopReason": "awaiting_form",
-            }),
-        ),
-    ];
+    let runtime_events = waiting_runtime_events(
+        context,
+        AgentRuntimePhase::AwaitingForm,
+        "agent.awaiting_form",
+        vec![
+            (
+                "agent.checkpoint",
+                None,
+                AgentRuntimePhase::Planning,
+                serde_json::json!({
+                    "runId": context.run_id,
+                    "sessionId": context.session_id,
+                    "phase": "awaiting_form",
+                    "checkpoint": checkpoint.clone(),
+                }),
+            ),
+            (
+                "agent.awaiting_form",
+                Some(form_id.clone()),
+                AgentRuntimePhase::AwaitingForm,
+                serde_json::json!({
+                    "runId": context.run_id,
+                    "sessionId": context.session_id,
+                    "formId": form_id.clone(),
+                    "detailId": format!("form:{form_id}"),
+                    "status": "waiting",
+                    "summary": string_field(&form, "title")
+                        .unwrap_or_else(|| "Form input required".to_string()),
+                    "form": form,
+                }),
+            ),
+            (
+                "agent.done",
+                None,
+                AgentRuntimePhase::AwaitingForm,
+                serde_json::json!({
+                    "runId": context.run_id,
+                    "sessionId": context.session_id,
+                    "stopReason": "awaiting_form",
+                }),
+            ),
+        ],
+    );
+    append_runtime_events_to_sink(context, services.trace_sink.as_ref(), &runtime_events);
+    let events = legacy_result_events_from_runtime_events(&runtime_events);
     Some(serde_json::json!({
         "runtime": "rust",
         "runId": context.run_id,
@@ -2604,6 +2851,7 @@ fn maybe_awaiting_form_result(
         "toolsUsed": [],
         "checkpoint": checkpoint,
         "events": events,
+        "runtimeEvents": runtime_events,
     }))
 }
 
@@ -2753,10 +3001,12 @@ fn form_submit_metadata(context: &NativeAgentRunContext) -> Option<(Value, FormC
 fn maybe_emit_checkpoint(
     services: &NativeAgentRuntimeServices,
     context: &NativeAgentRunContext,
-    events: &mut Vec<NativeAgentEvent>,
+    state: &mut NativeAgentRunState,
     default_phase: &str,
 ) {
-    let Some(checkpoint_metadata) = context.metadata.get("fakeCheckpoint") else {
+    let Some(checkpoint_metadata) =
+        test_compat_runtime_metadata(&context.metadata, TEST_COMPAT_FAKE_CHECKPOINT)
+    else {
         return;
     };
     let phase =
@@ -2765,7 +3015,7 @@ fn maybe_emit_checkpoint(
     services
         .checkpoints
         .save_for_run(&context.session_id, &context.run_id, checkpoint.clone());
-    events.push(event(
+    state.emit_event(
         "agent.checkpoint",
         serde_json::json!({
             "runId": context.run_id,
@@ -2773,7 +3023,13 @@ fn maybe_emit_checkpoint(
             "phase": phase,
             "checkpoint": checkpoint,
         }),
-    ));
+    );
+}
+
+fn test_compat_runtime_metadata<'a>(metadata: &'a Value, key: &str) -> Option<&'a Value> {
+    // Compatibility fixture hooks only. Normal runtime control should use typed
+    // continuations, checkpoints, provider responses, or tool/subagent results.
+    metadata.get(key)
 }
 
 fn checkpoint_value(context: &NativeAgentRunContext, phase: &str, payload: Value) -> Value {
@@ -2876,7 +3132,7 @@ fn cancelled_result(run_id: &str, session_id: &str, checkpoint: Value) -> Value 
 fn cancelled_run_result(
     services: &NativeAgentRuntimeServices,
     context: &NativeAgentRunContext,
-    mut events: Vec<NativeAgentEvent>,
+    mut runtime_events: Vec<AgentRuntimeEventEnvelope>,
     tools_used: Vec<String>,
     completed_tool_results: Vec<Value>,
     iteration: i64,
@@ -2892,8 +3148,14 @@ fn cancelled_run_result(
             "stopReason": "cancelled",
         }),
     );
-    events.push(event(
-        "agent.cancelled",
+    let mut emitter = AgentRunEmitter::from_existing_events(
+        &context.session_id,
+        &context.run_id,
+        &runtime_events,
+    );
+    runtime_events.push(emitter.cancelled_with_payload(
+        runtime_event_timestamp(),
+        "cancelled",
         serde_json::json!({
             "runId": context.run_id,
             "sessionId": context.session_id,
@@ -2903,6 +3165,7 @@ fn cancelled_run_result(
             "error": "cancelled",
         }),
     ));
+    let events = legacy_result_events_from_runtime_events(&runtime_events);
     serde_json::json!({
         "runtime": "rust",
         "runId": context.run_id,
@@ -2915,7 +3178,59 @@ fn cancelled_run_result(
         "error": "cancelled",
         "checkpoint": checkpoint,
         "events": events,
+        "runtimeEvents": runtime_events,
     })
+}
+
+fn waiting_runtime_events(
+    context: &NativeAgentRunContext,
+    waiting_phase: AgentRuntimePhase,
+    trigger_event_name: &str,
+    events: Vec<(&'static str, Option<String>, AgentRuntimePhase, Value)>,
+) -> Vec<AgentRuntimeEventEnvelope> {
+    let mut emitter = AgentRunEmitter::new(&context.session_id, &context.run_id);
+    emitter.emit(AgentRuntimeEventAppendInput {
+        parent_turn_id: None,
+        item_id: None,
+        event_name: "agent.phase.changed".to_string(),
+        phase: waiting_phase.clone(),
+        timestamp: runtime_event_timestamp(),
+        source: AgentRuntimeEventSource::RustBackend,
+        visibility: AgentRuntimeEventVisibility::Debug,
+        payload: serde_json::json!({
+            "runId": context.run_id,
+            "sessionId": context.session_id,
+            "iteration": 0,
+            "previousPhase": "planning",
+            "nextPhase": waiting_phase.as_str(),
+            "triggerEventName": trigger_event_name,
+        }),
+    });
+    for (event_name, item_id, phase, payload) in events {
+        emitter.emit(AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id,
+            event_name: event_name.to_string(),
+            phase,
+            timestamp: runtime_event_timestamp(),
+            source: runtime_event_source(event_name),
+            visibility: runtime_event_visibility(event_name),
+            payload,
+        });
+    }
+    emitter.take_events()
+}
+
+fn append_runtime_events_to_sink(
+    context: &NativeAgentRunContext,
+    trace_sink: Option<&Arc<dyn NativeAgentTraceSink>>,
+    events: &[AgentRuntimeEventEnvelope],
+) {
+    if let Some(trace_sink) = trace_sink {
+        for event in events {
+            let _ = trace_sink.append_trace_event(&context.session_id, &context.run_id, event);
+        }
+    }
 }
 
 fn event(event_name: &str, payload: Value) -> NativeAgentEvent {
@@ -2923,6 +3238,84 @@ fn event(event_name: &str, payload: Value) -> NativeAgentEvent {
         event_name: event_name.to_string(),
         payload,
     }
+}
+
+fn legacy_result_events_from_runtime_events(
+    runtime_events: &[AgentRuntimeEventEnvelope],
+) -> Vec<NativeAgentEvent> {
+    project_legacy_native_agent_events(runtime_events)
+        .into_iter()
+        .filter(|event| {
+            event.event_name != "agent.turn.started" && event.event_name != "agent.phase.changed"
+        })
+        .map(NativeAgentEvent::from)
+        .collect()
+}
+
+fn runtime_event_timestamp() -> String {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis().to_string())
+        .unwrap_or_else(|_| "0".to_string())
+}
+
+fn runtime_event_item_id(event_name: &str, payload: &Value) -> Option<String> {
+    match event_name {
+        "agent.tool_call.delta" | "agent.tool.start" | "agent.tool.result" => {
+            string_field(payload, "toolCallId")
+                .or_else(|| string_field(payload, "tool_call_id"))
+                .or_else(|| string_field(payload, "id"))
+        }
+        "agent.awaiting_approval" | "agent.approval.decision" => {
+            string_field(payload, "approvalId").or_else(|| string_field(payload, "approval_id"))
+        }
+        "agent.awaiting_form" | "agent.form.resolution" => {
+            string_field(payload, "formId").or_else(|| string_field(payload, "form_id"))
+        }
+        _ if event_name.starts_with("agent.delegate.") => {
+            string_field(payload, "delegateId").or_else(|| string_field(payload, "delegate_id"))
+        }
+        _ => None,
+    }
+}
+
+fn runtime_event_source(event_name: &str) -> AgentRuntimeEventSource {
+    match event_name {
+        "agent.delta" | "agent.reasoning_delta" | "agent.usage" => {
+            AgentRuntimeEventSource::Provider
+        }
+        "agent.tool_call.delta" | "agent.tool.start" | "agent.tool.result" => {
+            AgentRuntimeEventSource::Tool
+        }
+        "agent.guidance" | "agent.approval.decision" | "agent.form.resolution" => {
+            AgentRuntimeEventSource::User
+        }
+        _ if event_name.starts_with("agent.delegate.") => AgentRuntimeEventSource::Subagent,
+        _ => AgentRuntimeEventSource::RustBackend,
+    }
+}
+
+fn runtime_event_visibility(event_name: &str) -> AgentRuntimeEventVisibility {
+    match event_name {
+        "agent.checkpoint" | "agent.usage" | "agent.done" | "agent.phase.changed" => {
+            AgentRuntimeEventVisibility::Debug
+        }
+        _ => AgentRuntimeEventVisibility::User,
+    }
+}
+
+fn current_user_message(messages: &[Value]) -> Option<Value> {
+    messages
+        .iter()
+        .rev()
+        .find(|message| {
+            message
+                .get("role")
+                .and_then(Value::as_str)
+                .map(|role| role == "user")
+                .unwrap_or(false)
+        })
+        .cloned()
 }
 
 fn event_value(event_name: &str, payload: Value) -> Value {
@@ -2950,6 +3343,66 @@ mod tests {
     use super::*;
     use serde_json::json;
     use std::sync::{Arc, Mutex};
+
+    #[derive(Default)]
+    struct RecordingTraceSink {
+        events: Arc<Mutex<Vec<AgentRuntimeEventEnvelope>>>,
+    }
+
+    impl NativeAgentTraceSink for RecordingTraceSink {
+        fn append_trace_event(
+            &self,
+            _session_id: &str,
+            _run_id: &str,
+            event: &AgentRuntimeEventEnvelope,
+        ) -> Result<(), String> {
+            self.events
+                .lock()
+                .expect("trace sink lock should not be poisoned")
+                .push(event.clone());
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn trace_sink_receives_waiting_boundary_before_runtime_returns() {
+        let sink = Arc::new(RecordingTraceSink::default());
+        let events = sink.events.clone();
+        let services = NativeAgentRuntimeServices::default().with_trace_sink(sink);
+
+        let result = run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-sink-waiting",
+                "sessionId": "websocket:chat-sink-waiting",
+                "metadata": {
+                    "fakeAwaitingApproval": {
+                        "approvalId": "approval-sink",
+                        "toolName": "workspace.write_file"
+                    }
+                }
+            }),
+        )
+        .expect("waiting run should return");
+        let recorded = events
+            .lock()
+            .expect("trace sink lock should not be poisoned")
+            .clone();
+
+        assert_eq!(result["stopReason"], "awaiting_approval");
+        assert!(recorded.iter().any(|event| {
+            event.event_name == "agent.phase.changed"
+                && event.payload["nextPhase"] == "awaiting_approval"
+        }));
+        assert!(recorded
+            .iter()
+            .any(|event| event.event_name == "agent.awaiting_approval"));
+        assert_eq!(
+            recorded.last().map(|event| event.event_name.as_str()),
+            Some("agent.done")
+        );
+    }
 
     #[test]
     fn selects_rust_runtime_from_spec_or_config() {
@@ -3049,9 +3502,47 @@ mod tests {
 
         assert_eq!(result["runtime"], "rust");
         assert_eq!(result["finalContent"], "fixture answer");
+        assert_eq!(
+            result["runtimeEvents"][0]["schemaVersion"],
+            "tinybot.agent_event.v1"
+        );
+        let runtime_events = result["runtimeEvents"].as_array().unwrap();
+        assert_eq!(
+            runtime_events[0]["payload"]["nextPhase"],
+            "hydrating_history"
+        );
+        assert_eq!(runtime_events[1]["payload"]["nextPhase"], "planning");
+        let turn_started = runtime_events
+            .iter()
+            .find(|event| event["eventName"] == "agent.turn.started")
+            .expect("turn started event should be present");
+        assert_eq!(turn_started["eventName"], "agent.turn.started");
+        assert_eq!(turn_started["payload"]["userMessage"]["content"], "hello");
+        assert_eq!(turn_started["payload"]["userMessageId"], "run-1:user");
+        assert!(runtime_events
+            .iter()
+            .any(|event| event["eventName"] == "agent.phase.changed"
+                && event["payload"]["previousPhase"] == "planning"
+                && event["payload"]["nextPhase"] == "calling_model"
+                && event["payload"]["triggerEventName"] == "provider_call"));
+        assert_eq!(
+            runtime_events
+                .iter()
+                .filter(|event| event["eventName"] == "agent.phase.changed"
+                    && event["payload"]["nextPhase"] == "streaming_model")
+                .count(),
+            1
+        );
         assert_eq!(result["events"][0]["eventName"], "agent.delta");
         assert_eq!(result["events"][1]["eventName"], "agent.usage");
-        assert_eq!(result["events"][2]["eventName"], "agent.done");
+        assert_eq!(result["events"][2]["eventName"], "agent.message.completed");
+        assert_eq!(result["events"][2]["payload"]["content"], "fixture answer");
+        assert_eq!(result["events"][3]["eventName"], "agent.done");
+        assert_eq!(
+            result["events"][3]["payload"]["stopReason"],
+            "final_response"
+        );
+        assert!(result["events"][3]["payload"].get("finalContent").is_none());
     }
 
     #[test]
@@ -3089,6 +3580,19 @@ mod tests {
         .expect("fixture tool run should succeed");
 
         let event_names = event_names(&result);
+        let runtime_event_names = runtime_event_names(&result);
+        assert!(runtime_event_names
+            .windows(2)
+            .any(|pair| pair == ["agent.phase.changed", "agent.tool_call.delta"]));
+        assert!(result["runtimeEvents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| {
+                event["eventName"] == "agent.phase.changed"
+                    && event["payload"]["nextPhase"] == "tool_running"
+                    && event["payload"]["triggerEventName"] == "agent.tool.start"
+            }));
         assert_eq!(
             &event_names[..3],
             &[
@@ -4028,6 +4532,33 @@ mod tests {
             event_names(&result),
             vec!["agent.tool_call.delta", "agent.cancelled"]
         );
+        let cancelled_event = result["events"]
+            .as_array()
+            .expect("events should be an array")
+            .last()
+            .expect("cancelled event should be present");
+        assert_eq!(cancelled_event["eventName"], "agent.cancelled");
+        assert_eq!(
+            cancelled_event["payload"]["runId"],
+            "run-cancel-before-tool"
+        );
+        assert_eq!(
+            cancelled_event["payload"]["sessionId"],
+            "websocket:chat-cancel-before-tool"
+        );
+        assert_eq!(cancelled_event["payload"]["iteration"], 0);
+        assert_eq!(cancelled_event["payload"]["cancelled"], true);
+        assert_eq!(cancelled_event["payload"]["stopReason"], "cancelled");
+        assert_eq!(cancelled_event["payload"]["error"], "cancelled");
+        assert!(result["runtimeEvents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| {
+                event["eventName"] == "agent.phase.changed"
+                    && event["payload"]["nextPhase"] == "cancelled"
+                    && event["payload"]["triggerEventName"] == "agent.cancelled"
+            }));
         assert_eq!(result["checkpoint"]["phase"], "cancelled");
         assert_eq!(result["checkpoint"]["iteration"], 0);
     }
@@ -4319,8 +4850,8 @@ mod tests {
                         tool_calls: vec![NativeAgentToolCall {
                             id: "call-cancel-wait".to_string(),
                             name: "subagent.wait".to_string(),
-                            arguments_json:
-                                "{\"subagentIds\":[\"wait-child\"],\"timeoutMs\":1}".to_string(),
+                            arguments_json: "{\"subagentIds\":[\"wait-child\"],\"timeoutMs\":1}"
+                                .to_string(),
                             result: Value::Null,
                         }],
                     }),
@@ -4385,6 +4916,22 @@ mod tests {
             2
         );
         assert!(event_names.contains(&"agent.delegate.wait"));
+        let runtime_events = result["runtimeEvents"]
+            .as_array()
+            .expect("runtime events should be present");
+        let awaiting_subagent_index = runtime_events
+            .iter()
+            .position(|event| {
+                event["eventName"] == "agent.phase.changed"
+                    && event["payload"]["nextPhase"] == "awaiting_subagent"
+                    && event["payload"]["triggerEventName"] == "agent.delegate.wait"
+            })
+            .expect("awaiting subagent phase should be emitted");
+        let delegate_wait_index = runtime_events
+            .iter()
+            .position(|event| event["eventName"] == "agent.delegate.wait")
+            .expect("delegate wait event should be emitted");
+        assert!(awaiting_subagent_index < delegate_wait_index);
         assert_eq!(event_names.last(), Some(&"agent.cancelled"));
         assert_eq!(result["checkpoint"]["phase"], "cancelled");
     }
@@ -4611,7 +5158,27 @@ mod tests {
         .expect("approval checkpoint should be created");
 
         assert_eq!(awaiting["stopReason"], "awaiting_approval");
-        assert_eq!(awaiting["events"][1]["eventName"], "agent.awaiting_approval");
+        assert_eq!(
+            awaiting["events"][1]["eventName"],
+            "agent.awaiting_approval"
+        );
+        assert!(awaiting["runtimeEvents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| {
+                event["eventName"] == "agent.phase.changed"
+                    && event["payload"]["nextPhase"] == "awaiting_approval"
+                    && event["payload"]["triggerEventName"] == "agent.awaiting_approval"
+            }));
+        assert!(awaiting["runtimeEvents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| {
+                event["eventName"] == "agent.awaiting_approval"
+                    && event["payload"]["approvalId"] == "approval-1"
+            }));
         assert_eq!(awaiting["events"][1]["payload"]["status"], "waiting");
         assert_eq!(
             awaiting["events"][1]["payload"]["detailId"],
@@ -4765,6 +5332,23 @@ mod tests {
             awaiting_form["events"][1]["eventName"],
             "agent.awaiting_form"
         );
+        assert!(awaiting_form["runtimeEvents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| {
+                event["eventName"] == "agent.phase.changed"
+                    && event["payload"]["nextPhase"] == "awaiting_form"
+                    && event["payload"]["triggerEventName"] == "agent.awaiting_form"
+            }));
+        assert!(awaiting_form["runtimeEvents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| {
+                event["eventName"] == "agent.awaiting_form"
+                    && event["payload"]["formId"] == "form-1"
+            }));
         assert_eq!(awaiting_form["events"][1]["payload"]["status"], "waiting");
         assert_eq!(
             awaiting_form["events"][1]["payload"]["detailId"],
@@ -4909,7 +5493,10 @@ mod tests {
         assert_eq!(form["events"][0]["eventName"], "agent.form.resolution");
         assert_eq!(form["events"][0]["payload"]["status"], "completed");
         assert_eq!(form["events"][0]["payload"]["action"], "submit");
-        assert_eq!(form["events"][0]["payload"]["values"]["destination"], "Tokyo");
+        assert_eq!(
+            form["events"][0]["payload"]["values"]["destination"],
+            "Tokyo"
+        );
         assert!(services.restore_checkpoint("websocket:chat-typed-form")["checkpoint"].is_null());
     }
 
@@ -5158,10 +5745,7 @@ mod tests {
             "approval-guidance"
         );
         assert_eq!(seen_messages[0][2]["role"], "tool");
-        assert_eq!(
-            seen_messages[0][2]["tool_call_id"],
-            "approval-guidance"
-        );
+        assert_eq!(seen_messages[0][2]["tool_call_id"], "approval-guidance");
         assert!(seen_messages[0][2]["content"]
             .as_str()
             .expect("tool result content should be text")
@@ -5192,6 +5776,15 @@ mod tests {
         result["events"]
             .as_array()
             .expect("events should be an array")
+            .iter()
+            .map(|event| event["eventName"].as_str().unwrap_or_default())
+            .collect::<Vec<_>>()
+    }
+
+    fn runtime_event_names(result: &Value) -> Vec<&str> {
+        result["runtimeEvents"]
+            .as_array()
+            .expect("runtimeEvents should be an array")
             .iter()
             .map(|event| event["eventName"].as_str().unwrap_or_default())
             .collect::<Vec<_>>()

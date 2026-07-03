@@ -36,7 +36,7 @@ describe("rebuilt chat surface", () => {
     });
 
     expect(host.getAttribute("data-chat-surface")).toBe("rebuild-chat-agent-surface");
-    expect(host.querySelector(".desktop-chat-surface__shell")?.getAttribute("data-chat-layout")).toBe("codex-reference");
+    expect(host.querySelector(".desktop-chat-surface__shell")?.getAttribute("data-chat-layout")).toBe("native-reference");
     expect(host.querySelector("[data-chat-region='session-list']")).not.toBeNull();
     expect(host.querySelector("[data-chat-region='chat-detail']")).not.toBeNull();
     expect(host.querySelector("[data-chat-region='status-rail']")).not.toBeNull();
