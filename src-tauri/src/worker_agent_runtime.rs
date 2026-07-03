@@ -86,6 +86,8 @@ pub struct NativeAgentRunContext {
 
 #[derive(Clone, Debug)]
 struct NativeAgentRunState {
+    run_id: String,
+    session_id: String,
     phase: AgentRuntimePhase,
     iteration: i64,
     max_iterations: i64,
@@ -102,6 +104,8 @@ struct NativeAgentRunState {
 impl NativeAgentRunState {
     fn new(context: &NativeAgentRunContext) -> Self {
         Self {
+            run_id: context.run_id.clone(),
+            session_id: context.session_id.clone(),
             phase: AgentRuntimePhase::Planning,
             iteration: 0,
             max_iterations: context.max_iterations,
@@ -116,9 +120,36 @@ impl NativeAgentRunState {
         }
     }
 
-    fn set_phase(&mut self, phase: AgentRuntimePhase, iteration: i64) {
-        self.phase = phase;
+    fn transition_phase(
+        &mut self,
+        phase: AgentRuntimePhase,
+        iteration: i64,
+        trigger_event_name: &str,
+    ) {
+        let previous_phase = self.phase.clone();
         self.iteration = iteration;
+        if previous_phase == phase {
+            self.phase = phase;
+            return;
+        }
+        self.phase = phase.clone();
+        self.emitter.emit(AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id: None,
+            event_name: "agent.phase.changed".to_string(),
+            phase,
+            timestamp: runtime_event_timestamp(),
+            source: AgentRuntimeEventSource::RustBackend,
+            visibility: AgentRuntimeEventVisibility::Debug,
+            payload: serde_json::json!({
+                "runId": self.run_id,
+                "sessionId": self.session_id,
+                "iteration": iteration,
+                "previousPhase": previous_phase.as_str(),
+                "nextPhase": self.phase.as_str(),
+                "triggerEventName": trigger_event_name,
+            }),
+        });
     }
 
     fn set_stop_reason(&mut self, stop_reason: &str) {
@@ -1304,7 +1335,7 @@ pub fn run_native_agent_turn_with_config(
     let mut state = NativeAgentRunState::new(&context);
     state.emit_turn_started(&context);
     for iteration in 0..context.max_iterations {
-        state.set_phase(AgentRuntimePhase::CallingModel, iteration);
+        state.transition_phase(AgentRuntimePhase::CallingModel, iteration, "provider_call");
         if services.cancellations.is_cancelled(&context.run_id) {
             state.phase = AgentRuntimePhase::Cancelled;
             return Ok(cancelled_run_result(
@@ -1360,7 +1391,11 @@ pub fn run_native_agent_turn_with_config(
         let current_phase = state.phase.as_str().to_string();
         maybe_emit_checkpoint(services, &context, &mut state, &current_phase);
         if let Some(reasoning_delta) = provider_response.reasoning_delta.clone() {
-            state.set_phase(AgentRuntimePhase::StreamingModel, iteration);
+            state.transition_phase(
+                AgentRuntimePhase::StreamingModel,
+                iteration,
+                "agent.reasoning_delta",
+            );
             state.emit_event(
                 "agent.reasoning_delta",
                 serde_json::json!({
@@ -1372,7 +1407,7 @@ pub fn run_native_agent_turn_with_config(
             );
         }
         if context.stream && !provider_response.final_content.is_empty() {
-            state.set_phase(AgentRuntimePhase::StreamingModel, iteration);
+            state.transition_phase(AgentRuntimePhase::StreamingModel, iteration, "agent.delta");
             state.emit_event(
                 "agent.delta",
                 serde_json::json!({
@@ -1386,7 +1421,11 @@ pub fn run_native_agent_turn_with_config(
 
         if !provider_response.tool_calls.is_empty() {
             let tool_calls = provider_response.tool_calls;
-            state.set_phase(AgentRuntimePhase::ToolCalling, iteration);
+            state.transition_phase(
+                AgentRuntimePhase::ToolCalling,
+                iteration,
+                "agent.tool_call.delta",
+            );
             state.messages.push(assistant_tool_calls_message(
                 &provider_response.final_content,
                 &tool_calls,
@@ -1450,6 +1489,7 @@ pub fn run_native_agent_turn_with_config(
                     ));
                 }
                 state.tools_used.push(tool_call.name.clone());
+                state.transition_phase(AgentRuntimePhase::ToolRunning, iteration, "agent.tool.start");
                 state.emit_event(
                     "agent.tool.start",
                     serde_json::json!({
@@ -1557,7 +1597,7 @@ pub fn run_native_agent_turn_with_config(
                 }
                 state.completed_tool_results.push(completed_result);
                 state.clear_pending_tool_calls();
-                state.set_phase(AgentRuntimePhase::Planning, iteration);
+                state.transition_phase(AgentRuntimePhase::Planning, iteration, "agent.tool.result");
                 save_phase_checkpoint(
                     services,
                     &context,
@@ -3038,7 +3078,9 @@ fn legacy_result_events_from_runtime_events(
 ) -> Vec<NativeAgentEvent> {
     project_legacy_native_agent_events(runtime_events)
         .into_iter()
-        .filter(|event| event.event_name != "agent.turn.started")
+        .filter(|event| {
+            event.event_name != "agent.turn.started" && event.event_name != "agent.phase.changed"
+        })
         .map(NativeAgentEvent::from)
         .collect()
 }
@@ -3249,6 +3291,24 @@ mod tests {
             result["runtimeEvents"][0]["payload"]["userMessageId"],
             "run-1:user"
         );
+        assert!(result["runtimeEvents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event["eventName"] == "agent.phase.changed"
+                && event["payload"]["previousPhase"] == "planning"
+                && event["payload"]["nextPhase"] == "calling_model"
+                && event["payload"]["triggerEventName"] == "provider_call"));
+        assert_eq!(
+            result["runtimeEvents"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|event| event["eventName"] == "agent.phase.changed"
+                    && event["payload"]["nextPhase"] == "streaming_model")
+                .count(),
+            1
+        );
         assert_eq!(result["events"][0]["eventName"], "agent.delta");
         assert_eq!(result["events"][1]["eventName"], "agent.usage");
         assert_eq!(result["events"][2]["eventName"], "agent.message.completed");
@@ -3296,6 +3356,15 @@ mod tests {
         .expect("fixture tool run should succeed");
 
         let event_names = event_names(&result);
+        let runtime_event_names = runtime_event_names(&result);
+        assert!(runtime_event_names
+            .windows(2)
+            .any(|pair| pair == ["agent.phase.changed", "agent.tool_call.delta"]));
+        assert!(result["runtimeEvents"].as_array().unwrap().iter().any(|event| {
+            event["eventName"] == "agent.phase.changed"
+                && event["payload"]["nextPhase"] == "tool_running"
+                && event["payload"]["triggerEventName"] == "agent.tool.start"
+        }));
         assert_eq!(
             &event_names[..3],
             &[
@@ -5402,6 +5471,15 @@ mod tests {
         result["events"]
             .as_array()
             .expect("events should be an array")
+            .iter()
+            .map(|event| event["eventName"].as_str().unwrap_or_default())
+            .collect::<Vec<_>>()
+    }
+
+    fn runtime_event_names(result: &Value) -> Vec<&str> {
+        result["runtimeEvents"]
+            .as_array()
+            .expect("runtimeEvents should be an array")
             .iter()
             .map(|event| event["eventName"].as_str().unwrap_or_default())
             .collect::<Vec<_>>()
