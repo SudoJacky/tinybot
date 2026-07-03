@@ -4228,10 +4228,11 @@ mod tests {
         }
 
         let cancellations = Arc::new(InMemoryNativeAgentCancellation::default());
+        let provider = Arc::new(SingleToolProvider {
+            calls: Mutex::new(0),
+        });
         let services = NativeAgentRuntimeServices::new(
-            Arc::new(SingleToolProvider {
-                calls: Mutex::new(0),
-            }),
+            provider.clone(),
             Arc::new(CancellingToolDispatcher {
                 cancellations: cancellations.clone(),
             }),
@@ -4252,6 +4253,13 @@ mod tests {
         .expect("cancelled run should preserve completed tool result state");
 
         assert_eq!(result["stopReason"], "cancelled");
+        assert_eq!(
+            *provider
+                .calls
+                .lock()
+                .expect("provider calls lock should not be poisoned"),
+            1
+        );
         assert_eq!(result["toolsUsed"], json!(["workspace.read_file"]));
         assert_eq!(
             result["completedToolResults"][0]["toolCallId"],
@@ -4266,6 +4274,15 @@ mod tests {
                 "agent.cancelled"
             ]
         );
+        assert_eq!(
+            result["events"]
+                .as_array()
+                .expect("events should be an array")
+                .last()
+                .expect("cancelled event should be present")["eventName"],
+            "agent.cancelled"
+        );
+        assert_eq!(result["checkpoint"]["phase"], "cancelled");
         assert_eq!(
             result["checkpoint"]["completedToolResults"][0]["toolCallId"],
             "call-cancel-after-result"
