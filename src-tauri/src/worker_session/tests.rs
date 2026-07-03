@@ -302,7 +302,7 @@ mod tests {
             .expect("run should mark completed");
         assert_eq!(completed.status, AgentRunStatus::Completed);
         assert_eq!(completed.stop_reason.as_deref(), Some("final_response"));
-        assert_eq!(completed.phase, "done");
+        assert_eq!(completed.phase, "completed");
         assert!(completed.completed_at.is_some());
 
         rpc.upsert_agent_run(agent_run_fixture(

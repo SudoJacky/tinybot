@@ -192,6 +192,15 @@ impl AgentRunTracePage {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentRunRuntimeState {
+    pub session_id: String,
+    pub run_id: String,
+    pub runtime_events: Vec<crate::agent_loop_runtime_protocol::AgentRuntimeEventEnvelope>,
+    pub turn_items: Vec<crate::agent_loop_runtime_protocol::AgentTurnItem>,
+}
+
 fn final_content_preview(record: &AgentRunRecord) -> Option<String> {
     record.trace_messages.iter().rev().find_map(|message| {
         let role = message.get("role").and_then(Value::as_str)?;
