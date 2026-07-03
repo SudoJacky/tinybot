@@ -1539,6 +1539,16 @@ pub fn run_native_agent_turn_with_config(
             .checkpoints
             .clear_for_run(&context.session_id, &context.run_id);
         state.events.push(event(
+            "agent.message.completed",
+            serde_json::json!({
+                "runId": context.run_id,
+                "sessionId": context.session_id,
+                "iteration": iteration,
+                "messageId": format!("{}:assistant", context.run_id),
+                "content": final_content.clone(),
+            }),
+        ));
+        state.events.push(event(
             "agent.done",
             serde_json::json!({
                 "runId": context.run_id,
@@ -3051,7 +3061,17 @@ mod tests {
         assert_eq!(result["finalContent"], "fixture answer");
         assert_eq!(result["events"][0]["eventName"], "agent.delta");
         assert_eq!(result["events"][1]["eventName"], "agent.usage");
-        assert_eq!(result["events"][2]["eventName"], "agent.done");
+        assert_eq!(result["events"][2]["eventName"], "agent.message.completed");
+        assert_eq!(
+            result["events"][2]["payload"]["content"],
+            "fixture answer"
+        );
+        assert_eq!(result["events"][3]["eventName"], "agent.done");
+        assert_eq!(
+            result["events"][3]["payload"]["stopReason"],
+            "final_response"
+        );
+        assert!(result["events"][3]["payload"].get("finalContent").is_none());
     }
 
     #[test]
