@@ -73,6 +73,12 @@ export const NATIVE_BACKEND_AGENT_EVENT_NAMES = [
   "agent.tool.result",
   "agent.usage",
   "agent.checkpoint",
+  "agent.turn.started",
+  "agent.phase.changed",
+  "agent.guidance",
+  "agent.approval.decision",
+  "agent.form.resolution",
+  "agent.message.completed",
   "agent.awaiting_form",
   "agent.awaiting_approval",
   "agent.memory_reference",
@@ -98,6 +104,22 @@ export const NATIVE_BACKEND_AGENT_EVENT_NAMES = [
 ] as const;
 
 export type NativeBackendEventName = typeof NATIVE_BACKEND_AGENT_EVENT_NAMES[number];
+export type NativeBackendRuntimeEventVisibility =
+  | "trace-only"
+  | "debug"
+  | "status"
+  | "websocket-visible"
+  | "user-visible";
+
+export const NATIVE_BACKEND_RUNTIME_EVENT_VISIBILITY = {
+  "agent.turn.started": "user-visible",
+  "agent.phase.changed": "debug",
+  "agent.guidance": "status",
+  "agent.approval.decision": "websocket-visible",
+  "agent.form.resolution": "websocket-visible",
+  "agent.message.completed": "user-visible",
+} as const satisfies Partial<Record<NativeBackendEventName, NativeBackendRuntimeEventVisibility>>;
+
 export type NativeBackendWorkerEventName = Exclude<
   NativeBackendEventName,
   "agent.browser_frame" | "diagnostics.log" | "worker.status"
