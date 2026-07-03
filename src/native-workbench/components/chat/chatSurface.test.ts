@@ -1037,7 +1037,15 @@ describe("rebuilt chat surface", () => {
 
     mountChatSurface(host, { projection: fixtureProjection() });
 
-    const headerActions = Array.from(host.querySelectorAll<HTMLButtonElement>(".desktop-chat-surface__header-action"));
+    expect(host.querySelector("[data-chat-header-action]")).toBeNull();
+    const trigger = host.querySelector<HTMLButtonElement>("[data-chat-header-menu-trigger]");
+    expect(trigger?.textContent).toBe("...");
+    expect(trigger?.getAttribute("aria-haspopup")).toBe("menu");
+    expect(trigger?.getAttribute("aria-expanded")).toBe("false");
+    trigger?.click();
+    expect(host.querySelector<HTMLButtonElement>("[data-chat-header-menu-trigger]")?.getAttribute("aria-expanded")).toBe("true");
+
+    const headerActions = Array.from(host.querySelectorAll<HTMLButtonElement>(".desktop-chat-surface__header-menu-item"));
     expect(headerActions.map((button) => button.textContent)).toEqual([
       "Pin",
       "Rename",
@@ -1054,7 +1062,10 @@ describe("rebuilt chat surface", () => {
     expect(headerActions.every((button) => Boolean(button.title))).toBe(true);
 
     host.querySelector<HTMLButtonElement>("[data-chat-header-action='pin']")?.click();
+    expect(host.querySelector("[data-chat-header-action]")).toBeNull();
+    host.querySelector<HTMLButtonElement>("[data-chat-header-menu-trigger]")?.click();
     host.querySelector<HTMLButtonElement>("[data-chat-header-action='copy-session-id']")?.click();
+    host.querySelector<HTMLButtonElement>("[data-chat-header-menu-trigger]")?.click();
     host.querySelector<HTMLButtonElement>("[data-chat-header-action='copy-markdown']")?.click();
 
     expect(actions).toEqual([
@@ -1092,6 +1103,7 @@ describe("rebuilt chat surface", () => {
 
     mountChatSurface(host, { projection });
 
+    host.querySelector<HTMLButtonElement>("[data-chat-header-menu-trigger]")?.click();
     const pinButton = host.querySelector<HTMLButtonElement>("[data-chat-header-action='unpin']");
     expect(pinButton?.textContent).toBe("Unpin");
     pinButton?.click();

@@ -10277,7 +10277,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-chat-surface__header {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 1fr);
       align-items: center;
       gap: 14px;
       min-height: 62px;
@@ -10285,43 +10285,83 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       color: #272520;
     }
 
+    body.desktop-native-workbench .desktop-chat-surface__title-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
     body.desktop-native-workbench .desktop-chat-surface__title {
       min-width: 0;
       margin: 0;
       overflow: hidden;
+      flex: 0 1 auto;
       font: 700 16px/1.3 var(--font-sans);
       text-overflow: ellipsis;
       white-space: nowrap;
     }
 
-    body.desktop-native-workbench .desktop-chat-surface__header-actions {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      justify-content: flex-end;
-      min-width: 0;
+    body.desktop-native-workbench .desktop-chat-surface__header-menu {
+      position: relative;
+      flex: 0 0 auto;
     }
 
-    body.desktop-native-workbench .desktop-chat-surface__header-action {
-      max-width: 132px;
+    body.desktop-native-workbench .desktop-chat-surface__header-menu-button {
+      width: 34px;
+      min-width: 34px;
+      height: 34px;
       min-height: 34px;
-      overflow: hidden;
-      border: 1px solid #e9e2d9;
-      border-radius: 10px;
-      padding: 0 11px;
-      background: #fffefb;
+      border: 0;
+      border-radius: 12px;
+      padding: 0;
+      background: #efeeeb;
       color: #4d4841;
-      font: 650 12px/1.2 var(--font-sans);
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      font: 700 16px/1 var(--font-sans);
       cursor: pointer;
     }
 
-    body.desktop-native-workbench .desktop-chat-surface__header-action:hover,
-    body.desktop-native-workbench .desktop-chat-surface__header-action:focus-visible {
-      border-color: #dcd1c4;
-      background: #f7f1e8;
+    body.desktop-native-workbench .desktop-chat-surface__header-menu-button:hover,
+    body.desktop-native-workbench .desktop-chat-surface__header-menu-button:focus-visible,
+    body.desktop-native-workbench .desktop-chat-surface__header-menu-button[aria-expanded="true"] {
+      background: #e5e1da;
       color: #2c2925;
+      outline: 0;
+    }
+
+    body.desktop-native-workbench .desktop-chat-surface__header-menu-popover {
+      position: absolute;
+      z-index: 40;
+      top: calc(100% + 8px);
+      left: 0;
+      display: grid;
+      min-width: 184px;
+      padding: 8px;
+      border: 1px solid #e7ded4;
+      border-radius: 12px;
+      background: #fffefc;
+      box-shadow: 0 18px 44px rgba(43, 35, 25, 0.14), 0 2px 8px rgba(43, 35, 25, 0.08);
+    }
+
+    body.desktop-native-workbench .desktop-chat-surface__header-menu-item {
+      display: flex;
+      align-items: center;
+      width: 100%;
+      min-height: 34px;
+      border: 0;
+      border-radius: 8px;
+      padding: 0 10px;
+      background: transparent;
+      color: #3d3934;
+      font: 600 13px/1.2 var(--font-sans);
+      text-align: left;
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-chat-surface__header-menu-item:hover,
+    body.desktop-native-workbench .desktop-chat-surface__header-menu-item:focus-visible {
+      background: #f3eee7;
+      color: #25221f;
       outline: 0;
     }
 

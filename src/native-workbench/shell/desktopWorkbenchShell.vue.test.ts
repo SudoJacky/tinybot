@@ -216,10 +216,14 @@ describe("desktop workbench shell Vue integration", () => {
     });
 
     const header = document.querySelector<HTMLElement>(".desktop-chat-surface__header");
-    const actions = Array.from(document.querySelectorAll<HTMLElement>("[data-chat-header-action]"));
     expect(document.querySelector(".desktop-chat-menu")).toBeNull();
     expect(document.querySelector(".desktop-chat-menu-popover")).toBeNull();
     expect(header?.getAttribute("data-chat-region")).toBe("chat-header");
+    expect(document.querySelector("[data-chat-header-action]")).toBeNull();
+    const trigger = document.querySelector<HTMLButtonElement>("[data-chat-header-menu-trigger]");
+    expect(trigger?.getAttribute("aria-label")).toBe("Session actions");
+    trigger?.click();
+    const actions = Array.from(document.querySelectorAll<HTMLElement>("[data-chat-header-action]"));
     expect(actions.map((action) => action.getAttribute("data-chat-header-action"))).toEqual([
       "pin",
       "rename",
@@ -260,8 +264,9 @@ describe("desktop workbench shell Vue integration", () => {
       gatewayHttp: "http://127.0.0.1:18790",
     });
 
-    const actions = Array.from(document.querySelectorAll<HTMLElement>("[data-chat-header-action]"));
     expect(document.querySelector(".desktop-chat-menu-popover")).toBeNull();
+    document.querySelector<HTMLButtonElement>("[data-chat-header-menu-trigger]")?.click();
+    const actions = Array.from(document.querySelectorAll<HTMLElement>("[data-chat-header-action]"));
     expect(actions.map((action) => action.getAttribute("aria-label"))).toEqual([
       "Unpin session",
       "Rename session",

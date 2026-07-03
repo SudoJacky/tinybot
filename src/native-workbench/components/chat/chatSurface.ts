@@ -49,6 +49,7 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
   let currentQueuedInputs = options.projection.queuedInputs;
   let loadSubagentTranscript = options.loadSubagentTranscript;
   let composerError = "";
+  let headerMenuOpen = false;
   let pendingDeleteSessionKey = "";
   let sessionSearchQuery = "";
   const processExpansionOverrides = new Map<string, boolean>();
@@ -115,11 +116,27 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
     detail.accepted = result.accepted;
   };
   host.addEventListener("desktop-chat-composer-submit-request", handleSharedComposerSubmit);
+  const handleDocumentClick = () => {
+    if (!headerMenuOpen) {
+      return;
+    }
+    headerMenuOpen = false;
+    renderCurrent();
+  };
+  const handleDocumentKeydown = (event: KeyboardEvent) => {
+    if (!headerMenuOpen || event.key !== "Escape") {
+      return;
+    }
+    headerMenuOpen = false;
+    renderCurrent();
+  };
+  host.ownerDocument.addEventListener("click", handleDocumentClick);
+  host.ownerDocument.addEventListener("keydown", handleDocumentKeydown);
   const renderCurrent = () => renderChatSurface(host, {
     ...currentViewProjection(),
     detailPanel: currentDetailPanel,
     queuedInputs: currentQueuedInputs,
-  }, sessionSearchQuery, pendingDeleteSessionKey, processExpansionOverrides, {
+  }, sessionSearchQuery, pendingDeleteSessionKey, headerMenuOpen, processExpansionOverrides, {
     closeDetail() {
       currentDetailPanel = closeChatDetailPanel(chatSurfaceViewportWidth(host));
       logChatSurfaceAction(host, "detail.close", currentDetailPanel);
@@ -334,6 +351,7 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
         logChatSurfaceAction(host, "session.action.missing", { action });
         return;
       }
+      headerMenuOpen = false;
       const detail: Record<string, unknown> = {
         action,
         chatId: activeSession.chatId,
@@ -350,6 +368,12 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
         detail,
       }));
       logChatSurfaceAction(host, "session.action", { action, sessionKey: activeSession.key });
+      renderCurrent();
+    },
+    toggleHeaderMenu() {
+      headerMenuOpen = !headerMenuOpen;
+      logChatSurfaceAction(host, "session.menu.toggle", { open: headerMenuOpen });
+      renderCurrent();
     },
     updateSubagentDraft(subagentId, content) {
       if (content) {
@@ -371,11 +395,14 @@ export function mountChatSurface(host: HTMLElement, options: ChatSurfaceOptions)
       if (previousSessionKey !== nextOptions.projection.activeSessionKey) {
         currentQueuedInputs = nextOptions.projection.queuedInputs;
         composerError = "";
+        headerMenuOpen = false;
       }
       renderCurrent();
     },
     unmount() {
       host.removeEventListener("desktop-chat-composer-submit-request", handleSharedComposerSubmit);
+      host.ownerDocument.removeEventListener("click", handleDocumentClick);
+      host.ownerDocument.removeEventListener("keydown", handleDocumentKeydown);
       host.replaceChildren();
       host.removeAttribute("data-chat-surface");
       host.className = "";
@@ -442,6 +469,7 @@ type ChatSurfaceActions = {
   startNewSession(): void;
   subagentDraft(subagentId: string): string;
   submitSubagentMessage(subagentId: string, content: string): { accepted: boolean };
+  toggleHeaderMenu(): void;
   toggleProcess(turnId: string): void;
   updateSessionSearch(query: string): void;
   updateSubagentDraft(subagentId: string, content: string): void;
@@ -471,6 +499,7 @@ function renderChatSurface(
   projection: ChatUiProjection,
   sessionSearchQuery: string,
   pendingDeleteSessionKey: string,
+  headerMenuOpen: boolean,
   processExpansionOverrides: Map<string, boolean>,
   actions: ChatSurfaceActions,
 ): void {
@@ -482,7 +511,7 @@ function renderChatSurface(
   const shell = element("div", "desktop-chat-surface__shell");
   shell.setAttribute("data-chat-layout", "native-reference");
   shell.append(renderSessionList(projection, sessionSearchQuery, pendingDeleteSessionKey, actions));
-  shell.append(renderChatDetail(projection, processExpansionOverrides, actions));
+  shell.append(renderChatDetail(projection, headerMenuOpen, processExpansionOverrides, actions));
   shell.append(renderStatusRail(projection, actions));
   const detailSurface = renderDetailSurface(projection, actions);
   if (detailSurface) {
@@ -589,6 +618,7 @@ function sessionMatchesSearch(session: ChatUiProjection["sessions"][number], sea
 
 function renderChatDetail(
   projection: ChatUiProjection,
+  headerMenuOpen: boolean,
   processExpansionOverrides: Map<string, boolean>,
   actions: ChatSurfaceActions,
 ): HTMLElement {
@@ -596,7 +626,7 @@ function renderChatDetail(
   detail.setAttribute("data-chat-region", "chat-detail");
   detail.setAttribute("data-chat-layout-role", "conversation-stage");
   const activeSession = projection.sessions.find((session) => session.key === projection.activeSessionKey);
-  detail.append(renderHeader(activeSession?.title ?? "New session", Boolean(activeSession?.pinned), actions));
+  detail.append(renderHeader(activeSession?.title ?? "New session", Boolean(activeSession?.pinned), headerMenuOpen, actions));
   detail.append(renderConversation(projection.turns, processExpansionOverrides, actions));
   const approvalCard = renderApprovalCard(projection.approvals);
   if (approvalCard) {
@@ -690,26 +720,53 @@ function renderRailSectionShell(key: string, label: string): HTMLElement {
   return section;
 }
 
-function renderHeader(title: string, pinned: boolean, actions: ChatSurfaceActions): HTMLElement {
+function renderHeader(title: string, pinned: boolean, menuOpen: boolean, actions: ChatSurfaceActions): HTMLElement {
   const header = element("header", "desktop-chat-surface__header");
   header.setAttribute("data-chat-region", "chat-header");
   const heading = element("h2", "desktop-chat-surface__title", title);
-  const menu = element("div", "desktop-chat-surface__header-actions");
-  for (const { action, label, title: actionTitle } of [
-    { action: pinned ? "unpin" : "pin", label: pinned ? "Unpin" : "Pin", title: pinned ? "Unpin session" : "Pin session" },
-    { action: "rename", label: "Rename", title: "Rename session" },
-    { action: "copy-session-id", label: "Copy ID", title: "Copy session ID" },
-    { action: "copy-markdown", label: "Copy Markdown", title: "Copy session as Markdown" },
-  ] as const) {
-    const button = element("button", "desktop-chat-surface__header-action", label);
-    button.type = "button";
-    button.setAttribute("data-chat-header-action", action);
-    button.setAttribute("aria-label", actionTitle);
-    button.title = actionTitle;
-    button.addEventListener("click", () => actions.sessionAction(action));
-    menu.append(button);
+  const titleGroup = element("div", "desktop-chat-surface__title-group");
+  const menuShell = element("div", "desktop-chat-surface__header-menu");
+  const menuButton = element("button", "desktop-chat-surface__header-menu-button", "...");
+  menuButton.type = "button";
+  menuButton.setAttribute("aria-expanded", String(menuOpen));
+  menuButton.setAttribute("aria-haspopup", "menu");
+  menuButton.setAttribute("aria-label", "Session actions");
+  menuButton.setAttribute("data-chat-header-menu-trigger", "");
+  menuButton.title = "Session actions";
+  menuButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    actions.toggleHeaderMenu();
+  });
+  menuShell.append(menuButton);
+
+  if (menuOpen) {
+    const menu = element("div", "desktop-chat-surface__header-menu-popover");
+    menu.setAttribute("role", "menu");
+    menu.setAttribute("aria-label", "Session actions");
+    menu.addEventListener("click", (event) => event.stopPropagation());
+    for (const { action, label, title: actionTitle } of [
+      { action: pinned ? "unpin" : "pin", label: pinned ? "Unpin" : "Pin", title: pinned ? "Unpin session" : "Pin session" },
+      { action: "rename", label: "Rename", title: "Rename session" },
+      { action: "copy-session-id", label: "Copy ID", title: "Copy session ID" },
+      { action: "copy-markdown", label: "Copy Markdown", title: "Copy session as Markdown" },
+    ] as const) {
+      const button = element("button", "desktop-chat-surface__header-menu-item", label);
+      button.type = "button";
+      button.setAttribute("data-chat-header-action", action);
+      button.setAttribute("aria-label", actionTitle);
+      button.setAttribute("role", "menuitem");
+      button.title = actionTitle;
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        actions.sessionAction(action);
+      });
+      menu.append(button);
+    }
+    menuShell.append(menu);
   }
-  header.append(heading, menu);
+
+  titleGroup.append(heading, menuShell);
+  header.append(titleGroup);
   return header;
 }
 

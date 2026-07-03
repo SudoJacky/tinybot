@@ -1612,7 +1612,8 @@ describe("desktop workbench shell", () => {
     expect(header?.textContent).not.toContain("Knowledge Off");
     expect(header?.textContent).not.toContain("1 ref");
     expect(header?.textContent).not.toContain("42% tokens");
-    expect(header?.querySelector('[data-chat-header-action="pin"]')).toBeTruthy();
+    expect(header?.querySelector("[data-chat-header-menu-trigger]")).toBeTruthy();
+    expect(header?.querySelector("[data-chat-header-action]")).toBeNull();
   });
 
   test("does not render duplicate panel controls inside the workbench shell", () => {
