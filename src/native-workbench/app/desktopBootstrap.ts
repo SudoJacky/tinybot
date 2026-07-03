@@ -471,6 +471,8 @@ async function loadNativeChatRuntime(): Promise<DesktopNativeWorkbenchRuntime> {
     api: {
       listSessions: () => gatewayApi.sessions.list(),
       loadMessages: (sessionKey) => gatewayApi.sessions.messages(sessionKey),
+      listAgentRuns: (sessionKey) => gatewayApi.sessions.agentRuns?.(sessionKey) ?? Promise.resolve({ runs: [] }),
+      getAgentRunRuntimeState: (sessionKey, runId) => gatewayApi.sessions.agentRunRuntimeState?.(sessionKey, runId) ?? Promise.resolve(null),
       listTraceEvents: agentRoute === "ts-agent"
         ? (filter) => invoke("worker_background_trace_list", { input: { filter } })
         : undefined,

@@ -207,6 +207,13 @@ struct WorkerSessionInput {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct WorkerAgentRunInput {
+    session_key: String,
+    run_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct WorkerSessionPatchInput {
     key: String,
     body: serde_json::Value,
@@ -668,6 +675,35 @@ fn worker_session_messages(
     worker_session_messages_with_options(
         state.inner(),
         input.key,
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_agent_runs_list(
+    input: WorkerSessionInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_agent_runs_list_with_options(
+        state.inner(),
+        input.key,
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_agent_run_runtime_state(
+    input: WorkerAgentRunInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_agent_run_runtime_state_with_options(
+        state.inner(),
+        input.session_key,
+        input.run_id,
         native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
@@ -2633,6 +2669,52 @@ fn worker_session_messages_with_options(
     );
     enrich_session_history_metadata(object, &session_id, workspace_root, config_snapshot);
     Ok(history)
+}
+
+fn worker_agent_runs_list_with_options(
+    _shared: &SharedGateway,
+    session_key: String,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("agent-run-list"),
+            request_id.trace_id("agent-run-list"),
+            "agent_run.list",
+            serde_json::json!({ "session_id": session_key }),
+        ),
+        "worker agent run list",
+    )
+}
+
+fn worker_agent_run_runtime_state_with_options(
+    _shared: &SharedGateway,
+    session_key: String,
+    run_id: String,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("agent-run-runtime-state"),
+            request_id.trace_id("agent-run-runtime-state"),
+            "agent_run.runtime_state",
+            serde_json::json!({
+                "session_id": session_key,
+                "run_id": run_id,
+            }),
+        ),
+        "worker agent run runtime state",
+    )
 }
 
 fn worker_session_temporary_files_with_options(
@@ -5654,6 +5736,8 @@ pub fn run() {
             worker_workspace_put_file,
             worker_sessions_list,
             worker_session_messages,
+            worker_agent_runs_list,
+            worker_agent_run_runtime_state,
             worker_session_temporary_files,
             worker_session_upload_temporary_file,
             worker_session_clear_temporary_files,
@@ -8231,6 +8315,91 @@ mod tests {
         assert_eq!(
             lock_runtime(&shared).experimental_worker.status().state,
             WorkerManagerState::Stopped
+        );
+    }
+
+    #[test]
+    fn worker_agent_run_runtime_commands_use_rust_session_store() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write(
+            "sessions/store.json",
+            &serde_json::json!({
+                "version": 1,
+                "sessions": [{
+                    "session_id": "websocket:chat-1",
+                    "title": "Native session",
+                    "workspace_dir": "D:/Code/py/tinybot",
+                    "created_at": "2026-07-03T01:00:00Z",
+                    "updated_at": "2026-07-03T01:00:02Z",
+                    "extra": {
+                        "agent_runs": [{
+                            "sessionId": "websocket:chat-1",
+                            "runId": "run-1",
+                            "status": "completed",
+                            "phase": "completed",
+                            "startedAt": "2026-07-03T01:00:00Z",
+                            "updatedAt": "2026-07-03T01:00:02Z",
+                            "completedAt": "2026-07-03T01:00:02Z",
+                            "stopReason": "stop",
+                            "model": "test-model",
+                            "provider": "test",
+                            "maxIterations": 4,
+                            "currentIteration": 1,
+                            "conversationMessageIds": [],
+                            "traceMessages": [],
+                            "traceEvents": [{
+                                "schemaVersion": "tinybot.agent_event.v1",
+                                "eventId": "run-1:agent-done:0000000000000001",
+                                "sequence": 1,
+                                "sessionId": "websocket:chat-1",
+                                "turnId": "run-1",
+                                "itemId": "run-1:assistant",
+                                "eventName": "agent.done",
+                                "phase": "completed",
+                                "timestamp": "2026-07-03T01:00:02Z",
+                                "source": "rust_backend",
+                                "visibility": "user",
+                                "payload": { "finalContent": "Done from runtime state" }
+                            }],
+                            "completedToolResults": [],
+                            "pendingToolCalls": [],
+                            "checkpoint": null,
+                            "artifacts": [],
+                            "usage": [],
+                            "error": null
+                        }]
+                    }
+                }]
+            })
+            .to_string(),
+        );
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+
+        let runs = worker_agent_runs_list_with_options(
+            &shared,
+            "websocket:chat-1".to_string(),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("agent run list should be served by Rust session state");
+        let runtime_state = worker_agent_run_runtime_state_with_options(
+            &shared,
+            "websocket:chat-1".to_string(),
+            "run-1".to_string(),
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("agent run runtime state should be served by Rust session state");
+
+        assert_eq!(runs["runs"][0]["runId"], "run-1");
+        assert_eq!(runtime_state["sessionId"], "websocket:chat-1");
+        assert_eq!(runtime_state["runId"], "run-1");
+        assert_eq!(runtime_state["turnItems"][0]["kind"], "assistant_message");
+        assert_eq!(
+            runtime_state["turnItems"][0]["payload"]["content"],
+            "Done from runtime state"
         );
     }
 

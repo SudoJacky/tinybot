@@ -8,6 +8,8 @@ export function createDesktopNativeSessionsApi(options: { invoke?: TauriInvoke }
   return {
     list: () => invoke("worker_sessions_list"),
     messages: (key: string) => invoke("worker_session_messages", { input: { key } }),
+    agentRuns: (key: string) => invoke("worker_agent_runs_list", { input: { key } }),
+    agentRunRuntimeState: (key: string, runId: string) => invoke("worker_agent_run_runtime_state", { input: { sessionKey: key, runId } }),
     temporaryFiles: (key: string) => invoke("worker_session_temporary_files", { input: { key } }),
     uploadTemporaryFile: (key: string, body: unknown) => invoke("worker_session_upload_temporary_file", { input: { key, body } }),
     clearTemporaryFiles: (key: string) => invoke("worker_session_clear_temporary_files", { input: { key } }),
