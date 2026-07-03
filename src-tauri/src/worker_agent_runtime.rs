@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
+    fmt,
     ops::{Deref, DerefMut},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -20,6 +21,34 @@ use std::{
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum NativeAgentRuntimeMode {
     Rust,
+}
+
+#[derive(Clone)]
+pub struct NativeAgentCancellationContext {
+    run_id: String,
+    cancellations: Arc<dyn NativeAgentCancellation>,
+}
+
+impl NativeAgentCancellationContext {
+    fn new(run_id: String, cancellations: Arc<dyn NativeAgentCancellation>) -> Self {
+        Self {
+            run_id,
+            cancellations,
+        }
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancellations.is_cancelled(&self.run_id)
+    }
+}
+
+impl fmt::Debug for NativeAgentCancellationContext {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("NativeAgentCancellationContext")
+            .field("run_id", &self.run_id)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -41,6 +70,7 @@ pub struct NativeAgentRunContext {
     pub provider: Option<String>,
     pub stream: bool,
     pub max_iterations: i64,
+    pub cancellation: Option<NativeAgentCancellationContext>,
 }
 
 #[derive(Clone, Debug)]
@@ -1156,6 +1186,7 @@ pub fn run_native_agent_turn_with_config(
     config_snapshot: Value,
 ) -> Result<Value, String> {
     let mut context = NativeAgentRunContext::from_spec(spec, config_snapshot);
+    context.attach_cancellation(services.cancellations.clone());
     if context.max_iterations <= 0 {
         return Ok(error_result(
             &context.run_id,
@@ -1609,7 +1640,15 @@ impl NativeAgentRunContext {
             provider,
             stream,
             max_iterations,
+            cancellation: None,
         }
+    }
+
+    fn attach_cancellation(&mut self, cancellations: Arc<dyn NativeAgentCancellation>) {
+        self.cancellation = Some(NativeAgentCancellationContext::new(
+            self.run_id.clone(),
+            cancellations,
+        ));
     }
 }
 
@@ -4041,6 +4080,99 @@ mod tests {
         );
         assert_eq!(result["checkpoint"]["phase"], "cancelled");
         assert_eq!(result["checkpoint"]["iteration"], 0);
+    }
+
+    #[test]
+    fn cancellation_context_is_available_to_provider_and_tool_dispatch() {
+        struct ContextAwareProvider {
+            saw_context: Arc<Mutex<bool>>,
+        }
+
+        impl NativeAgentProvider for ContextAwareProvider {
+            fn complete(
+                &self,
+                context: &NativeAgentRunContext,
+            ) -> Result<NativeAgentProviderResponse, String> {
+                *self
+                    .saw_context
+                    .lock()
+                    .expect("provider observation lock should not be poisoned") = context
+                    .cancellation
+                    .as_ref()
+                    .is_some_and(|cancellation| !cancellation.is_cancelled());
+                Ok(NativeAgentProviderResponse {
+                    final_content: "dispatch cancellable tool".to_string(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: vec![NativeAgentToolCall {
+                        id: "call-cancellable-tool".to_string(),
+                        name: "workspace.read_file".to_string(),
+                        arguments_json: "{\"path\":\"README.md\"}".to_string(),
+                        result: json!({ "content": "unused" }),
+                    }],
+                })
+            }
+        }
+
+        struct ContextAwareToolDispatcher {
+            cancellations: Arc<InMemoryNativeAgentCancellation>,
+            saw_cancelled_context: Arc<Mutex<bool>>,
+        }
+
+        impl NativeAgentToolDispatcher for ContextAwareToolDispatcher {
+            fn dispatch(
+                &self,
+                context: &NativeAgentRunContext,
+                tool_call: &NativeAgentToolCall,
+            ) -> Result<NativeAgentToolResult, String> {
+                self.cancellations.cancel(&context.run_id);
+                *self
+                    .saw_cancelled_context
+                    .lock()
+                    .expect("tool observation lock should not be poisoned") = context
+                    .cancellation
+                    .as_ref()
+                    .is_some_and(NativeAgentCancellationContext::is_cancelled);
+                Ok(NativeAgentToolResult::generic_success(
+                    tool_call,
+                    json!({ "content": "cancelled after dispatch" }),
+                ))
+            }
+        }
+
+        let cancellations = Arc::new(InMemoryNativeAgentCancellation::default());
+        let provider_saw_context = Arc::new(Mutex::new(false));
+        let tool_saw_cancelled_context = Arc::new(Mutex::new(false));
+        let services = NativeAgentRuntimeServices::new(
+            Arc::new(ContextAwareProvider {
+                saw_context: provider_saw_context.clone(),
+            }),
+            Arc::new(ContextAwareToolDispatcher {
+                cancellations: cancellations.clone(),
+                saw_cancelled_context: tool_saw_cancelled_context.clone(),
+            }),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            cancellations,
+        );
+
+        let result = run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-cancellation-context",
+                "sessionId": "websocket:chat-cancellation-context",
+                "messages": [{ "role": "user", "content": "use cancellable tool" }]
+            }),
+        )
+        .expect("cancellation context run should return a structured result");
+
+        assert_eq!(result["stopReason"], "cancelled");
+        assert!(*provider_saw_context
+            .lock()
+            .expect("provider observation lock should not be poisoned"));
+        assert!(*tool_saw_cancelled_context
+            .lock()
+            .expect("tool observation lock should not be poisoned"));
     }
 
     #[test]
