@@ -6338,6 +6338,47 @@ mod tests {
         }
     }
 
+    #[derive(Clone)]
+    struct ToolLoopRecordingNativeAgentProvider {
+        calls: Arc<Mutex<Vec<Vec<serde_json::Value>>>>,
+    }
+
+    impl crate::worker_agent_runtime::NativeAgentProvider for ToolLoopRecordingNativeAgentProvider {
+        fn complete(
+            &self,
+            context: &crate::worker_agent_runtime::NativeAgentRunContext,
+        ) -> Result<crate::worker_agent_runtime::NativeAgentProviderResponse, String> {
+            let call_count = {
+                let mut calls = self
+                    .calls
+                    .lock()
+                    .expect("recording provider calls lock should not be poisoned");
+                calls.push(context.messages.clone());
+                calls.len()
+            };
+            if call_count == 1 {
+                Ok(crate::worker_agent_runtime::NativeAgentProviderResponse {
+                    final_content: String::new(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: vec![crate::worker_agent_runtime::NativeAgentToolCall {
+                        id: "call-durable-history".to_string(),
+                        name: "workspace.read_file".to_string(),
+                        arguments_json: "{\"path\":\"README.md\"}".to_string(),
+                        result: serde_json::json!({ "content": "README durable body" }),
+                    }],
+                })
+            } else {
+                Ok(crate::worker_agent_runtime::NativeAgentProviderResponse {
+                    final_content: "combined history and tool result".to_string(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: Vec::new(),
+                })
+            }
+        }
+    }
+
     #[test]
     fn worker_run_agent_hydrates_session_history_before_provider_call() {
         let fixture = WorkspaceFixture::new();
@@ -6405,6 +6446,101 @@ mod tests {
         assert_eq!(messages[1]["content"], "agent replied a");
         assert_eq!(messages[2]["role"], "user");
         assert_eq!(messages[2]["content"], "what did I say before?");
+    }
+
+    #[test]
+    fn worker_run_agent_combines_session_history_with_current_tool_results() {
+        let fixture = WorkspaceFixture::new();
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let shared = Arc::new(Mutex::new(GatewayRuntime {
+            native_agent_runtime: NativeAgentRuntimeServices::new(
+                Arc::new(ToolLoopRecordingNativeAgentProvider {
+                    calls: calls.clone(),
+                }),
+                Arc::new(crate::worker_agent_runtime::FakeNativeAgentToolDispatcher),
+                Arc::new(
+                    crate::worker_agent_runtime::InMemoryNativeAgentCheckpointStore::default(),
+                ),
+                Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCancellation::default()),
+            ),
+            ..GatewayRuntime::default()
+        }));
+        let config = serde_json::json!({
+            "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+        });
+        call_rust_state_service(
+            fixture.root.clone(),
+            config.clone(),
+            WorkerRequest::new(
+                "req-seed-tool-history",
+                "trace-seed-tool-history",
+                "session.persist_turn",
+                serde_json::json!({
+                    "session_id": "websocket:chat-tool-memory",
+                    "run_id": "run-previous-tool-memory",
+                    "messages": [
+                        { "role": "user", "content": "remember alpha" },
+                        { "role": "assistant", "content": "alpha stored" }
+                    ],
+                    "clear_checkpoint": true
+                }),
+            ),
+            "seed tool session history",
+        )
+        .expect("session history should seed");
+
+        let result = worker_run_agent_with_options(
+            &shared,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-tool-memory",
+                "sessionId": "websocket:chat-tool-memory",
+                "maxIterations": 3,
+                "messages": [{ "role": "user", "content": "read README and combine" }]
+            }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("Rust runtime should complete with history and tool context");
+        let history = worker_session_messages_with_options(
+            &shared,
+            "websocket:chat-tool-memory".to_string(),
+            fixture.root.clone(),
+            config,
+            Duration::from_millis(10),
+        )
+        .expect("session messages should stay compact after hydrated run");
+        let calls = calls
+            .lock()
+            .expect("recording provider calls lock should not be poisoned");
+        let first_messages = calls.first().expect("first provider call should run");
+        let second_messages = calls.get(1).expect("second provider call should run");
+
+        assert_eq!(result["stopReason"], "final_response");
+        assert_eq!(calls.len(), 2);
+        assert_eq!(first_messages[0]["content"], "remember alpha");
+        assert_eq!(first_messages[1]["content"], "alpha stored");
+        assert_eq!(first_messages[2]["content"], "read README and combine");
+        assert!(second_messages.iter().any(|message| {
+            message["role"] == "assistant"
+                && message["tool_calls"]
+                    .as_array()
+                    .is_some_and(|tool_calls| tool_calls[0]["id"] == "call-durable-history")
+        }));
+        assert!(second_messages.iter().any(|message| {
+            message["role"] == "tool"
+                && message["tool_call_id"] == "call-durable-history"
+                && message["content"]
+                    .as_str()
+                    .is_some_and(|content| content.contains("README durable body"))
+        }));
+        assert_eq!(history["messages"].as_array().unwrap().len(), 4);
+        assert!(history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|message| message["role"] != "tool"));
     }
 
     #[test]
@@ -6842,10 +6978,11 @@ mod tests {
         let serialized = run.to_string();
 
         assert!(
-            serialized.len() < 9_000,
+            serialized.len() < large_output.len(),
             "run record was {} bytes",
             serialized.len()
         );
+        assert!(!serialized.contains(&"A".repeat(512)));
         assert_eq!(
             run["completedToolResults"][0]["tracePersistence"]["truncated"],
             true
