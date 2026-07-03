@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 
 pub const AGENT_RUNTIME_EVENT_SCHEMA_VERSION: &str = "tinybot.agent_event.v1";
 
@@ -304,6 +305,128 @@ impl AgentRuntimeEventAppender {
     }
 }
 
+pub fn project_turn_items_from_trace_events(
+    events: &[AgentRuntimeEventEnvelope],
+) -> Vec<AgentTurnItem> {
+    let mut order = Vec::new();
+    let mut items = HashMap::<String, AgentTurnItem>::new();
+
+    for event in events {
+        let Some(kind) = AgentTurnItemKind::for_legacy_event(&event.event_name) else {
+            continue;
+        };
+        let item_id = event
+            .item_id
+            .clone()
+            .unwrap_or_else(|| projected_item_id(event, &kind));
+        let status = projected_item_status(event);
+        let payload = projected_item_payload(
+            items.get(&item_id).map(|item| &item.payload),
+            &event.event_name,
+            &event.payload,
+        );
+
+        if let Some(item) = items.get_mut(&item_id) {
+            item.status = status;
+            item.updated_at = Some(event.timestamp.clone());
+            item.payload = payload;
+        } else {
+            order.push(item_id.clone());
+            items.insert(
+                item_id.clone(),
+                AgentTurnItem {
+                    item_id,
+                    session_id: event.session_id.clone(),
+                    turn_id: event.turn_id.clone(),
+                    kind,
+                    status,
+                    created_at: event.timestamp.clone(),
+                    updated_at: None,
+                    title: None,
+                    summary: None,
+                    payload,
+                },
+            );
+        }
+    }
+
+    order
+        .into_iter()
+        .filter_map(|item_id| items.remove(&item_id))
+        .collect()
+}
+
+fn projected_item_id(event: &AgentRuntimeEventEnvelope, kind: &AgentTurnItemKind) -> String {
+    match kind {
+        AgentTurnItemKind::AssistantMessage => format!("{}:assistant", event.turn_id),
+        AgentTurnItemKind::Reasoning => format!("{}:reasoning", event.turn_id),
+        AgentTurnItemKind::SystemNotice => {
+            format!(
+                "{}:{}:{}",
+                event.turn_id,
+                safe_event_fragment(&event.event_name),
+                event.sequence
+            )
+        }
+        _ => format!(
+            "{}:{}:{}",
+            event.turn_id,
+            safe_event_fragment(&event.event_name),
+            event.sequence
+        ),
+    }
+}
+
+fn projected_item_status(event: &AgentRuntimeEventEnvelope) -> AgentTurnItemStatus {
+    match event.event_name.as_str() {
+        "agent.done" | "agent.tool.result" => AgentTurnItemStatus::Completed,
+        "agent.error" => AgentTurnItemStatus::Failed,
+        "agent.cancelled" => AgentTurnItemStatus::Cancelled,
+        "agent.awaiting_approval" | "agent.awaiting_form" => AgentTurnItemStatus::Waiting,
+        _ => match &event.phase {
+            AgentRuntimePhase::Completed => AgentTurnItemStatus::Completed,
+            AgentRuntimePhase::Failed => AgentTurnItemStatus::Failed,
+            AgentRuntimePhase::Cancelled => AgentTurnItemStatus::Cancelled,
+            AgentRuntimePhase::AwaitingApproval
+            | AgentRuntimePhase::AwaitingForm
+            | AgentRuntimePhase::AwaitingSubagent => AgentTurnItemStatus::Waiting,
+            _ => AgentTurnItemStatus::Running,
+        },
+    }
+}
+
+fn projected_item_payload(
+    existing_payload: Option<&Value>,
+    event_name: &str,
+    event_payload: &Value,
+) -> Value {
+    match event_name {
+        "agent.delta" | "agent.reasoning_delta" => {
+            let mut content = existing_payload
+                .and_then(|payload| payload.get("content"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            content.push_str(payload_text_fragment(event_payload).unwrap_or_default());
+            serde_json::json!({ "content": content })
+        }
+        "agent.done" => {
+            if let Some(content) = payload_text_fragment(event_payload) {
+                serde_json::json!({ "content": content })
+            } else {
+                event_payload.clone()
+            }
+        }
+        _ => event_payload.clone(),
+    }
+}
+
+fn payload_text_fragment(payload: &Value) -> Option<&str> {
+    ["delta", "finalContent", "content", "text", "message"]
+        .into_iter()
+        .find_map(|key| payload.get(key).and_then(Value::as_str))
+}
+
 impl AgentRuntimeEventEnvelope {
     pub fn from_legacy_native_event(input: LegacyNativeAgentEventEnvelopeInput) -> Self {
         let phase = AgentRuntimePhase::for_legacy_event(&input.event_name);
@@ -337,18 +460,22 @@ fn deterministic_event_id(turn_id: &str, event_name: &str, sequence: u64) -> Str
     format!(
         "{}:{}:{:016}",
         turn_id,
-        event_name
-            .chars()
-            .map(|character| {
-                if character.is_ascii_alphanumeric() {
-                    character
-                } else {
-                    '-'
-                }
-            })
-            .collect::<String>(),
+        safe_event_fragment(event_name),
         sequence
     )
+}
+
+fn safe_event_fragment(event_name: &str) -> String {
+    event_name
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -549,5 +676,69 @@ mod tests {
         assert_eq!(next.event_id, "turn-1:agent-done:0000000000000013");
         assert_eq!(next.phase, AgentRuntimePhase::Completed);
         assert_eq!(appender.next_sequence(), 14);
+    }
+
+    #[test]
+    fn trace_projection_combines_assistant_deltas_into_one_item() {
+        let mut appender = AgentRuntimeEventAppender::new("session-1", "turn-1");
+        let events = vec![
+            appender.append_legacy_native_event(
+                "agent.delta",
+                None,
+                "2026-07-03T00:00:01Z",
+                json!({ "delta": "Hel" }),
+            ),
+            appender.append_legacy_native_event(
+                "agent.delta",
+                None,
+                "2026-07-03T00:00:02Z",
+                json!({ "delta": "lo" }),
+            ),
+            appender.append_legacy_native_event(
+                "agent.done",
+                None,
+                "2026-07-03T00:00:03Z",
+                json!({ "finalContent": "Hello" }),
+            ),
+        ];
+
+        let items = project_turn_items_from_trace_events(&events);
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].item_id, "turn-1:assistant");
+        assert_eq!(items[0].kind, AgentTurnItemKind::AssistantMessage);
+        assert_eq!(items[0].status, AgentTurnItemStatus::Completed);
+        assert_eq!(items[0].payload, json!({ "content": "Hello" }));
+        assert_eq!(items[0].created_at, "2026-07-03T00:00:01Z");
+        assert_eq!(items[0].updated_at.as_deref(), Some("2026-07-03T00:00:03Z"));
+    }
+
+    #[test]
+    fn trace_projection_combines_tool_lifecycle_into_one_item() {
+        let mut appender = AgentRuntimeEventAppender::new("session-1", "turn-1");
+        let events = vec![
+            appender.append_legacy_native_event(
+                "agent.tool.start",
+                Some("call-1".to_string()),
+                "2026-07-03T00:00:01Z",
+                json!({ "toolName": "workspace.read_file" }),
+            ),
+            appender.append_legacy_native_event(
+                "agent.tool.result",
+                Some("call-1".to_string()),
+                "2026-07-03T00:00:02Z",
+                json!({ "toolName": "workspace.read_file", "summary": "read README" }),
+            ),
+        ];
+
+        let items = project_turn_items_from_trace_events(&events);
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].item_id, "call-1");
+        assert_eq!(items[0].kind, AgentTurnItemKind::ToolCall);
+        assert_eq!(items[0].status, AgentTurnItemStatus::Completed);
+        assert_eq!(items[0].payload["summary"], "read README");
+        assert_eq!(items[0].created_at, "2026-07-03T00:00:01Z");
+        assert_eq!(items[0].updated_at.as_deref(), Some("2026-07-03T00:00:02Z"));
     }
 }
