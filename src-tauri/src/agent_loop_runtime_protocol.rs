@@ -356,11 +356,7 @@ impl AgentRunEmitter {
         events: &[AgentRuntimeEventEnvelope],
     ) -> Self {
         Self {
-            appender: AgentRuntimeEventAppender::from_existing_events(
-                session_id,
-                turn_id,
-                events,
-            ),
+            appender: AgentRuntimeEventAppender::from_existing_events(session_id, turn_id, events),
             events: Vec::new(),
         }
     }
@@ -876,11 +872,7 @@ fn projected_item_payload(
 }
 
 fn projected_completed_message_payload(event: &AgentRuntimeEventEnvelope) -> Value {
-    let mut payload = event
-        .payload
-        .as_object()
-        .cloned()
-        .unwrap_or_default();
+    let mut payload = event.payload.as_object().cloned().unwrap_or_default();
     if !payload.contains_key("content") {
         if let Some(content) = payload_text_fragment(&event.payload) {
             payload.insert("content".to_string(), Value::String(content.to_string()));
@@ -1473,12 +1465,18 @@ mod tests {
 
         assert_eq!(first.sequence, 1);
         assert_eq!(second.sequence, 2);
-        assert_eq!(second.event_id, "turn-1:agent-message-completed:0000000000000002");
+        assert_eq!(
+            second.event_id,
+            "turn-1:agent-message-completed:0000000000000002"
+        );
         assert_eq!(emitter.events().len(), 2);
 
         let events = emitter.take_events();
         assert_eq!(
-            events.iter().map(|event| event.event_name.as_str()).collect::<Vec<_>>(),
+            events
+                .iter()
+                .map(|event| event.event_name.as_str())
+                .collect::<Vec<_>>(),
             vec!["agent.phase.changed", "agent.message.completed"]
         );
         assert!(emitter.events().is_empty());
@@ -1489,11 +1487,7 @@ mod tests {
     fn run_emitter_helpers_emit_canonical_payloads() {
         let mut emitter = AgentRunEmitter::new("session-1", "turn-1");
 
-        emitter.user_turn_started(
-            "2026-07-03T00:00:00Z",
-            Some("user-1".to_string()),
-            "Start",
-        );
+        emitter.user_turn_started("2026-07-03T00:00:00Z", Some("user-1".to_string()), "Start");
         emitter.tool_start(
             "2026-07-03T00:00:01Z",
             "call-1",
