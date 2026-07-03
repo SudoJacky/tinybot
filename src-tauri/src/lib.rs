@@ -1789,6 +1789,22 @@ fn native_agent_runtime_trace_events(
     ))];
 
     let mut current_phase = AgentRuntimePhase::Planning;
+    native_agent_push_phase_transition(
+        &mut trace_events,
+        &mut appender,
+        &mut current_phase,
+        AgentRuntimePhase::HydratingHistory,
+        timestamp,
+        "agent.history.hydrated",
+    );
+    native_agent_push_phase_transition(
+        &mut trace_events,
+        &mut appender,
+        &mut current_phase,
+        AgentRuntimePhase::CallingModel,
+        timestamp,
+        "agent.model.calling",
+    );
     if let Some(events) = result.get("events").and_then(serde_json::Value::as_array) {
         for event in events {
             let event_name = event
@@ -1799,25 +1815,24 @@ fn native_agent_runtime_trace_events(
                 continue;
             };
             let next_phase = AgentRuntimePhase::for_legacy_event(event_name);
-            if next_phase != current_phase {
-                trace_events.push(native_agent_persisted_runtime_event(appender.append(
-                    AgentRuntimeEventAppendInput {
-                        parent_turn_id: None,
-                        item_id: None,
-                        event_name: "agent.phase.changed".to_string(),
-                        phase: next_phase.clone(),
-                        timestamp: timestamp.to_string(),
-                        source: AgentRuntimeEventSource::RustBackend,
-                        visibility: AgentRuntimeEventVisibility::Debug,
-                        payload: serde_json::json!({
-                            "previousPhase": current_phase.clone(),
-                            "nextPhase": next_phase.clone(),
-                            "triggerEventName": event_name,
-                        }),
-                    },
-                )));
-                current_phase = next_phase.clone();
+            if event_name == "agent.done" {
+                native_agent_push_phase_transition(
+                    &mut trace_events,
+                    &mut appender,
+                    &mut current_phase,
+                    AgentRuntimePhase::Finalizing,
+                    timestamp,
+                    event_name,
+                );
             }
+            native_agent_push_phase_transition(
+                &mut trace_events,
+                &mut appender,
+                &mut current_phase,
+                next_phase,
+                timestamp,
+                event_name,
+            );
             let payload = event.get("payload").cloned().unwrap_or(serde_json::Value::Null);
             trace_events.push(native_agent_persisted_runtime_event(
                 appender.append_legacy_native_event(
@@ -1831,6 +1846,36 @@ fn native_agent_runtime_trace_events(
     }
 
     trace_events
+}
+
+fn native_agent_push_phase_transition(
+    trace_events: &mut Vec<serde_json::Value>,
+    appender: &mut AgentRuntimeEventAppender,
+    current_phase: &mut AgentRuntimePhase,
+    next_phase: AgentRuntimePhase,
+    timestamp: &str,
+    trigger_event_name: &str,
+) {
+    if next_phase == *current_phase {
+        return;
+    }
+    trace_events.push(native_agent_persisted_runtime_event(appender.append(
+        AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id: None,
+            event_name: "agent.phase.changed".to_string(),
+            phase: next_phase.clone(),
+            timestamp: timestamp.to_string(),
+            source: AgentRuntimeEventSource::RustBackend,
+            visibility: AgentRuntimeEventVisibility::Debug,
+            payload: serde_json::json!({
+                "previousPhase": current_phase.clone(),
+                "nextPhase": next_phase.clone(),
+                "triggerEventName": trigger_event_name,
+            }),
+        },
+    )));
+    *current_phase = next_phase;
 }
 
 fn native_agent_persisted_runtime_event(
@@ -6342,6 +6387,14 @@ mod tests {
         assert_eq!(trace_events[0]["schemaVersion"], "tinybot.agent_event.v1");
         assert_eq!(trace_events[0]["eventName"], "agent.turn.started");
         assert_eq!(trace_events[0]["sequence"], 1);
+        assert!(trace_events.iter().any(|event| {
+            event["eventName"] == "agent.phase.changed"
+                && event["payload"]["nextPhase"] == "hydrating_history"
+        }));
+        assert!(trace_events.iter().any(|event| {
+            event["eventName"] == "agent.phase.changed"
+                && event["payload"]["nextPhase"] == "calling_model"
+        }));
         assert!(trace_events
             .iter()
             .any(|event| event["eventName"] == "agent.tool.result"));
@@ -6357,6 +6410,10 @@ mod tests {
         assert_eq!(tool_result["itemId"], "call-run-trace");
         assert_eq!(tool_result["phase"], "tool_running");
         assert!(tool_result["sequence"].as_u64().is_some_and(|value| value > 1));
+        assert!(trace_events.iter().any(|event| {
+            event["eventName"] == "agent.phase.changed"
+                && event["payload"]["nextPhase"] == "finalizing"
+        }));
         assert_eq!(history["messages"].as_array().unwrap().len(), 2);
         assert!(history["messages"]
             .as_array()
