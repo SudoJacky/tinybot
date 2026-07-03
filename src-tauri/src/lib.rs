@@ -6379,6 +6379,38 @@ mod tests {
         }
     }
 
+    #[derive(Clone)]
+    struct MultiExchangeRecallProvider {
+        calls: Arc<Mutex<Vec<Vec<serde_json::Value>>>>,
+    }
+
+    impl crate::worker_agent_runtime::NativeAgentProvider for MultiExchangeRecallProvider {
+        fn complete(
+            &self,
+            context: &crate::worker_agent_runtime::NativeAgentRunContext,
+        ) -> Result<crate::worker_agent_runtime::NativeAgentProviderResponse, String> {
+            let call_count = {
+                let mut calls = self
+                    .calls
+                    .lock()
+                    .expect("recall provider calls lock should not be poisoned");
+                calls.push(context.messages.clone());
+                calls.len()
+            };
+            let final_content = match call_count {
+                1 => "stored apple",
+                2 => "stored banana",
+                _ => "You previously said apple and banana.",
+            };
+            Ok(crate::worker_agent_runtime::NativeAgentProviderResponse {
+                final_content: final_content.to_string(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: Vec::new(),
+            })
+        }
+    }
+
     #[test]
     fn worker_run_agent_hydrates_session_history_before_provider_call() {
         let fixture = WorkspaceFixture::new();
@@ -6541,6 +6573,90 @@ mod tests {
             .unwrap()
             .iter()
             .all(|message| message["role"] != "tool"));
+    }
+
+    #[test]
+    fn worker_run_agent_recalls_history_after_multiple_exchanges() {
+        let fixture = WorkspaceFixture::new();
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let shared = Arc::new(Mutex::new(GatewayRuntime {
+            native_agent_runtime: NativeAgentRuntimeServices::new(
+                Arc::new(MultiExchangeRecallProvider {
+                    calls: calls.clone(),
+                }),
+                Arc::new(crate::worker_agent_runtime::FakeNativeAgentToolDispatcher),
+                Arc::new(
+                    crate::worker_agent_runtime::InMemoryNativeAgentCheckpointStore::default(),
+                ),
+                Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCancellation::default()),
+            ),
+            ..GatewayRuntime::default()
+        }));
+        let config = serde_json::json!({
+            "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+        });
+        let session_id = "websocket:chat-multi-recall";
+
+        worker_run_agent_with_options(
+            &shared,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-recall-1",
+                "sessionId": session_id,
+                "messages": [{ "role": "user", "content": "I said apple" }]
+            }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("first exchange should persist");
+        worker_run_agent_with_options(
+            &shared,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-recall-2",
+                "sessionId": session_id,
+                "messages": [{ "role": "user", "content": "I said banana" }]
+            }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("second exchange should persist");
+        let recalled = worker_run_agent_with_options(
+            &shared,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-recall-3",
+                "sessionId": session_id,
+                "messages": [{ "role": "user", "content": "What did I say earlier?" }]
+            }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("third exchange should hydrate prior history");
+        let history = worker_session_messages_with_options(
+            &shared,
+            session_id.to_string(),
+            fixture.root.clone(),
+            config,
+            Duration::from_millis(10),
+        )
+        .expect("history should include all compact exchanges");
+        let calls = calls
+            .lock()
+            .expect("recall provider calls lock should not be poisoned");
+        let recall_messages = calls.get(2).expect("third provider call should exist");
+
+        assert_eq!(recalled["finalContent"], "You previously said apple and banana.");
+        assert_eq!(recall_messages.len(), 5);
+        assert_eq!(recall_messages[0]["content"], "I said apple");
+        assert_eq!(recall_messages[1]["content"], "stored apple");
+        assert_eq!(recall_messages[2]["content"], "I said banana");
+        assert_eq!(recall_messages[3]["content"], "stored banana");
+        assert_eq!(recall_messages[4]["content"], "What did I say earlier?");
+        assert_eq!(history["messages"].as_array().unwrap().len(), 6);
     }
 
     #[test]
