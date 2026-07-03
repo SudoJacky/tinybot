@@ -1,4 +1,7 @@
-use crate::agent_loop_runtime_protocol::AgentRuntimePhase;
+use crate::agent_loop_runtime_protocol::{
+    AgentApprovalDecision, AgentApprovalScope, AgentContinuationInput, AgentFormAction,
+    AgentRuntimePhase,
+};
 use crate::worker_subagent_manager::{
     SubagentInputSender, SubagentSendInputParams, SubagentSpawnParams, SubagentTargetParams,
     SubagentThreadManager, SubagentThreadStatus, SubagentWaitParams,
@@ -1848,11 +1851,8 @@ fn maybe_approval_resume_result(
     services: &NativeAgentRuntimeServices,
     context: &NativeAgentRunContext,
 ) -> Option<Value> {
-    let approval = context.metadata.get("fakeApprovalResume")?.clone();
-    let approved = approval
-        .get("approved")
-        .and_then(Value::as_bool)
-        .unwrap_or_else(|| string_field(&approval, "decision").as_deref() == Some("approved"));
+    let (approval, continuation) = approval_resume_metadata(context)?;
+    let approved = matches!(continuation.decision, AgentApprovalDecision::Approved);
     let checkpoint = services
         .checkpoints
         .restore_for_run(&context.session_id, &context.run_id);
@@ -1860,7 +1860,10 @@ fn maybe_approval_resume_result(
         services
             .checkpoints
             .clear_for_run(&context.session_id, &context.run_id);
-        let message = string_field(&approval, "guidance")
+        let message = continuation
+            .guidance
+            .clone()
+            .or_else(|| string_field(&approval, "guidance"))
             .map(|guidance| format!("Rust agent approval was denied. User guidance: {guidance}"))
             .unwrap_or_else(|| "Rust agent approval was denied.".to_string());
         return Some(error_result(
@@ -1882,7 +1885,7 @@ fn maybe_approval_resume_result(
             serde_json::json!({
                 "runId": context.run_id,
                 "sessionId": context.session_id,
-                "toolCallId": string_field(&approval, "toolCallId").unwrap_or_else(|| "approval-1".to_string()),
+                "toolCallId": string_field(&approval, "toolCallId").unwrap_or(continuation.approval_id.clone()),
                 "toolName": string_field(&approval, "toolName").unwrap_or_else(|| "approval".to_string()),
                 "content": string_field(&approval, "toolResult").unwrap_or_else(|| "approved".to_string()),
             }),
@@ -1913,8 +1916,113 @@ fn maybe_approval_resume_result(
         "messages": [{ "role": "assistant", "content": final_content }],
         "toolsUsed": [],
         "restoredCheckpoint": checkpoint,
+        "continuation": {
+            "kind": "approval",
+            "approvalId": continuation.approval_id,
+            "decision": if approved { "approved" } else { "denied" },
+            "scope": match continuation.scope {
+                crate::agent_loop_runtime_protocol::AgentApprovalScope::Once => "once",
+                crate::agent_loop_runtime_protocol::AgentApprovalScope::Session => "session",
+            },
+            "guidance": continuation.guidance,
+        },
         "events": events,
     }))
+}
+
+#[derive(Clone, Debug)]
+struct ApprovalContinuationData {
+    approval_id: String,
+    decision: AgentApprovalDecision,
+    scope: AgentApprovalScope,
+    guidance: Option<String>,
+}
+
+fn approval_resume_metadata(
+    context: &NativeAgentRunContext,
+) -> Option<(Value, ApprovalContinuationData)> {
+    let legacy = context.metadata.get("fakeApprovalResume").cloned();
+    if let Some(AgentContinuationInput::Approval {
+        approval_id,
+        decision,
+        scope,
+        guidance,
+    }) = typed_continuation_metadata(context)
+    {
+        let approval = legacy.unwrap_or_else(|| {
+            let approved = matches!(decision, AgentApprovalDecision::Approved);
+            let tool_result = if approved {
+                "approved".to_string()
+            } else if let Some(guidance) = guidance.as_deref() {
+                format!("denied: {guidance}")
+            } else {
+                "denied".to_string()
+            };
+            let mut approval = serde_json::json!({
+                "approvalId": approval_id,
+                "approved": approved,
+                "toolCallId": approval_id,
+                "toolName": "approval",
+                "toolResult": tool_result,
+            });
+            if let Some(guidance) = guidance.as_ref() {
+                approval["guidance"] = Value::String(guidance.clone());
+            }
+            if let Some(final_content) = string_field(&context.metadata, "finalContent")
+                .or_else(|| string_field(&context.metadata, "final_content"))
+            {
+                approval["finalContent"] = Value::String(final_content);
+            }
+            approval
+        });
+        return Some((
+            approval,
+            ApprovalContinuationData {
+                approval_id,
+                decision,
+                scope,
+                guidance,
+            },
+        ));
+    }
+
+    let approval = legacy?;
+    let approved = approval
+        .get("approved")
+        .and_then(Value::as_bool)
+        .unwrap_or_else(|| string_field(&approval, "decision").as_deref() == Some("approved"));
+    Some((
+        approval.clone(),
+        ApprovalContinuationData {
+            approval_id: string_field(&approval, "approvalId")
+                .or_else(|| string_field(&approval, "toolCallId"))
+                .unwrap_or_else(|| "approval-1".to_string()),
+            decision: if approved {
+                AgentApprovalDecision::Approved
+            } else {
+                AgentApprovalDecision::Denied
+            },
+            scope: approval_scope_from_value(approval.get("scope")),
+            guidance: string_field(&approval, "guidance"),
+        },
+    ))
+}
+
+fn typed_continuation_metadata(context: &NativeAgentRunContext) -> Option<AgentContinuationInput> {
+    context
+        .metadata
+        .get("agentContinuation")
+        .or_else(|| context.metadata.get("continuation"))
+        .cloned()
+        .and_then(|value| serde_json::from_value(value).ok())
+}
+
+fn approval_scope_from_value(value: Option<&Value>) -> AgentApprovalScope {
+    if value.and_then(Value::as_str) == Some("session") {
+        AgentApprovalScope::Session
+    } else {
+        AgentApprovalScope::Once
+    }
 }
 
 fn maybe_awaiting_form_result(
@@ -1984,8 +2092,8 @@ fn maybe_form_submit_result(
     services: &NativeAgentRuntimeServices,
     context: &NativeAgentRunContext,
 ) -> Option<Value> {
-    let form = context.metadata.get("fakeFormSubmit")?.clone();
-    if bool_field(&form, "cancelled") {
+    let (form, continuation) = form_submit_metadata(context)?;
+    if matches!(continuation.action, AgentFormAction::Cancel) {
         services
             .checkpoints
             .clear_for_run(&context.session_id, &context.run_id);
@@ -2032,8 +2140,73 @@ fn maybe_form_submit_result(
         "messages": [{ "role": "assistant", "content": final_content }],
         "toolsUsed": [],
         "restoredCheckpoint": checkpoint,
+        "continuation": {
+            "kind": "form",
+            "formId": continuation.form_id,
+            "action": match continuation.action {
+                AgentFormAction::Submit => "submit",
+                AgentFormAction::Cancel => "cancel",
+            },
+            "values": continuation.values,
+        },
         "events": events,
     }))
+}
+
+#[derive(Clone, Debug)]
+struct FormContinuationData {
+    form_id: String,
+    action: AgentFormAction,
+    values: Option<Value>,
+}
+
+fn form_submit_metadata(context: &NativeAgentRunContext) -> Option<(Value, FormContinuationData)> {
+    let legacy = context.metadata.get("fakeFormSubmit").cloned();
+    if let Some(AgentContinuationInput::Form {
+        form_id,
+        action,
+        values,
+    }) = typed_continuation_metadata(context)
+    {
+        let form = legacy.unwrap_or_else(|| {
+            let mut form = serde_json::json!({
+                "formId": form_id,
+                "values": values.clone().unwrap_or(Value::Null),
+                "cancelled": matches!(action, AgentFormAction::Cancel),
+            });
+            if let Some(final_content) = string_field(&context.metadata, "finalContent")
+                .or_else(|| string_field(&context.metadata, "final_content"))
+            {
+                form["finalContent"] = Value::String(final_content);
+            }
+            form
+        });
+        return Some((
+            form,
+            FormContinuationData {
+                form_id,
+                action,
+                values,
+            },
+        ));
+    }
+
+    let form = legacy?;
+    let action = if bool_field(&form, "cancelled") {
+        AgentFormAction::Cancel
+    } else {
+        AgentFormAction::Submit
+    };
+    Some((
+        form.clone(),
+        FormContinuationData {
+            form_id: string_field(&form, "formId")
+                .or_else(|| string_field(&form, "form_id"))
+                .unwrap_or_else(|| "form-1".to_string()),
+            action,
+            values: form.get("values").cloned(),
+        },
+    ))
 }
 
 fn maybe_emit_checkpoint(
@@ -3590,6 +3763,100 @@ mod tests {
         assert_eq!(cancelled["events"][0]["eventName"], "agent.cancelled");
         assert_eq!(cancelled["events"][0]["payload"]["stopReason"], "cancelled");
         assert_eq!(cancel_result["stopReason"], "cancelled");
+    }
+
+    #[test]
+    fn accepts_typed_approval_and_form_continuations_without_legacy_metadata() {
+        let services = NativeAgentRuntimeServices::default();
+        run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-typed-approval",
+                "sessionId": "websocket:chat-typed-approval",
+                "metadata": {
+                    "fakeAwaitingApproval": {
+                        "approvalId": "approval-typed",
+                        "toolName": "workspace.write_file"
+                    }
+                }
+            }),
+        )
+        .expect("approval checkpoint should be created");
+
+        let approval = run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-typed-approval",
+                "sessionId": "websocket:chat-typed-approval",
+                "metadata": {
+                    "agentContinuation": {
+                        "kind": "approval",
+                        "approvalId": "approval-typed",
+                        "decision": "approved",
+                        "scope": "session"
+                    },
+                    "finalContent": "Typed approval completed."
+                }
+            }),
+        )
+        .expect("typed approval continuation should complete");
+
+        run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-typed-form",
+                "sessionId": "websocket:chat-typed-form",
+                "metadata": {
+                    "fakeAwaitingForm": {
+                        "formId": "form-typed",
+                        "title": "Configure run"
+                    }
+                }
+            }),
+        )
+        .expect("form checkpoint should be created");
+
+        let form = run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-typed-form",
+                "sessionId": "websocket:chat-typed-form",
+                "metadata": {
+                    "agentContinuation": {
+                        "kind": "form",
+                        "formId": "form-typed",
+                        "action": "submit",
+                        "values": { "destination": "Tokyo" }
+                    },
+                    "finalContent": "Typed form submitted."
+                }
+            }),
+        )
+        .expect("typed form continuation should complete");
+
+        assert_eq!(approval["stopReason"], "final_response");
+        assert_eq!(approval["finalContent"], "Typed approval completed.");
+        assert_eq!(approval["continuation"]["kind"], "approval");
+        assert_eq!(approval["continuation"]["approvalId"], "approval-typed");
+        assert_eq!(approval["continuation"]["decision"], "approved");
+        assert_eq!(approval["continuation"]["scope"], "session");
+        assert_eq!(approval["restoredCheckpoint"]["phase"], "awaiting_approval");
+        assert!(
+            services.restore_checkpoint("websocket:chat-typed-approval")["checkpoint"].is_null()
+        );
+
+        assert_eq!(form["stopReason"], "final_response");
+        assert_eq!(form["finalContent"], "Typed form submitted.");
+        assert_eq!(form["continuation"]["kind"], "form");
+        assert_eq!(form["continuation"]["formId"], "form-typed");
+        assert_eq!(form["continuation"]["action"], "submit");
+        assert_eq!(form["continuation"]["values"]["destination"], "Tokyo");
+        assert_eq!(form["restoredCheckpoint"]["phase"], "awaiting_form");
+        assert!(services.restore_checkpoint("websocket:chat-typed-form")["checkpoint"].is_null());
     }
 
     fn event_names(result: &Value) -> Vec<&str> {

@@ -3898,6 +3898,19 @@ fn native_approval_continuation_spec(
     if let Some(guidance) = guidance {
         resume["guidance"] = serde_json::Value::String(guidance);
     }
+    let mut agent_continuation = serde_json::json!({
+        "kind": "approval",
+        "approvalId": approval_id,
+        "decision": if approved { "approved" } else { "denied" },
+        "scope": if body.get("scope").and_then(serde_json::Value::as_str) == Some("session") {
+            "session"
+        } else {
+            "once"
+        },
+    });
+    if let Some(guidance) = resume.get("guidance").cloned() {
+        agent_continuation["guidance"] = guidance;
+    }
     if let Some(final_content) = body
         .get("finalContent")
         .or_else(|| body.get("final_content"))
@@ -3915,6 +3928,7 @@ fn native_approval_continuation_spec(
             .cloned()
             .unwrap_or_else(|| serde_json::json!([])),
         "metadata": {
+            "agentContinuation": agent_continuation,
             "fakeApprovalResume": resume,
         },
     })
@@ -4149,6 +4163,12 @@ fn native_agent_ui_form_continuation_spec(
             .cloned()
             .unwrap_or_else(|| serde_json::json!([])),
         "metadata": {
+            "agentContinuation": {
+                "kind": "form",
+                "formId": form_id,
+                "action": if cancelled { "cancel" } else { "submit" },
+                "values": values,
+            },
             "fakeFormSubmit": form_submit,
         },
     })
