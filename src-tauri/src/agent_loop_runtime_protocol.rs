@@ -50,7 +50,7 @@ impl AgentRuntimePhase {
             "agent.reasoning_delta" | "agent.delta" => Self::StreamingModel,
             "agent.tool_call.delta" => Self::ToolCalling,
             "agent.tool.start" | "agent.tool.result" => Self::ToolRunning,
-            "agent.awaiting_approval" => Self::AwaitingApproval,
+            "agent.awaiting_approval" | "agent.approval.decision" => Self::AwaitingApproval,
             "agent.awaiting_form" => Self::AwaitingForm,
             "agent.checkpoint" => Self::Planning,
             "agent.usage" => Self::CallingModel,
@@ -83,7 +83,7 @@ impl AgentTurnItemKind {
             "agent.tool_call.delta" | "agent.tool.start" | "agent.tool.result" => {
                 Some(Self::ToolCall)
             }
-            "agent.awaiting_approval" => Some(Self::ApprovalRequest),
+            "agent.awaiting_approval" | "agent.approval.decision" => Some(Self::ApprovalRequest),
             "agent.awaiting_form" => Some(Self::FormRequest),
             "agent.error" | "agent.cancelled" | "agent.checkpoint" => Some(Self::SystemNotice),
             _ if event_name.starts_with("agent.delegate.") => Some(Self::SubagentActivity),
@@ -404,7 +404,9 @@ fn projected_item_id(event: &AgentRuntimeEventEnvelope, kind: &AgentTurnItemKind
 
 fn projected_item_status(event: &AgentRuntimeEventEnvelope) -> AgentTurnItemStatus {
     match event.event_name.as_str() {
-        "agent.done" | "agent.tool.result" => AgentTurnItemStatus::Completed,
+        "agent.done" | "agent.tool.result" | "agent.approval.decision" => {
+            AgentTurnItemStatus::Completed
+        }
         "agent.error" => AgentTurnItemStatus::Failed,
         "agent.cancelled" => AgentTurnItemStatus::Cancelled,
         "agent.awaiting_approval" | "agent.awaiting_form" => AgentTurnItemStatus::Waiting,
@@ -442,6 +444,9 @@ fn projected_item_payload(
             }
         }
         "agent.tool.start" | "agent.tool.result" => projected_tool_payload(existing_payload, event),
+        "agent.awaiting_approval" | "agent.approval.decision" => {
+            projected_approval_payload(existing_payload, event)
+        }
         _ => event.payload.clone(),
     }
 }
@@ -537,11 +542,15 @@ fn projected_item_title(
     existing_item: Option<&AgentTurnItem>,
     payload: &Value,
 ) -> Option<String> {
-    if *kind != AgentTurnItemKind::ToolCall {
-        return existing_item.and_then(|item| item.title.clone());
+    if *kind == AgentTurnItemKind::ToolCall {
+        return string_field_any(payload, &["toolName", "name", "tool_name"])
+            .or_else(|| existing_item.and_then(|item| item.title.clone()));
     }
-    string_field_any(payload, &["toolName", "name", "tool_name"])
-        .or_else(|| existing_item.and_then(|item| item.title.clone()))
+    if *kind == AgentTurnItemKind::ApprovalRequest {
+        return string_field_any(payload, &["summary", "content", "reason"])
+            .or_else(|| existing_item.and_then(|item| item.title.clone()));
+    }
+    existing_item.and_then(|item| item.title.clone())
 }
 
 fn projected_item_summary(
@@ -549,11 +558,15 @@ fn projected_item_summary(
     existing_item: Option<&AgentTurnItem>,
     payload: &Value,
 ) -> Option<String> {
-    if *kind != AgentTurnItemKind::ToolCall {
-        return existing_item.and_then(|item| item.summary.clone());
+    if *kind == AgentTurnItemKind::ToolCall {
+        return string_field_any(payload, &["summary", "content"])
+            .or_else(|| existing_item.and_then(|item| item.summary.clone()));
     }
-    string_field_any(payload, &["summary", "content"])
-        .or_else(|| existing_item.and_then(|item| item.summary.clone()))
+    if *kind == AgentTurnItemKind::ApprovalRequest {
+        return string_field_any(payload, &["summary", "content", "reason"])
+            .or_else(|| existing_item.and_then(|item| item.summary.clone()));
+    }
+    existing_item.and_then(|item| item.summary.clone())
 }
 
 fn string_from_map(payload: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<String> {
@@ -566,6 +579,50 @@ fn string_field_any(payload: &Value, keys: &[&str]) -> Option<String> {
     keys.iter()
         .find_map(|key| payload.get(*key).and_then(Value::as_str))
         .map(ToString::to_string)
+}
+
+fn projected_approval_payload(
+    existing_payload: Option<&Value>,
+    event: &AgentRuntimeEventEnvelope,
+) -> Value {
+    let mut payload = existing_payload
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    if let Some(event_payload) = event.payload.as_object() {
+        for (key, value) in event_payload {
+            payload.insert(key.clone(), value.clone());
+        }
+    }
+
+    let approval_id = string_from_map(&payload, &["approvalId", "approval_id"])
+        .or_else(|| event.item_id.clone());
+    if let Some(approval_id) = approval_id.clone() {
+        payload
+            .entry("approvalId".to_string())
+            .or_insert_with(|| Value::String(approval_id.clone()));
+        payload
+            .entry("detailId".to_string())
+            .or_insert_with(|| Value::String(format!("approval:{approval_id}")));
+    }
+
+    if event.event_name == "agent.approval.decision" {
+        payload.insert("status".to_string(), Value::String("completed".to_string()));
+        payload
+            .entry("decidedAt".to_string())
+            .or_insert_with(|| Value::String(event.timestamp.clone()));
+    } else {
+        payload.insert("status".to_string(), Value::String("waiting".to_string()));
+        payload
+            .entry("requestedAt".to_string())
+            .or_insert_with(|| Value::String(event.timestamp.clone()));
+    }
+
+    if let Some(summary) = string_from_map(&payload, &["summary", "content", "reason"]) {
+        payload.insert("summary".to_string(), Value::String(summary));
+    }
+
+    Value::Object(payload)
 }
 
 fn payload_text_fragment(payload: &Value) -> Option<&str> {
@@ -905,6 +962,55 @@ mod tests {
                 "durationMs": 42
             })
         );
+        assert_eq!(items[0].created_at, "2026-07-03T00:00:01Z");
+        assert_eq!(items[0].updated_at.as_deref(), Some("2026-07-03T00:00:02Z"));
+    }
+
+    #[test]
+    fn trace_projection_combines_approval_request_and_decision() {
+        let mut appender = AgentRuntimeEventAppender::new("session-1", "turn-1");
+        let events = vec![
+            appender.append_legacy_native_event(
+                "agent.awaiting_approval",
+                Some("approval-1".to_string()),
+                "2026-07-03T00:00:01Z",
+                json!({
+                    "approvalId": "approval-1",
+                    "summary": "Allow workspace.write_file?",
+                    "options": [
+                        { "decision": "approved", "scope": "once" },
+                        { "decision": "approved", "scope": "session" },
+                        { "decision": "denied" }
+                    ]
+                }),
+            ),
+            appender.append_legacy_native_event(
+                "agent.approval.decision",
+                Some("approval-1".to_string()),
+                "2026-07-03T00:00:02Z",
+                json!({
+                    "approvalId": "approval-1",
+                    "decision": "denied",
+                    "scope": "once",
+                    "guidance": "Do not write files."
+                }),
+            ),
+        ];
+
+        let items = project_turn_items_from_trace_events(&events);
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].item_id, "approval-1");
+        assert_eq!(items[0].kind, AgentTurnItemKind::ApprovalRequest);
+        assert_eq!(items[0].status, AgentTurnItemStatus::Completed);
+        assert_eq!(items[0].title.as_deref(), Some("Allow workspace.write_file?"));
+        assert_eq!(items[0].summary.as_deref(), Some("Allow workspace.write_file?"));
+        assert_eq!(items[0].payload["status"], "completed");
+        assert_eq!(items[0].payload["decision"], "denied");
+        assert_eq!(items[0].payload["scope"], "once");
+        assert_eq!(items[0].payload["guidance"], "Do not write files.");
+        assert_eq!(items[0].payload["detailId"], "approval:approval-1");
+        assert_eq!(items[0].payload["options"].as_array().map(Vec::len), Some(3));
         assert_eq!(items[0].created_at, "2026-07-03T00:00:01Z");
         assert_eq!(items[0].updated_at.as_deref(), Some("2026-07-03T00:00:02Z"));
     }

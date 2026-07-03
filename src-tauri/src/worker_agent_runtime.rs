@@ -1893,6 +1893,10 @@ fn maybe_awaiting_approval_result(
                 "sessionId": context.session_id,
                 "approvalId": approval_id,
                 "toolName": tool_name,
+                "detailId": format!("approval:{approval_id}"),
+                "status": "waiting",
+                "summary": format!("Approval required: {tool_name}"),
+                "options": approval_request_options(),
                 "operation": approval,
                 "content": format!("Approval required: {tool_name}"),
             }),
@@ -1938,12 +1942,30 @@ fn maybe_approval_resume_result(
             .or_else(|| string_field(&approval, "guidance"))
             .map(|guidance| format!("Rust agent approval was denied. User guidance: {guidance}"))
             .unwrap_or_else(|| "Rust agent approval was denied.".to_string());
-        return Some(error_result(
-            &context.run_id,
-            &context.session_id,
-            "approval_denied",
-            &message,
-        ));
+        let events = vec![
+            approval_decision_event(context, &continuation),
+            event(
+                "agent.error",
+                serde_json::json!({
+                    "runId": context.run_id,
+                    "sessionId": context.session_id,
+                    "stopReason": "approval_denied",
+                    "message": message,
+                    "error": message,
+                }),
+            ),
+        ];
+        return Some(serde_json::json!({
+            "runtime": "rust",
+            "runId": context.run_id,
+            "sessionId": context.session_id,
+            "finalContent": "",
+            "stopReason": "approval_denied",
+            "messages": [],
+            "toolsUsed": [],
+            "error": message,
+            "events": events,
+        }));
     }
     services
         .checkpoints
@@ -1952,6 +1974,7 @@ fn maybe_approval_resume_result(
         .or_else(|| string_field(&approval, "final_content"))
         .unwrap_or_else(|| "Approved tool completed.".to_string());
     let events = vec![
+        approval_decision_event(context, &continuation),
         event(
             "agent.tool.result",
             serde_json::json!({
@@ -2000,6 +2023,43 @@ fn maybe_approval_resume_result(
         },
         "events": events,
     }))
+}
+
+fn approval_request_options() -> Value {
+    serde_json::json!([
+        { "decision": "approved", "scope": "once" },
+        { "decision": "approved", "scope": "session" },
+        { "decision": "denied" }
+    ])
+}
+
+fn approval_decision_event(
+    context: &NativeAgentRunContext,
+    continuation: &ApprovalContinuationData,
+) -> NativeAgentEvent {
+    event(
+        "agent.approval.decision",
+        serde_json::json!({
+            "runId": context.run_id,
+            "sessionId": context.session_id,
+            "approvalId": continuation.approval_id,
+            "detailId": format!("approval:{}", continuation.approval_id),
+            "status": "completed",
+            "decision": match continuation.decision {
+                AgentApprovalDecision::Approved => "approved",
+                AgentApprovalDecision::Denied => "denied",
+            },
+            "scope": approval_scope_str(&continuation.scope),
+            "guidance": continuation.guidance,
+        }),
+    )
+}
+
+fn approval_scope_str(scope: &AgentApprovalScope) -> &'static str {
+    match scope {
+        AgentApprovalScope::Once => "once",
+        AgentApprovalScope::Session => "session",
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -3714,6 +3774,18 @@ mod tests {
         .expect("approval checkpoint should be created");
 
         assert_eq!(awaiting["stopReason"], "awaiting_approval");
+        assert_eq!(awaiting["events"][1]["eventName"], "agent.awaiting_approval");
+        assert_eq!(awaiting["events"][1]["payload"]["status"], "waiting");
+        assert_eq!(
+            awaiting["events"][1]["payload"]["detailId"],
+            "approval:approval-1"
+        );
+        assert_eq!(
+            awaiting["events"][1]["payload"]["options"]
+                .as_array()
+                .map(Vec::len),
+            Some(3)
+        );
         assert_eq!(awaiting["checkpoint"]["schemaVersion"], 1);
         assert_eq!(awaiting["checkpoint"]["runId"], "run-approval");
         assert_eq!(
@@ -3758,6 +3830,9 @@ mod tests {
         .expect("approval resume should complete");
 
         assert_eq!(resumed["stopReason"], "final_response");
+        assert_eq!(resumed["events"][0]["eventName"], "agent.approval.decision");
+        assert_eq!(resumed["events"][0]["payload"]["decision"], "approved");
+        assert_eq!(resumed["events"][0]["payload"]["scope"], "once");
         assert_eq!(resumed["restoredCheckpoint"]["phase"], "awaiting_approval");
         assert!(services.restore_checkpoint("websocket:chat-approval")["checkpoint"].is_null());
     }
@@ -3816,6 +3891,8 @@ mod tests {
         .expect("cancelled run should return cancellation result");
 
         assert_eq!(denied["stopReason"], "approval_denied");
+        assert_eq!(denied["events"][0]["eventName"], "agent.approval.decision");
+        assert_eq!(denied["events"][0]["payload"]["decision"], "denied");
         assert_eq!(
             awaiting_form["events"][1]["eventName"],
             "agent.awaiting_form"
