@@ -62,6 +62,10 @@ use crate::desktop_logging::append_native_backend_log_line;
 use crate::desktop_menu::{
     install_desktop_application_menu, is_desktop_menu_command, DesktopMenuCommandPayload,
 };
+use crate::agent_loop_runtime_protocol::{
+    AgentRuntimeEventAppendInput, AgentRuntimeEventAppender, AgentRuntimeEventEnvelope,
+    AgentRuntimeEventSource, AgentRuntimeEventVisibility, AgentRuntimePhase,
+};
 use crate::native_backend_contract::{
     webui_route_inventory_entry, NativeCompatibilityFallbackDiagnostic,
 };
@@ -1599,11 +1603,7 @@ fn native_agent_run_record(
         "currentIteration": native_agent_current_iteration(result, checkpoint.as_ref()),
         "conversationMessageIds": [],
         "traceMessages": native_agent_assistant_messages(result),
-        "traceEvents": result
-            .get("events")
-            .and_then(serde_json::Value::as_array)
-            .map(|values| native_agent_persisted_trace_values(values))
-            .unwrap_or_default(),
+        "traceEvents": native_agent_runtime_trace_events(result, session_id, run_id, &timestamp),
         "completedToolResults": result
             .get("completedToolResults")
             .or_else(|| result.get("completed_tool_results"))
@@ -1759,6 +1759,104 @@ fn native_agent_usage(result: &serde_json::Value) -> Vec<serde_json::Value> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn native_agent_runtime_trace_events(
+    result: &serde_json::Value,
+    session_id: &str,
+    run_id: &str,
+    timestamp: &str,
+) -> Vec<serde_json::Value> {
+    let mut appender = AgentRuntimeEventAppender::new(session_id, run_id);
+    let mut trace_events = vec![native_agent_persisted_runtime_event(appender.append(
+        AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id: None,
+            event_name: "agent.turn.started".to_string(),
+            phase: AgentRuntimePhase::Planning,
+            timestamp: timestamp.to_string(),
+            source: AgentRuntimeEventSource::RustBackend,
+            visibility: AgentRuntimeEventVisibility::User,
+            payload: serde_json::json!({
+                "sessionId": session_id,
+                "runId": run_id,
+            }),
+        },
+    ))];
+
+    let mut current_phase = AgentRuntimePhase::Planning;
+    if let Some(events) = result.get("events").and_then(serde_json::Value::as_array) {
+        for event in events {
+            let event_name = event
+                .get("eventName")
+                .and_then(serde_json::Value::as_str)
+                .filter(|value| !value.trim().is_empty());
+            let Some(event_name) = event_name else {
+                continue;
+            };
+            let next_phase = AgentRuntimePhase::for_legacy_event(event_name);
+            if next_phase != current_phase {
+                trace_events.push(native_agent_persisted_runtime_event(appender.append(
+                    AgentRuntimeEventAppendInput {
+                        parent_turn_id: None,
+                        item_id: None,
+                        event_name: "agent.phase.changed".to_string(),
+                        phase: next_phase.clone(),
+                        timestamp: timestamp.to_string(),
+                        source: AgentRuntimeEventSource::RustBackend,
+                        visibility: AgentRuntimeEventVisibility::Debug,
+                        payload: serde_json::json!({
+                            "previousPhase": current_phase.clone(),
+                            "nextPhase": next_phase.clone(),
+                            "triggerEventName": event_name,
+                        }),
+                    },
+                )));
+                current_phase = next_phase.clone();
+            }
+            let payload = event.get("payload").cloned().unwrap_or(serde_json::Value::Null);
+            trace_events.push(native_agent_persisted_runtime_event(
+                appender.append_legacy_native_event(
+                    event_name,
+                    native_agent_trace_event_item_id(event),
+                    timestamp,
+                    payload,
+                ),
+            ));
+        }
+    }
+
+    trace_events
+}
+
+fn native_agent_persisted_runtime_event(
+    event: AgentRuntimeEventEnvelope,
+) -> serde_json::Value {
+    let value = serde_json::to_value(event).unwrap_or_else(|error| {
+        serde_json::json!({
+            "schemaVersion": crate::agent_loop_runtime_protocol::AGENT_RUNTIME_EVENT_SCHEMA_VERSION,
+            "eventName": "agent.trace.serialization_failed",
+            "payload": {
+                "error": error.to_string(),
+            },
+        })
+    });
+    native_agent_bound_persisted_trace_value(value).0
+}
+
+fn native_agent_trace_event_item_id(event: &serde_json::Value) -> Option<String> {
+    event
+        .get("payload")
+        .and_then(|payload| {
+            native_agent_string_field(payload, "toolCallId")
+                .or_else(|| native_agent_string_field(payload, "tool_call_id"))
+                .or_else(|| native_agent_string_field(payload, "approvalId"))
+                .or_else(|| native_agent_string_field(payload, "approval_id"))
+                .or_else(|| native_agent_string_field(payload, "formId"))
+                .or_else(|| native_agent_string_field(payload, "form_id"))
+                .or_else(|| native_agent_string_field(payload, "delegateId"))
+                .or_else(|| native_agent_string_field(payload, "delegate_id"))
+        })
 }
 
 fn native_agent_persisted_trace_values(values: &[serde_json::Value]) -> Vec<serde_json::Value> {
@@ -6234,11 +6332,27 @@ mod tests {
             run["completedToolResults"][0]["toolCallId"],
             "call-run-trace"
         );
-        assert!(run["traceEvents"]
+        let trace_events = run["traceEvents"]
             .as_array()
-            .expect("trace events should be an array")
+            .expect("trace events should be an array");
+        assert_eq!(trace_events[0]["schemaVersion"], "tinybot.agent_event.v1");
+        assert_eq!(trace_events[0]["eventName"], "agent.turn.started");
+        assert_eq!(trace_events[0]["sequence"], 1);
+        assert!(trace_events
             .iter()
             .any(|event| event["eventName"] == "agent.tool.result"));
+        assert!(trace_events.iter().any(|event| {
+            event["eventName"] == "agent.phase.changed"
+                && event["payload"]["nextPhase"] == "tool_calling"
+        }));
+        let tool_result = trace_events
+            .iter()
+            .find(|event| event["eventName"] == "agent.tool.result")
+            .expect("tool result trace event should persist");
+        assert_eq!(tool_result["schemaVersion"], "tinybot.agent_event.v1");
+        assert_eq!(tool_result["itemId"], "call-run-trace");
+        assert_eq!(tool_result["phase"], "tool_running");
+        assert!(tool_result["sequence"].as_u64().is_some_and(|value| value > 1));
         assert_eq!(history["messages"].as_array().unwrap().len(), 2);
         assert!(history["messages"]
             .as_array()
