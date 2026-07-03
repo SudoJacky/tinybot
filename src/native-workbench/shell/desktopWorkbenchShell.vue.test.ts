@@ -223,17 +223,16 @@ describe("desktop workbench shell Vue integration", () => {
     expect(actions.map((action) => action.getAttribute("data-chat-header-action"))).toEqual([
       "pin",
       "rename",
-      "delete",
       "copy-session-id",
       "copy-markdown",
     ]);
     expect(actions.map((action) => action.textContent)).toEqual([
       "Pin",
       "Rename",
-      "Delete",
       "Copy ID",
       "Copy Markdown",
     ]);
+    expect(document.querySelector("[data-chat-header-action='delete']")).toBeNull();
   });
 
   test("renders pinned chat header actions through the rebuilt chat surface", () => {
@@ -266,7 +265,6 @@ describe("desktop workbench shell Vue integration", () => {
     expect(actions.map((action) => action.getAttribute("aria-label"))).toEqual([
       "Unpin session",
       "Rename session",
-      "Delete session",
       "Copy session ID",
       "Copy session as Markdown",
     ]);

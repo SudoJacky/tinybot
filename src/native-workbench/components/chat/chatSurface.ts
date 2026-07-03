@@ -699,7 +699,6 @@ function renderHeader(title: string, pinned: boolean, actions: ChatSurfaceAction
   for (const { action, label, title: actionTitle } of [
     { action: pinned ? "unpin" : "pin", label: pinned ? "Unpin" : "Pin", title: pinned ? "Unpin session" : "Pin session" },
     { action: "rename", label: "Rename", title: "Rename session" },
-    { action: "delete", label: "Delete", title: "Delete session" },
     { action: "copy-session-id", label: "Copy ID", title: "Copy session ID" },
     { action: "copy-markdown", label: "Copy Markdown", title: "Copy session as Markdown" },
   ] as const) {

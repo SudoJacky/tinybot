@@ -1040,17 +1040,16 @@ describe("rebuilt chat surface", () => {
     expect(headerActions.map((button) => button.textContent)).toEqual([
       "Pin",
       "Rename",
-      "Delete",
       "Copy ID",
       "Copy Markdown",
     ]);
     expect(headerActions.map((button) => button.getAttribute("aria-label"))).toEqual([
       "Pin session",
       "Rename session",
-      "Delete session",
       "Copy session ID",
       "Copy session as Markdown",
     ]);
+    expect(host.querySelector("[data-chat-header-action='delete']")).toBeNull();
     expect(headerActions.every((button) => Boolean(button.title))).toBe(true);
 
     host.querySelector<HTMLButtonElement>("[data-chat-header-action='pin']")?.click();
