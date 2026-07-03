@@ -1582,7 +1582,7 @@ fn native_agent_run_record(
         .and_then(|value| value.get("phase"))
         .and_then(serde_json::Value::as_str)
         .or_else(|| native_agent_run_phase_from_stop_reason(stop_reason))
-        .unwrap_or("active_turn");
+        .unwrap_or("planning");
     let error = result
         .get("error")
         .filter(|value| !value.is_null())
@@ -1627,7 +1627,11 @@ fn native_agent_run_status(stop_reason: Option<&str>) -> &'static str {
     match stop_reason {
         Some("final_response") => "completed",
         Some("cancelled") => "cancelled",
-        Some("awaiting_approval") | Some("awaiting_form") | Some("awaiting_tool") => "waiting",
+        Some("awaiting_approval")
+        | Some("awaiting_form")
+        | Some("awaiting_tool")
+        | Some("tool_running")
+        | Some("awaiting_subagent") => "waiting",
         Some(_) => "failed",
         None => "running",
     }
@@ -1635,11 +1639,11 @@ fn native_agent_run_status(stop_reason: Option<&str>) -> &'static str {
 
 fn native_agent_run_phase_from_stop_reason(stop_reason: Option<&str>) -> Option<&'static str> {
     match stop_reason {
-        Some("final_response") => Some("done"),
+        Some("final_response") => Some("completed"),
         Some("cancelled") => Some("cancelled"),
         Some("awaiting_approval") => Some("awaiting_approval"),
         Some("awaiting_form") => Some("awaiting_form"),
-        Some("awaiting_tool") => Some("awaiting_tool"),
+        Some("awaiting_tool") => Some("tool_running"),
         Some(_) => Some("failed"),
         None => None,
     }

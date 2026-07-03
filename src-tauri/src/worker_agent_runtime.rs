@@ -1,3 +1,4 @@
+use crate::agent_loop_runtime_protocol::AgentRuntimePhase;
 use crate::worker_subagent_manager::{
     SubagentInputSender, SubagentSendInputParams, SubagentSpawnParams, SubagentTargetParams,
     SubagentThreadManager, SubagentThreadStatus, SubagentWaitParams,
@@ -39,28 +40,9 @@ pub struct NativeAgentRunContext {
     pub max_iterations: i64,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum NativeAgentRunPhase {
-    ActiveTurn,
-    AwaitingTool,
-    Cancelled,
-    Terminal,
-}
-
-impl NativeAgentRunPhase {
-    fn as_str(&self) -> &'static str {
-        match self {
-            Self::ActiveTurn => "active_turn",
-            Self::AwaitingTool => "awaiting_tool",
-            Self::Cancelled => "cancelled",
-            Self::Terminal => "terminal",
-        }
-    }
-}
-
 #[derive(Clone, Debug)]
 struct NativeAgentRunState {
-    phase: NativeAgentRunPhase,
+    phase: AgentRuntimePhase,
     iteration: i64,
     max_iterations: i64,
     pending_tool_calls: Vec<Value>,
@@ -75,7 +57,7 @@ struct NativeAgentRunState {
 impl NativeAgentRunState {
     fn new(context: &NativeAgentRunContext) -> Self {
         Self {
-            phase: NativeAgentRunPhase::ActiveTurn,
+            phase: AgentRuntimePhase::Planning,
             iteration: 0,
             max_iterations: context.max_iterations,
             pending_tool_calls: Vec::new(),
@@ -88,14 +70,18 @@ impl NativeAgentRunState {
         }
     }
 
-    fn set_phase(&mut self, phase: NativeAgentRunPhase, iteration: i64) {
+    fn set_phase(&mut self, phase: AgentRuntimePhase, iteration: i64) {
         self.phase = phase;
         self.iteration = iteration;
     }
 
     fn set_stop_reason(&mut self, stop_reason: &str) {
         self.stop_reason = Some(stop_reason.to_string());
-        self.phase = NativeAgentRunPhase::Terminal;
+        self.phase = match stop_reason {
+            "final_response" => AgentRuntimePhase::Completed,
+            "cancelled" => AgentRuntimePhase::Cancelled,
+            _ => AgentRuntimePhase::Failed,
+        };
     }
 
     fn active_checkpoint_payload(&self, status: &str) -> Value {
@@ -110,7 +96,7 @@ impl NativeAgentRunState {
     }
 
     fn set_pending_tool_call(&mut self, tool_call: &NativeAgentToolCall) {
-        self.phase = NativeAgentRunPhase::AwaitingTool;
+        self.phase = AgentRuntimePhase::ToolRunning;
         self.pending_tool_calls = vec![serde_json::json!({
             "toolCallId": tool_call.id,
             "toolName": tool_call.name,
@@ -1146,9 +1132,9 @@ pub fn run_native_agent_turn_with_config(
 
     let mut state = NativeAgentRunState::new(&context);
     for iteration in 0..context.max_iterations {
-        state.set_phase(NativeAgentRunPhase::ActiveTurn, iteration);
+        state.set_phase(AgentRuntimePhase::CallingModel, iteration);
         if services.cancellations.is_cancelled(&context.run_id) {
-            state.phase = NativeAgentRunPhase::Cancelled;
+            state.phase = AgentRuntimePhase::Cancelled;
             return Ok(cancelled_run_result(
                 services,
                 &context,
@@ -1196,8 +1182,9 @@ pub fn run_native_agent_turn_with_config(
             }
         };
 
-        maybe_emit_checkpoint(services, &context, &mut state.events, "running");
+        maybe_emit_checkpoint(services, &context, &mut state.events, state.phase.as_str());
         if let Some(reasoning_delta) = provider_response.reasoning_delta.clone() {
+            state.set_phase(AgentRuntimePhase::StreamingModel, iteration);
             state.events.push(event(
                 "agent.reasoning_delta",
                 serde_json::json!({
@@ -1209,6 +1196,7 @@ pub fn run_native_agent_turn_with_config(
             ));
         }
         if context.stream && !provider_response.final_content.is_empty() {
+            state.set_phase(AgentRuntimePhase::StreamingModel, iteration);
             state.events.push(event(
                 "agent.delta",
                 serde_json::json!({
@@ -1222,6 +1210,7 @@ pub fn run_native_agent_turn_with_config(
 
         if !provider_response.tool_calls.is_empty() {
             let tool_calls = provider_response.tool_calls;
+            state.set_phase(AgentRuntimePhase::ToolCalling, iteration);
             state.messages.push(assistant_tool_calls_message(
                 &provider_response.final_content,
                 &tool_calls,
@@ -1271,7 +1260,7 @@ pub fn run_native_agent_turn_with_config(
                     }));
                 }
                 if services.cancellations.is_cancelled(&context.run_id) {
-                    state.phase = NativeAgentRunPhase::Cancelled;
+                    state.phase = AgentRuntimePhase::Cancelled;
                     return Ok(cancelled_run_result(
                         services,
                         &context,
@@ -1362,7 +1351,7 @@ pub fn run_native_agent_turn_with_config(
                 ));
                 state.completed_tool_results.push(completed_result);
                 state.clear_pending_tool_calls();
-                state.set_phase(NativeAgentRunPhase::ActiveTurn, iteration);
+                state.set_phase(AgentRuntimePhase::Planning, iteration);
                 save_phase_checkpoint(
                     services,
                     &context,
@@ -1370,7 +1359,7 @@ pub fn run_native_agent_turn_with_config(
                     state.active_checkpoint_payload("tool_completed"),
                 );
                 if services.cancellations.is_cancelled(&context.run_id) {
-                    state.phase = NativeAgentRunPhase::Cancelled;
+                    state.phase = AgentRuntimePhase::Cancelled;
                     return Ok(cancelled_run_result(
                         services,
                         &context,
@@ -3265,7 +3254,7 @@ mod tests {
                     .checkpoints
                     .restore(&context.session_id)
                     .expect("active turn checkpoint should be present during provider call");
-                assert_eq!(checkpoint["phase"], "active_turn");
+                assert_eq!(checkpoint["phase"], "calling_model");
                 let mut calls = self
                     .calls
                     .lock()
@@ -3308,7 +3297,7 @@ mod tests {
                     .checkpoints
                     .restore(&context.session_id)
                     .expect("tool wait checkpoint should be present during tool dispatch");
-                assert_eq!(checkpoint["phase"], "awaiting_tool");
+                assert_eq!(checkpoint["phase"], "tool_running");
                 assert_eq!(checkpoint["schemaVersion"], 1);
                 assert_eq!(checkpoint["runtime"], "rust");
                 assert_eq!(checkpoint["runId"], context.run_id);
@@ -3392,7 +3381,7 @@ mod tests {
             json!({
                 "sessionId": "websocket:chat-1",
                 "runId": "run-1",
-                "phase": "awaiting_tool"
+                "phase": "tool_running"
             }),
         );
         services.save_run_checkpoint(
@@ -3433,7 +3422,7 @@ mod tests {
             json!({
                 "sessionId": "websocket:chat-1",
                 "runId": "run-old",
-                "phase": "awaiting_tool"
+                "phase": "tool_running"
             }),
         );
         services.save_run_checkpoint(

@@ -25,6 +25,26 @@ pub enum AgentRuntimePhase {
 }
 
 impl AgentRuntimePhase {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Queued => "queued",
+            Self::HydratingHistory => "hydrating_history",
+            Self::Planning => "planning",
+            Self::CallingModel => "calling_model",
+            Self::StreamingModel => "streaming_model",
+            Self::ToolCalling => "tool_calling",
+            Self::ToolRunning => "tool_running",
+            Self::AwaitingApproval => "awaiting_approval",
+            Self::AwaitingForm => "awaiting_form",
+            Self::AwaitingSubagent => "awaiting_subagent",
+            Self::Finalizing => "finalizing",
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+            Self::Cancelling => "cancelling",
+            Self::Cancelled => "cancelled",
+        }
+    }
+
     pub fn for_legacy_event(event_name: &str) -> Self {
         match event_name {
             "agent.reasoning_delta" | "agent.delta" => Self::StreamingModel,

@@ -165,7 +165,7 @@ impl WorkerSessionRpc {
             }));
         }
         record.status = AgentRunStatus::Completed;
-        record.phase = "done".to_string();
+        record.phase = "completed".to_string();
         record.stop_reason = Some(stop_reason.to_string());
         record.completed_at = Some(timestamp.clone());
         record.updated_at = timestamp;
@@ -463,7 +463,7 @@ fn agent_run_status_from_checkpoint(checkpoint: &Value) -> AgentRunStatus {
         .and_then(Value::as_str)
         .or_else(|| checkpoint.get("phase").and_then(Value::as_str))
     {
-        Some("final_response") | Some("done") | Some("terminal") => AgentRunStatus::Completed,
+        Some("final_response") | Some("completed") | Some("done") | Some("terminal") => AgentRunStatus::Completed,
         Some("cancelled") => AgentRunStatus::Cancelled,
         Some("provider_error")
         | Some("tool_error")
