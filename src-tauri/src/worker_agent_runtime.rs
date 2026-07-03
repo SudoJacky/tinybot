@@ -106,7 +106,7 @@ impl NativeAgentRunState {
         Self {
             run_id: context.run_id.clone(),
             session_id: context.session_id.clone(),
-            phase: AgentRuntimePhase::Planning,
+            phase: AgentRuntimePhase::Queued,
             iteration: 0,
             max_iterations: context.max_iterations,
             pending_tool_calls: Vec::new(),
@@ -1334,6 +1334,12 @@ pub fn run_native_agent_turn_with_config(
     }
 
     let mut state = NativeAgentRunState::new(&context);
+    state.transition_phase(
+        AgentRuntimePhase::HydratingHistory,
+        0,
+        "agent.history.hydrated",
+    );
+    state.transition_phase(AgentRuntimePhase::Planning, 0, "agent.turn.started");
     state.emit_turn_started(&context);
     for iteration in 0..context.max_iterations {
         state.transition_phase(AgentRuntimePhase::CallingModel, iteration, "provider_call");
@@ -1594,6 +1600,13 @@ pub fn run_native_agent_turn_with_config(
                 for event in
                     subagent_activity_events_from_tool_result(&context, &tool_call, &result)
                 {
+                    if event.event_name == "agent.delegate.wait" {
+                        state.transition_phase(
+                            AgentRuntimePhase::AwaitingSubagent,
+                            iteration,
+                            "agent.delegate.wait",
+                        );
+                    }
                     state.emit_native_event(event);
                 }
                 state.completed_tool_results.push(completed_result);
@@ -2289,40 +2302,52 @@ fn maybe_awaiting_approval_result(
     services
         .checkpoints
         .save_for_run(&context.session_id, &context.run_id, checkpoint.clone());
-    let events = vec![
-        event(
-            "agent.checkpoint",
-            serde_json::json!({
-                "runId": context.run_id,
-                "sessionId": context.session_id,
-                "phase": "awaiting_approval",
-                "checkpoint": checkpoint,
-            }),
-        ),
-        event(
-            "agent.awaiting_approval",
-            serde_json::json!({
-                "runId": context.run_id,
-                "sessionId": context.session_id,
-                "approvalId": approval_id,
-                "toolName": tool_name,
-                "detailId": format!("approval:{approval_id}"),
-                "status": "waiting",
-                "summary": format!("Approval required: {tool_name}"),
-                "options": approval_request_options(),
-                "operation": approval,
-                "content": format!("Approval required: {tool_name}"),
-            }),
-        ),
-        event(
-            "agent.done",
-            serde_json::json!({
-                "runId": context.run_id,
-                "sessionId": context.session_id,
-                "stopReason": "awaiting_approval",
-            }),
-        ),
-    ];
+    let runtime_events = waiting_runtime_events(
+        context,
+        AgentRuntimePhase::AwaitingApproval,
+        "agent.awaiting_approval",
+        vec![
+            (
+                "agent.checkpoint",
+                None,
+                AgentRuntimePhase::Planning,
+                serde_json::json!({
+                    "runId": context.run_id,
+                    "sessionId": context.session_id,
+                    "phase": "awaiting_approval",
+                    "checkpoint": checkpoint.clone(),
+                }),
+            ),
+            (
+                "agent.awaiting_approval",
+                Some(approval_id.clone()),
+                AgentRuntimePhase::AwaitingApproval,
+                serde_json::json!({
+                    "runId": context.run_id,
+                    "sessionId": context.session_id,
+                    "approvalId": approval_id.clone(),
+                    "toolName": tool_name.clone(),
+                    "detailId": format!("approval:{approval_id}"),
+                    "status": "waiting",
+                    "summary": format!("Approval required: {tool_name}"),
+                    "options": approval_request_options(),
+                    "operation": approval.clone(),
+                    "content": format!("Approval required: {tool_name}"),
+                }),
+            ),
+            (
+                "agent.done",
+                None,
+                AgentRuntimePhase::AwaitingApproval,
+                serde_json::json!({
+                    "runId": context.run_id,
+                    "sessionId": context.session_id,
+                    "stopReason": "awaiting_approval",
+                }),
+            ),
+        ],
+    );
+    let events = legacy_result_events_from_runtime_events(&runtime_events);
     Some(serde_json::json!({
         "runtime": "rust",
         "runId": context.run_id,
@@ -2333,6 +2358,7 @@ fn maybe_awaiting_approval_result(
         "toolsUsed": [],
         "checkpoint": checkpoint,
         "events": events,
+        "runtimeEvents": runtime_events,
     }))
 }
 
@@ -2715,38 +2741,50 @@ fn maybe_awaiting_form_result(
     services
         .checkpoints
         .save_for_run(&context.session_id, &context.run_id, checkpoint.clone());
-    let events = vec![
-        event(
-            "agent.checkpoint",
-            serde_json::json!({
-                "runId": context.run_id,
-                "sessionId": context.session_id,
-                "phase": "awaiting_form",
-                "checkpoint": checkpoint,
-            }),
-        ),
-        event(
-            "agent.awaiting_form",
-            serde_json::json!({
-                "runId": context.run_id,
-                "sessionId": context.session_id,
-                "formId": form_id,
-                "detailId": format!("form:{form_id}"),
-                "status": "waiting",
-                "summary": string_field(&form, "title")
-                    .unwrap_or_else(|| "Form input required".to_string()),
-                "form": form,
-            }),
-        ),
-        event(
-            "agent.done",
-            serde_json::json!({
-                "runId": context.run_id,
-                "sessionId": context.session_id,
-                "stopReason": "awaiting_form",
-            }),
-        ),
-    ];
+    let runtime_events = waiting_runtime_events(
+        context,
+        AgentRuntimePhase::AwaitingForm,
+        "agent.awaiting_form",
+        vec![
+            (
+                "agent.checkpoint",
+                None,
+                AgentRuntimePhase::Planning,
+                serde_json::json!({
+                    "runId": context.run_id,
+                    "sessionId": context.session_id,
+                    "phase": "awaiting_form",
+                    "checkpoint": checkpoint.clone(),
+                }),
+            ),
+            (
+                "agent.awaiting_form",
+                Some(form_id.clone()),
+                AgentRuntimePhase::AwaitingForm,
+                serde_json::json!({
+                    "runId": context.run_id,
+                    "sessionId": context.session_id,
+                    "formId": form_id.clone(),
+                    "detailId": format!("form:{form_id}"),
+                    "status": "waiting",
+                    "summary": string_field(&form, "title")
+                        .unwrap_or_else(|| "Form input required".to_string()),
+                    "form": form,
+                }),
+            ),
+            (
+                "agent.done",
+                None,
+                AgentRuntimePhase::AwaitingForm,
+                serde_json::json!({
+                    "runId": context.run_id,
+                    "sessionId": context.session_id,
+                    "stopReason": "awaiting_form",
+                }),
+            ),
+        ],
+    );
+    let events = legacy_result_events_from_runtime_events(&runtime_events);
     Some(serde_json::json!({
         "runtime": "rust",
         "runId": context.run_id,
@@ -2757,6 +2795,7 @@ fn maybe_awaiting_form_result(
         "toolsUsed": [],
         "checkpoint": checkpoint,
         "events": events,
+        "runtimeEvents": runtime_events,
     }))
 }
 
@@ -3068,6 +3107,45 @@ fn cancelled_run_result(
     })
 }
 
+fn waiting_runtime_events(
+    context: &NativeAgentRunContext,
+    waiting_phase: AgentRuntimePhase,
+    trigger_event_name: &str,
+    events: Vec<(&'static str, Option<String>, AgentRuntimePhase, Value)>,
+) -> Vec<AgentRuntimeEventEnvelope> {
+    let mut emitter = AgentRunEmitter::new(&context.session_id, &context.run_id);
+    emitter.emit(AgentRuntimeEventAppendInput {
+        parent_turn_id: None,
+        item_id: None,
+        event_name: "agent.phase.changed".to_string(),
+        phase: waiting_phase.clone(),
+        timestamp: runtime_event_timestamp(),
+        source: AgentRuntimeEventSource::RustBackend,
+        visibility: AgentRuntimeEventVisibility::Debug,
+        payload: serde_json::json!({
+            "runId": context.run_id,
+            "sessionId": context.session_id,
+            "iteration": 0,
+            "previousPhase": "planning",
+            "nextPhase": waiting_phase.as_str(),
+            "triggerEventName": trigger_event_name,
+        }),
+    });
+    for (event_name, item_id, phase, payload) in events {
+        emitter.emit(AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id,
+            event_name: event_name.to_string(),
+            phase,
+            timestamp: runtime_event_timestamp(),
+            source: runtime_event_source(event_name),
+            visibility: runtime_event_visibility(event_name),
+            payload,
+        });
+    }
+    emitter.take_events()
+}
+
 fn event(event_name: &str, payload: Value) -> NativeAgentEvent {
     NativeAgentEvent {
         event_name: event_name.to_string(),
@@ -3281,31 +3359,39 @@ mod tests {
             result["runtimeEvents"][0]["schemaVersion"],
             "tinybot.agent_event.v1"
         );
+        let runtime_events = result["runtimeEvents"].as_array().unwrap();
         assert_eq!(
-            result["runtimeEvents"][0]["eventName"],
+            runtime_events[0]["payload"]["nextPhase"],
+            "hydrating_history"
+        );
+        assert_eq!(
+            runtime_events[1]["payload"]["nextPhase"],
+            "planning"
+        );
+        let turn_started = runtime_events
+            .iter()
+            .find(|event| event["eventName"] == "agent.turn.started")
+            .expect("turn started event should be present");
+        assert_eq!(
+            turn_started["eventName"],
             "agent.turn.started"
         );
         assert_eq!(
-            result["runtimeEvents"][0]["payload"]["userMessage"]["content"],
+            turn_started["payload"]["userMessage"]["content"],
             "hello"
         );
         assert_eq!(
-            result["runtimeEvents"][0]["payload"]["userMessageId"],
+            turn_started["payload"]["userMessageId"],
             "run-1:user"
         );
-        assert!(result["runtimeEvents"]
-            .as_array()
-            .unwrap()
+        assert!(runtime_events
             .iter()
             .any(|event| event["eventName"] == "agent.phase.changed"
                 && event["payload"]["previousPhase"] == "planning"
                 && event["payload"]["nextPhase"] == "calling_model"
                 && event["payload"]["triggerEventName"] == "provider_call"));
         assert_eq!(
-            result["runtimeEvents"]
-                .as_array()
-                .unwrap()
-                .iter()
+            runtime_events.iter()
                 .filter(|event| event["eventName"] == "agent.phase.changed"
                     && event["payload"]["nextPhase"] == "streaming_model")
                 .count(),
@@ -4668,6 +4754,22 @@ mod tests {
             2
         );
         assert!(event_names.contains(&"agent.delegate.wait"));
+        let runtime_events = result["runtimeEvents"]
+            .as_array()
+            .expect("runtime events should be present");
+        let awaiting_subagent_index = runtime_events
+            .iter()
+            .position(|event| {
+                event["eventName"] == "agent.phase.changed"
+                    && event["payload"]["nextPhase"] == "awaiting_subagent"
+                    && event["payload"]["triggerEventName"] == "agent.delegate.wait"
+            })
+            .expect("awaiting subagent phase should be emitted");
+        let delegate_wait_index = runtime_events
+            .iter()
+            .position(|event| event["eventName"] == "agent.delegate.wait")
+            .expect("delegate wait event should be emitted");
+        assert!(awaiting_subagent_index < delegate_wait_index);
         assert_eq!(event_names.last(), Some(&"agent.cancelled"));
         assert_eq!(result["checkpoint"]["phase"], "cancelled");
     }
@@ -4898,6 +5000,15 @@ mod tests {
             awaiting["events"][1]["eventName"],
             "agent.awaiting_approval"
         );
+        assert!(awaiting["runtimeEvents"].as_array().unwrap().iter().any(|event| {
+            event["eventName"] == "agent.phase.changed"
+                && event["payload"]["nextPhase"] == "awaiting_approval"
+                && event["payload"]["triggerEventName"] == "agent.awaiting_approval"
+        }));
+        assert!(awaiting["runtimeEvents"].as_array().unwrap().iter().any(|event| {
+            event["eventName"] == "agent.awaiting_approval"
+                && event["payload"]["approvalId"] == "approval-1"
+        }));
         assert_eq!(awaiting["events"][1]["payload"]["status"], "waiting");
         assert_eq!(
             awaiting["events"][1]["payload"]["detailId"],
@@ -5051,6 +5162,15 @@ mod tests {
             awaiting_form["events"][1]["eventName"],
             "agent.awaiting_form"
         );
+        assert!(awaiting_form["runtimeEvents"].as_array().unwrap().iter().any(|event| {
+            event["eventName"] == "agent.phase.changed"
+                && event["payload"]["nextPhase"] == "awaiting_form"
+                && event["payload"]["triggerEventName"] == "agent.awaiting_form"
+        }));
+        assert!(awaiting_form["runtimeEvents"].as_array().unwrap().iter().any(|event| {
+            event["eventName"] == "agent.awaiting_form"
+                && event["payload"]["formId"] == "form-1"
+        }));
         assert_eq!(awaiting_form["events"][1]["payload"]["status"], "waiting");
         assert_eq!(
             awaiting_form["events"][1]["payload"]["detailId"],
