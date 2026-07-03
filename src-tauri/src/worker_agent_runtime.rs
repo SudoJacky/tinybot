@@ -1438,6 +1438,9 @@ pub fn run_native_agent_turn_with_config(
                 {
                     state.events.push(link_event);
                 }
+                state.events.extend(subagent_activity_events_from_tool_result(
+                    &context, &tool_call, &result,
+                ));
                 state.completed_tool_results.push(completed_result);
                 state.clear_pending_tool_calls();
                 state.set_phase(AgentRuntimePhase::Planning, iteration);
@@ -1682,6 +1685,156 @@ fn subagent_link_event_from_tool_result(
             "sourceToolCallId": tool_call.id,
         }),
     ))
+}
+
+fn subagent_activity_events_from_tool_result(
+    context: &NativeAgentRunContext,
+    tool_call: &NativeAgentToolCall,
+    result: &NativeAgentToolResult,
+) -> Vec<NativeAgentEvent> {
+    if !is_subagent_tool(&tool_call.name) {
+        return Vec::new();
+    }
+    let Some(raw) = result.envelope.get("raw") else {
+        return Vec::new();
+    };
+    let mut events = Vec::new();
+    if let Some(background_event) = raw.get("event") {
+        if background_event
+            .get("eventType")
+            .and_then(Value::as_str)
+            != Some("agent.delegate.started")
+        {
+            if let Some(event) = subagent_background_activity_event(context, background_event) {
+                events.push(event);
+            }
+        }
+    }
+
+    match tool_call.name.as_str() {
+        "subagent.wait" | "wait_agent" => {
+            events.push(event(
+                "agent.delegate.wait",
+                serde_json::json!({
+                    "runId": context.run_id,
+                    "sessionId": context.session_id,
+                    "parentTurnId": context.run_id,
+                    "parentRunId": context.run_id,
+                    "timedOut": raw.get("timedOut").cloned().unwrap_or(Value::Null),
+                    "statuses": raw.get("statuses").cloned().unwrap_or_else(|| serde_json::json!([])),
+                    "sourceToolCallId": tool_call.id,
+                }),
+            ));
+            if let Some(statuses) = raw.get("statuses").and_then(Value::as_array) {
+                for status in statuses {
+                    if status.get("terminalResult").and_then(Value::as_str).is_some() {
+                        events.push(subagent_status_activity_event(
+                            context,
+                            "agent.delegate.result",
+                            "result",
+                            status,
+                            &tool_call.id,
+                        ));
+                    }
+                    if status.get("blockerSummary").and_then(Value::as_str).is_some()
+                        || status.get("pendingApproval").is_some_and(|value| !value.is_null())
+                    {
+                        events.push(subagent_status_activity_event(
+                            context,
+                            "agent.delegate.notification",
+                            "notification",
+                            status,
+                            &tool_call.id,
+                        ));
+                    }
+                }
+            }
+        }
+        "subagent.query" => {
+            if let Some(subagent) = raw.get("subagent") {
+                events.push(subagent_status_activity_event(
+                    context,
+                    "agent.delegate.queried",
+                    "query",
+                    subagent,
+                    &tool_call.id,
+                ));
+            }
+        }
+        _ => {}
+    }
+    events
+}
+
+fn subagent_background_activity_event(
+    context: &NativeAgentRunContext,
+    background_event: &Value,
+) -> Option<NativeAgentEvent> {
+    let event_name = string_field(background_event, "eventType")?;
+    let mut payload = background_event
+        .get("payload")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    payload.insert("runId".to_string(), Value::String(context.run_id.clone()));
+    payload.insert(
+        "sessionId".to_string(),
+        Value::String(context.session_id.clone()),
+    );
+    if let Some(parent_turn_id) = string_field(background_event, "turnId") {
+        payload.insert(
+            "parentTurnId".to_string(),
+            Value::String(parent_turn_id.clone()),
+        );
+        payload.insert("parentRunId".to_string(), Value::String(parent_turn_id));
+    }
+    if let Some(delegate_id) = string_field(background_event, "delegateId") {
+        payload.insert("delegateId".to_string(), Value::String(delegate_id.clone()));
+        payload.insert("subagentId".to_string(), Value::String(delegate_id));
+    }
+    if let Some(child_run_id) = string_field(background_event, "childRunId") {
+        payload.insert("childRunId".to_string(), Value::String(child_run_id));
+    }
+    if let Some(trace_ref) = string_field(background_event, "traceRef") {
+        payload.insert("traceRef".to_string(), Value::String(trace_ref));
+    }
+    if let Some(sequence) = background_event.get("sequence").cloned() {
+        payload.insert("delegateSequence".to_string(), sequence);
+    }
+    if let Some(event_id) = string_field(background_event, "eventId") {
+        payload.insert("delegateEventId".to_string(), Value::String(event_id));
+    }
+    Some(event(&event_name, Value::Object(payload)))
+}
+
+fn subagent_status_activity_event(
+    context: &NativeAgentRunContext,
+    event_name: &str,
+    activity: &str,
+    subagent: &Value,
+    source_tool_call_id: &str,
+) -> NativeAgentEvent {
+    event(
+        event_name,
+        serde_json::json!({
+            "runId": context.run_id,
+            "sessionId": context.session_id,
+            "parentTurnId": subagent.get("parentRunId").cloned().unwrap_or_else(|| Value::String(context.run_id.clone())),
+            "parentRunId": subagent.get("parentRunId").cloned().unwrap_or_else(|| Value::String(context.run_id.clone())),
+            "delegateId": subagent.get("subagentId").cloned().unwrap_or(Value::Null),
+            "subagentId": subagent.get("subagentId").cloned().unwrap_or(Value::Null),
+            "childRunId": subagent.get("childRunId").cloned().unwrap_or(Value::Null),
+            "traceRef": subagent.get("traceRef").cloned().unwrap_or(Value::Null),
+            "name": subagent.get("name").cloned().unwrap_or(Value::Null),
+            "task": subagent.get("task").cloned().unwrap_or(Value::Null),
+            "status": subagent.get("status").cloned().unwrap_or(Value::Null),
+            "terminalResult": subagent.get("terminalResult").cloned().unwrap_or(Value::Null),
+            "blockerSummary": subagent.get("blockerSummary").cloned().unwrap_or(Value::Null),
+            "pendingApproval": subagent.get("pendingApproval").cloned().unwrap_or(Value::Null),
+            "activity": activity,
+            "sourceToolCallId": source_tool_call_id,
+        }),
+    )
 }
 
 fn normalize_tool_result_for_context(
@@ -3199,7 +3352,7 @@ mod tests {
                 "runtime": "rust",
                 "runId": "run-subagent-tools",
                 "sessionId": "websocket:chat-subagent-tools",
-                "maxIterations": 5,
+                "maxIterations": 7,
                 "messages": [{ "role": "user", "content": "delegate then close" }]
             }),
             json!({
@@ -3226,9 +3379,25 @@ mod tests {
                             {
                                 "content": "",
                                 "toolCalls": [{
+                                    "id": "call-query",
+                                    "name": "subagent.query",
+                                    "argumentsJson": "{\"subagentId\":\"delegate-1\"}"
+                                }]
+                            },
+                            {
+                                "content": "",
+                                "toolCalls": [{
                                     "id": "call-wait",
                                     "name": "subagent.wait",
                                     "argumentsJson": "{\"subagentIds\":[\"delegate-1\"],\"timeoutMs\":1}"
+                                }]
+                            },
+                            {
+                                "content": "",
+                                "toolCalls": [{
+                                    "id": "call-cancel",
+                                    "name": "subagent.cancel",
+                                    "argumentsJson": "{\"subagentId\":\"delegate-1\"}"
                                 }]
                             },
                             {
@@ -3253,14 +3422,16 @@ mod tests {
             json!([
                 "subagent.spawn",
                 "subagent.send_input",
+                "subagent.query",
                 "subagent.wait",
+                "subagent.cancel",
                 "subagent.close"
             ])
         );
         let completed = result["completedToolResults"]
             .as_array()
             .expect("completed tool results should be present");
-        assert_eq!(completed.len(), 4);
+        assert_eq!(completed.len(), 6);
         assert_eq!(completed[0]["envelope"]["raw"]["accepted"], true);
         assert_eq!(
             completed[1]["envelope"]["raw"]["delivery"],
@@ -3270,11 +3441,22 @@ mod tests {
             completed[1]["envelope"]["raw"]["subagent"]["mailboxDepth"],
             1
         );
-        assert_eq!(completed[2]["envelope"]["raw"]["timedOut"], true);
+        assert_eq!(completed[2]["envelope"]["raw"]["found"], true);
+        assert_eq!(completed[3]["envelope"]["raw"]["timedOut"], true);
         assert_eq!(
-            completed[3]["envelope"]["raw"]["subagent"]["status"],
+            completed[4]["envelope"]["raw"]["subagent"]["status"],
+            "cancelled"
+        );
+        assert_eq!(
+            completed[5]["envelope"]["raw"]["subagent"]["status"],
             "closed"
         );
+        let event_names = event_names(&result);
+        assert!(event_names.contains(&"agent.delegate.message_queued"));
+        assert!(event_names.contains(&"agent.delegate.queried"));
+        assert!(event_names.contains(&"agent.delegate.wait"));
+        assert!(event_names.contains(&"agent.delegate.cancelled"));
+        assert!(event_names.contains(&"agent.delegate.closed"));
         let link_event = result["events"]
             .as_array()
             .expect("events should be present")
