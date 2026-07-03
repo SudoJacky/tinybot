@@ -51,7 +51,7 @@ impl AgentRuntimePhase {
             "agent.tool_call.delta" => Self::ToolCalling,
             "agent.tool.start" | "agent.tool.result" => Self::ToolRunning,
             "agent.awaiting_approval" | "agent.approval.decision" => Self::AwaitingApproval,
-            "agent.awaiting_form" => Self::AwaitingForm,
+            "agent.awaiting_form" | "agent.form.resolution" => Self::AwaitingForm,
             "agent.checkpoint" => Self::Planning,
             "agent.usage" => Self::CallingModel,
             "agent.done" => Self::Completed,
@@ -84,7 +84,7 @@ impl AgentTurnItemKind {
                 Some(Self::ToolCall)
             }
             "agent.awaiting_approval" | "agent.approval.decision" => Some(Self::ApprovalRequest),
-            "agent.awaiting_form" => Some(Self::FormRequest),
+            "agent.awaiting_form" | "agent.form.resolution" => Some(Self::FormRequest),
             "agent.error" | "agent.cancelled" | "agent.checkpoint" => Some(Self::SystemNotice),
             _ if event_name.starts_with("agent.delegate.") => Some(Self::SubagentActivity),
             _ => None,
@@ -404,7 +404,7 @@ fn projected_item_id(event: &AgentRuntimeEventEnvelope, kind: &AgentTurnItemKind
 
 fn projected_item_status(event: &AgentRuntimeEventEnvelope) -> AgentTurnItemStatus {
     match event.event_name.as_str() {
-        "agent.done" | "agent.tool.result" | "agent.approval.decision" => {
+        "agent.done" | "agent.tool.result" | "agent.approval.decision" | "agent.form.resolution" => {
             AgentTurnItemStatus::Completed
         }
         "agent.error" => AgentTurnItemStatus::Failed,
@@ -446,6 +446,9 @@ fn projected_item_payload(
         "agent.tool.start" | "agent.tool.result" => projected_tool_payload(existing_payload, event),
         "agent.awaiting_approval" | "agent.approval.decision" => {
             projected_approval_payload(existing_payload, event)
+        }
+        "agent.awaiting_form" | "agent.form.resolution" => {
+            projected_form_payload(existing_payload, event)
         }
         _ => event.payload.clone(),
     }
@@ -550,6 +553,10 @@ fn projected_item_title(
         return string_field_any(payload, &["summary", "content", "reason"])
             .or_else(|| existing_item.and_then(|item| item.title.clone()));
     }
+    if *kind == AgentTurnItemKind::FormRequest {
+        return string_field_any(payload, &["title", "summary", "content"])
+            .or_else(|| existing_item.and_then(|item| item.title.clone()));
+    }
     existing_item.and_then(|item| item.title.clone())
 }
 
@@ -564,6 +571,10 @@ fn projected_item_summary(
     }
     if *kind == AgentTurnItemKind::ApprovalRequest {
         return string_field_any(payload, &["summary", "content", "reason"])
+            .or_else(|| existing_item.and_then(|item| item.summary.clone()));
+    }
+    if *kind == AgentTurnItemKind::FormRequest {
+        return string_field_any(payload, &["summary", "title", "content"])
             .or_else(|| existing_item.and_then(|item| item.summary.clone()));
     }
     existing_item.and_then(|item| item.summary.clone())
@@ -620,6 +631,61 @@ fn projected_approval_payload(
 
     if let Some(summary) = string_from_map(&payload, &["summary", "content", "reason"]) {
         payload.insert("summary".to_string(), Value::String(summary));
+    }
+
+    Value::Object(payload)
+}
+
+fn projected_form_payload(
+    existing_payload: Option<&Value>,
+    event: &AgentRuntimeEventEnvelope,
+) -> Value {
+    let mut payload = existing_payload
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    if let Some(event_payload) = event.payload.as_object() {
+        for (key, value) in event_payload {
+            payload.insert(key.clone(), value.clone());
+        }
+    }
+
+    let form_id =
+        string_from_map(&payload, &["formId", "form_id"]).or_else(|| event.item_id.clone());
+    if let Some(form_id) = form_id.clone() {
+        payload
+            .entry("formId".to_string())
+            .or_insert_with(|| Value::String(form_id.clone()));
+        payload
+            .entry("detailId".to_string())
+            .or_insert_with(|| Value::String(format!("form:{form_id}")));
+    }
+
+    if event.event_name == "agent.form.resolution" {
+        payload.insert("status".to_string(), Value::String("completed".to_string()));
+        payload
+            .entry("resolvedAt".to_string())
+            .or_insert_with(|| Value::String(event.timestamp.clone()));
+    } else {
+        payload.insert("status".to_string(), Value::String("waiting".to_string()));
+        payload
+            .entry("requestedAt".to_string())
+            .or_insert_with(|| Value::String(event.timestamp.clone()));
+    }
+
+    let form_title = payload
+        .get("form")
+        .and_then(Value::as_object)
+        .and_then(|form| form.get("title"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    if let Some(title) = form_title {
+        payload
+            .entry("title".to_string())
+            .or_insert_with(|| Value::String(title.clone()));
+        payload
+            .entry("summary".to_string())
+            .or_insert_with(|| Value::String(title));
     }
 
     Value::Object(payload)
@@ -1011,6 +1077,50 @@ mod tests {
         assert_eq!(items[0].payload["guidance"], "Do not write files.");
         assert_eq!(items[0].payload["detailId"], "approval:approval-1");
         assert_eq!(items[0].payload["options"].as_array().map(Vec::len), Some(3));
+        assert_eq!(items[0].created_at, "2026-07-03T00:00:01Z");
+        assert_eq!(items[0].updated_at.as_deref(), Some("2026-07-03T00:00:02Z"));
+    }
+
+    #[test]
+    fn trace_projection_combines_form_request_and_resolution() {
+        let mut appender = AgentRuntimeEventAppender::new("session-1", "turn-1");
+        let events = vec![
+            appender.append_legacy_native_event(
+                "agent.awaiting_form",
+                Some("form-1".to_string()),
+                "2026-07-03T00:00:01Z",
+                json!({
+                    "formId": "form-1",
+                    "form": {
+                        "title": "Configure run",
+                        "fields": [{ "name": "destination", "required": true }]
+                    }
+                }),
+            ),
+            appender.append_legacy_native_event(
+                "agent.form.resolution",
+                Some("form-1".to_string()),
+                "2026-07-03T00:00:02Z",
+                json!({
+                    "formId": "form-1",
+                    "action": "submit",
+                    "values": { "destination": "Paris" }
+                }),
+            ),
+        ];
+
+        let items = project_turn_items_from_trace_events(&events);
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].item_id, "form-1");
+        assert_eq!(items[0].kind, AgentTurnItemKind::FormRequest);
+        assert_eq!(items[0].status, AgentTurnItemStatus::Completed);
+        assert_eq!(items[0].title.as_deref(), Some("Configure run"));
+        assert_eq!(items[0].summary.as_deref(), Some("Configure run"));
+        assert_eq!(items[0].payload["status"], "completed");
+        assert_eq!(items[0].payload["action"], "submit");
+        assert_eq!(items[0].payload["values"]["destination"], "Paris");
+        assert_eq!(items[0].payload["detailId"], "form:form-1");
         assert_eq!(items[0].created_at, "2026-07-03T00:00:01Z");
         assert_eq!(items[0].updated_at.as_deref(), Some("2026-07-03T00:00:02Z"));
     }

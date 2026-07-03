@@ -2190,6 +2190,10 @@ fn maybe_awaiting_form_result(
                 "runId": context.run_id,
                 "sessionId": context.session_id,
                 "formId": form_id,
+                "detailId": format!("form:{form_id}"),
+                "status": "waiting",
+                "summary": string_field(&form, "title")
+                    .unwrap_or_else(|| "Form input required".to_string()),
                 "form": form,
             }),
         ),
@@ -2224,12 +2228,31 @@ fn maybe_form_submit_result(
         services
             .checkpoints
             .clear_for_run(&context.session_id, &context.run_id);
-        return Some(error_result(
-            &context.run_id,
-            &context.session_id,
-            "form_cancelled",
-            "Rust agent form was cancelled.",
-        ));
+        let message = "Rust agent form was cancelled.";
+        let events = vec![
+            form_resolution_event(context, &continuation),
+            event(
+                "agent.error",
+                serde_json::json!({
+                    "runId": context.run_id,
+                    "sessionId": context.session_id,
+                    "stopReason": "form_cancelled",
+                    "message": message,
+                    "error": message,
+                }),
+            ),
+        ];
+        return Some(serde_json::json!({
+            "runtime": "rust",
+            "runId": context.run_id,
+            "sessionId": context.session_id,
+            "finalContent": "",
+            "stopReason": "form_cancelled",
+            "messages": [],
+            "toolsUsed": [],
+            "error": message,
+            "events": events,
+        }));
     }
     let checkpoint = services
         .checkpoints
@@ -2241,6 +2264,7 @@ fn maybe_form_submit_result(
         .or_else(|| string_field(&form, "final_content"))
         .unwrap_or_else(|| "Form submitted.".to_string());
     let events = vec![
+        form_resolution_event(context, &continuation),
         event(
             "agent.delta",
             serde_json::json!({
@@ -2278,6 +2302,27 @@ fn maybe_form_submit_result(
         },
         "events": events,
     }))
+}
+
+fn form_resolution_event(
+    context: &NativeAgentRunContext,
+    continuation: &FormContinuationData,
+) -> NativeAgentEvent {
+    event(
+        "agent.form.resolution",
+        serde_json::json!({
+            "runId": context.run_id,
+            "sessionId": context.session_id,
+            "formId": continuation.form_id,
+            "detailId": format!("form:{}", continuation.form_id),
+            "status": "completed",
+            "action": match continuation.action {
+                AgentFormAction::Submit => "submit",
+                AgentFormAction::Cancel => "cancel",
+            },
+            "values": continuation.values.clone(),
+        }),
+    )
 }
 
 #[derive(Clone, Debug)]
@@ -3879,6 +3924,21 @@ mod tests {
             }),
         )
         .expect("form submit should complete");
+        let form_cancelled = run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-form-cancelled",
+                "sessionId": "websocket:chat-form-cancelled",
+                "metadata": {
+                    "fakeFormSubmit": {
+                        "formId": "form-cancelled",
+                        "cancelled": true
+                    }
+                }
+            }),
+        )
+        .expect("form cancellation should return error compatibility result");
         let cancelled = services.cancel("run-cancel");
         let cancel_result = run_native_agent_turn_with_services(
             &services,
@@ -3896,6 +3956,15 @@ mod tests {
         assert_eq!(
             awaiting_form["events"][1]["eventName"],
             "agent.awaiting_form"
+        );
+        assert_eq!(awaiting_form["events"][1]["payload"]["status"], "waiting");
+        assert_eq!(
+            awaiting_form["events"][1]["payload"]["detailId"],
+            "form:form-1"
+        );
+        assert_eq!(
+            awaiting_form["events"][1]["payload"]["summary"],
+            "Configure run"
         );
         assert_eq!(awaiting_form["checkpoint"]["schemaVersion"], 1);
         assert_eq!(awaiting_form["checkpoint"]["runId"], "run-form");
@@ -3916,6 +3985,21 @@ mod tests {
             .is_empty());
         assert_eq!(awaiting_form["checkpoint"]["resumeToken"], "form:form-1");
         assert_eq!(submitted["finalContent"], "Form values accepted.");
+        assert_eq!(submitted["events"][0]["eventName"], "agent.form.resolution");
+        assert_eq!(submitted["events"][0]["payload"]["status"], "completed");
+        assert_eq!(submitted["events"][0]["payload"]["action"], "submit");
+        assert_eq!(submitted["events"][0]["payload"]["detailId"], "form:form-1");
+        assert_eq!(form_cancelled["stopReason"], "form_cancelled");
+        assert_eq!(
+            form_cancelled["events"][0]["eventName"],
+            "agent.form.resolution"
+        );
+        assert_eq!(form_cancelled["events"][0]["payload"]["action"], "cancel");
+        assert_eq!(
+            form_cancelled["events"][0]["payload"]["detailId"],
+            "form:form-cancelled"
+        );
+        assert_eq!(form_cancelled["events"][1]["eventName"], "agent.error");
         assert_eq!(cancelled["stopReason"], "cancelled");
         assert_eq!(cancelled["error"], "cancelled");
         assert_eq!(cancelled["events"][0]["eventName"], "agent.cancelled");
@@ -4014,6 +4098,10 @@ mod tests {
         assert_eq!(form["continuation"]["action"], "submit");
         assert_eq!(form["continuation"]["values"]["destination"], "Tokyo");
         assert_eq!(form["restoredCheckpoint"]["phase"], "awaiting_form");
+        assert_eq!(form["events"][0]["eventName"], "agent.form.resolution");
+        assert_eq!(form["events"][0]["payload"]["status"], "completed");
+        assert_eq!(form["events"][0]["payload"]["action"], "submit");
+        assert_eq!(form["events"][0]["payload"]["values"]["destination"], "Tokyo");
         assert!(services.restore_checkpoint("websocket:chat-typed-form")["checkpoint"].is_null());
     }
 
