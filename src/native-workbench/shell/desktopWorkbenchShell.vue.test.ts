@@ -442,9 +442,6 @@ describe("desktop workbench shell Vue integration", () => {
       },
       gatewayHttp: "http://127.0.0.1:18790",
     });
-    document.querySelector(".desktop-chat-surface")?.addEventListener("desktop-chat-message-submit", (event) => {
-      submissions.push((event as CustomEvent).detail);
-    });
     await nextTick();
 
     expect(Array.from(document.querySelectorAll(".desktop-chat-surface__session-row")).map((row) => row.getAttribute("data-session-key"))).toEqual([
