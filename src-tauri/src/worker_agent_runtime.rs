@@ -25,6 +25,10 @@ pub enum NativeAgentRuntimeMode {
     Rust,
 }
 
+const TEST_COMPAT_FAKE_AWAITING_APPROVAL: &str = "fakeAwaitingApproval";
+const TEST_COMPAT_FAKE_AWAITING_FORM: &str = "fakeAwaitingForm";
+const TEST_COMPAT_FAKE_CHECKPOINT: &str = "fakeCheckpoint";
+
 #[derive(Clone)]
 pub struct NativeAgentCancellationContext {
     run_id: String,
@@ -1516,7 +1520,11 @@ pub fn run_native_agent_turn_with_config(
                     }));
                 }
                 if services.cancellations.is_cancelled(&context.run_id) {
-                    state.transition_phase(AgentRuntimePhase::Cancelled, iteration, "agent.cancelled");
+                    state.transition_phase(
+                        AgentRuntimePhase::Cancelled,
+                        iteration,
+                        "agent.cancelled",
+                    );
                     return Ok(cancelled_run_result(
                         services,
                         &context,
@@ -1527,7 +1535,11 @@ pub fn run_native_agent_turn_with_config(
                     ));
                 }
                 state.tools_used.push(tool_call.name.clone());
-                state.transition_phase(AgentRuntimePhase::ToolRunning, iteration, "agent.tool.start");
+                state.transition_phase(
+                    AgentRuntimePhase::ToolRunning,
+                    iteration,
+                    "agent.tool.start",
+                );
                 state.emit_event(
                     "agent.tool.start",
                     serde_json::json!({
@@ -1650,7 +1662,11 @@ pub fn run_native_agent_turn_with_config(
                     state.active_checkpoint_payload("tool_completed"),
                 );
                 if services.cancellations.is_cancelled(&context.run_id) {
-                    state.transition_phase(AgentRuntimePhase::Cancelled, iteration, "agent.cancelled");
+                    state.transition_phase(
+                        AgentRuntimePhase::Cancelled,
+                        iteration,
+                        "agent.cancelled",
+                    );
                     return Ok(cancelled_run_result(
                         services,
                         &context,
@@ -1702,7 +1718,11 @@ pub fn run_native_agent_turn_with_config(
                 }),
             );
         }
-        state.transition_phase(AgentRuntimePhase::Finalizing, iteration, "agent.message.completed");
+        state.transition_phase(
+            AgentRuntimePhase::Finalizing,
+            iteration,
+            "agent.message.completed",
+        );
         services
             .checkpoints
             .clear_for_run(&context.session_id, &context.run_id);
@@ -2308,7 +2328,9 @@ fn maybe_awaiting_approval_result(
     services: &NativeAgentRuntimeServices,
     context: &NativeAgentRunContext,
 ) -> Option<Value> {
-    let approval = context.metadata.get("fakeAwaitingApproval")?.clone();
+    let approval =
+        test_compat_runtime_metadata(&context.metadata, TEST_COMPAT_FAKE_AWAITING_APPROVAL)?
+            .clone();
     let approval_id = string_field(&approval, "approvalId")
         .or_else(|| string_field(&approval, "approval_id"))
         .unwrap_or_else(|| "approval-1".to_string());
@@ -2755,7 +2777,8 @@ fn maybe_awaiting_form_result(
     services: &NativeAgentRuntimeServices,
     context: &NativeAgentRunContext,
 ) -> Option<Value> {
-    let form = context.metadata.get("fakeAwaitingForm")?.clone();
+    let form =
+        test_compat_runtime_metadata(&context.metadata, TEST_COMPAT_FAKE_AWAITING_FORM)?.clone();
     let form_id = string_field(&form, "formId")
         .or_else(|| string_field(&form, "form_id"))
         .unwrap_or_else(|| "form-1".to_string());
@@ -2981,7 +3004,9 @@ fn maybe_emit_checkpoint(
     state: &mut NativeAgentRunState,
     default_phase: &str,
 ) {
-    let Some(checkpoint_metadata) = context.metadata.get("fakeCheckpoint") else {
+    let Some(checkpoint_metadata) =
+        test_compat_runtime_metadata(&context.metadata, TEST_COMPAT_FAKE_CHECKPOINT)
+    else {
         return;
     };
     let phase =
@@ -2999,6 +3024,12 @@ fn maybe_emit_checkpoint(
             "checkpoint": checkpoint,
         }),
     );
+}
+
+fn test_compat_runtime_metadata<'a>(metadata: &'a Value, key: &str) -> Option<&'a Value> {
+    // Compatibility fixture hooks only. Normal runtime control should use typed
+    // continuations, checkpoints, provider responses, or tool/subagent results.
+    metadata.get(key)
 }
 
 fn checkpoint_value(context: &NativeAgentRunContext, phase: &str, payload: Value) -> Value {
@@ -3469,26 +3500,14 @@ mod tests {
             runtime_events[0]["payload"]["nextPhase"],
             "hydrating_history"
         );
-        assert_eq!(
-            runtime_events[1]["payload"]["nextPhase"],
-            "planning"
-        );
+        assert_eq!(runtime_events[1]["payload"]["nextPhase"], "planning");
         let turn_started = runtime_events
             .iter()
             .find(|event| event["eventName"] == "agent.turn.started")
             .expect("turn started event should be present");
-        assert_eq!(
-            turn_started["eventName"],
-            "agent.turn.started"
-        );
-        assert_eq!(
-            turn_started["payload"]["userMessage"]["content"],
-            "hello"
-        );
-        assert_eq!(
-            turn_started["payload"]["userMessageId"],
-            "run-1:user"
-        );
+        assert_eq!(turn_started["eventName"], "agent.turn.started");
+        assert_eq!(turn_started["payload"]["userMessage"]["content"], "hello");
+        assert_eq!(turn_started["payload"]["userMessageId"], "run-1:user");
         assert!(runtime_events
             .iter()
             .any(|event| event["eventName"] == "agent.phase.changed"
@@ -3496,7 +3515,8 @@ mod tests {
                 && event["payload"]["nextPhase"] == "calling_model"
                 && event["payload"]["triggerEventName"] == "provider_call"));
         assert_eq!(
-            runtime_events.iter()
+            runtime_events
+                .iter()
                 .filter(|event| event["eventName"] == "agent.phase.changed"
                     && event["payload"]["nextPhase"] == "streaming_model")
                 .count(),
@@ -3553,11 +3573,15 @@ mod tests {
         assert!(runtime_event_names
             .windows(2)
             .any(|pair| pair == ["agent.phase.changed", "agent.tool_call.delta"]));
-        assert!(result["runtimeEvents"].as_array().unwrap().iter().any(|event| {
-            event["eventName"] == "agent.phase.changed"
-                && event["payload"]["nextPhase"] == "tool_running"
-                && event["payload"]["triggerEventName"] == "agent.tool.start"
-        }));
+        assert!(result["runtimeEvents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| {
+                event["eventName"] == "agent.phase.changed"
+                    && event["payload"]["nextPhase"] == "tool_running"
+                    && event["payload"]["triggerEventName"] == "agent.tool.start"
+            }));
         assert_eq!(
             &event_names[..3],
             &[
@@ -4497,11 +4521,15 @@ mod tests {
             event_names(&result),
             vec!["agent.tool_call.delta", "agent.cancelled"]
         );
-        assert!(result["runtimeEvents"].as_array().unwrap().iter().any(|event| {
-            event["eventName"] == "agent.phase.changed"
-                && event["payload"]["nextPhase"] == "cancelled"
-                && event["payload"]["triggerEventName"] == "agent.cancelled"
-        }));
+        assert!(result["runtimeEvents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| {
+                event["eventName"] == "agent.phase.changed"
+                    && event["payload"]["nextPhase"] == "cancelled"
+                    && event["payload"]["triggerEventName"] == "agent.cancelled"
+            }));
         assert_eq!(result["checkpoint"]["phase"], "cancelled");
         assert_eq!(result["checkpoint"]["iteration"], 0);
     }
@@ -5105,15 +5133,23 @@ mod tests {
             awaiting["events"][1]["eventName"],
             "agent.awaiting_approval"
         );
-        assert!(awaiting["runtimeEvents"].as_array().unwrap().iter().any(|event| {
-            event["eventName"] == "agent.phase.changed"
-                && event["payload"]["nextPhase"] == "awaiting_approval"
-                && event["payload"]["triggerEventName"] == "agent.awaiting_approval"
-        }));
-        assert!(awaiting["runtimeEvents"].as_array().unwrap().iter().any(|event| {
-            event["eventName"] == "agent.awaiting_approval"
-                && event["payload"]["approvalId"] == "approval-1"
-        }));
+        assert!(awaiting["runtimeEvents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| {
+                event["eventName"] == "agent.phase.changed"
+                    && event["payload"]["nextPhase"] == "awaiting_approval"
+                    && event["payload"]["triggerEventName"] == "agent.awaiting_approval"
+            }));
+        assert!(awaiting["runtimeEvents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| {
+                event["eventName"] == "agent.awaiting_approval"
+                    && event["payload"]["approvalId"] == "approval-1"
+            }));
         assert_eq!(awaiting["events"][1]["payload"]["status"], "waiting");
         assert_eq!(
             awaiting["events"][1]["payload"]["detailId"],
@@ -5267,15 +5303,23 @@ mod tests {
             awaiting_form["events"][1]["eventName"],
             "agent.awaiting_form"
         );
-        assert!(awaiting_form["runtimeEvents"].as_array().unwrap().iter().any(|event| {
-            event["eventName"] == "agent.phase.changed"
-                && event["payload"]["nextPhase"] == "awaiting_form"
-                && event["payload"]["triggerEventName"] == "agent.awaiting_form"
-        }));
-        assert!(awaiting_form["runtimeEvents"].as_array().unwrap().iter().any(|event| {
-            event["eventName"] == "agent.awaiting_form"
-                && event["payload"]["formId"] == "form-1"
-        }));
+        assert!(awaiting_form["runtimeEvents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| {
+                event["eventName"] == "agent.phase.changed"
+                    && event["payload"]["nextPhase"] == "awaiting_form"
+                    && event["payload"]["triggerEventName"] == "agent.awaiting_form"
+            }));
+        assert!(awaiting_form["runtimeEvents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| {
+                event["eventName"] == "agent.awaiting_form"
+                    && event["payload"]["formId"] == "form-1"
+            }));
         assert_eq!(awaiting_form["events"][1]["payload"]["status"], "waiting");
         assert_eq!(
             awaiting_form["events"][1]["payload"]["detailId"],

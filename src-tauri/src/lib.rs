@@ -45,6 +45,10 @@ pub mod worker_subagent_manager;
 pub mod worker_task;
 pub mod worker_workspace;
 
+use crate::agent_loop_runtime_protocol::{
+    AgentRuntimeEventAppendInput, AgentRuntimeEventAppender, AgentRuntimeEventEnvelope,
+    AgentRuntimeEventSource, AgentRuntimeEventVisibility, AgentRuntimePhase,
+};
 use crate::config_store::{
     ConfigEditorSnapshot, ConfigOperationRequest, ConfigPatchApplyResult, ConfigPatchBridgeResult,
     ConfigStore,
@@ -61,10 +65,6 @@ use crate::desktop_gateway::{
 use crate::desktop_logging::append_native_backend_log_line;
 use crate::desktop_menu::{
     install_desktop_application_menu, is_desktop_menu_command, DesktopMenuCommandPayload,
-};
-use crate::agent_loop_runtime_protocol::{
-    AgentRuntimeEventAppendInput, AgentRuntimeEventAppender, AgentRuntimeEventEnvelope,
-    AgentRuntimeEventSource, AgentRuntimeEventVisibility, AgentRuntimePhase,
 };
 use crate::native_backend_contract::{
     webui_route_inventory_entry, NativeCompatibilityFallbackDiagnostic,
@@ -1998,7 +1998,10 @@ fn native_agent_runtime_trace_events(
                 timestamp,
                 event_name,
             );
-            let payload = event.get("payload").cloned().unwrap_or(serde_json::Value::Null);
+            let payload = event
+                .get("payload")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
             trace_events.push(native_agent_persisted_runtime_event(
                 appender.append_legacy_native_event(
                     event_name,
@@ -2043,9 +2046,7 @@ fn native_agent_push_phase_transition(
     *current_phase = next_phase;
 }
 
-fn native_agent_persisted_runtime_event(
-    event: AgentRuntimeEventEnvelope,
-) -> serde_json::Value {
+fn native_agent_persisted_runtime_event(event: AgentRuntimeEventEnvelope) -> serde_json::Value {
     let value = serde_json::to_value(event).unwrap_or_else(|error| {
         serde_json::json!({
             "schemaVersion": crate::agent_loop_runtime_protocol::AGENT_RUNTIME_EVENT_SCHEMA_VERSION,
@@ -2059,18 +2060,16 @@ fn native_agent_persisted_runtime_event(
 }
 
 fn native_agent_trace_event_item_id(event: &serde_json::Value) -> Option<String> {
-    event
-        .get("payload")
-        .and_then(|payload| {
-            native_agent_string_field(payload, "toolCallId")
-                .or_else(|| native_agent_string_field(payload, "tool_call_id"))
-                .or_else(|| native_agent_string_field(payload, "approvalId"))
-                .or_else(|| native_agent_string_field(payload, "approval_id"))
-                .or_else(|| native_agent_string_field(payload, "formId"))
-                .or_else(|| native_agent_string_field(payload, "form_id"))
-                .or_else(|| native_agent_string_field(payload, "delegateId"))
-                .or_else(|| native_agent_string_field(payload, "delegate_id"))
-        })
+    event.get("payload").and_then(|payload| {
+        native_agent_string_field(payload, "toolCallId")
+            .or_else(|| native_agent_string_field(payload, "tool_call_id"))
+            .or_else(|| native_agent_string_field(payload, "approvalId"))
+            .or_else(|| native_agent_string_field(payload, "approval_id"))
+            .or_else(|| native_agent_string_field(payload, "formId"))
+            .or_else(|| native_agent_string_field(payload, "form_id"))
+            .or_else(|| native_agent_string_field(payload, "delegateId"))
+            .or_else(|| native_agent_string_field(payload, "delegate_id"))
+    })
 }
 
 fn native_agent_persisted_trace_values(values: &[serde_json::Value]) -> Vec<serde_json::Value> {
@@ -6783,7 +6782,10 @@ mod tests {
             .expect("recall provider calls lock should not be poisoned");
         let recall_messages = calls.get(2).expect("third provider call should exist");
 
-        assert_eq!(recalled["finalContent"], "You previously said apple and banana.");
+        assert_eq!(
+            recalled["finalContent"],
+            "You previously said apple and banana."
+        );
         assert_eq!(recall_messages.len(), 5);
         assert_eq!(recall_messages[0]["content"], "I said apple");
         assert_eq!(recall_messages[1]["content"], "stored apple");
@@ -6951,10 +6953,7 @@ mod tests {
             .iter()
             .find(|event| event["eventName"] == "agent.turn.started")
             .expect("turn started trace event should persist");
-        assert_eq!(
-            turn_started["payload"]["userMessageId"],
-            "user-read-answer"
-        );
+        assert_eq!(turn_started["payload"]["userMessageId"], "user-read-answer");
         assert_eq!(
             turn_started["payload"]["userMessage"]["content"],
             "read and answer"
@@ -6977,7 +6976,9 @@ mod tests {
         assert_eq!(tool_result["schemaVersion"], "tinybot.agent_event.v1");
         assert_eq!(tool_result["itemId"], "call-run-trace");
         assert_eq!(tool_result["phase"], "tool_running");
-        assert!(tool_result["sequence"].as_u64().is_some_and(|value| value > 1));
+        assert!(tool_result["sequence"]
+            .as_u64()
+            .is_some_and(|value| value > 1));
         assert!(trace_events.iter().any(|event| {
             event["eventName"] == "agent.phase.changed"
                 && event["payload"]["nextPhase"] == "finalizing"
@@ -7048,10 +7049,8 @@ mod tests {
         });
         persist_native_agent_run_start(spec, fixture.root.clone(), config.clone())
             .expect("run start should persist");
-        let mut emitter = crate::agent_loop_runtime_protocol::AgentRunEmitter::new(
-            session_id,
-            run_id,
-        );
+        let mut emitter =
+            crate::agent_loop_runtime_protocol::AgentRunEmitter::new(session_id, run_id);
         let event = emitter.awaiting_approval(
             "unix-ms:1",
             "approval-trace-sink",
@@ -7774,10 +7773,7 @@ mod tests {
         );
         assert_eq!(approval_resolution["body"]["ok"], true);
         assert_eq!(approval_resolution["body"]["status"], "denied");
-        assert_eq!(
-            approval_resolution["body"]["stopReason"],
-            "provider_error"
-        );
+        assert_eq!(approval_resolution["body"]["stopReason"], "provider_error");
         assert!(approval_resolution["body"]["error"]
             .as_str()
             .unwrap_or_default()
