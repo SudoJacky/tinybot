@@ -1433,6 +1433,11 @@ pub fn run_native_agent_turn_with_config(
                         "envelope": result.envelope.clone(),
                     }),
                 ));
+                if let Some(link_event) =
+                    subagent_link_event_from_tool_result(&context, &tool_call, &result)
+                {
+                    state.events.push(link_event);
+                }
                 state.completed_tool_results.push(completed_result);
                 state.clear_pending_tool_calls();
                 state.set_phase(AgentRuntimePhase::Planning, iteration);
@@ -1639,6 +1644,44 @@ fn tool_observation_content(result: &NativeAgentToolResult) -> String {
         return content.to_string();
     }
     legacy_tool_content(&result.content)
+}
+
+fn subagent_link_event_from_tool_result(
+    context: &NativeAgentRunContext,
+    tool_call: &NativeAgentToolCall,
+    result: &NativeAgentToolResult,
+) -> Option<NativeAgentEvent> {
+    if !matches!(tool_call.name.as_str(), "subagent.spawn" | "spawn_agent") {
+        return None;
+    }
+    let raw = result.envelope.get("raw")?;
+    if raw.get("accepted").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
+    let subagent = raw.get("subagent")?;
+    let subagent_id = string_field(subagent, "subagentId")
+        .or_else(|| raw.get("event").and_then(|event| string_field(event, "delegateId")))?;
+    let child_run_id = string_field(subagent, "childRunId")
+        .or_else(|| raw.get("event").and_then(|event| string_field(event, "childRunId")))
+        .unwrap_or_else(|| subagent_id.clone());
+    Some(event(
+        "agent.delegate.linked",
+        serde_json::json!({
+            "runId": context.run_id,
+            "sessionId": context.session_id,
+            "parentTurnId": context.run_id,
+            "parentRunId": context.run_id,
+            "delegateId": subagent_id,
+            "subagentId": subagent_id,
+            "childRunId": child_run_id,
+            "traceRef": subagent.get("traceRef").cloned().unwrap_or(Value::Null),
+            "name": subagent.get("name").cloned().unwrap_or(Value::Null),
+            "task": subagent.get("task").cloned().unwrap_or(Value::Null),
+            "status": subagent.get("status").cloned().unwrap_or(Value::Null),
+            "linkType": "parent_child",
+            "sourceToolCallId": tool_call.id,
+        }),
+    ))
 }
 
 fn normalize_tool_result_for_context(
@@ -3232,6 +3275,18 @@ mod tests {
             completed[3]["envelope"]["raw"]["subagent"]["status"],
             "closed"
         );
+        let link_event = result["events"]
+            .as_array()
+            .expect("events should be present")
+            .iter()
+            .find(|event| event["eventName"] == "agent.delegate.linked")
+            .expect("subagent spawn should emit a parent-child link event");
+        assert_eq!(link_event["payload"]["parentTurnId"], "run-subagent-tools");
+        assert_eq!(link_event["payload"]["delegateId"], "delegate-1");
+        assert_eq!(link_event["payload"]["subagentId"], "delegate-1");
+        assert_eq!(link_event["payload"]["childRunId"], "child-1");
+        assert_eq!(link_event["payload"]["traceRef"], "trace-delegate-1");
+        assert_eq!(link_event["payload"]["sourceToolCallId"], "call-spawn");
         assert_eq!(
             result["messages"],
             json!([{ "role": "assistant", "content": "Subagent lifecycle handled." }])

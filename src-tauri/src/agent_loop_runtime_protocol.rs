@@ -52,6 +52,7 @@ impl AgentRuntimePhase {
             "agent.tool.start" | "agent.tool.result" => Self::ToolRunning,
             "agent.awaiting_approval" | "agent.approval.decision" => Self::AwaitingApproval,
             "agent.awaiting_form" | "agent.form.resolution" => Self::AwaitingForm,
+            event_name if event_name.starts_with("agent.delegate.") => Self::AwaitingSubagent,
             "agent.checkpoint" => Self::Planning,
             "agent.usage" => Self::CallingModel,
             "agent.done" => Self::Completed,
@@ -883,6 +884,10 @@ mod tests {
         assert_eq!(
             AgentTurnItemKind::for_legacy_event("agent.delegate.completed"),
             Some(AgentTurnItemKind::SubagentActivity)
+        );
+        assert_eq!(
+            AgentRuntimePhase::for_legacy_event("agent.delegate.linked"),
+            AgentRuntimePhase::AwaitingSubagent
         );
     }
 
