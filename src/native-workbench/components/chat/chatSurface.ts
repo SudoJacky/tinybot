@@ -694,7 +694,6 @@ function renderHeader(title: string, pinned: boolean, actions: ChatSurfaceAction
   const header = element("header", "desktop-chat-surface__header");
   header.setAttribute("data-chat-region", "chat-header");
   const heading = element("h2", "desktop-chat-surface__title", title);
-  const summary = element("div", "desktop-chat-surface__runtime", "Agent · rust");
   const menu = element("div", "desktop-chat-surface__header-actions");
   for (const { action, label, title: actionTitle } of [
     { action: pinned ? "unpin" : "pin", label: pinned ? "Unpin" : "Pin", title: pinned ? "Unpin session" : "Pin session" },
@@ -710,7 +709,7 @@ function renderHeader(title: string, pinned: boolean, actions: ChatSurfaceAction
     button.addEventListener("click", () => actions.sessionAction(action));
     menu.append(button);
   }
-  header.append(heading, summary, menu);
+  header.append(heading, menu);
   return header;
 }
 

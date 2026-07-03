@@ -10277,7 +10277,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-chat-surface__header {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto auto;
+      grid-template-columns: minmax(0, 1fr) auto;
       align-items: center;
       gap: 14px;
       min-height: 62px;
@@ -10292,11 +10292,6 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       font: 700 16px/1.3 var(--font-sans);
       text-overflow: ellipsis;
       white-space: nowrap;
-    }
-
-    body.desktop-native-workbench .desktop-chat-surface__runtime {
-      color: #817a72;
-      font: 600 12px/1.2 var(--font-sans);
     }
 
     body.desktop-native-workbench .desktop-chat-surface__header-actions {
@@ -14839,14 +14834,6 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
       body.desktop-native-workbench .desktop-chat-surface__detail {
         padding: 0 16px var(--desktop-chat-native-composer-reserve);
-      }
-
-      body.desktop-native-workbench .desktop-chat-surface__header {
-        grid-template-columns: minmax(0, 1fr) auto;
-      }
-
-      body.desktop-native-workbench .desktop-chat-surface__runtime {
-        display: none;
       }
 
       body.desktop-native-workbench .desktop-chat-surface__conversation {

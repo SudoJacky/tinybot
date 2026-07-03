@@ -43,7 +43,8 @@ describe("rebuilt chat surface", () => {
     expect(host.querySelector("[data-chat-region='session-list']")?.textContent).toContain("Investigate IAM certificate");
     expect(host.querySelector("[data-session-primary-badge='waiting_approval']")?.textContent).toBe("Waiting approval");
     expect(host.querySelector("[data-chat-region='chat-header']")?.textContent).toContain("Investigate IAM certificate");
-    expect(host.querySelector("[data-chat-region='chat-header']")?.textContent).toContain("Agent · rust");
+    expect(host.querySelector("[data-chat-region='chat-header']")?.textContent).not.toContain("Agent");
+    expect(host.querySelector(".desktop-chat-surface__runtime")).toBeNull();
     expect(host.querySelector("[data-chat-region='conversation']")?.textContent).toContain("Execution process · 2 tools");
     expect(host.querySelector("[data-chat-region='thinking-summary']")?.textContent).toContain("Looking at workspace docs.");
     expect(host.querySelector("[data-chat-region='tool-row']")?.textContent).toContain("workspace.read_file");
