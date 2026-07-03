@@ -10308,20 +10308,27 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-chat-surface__header-menu-button {
-      width: 34px;
-      min-width: 34px;
-      height: 34px;
-      min-height: 34px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      min-width: 28px;
+      height: 28px;
+      min-height: 28px;
       border: 0;
-      border-radius: 12px;
+      border-radius: 8px;
       padding: 0;
-      background: #efeeeb;
+      background: transparent;
       color: #4d4841;
       font: 700 16px/1 var(--font-sans);
       cursor: pointer;
     }
 
-    body.desktop-native-workbench .desktop-chat-surface__header-menu-button:hover,
+    body.desktop-native-workbench .desktop-chat-surface__header-menu-button:hover {
+      color: #2c2925;
+      outline: 0;
+    }
+
     body.desktop-native-workbench .desktop-chat-surface__header-menu-button:focus-visible,
     body.desktop-native-workbench .desktop-chat-surface__header-menu-button[aria-expanded="true"] {
       background: #e5e1da;
