@@ -681,6 +681,20 @@ impl AgentRunEmitter {
         timestamp: impl Into<String>,
         reason: impl Into<String>,
     ) -> AgentRuntimeEventEnvelope {
+        self.cancelled_with_payload(timestamp, reason, Value::Null)
+    }
+
+    pub fn cancelled_with_payload(
+        &mut self,
+        timestamp: impl Into<String>,
+        reason: impl Into<String>,
+        payload: Value,
+    ) -> AgentRuntimeEventEnvelope {
+        let reason = reason.into();
+        let mut payload = object_payload(payload);
+        payload
+            .entry("reason".to_string())
+            .or_insert_with(|| Value::String(reason));
         self.emit(AgentRuntimeEventAppendInput {
             parent_turn_id: None,
             item_id: None,
@@ -689,7 +703,7 @@ impl AgentRunEmitter {
             timestamp: timestamp.into(),
             source: AgentRuntimeEventSource::RustBackend,
             visibility: AgentRuntimeEventVisibility::User,
-            payload: serde_json::json!({ "reason": reason.into() }),
+            payload: Value::Object(payload),
         })
     }
 

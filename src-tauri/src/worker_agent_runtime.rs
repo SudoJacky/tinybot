@@ -3153,7 +3153,18 @@ fn cancelled_run_result(
         &context.run_id,
         &runtime_events,
     );
-    runtime_events.push(emitter.cancelled(runtime_event_timestamp(), "cancelled"));
+    runtime_events.push(emitter.cancelled_with_payload(
+        runtime_event_timestamp(),
+        "cancelled",
+        serde_json::json!({
+            "runId": context.run_id,
+            "sessionId": context.session_id,
+            "iteration": iteration,
+            "cancelled": true,
+            "stopReason": "cancelled",
+            "error": "cancelled",
+        }),
+    ));
     let events = legacy_result_events_from_runtime_events(&runtime_events);
     serde_json::json!({
         "runtime": "rust",
@@ -4521,6 +4532,24 @@ mod tests {
             event_names(&result),
             vec!["agent.tool_call.delta", "agent.cancelled"]
         );
+        let cancelled_event = result["events"]
+            .as_array()
+            .expect("events should be an array")
+            .last()
+            .expect("cancelled event should be present");
+        assert_eq!(cancelled_event["eventName"], "agent.cancelled");
+        assert_eq!(
+            cancelled_event["payload"]["runId"],
+            "run-cancel-before-tool"
+        );
+        assert_eq!(
+            cancelled_event["payload"]["sessionId"],
+            "websocket:chat-cancel-before-tool"
+        );
+        assert_eq!(cancelled_event["payload"]["iteration"], 0);
+        assert_eq!(cancelled_event["payload"]["cancelled"], true);
+        assert_eq!(cancelled_event["payload"]["stopReason"], "cancelled");
+        assert_eq!(cancelled_event["payload"]["error"], "cancelled");
         assert!(result["runtimeEvents"]
             .as_array()
             .unwrap()
