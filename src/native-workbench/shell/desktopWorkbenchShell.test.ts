@@ -11,6 +11,8 @@ import {
   captureConversationThreadScroll,
   installDesktopWorkbenchShell,
   syncDesktopWorkbenchRouteSidebar,
+  updateDesktopAgentUiForms,
+  updateDesktopCoworkPane,
   updateDesktopGatewayRuntimeStatus,
   updateDesktopKnowledgePane,
   updateDesktopNativeChat,
@@ -1018,6 +1020,54 @@ describe("desktop workbench shell", () => {
       chatActions: { onNewChat },
     });
 
+    targetDocument.body.querySelector('[data-session-action="new"]')?.click();
+
+    expect(onNewChat).toHaveBeenCalledTimes(1);
+  });
+
+  test("preserves rebuilt chat surface actions after agent form remounts", () => {
+    const targetDocument = new FakeDocument();
+    const onNewChat = vi.fn();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      chat: {
+        sessions: [{ key: "WebSocket:chat-live", chatId: "chat-live", title: "Live session", createdAt: "", updatedAt: "" }],
+        activeSessionKey: "WebSocket:chat-live",
+        activeChatId: "chat-live",
+        messages: [],
+      },
+      chatActions: { onNewChat },
+    });
+
+    updateDesktopAgentUiForms(targetDocument as unknown as Document, []);
+    targetDocument.body.querySelector('[data-session-action="new"]')?.click();
+
+    expect(onNewChat).toHaveBeenCalledTimes(1);
+  });
+
+  test("preserves rebuilt chat surface actions after cowork pane remounts", () => {
+    const targetDocument = new FakeDocument();
+    const onNewChat = vi.fn();
+    const coworkPane = { sessionRows: [], cockpitView: null };
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      chat: {
+        sessions: [{ key: "WebSocket:chat-live", chatId: "chat-live", title: "Live session", createdAt: "", updatedAt: "" }],
+        activeSessionKey: "WebSocket:chat-live",
+        activeChatId: "chat-live",
+        messages: [],
+      },
+      chatActions: { onNewChat },
+      coworkPane,
+    });
+
+    updateDesktopCoworkPane(targetDocument as unknown as Document, coworkPane);
     targetDocument.body.querySelector('[data-session-action="new"]')?.click();
 
     expect(onNewChat).toHaveBeenCalledTimes(1);

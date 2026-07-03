@@ -703,7 +703,7 @@ function updateInlineAgentUiForms(
   if (!thread || !chat) {
     return;
   }
-  mountRebuiltChatSurface(thread, chat);
+  mountRebuiltChatSurface(thread, chat, cachedDesktopChatActions(targetDocument));
 }
 
 export function updateDesktopCoworkPane(
@@ -724,7 +724,7 @@ export function updateDesktopCoworkPane(
   const thread = targetDocument.querySelector<HTMLElement>(".desktop-conversation-thread");
   const chat = desktopNativeChatModels.get(targetDocument);
   if (thread && chat) {
-    mountRebuiltChatSurface(thread, chat);
+    mountRebuiltChatSurface(thread, chat, cachedDesktopChatActions(targetDocument));
   }
 }
 
@@ -746,6 +746,10 @@ function updateDesktopChatTimelineContext(
     coworkPane: null,
   };
   desktopChatTimelineContexts.set(targetDocument, { ...current, ...patch });
+}
+
+function cachedDesktopChatActions(targetDocument: Document): DesktopNativeChatActionOptions {
+  return desktopChatTimelineContexts.get(targetDocument)?.chatActions ?? {};
 }
 
 export function updateDesktopNativeChat(
