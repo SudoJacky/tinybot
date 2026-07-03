@@ -9,6 +9,7 @@ use std::{
 };
 use tauri::{Emitter, Manager, Runtime, State, WindowEvent};
 
+pub mod agent_loop_runtime_protocol;
 pub mod config_store;
 pub mod desktop_cron;
 pub mod desktop_files;
