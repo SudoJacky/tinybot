@@ -341,15 +341,19 @@ pub fn project_turn_items_from_trace_events(
             .clone()
             .unwrap_or_else(|| projected_item_id(event, &kind));
         let status = projected_item_status(event);
-        let payload = projected_item_payload(
-            items.get(&item_id).map(|item| &item.payload),
-            &event.event_name,
-            &event.payload,
-        );
+        let payload = projected_item_payload(items.get(&item_id).map(|item| &item.payload), event);
+        let title = projected_item_title(&kind, items.get(&item_id), &payload);
+        let summary = projected_item_summary(&kind, items.get(&item_id), &payload);
 
         if let Some(item) = items.get_mut(&item_id) {
             item.status = status;
             item.updated_at = Some(event.timestamp.clone());
+            if title.is_some() {
+                item.title = title;
+            }
+            if summary.is_some() {
+                item.summary = summary;
+            }
             item.payload = payload;
         } else {
             order.push(item_id.clone());
@@ -363,8 +367,8 @@ pub fn project_turn_items_from_trace_events(
                     status,
                     created_at: event.timestamp.clone(),
                     updated_at: None,
-                    title: None,
-                    summary: None,
+                    title,
+                    summary,
                     payload,
                 },
             );
@@ -418,28 +422,150 @@ fn projected_item_status(event: &AgentRuntimeEventEnvelope) -> AgentTurnItemStat
 
 fn projected_item_payload(
     existing_payload: Option<&Value>,
-    event_name: &str,
-    event_payload: &Value,
+    event: &AgentRuntimeEventEnvelope,
 ) -> Value {
-    match event_name {
+    match event.event_name.as_str() {
         "agent.delta" | "agent.reasoning_delta" => {
             let mut content = existing_payload
                 .and_then(|payload| payload.get("content"))
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_string();
-            content.push_str(payload_text_fragment(event_payload).unwrap_or_default());
+            content.push_str(payload_text_fragment(&event.payload).unwrap_or_default());
             serde_json::json!({ "content": content })
         }
         "agent.done" => {
-            if let Some(content) = payload_text_fragment(event_payload) {
+            if let Some(content) = payload_text_fragment(&event.payload) {
                 serde_json::json!({ "content": content })
             } else {
-                event_payload.clone()
+                event.payload.clone()
             }
         }
-        _ => event_payload.clone(),
+        "agent.tool.start" | "agent.tool.result" => projected_tool_payload(existing_payload, event),
+        _ => event.payload.clone(),
     }
+}
+
+fn projected_tool_payload(
+    existing_payload: Option<&Value>,
+    event: &AgentRuntimeEventEnvelope,
+) -> Value {
+    let mut payload = existing_payload
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    if let Some(event_payload) = event.payload.as_object() {
+        for (key, value) in event_payload {
+            payload.insert(key.clone(), value.clone());
+        }
+    }
+
+    let tool_call_id = string_from_map(&payload, &["toolCallId", "tool_call_id"])
+        .or_else(|| event.item_id.clone());
+    if let Some(tool_call_id) = tool_call_id.clone() {
+        payload
+            .entry("toolCallId".to_string())
+            .or_insert_with(|| Value::String(tool_call_id.clone()));
+        payload
+            .entry("detailId".to_string())
+            .or_insert_with(|| Value::String(format!("tool:{tool_call_id}")));
+    }
+
+    let lifecycle_status = if event.event_name == "agent.tool.result" {
+        "completed"
+    } else {
+        "running"
+    };
+    payload.insert(
+        "status".to_string(),
+        Value::String(lifecycle_status.to_string()),
+    );
+    if let Some(result_status) = payload
+        .get("envelope")
+        .and_then(|envelope| envelope.get("status"))
+        .cloned()
+    {
+        payload.insert("resultStatus".to_string(), result_status);
+    }
+
+    let summary = string_from_map(&payload, &["summary"])
+        .or_else(|| {
+            payload
+                .get("envelope")
+                .and_then(|envelope| envelope.get("summary"))
+                .and_then(Value::as_str)
+                .map(ToString::to_string)
+        })
+        .or_else(|| string_from_map(&payload, &["content"]));
+    if let Some(summary) = summary {
+        payload.insert("summary".to_string(), Value::String(summary));
+    }
+
+    let mut timing = payload
+        .get("timing")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    if event.event_name == "agent.tool.start" {
+        timing
+            .entry("startedAt".to_string())
+            .or_insert_with(|| Value::String(event.timestamp.clone()));
+    }
+    if event.event_name == "agent.tool.result" {
+        timing
+            .entry("completedAt".to_string())
+            .or_insert_with(|| Value::String(event.timestamp.clone()));
+        if let Some(duration_ms) = payload
+            .get("envelope")
+            .and_then(|envelope| envelope.get("metrics"))
+            .and_then(|metrics| metrics.get("durationMs"))
+            .filter(|value| !value.is_null())
+            .cloned()
+        {
+            timing.insert("durationMs".to_string(), duration_ms);
+        }
+    }
+    if !timing.is_empty() {
+        payload.insert("timing".to_string(), Value::Object(timing));
+    }
+
+    Value::Object(payload)
+}
+
+fn projected_item_title(
+    kind: &AgentTurnItemKind,
+    existing_item: Option<&AgentTurnItem>,
+    payload: &Value,
+) -> Option<String> {
+    if *kind != AgentTurnItemKind::ToolCall {
+        return existing_item.and_then(|item| item.title.clone());
+    }
+    string_field_any(payload, &["toolName", "name", "tool_name"])
+        .or_else(|| existing_item.and_then(|item| item.title.clone()))
+}
+
+fn projected_item_summary(
+    kind: &AgentTurnItemKind,
+    existing_item: Option<&AgentTurnItem>,
+    payload: &Value,
+) -> Option<String> {
+    if *kind != AgentTurnItemKind::ToolCall {
+        return existing_item.and_then(|item| item.summary.clone());
+    }
+    string_field_any(payload, &["summary", "content"])
+        .or_else(|| existing_item.and_then(|item| item.summary.clone()))
+}
+
+fn string_from_map(payload: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| payload.get(*key).and_then(Value::as_str))
+        .map(ToString::to_string)
+}
+
+fn string_field_any(payload: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| payload.get(*key).and_then(Value::as_str))
+        .map(ToString::to_string)
 }
 
 fn payload_text_fragment(payload: &Value) -> Option<&str> {
@@ -748,7 +874,14 @@ mod tests {
                 "agent.tool.result",
                 Some("call-1".to_string()),
                 "2026-07-03T00:00:02Z",
-                json!({ "toolName": "workspace.read_file", "summary": "read README" }),
+                json!({
+                    "toolName": "workspace.read_file",
+                    "envelope": {
+                        "status": "ok",
+                        "summary": "read README",
+                        "metrics": { "durationMs": 42 }
+                    }
+                }),
             ),
         ];
 
@@ -758,7 +891,20 @@ mod tests {
         assert_eq!(items[0].item_id, "call-1");
         assert_eq!(items[0].kind, AgentTurnItemKind::ToolCall);
         assert_eq!(items[0].status, AgentTurnItemStatus::Completed);
+        assert_eq!(items[0].title.as_deref(), Some("workspace.read_file"));
+        assert_eq!(items[0].summary.as_deref(), Some("read README"));
+        assert_eq!(items[0].payload["status"], "completed");
+        assert_eq!(items[0].payload["resultStatus"], "ok");
         assert_eq!(items[0].payload["summary"], "read README");
+        assert_eq!(items[0].payload["detailId"], "tool:call-1");
+        assert_eq!(
+            items[0].payload["timing"],
+            json!({
+                "startedAt": "2026-07-03T00:00:01Z",
+                "completedAt": "2026-07-03T00:00:02Z",
+                "durationMs": 42
+            })
+        );
         assert_eq!(items[0].created_at, "2026-07-03T00:00:01Z");
         assert_eq!(items[0].updated_at.as_deref(), Some("2026-07-03T00:00:02Z"));
     }

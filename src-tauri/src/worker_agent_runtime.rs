@@ -1325,6 +1325,8 @@ pub fn run_native_agent_turn_with_config(
                         "toolCallId": tool_call.id,
                         "toolName": tool_call.name,
                         "name": tool_call.name,
+                        "detailId": format!("tool:{}", tool_call.id),
+                        "status": "running",
                     }),
                 ));
                 state.set_pending_tool_call(&tool_call);
@@ -1390,6 +1392,18 @@ pub fn run_native_agent_turn_with_config(
                         "toolCallId": tool_call.id,
                         "toolName": tool_call.name,
                         "name": tool_call.name,
+                        "detailId": format!("tool:{}", tool_call.id),
+                        "status": "completed",
+                        "resultStatus": result.envelope.get("status").cloned().unwrap_or_else(|| serde_json::json!("ok")),
+                        "summary": result.envelope.get("summary").cloned().unwrap_or_else(|| Value::String(observation_content.clone())),
+                        "timing": {
+                            "durationMs": result
+                                .envelope
+                                .get("metrics")
+                                .and_then(|metrics| metrics.get("durationMs"))
+                                .cloned()
+                                .unwrap_or(Value::Null),
+                        },
                         "content": observation_content,
                         "envelope": result.envelope.clone(),
                     }),
@@ -2804,15 +2818,29 @@ mod tests {
         )
         .expect("fixture tool run should succeed");
 
+        let tool_start = result["events"]
+            .as_array()
+            .expect("events should be an array")
+            .iter()
+            .find(|event| event["eventName"] == "agent.tool.start")
+            .expect("tool start event should be emitted");
         let tool_result = result["events"]
             .as_array()
             .expect("events should be an array")
             .iter()
             .find(|event| event["eventName"] == "agent.tool.result")
             .expect("tool result event should be emitted");
+        let start_payload = &tool_start["payload"];
         let payload = &tool_result["payload"];
 
+        assert_eq!(start_payload["status"], "running");
+        assert_eq!(start_payload["detailId"], "tool:call-envelope");
         assert_eq!(payload["content"], "README envelope body");
+        assert_eq!(payload["status"], "completed");
+        assert_eq!(payload["resultStatus"], "ok");
+        assert_eq!(payload["summary"], "README envelope body");
+        assert_eq!(payload["detailId"], "tool:call-envelope");
+        assert!(payload["timing"].get("durationMs").is_some());
         assert_eq!(payload["envelope"]["status"], "ok");
         assert_eq!(payload["envelope"]["summary"], "README envelope body");
         assert_eq!(payload["envelope"]["modelContent"], "README envelope body");
