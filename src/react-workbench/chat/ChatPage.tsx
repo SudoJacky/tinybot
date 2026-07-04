@@ -239,6 +239,7 @@ export function ChatPage({ chatStore, createSessionSignal = 0, now = Date.now, s
               <div
                 className="react-session-row"
                 data-active={session.id === activeSession?.id}
+                data-confirming={confirming}
                 key={session.id}
                 onMouseLeave={() => dispatchDelete({ type: "row-left", sessionId: session.id })}
               >

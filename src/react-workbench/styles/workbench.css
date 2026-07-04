@@ -367,11 +367,14 @@ button:disabled {
 
 .react-session-row__select {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center;
+  column-gap: 8px;
   width: 100%;
   min-width: 0;
-  min-height: 54px;
+  min-height: 44px;
   border-radius: inherit;
-  padding: 10px 42px 10px 10px;
+  padding: 10px;
   text-align: left;
 }
 
@@ -395,6 +398,16 @@ button:disabled {
 .react-session-row__select small {
   color: var(--color-muted);
   font-size: 11px;
+  justify-self: end;
+  min-width: 34px;
+  text-align: right;
+  transition: opacity 140ms ease;
+}
+
+.react-session-row:hover .react-session-row__select small,
+.react-session-row:focus-within .react-session-row__select small,
+.react-session-row[data-confirming="true"] .react-session-row__select small {
+  opacity: 0;
 }
 
 .react-session-row__delete {
