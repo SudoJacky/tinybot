@@ -401,6 +401,40 @@ impl AgentRunEmitter {
         })
     }
 
+    pub fn status(
+        &mut self,
+        timestamp: impl Into<String>,
+        phase: AgentRuntimePhase,
+        label: impl Into<String>,
+        detail: Option<String>,
+        iteration: Option<i64>,
+        is_blocking: bool,
+    ) -> AgentRuntimeEventEnvelope {
+        let mut payload = serde_json::Map::new();
+        payload.insert(
+            "phase".to_string(),
+            Value::String(phase.as_str().to_string()),
+        );
+        payload.insert("label".to_string(), Value::String(label.into()));
+        if let Some(detail) = detail {
+            payload.insert("detail".to_string(), Value::String(detail));
+        }
+        if let Some(iteration) = iteration {
+            payload.insert("iteration".to_string(), Value::from(iteration));
+        }
+        payload.insert("isBlocking".to_string(), Value::Bool(is_blocking));
+        self.emit(AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id: None,
+            event_name: "agent.status".to_string(),
+            phase,
+            timestamp: timestamp.into(),
+            source: AgentRuntimeEventSource::RustBackend,
+            visibility: AgentRuntimeEventVisibility::User,
+            payload: Value::Object(payload),
+        })
+    }
+
     pub fn user_turn_started(
         &mut self,
         timestamp: impl Into<String>,
@@ -1495,6 +1529,30 @@ mod tests {
         );
         assert!(emitter.events().is_empty());
         assert_eq!(emitter.next_sequence(), 3);
+    }
+
+    #[test]
+    fn run_emitter_status_event_is_user_visible_without_turn_item() {
+        let mut emitter = AgentRunEmitter::new("session-1", "run-1");
+
+        let event = emitter.status(
+            "2026-07-03T00:00:01Z",
+            AgentRuntimePhase::ToolRunning,
+            "Running tool",
+            Some("workspace.read_file".to_string()),
+            Some(2),
+            false,
+        );
+
+        assert_eq!(event.event_name, "agent.status");
+        assert_eq!(event.phase, AgentRuntimePhase::ToolRunning);
+        assert_eq!(event.visibility, AgentRuntimeEventVisibility::User);
+        assert_eq!(event.payload["phase"], "tool_running");
+        assert_eq!(event.payload["label"], "Running tool");
+        assert_eq!(event.payload["detail"], "workspace.read_file");
+        assert_eq!(event.payload["iteration"], 2);
+        assert_eq!(event.payload["isBlocking"], false);
+        assert!(project_turn_items_from_trace_events(&[event]).is_empty());
     }
 
     #[test]

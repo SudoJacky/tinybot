@@ -17,6 +17,7 @@ fn contract_inventory_lists_native_commands_and_events_used_by_frontend() {
     assert!(NATIVE_TAURI_COMMANDS.contains(&"worker_resume_agent_approval"));
 
     assert!(NATIVE_AGENT_EVENT_NAMES.contains(&"agent.delta"));
+    assert!(NATIVE_AGENT_EVENT_NAMES.contains(&"agent.status"));
     assert!(NATIVE_AGENT_EVENT_NAMES.contains(&"agent.awaiting_approval"));
     assert!(NATIVE_AGENT_EVENT_NAMES.contains(&"agent.awaiting_form"));
     assert!(NATIVE_AGENT_EVENT_NAMES.contains(&"agent.delegate.trace.updated"));
