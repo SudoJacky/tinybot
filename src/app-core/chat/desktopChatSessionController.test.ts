@@ -485,4 +485,30 @@ describe("desktop chat session controller", () => {
       { type: "interrupt", chat_id: "chat-3" },
     ]);
   });
+
+  test("loads attached native messages through the existing session key", async () => {
+    const loadMessages = vi.fn(async (sessionKey: string) => ({
+      messages: [{ role: "assistant", content: `loaded ${sessionKey}`, message_id: "m1" }],
+    }));
+    const controller = createDesktopChatSessionController({
+      api: {
+        listSessions: vi.fn(async () => ({
+          items: [{ key: "websocket:chat-native", chat_id: "chat-native", title: "Native chat" }],
+        })),
+        loadMessages,
+      },
+      sendSocketMessage: vi.fn(),
+    });
+
+    await controller.loadSessions();
+    loadMessages.mockClear();
+
+    await controller.handleGatewayEvent({ kind: "attached", chatId: "chat-native", raw: {} });
+
+    expect(loadMessages).toHaveBeenCalledWith("websocket:chat-native");
+    expect(controller.state.messages.get("websocket:chat-native")).toMatchObject([
+      { content: "loaded websocket:chat-native" },
+    ]);
+    expect(controller.state.messages.has("WebSocket:chat-native")).toBe(false);
+  });
 });

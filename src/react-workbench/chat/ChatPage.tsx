@@ -61,7 +61,9 @@ export function ChatPage({ chatStore, now = Date.now, sessionStore }: ChatPagePr
         setMessages((current) => [...current, event.message as ReactChatMessage]);
         return;
       }
-      void loadMessages();
+      if (shouldReloadMessagesForChatEvent(event.type)) {
+        void loadMessages();
+      }
     });
     return () => {
       cancelled = true;
@@ -221,6 +223,21 @@ export function ChatPage({ chatStore, now = Date.now, sessionStore }: ChatPagePr
       ) : null}
     </section>
   );
+}
+
+const MESSAGE_RELOAD_EVENT_TYPES = new Set([
+  "attached",
+  "chat.created",
+  "agent.event",
+  "message.delta",
+  "message.completed",
+  "message.stream.completed",
+  "message-sent",
+  "interrupted",
+]);
+
+function shouldReloadMessagesForChatEvent(type: string): boolean {
+  return MESSAGE_RELOAD_EVENT_TYPES.has(type);
 }
 
 function MessageBubble({

@@ -11,6 +11,7 @@ import {
   setMessages,
   setSessions,
   sessionKeyForChat,
+  sessionKeyForChatState,
   type NativeBackgroundTraceEvent,
   type NativeChatState,
 } from "./nativeChat";
@@ -359,7 +360,7 @@ export function createDesktopChatSessionController({
   }
 
   async function loadMessagesForChat(chatId: string): Promise<boolean> {
-    const sessionKey = sessionKeyForChat(chatId);
+    const sessionKey = sessionKeyForChatState(state, chatId);
     if (!sessionKey) {
       return false;
     }

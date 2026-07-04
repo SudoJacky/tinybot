@@ -4,7 +4,7 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatPage } from "./ChatPage";
-import type { ChatStore, SessionStore } from "../services";
+import type { ChatEvent, ChatStore, SessionStore } from "../services";
 import type { ReactChatMessage } from "./messageActions";
 
 afterEach(() => cleanup());
@@ -119,5 +119,24 @@ describe("ChatPage", () => {
 
     expect(stores.chatStore.send).toHaveBeenCalledWith("s1", { text: "Hello from React" });
     expect((input as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("does not reload messages for socket error events", async () => {
+    let subscribed: ((event: ChatEvent) => void) | undefined;
+    const stores = createStores();
+    stores.chatStore.subscribe = vi.fn((_sessionId, listener) => {
+      subscribed = listener;
+      return () => undefined;
+    });
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    await screen.findByRole("button", { name: "Planning notes" });
+    expect(stores.chatStore.load).toHaveBeenCalledTimes(1);
+
+    subscribed?.({ type: "socket-error" });
+    subscribed?.({ type: "error" });
+
+    expect(stores.chatStore.load).toHaveBeenCalledTimes(1);
   });
 });
