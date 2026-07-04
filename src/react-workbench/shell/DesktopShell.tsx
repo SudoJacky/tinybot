@@ -90,7 +90,7 @@ const topMenuItems: TopMenuItem[] = [
       menuCommand({ id: "stop-generation", label: "Stop Generation", shortcut: "Ctrl+.", enabled: false }),
       menuSeparator("app-view-separator"),
       menuCommand({ id: "toggle-theme", label: "Toggle Theme", shortcut: "Ctrl+Shift+T" }),
-      menuCommand({ id: "toggle-sidebar", label: "Toggle Sidebar", shortcut: "Ctrl+B", enabled: false }),
+      menuCommand({ id: "toggle-sidebar", label: "Toggle Sidebar", shortcut: "Ctrl+B" }),
     ],
   },
   {
@@ -140,6 +140,7 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [activeTopMenu, setActiveTopMenu] = useState<TopMenuLabel | null>(null);
   const [activeTopSubmenu, setActiveTopSubmenu] = useState<string | null>(null);
+  const [sessionSidebarCollapsed, setSessionSidebarCollapsed] = useState(false);
   const [createChatSignal, setCreateChatSignal] = useState(0);
   const frameControls = useMemo(() => windowControls ?? resolveWindowFrameControls(), [windowControls]);
   const commands = useMemo(() => routeItems.map((item) => ({
@@ -156,6 +157,10 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setPaletteOpen(true);
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "b") {
+        event.preventDefault();
+        setSessionSidebarCollapsed((collapsed) => !collapsed);
       }
       if (event.key === "Escape") {
         setPaletteOpen(false);
@@ -225,6 +230,9 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
         return;
       case "toggle-theme":
         document.documentElement.dataset.theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+        return;
+      case "toggle-sidebar":
+        setSessionSidebarCollapsed((collapsed) => !collapsed);
         return;
       default:
         return;
@@ -372,7 +380,15 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
           })}
         </nav>
         <section className="react-route-surface">
-          <RouteSurface createChatSignal={createChatSignal} now={now} route={route} services={services} />
+          <RouteSurface
+            createChatSignal={createChatSignal}
+            now={now}
+          route={route}
+          services={services}
+          sessionSidebarCollapsed={sessionSidebarCollapsed}
+          onNavigate={setRoute}
+          onSessionSidebarCollapsedChange={setSessionSidebarCollapsed}
+        />
         </section>
       </div>
 
@@ -414,13 +430,19 @@ function menuCommandAccessibleLabel(command: TopMenuCommand): string {
 function RouteSurface({
   createChatSignal,
   now,
+  onNavigate,
+  onSessionSidebarCollapsedChange,
   route,
   services,
+  sessionSidebarCollapsed,
 }: {
   createChatSignal: number;
   now?: () => number;
+  onNavigate: (route: AppRoute) => void;
+  onSessionSidebarCollapsedChange: (collapsed: boolean) => void;
   route: AppRoute;
   services: AppServices;
+  sessionSidebarCollapsed: boolean;
 }) {
   switch (route) {
     case "chat":
@@ -431,6 +453,10 @@ function RouteSurface({
           now={now}
           sessionStore={services.sessionStore}
           settingsStore={services.settingsStore}
+          sessionSidebarCollapsed={sessionSidebarCollapsed}
+          onOpenFiles={() => onNavigate("files")}
+          onOpenSettings={() => onNavigate("settings")}
+          onSessionSidebarCollapsedChange={onSessionSidebarCollapsedChange}
         />
       );
     case "files":

@@ -1,15 +1,20 @@
-import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
   AlertTriangle,
   Check,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Circle,
   Copy,
+  FolderOpen,
   GitBranch,
   Loader2,
   MoreHorizontal,
   PanelRightOpen,
+  Plus,
+  Search,
+  Settings,
   Trash2,
   X,
 } from "lucide-react";
@@ -31,6 +36,10 @@ export type ChatPageProps = {
   sessionStore: SessionStore;
   settingsStore?: SettingsStore;
   createSessionSignal?: number;
+  sessionSidebarCollapsed?: boolean;
+  onSessionSidebarCollapsedChange?: (collapsed: boolean) => void;
+  onOpenFiles?: () => void;
+  onOpenSettings?: () => void;
   now?: () => number;
 };
 
@@ -48,21 +57,89 @@ const COMPOSER_TOOLS: ComposerToolOption[] = [
   },
 ];
 
-export function ChatPage({ chatStore, createSessionSignal = 0, now = Date.now, sessionStore, settingsStore }: ChatPageProps) {
+const EMPTY_CHAT_PROMPTS = [
+  "帮我总结一份文档",
+  "帮我搜索资料并整理结论",
+  "帮我检查这段代码的问题",
+  "帮我把需求拆成可执行任务",
+] as const;
+
+const SESSION_DELETE_DISSOLVE_MS = 760;
+const SESSION_DELETE_PARTICLE_COUNT = 220;
+
+type SessionDeleteParticle = {
+  id: number;
+  originX: number;
+  originY: number;
+  x: number;
+  y: number;
+  size: number;
+  delay: number;
+};
+
+const SESSION_DELETE_PARTICLES: SessionDeleteParticle[] = Array.from(
+  { length: SESSION_DELETE_PARTICLE_COUNT },
+  (_, index) => {
+    const angle = (index / SESSION_DELETE_PARTICLE_COUNT) * Math.PI * 2 + ((index % 7) - 3) * 0.018;
+    const distance = 30 + (index % 9) * 7 + (Math.floor(index / 9) % 4) * 5;
+
+    return {
+      id: index,
+      originX: 12 + (index * 17) % 76,
+      originY: 18 + (index * 11) % 60,
+      x: Math.round(Math.cos(angle) * distance * 1.45),
+      y: Math.round(Math.sin(angle) * distance * 0.95),
+      size: 0.62 + (index % 6) * 0.11,
+      delay: (index % 22) * 2.5,
+    };
+  },
+);
+
+export function ChatPage({
+  chatStore,
+  createSessionSignal = 0,
+  now = Date.now,
+  onOpenFiles,
+  onOpenSettings,
+  onSessionSidebarCollapsedChange,
+  sessionSidebarCollapsed,
+  sessionStore,
+  settingsStore,
+}: ChatPageProps) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [activeSessionId, setActiveSessionId] = useState("");
   const [messages, setMessages] = useState<ReactChatMessage[]>([]);
+  const [loadedMessageSessionId, setLoadedMessageSessionId] = useState("");
   const [composerModels, setComposerModels] = useState<ModelOption[]>([]);
   const [defaultComposerModel, setDefaultComposerModel] = useState("");
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+  const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
+  const [localSessionSidebarCollapsed, setLocalSessionSidebarCollapsed] = useState(false);
   const [drawer, setDrawer] = useState<DrawerState>(null);
+  const [dissolvingSessionIds, setDissolvingSessionIds] = useState<Set<string>>(() => new Set());
   const [deleteState, dispatchDelete] = useReducer(reduceSessionDeleteState, { confirmingSessionId: "" });
+  const sessionsRef = useRef<SessionSummary[]>([]);
+  const deleteDissolveTimers = useRef<number[]>([]);
   const lastCreateSessionSignal = useRef(createSessionSignal);
+  const resolvedSessionSidebarCollapsed = sessionSidebarCollapsed ?? localSessionSidebarCollapsed;
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId) ?? sessions[0],
     [activeSessionId, sessions],
   );
+  const messagesLoaded = Boolean(activeSession) && loadedMessageSessionId === activeSession?.id;
+  const emptyActiveSession = messagesLoaded && messages.length === 0;
   const sessionRunning = activeSession?.status === "running" || activeSession?.status === "waiting_approval";
+
+  useEffect(() => {
+    sessionsRef.current = sessions;
+  }, [sessions]);
+
+  useEffect(() => {
+    return () => {
+      deleteDissolveTimers.current.forEach((timer) => window.clearTimeout(timer));
+      deleteDissolveTimers.current = [];
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -70,6 +147,7 @@ export function ChatPage({ chatStore, createSessionSignal = 0, now = Date.now, s
       if (cancelled) {
         return;
       }
+      sessionsRef.current = nextSessions;
       setSessions(nextSessions);
       setActiveSessionId((current) => current || nextSessions[0]?.id || "");
     });
@@ -89,12 +167,16 @@ export function ChatPage({ chatStore, createSessionSignal = 0, now = Date.now, s
   useEffect(() => {
     if (!activeSessionId) {
       setMessages([]);
+      setLoadedMessageSessionId("");
       return;
     }
+    setMessages([]);
+    setLoadedMessageSessionId("");
     let cancelled = false;
     const loadMessages = () => chatStore.load(activeSessionId).then((nextMessages) => {
       if (!cancelled) {
         setMessages(nextMessages);
+        setLoadedMessageSessionId(activeSessionId);
       }
     });
     void loadMessages();
@@ -144,16 +226,29 @@ export function ChatPage({ chatStore, createSessionSignal = 0, now = Date.now, s
     setActiveSessionId(created.id);
   }
 
+  async function handleCreateSessionFromSearch() {
+    await handleCreateSession();
+    setSessionSearchOpen(false);
+  }
+
   async function handleDeleteSession(session: SessionSummary) {
     const next = reduceSessionDeleteState(deleteState, { type: "delete-clicked", sessionId: session.id });
     dispatchDelete({ type: "delete-clicked", sessionId: session.id });
     if (next.confirmedSessionId) {
       await sessionStore.delete(session.id);
-      const remaining = sessions.filter((item) => item.id !== session.id);
-      setSessions(remaining);
-      if (activeSessionId === session.id) {
-        setActiveSessionId(remaining[0]?.id ?? "");
-      }
+      setDissolvingSessionIds((current) => new Set(current).add(session.id));
+      const timer = window.setTimeout(() => {
+        const remaining = sessionsRef.current.filter((item) => item.id !== session.id);
+        sessionsRef.current = remaining;
+        setSessions(remaining);
+        setActiveSessionId((current) => current === session.id ? remaining[0]?.id ?? "" : current);
+        setDissolvingSessionIds((current) => {
+          const nextIds = new Set(current);
+          nextIds.delete(session.id);
+          return nextIds;
+        });
+      }, SESSION_DELETE_DISSOLVE_MS);
+      deleteDissolveTimers.current.push(timer);
     }
   }
 
@@ -225,34 +320,78 @@ export function ChatPage({ chatStore, createSessionSignal = 0, now = Date.now, s
     await handleSessionStoreRefresh();
   }
 
+  function handleSessionSidebarCollapsedChange(collapsed: boolean) {
+    if (sessionSidebarCollapsed === undefined) {
+      setLocalSessionSidebarCollapsed(collapsed);
+    }
+    onSessionSidebarCollapsedChange?.(collapsed);
+  }
+
+  function handleSessionSearchSelect(session: SessionSummary) {
+    dispatchDelete({ type: "session-selected", sessionId: session.id });
+    setActiveSessionId(session.id);
+    setSessionSearchOpen(false);
+  }
+
   return (
-    <section className="react-chat-page" aria-label="Chat">
-      <aside className="react-session-list" aria-label="Sessions">
+    <section className="react-chat-page" aria-label="Chat" data-session-sidebar-collapsed={resolvedSessionSidebarCollapsed}>
+      <aside className="react-session-list" aria-label="Sessions" data-collapsed={resolvedSessionSidebarCollapsed}>
         <div className="react-session-list__header">
-          <h2>Chats</h2>
-          <button type="button" onClick={handleCreateSession}>New Chat</button>
+          <div className="react-session-list__title-row">
+            <h2>Chats</h2>
+            <div className="react-session-list__title-actions">
+              <button
+                aria-label="Search chats"
+                className="react-session-list__search"
+                title="Search chats"
+                type="button"
+                onClick={() => setSessionSearchOpen(true)}
+              >
+                <Search aria-hidden="true" size={15} />
+              </button>
+              <button
+                aria-label={resolvedSessionSidebarCollapsed ? "Expand session sidebar" : "Collapse session sidebar"}
+                className="react-session-list__collapse"
+                title={resolvedSessionSidebarCollapsed ? "Expand session sidebar" : "Collapse session sidebar"}
+                type="button"
+                onClick={() => handleSessionSidebarCollapsedChange(!resolvedSessionSidebarCollapsed)}
+              >
+                <ChevronLeft aria-hidden="true" data-direction={resolvedSessionSidebarCollapsed ? "expand" : "collapse"} size={16} />
+              </button>
+            </div>
+          </div>
+          <button className="react-session-list__new" type="button" onClick={handleCreateSession}>
+            <Plus aria-hidden="true" size={15} />
+            <span>New Chat</span>
+          </button>
         </div>
-        <div className="react-session-list__rows">
-          {sessions.length ? sessions.map((session) => {
+        <div className="react-session-list__rows" aria-label="Session list rows" data-motion="animated-list">
+          {sessions.length ? sessions.map((session, index) => {
             const confirming = deleteState.confirmingSessionId === session.id;
+            const dissolving = dissolvingSessionIds.has(session.id);
             return (
               <div
                 className="react-session-row"
                 data-active={session.id === activeSession?.id}
                 data-confirming={confirming}
+                data-dissolving={dissolving ? "true" : undefined}
+                data-motion-role="item"
                 key={session.id}
                 onMouseLeave={() => dispatchDelete({ type: "row-left", sessionId: session.id })}
+                style={{ "--react-session-row-index": String(index) } as CSSProperties}
               >
                 <button
                   aria-label={session.title}
                   className="react-session-row__select"
                   type="button"
+                  disabled={dissolving}
                   onClick={() => {
                     dispatchDelete({ type: "session-selected", sessionId: session.id });
                     setActiveSessionId(session.id);
                   }}
                 >
-                  <span>{session.title}</span>
+                  <span className="react-session-row__avatar" aria-hidden="true">{sessionTitleInitial(session.title)}</span>
+                  <span className="react-session-row__title">{session.title}</span>
                   <small>{formatRelativeUpdatedTime(session.updatedAtMs, now())}</small>
                 </button>
                 <button
@@ -260,17 +399,36 @@ export function ChatPage({ chatStore, createSessionSignal = 0, now = Date.now, s
                   className="react-session-row__delete"
                   data-confirming={confirming}
                   type="button"
+                  disabled={dissolving}
                   onClick={() => void handleDeleteSession(session)}
                 >
                   <Trash2 aria-hidden="true" size={15} />
                 </button>
+                {dissolving ? (
+                  <span className="react-session-row__particles" aria-hidden="true">
+                    {SESSION_DELETE_PARTICLES.map((particle) => (
+                      <span
+                        className="react-session-row__particle"
+                        key={particle.id}
+                        style={{
+                          "--particle-delay": `${particle.delay}ms`,
+                          "--particle-origin-x": `${particle.originX}%`,
+                          "--particle-origin-y": `${particle.originY}%`,
+                          "--particle-size": `${particle.size}px`,
+                          "--particle-x": `${particle.x}px`,
+                          "--particle-y": `${particle.y}px`,
+                        } as CSSProperties}
+                      />
+                    ))}
+                  </span>
+                ) : null}
               </div>
             );
-          }) : <p className="react-empty-state">No sessions yet.</p>}
+          }) : resolvedSessionSidebarCollapsed ? null : <EmptyStateText text="No sessions yet." />}
         </div>
       </aside>
 
-      <main className="react-chat-surface">
+      <main className="react-chat-surface" data-empty-session={emptyActiveSession ? "true" : undefined}>
         <header className="react-chat-header">
           <h1>{activeSession?.title ?? "No session selected"}</h1>
           <div className="react-chat-header__actions">
@@ -300,7 +458,7 @@ export function ChatPage({ chatStore, createSessionSignal = 0, now = Date.now, s
         </header>
 
         <div className="react-conversation-view" aria-label="Conversation">
-          {activeSession ? messages.map((message) => (
+          {activeSession && messages.length > 0 ? messages.map((message) => (
             <MessageBubble
               key={message.id}
               message={message}
@@ -312,22 +470,22 @@ export function ChatPage({ chatStore, createSessionSignal = 0, now = Date.now, s
               })}
               sessionRunning={sessionRunning}
             />
-          )) : <p className="react-empty-state">Select or create a session.</p>}
+          )) : emptyActiveSession ? <EmptyChatStart /> : activeSession ? null : <EmptyStateText text="Select or create a session." />}
         </div>
 
         <ClaudeStyleAiInput
-          className="react-composer"
+          className={["react-composer", emptyActiveSession ? "react-composer--raised" : ""].filter(Boolean).join(" ")}
           disabled={!activeSession}
           defaultModel={defaultComposerModel}
           models={composerModels}
-          placeholder="Message Tinybot"
+          placeholder={emptyActiveSession ? "输入任务，或粘贴/拖入文件" : "Message Tinybot"}
           tools={COMPOSER_TOOLS}
           onSendMessage={(message, files, pastedContent, options) => handleComposerSend(message, files, pastedContent, options)}
         />
       </main>
 
       {drawer ? (
-        <aside className="react-right-drawer" aria-label="Details drawer">
+        <aside className="react-right-drawer" aria-label="Details drawer" data-motion="fade-content" data-state="open">
           <div>
             <h2>{drawer.title}</h2>
             <button aria-label="Close details drawer" type="button" onClick={() => setDrawer(null)}>
@@ -337,7 +495,200 @@ export function ChatPage({ chatStore, createSessionSignal = 0, now = Date.now, s
           <p>{drawer.body || "Details placeholder."}</p>
         </aside>
       ) : null}
+
+      {sessionSearchOpen ? (
+        <SessionSearchDialog
+          activeSessionId={activeSession?.id ?? ""}
+          now={now}
+          sessions={sessions}
+          onClose={() => setSessionSearchOpen(false)}
+          onCreateSession={() => void handleCreateSessionFromSearch()}
+          onOpenFiles={onOpenFiles}
+          onOpenSettings={onOpenSettings}
+          onSelectSession={handleSessionSearchSelect}
+        />
+      ) : null}
     </section>
+  );
+}
+
+function SessionSearchDialog({
+  activeSessionId,
+  now,
+  onClose,
+  onCreateSession,
+  onOpenFiles,
+  onOpenSettings,
+  onSelectSession,
+  sessions,
+}: {
+  activeSessionId: string;
+  now: () => number;
+  onClose: () => void;
+  onCreateSession: () => void;
+  onOpenFiles?: () => void;
+  onOpenSettings?: () => void;
+  onSelectSession: (session: SessionSummary) => void;
+  sessions: SessionSummary[];
+}) {
+  const [query, setQuery] = useState("");
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredSessions = normalizedQuery
+    ? sessions.filter((session) => [session.title, session.chatId ?? "", session.id]
+      .some((value) => value.toLowerCase().includes(normalizedQuery)))
+    : sessions;
+  const recommendations = [
+    {
+      id: "new-chat",
+      label: "New Chat",
+      shortcut: "Ctrl+N",
+      icon: Plus,
+      run: onCreateSession,
+    },
+    ...(onOpenFiles ? [{
+      id: "open-files",
+      label: "Open folder",
+      shortcut: "Ctrl+O",
+      icon: FolderOpen,
+      run: () => {
+        onOpenFiles();
+        onClose();
+      },
+    }] : []),
+    ...(onOpenSettings ? [{
+      id: "open-settings",
+      label: "Settings",
+      shortcut: "Ctrl+,",
+      icon: Settings,
+      run: () => {
+        onOpenSettings();
+        onClose();
+      },
+    }] : []),
+  ];
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  return (
+    <div
+      className="react-command-palette-backdrop react-session-search-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <section aria-label="Chat search" className="react-command-palette react-session-search-dialog" role="dialog">
+        <div className="react-session-search__input-row">
+          <Search aria-hidden="true" size={18} />
+          <input
+            aria-label="Search chats or commands"
+            autoFocus
+            placeholder="搜索聊天或运行命令"
+            value={query}
+            onChange={(event) => setQuery(event.currentTarget.value)}
+          />
+        </div>
+        <div className="react-session-search__section">
+          <p>聊天</p>
+          <div className="react-session-search__list">
+            {filteredSessions.length ? filteredSessions.map((session, index) => (
+              <button
+                aria-current={session.id === activeSessionId ? "page" : undefined}
+                className="react-session-search__item"
+                key={session.id}
+                type="button"
+                onClick={() => onSelectSession(session)}
+              >
+                <span className="react-session-search__rank">{index + 1}</span>
+                <span className="react-session-search__title">{session.title}</span>
+                <span className="react-session-search__meta">tinybot</span>
+                <kbd>{`Ctrl+${index + 1}`}</kbd>
+                <small>{formatRelativeUpdatedTime(session.updatedAtMs, now())}</small>
+              </button>
+            )) : <span className="react-session-search__empty">No matching chats.</span>}
+          </div>
+        </div>
+        <div className="react-session-search__section">
+          <p>推荐</p>
+          <div className="react-session-search__list">
+            {recommendations.map((recommendation) => {
+              const Icon = recommendation.icon;
+              return (
+                <button className="react-session-search__item" key={recommendation.id} type="button" onClick={recommendation.run}>
+                  <Icon aria-hidden="true" size={17} />
+                  <span className="react-session-search__title">{recommendation.label}</span>
+                  <kbd>{recommendation.shortcut}</kbd>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function EmptyChatStart() {
+  return (
+    <section aria-label="Start a new chat" className="react-empty-chat-start" data-empty-session="true">
+      <h2>想让 Tinybot 做什么？</h2>
+      <PromptCycleText prompts={EMPTY_CHAT_PROMPTS} />
+    </section>
+  );
+}
+
+function PromptCycleText({ prompts }: { prompts: readonly string[] }) {
+  return (
+    <p aria-label="Prompt suggestions" className="react-prompt-cycle" data-motion="text-type-loop">
+      <span className="react-sr-only">{`建议：${prompts.join("；")}`}</span>
+      <span aria-hidden="true" className="react-prompt-cycle__visual">
+        {prompts.map((prompt, index) => (
+          <span
+            className="react-prompt-cycle__item"
+            key={prompt}
+            style={
+              {
+                "--react-prompt-characters": String(Math.max(prompt.length, 1)),
+                "--react-prompt-index": String(index),
+              } as CSSProperties
+            }
+          >
+            {prompt}
+          </span>
+        ))}
+      </span>
+    </p>
+  );
+}
+
+function EmptyStateText({ text }: { text: string }) {
+  return (
+    <p className="react-empty-state">
+      <TextType text={text} />
+    </p>
+  );
+}
+
+function TextType({ text }: { text: string }) {
+  return (
+    <span
+      aria-label={text}
+      className="react-text-type"
+      data-text-type="once"
+      style={{ "--react-text-type-characters": String(Math.max(text.length, 1)) } as CSSProperties}
+    >
+      <span aria-hidden="true" className="react-text-type__text">{text}</span>
+    </span>
   );
 }
 
@@ -444,8 +795,9 @@ function AgentSteps({
   const [expanded, setExpanded] = useState(true);
   const overallStatus = resolveAgentStepsStatus(toolCalls);
   const countLabel = `${toolCalls.length} ${toolCalls.length === 1 ? "step" : "steps"}`;
+  const currentStepIndex = resolveCurrentAgentStepIndex(toolCalls);
   return (
-    <section className="react-agent-steps" data-status={overallStatus}>
+    <section className="react-agent-steps" data-status={overallStatus} data-stepper="true">
       <button
         aria-expanded={expanded}
         aria-label={`Agent steps, ${countLabel}`}
@@ -466,8 +818,17 @@ function AgentSteps({
           {toolCalls.map((toolCall, index) => {
             const status = normalizeAgentStepStatus(toolCall.status);
             const isLast = index === toolCalls.length - 1;
+            const isCurrent = index === currentStepIndex;
             return (
-              <li className="react-agent-step-item" data-status={status} key={toolCall.id}>
+              <li
+                aria-current={isCurrent ? "step" : undefined}
+                className="react-agent-step-item"
+                data-motion-role="step"
+                data-status={status}
+                data-step-count={toolCalls.length}
+                data-step-index={index}
+                key={toolCall.id}
+              >
                 {!isLast ? <span aria-hidden="true" className="react-agent-step-item__line" /> : null}
                 <span className="react-agent-step-item__marker" data-status={status}>
                   <AgentStepIcon status={status} />
@@ -522,6 +883,18 @@ function resolveAgentStepsStatus(toolCalls: ToolCallSummary[]): AgentStepStatus 
     return "success";
   }
   return "pending";
+}
+
+function resolveCurrentAgentStepIndex(toolCalls: ToolCallSummary[]): number {
+  const activeIndex = toolCalls.findIndex((toolCall) => normalizeAgentStepStatus(toolCall.status) === "active");
+  if (activeIndex >= 0) {
+    return activeIndex;
+  }
+  const waitingIndex = toolCalls.findIndex((toolCall) => normalizeAgentStepStatus(toolCall.status) === "waiting");
+  if (waitingIndex >= 0) {
+    return waitingIndex;
+  }
+  return -1;
 }
 
 function normalizeAgentStepStatus(status: string): AgentStepStatus {
@@ -691,6 +1064,10 @@ function parseMarkdownTableRow(line: string): string[] {
     .replace(/\|$/, "")
     .split("|")
     .map((cell) => cell.trim());
+}
+
+function sessionTitleInitial(title: string): string {
+  return title.trim().charAt(0).toUpperCase() || "C";
 }
 
 function formatToolCallDetails(toolCall: ToolCallSummary): string {

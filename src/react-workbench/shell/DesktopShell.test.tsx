@@ -2,6 +2,7 @@
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DesktopShell } from "./DesktopShell";
 import type { AppServices } from "../services";
@@ -82,6 +83,17 @@ describe("DesktopShell", () => {
     expect(controls.toggleMaximize).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps shell navigation typography compact", () => {
+    const css = readFileSync("src/react-workbench/styles/workbench.css", "utf8");
+
+    expect(css).toMatch(/\.react-window-frame__brand\s*{[^}]*font-size:\s*13px;/s);
+    expect(css).toMatch(/\.react-top-menu__trigger\s*{[^}]*font-size:\s*12px;/s);
+    expect(css).toMatch(/\.react-top-menu__menu-item\s*{[^}]*font-size:\s*13px;/s);
+    expect(css).toMatch(/\.react-activity-rail button\s*{[^}]*font-size:\s*10px;/s);
+    expect(css).toMatch(/\.react-session-list__new\s*{[^}]*font-size:\s*12px;/s);
+    expect(css).toMatch(/\.react-session-row__title\s*{[^}]*font-size:\s*12px;/s);
+  });
+
   it("opens legacy top menu command lists from the React window frame", async () => {
     const user = userEvent.setup();
     const services = createServices();
@@ -126,6 +138,19 @@ describe("DesktopShell", () => {
     for (const item of ["Shortcut Help", "Page Help", "Backend Logs", "Open native workbench", "Tinybot repo"]) {
       expect(within(moreHelpMenu).getByRole("menuitem", { name: new RegExp(item) })).toBeTruthy();
     }
+  });
+
+  it("routes session search recommendations through the shell", async () => {
+    const user = userEvent.setup();
+    const services = createServices();
+    render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={services} />);
+
+    await user.click(await screen.findByRole("button", { name: "Search chats" }));
+    const dialog = screen.getByRole("dialog", { name: "Chat search" });
+    await user.click(within(dialog).getByRole("button", { name: /Open folder/ }));
+
+    expect(screen.queryByRole("dialog", { name: "Chat search" })).toBeNull();
+    expect(await screen.findByRole("heading", { name: "Workspace Files" })).toBeTruthy();
   });
 
   it("closes an open top menu when clicking outside it", async () => {
@@ -182,6 +207,23 @@ describe("DesktopShell", () => {
 
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "Command palette" })).toBeNull();
+  });
+
+  it("toggles the chat session sidebar from the keyboard and App menu", async () => {
+    const user = userEvent.setup();
+    render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={createServices()} />);
+
+    const sidebar = await screen.findByLabelText("Sessions");
+    expect(sidebar.getAttribute("data-collapsed")).toBe("false");
+
+    await user.keyboard("{Control>}b{/Control}");
+
+    expect(sidebar.getAttribute("data-collapsed")).toBe("true");
+
+    await user.click(screen.getByRole("button", { name: "App" }));
+    await user.click(within(screen.getByRole("menu", { name: "Application menu" })).getByRole("menuitem", { name: /Toggle Sidebar/ }));
+
+    expect(sidebar.getAttribute("data-collapsed")).toBe("false");
   });
 
   it("runs route commands from the command palette", async () => {
