@@ -27,7 +27,14 @@ import { createDesktopNativeWebuiApi } from "../app-core/native/desktopNativeWeb
 import { createDesktopNativeWorkspaceApi } from "../app-core/native/desktopNativeWorkspace";
 import { startDesktopNativeChannelRuntime } from "../app-core/native/desktopNativeChannelLifecycle";
 import { normalizeNativeBackendEventPayload } from "../app-core/native/nativeBackendContract";
-import type { AppServices, ChatEvent, SessionSummary } from "./services";
+import type {
+  AppServices,
+  ChatEvent,
+  KnowledgeDocumentSummary,
+  SessionSummary,
+  SkillSummary,
+  WorkspaceFileSummary,
+} from "./services";
 import type { ReactChatMessage } from "./chat/messageActions";
 
 type Listener = (event: ChatEvent) => void;
@@ -255,6 +262,35 @@ export function createDesktopAppServices(): AppServices {
         };
       },
     },
+    workspaceStore: {
+      async listFiles() {
+        await initialize();
+        return normalizeWorkspaceFiles(await gatewayApi.workspace.files());
+      },
+    },
+    knowledgeStore: {
+      async listDocuments() {
+        await initialize();
+        return normalizeKnowledgeDocuments(await gatewayApi.knowledge.documents());
+      },
+      async stats() {
+        await initialize();
+        return normalizeStats(await gatewayApi.knowledge.stats());
+      },
+    },
+    toolsStore: {
+      async listSkills() {
+        await initialize();
+        return normalizeSkills(await gatewayApi.skills.list());
+      },
+    },
+    settingsStore: {
+      async load() {
+        await initialize();
+        const snapshot = nativeConfig ? await nativeConfig.get().catch(() => null) : null;
+        return normalizeSettingsSummary(snapshot, config);
+      },
+    },
   };
 }
 
@@ -302,12 +338,122 @@ function timestampMs(value: string): number | null {
 }
 
 function timestampFromPayload(payload: unknown): number | null {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+  if (!isRecord(payload)) {
     return null;
   }
-  const record = payload as Record<string, unknown>;
-  const value = record.updated_at ?? record.updatedAt;
+  const value = payload.updated_at ?? payload.updatedAt;
   return typeof value === "string" ? timestampMs(value) : null;
+}
+
+function normalizeWorkspaceFiles(payload: unknown): WorkspaceFileSummary[] {
+  return payloadItems(payload, ["files", "items"]).map((item) => {
+    const path = stringValue(item.path ?? item.name ?? item.file ?? item.relative_path);
+    return {
+      path: path || "Untitled file",
+      size: numberValue(item.size ?? item.bytes),
+      updatedAtMs: timestampMs(stringValue(item.updated_at ?? item.updatedAt ?? item.modified_at)) ?? undefined,
+    };
+  });
+}
+
+function normalizeKnowledgeDocuments(payload: unknown): KnowledgeDocumentSummary[] {
+  return payloadItems(payload, ["documents", "items"]).map((item, index) => {
+    const id = stringValue(item.id ?? item.doc_id ?? item.document_id ?? item.path) || `document:${index}`;
+    return {
+      id,
+      title: stringValue(item.title ?? item.name ?? item.path) || id,
+      source: stringValue(item.source ?? item.source_path ?? item.path),
+      updatedAtMs: timestampMs(stringValue(item.updated_at ?? item.updatedAt ?? item.created_at)) ?? undefined,
+    };
+  });
+}
+
+function normalizeSkills(payload: unknown): SkillSummary[] {
+  return payloadItems(payload, ["skills", "items"]).map((item) => {
+    const name = stringValue(item.name ?? item.id ?? item.slug);
+    return {
+      name: name || "Unnamed skill",
+      description: stringValue(item.description ?? item.summary),
+    };
+  });
+}
+
+function normalizeStats(payload: unknown): Array<{ label: string; value: string }> {
+  if (Array.isArray(payload)) {
+    return payload.filter(isRecord).map((item) => ({
+      label: labelFromKey(stringValue(item.label ?? item.name ?? item.key)),
+      value: stringValue(item.value ?? item.count ?? item.total),
+    })).filter((item) => item.label && item.value);
+  }
+  if (!isRecord(payload)) {
+    return [];
+  }
+  const stats = isRecord(payload.stats) ? payload.stats : payload;
+  return Object.entries(stats)
+    .filter(([, value]) => value !== null && value !== undefined && typeof value !== "object")
+    .map(([key, value]) => ({ label: labelFromKey(key), value: stringValue(value) }));
+}
+
+function normalizeSettingsSummary(snapshot: unknown, config: { httpBaseUrl: string; requestTimeoutMs: number; wsUrl: string }) {
+  const rows = [
+    { label: "Gateway URL", value: config.httpBaseUrl },
+    { label: "WebSocket URL", value: config.wsUrl },
+    { label: "Request timeout", value: `${config.requestTimeoutMs} ms` },
+  ];
+  if (!isRecord(snapshot)) {
+    return rows;
+  }
+  const defaults = isRecord(snapshot.defaults) ? snapshot.defaults : isRecord(snapshot.agents) ? snapshot.agents : {};
+  const model = stringValue(defaults.model ?? defaults.default_model ?? snapshot.model);
+  if (model) {
+    rows.unshift({ label: "Default model", value: model });
+  }
+  const providers = payloadItems(snapshot.providers ?? snapshot.llm_providers ?? snapshot.provider_configs, ["items"]);
+  if (providers.length) {
+    rows.push({ label: "Providers", value: String(providers.length) });
+  }
+  return rows;
+}
+
+function payloadItems(payload: unknown, keys: string[]): Record<string, unknown>[] {
+  if (Array.isArray(payload)) {
+    return payload.filter(isRecord);
+  }
+  if (!isRecord(payload)) {
+    return [];
+  }
+  for (const key of keys) {
+    const value = payload[key];
+    if (Array.isArray(value)) {
+      return value.filter(isRecord);
+    }
+  }
+  return [];
+}
+
+function labelFromKey(value: string): string {
+  return value
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringValue(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return "";
+}
+
+function numberValue(value: unknown): number | undefined {
+  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function hasTauriRuntime(): boolean {

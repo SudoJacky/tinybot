@@ -400,6 +400,93 @@ button:disabled {
   padding: 40px;
 }
 
+.react-workbench-page {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 14px;
+  height: 100%;
+  min-height: 0;
+  padding: 22px 26px;
+  overflow: auto;
+}
+
+.react-workbench-page > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--color-hairline);
+}
+
+.react-workbench-page h1 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+.react-stat-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.react-stat {
+  display: grid;
+  gap: 2px;
+  min-width: 112px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.react-stat strong {
+  color: var(--color-ink);
+  font-size: 16px;
+}
+
+.react-stat span {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.react-data-list {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
+.react-data-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.react-data-row strong,
+.react-data-row small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-data-row strong {
+  color: var(--color-ink);
+  font-size: 13px;
+}
+
+.react-data-row small {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
 .react-placeholder-page p,
 .react-empty-state,
 .react-command-palette p,
@@ -433,6 +520,17 @@ button:disabled {
   border: 1px solid var(--color-hairline);
   border-radius: 8px;
   padding: 10px 12px;
+}
+
+.react-command-list {
+  display: grid;
+  gap: 4px;
+}
+
+.react-command-list button {
+  justify-content: start;
+  padding: 9px 10px;
+  text-align: left;
 }
 
 .react-sr-only {

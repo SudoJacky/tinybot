@@ -96,6 +96,44 @@ export function ChatPage({ chatStore, now = Date.now, sessionStore }: ChatPagePr
     setActiveSessionId((current) => current || nextSessions[0]?.id || "");
   }
 
+  async function handlePinConversation(session: SessionSummary) {
+    const pinned = !session.pinned;
+    await sessionStore.pin(session.id, pinned);
+    setSessions((current) => current.map((item) => item.id === session.id ? { ...item, pinned } : item));
+    setHeaderMenuOpen(false);
+  }
+
+  async function handleRenameConversation(session: SessionSummary) {
+    const nextTitle = window.prompt("Rename conversation", session.title)?.trim();
+    if (!nextTitle || nextTitle === session.title) {
+      setHeaderMenuOpen(false);
+      return;
+    }
+    await sessionStore.rename(session.id, nextTitle);
+    setSessions((current) => current.map((item) => item.id === session.id ? { ...item, title: nextTitle } : item));
+    setHeaderMenuOpen(false);
+  }
+
+  async function handleCopyId(session: SessionSummary) {
+    await writeClipboardText(session.id);
+    setHeaderMenuOpen(false);
+  }
+
+  async function handleCopyMarkdown(session: SessionSummary) {
+    await writeClipboardText(await chatStore.copyMarkdown(session.id));
+    setHeaderMenuOpen(false);
+  }
+
+  async function handleArchiveConversation(session: SessionSummary) {
+    await sessionStore.archive(session.id);
+    const remaining = sessions.filter((item) => item.id !== session.id);
+    setSessions(remaining);
+    if (activeSessionId === session.id) {
+      setActiveSessionId(remaining[0]?.id ?? "");
+    }
+    setHeaderMenuOpen(false);
+  }
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     const text = composerText.trim();
@@ -165,14 +203,16 @@ export function ChatPage({ chatStore, now = Date.now, sessionStore }: ChatPagePr
             </button>
             {headerMenuOpen ? (
               <div className="react-menu" role="menu">
-                <button role="menuitem" type="button">Pin conversation</button>
-                <button role="menuitem" type="button">Rename conversation</button>
-                <button role="menuitem" type="button">Copy ID</button>
-                <button role="menuitem" type="button" onClick={() => activeSession && void chatStore.copyMarkdown(activeSession.id)}>Copy Markdown</button>
-                <button role="menuitem" type="button">Archive conversation</button>
-                <button role="menuitem" type="button">Open side chat</button>
-                <button role="menuitem" type="button">Branch <ChevronDown aria-hidden="true" size={14} /></button>
-                <button role="menuitem" type="button">Open in new window</button>
+                <button role="menuitem" type="button" onClick={() => activeSession && void handlePinConversation(activeSession)}>
+                  {activeSession?.pinned ? "Unpin conversation" : "Pin conversation"}
+                </button>
+                <button role="menuitem" type="button" onClick={() => activeSession && void handleRenameConversation(activeSession)}>Rename conversation</button>
+                <button role="menuitem" type="button" onClick={() => activeSession && void handleCopyId(activeSession)}>Copy ID</button>
+                <button role="menuitem" type="button" onClick={() => activeSession && void handleCopyMarkdown(activeSession)}>Copy Markdown</button>
+                <button role="menuitem" type="button" onClick={() => activeSession && void handleArchiveConversation(activeSession)}>Archive conversation</button>
+                <button disabled role="menuitem" type="button">Open side chat</button>
+                <button disabled role="menuitem" type="button">Branch <ChevronDown aria-hidden="true" size={14} /></button>
+                <button disabled role="menuitem" type="button">Open in new window</button>
               </div>
             ) : null}
           </div>
@@ -238,6 +278,10 @@ const MESSAGE_RELOAD_EVENT_TYPES = new Set([
 
 function shouldReloadMessagesForChatEvent(type: string): boolean {
   return MESSAGE_RELOAD_EVENT_TYPES.has(type);
+}
+
+async function writeClipboardText(value: string): Promise<void> {
+  await navigator.clipboard?.writeText(value);
 }
 
 function MessageBubble({

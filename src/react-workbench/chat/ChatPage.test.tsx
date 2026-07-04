@@ -139,4 +139,44 @@ describe("ChatPage", () => {
 
     expect(stores.chatStore.load).toHaveBeenCalledTimes(1);
   });
+
+  it("runs conversation menu actions through stores and clipboard", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    const prompt = vi.fn(() => "Renamed chat");
+    Object.defineProperty(window, "prompt", {
+      configurable: true,
+      value: prompt,
+    });
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    await screen.findByRole("button", { name: "Planning notes" });
+    await user.click(screen.getByRole("button", { name: "Open conversation menu" }));
+    await user.click(screen.getByRole("menuitem", { name: "Pin conversation" }));
+    expect(stores.sessionStore.pin).toHaveBeenCalledWith("s1", true);
+
+    await user.click(screen.getByRole("button", { name: "Open conversation menu" }));
+    await user.click(screen.getByRole("menuitem", { name: "Copy ID" }));
+    expect(writeText).toHaveBeenCalledWith("s1");
+
+    await user.click(screen.getByRole("button", { name: "Open conversation menu" }));
+    await user.click(screen.getByRole("menuitem", { name: "Copy Markdown" }));
+    expect(stores.chatStore.copyMarkdown).toHaveBeenCalledWith("s1");
+    expect(writeText).toHaveBeenCalledWith("# Planning notes");
+
+    await user.click(screen.getByRole("button", { name: "Open conversation menu" }));
+    await user.click(screen.getByRole("menuitem", { name: "Rename conversation" }));
+    expect(prompt).toHaveBeenCalledWith("Rename conversation", "Planning notes");
+    expect(stores.sessionStore.rename).toHaveBeenCalledWith("s1", "Renamed chat");
+
+    await user.click(screen.getByRole("button", { name: "Open conversation menu" }));
+    await user.click(screen.getByRole("menuitem", { name: "Archive conversation" }));
+    expect(stores.sessionStore.archive).toHaveBeenCalledWith("s1");
+  });
 });

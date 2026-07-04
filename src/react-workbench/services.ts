@@ -37,7 +37,46 @@ export type ChatStore = {
   subscribe(sessionId: string, listener: (event: ChatEvent) => void): () => void;
 };
 
+export type WorkspaceFileSummary = {
+  path: string;
+  size?: number;
+  updatedAtMs?: number;
+};
+
+export type WorkspaceStore = {
+  listFiles(): Promise<WorkspaceFileSummary[]>;
+};
+
+export type KnowledgeDocumentSummary = {
+  id: string;
+  title: string;
+  source?: string;
+  updatedAtMs?: number;
+};
+
+export type KnowledgeStore = {
+  listDocuments(): Promise<KnowledgeDocumentSummary[]>;
+  stats(): Promise<Array<{ label: string; value: string }>>;
+};
+
+export type SkillSummary = {
+  name: string;
+  description?: string;
+};
+
+export type ToolsStore = {
+  listSkills(): Promise<SkillSummary[]>;
+};
+
+export type SettingsStore = {
+  load(): Promise<Array<{ label: string; value: string }>>;
+};
+
 export type AppServices = {
   sessionStore: SessionStore;
   chatStore: ChatStore;
+  workspaceStore: WorkspaceStore;
+  knowledgeStore: KnowledgeStore;
+  toolsStore: ToolsStore;
+  settingsStore: SettingsStore;
 };

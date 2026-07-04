@@ -8,7 +8,12 @@ import type { AppServices } from "../services";
 
 afterEach(() => cleanup());
 
-function createServices(): AppServices {
+function createServices(): AppServices & {
+  workspaceStore: { listFiles: ReturnType<typeof vi.fn> };
+  knowledgeStore: { listDocuments: ReturnType<typeof vi.fn>; stats: ReturnType<typeof vi.fn> };
+  toolsStore: { listSkills: ReturnType<typeof vi.fn> };
+  settingsStore: { load: ReturnType<typeof vi.fn> };
+} {
   return {
     sessionStore: {
       list: vi.fn(async () => []),
@@ -26,21 +31,58 @@ function createServices(): AppServices {
       copyMarkdown: vi.fn(async () => ""),
       subscribe: vi.fn(() => () => undefined),
     },
+    workspaceStore: {
+      listFiles: vi.fn(async () => [
+        { path: "src/main.ts", size: 512 },
+        { path: "docs/notes.md", size: 2048 },
+      ]),
+    },
+    knowledgeStore: {
+      listDocuments: vi.fn(async () => [
+        { id: "doc-1", title: "Project Plan", source: "docs/plan.md" },
+      ]),
+      stats: vi.fn(async () => [{ label: "Documents", value: "1" }]),
+    },
+    toolsStore: {
+      listSkills: vi.fn(async () => [
+        { name: "review-code", description: "Review current changes" },
+      ]),
+    },
+    settingsStore: {
+      load: vi.fn(async () => [{ label: "Default model", value: "tinybot" }]),
+    },
   };
 }
 
 describe("DesktopShell", () => {
-  it("renders native-style top menus and React-only navigation placeholders", async () => {
+  it("renders native-style top menus and functional secondary pages", async () => {
     const user = userEvent.setup();
-    render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={createServices()} />);
+    const services = createServices();
+    render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={services} />);
 
     for (const menu of ["App", "Resources", "System", "Help"]) {
       expect(screen.getByRole("button", { name: menu })).toBeTruthy();
     }
 
+    await user.click(screen.getByRole("button", { name: "Files" }));
+    expect(await screen.findByRole("heading", { name: "Workspace Files" })).toBeTruthy();
+    expect(screen.getByText("src/main.ts")).toBeTruthy();
+    expect(services.workspaceStore.listFiles).toHaveBeenCalled();
+
     await user.click(screen.getByRole("button", { name: "Knowledge" }));
-    expect(screen.getByRole("heading", { name: "Knowledge" })).toBeTruthy();
-    expect(screen.getByText(/placeholder/i)).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Knowledge" })).toBeTruthy();
+    expect(screen.getByText("Project Plan")).toBeTruthy();
+    expect(screen.getByText("Documents")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Tools" }));
+    expect(await screen.findByRole("heading", { name: "Tools & Skills" })).toBeTruthy();
+    expect(screen.getByText("review-code")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    expect(await screen.findByRole("heading", { name: "Settings" })).toBeTruthy();
+    expect(screen.getByText("Default model")).toBeTruthy();
+
+    expect(screen.queryByText(/placeholder/i)).toBeNull();
     expect(screen.queryByText(/Vue/i)).toBeNull();
   });
 
@@ -52,6 +94,18 @@ describe("DesktopShell", () => {
     expect(screen.getByRole("dialog", { name: "Command palette" })).toBeTruthy();
 
     await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Command palette" })).toBeNull();
+  });
+
+  it("runs route commands from the command palette", async () => {
+    const user = userEvent.setup();
+    render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={createServices()} />);
+
+    await user.keyboard("{Control>}k{/Control}");
+    await user.type(screen.getByRole("textbox", { name: "Search commands" }), "files");
+    await user.click(screen.getByRole("button", { name: "Open Files" }));
+
+    expect(await screen.findByRole("heading", { name: "Workspace Files" })).toBeTruthy();
     expect(screen.queryByRole("dialog", { name: "Command palette" })).toBeNull();
   });
 });
