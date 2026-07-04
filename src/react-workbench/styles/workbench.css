@@ -593,31 +593,275 @@ button:disabled {
 
 .react-composer {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 42px;
-  gap: 10px;
   width: min(860px, calc(100% - 48px));
   margin: 0 auto;
   padding: 14px 0 18px;
 }
 
-.react-composer textarea {
+.claude-ai-input {
+  gap: 8px;
+}
+
+.claude-ai-input__panel {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 16px;
+  background: #fff;
+  padding: 10px;
+  box-shadow: 0 1px 3px rgb(20 20 19 / 8%);
+}
+
+.claude-ai-input__textarea {
   display: block;
   width: 100%;
   max-height: 160px;
   min-height: 46px;
-  resize: vertical;
-  border: 1px solid var(--color-hairline);
-  border-radius: 12px;
-  background: #fff;
+  resize: none;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
   color: var(--color-ink);
-  padding: 12px 14px;
+  padding: 8px 10px;
+  font: inherit;
+  line-height: 1.45;
 }
 
-.react-composer button {
-  width: 42px;
-  height: 42px;
-  align-self: end;
-  border-radius: 12px;
+.claude-ai-input__textarea:focus-visible {
+  outline: none;
+}
+
+.claude-ai-input__textarea::placeholder {
+  color: var(--color-muted);
+}
+
+.claude-ai-input__toolbar,
+.claude-ai-input__tools,
+.claude-ai-input__model-trigger,
+.claude-ai-input__attachment,
+.claude-ai-input__notice {
+  display: flex;
+  align-items: center;
+}
+
+.claude-ai-input__toolbar {
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.claude-ai-input__tools {
+  min-width: 0;
+  gap: 6px;
+}
+
+.claude-ai-input__file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.claude-ai-input__icon-button,
+.claude-ai-input__send {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  border-radius: 999px;
+  padding: 0;
+}
+
+.claude-ai-input__icon-button {
+  color: var(--color-muted);
+}
+
+.claude-ai-input__icon-button:hover,
+.claude-ai-input__icon-button:focus-visible,
+.claude-ai-input__model-trigger:hover,
+.claude-ai-input__model-trigger:focus-visible {
+  background: var(--color-surface-soft);
+}
+
+.claude-ai-input__send {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.claude-ai-input__send:hover,
+.claude-ai-input__send:focus-visible {
+  background: var(--color-primary-active);
+}
+
+.claude-ai-input__send:disabled {
+  border-color: var(--color-hairline);
+  background: var(--color-surface-card);
+  color: var(--color-muted-soft);
+}
+
+.claude-ai-input__model {
+  position: relative;
+  min-width: 0;
+}
+
+.claude-ai-input__model-trigger {
+  gap: 6px;
+  max-width: 210px;
+  height: 34px;
+  border-radius: 999px;
+  padding: 0 10px;
+  color: var(--color-body);
+  font-size: 13px;
+}
+
+.claude-ai-input__model-trigger span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.claude-ai-input__model-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 35;
+  display: grid;
+  width: 270px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 10px;
+  background: #fff;
+  padding: 6px;
+  box-shadow: 0 18px 42px rgb(20 20 19 / 14%);
+}
+
+.claude-ai-input__model-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  border-radius: 7px;
+  padding: 8px 9px;
+  text-align: left;
+}
+
+.claude-ai-input__model-option:hover,
+.claude-ai-input__model-option:focus-visible,
+.claude-ai-input__model-option[aria-selected="true"] {
+  background: var(--color-surface-soft);
+}
+
+.claude-ai-input__model-option span {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.claude-ai-input__model-option strong,
+.claude-ai-input__model-option small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.claude-ai-input__model-option strong {
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.claude-ai-input__model-option small {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.claude-ai-input__model-option em {
+  border-radius: 999px;
+  background: var(--color-primary);
+  color: #fff;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-style: normal;
+  line-height: 1.2;
+}
+
+.claude-ai-input__attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.claude-ai-input__attachment {
+  max-width: min(260px, 100%);
+  gap: 8px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 10px;
+  background: var(--color-surface-soft);
+  padding: 7px 8px;
+}
+
+.claude-ai-input__attachment-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--color-muted);
+}
+
+.claude-ai-input__attachment-text {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 1px;
+}
+
+.claude-ai-input__attachment-text strong,
+.claude-ai-input__attachment-text small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.claude-ai-input__attachment-text strong {
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.claude-ai-input__attachment-text small {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.claude-ai-input__attachment button {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  border-radius: 999px;
+  padding: 0;
+  color: var(--color-muted);
+}
+
+.claude-ai-input__notice {
+  gap: 6px;
+  border: 1px solid color-mix(in srgb, var(--color-error) 35%, var(--color-hairline));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-error) 8%, #fff);
+  color: var(--color-error);
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.claude-ai-input button:disabled {
+  cursor: not-allowed;
 }
 
 .react-right-drawer {

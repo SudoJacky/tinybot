@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useReducer, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { ChevronDown, Copy, GitBranch, MoreHorizontal, PanelRightOpen, Send, Trash2, X } from "lucide-react";
+import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
+import { ChevronDown, Copy, GitBranch, MoreHorizontal, PanelRightOpen, Trash2, X } from "lucide-react";
+import { ClaudeStyleAiInput, type FileWithPreview, type PastedContent } from "../../components/ui/claude-style-ai-input";
 import { formatRelativeUpdatedTime } from "../lib/relativeTime";
 import type { ChatStore, SessionStore, SessionSummary } from "../services";
 import { reduceSessionDeleteState } from "../sessions/sessionDeleteState";
@@ -21,7 +22,6 @@ export function ChatPage({ chatStore, createSessionSignal = 0, now = Date.now, s
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [activeSessionId, setActiveSessionId] = useState("");
   const [messages, setMessages] = useState<ReactChatMessage[]>([]);
-  const [composerText, setComposerText] = useState("");
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [drawer, setDrawer] = useState<DrawerState>(null);
   const [deleteState, dispatchDelete] = useReducer(reduceSessionDeleteState, { confirmingSessionId: "" });
@@ -150,15 +150,13 @@ export function ChatPage({ chatStore, createSessionSignal = 0, now = Date.now, s
     setActiveSessionId(branched.id);
   }
 
-  async function handleSubmit(event: FormEvent) {
-    event.preventDefault();
-    const text = composerText.trim();
+  async function handleComposerSend(message: string, files: FileWithPreview[], pastedContent: PastedContent[]) {
+    const text = formatComposerMessage(message, files, pastedContent);
     if (!text || !activeSession) {
       return;
     }
     await chatStore.send(activeSession.id, { text });
     await handleSessionStoreRefresh();
-    setComposerText("");
   }
 
   return (
@@ -250,21 +248,12 @@ export function ChatPage({ chatStore, createSessionSignal = 0, now = Date.now, s
           )) : <p className="react-empty-state">Select or create a session.</p>}
         </div>
 
-        <form className="react-composer" onSubmit={(event) => void handleSubmit(event)}>
-          <label>
-            <span className="react-sr-only">Message</span>
-            <textarea
-              aria-label="Message"
-              placeholder="Message Tinybot"
-              rows={2}
-              value={composerText}
-              onChange={(event) => setComposerText(event.currentTarget.value)}
-            />
-          </label>
-          <button aria-label="Send message" disabled={!composerText.trim() || !activeSession} type="submit">
-            <Send aria-hidden="true" size={18} />
-          </button>
-        </form>
+        <ClaudeStyleAiInput
+          className="react-composer"
+          disabled={!activeSession}
+          placeholder="Message Tinybot"
+          onSendMessage={(message, files, pastedContent) => handleComposerSend(message, files, pastedContent)}
+        />
       </main>
 
       {drawer ? (
@@ -299,6 +288,30 @@ function shouldReloadMessagesForChatEvent(type: string): boolean {
 
 async function writeClipboardText(value: string): Promise<void> {
   await navigator.clipboard?.writeText(value);
+}
+
+function formatComposerMessage(message: string, files: FileWithPreview[], pastedContent: PastedContent[]): string {
+  const segments = [message.trim()].filter(Boolean);
+  for (const pasted of pastedContent) {
+    segments.push(`Pasted content:\n${pasted.content}`);
+  }
+  if (files.length) {
+    segments.push([
+      "Attached files:",
+      ...files.map((item) => `- ${item.file.name} (${formatComposerFileSize(item.file.size)})`),
+    ].join("\n"));
+  }
+  return segments.join("\n\n");
+}
+
+function formatComposerFileSize(bytes: number): string {
+  if (bytes === 0) {
+    return "0 Bytes";
+  }
+  const k = 1024;
+  const sizes = ["Bytes", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
 }
 
 function MessageBubble({

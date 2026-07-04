@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatPage } from "./ChatPage";
@@ -77,6 +77,9 @@ describe("ChatPage", () => {
     expect(screen.getByText("4 min")).toBeTruthy();
     expect(screen.queryByText(/unix-ms/i)).toBeNull();
     expect(screen.getByRole("heading", { name: "Planning notes" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Attach files" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Select model" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Model settings" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /delete session/i })).toBeNull();
     expect(screen.queryByText(/Agent · rust/i)).toBeNull();
   });
@@ -219,6 +222,29 @@ describe("ChatPage", () => {
 
     expect(stores.chatStore.send).toHaveBeenCalledWith("s1", { text: "Hello from React" });
     expect((input as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("sends long pasted content through the Claude-style composer", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const input = await screen.findByRole("textbox", { name: /message/i });
+    const pastedText = Array.from({ length: 42 }, (_, index) => `word${index}`).join(" ");
+    fireEvent.paste(input, {
+      clipboardData: {
+        getData: (type: string) => type === "text" ? pastedText : "",
+      },
+    });
+
+    expect(screen.getByText("Pasted text")).toBeTruthy();
+    expect(screen.getByText("42 words")).toBeTruthy();
+
+    await user.type(input, "Summarize this");
+    await user.click(screen.getByRole("button", { name: /send message/i }));
+
+    expect(stores.chatStore.send).toHaveBeenCalledWith("s1", { text: `Summarize this\n\nPasted content:\n${pastedText}` });
+    expect(screen.queryByText("Pasted text")).toBeNull();
   });
 
   it("does not reload messages for socket error events", async () => {
