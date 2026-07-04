@@ -416,14 +416,20 @@ button:disabled {
   right: 6px;
   display: inline-grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
   border-radius: 7px;
   color: var(--color-muted);
+  line-height: 0;
   opacity: 0;
   pointer-events: none;
   transform: translateY(-50%);
   transition: opacity 140ms ease, color 140ms ease, background-color 140ms ease;
+}
+
+.react-session-row__delete svg {
+  display: block;
 }
 
 .react-session-row__delete:hover,
