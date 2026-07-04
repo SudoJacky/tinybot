@@ -167,6 +167,19 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  useEffect(() => {
+    function onWindowPointerDown(event: PointerEvent) {
+      if (event.target instanceof Element && event.target.closest(".react-top-menu")) {
+        return;
+      }
+      setActiveTopMenu(null);
+      setActiveTopSubmenu(null);
+    }
+
+    window.addEventListener("pointerdown", onWindowPointerDown);
+    return () => window.removeEventListener("pointerdown", onWindowPointerDown);
+  }, []);
+
   function handleFramePointerDown(event: ReactPointerEvent<HTMLElement>) {
     if (event.button !== 0 || isWindowFrameInteractiveTarget(event.target, event.currentTarget)) {
       return;

@@ -128,6 +128,20 @@ describe("DesktopShell", () => {
     }
   });
 
+  it("closes an open top menu when clicking outside it", async () => {
+    const user = userEvent.setup();
+    render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={createServices()} />);
+
+    await user.click(screen.getByRole("button", { name: "App" }));
+    const appMenu = screen.getByRole("menu", { name: "Application menu" });
+
+    fireEvent.pointerDown(appMenu);
+    expect(screen.getByRole("menu", { name: "Application menu" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Files" }));
+    expect(screen.queryByRole("menu", { name: "Application menu" })).toBeNull();
+  });
+
   it("renders native-style top menus and functional secondary pages", async () => {
     const user = userEvent.setup();
     const services = createServices();
