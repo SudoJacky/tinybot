@@ -365,7 +365,6 @@ export function ClaudeStyleAiInput({
                           {tool.description ? <small>{tool.description}</small> : null}
                         </span>
                         <em>{checked ? "On" : "Off"}</em>
-                        {checked ? <Check aria-hidden="true" size={15} /> : null}
                       </button>
                     );
                   })}

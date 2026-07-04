@@ -922,7 +922,7 @@ button:disabled {
 .claude-ai-input__tool-option,
 .claude-ai-input__model-option {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) max-content 16px;
+  grid-template-columns: minmax(0, 1fr) max-content;
   align-items: center;
   gap: 12px;
   width: 100%;
@@ -934,6 +934,10 @@ button:disabled {
   color: var(--color-ink);
   cursor: default;
   text-align: left;
+}
+
+.claude-ai-input__model-option {
+  grid-template-columns: minmax(0, 1fr) max-content 16px;
 }
 
 .claude-ai-input__tool-option:hover,
