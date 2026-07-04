@@ -111,6 +111,24 @@ describe("ChatPage", () => {
     expect(screen.getByRole("button", { name: /open details for shell/i })).toBeTruthy();
   });
 
+  it("renders tool activity as collapsible agent steps", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const toolMessage = await screen.findByTestId("message-a2");
+    const stepsToggle = within(toolMessage).getByRole("button", { name: /Agent steps, 1 step/i });
+    expect(stepsToggle.getAttribute("aria-expanded")).toBe("true");
+    expect(within(toolMessage).getByRole("list", { name: "Agent steps" })).toBeTruthy();
+    expect(within(toolMessage).getByRole("button", { name: "Open details for shell" })).toBeTruthy();
+    expect(within(toolMessage).getByText("Done")).toBeTruthy();
+
+    await user.click(stepsToggle);
+
+    expect(stepsToggle.getAttribute("aria-expanded")).toBe("false");
+    expect(within(toolMessage).queryByRole("list", { name: "Agent steps" })).toBeNull();
+  });
+
   it("places message action buttons under each message on the role side", async () => {
     const stores = createStores();
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);

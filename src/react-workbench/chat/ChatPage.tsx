@@ -1,5 +1,18 @@
 import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
-import { ChevronDown, Copy, GitBranch, MoreHorizontal, PanelRightOpen, Trash2, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Circle,
+  Copy,
+  GitBranch,
+  Loader2,
+  MoreHorizontal,
+  PanelRightOpen,
+  Trash2,
+  X,
+} from "lucide-react";
 import {
   ClaudeStyleAiInput,
   type ComposerSendOptions,
@@ -402,22 +415,7 @@ function MessageBubble({
     >
       <div className="react-message__body">
         <MessageText text={message.text} />
-        {message.toolCalls?.map((toolCall) => (
-          <button
-            aria-label={`Open details for ${toolCall.name}`}
-            className="react-tool-row"
-            key={toolCall.id}
-            type="button"
-            onClick={() => onOpenTool(toolCall)}
-          >
-            <PanelRightOpen aria-hidden="true" size={15} />
-            <span className="react-tool-row__content">
-              <span>{toolCall.name}</span>
-              {toolCall.summary ? <small>{toolCall.summary}</small> : null}
-            </span>
-            <small>{toolCall.status}</small>
-          </button>
-        ))}
+        {message.toolCalls?.length ? <AgentSteps toolCalls={message.toolCalls} onOpenTool={onOpenTool} /> : null}
       </div>
       <div className="react-message__actions" data-align={actionAlignment}>
         <button aria-label="Copy message" type="button" onClick={onCopy}>
@@ -431,6 +429,125 @@ function MessageBubble({
       </div>
     </article>
   );
+}
+
+type AgentStepStatus = "pending" | "active" | "success" | "waiting" | "error";
+
+function AgentSteps({
+  onOpenTool,
+  toolCalls,
+}: {
+  onOpenTool: (toolCall: ToolCallSummary) => void;
+  toolCalls: ToolCallSummary[];
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const overallStatus = resolveAgentStepsStatus(toolCalls);
+  const countLabel = `${toolCalls.length} ${toolCalls.length === 1 ? "step" : "steps"}`;
+  return (
+    <section className="react-agent-steps" data-status={overallStatus}>
+      <button
+        aria-expanded={expanded}
+        aria-label={`Agent steps, ${countLabel}`}
+        className="react-agent-steps__header"
+        type="button"
+        onClick={() => setExpanded((open) => !open)}
+      >
+        <span className="react-agent-steps__header-icon" data-status={overallStatus}>
+          <AgentStepIcon status={overallStatus} />
+        </span>
+        <span className="react-agent-steps__title">Agent steps</span>
+        <small>{countLabel}</small>
+        {expanded ? <ChevronDown aria-hidden="true" size={15} /> : <ChevronRight aria-hidden="true" size={15} />}
+      </button>
+
+      {expanded ? (
+        <ol aria-label="Agent steps" className="react-agent-steps__list">
+          {toolCalls.map((toolCall, index) => {
+            const status = normalizeAgentStepStatus(toolCall.status);
+            const isLast = index === toolCalls.length - 1;
+            return (
+              <li className="react-agent-step-item" data-status={status} key={toolCall.id}>
+                {!isLast ? <span aria-hidden="true" className="react-agent-step-item__line" /> : null}
+                <span className="react-agent-step-item__marker" data-status={status}>
+                  <AgentStepIcon status={status} />
+                </span>
+                <button
+                  aria-label={`Open details for ${toolCall.name}`}
+                  className="react-agent-step"
+                  type="button"
+                  onClick={() => onOpenTool(toolCall)}
+                >
+                  <span className="react-agent-step__content">
+                    <span>{toolCall.name}</span>
+                    {toolCall.summary ? <small>{toolCall.summary}</small> : null}
+                  </span>
+                  <small className="react-agent-step__status">{formatAgentStepStatus(toolCall.status)}</small>
+                  <PanelRightOpen aria-hidden="true" size={15} />
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+      ) : null}
+    </section>
+  );
+}
+
+function AgentStepIcon({ status }: { status: AgentStepStatus }) {
+  switch (status) {
+    case "success":
+      return <Check aria-hidden="true" size={14} />;
+    case "active":
+      return <Loader2 aria-hidden="true" size={14} />;
+    case "waiting":
+    case "error":
+      return <AlertTriangle aria-hidden="true" size={14} />;
+    default:
+      return <Circle aria-hidden="true" size={12} />;
+  }
+}
+
+function resolveAgentStepsStatus(toolCalls: ToolCallSummary[]): AgentStepStatus {
+  if (toolCalls.some((toolCall) => normalizeAgentStepStatus(toolCall.status) === "error")) {
+    return "error";
+  }
+  if (toolCalls.some((toolCall) => normalizeAgentStepStatus(toolCall.status) === "waiting")) {
+    return "waiting";
+  }
+  if (toolCalls.some((toolCall) => normalizeAgentStepStatus(toolCall.status) === "active")) {
+    return "active";
+  }
+  if (toolCalls.length && toolCalls.every((toolCall) => normalizeAgentStepStatus(toolCall.status) === "success")) {
+    return "success";
+  }
+  return "pending";
+}
+
+function normalizeAgentStepStatus(status: string): AgentStepStatus {
+  switch (status.toLowerCase()) {
+    case "complete":
+    case "completed":
+    case "success":
+    case "succeeded":
+      return "success";
+    case "running":
+    case "active":
+      return "active";
+    case "blocked":
+    case "waiting_approval":
+    case "awaiting_approval":
+    case "approval_required":
+      return "waiting";
+    case "failed":
+    case "error":
+      return "error";
+    default:
+      return status ? "pending" : "pending";
+  }
+}
+
+function formatAgentStepStatus(status: string): string {
+  return status.replace(/[_-]+/g, " ");
 }
 
 type MessageMarkdownBlock =
