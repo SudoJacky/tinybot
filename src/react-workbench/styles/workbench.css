@@ -168,17 +168,17 @@ button:disabled {
 
 .react-top-menu__popover {
   position: absolute;
-  top: calc(100% + 7px);
+  top: calc(100% + 8px);
   left: 0;
   z-index: 40;
   display: grid;
-  gap: 2px;
-  width: 250px;
+  gap: 0;
+  width: 238px;
   border: 1px solid var(--color-hairline);
-  border-radius: 8px;
-  background: rgb(255 255 255 / 96%);
-  padding: 7px 0;
-  box-shadow: 0 18px 44px rgb(38 30 23 / 14%);
+  border-radius: 9px;
+  background: #fff;
+  padding: 6px;
+  box-shadow: 0 18px 42px rgb(20 20 19 / 14%);
 }
 
 .react-top-menu__menu-item {
@@ -188,16 +188,61 @@ button:disabled {
   gap: 16px;
   width: 100%;
   min-height: 34px;
-  border: 0;
-  border-radius: 0;
-  padding: 6px 14px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  padding: 5px 11px;
   color: var(--color-ink);
+  cursor: default;
+  font-size: 14px;
+  line-height: 1.25;
   text-align: left;
 }
 
 .react-top-menu__menu-item:hover,
-.react-top-menu__menu-item:focus-visible {
+.react-top-menu__menu-item:focus-visible,
+.react-top-menu__menu-item[aria-expanded="true"] {
   background: var(--color-surface-soft);
+}
+
+.react-top-menu__menu-item:focus-visible {
+  border-color: var(--color-primary);
+}
+
+.react-top-menu__menu-item:disabled {
+  background: transparent;
+  color: var(--color-muted);
+}
+
+.react-top-menu__separator {
+  height: 1px;
+  margin: 5px -6px;
+  background: var(--color-hairline);
+}
+
+.react-top-menu__submenu {
+  position: relative;
+}
+
+.react-top-menu__submenu-trigger {
+  grid-template-columns: minmax(0, 1fr) 16px;
+}
+
+.react-top-menu__submenu-arrow {
+  color: var(--color-muted);
+}
+
+.react-top-menu__submenu-popover {
+  position: absolute;
+  top: -6px;
+  left: calc(100% + 6px);
+  z-index: 45;
+  display: grid;
+  width: 238px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 9px;
+  background: #fff;
+  padding: 6px;
+  box-shadow: 0 18px 42px rgb(20 20 19 / 14%);
 }
 
 .react-top-menu__menu-label,
@@ -209,8 +254,17 @@ button:disabled {
 }
 
 .react-top-menu__shortcut {
+  display: inline-flex;
+  align-items: center;
+  justify-self: end;
+  min-height: 20px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 5px;
+  background: #fbfaf8;
   color: var(--color-muted);
-  font-size: 12px;
+  padding: 0 5px;
+  font-size: 11px;
+  line-height: 1;
 }
 
 .react-window-frame__drag-space {

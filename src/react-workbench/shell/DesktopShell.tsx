@@ -8,7 +8,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { BookOpen, Bot, Code2, Command, FileText, Folder, MessageSquare, Settings, Wrench, X } from "lucide-react";
+import { BookOpen, Bot, ChevronRight, Code2, Command, FileText, Folder, MessageSquare, Settings, Wrench, X } from "lucide-react";
 import { ChatPage } from "../chat/ChatPage";
 import type { AppServices, WorkspaceFileSummary } from "../services";
 
@@ -62,48 +62,75 @@ type TopMenuCommand = {
   enabled?: boolean;
 };
 
-const topMenuItems: Array<{ label: TopMenuLabel; menuLabel: string; icon: typeof MessageSquare; commands: TopMenuCommand[] }> = [
+type TopMenuEntry =
+  | { kind: "command"; command: TopMenuCommand }
+  | { kind: "separator"; id: string }
+  | { kind: "submenu"; id: string; label: string; menuLabel: string; commands: TopMenuCommand[]; enabled?: boolean };
+
+type TopMenuItem = {
+  label: TopMenuLabel;
+  menuLabel: string;
+  icon: typeof MessageSquare;
+  entries: TopMenuEntry[];
+};
+
+const menuCommand = (command: TopMenuCommand): TopMenuEntry => ({ kind: "command", command });
+const menuSeparator = (id: string): TopMenuEntry => ({ kind: "separator", id });
+
+const topMenuItems: TopMenuItem[] = [
   {
     label: "App",
     menuLabel: "Application menu",
     icon: Command,
-    commands: [
-      { id: "new-chat", label: "New Chat", shortcut: "Ctrl+N" },
-      { id: "search-sessions", label: "Search Sessions", shortcut: "Ctrl+F", enabled: false },
-      { id: "open-command-palette", label: "Command Palette", shortcut: "Ctrl+Shift+P / Ctrl+K" },
-      { id: "stop-generation", label: "Stop Generation", shortcut: "Ctrl+.", enabled: false },
-      { id: "toggle-theme", label: "Toggle Theme", shortcut: "Ctrl+Shift+T" },
-      { id: "toggle-sidebar", label: "Toggle Sidebar", shortcut: "Ctrl+B", enabled: false },
+    entries: [
+      menuCommand({ id: "new-chat", label: "New Chat", shortcut: "Ctrl+N" }),
+      menuCommand({ id: "search-sessions", label: "Search Sessions", shortcut: "Ctrl+F", enabled: false }),
+      menuSeparator("app-primary-separator"),
+      menuCommand({ id: "open-command-palette", label: "Command Palette", shortcut: "Ctrl+Shift+P / Ctrl+K" }),
+      menuCommand({ id: "stop-generation", label: "Stop Generation", shortcut: "Ctrl+.", enabled: false }),
+      menuSeparator("app-view-separator"),
+      menuCommand({ id: "toggle-theme", label: "Toggle Theme", shortcut: "Ctrl+Shift+T" }),
+      menuCommand({ id: "toggle-sidebar", label: "Toggle Sidebar", shortcut: "Ctrl+B", enabled: false }),
     ],
   },
   {
     label: "Resources",
     menuLabel: "Resources menu",
     icon: Folder,
-    commands: [
-      { id: "open-chat", label: "Chat" },
+    entries: [
+      menuCommand({ id: "open-chat", label: "Chat" }),
     ],
   },
   {
     label: "System",
     menuLabel: "System menu",
     icon: Settings,
-    commands: [
-      { id: "open-settings", label: "Settings", shortcut: "Ctrl+," },
-      { id: "refresh-gateway-status", label: "Gateway Status", shortcut: "Ctrl+Shift+G", enabled: false },
+    entries: [
+      menuCommand({ id: "open-settings", label: "Settings", shortcut: "Ctrl+," }),
+      menuSeparator("system-status-separator"),
+      menuCommand({ id: "refresh-gateway-status", label: "Gateway Status", shortcut: "Ctrl+Shift+G", enabled: false }),
     ],
   },
   {
     label: "Help",
     menuLabel: "Help menu",
     icon: BookOpen,
-    commands: [
-      { id: "open-docs", label: "Documentation", shortcut: "F1" },
-      { id: "open-shortcut-help", label: "Shortcut Help", shortcut: "Ctrl+/", enabled: false },
-      { id: "open-page-help", label: "Page Help", shortcut: "Ctrl+Shift+/", enabled: false },
-      { id: "open-backend-logs", label: "Backend Logs", enabled: false },
-      { id: "open-safe-mode", label: "Open native workbench", enabled: false },
-      { id: "open-tinybot-repo", label: "Tinybot repo", enabled: false },
+    entries: [
+      menuCommand({ id: "open-docs", label: "Documentation", shortcut: "F1" }),
+      menuSeparator("help-more-separator"),
+      {
+        kind: "submenu",
+        id: "help-more",
+        label: "More",
+        menuLabel: "More help options",
+        commands: [
+          { id: "open-shortcut-help", label: "Shortcut Help", shortcut: "Ctrl+/", enabled: false },
+          { id: "open-page-help", label: "Page Help", shortcut: "Ctrl+Shift+/", enabled: false },
+          { id: "open-backend-logs", label: "Backend Logs", enabled: false },
+          { id: "open-safe-mode", label: "Open native workbench", enabled: false },
+          { id: "open-tinybot-repo", label: "Tinybot repo", enabled: false },
+        ],
+      },
     ],
   },
 ];
@@ -112,6 +139,7 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
   const [route, setRoute] = useState<AppRoute>("chat");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [activeTopMenu, setActiveTopMenu] = useState<TopMenuLabel | null>(null);
+  const [activeTopSubmenu, setActiveTopSubmenu] = useState<string | null>(null);
   const [createChatSignal, setCreateChatSignal] = useState(0);
   const frameControls = useMemo(() => windowControls ?? resolveWindowFrameControls(), [windowControls]);
   const commands = useMemo(() => routeItems.map((item) => ({
@@ -132,6 +160,7 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
       if (event.key === "Escape") {
         setPaletteOpen(false);
         setActiveTopMenu(null);
+        setActiveTopSubmenu(null);
       }
     }
     window.addEventListener("keydown", onKeyDown);
@@ -154,6 +183,7 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
 
   function handleTopMenuTrigger(event: ReactMouseEvent<HTMLButtonElement>, label: TopMenuLabel) {
     event.stopPropagation();
+    setActiveTopSubmenu(null);
     setActiveTopMenu((current) => current === label ? null : label);
   }
 
@@ -162,6 +192,7 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
       return;
     }
     setActiveTopMenu(null);
+    setActiveTopSubmenu(null);
     switch (command.id) {
       case "new-chat":
         setRoute("chat");
@@ -187,6 +218,69 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
     }
   }
 
+  function renderTopMenuCommand(command: TopMenuCommand) {
+    return (
+      <button
+        aria-label={menuCommandAccessibleLabel(command)}
+        className="react-top-menu__menu-item"
+        disabled={command.enabled === false}
+        key={command.id}
+        role="menuitem"
+        title={menuCommandAccessibleLabel(command)}
+        type="button"
+        onClick={() => runTopMenuCommand(command)}
+      >
+        <span className="react-top-menu__menu-label">{command.label}</span>
+        {command.shortcut ? <span className="react-top-menu__shortcut">{command.shortcut}</span> : null}
+      </button>
+    );
+  }
+
+  function renderTopMenuEntry(entry: TopMenuEntry) {
+    if (entry.kind === "separator") {
+      return <div className="react-top-menu__separator" key={entry.id} role="separator" />;
+    }
+    if (entry.kind === "command") {
+      return renderTopMenuCommand(entry.command);
+    }
+    const isOpen = activeTopSubmenu === entry.id;
+    return (
+      <div className="react-top-menu__submenu" key={entry.id}>
+        <button
+          aria-expanded={isOpen}
+          aria-haspopup="menu"
+          aria-label={entry.label}
+          className="react-top-menu__menu-item react-top-menu__submenu-trigger"
+          disabled={entry.enabled === false}
+          role="menuitem"
+          title={entry.label}
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            setActiveTopSubmenu(entry.id);
+          }}
+          onFocus={() => setActiveTopSubmenu(entry.id)}
+          onMouseEnter={() => setActiveTopSubmenu(entry.id)}
+        >
+          <span className="react-top-menu__menu-label">{entry.label}</span>
+          <ChevronRight aria-hidden="true" className="react-top-menu__submenu-arrow" size={16} />
+        </button>
+        {isOpen ? (
+          <div
+            aria-label={entry.menuLabel}
+            className="react-top-menu__submenu-popover"
+            role="menu"
+            onClick={stopWindowFrameEvent}
+            onDoubleClick={stopWindowFrameEvent}
+            onPointerDown={stopWindowFrameEvent}
+          >
+            {entry.commands.map(renderTopMenuCommand)}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div className="react-desktop-shell">
       <header
@@ -199,7 +293,7 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
       >
         <div className="react-window-frame__brand" data-tauri-drag-region="">Tinybot</div>
         <nav className="react-top-menu" aria-label="Application menu">
-          {topMenuItems.map(({ commands: menuCommands, icon: Icon, label, menuLabel }) => (
+          {topMenuItems.map(({ entries, icon: Icon, label, menuLabel }) => (
             <div className="react-top-menu__group" key={label}>
               <button
                 aria-expanded={activeTopMenu === label}
@@ -225,21 +319,7 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
                   onDoubleClick={stopWindowFrameEvent}
                   onPointerDown={stopWindowFrameEvent}
                 >
-                  {menuCommands.map((command) => (
-                    <button
-                      aria-label={menuCommandAccessibleLabel(command)}
-                      className="react-top-menu__menu-item"
-                      disabled={command.enabled === false}
-                      key={command.id}
-                      role="menuitem"
-                      title={menuCommandAccessibleLabel(command)}
-                      type="button"
-                      onClick={() => runTopMenuCommand(command)}
-                    >
-                      <span className="react-top-menu__menu-label">{command.label}</span>
-                      {command.shortcut ? <span className="react-top-menu__shortcut">{command.shortcut}</span> : null}
-                    </button>
-                  ))}
+                  {entries.map(renderTopMenuEntry)}
                 </div>
               ) : null}
             </div>

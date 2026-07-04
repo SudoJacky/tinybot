@@ -92,7 +92,8 @@ describe("DesktopShell", () => {
     for (const item of ["New Chat", "Search Sessions", "Command Palette", "Stop Generation", "Toggle Theme", "Toggle Sidebar"]) {
       expect(within(appMenu).getByRole("menuitem", { name: new RegExp(item) })).toBeTruthy();
     }
-    expect(within(appMenu).getByText("Ctrl+N")).toBeTruthy();
+    expect(within(appMenu).getAllByRole("separator")).toHaveLength(2);
+    expect(within(appMenu).getByText("Ctrl+N").classList.contains("react-top-menu__shortcut")).toBe(true);
 
     await user.click(within(appMenu).getByRole("menuitem", { name: /New Chat/ }));
     await waitFor(() => expect(services.sessionStore.create).toHaveBeenCalledTimes(1));
@@ -116,8 +117,14 @@ describe("DesktopShell", () => {
 
     await user.click(screen.getByRole("button", { name: "Help" }));
     const helpMenu = screen.getByRole("menu", { name: "Help menu" });
-    for (const item of ["Documentation", "Shortcut Help", "Page Help", "Backend Logs", "Open native workbench", "Tinybot repo"]) {
-      expect(within(helpMenu).getByRole("menuitem", { name: new RegExp(item) })).toBeTruthy();
+    expect(within(helpMenu).getByRole("menuitem", { name: "Documentation (F1)" })).toBeTruthy();
+    const moreHelp = within(helpMenu).getByRole("menuitem", { name: "More" });
+    expect(moreHelp.getAttribute("aria-haspopup")).toBe("menu");
+
+    await user.click(moreHelp);
+    const moreHelpMenu = screen.getByRole("menu", { name: "More help options" });
+    for (const item of ["Shortcut Help", "Page Help", "Backend Logs", "Open native workbench", "Tinybot repo"]) {
+      expect(within(moreHelpMenu).getByRole("menuitem", { name: new RegExp(item) })).toBeTruthy();
     }
   });
 
