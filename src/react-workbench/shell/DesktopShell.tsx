@@ -36,16 +36,83 @@ type WindowFrameControls = {
   toggleMaximize(): Promise<void>;
 };
 
-const topMenuItems: Array<{ label: string; icon: typeof MessageSquare }> = [
-  { label: "App", icon: Command },
-  { label: "Resources", icon: Folder },
-  { label: "System", icon: Settings },
-  { label: "Help", icon: BookOpen },
+type TopMenuLabel = "App" | "Resources" | "System" | "Help";
+
+type TopMenuCommandId =
+  | "new-chat"
+  | "stop-generation"
+  | "search-sessions"
+  | "open-chat"
+  | "open-tinybot-repo"
+  | "open-settings"
+  | "open-docs"
+  | "open-shortcut-help"
+  | "open-page-help"
+  | "open-backend-logs"
+  | "open-safe-mode"
+  | "toggle-theme"
+  | "toggle-sidebar"
+  | "open-command-palette"
+  | "refresh-gateway-status";
+
+type TopMenuCommand = {
+  id: TopMenuCommandId;
+  label: string;
+  shortcut?: string;
+  enabled?: boolean;
+};
+
+const topMenuItems: Array<{ label: TopMenuLabel; menuLabel: string; icon: typeof MessageSquare; commands: TopMenuCommand[] }> = [
+  {
+    label: "App",
+    menuLabel: "Application menu",
+    icon: Command,
+    commands: [
+      { id: "new-chat", label: "New Chat", shortcut: "Ctrl+N" },
+      { id: "search-sessions", label: "Search Sessions", shortcut: "Ctrl+F", enabled: false },
+      { id: "open-command-palette", label: "Command Palette", shortcut: "Ctrl+Shift+P / Ctrl+K" },
+      { id: "stop-generation", label: "Stop Generation", shortcut: "Ctrl+.", enabled: false },
+      { id: "toggle-theme", label: "Toggle Theme", shortcut: "Ctrl+Shift+T" },
+      { id: "toggle-sidebar", label: "Toggle Sidebar", shortcut: "Ctrl+B", enabled: false },
+    ],
+  },
+  {
+    label: "Resources",
+    menuLabel: "Resources menu",
+    icon: Folder,
+    commands: [
+      { id: "open-chat", label: "Chat" },
+    ],
+  },
+  {
+    label: "System",
+    menuLabel: "System menu",
+    icon: Settings,
+    commands: [
+      { id: "open-settings", label: "Settings", shortcut: "Ctrl+," },
+      { id: "refresh-gateway-status", label: "Gateway Status", shortcut: "Ctrl+Shift+G", enabled: false },
+    ],
+  },
+  {
+    label: "Help",
+    menuLabel: "Help menu",
+    icon: BookOpen,
+    commands: [
+      { id: "open-docs", label: "Documentation", shortcut: "F1" },
+      { id: "open-shortcut-help", label: "Shortcut Help", shortcut: "Ctrl+/", enabled: false },
+      { id: "open-page-help", label: "Page Help", shortcut: "Ctrl+Shift+/", enabled: false },
+      { id: "open-backend-logs", label: "Backend Logs", enabled: false },
+      { id: "open-safe-mode", label: "Open native workbench", enabled: false },
+      { id: "open-tinybot-repo", label: "Tinybot repo", enabled: false },
+    ],
+  },
 ];
 
 export function DesktopShell({ now, services, windowControls }: DesktopShellProps) {
   const [route, setRoute] = useState<AppRoute>("chat");
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [activeTopMenu, setActiveTopMenu] = useState<TopMenuLabel | null>(null);
+  const [createChatSignal, setCreateChatSignal] = useState(0);
   const frameControls = useMemo(() => windowControls ?? resolveWindowFrameControls(), [windowControls]);
   const commands = useMemo(() => routeItems.map((item) => ({
     id: `open:${item.id}`,
@@ -64,6 +131,7 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
       }
       if (event.key === "Escape") {
         setPaletteOpen(false);
+        setActiveTopMenu(null);
       }
     }
     window.addEventListener("keydown", onKeyDown);
@@ -84,6 +152,41 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
     void frameControls?.toggleMaximize().catch(logWindowFrameError);
   }
 
+  function handleTopMenuTrigger(event: ReactMouseEvent<HTMLButtonElement>, label: TopMenuLabel) {
+    event.stopPropagation();
+    setActiveTopMenu((current) => current === label ? null : label);
+  }
+
+  function runTopMenuCommand(command: TopMenuCommand) {
+    if (command.enabled === false) {
+      return;
+    }
+    setActiveTopMenu(null);
+    switch (command.id) {
+      case "new-chat":
+        setRoute("chat");
+        setCreateChatSignal((current) => current + 1);
+        return;
+      case "open-chat":
+        setRoute("chat");
+        return;
+      case "open-settings":
+        setRoute("settings");
+        return;
+      case "open-docs":
+        setRoute("docs");
+        return;
+      case "open-command-palette":
+        setPaletteOpen(true);
+        return;
+      case "toggle-theme":
+        document.documentElement.dataset.theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+        return;
+      default:
+        return;
+    }
+  }
+
   return (
     <div className="react-desktop-shell">
       <header
@@ -96,19 +199,50 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
       >
         <div className="react-window-frame__brand" data-tauri-drag-region="">Tinybot</div>
         <nav className="react-top-menu" aria-label="Application menu">
-          {topMenuItems.map(({ icon: Icon, label }) => (
-            <button
-              aria-label={label}
-              data-no-window-drag=""
-              key={label}
-              title={label}
-              type="button"
-              onDoubleClick={stopWindowFrameEvent}
-              onPointerDown={stopWindowFrameEvent}
-            >
-              <Icon aria-hidden="true" className="react-top-menu__icon" size={16} />
-              <span className="react-top-menu__label">{label}</span>
-            </button>
+          {topMenuItems.map(({ commands: menuCommands, icon: Icon, label, menuLabel }) => (
+            <div className="react-top-menu__group" key={label}>
+              <button
+                aria-expanded={activeTopMenu === label}
+                aria-haspopup="menu"
+                aria-label={label}
+                className="react-top-menu__trigger"
+                data-no-window-drag=""
+                title={label}
+                type="button"
+                onClick={(event) => handleTopMenuTrigger(event, label)}
+                onDoubleClick={stopWindowFrameEvent}
+                onPointerDown={stopWindowFrameEvent}
+              >
+                <Icon aria-hidden="true" className="react-top-menu__icon" size={16} />
+                <span className="react-top-menu__label">{label}</span>
+              </button>
+              {activeTopMenu === label ? (
+                <div
+                  aria-label={menuLabel}
+                  className="react-top-menu__popover"
+                  role="menu"
+                  onClick={stopWindowFrameEvent}
+                  onDoubleClick={stopWindowFrameEvent}
+                  onPointerDown={stopWindowFrameEvent}
+                >
+                  {menuCommands.map((command) => (
+                    <button
+                      aria-label={menuCommandAccessibleLabel(command)}
+                      className="react-top-menu__menu-item"
+                      disabled={command.enabled === false}
+                      key={command.id}
+                      role="menuitem"
+                      title={menuCommandAccessibleLabel(command)}
+                      type="button"
+                      onClick={() => runTopMenuCommand(command)}
+                    >
+                      <span className="react-top-menu__menu-label">{command.label}</span>
+                      {command.shortcut ? <span className="react-top-menu__shortcut">{command.shortcut}</span> : null}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           ))}
         </nav>
         <div className="react-window-frame__drag-space" data-tauri-drag-region="" />
@@ -145,7 +279,7 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
           })}
         </nav>
         <section className="react-route-surface">
-          <RouteSurface now={now} route={route} services={services} />
+          <RouteSurface createChatSignal={createChatSignal} now={now} route={route} services={services} />
         </section>
       </div>
 
@@ -180,10 +314,24 @@ function logWindowFrameError(error: unknown): void {
   console.warn("Tinybot React window frame action failed", error);
 }
 
-function RouteSurface({ now, route, services }: { now?: () => number; route: AppRoute; services: AppServices }) {
+function menuCommandAccessibleLabel(command: TopMenuCommand): string {
+  return command.shortcut ? `${command.label} (${command.shortcut})` : command.label;
+}
+
+function RouteSurface({
+  createChatSignal,
+  now,
+  route,
+  services,
+}: {
+  createChatSignal: number;
+  now?: () => number;
+  route: AppRoute;
+  services: AppServices;
+}) {
   switch (route) {
     case "chat":
-      return <ChatPage chatStore={services.chatStore} now={now} sessionStore={services.sessionStore} />;
+      return <ChatPage chatStore={services.chatStore} createSessionSignal={createChatSignal} now={now} sessionStore={services.sessionStore} />;
     case "files":
       return <FilesPage services={services} />;
     case "knowledge":

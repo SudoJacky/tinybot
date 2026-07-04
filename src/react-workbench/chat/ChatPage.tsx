@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useReducer, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { ChevronDown, Copy, GitBranch, MoreHorizontal, PanelRightOpen, Send, Trash2, X } from "lucide-react";
 import { formatRelativeUpdatedTime } from "../lib/relativeTime";
 import type { ChatStore, SessionStore, SessionSummary } from "../services";
@@ -8,6 +8,7 @@ import { canBranchFromMessage, type ReactChatMessage, type ToolCallSummary } fro
 export type ChatPageProps = {
   chatStore: ChatStore;
   sessionStore: SessionStore;
+  createSessionSignal?: number;
   now?: () => number;
 };
 
@@ -16,7 +17,7 @@ type DrawerState = {
   body: string;
 } | null;
 
-export function ChatPage({ chatStore, now = Date.now, sessionStore }: ChatPageProps) {
+export function ChatPage({ chatStore, createSessionSignal = 0, now = Date.now, sessionStore }: ChatPageProps) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [activeSessionId, setActiveSessionId] = useState("");
   const [messages, setMessages] = useState<ReactChatMessage[]>([]);
@@ -24,6 +25,7 @@ export function ChatPage({ chatStore, now = Date.now, sessionStore }: ChatPagePr
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [drawer, setDrawer] = useState<DrawerState>(null);
   const [deleteState, dispatchDelete] = useReducer(reduceSessionDeleteState, { confirmingSessionId: "" });
+  const lastCreateSessionSignal = useRef(createSessionSignal);
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId) ?? sessions[0],
     [activeSessionId, sessions],
@@ -43,6 +45,14 @@ export function ChatPage({ chatStore, now = Date.now, sessionStore }: ChatPagePr
       cancelled = true;
     };
   }, [sessionStore]);
+
+  useEffect(() => {
+    if (createSessionSignal === lastCreateSessionSignal.current) {
+      return;
+    }
+    lastCreateSessionSignal.current = createSessionSignal;
+    void handleCreateSession();
+  }, [createSessionSignal]);
 
   useEffect(() => {
     if (!activeSessionId) {

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DesktopShell } from "./DesktopShell";
@@ -80,6 +80,45 @@ describe("DesktopShell", () => {
 
     fireEvent.doubleClick(appMenuButton);
     expect(controls.toggleMaximize).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens legacy top menu command lists from the React window frame", async () => {
+    const user = userEvent.setup();
+    const services = createServices();
+    render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={services} />);
+
+    await user.click(screen.getByRole("button", { name: "App" }));
+    const appMenu = screen.getByRole("menu", { name: "Application menu" });
+    for (const item of ["New Chat", "Search Sessions", "Command Palette", "Stop Generation", "Toggle Theme", "Toggle Sidebar"]) {
+      expect(within(appMenu).getByRole("menuitem", { name: new RegExp(item) })).toBeTruthy();
+    }
+    expect(within(appMenu).getByText("Ctrl+N")).toBeTruthy();
+
+    await user.click(within(appMenu).getByRole("menuitem", { name: /New Chat/ }));
+    await waitFor(() => expect(services.sessionStore.create).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByRole("button", { name: "App" }));
+    await user.click(within(screen.getByRole("menu", { name: "Application menu" })).getByRole("menuitem", { name: /Command Palette/ }));
+    expect(screen.getByRole("dialog", { name: "Command palette" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Close command palette" }));
+
+    await user.click(screen.getByRole("button", { name: "Resources" }));
+    const resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
+    expect(within(resourcesMenu).getByRole("menuitem", { name: "Chat" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "System" }));
+    const systemMenu = screen.getByRole("menu", { name: "System menu" });
+    expect(within(systemMenu).getByRole("menuitem", { name: "Settings (Ctrl+,)" })).toBeTruthy();
+    expect(within(systemMenu).getByRole("menuitem", { name: "Gateway Status (Ctrl+Shift+G)" })).toBeTruthy();
+
+    await user.click(within(systemMenu).getByRole("menuitem", { name: "Settings (Ctrl+,)" }));
+    expect(await screen.findByRole("heading", { name: "Settings" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Help" }));
+    const helpMenu = screen.getByRole("menu", { name: "Help menu" });
+    for (const item of ["Documentation", "Shortcut Help", "Page Help", "Backend Logs", "Open native workbench", "Tinybot repo"]) {
+      expect(within(helpMenu).getByRole("menuitem", { name: new RegExp(item) })).toBeTruthy();
+    }
   });
 
   it("renders native-style top menus and functional secondary pages", async () => {
