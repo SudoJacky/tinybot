@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import react from "@vitejs/plugin-react";
 import type { Plugin } from "vite";
 import { defineConfig } from "vitest/config";
 
@@ -11,7 +12,7 @@ const desktopStaticRoot = path.resolve(repoRoot, "public");
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
-  plugins: [desktopStaticPlugin(desktopStaticRoot)],
+  plugins: [react(), desktopStaticPlugin(desktopStaticRoot)],
   publicDir: desktopStaticRoot,
   clearScreen: false,
   server: {
@@ -33,7 +34,7 @@ export default defineConfig(async () => ({
     },
   },
   test: {
-    include: ["src/**/*.test.ts", "workers/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx", "workers/**/*.test.ts"],
   },
 }));
 

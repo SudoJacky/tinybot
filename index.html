@@ -6,70 +6,12 @@
     <title>Tinybot Desktop</title>
     <meta
       name="description"
-      content="Tinybot desktop WebUI surface backed by the local gateway."
+      content="Tinybot desktop React workbench backed by the local gateway."
     />
     <link rel="icon" type="image/svg+xml" href="/assets/logo-mark.svg" />
-    <link rel="stylesheet" href="/assets/styles/components/desktop-settings.css" />
-    <style>
-      body {
-        margin: 0;
-        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background: #f7f7f4;
-        color: #24211d;
-      }
-      .desktop-startup-shell {
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
-        padding: 24px;
-      }
-      .desktop-startup-panel {
-        width: min(420px, 100%);
-        border: 1px solid #dedbd3;
-        border-radius: 8px;
-        background: #fff;
-        padding: 24px;
-        box-shadow: 0 16px 50px rgb(33 29 23 / 10%);
-      }
-      .desktop-startup-panel .brand {
-        display: flex;
-        gap: 12px;
-        align-items: center;
-      }
-      .desktop-startup-panel h1 {
-        margin: 0;
-        font-size: 22px;
-      }
-      .desktop-startup-panel p {
-        margin: 4px 0 0;
-      }
-      #desktop-startup-diagnostics {
-        margin: 16px 0;
-        max-height: 180px;
-        overflow: auto;
-        white-space: pre-wrap;
-      }
-    </style>
-    <script type="module" src="/src/native-workbench/app/desktopBootstrap.ts" defer></script>
+    <script type="module" src="/src/main.ts" defer></script>
   </head>
   <body>
-    <main class="desktop-startup-shell" aria-live="polite">
-      <section class="desktop-startup-panel" aria-labelledby="desktop-startup-title">
-        <div class="brand">
-          <div class="brand-mark" aria-hidden="true">
-            <img class="brand-logo" src="/assets/logo-mark.svg" alt="" />
-          </div>
-          <div>
-            <h1 id="desktop-startup-title">Tinybot</h1>
-            <p>Desktop WebUI</p>
-          </div>
-        </div>
-        <p id="desktop-startup-status">Starting local gateway...</p>
-        <pre id="desktop-startup-diagnostics" hidden></pre>
-        <button id="desktop-startup-retry" class="button button-primary" type="button" hidden>
-          Retry
-        </button>
-      </section>
-    </main>
+    <div id="root"></div>
   </body>
 </html>

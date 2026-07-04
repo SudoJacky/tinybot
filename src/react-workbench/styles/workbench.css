@@ -1,0 +1,463 @@
+:root {
+  --color-canvas: #faf9f5;
+  --color-surface-soft: #f5f0e8;
+  --color-surface-card: #efe9de;
+  --color-cream-strong: #e8e0d2;
+  --color-ink: #141413;
+  --color-body: #3d3d3a;
+  --color-muted: #6c6a64;
+  --color-muted-soft: #8e8b82;
+  --color-primary: #cc785c;
+  --color-primary-active: #a9583e;
+  --color-hairline: #e6dfd8;
+  --color-success: #5db872;
+  --color-warning: #d4a017;
+  --color-error: #c64545;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: var(--color-ink);
+  background: var(--color-canvas);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 720px;
+  min-height: 520px;
+  background: var(--color-canvas);
+  color: var(--color-body);
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+  letter-spacing: 0;
+}
+
+button {
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+button:hover,
+button:focus-visible {
+  background: var(--color-surface-soft);
+  outline: none;
+}
+
+button:focus-visible {
+  border-color: var(--color-primary);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.react-desktop-shell {
+  display: grid;
+  grid-template-rows: 42px minmax(0, 1fr);
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.react-window-frame {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 16px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--color-hairline);
+  background: var(--color-canvas);
+  user-select: none;
+}
+
+.react-window-frame__brand {
+  color: var(--color-ink);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.react-top-menu {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.react-top-menu button,
+.react-window-frame > button,
+.react-activity-rail button,
+.react-chat-header__actions > button,
+.react-message__actions button,
+.react-session-row__delete {
+  display: inline-grid;
+  place-items: center;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 6px 9px;
+}
+
+.react-workbench-layout {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  min-height: 0;
+}
+
+.react-activity-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 8px;
+  border-right: 1px solid var(--color-hairline);
+  background: var(--color-surface-soft);
+}
+
+.react-activity-rail button {
+  gap: 4px;
+  width: 100%;
+  min-height: 48px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.react-activity-rail button[data-active="true"] {
+  background: var(--color-cream-strong);
+  color: var(--color-ink);
+}
+
+.react-route-surface {
+  min-width: 0;
+  min-height: 0;
+}
+
+.react-chat-page {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.react-session-list {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  border-right: 1px solid var(--color-hairline);
+  background: var(--color-surface-soft);
+}
+
+.react-session-list__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+}
+
+.react-session-list__header h2,
+.react-chat-header h1,
+.react-placeholder-page h1,
+.react-command-palette h2,
+.react-right-drawer h2 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 16px;
+  line-height: 1.25;
+}
+
+.react-session-list__header button,
+.react-composer button {
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.react-session-list__header button:hover,
+.react-composer button:hover,
+.react-composer button:focus-visible {
+  background: var(--color-primary-active);
+}
+
+.react-session-list__rows {
+  min-height: 0;
+  overflow: auto;
+  padding: 0 8px 12px;
+}
+
+.react-session-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 4px;
+  border-radius: 8px;
+}
+
+.react-session-row[data-active="true"] {
+  background: var(--color-cream-strong);
+}
+
+.react-session-row__select {
+  display: grid;
+  min-width: 0;
+  padding: 10px 8px 10px 10px;
+  text-align: left;
+}
+
+.react-session-row__select span,
+.react-session-row__select small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-session-row__select span {
+  color: var(--color-ink);
+  font-size: 13px;
+}
+
+.react-session-row__select small {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.react-session-row__delete {
+  color: var(--color-muted);
+}
+
+.react-session-row__delete[data-confirming="true"] {
+  background: #f8dede;
+  color: var(--color-error);
+}
+
+.react-chat-surface {
+  display: grid;
+  grid-template-rows: 56px minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+  background: var(--color-canvas);
+}
+
+.react-chat-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--color-hairline);
+}
+
+.react-chat-header__actions {
+  position: relative;
+}
+
+.react-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 10;
+  display: grid;
+  min-width: 210px;
+  padding: 6px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 18px 44px rgb(20 20 19 / 12%);
+}
+
+.react-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.react-conversation-view {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  min-height: 0;
+  overflow: auto;
+  padding: 24px min(6vw, 56px);
+}
+
+.react-message {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  max-width: 820px;
+  width: 100%;
+}
+
+.react-message[data-role="user"] {
+  justify-self: end;
+  max-width: min(680px, 92%);
+}
+
+.react-message__body {
+  min-width: 0;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px 14px;
+}
+
+.react-message[data-role="user"] .react-message__body {
+  background: var(--color-surface-card);
+}
+
+.react-message__body p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.react-message__actions {
+  display: flex;
+  align-items: start;
+  gap: 4px;
+}
+
+.react-tool-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 10px;
+  border-color: var(--color-hairline);
+  background: var(--color-surface-soft);
+  text-align: left;
+}
+
+.react-tool-row small {
+  margin-left: auto;
+  color: var(--color-muted);
+}
+
+.react-composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px;
+  gap: 10px;
+  width: min(860px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 14px 0 18px;
+}
+
+.react-composer textarea {
+  display: block;
+  width: 100%;
+  max-height: 160px;
+  min-height: 46px;
+  resize: vertical;
+  border: 1px solid var(--color-hairline);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--color-ink);
+  padding: 12px 14px;
+}
+
+.react-composer button {
+  width: 42px;
+  height: 42px;
+  align-self: end;
+  border-radius: 12px;
+}
+
+.react-right-drawer {
+  position: fixed;
+  top: 42px;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  width: min(380px, 92vw);
+  border-left: 1px solid var(--color-hairline);
+  background: #fff;
+  padding: 16px;
+  box-shadow: -18px 0 44px rgb(20 20 19 / 10%);
+}
+
+.react-right-drawer > div,
+.react-command-palette > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.react-placeholder-page {
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  min-height: 100%;
+  padding: 40px;
+}
+
+.react-placeholder-page p,
+.react-empty-state,
+.react-command-palette p,
+.react-right-drawer p {
+  color: var(--color-muted);
+}
+
+.react-command-palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: start center;
+  padding-top: 84px;
+  background: rgb(20 20 19 / 22%);
+}
+
+.react-command-palette {
+  display: grid;
+  gap: 12px;
+  width: min(560px, calc(100vw - 32px));
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: #fff;
+  padding: 14px;
+  box-shadow: 0 18px 54px rgb(20 20 19 / 18%);
+}
+
+.react-command-palette input {
+  width: 100%;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.react-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (max-width: 860px) {
+  body {
+    min-width: 0;
+  }
+
+  .react-workbench-layout {
+    grid-template-columns: 58px minmax(0, 1fr);
+  }
+
+  .react-activity-rail button span {
+    display: none;
+  }
+
+  .react-chat-page {
+    grid-template-columns: minmax(150px, 210px) minmax(0, 1fr);
+  }
+}
