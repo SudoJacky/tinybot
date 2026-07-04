@@ -1,0 +1,1927 @@
+:root {
+  --color-canvas: #faf9f5;
+  --color-surface-soft: #f5f0e8;
+  --color-surface-card: #efe9de;
+  --color-cream-strong: #e8e0d2;
+  --color-ink: #141413;
+  --color-body: #3d3d3a;
+  --color-muted: #6c6a64;
+  --color-muted-soft: #8e8b82;
+  --color-primary: #cc785c;
+  --color-primary-active: #a9583e;
+  --color-hairline: #e6dfd8;
+  --color-success: #5db872;
+  --color-warning: #d4a017;
+  --color-error: #c64545;
+  --motion-duration-fast: 160ms;
+  --motion-duration-medium: 220ms;
+  --motion-duration-text: 720ms;
+  --motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: var(--color-ink);
+  background: var(--color-canvas);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 720px;
+  min-height: 520px;
+  background: var(--color-canvas);
+  color: var(--color-body);
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+  letter-spacing: 0;
+}
+
+button {
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+button:hover,
+button:focus-visible {
+  background: var(--color-surface-soft);
+  outline: none;
+}
+
+button:focus-visible {
+  border-color: var(--color-primary);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.react-desktop-shell {
+  display: grid;
+  grid-template-rows: 42px minmax(0, 1fr);
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.react-window-frame {
+  display: grid;
+  grid-template-columns: auto auto minmax(80px, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--color-hairline);
+  background: var(--color-canvas);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.react-window-frame__brand {
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.react-top-menu {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.react-top-menu__trigger,
+.react-window-frame > button,
+.react-activity-rail button,
+.react-chat-header__actions > button,
+.react-message__actions button,
+.react-session-row__delete {
+  display: inline-grid;
+  place-items: center;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 6px 9px;
+}
+
+.react-top-menu__group {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.react-top-menu__trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: auto;
+  max-width: 160px;
+  min-width: 32px;
+  height: 30px;
+  min-height: 30px;
+  gap: 0;
+  overflow: hidden;
+  border-radius: 999px;
+  padding: 0 8px;
+  color: var(--color-ink);
+  cursor: default;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.react-top-menu__icon {
+  flex: 0 0 16px;
+  color: var(--color-muted);
+  transition: color 160ms ease;
+}
+
+.react-top-menu__label {
+  display: inline-block;
+  max-width: 0;
+  margin-left: 0;
+  overflow: hidden;
+  opacity: 0;
+  text-overflow: clip;
+  transition: max-width 220ms ease, margin-left 220ms ease, opacity 160ms ease;
+}
+
+.react-top-menu__trigger:hover .react-top-menu__label,
+.react-top-menu__trigger:focus-visible .react-top-menu__label,
+.react-top-menu__trigger[aria-expanded="true"] .react-top-menu__label {
+  max-width: 96px;
+  margin-left: 8px;
+  opacity: 1;
+}
+
+.react-top-menu__trigger:hover .react-top-menu__icon,
+.react-top-menu__trigger:focus-visible .react-top-menu__icon,
+.react-top-menu__trigger[aria-expanded="true"] .react-top-menu__icon {
+  color: var(--color-primary);
+}
+
+.react-top-menu__trigger[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--color-hairline) 80%, var(--color-primary));
+  background: var(--color-surface-card);
+}
+
+.react-top-menu__popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 40;
+  display: grid;
+  gap: 0;
+  width: 238px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 9px;
+  background: #fff;
+  padding: 6px;
+  box-shadow: 0 18px 42px rgb(20 20 19 / 14%);
+}
+
+.react-top-menu__menu-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  padding: 5px 11px;
+  color: var(--color-ink);
+  cursor: default;
+  font-size: 13px;
+  line-height: 1.25;
+  text-align: left;
+}
+
+.react-top-menu__menu-item:hover,
+.react-top-menu__menu-item:focus-visible,
+.react-top-menu__menu-item[aria-expanded="true"] {
+  background: var(--color-surface-soft);
+}
+
+.react-top-menu__menu-item:focus-visible {
+  border-color: var(--color-primary);
+}
+
+.react-top-menu__menu-item:disabled {
+  background: transparent;
+  color: var(--color-muted);
+}
+
+.react-top-menu__separator {
+  height: 1px;
+  margin: 5px -6px;
+  background: var(--color-hairline);
+}
+
+.react-top-menu__submenu {
+  position: relative;
+}
+
+.react-top-menu__submenu-trigger {
+  grid-template-columns: minmax(0, 1fr) 16px;
+}
+
+.react-top-menu__submenu-arrow {
+  color: var(--color-muted);
+}
+
+.react-top-menu__submenu-popover {
+  position: absolute;
+  top: -6px;
+  left: calc(100% + 6px);
+  z-index: 45;
+  display: grid;
+  width: 238px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 9px;
+  background: #fff;
+  padding: 6px;
+  box-shadow: 0 18px 42px rgb(20 20 19 / 14%);
+}
+
+.react-top-menu__menu-label,
+.react-top-menu__shortcut {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-top-menu__shortcut {
+  display: inline-flex;
+  align-items: center;
+  justify-self: end;
+  min-height: 20px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 5px;
+  background: #fbfaf8;
+  color: var(--color-muted);
+  padding: 0 5px;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.react-window-frame__drag-space {
+  align-self: stretch;
+  min-width: 80px;
+}
+
+.react-workbench-layout {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  min-height: 0;
+}
+
+.react-activity-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 8px;
+  border-right: 1px solid var(--color-hairline);
+  background: var(--color-surface-soft);
+}
+
+.react-activity-rail button {
+  gap: 4px;
+  width: 100%;
+  min-height: 48px;
+  color: var(--color-muted);
+  font-size: 10px;
+}
+
+.react-activity-rail button[data-active="true"] {
+  background: var(--color-cream-strong);
+  color: var(--color-ink);
+}
+
+.react-route-surface {
+  min-width: 0;
+  min-height: 0;
+}
+
+.react-chat-page {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  font-size: 13px;
+  min-height: 0;
+}
+
+.react-chat-page[data-session-sidebar-collapsed="true"] {
+  grid-template-columns: 64px minmax(0, 1fr);
+}
+
+.react-session-list {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  border-right: 1px solid var(--color-hairline);
+  background: var(--color-surface-soft);
+}
+
+.react-session-list__header {
+  display: grid;
+  gap: 8px;
+  padding: 10px 8px;
+}
+
+.react-session-list__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.react-session-list__title-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.react-session-list__header h2,
+.react-chat-header h1,
+.react-placeholder-page h1,
+.react-command-palette h2,
+.react-right-drawer h2 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 15px;
+  line-height: 1.25;
+}
+
+.react-session-list__new {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  background: var(--color-primary);
+  color: #fff;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.react-session-list__new:hover,
+.react-session-list__new:focus-visible {
+  background: var(--color-primary-active);
+}
+
+.react-session-list__collapse {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  color: var(--color-muted);
+}
+
+.react-session-list__search {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  color: var(--color-muted);
+}
+
+.react-session-list__search:hover,
+.react-session-list__search:focus-visible {
+  color: var(--color-ink);
+}
+
+.react-session-list__collapse svg {
+  transition: transform 160ms ease;
+}
+
+.react-session-list__collapse svg[data-direction="expand"] {
+  transform: rotate(180deg);
+}
+
+.react-session-list[data-collapsed="true"] .react-session-list__header {
+  justify-items: center;
+  padding: 10px 7px;
+}
+
+.react-session-list[data-collapsed="true"] .react-session-list__title-row {
+  justify-content: center;
+}
+
+.react-session-list[data-collapsed="true"] .react-session-list__header h2,
+.react-session-list[data-collapsed="true"] .react-session-list__search,
+.react-session-list[data-collapsed="true"] .react-session-list__new span,
+.react-session-list[data-collapsed="true"] .react-session-row__title,
+.react-session-list[data-collapsed="true"] .react-session-row__select small,
+.react-session-list[data-collapsed="true"] .react-session-row__delete {
+  display: none;
+}
+
+.react-session-list[data-collapsed="true"] .react-session-list__new,
+.react-session-list[data-collapsed="true"] .react-session-list__collapse {
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0;
+}
+
+.react-session-list__rows {
+  min-height: 0;
+  overflow: auto;
+  padding: 0 8px 12px;
+}
+
+.react-session-row {
+  position: relative;
+  display: block;
+  border-radius: 8px;
+  transition: background-color var(--motion-duration-fast) ease;
+}
+
+.react-session-list__rows[data-motion="animated-list"] .react-session-row {
+  animation: react-list-enter var(--motion-duration-medium) var(--motion-ease-standard) both;
+  animation-delay: calc(var(--react-session-row-index, 0) * 22ms);
+}
+
+.react-session-row[data-active="true"],
+.react-session-row:hover,
+.react-session-row:focus-within {
+  background: var(--color-cream-strong);
+}
+
+.react-session-row__select {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) max-content;
+  align-items: center;
+  column-gap: 8px;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  border-radius: inherit;
+  padding: 10px;
+  text-align: left;
+}
+
+.react-session-row__select:hover,
+.react-session-row__select:focus-visible {
+  background: transparent;
+}
+
+.react-session-row__avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.react-session-row__title,
+.react-session-row__select small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-session-row__title {
+  color: var(--color-ink);
+  font-size: 12px;
+}
+
+.react-session-row__select small {
+  color: var(--color-muted);
+  font-size: 10px;
+  justify-self: end;
+  min-width: 34px;
+  text-align: right;
+  transition: opacity 140ms ease;
+}
+
+.react-session-list[data-collapsed="true"] .react-session-list__rows {
+  padding: 0 7px 12px;
+}
+
+.react-session-list[data-collapsed="true"] .react-session-row {
+  display: grid;
+  justify-items: center;
+}
+
+.react-session-list[data-collapsed="true"] .react-session-row__select {
+  grid-template-columns: 28px;
+  justify-content: center;
+  width: 40px;
+  min-height: 40px;
+  padding: 6px;
+}
+
+.react-session-row:hover .react-session-row__select small,
+.react-session-row:focus-within .react-session-row__select small,
+.react-session-row[data-confirming="true"] .react-session-row__select small {
+  opacity: 0;
+}
+
+.react-session-row__delete {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 7px;
+  color: var(--color-muted);
+  line-height: 0;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%);
+  transition: opacity 140ms ease, color 140ms ease, background-color 140ms ease;
+}
+
+.react-session-row__delete svg {
+  display: block;
+}
+
+.react-session-row__delete:hover,
+.react-session-row__delete:focus-visible {
+  background: #fff;
+}
+
+.react-session-row:hover .react-session-row__delete,
+.react-session-row:focus-within .react-session-row__delete,
+.react-session-row__delete[data-confirming="true"] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.react-session-row__delete[data-confirming="true"] {
+  background: #f8dede;
+  color: var(--color-error);
+}
+
+.react-session-list__rows[data-motion="animated-list"] .react-session-row[data-dissolving="true"],
+.react-session-row[data-dissolving="true"] {
+  --react-session-particle-color: rgb(255 255 255 / 96%);
+  --react-session-particle-glow: rgb(255 255 255 / 72%);
+  --react-session-particle-edge: rgb(165 154 134 / 34%);
+  overflow: visible;
+  background: var(--color-cream-strong);
+  isolation: isolate;
+  pointer-events: none;
+  transform-origin: 90% 50%;
+  animation: react-session-dissolve 760ms var(--motion-ease-standard) forwards;
+}
+
+.react-session-row[data-dissolving="true"] .react-session-row__select {
+  position: relative;
+  z-index: 1;
+  opacity: 1;
+  animation: react-session-content-dust 420ms var(--motion-ease-standard) forwards;
+}
+
+.react-session-row[data-dissolving="true"] .react-session-row__delete {
+  z-index: 3;
+  color: var(--color-error);
+  opacity: 1;
+  animation: react-session-delete-dust 420ms var(--motion-ease-standard) forwards;
+}
+
+.react-session-row[data-dissolving="true"] button:disabled {
+  opacity: 1;
+}
+
+.react-session-row__particles {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.react-session-row__particle {
+  position: absolute;
+  top: var(--particle-origin-y);
+  left: var(--particle-origin-x);
+  width: var(--particle-size);
+  height: var(--particle-size);
+  border-radius: 999px;
+  background: var(--react-session-particle-color);
+  box-shadow:
+    0 0 3px var(--react-session-particle-glow),
+    0 0 1px var(--react-session-particle-edge);
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.48);
+  animation: react-session-particle-burst 620ms var(--motion-ease-standard) forwards;
+  animation-delay: var(--particle-delay);
+}
+
+@keyframes react-list-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes react-session-dissolve {
+  0% {
+    background-color: var(--color-cream-strong);
+    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0%);
+  }
+
+  54% {
+    background-color: color-mix(in srgb, var(--color-cream-strong) 88%, #fff);
+    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 24%);
+  }
+
+  100% {
+    background-color: rgb(232 224 210 / 0%);
+    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0%);
+  }
+}
+
+@keyframes react-session-content-dust {
+  0% {
+    opacity: 1;
+    transform: translateX(0);
+    filter: none;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateX(8px);
+    filter: blur(0.8px);
+  }
+}
+
+@keyframes react-session-delete-dust {
+  0% {
+    opacity: 1;
+    transform: translateY(-50%) translateX(0);
+    filter: none;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateY(-50%) translateX(8px);
+    filter: blur(0.8px);
+  }
+}
+
+@keyframes react-session-particle-burst {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.38);
+    filter: blur(0);
+  }
+
+  10% {
+    opacity: 0.96;
+  }
+
+  58% {
+    opacity: 0.7;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(calc(-50% + var(--particle-x)), calc(-50% + var(--particle-y))) scale(0.18);
+    filter: blur(0.2px);
+  }
+}
+
+.react-chat-surface {
+  display: grid;
+  grid-template-rows: 56px minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+  background: var(--color-canvas);
+}
+
+.react-chat-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--color-hairline);
+}
+
+.react-chat-surface[data-empty-session="true"] .react-chat-header {
+  border-bottom-color: transparent;
+}
+
+.react-chat-header__actions {
+  position: relative;
+}
+
+.react-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 10;
+  display: grid;
+  min-width: 210px;
+  padding: 6px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 18px 44px rgb(20 20 19 / 12%);
+}
+
+.react-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.react-conversation-view {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  min-height: 0;
+  overflow: auto;
+  padding: 24px min(6vw, 56px);
+}
+
+.react-chat-surface[data-empty-session="true"] .react-conversation-view {
+  align-content: end;
+  justify-items: center;
+  overflow: hidden;
+  padding-top: 32px;
+  padding-bottom: 32px;
+}
+
+.react-empty-chat-start {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  width: min(820px, calc(100% - 48px));
+  margin: 0 auto;
+  color: var(--color-muted);
+  text-align: center;
+}
+
+.react-empty-chat-start h2 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 30px;
+  font-weight: 650;
+  line-height: 1.18;
+}
+
+.react-prompt-cycle {
+  display: grid;
+  justify-items: center;
+  min-height: 1.6em;
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.react-prompt-cycle__visual {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  min-width: min(360px, 100%);
+  max-width: 100%;
+  min-height: 1.6em;
+  overflow: hidden;
+}
+
+.react-prompt-cycle__item {
+  grid-area: 1 / 1;
+  max-width: 100%;
+  overflow: hidden;
+  clip-path: inset(0 100% 0 0);
+  opacity: 0;
+  white-space: nowrap;
+  animation: react-prompt-type-delete 8s steps(var(--react-prompt-characters, 14), end) infinite;
+  animation-delay: calc(var(--react-prompt-index, 0) * 2s);
+}
+
+.react-empty-state {
+  min-height: 1.5em;
+}
+
+.react-text-type {
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: baseline;
+}
+
+.react-text-type__text {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  clip-path: inset(0 100% 0 0);
+  white-space: nowrap;
+  animation: react-text-type var(--motion-duration-text) steps(var(--react-text-type-characters, 24), end) forwards;
+}
+
+.react-text-type__text::after {
+  display: inline-block;
+  width: 1px;
+  height: 1em;
+  margin-left: 2px;
+  background: currentColor;
+  content: "";
+  opacity: 0.5;
+  vertical-align: -0.15em;
+  animation: react-text-caret var(--motion-duration-text) step-end 1 forwards;
+}
+
+@keyframes react-text-type {
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes react-text-caret {
+  0%,
+  65% {
+    opacity: 0.5;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes react-prompt-type-delete {
+  0%,
+  2% {
+    clip-path: inset(0 100% 0 0);
+    opacity: 0;
+  }
+
+  4% {
+    clip-path: inset(0 100% 0 0);
+    opacity: 1;
+  }
+
+  13%,
+  20% {
+    clip-path: inset(0 0 0 0);
+    opacity: 1;
+  }
+
+  25% {
+    clip-path: inset(0 0 0 100%);
+    opacity: 0;
+  }
+
+  100% {
+    clip-path: inset(0 0 0 100%);
+    opacity: 0;
+  }
+}
+
+.react-message {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  max-width: 820px;
+  width: 100%;
+}
+
+.react-message[data-role="user"] {
+  justify-self: end;
+  max-width: min(680px, 92%);
+}
+
+.react-message__body {
+  min-width: 0;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px 14px;
+}
+
+.react-message[data-role="user"] .react-message__body {
+  background: var(--color-surface-card);
+}
+
+.react-message__body p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.react-message-markdown {
+  display: grid;
+  gap: 10px;
+}
+
+.react-message-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.react-message-table {
+  width: 100%;
+  min-width: min(520px, 100%);
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.react-message-table th,
+.react-message-table td {
+  border: 1px solid var(--color-hairline);
+  padding: 7px 9px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.react-message-table th {
+  background: var(--color-surface-soft);
+  color: var(--color-ink);
+  font-weight: 650;
+}
+
+.react-message-markdown code {
+  border: 1px solid var(--color-hairline);
+  border-radius: 5px;
+  background: var(--color-surface-soft);
+  padding: 1px 4px;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.92em;
+}
+
+.react-message__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+}
+
+.react-message__actions[data-align="left"] {
+  justify-content: flex-start;
+}
+
+.react-message__actions[data-align="right"] {
+  justify-content: flex-end;
+}
+
+.react-agent-steps {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-surface-soft) 62%, #fff);
+  overflow: hidden;
+}
+
+.react-agent-steps[data-stepper="true"] {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 64%);
+}
+
+.react-agent-steps__header {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto 18px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 10px;
+  color: var(--color-body);
+  text-align: left;
+}
+
+.react-agent-steps__header:hover,
+.react-agent-steps__header:focus-visible {
+  background: #fff;
+}
+
+.react-agent-steps__header-icon,
+.react-agent-step-item__marker {
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+}
+
+.react-agent-steps__header-icon {
+  width: 22px;
+  height: 22px;
+}
+
+.react-agent-steps__title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-agent-steps__header small {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.react-agent-steps__list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0 10px 10px;
+  list-style: none;
+}
+
+.react-agent-step-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+}
+
+.react-agent-step-item[aria-current="step"] .react-agent-step {
+  border-color: color-mix(in srgb, var(--color-primary) 32%, var(--color-hairline));
+  background: #fff;
+}
+
+.react-agent-step-item[aria-current="step"] .react-agent-step-item__marker {
+  animation: react-stepper-current 900ms var(--motion-ease-standard) infinite alternate;
+}
+
+.react-agent-step-item__line {
+  position: absolute;
+  top: 28px;
+  bottom: -2px;
+  left: 11px;
+  width: 1px;
+  background: var(--color-hairline);
+}
+
+.react-agent-step-item__marker {
+  position: relative;
+  z-index: 1;
+  width: 24px;
+  height: 24px;
+  margin-top: 7px;
+  border: 3px solid #fff;
+  background: var(--color-surface-card);
+  color: var(--color-muted);
+}
+
+.react-agent-step {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 18px;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  margin-bottom: 6px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  padding: 7px 8px;
+  text-align: left;
+}
+
+.react-agent-step:hover,
+.react-agent-step:focus-visible {
+  border-color: var(--color-hairline);
+  background: #fff;
+}
+
+.react-agent-step__content {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.react-agent-step__content > span,
+.react-agent-step__content > small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-agent-step__content > span {
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.react-agent-step__content > small,
+.react-agent-step__status {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.react-agent-step__status {
+  border-radius: 999px;
+  background: #fff;
+  padding: 2px 7px;
+  white-space: nowrap;
+}
+
+.react-agent-steps__header-icon[data-status="success"],
+.react-agent-step-item__marker[data-status="success"] {
+  background: color-mix(in srgb, var(--color-success) 14%, #fff);
+  color: var(--color-success);
+}
+
+.react-agent-steps__header-icon[data-status="active"],
+.react-agent-step-item__marker[data-status="active"] {
+  background: color-mix(in srgb, #4c8bf5 13%, #fff);
+  color: #3b75d9;
+}
+
+.react-agent-steps__header-icon[data-status="active"] svg,
+.react-agent-step-item__marker[data-status="active"] svg {
+  animation: react-spin 1s linear infinite;
+}
+
+.react-agent-steps__header-icon[data-status="waiting"],
+.react-agent-step-item__marker[data-status="waiting"] {
+  background: color-mix(in srgb, var(--color-warning) 16%, #fff);
+  color: var(--color-warning);
+}
+
+.react-agent-steps__header-icon[data-status="error"],
+.react-agent-step-item__marker[data-status="error"] {
+  background: color-mix(in srgb, var(--color-error) 14%, #fff);
+  color: var(--color-error);
+}
+
+@keyframes react-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes react-stepper-current {
+  from {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-primary) 28%, transparent);
+  }
+
+  to {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-primary) 0%, transparent);
+  }
+}
+
+.react-composer {
+  display: grid;
+  width: min(860px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 14px 0 18px;
+}
+
+.react-composer--raised {
+  width: min(920px, calc(100% - 56px));
+  padding: 0 0 min(18vh, 148px);
+}
+
+.react-composer--raised .claude-ai-input__panel {
+  min-height: 150px;
+  border-radius: 18px;
+  background: color-mix(in srgb, #fff 92%, var(--color-surface-soft));
+  box-shadow: 0 18px 44px rgb(20 20 19 / 11%);
+}
+
+.react-composer--raised .claude-ai-input__textarea {
+  min-height: 78px;
+}
+
+.claude-ai-input {
+  gap: 8px;
+}
+
+.claude-ai-input__panel {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 16px;
+  background: #fff;
+  padding: 10px;
+  box-shadow: 0 1px 3px rgb(20 20 19 / 8%);
+}
+
+.claude-ai-input__textarea {
+  display: block;
+  width: 100%;
+  max-height: 160px;
+  min-height: 46px;
+  resize: none;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--color-ink);
+  padding: 8px 10px;
+  font: inherit;
+  line-height: 1.45;
+}
+
+.claude-ai-input__textarea:focus-visible {
+  outline: none;
+}
+
+.claude-ai-input__textarea::placeholder {
+  color: var(--color-muted);
+}
+
+.claude-ai-input__toolbar,
+.claude-ai-input__tools,
+.claude-ai-input__model-trigger,
+.claude-ai-input__attachment,
+.claude-ai-input__notice {
+  display: flex;
+  align-items: center;
+}
+
+.claude-ai-input__toolbar {
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.claude-ai-input__tools {
+  min-width: 0;
+  gap: 6px;
+}
+
+.claude-ai-input__file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.claude-ai-input__icon-button,
+.claude-ai-input__send {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  border-radius: 999px;
+  padding: 0;
+}
+
+.claude-ai-input__icon-button {
+  color: var(--color-muted);
+}
+
+.claude-ai-input__icon-button:hover,
+.claude-ai-input__icon-button:focus-visible,
+.claude-ai-input__model-trigger:hover,
+.claude-ai-input__model-trigger:focus-visible {
+  background: var(--color-surface-soft);
+}
+
+.claude-ai-input__send {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.claude-ai-input__send:hover,
+.claude-ai-input__send:focus-visible {
+  background: var(--color-primary-active);
+}
+
+.claude-ai-input__send:disabled {
+  border-color: var(--color-hairline);
+  background: var(--color-surface-card);
+  color: var(--color-muted-soft);
+}
+
+.claude-ai-input__tool,
+.claude-ai-input__model {
+  position: relative;
+  min-width: 0;
+}
+
+.claude-ai-input__model-trigger {
+  gap: 6px;
+  max-width: 210px;
+  height: 34px;
+  border-radius: 999px;
+  padding: 0 10px;
+  color: var(--color-body);
+  font-size: 13px;
+}
+
+.claude-ai-input__model-trigger span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.claude-ai-input__tool-menu,
+.claude-ai-input__model-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 35;
+  display: grid;
+  gap: 0;
+  width: min(320px, calc(100vw - 48px));
+  max-height: 280px;
+  overflow: auto;
+  border: 1px solid var(--color-hairline);
+  border-radius: 9px;
+  background: #fff;
+  padding: 6px;
+  box-shadow: 0 18px 42px rgb(20 20 19 / 14%);
+}
+
+.claude-ai-input__tool-menu {
+  width: min(300px, calc(100vw - 48px));
+}
+
+.claude-ai-input__tool-option,
+.claude-ai-input__model-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  padding: 6px 11px;
+  background: transparent;
+  color: var(--color-ink);
+  cursor: default;
+  text-align: left;
+}
+
+.claude-ai-input__model-option {
+  grid-template-columns: minmax(0, 1fr) max-content 16px;
+}
+
+.claude-ai-input__tool-option:hover,
+.claude-ai-input__tool-option:focus-visible,
+.claude-ai-input__model-option:hover,
+.claude-ai-input__model-option:focus-visible,
+.claude-ai-input__model-option[aria-selected="true"] {
+  background: var(--color-surface-soft);
+}
+
+.claude-ai-input__tool-option[aria-checked="true"] {
+  background: var(--color-surface-soft);
+}
+
+.claude-ai-input__tool-option:focus-visible,
+.claude-ai-input__model-option:focus-visible {
+  border-color: var(--color-primary);
+}
+
+.claude-ai-input__tool-option span,
+.claude-ai-input__model-option span {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.claude-ai-input__tool-option strong,
+.claude-ai-input__tool-option small,
+.claude-ai-input__model-option strong,
+.claude-ai-input__model-option small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.claude-ai-input__tool-option strong,
+.claude-ai-input__model-option strong {
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.claude-ai-input__tool-option small,
+.claude-ai-input__model-option small {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.claude-ai-input__tool-option em,
+.claude-ai-input__model-option em {
+  display: inline-flex;
+  align-items: center;
+  justify-self: end;
+  min-height: 20px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 5px;
+  background: #fbfaf8;
+  color: var(--color-muted);
+  padding: 1px 6px;
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1;
+}
+
+.claude-ai-input__tool-option svg,
+.claude-ai-input__model-option svg {
+  justify-self: center;
+  color: var(--color-body);
+}
+
+.claude-ai-input__attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.claude-ai-input__attachment {
+  max-width: min(260px, 100%);
+  gap: 8px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 10px;
+  background: var(--color-surface-soft);
+  padding: 7px 8px;
+}
+
+.claude-ai-input__attachment-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--color-muted);
+}
+
+.claude-ai-input__attachment-text {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 1px;
+}
+
+.claude-ai-input__attachment-text strong,
+.claude-ai-input__attachment-text small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.claude-ai-input__attachment-text strong {
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.claude-ai-input__attachment-text small {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.claude-ai-input__attachment button {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  border-radius: 999px;
+  padding: 0;
+  color: var(--color-muted);
+}
+
+.claude-ai-input__notice {
+  gap: 6px;
+  border: 1px solid color-mix(in srgb, var(--color-error) 35%, var(--color-hairline));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-error) 8%, #fff);
+  color: var(--color-error);
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.claude-ai-input button:disabled {
+  cursor: not-allowed;
+}
+
+.react-right-drawer {
+  position: fixed;
+  top: 42px;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  width: min(380px, 92vw);
+  border-left: 1px solid var(--color-hairline);
+  background: #fff;
+  padding: 16px;
+  box-shadow: -18px 0 44px rgb(20 20 19 / 10%);
+}
+
+.react-right-drawer[data-motion="fade-content"] {
+  animation: react-drawer-enter var(--motion-duration-medium) var(--motion-ease-standard) both;
+}
+
+@keyframes react-drawer-enter {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.react-right-drawer > div,
+.react-command-palette > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.react-placeholder-page {
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  min-height: 100%;
+  padding: 40px;
+}
+
+.react-workbench-page {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 14px;
+  height: 100%;
+  min-height: 0;
+  padding: 22px 26px;
+  overflow: auto;
+}
+
+.react-workbench-page > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--color-hairline);
+}
+
+.react-workbench-page h1 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+.react-stat-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.react-stat {
+  display: grid;
+  gap: 2px;
+  min-width: 112px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.react-stat strong {
+  color: var(--color-ink);
+  font-size: 16px;
+}
+
+.react-stat span {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.react-data-list {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
+.react-data-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.react-data-row strong,
+.react-data-row small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-data-row strong {
+  color: var(--color-ink);
+  font-size: 13px;
+}
+
+.react-data-row small {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.react-placeholder-page p,
+.react-empty-state,
+.react-command-palette p,
+.react-right-drawer p {
+  color: var(--color-muted);
+}
+
+.react-command-palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: start center;
+  padding-top: 84px;
+  background: rgb(20 20 19 / 22%);
+}
+
+.react-command-palette {
+  display: grid;
+  gap: 12px;
+  width: min(560px, calc(100vw - 32px));
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: #fff;
+  padding: 14px;
+  box-shadow: 0 18px 54px rgb(20 20 19 / 18%);
+}
+
+.react-session-search-backdrop {
+  padding-top: 26px;
+  background: rgb(20 20 19 / 18%);
+}
+
+.react-session-search-dialog {
+  gap: 14px;
+  width: min(780px, calc(100vw - 48px));
+  max-height: min(82vh, 760px);
+  overflow: hidden;
+  border-radius: 26px;
+  padding: 16px 18px 18px;
+}
+
+.react-session-search__input-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  color: var(--color-muted);
+}
+
+.react-session-search__input-row input {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--color-ink);
+  padding: 4px 0;
+  font-size: 18px;
+  line-height: 1.35;
+}
+
+.react-session-search__input-row input:focus-visible {
+  outline: none;
+}
+
+.react-session-search__section {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.react-session-search__section p {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.react-session-search__list {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  overflow: auto;
+}
+
+.react-session-search__item {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) max-content max-content max-content;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  border-radius: 16px;
+  padding: 7px 12px;
+  color: var(--color-body);
+  font-size: 13px;
+  text-align: left;
+}
+
+.react-session-search__item:hover,
+.react-session-search__item:focus-visible,
+.react-session-search__item[aria-current="page"] {
+  background: var(--color-surface-soft);
+  color: var(--color-ink);
+}
+
+.react-session-search__rank {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 999px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.react-session-search__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-session-search__meta,
+.react-session-search__item small {
+  color: var(--color-muted-soft);
+  white-space: nowrap;
+}
+
+.react-session-search__item kbd {
+  min-width: 46px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--color-surface-soft);
+  color: var(--color-muted);
+  padding: 2px 8px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.react-session-search__empty {
+  color: var(--color-muted);
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.react-command-palette input {
+  width: 100%;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.react-command-palette .react-session-search__input-row input {
+  border: 0;
+  border-radius: 0;
+  padding: 4px 0;
+}
+
+.react-command-list {
+  display: grid;
+  gap: 4px;
+}
+
+.react-command-list button {
+  justify-content: start;
+  padding: 9px 10px;
+  text-align: left;
+}
+
+.react-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (max-width: 680px) {
+  .react-chat-surface[data-empty-session="true"] .react-conversation-view {
+    padding: 24px 18px;
+  }
+
+  .react-empty-chat-start {
+    width: 100%;
+    gap: 10px;
+  }
+
+  .react-empty-chat-start h2 {
+    font-size: 24px;
+  }
+
+  .react-prompt-cycle {
+    font-size: 13px;
+  }
+
+  .react-composer--raised {
+    width: calc(100% - 28px);
+    padding-bottom: 96px;
+  }
+
+  .react-composer--raised .claude-ai-input__panel {
+    min-height: 138px;
+  }
+}
+
+@media (max-width: 860px) {
+  body {
+    min-width: 0;
+  }
+
+  .react-workbench-layout {
+    grid-template-columns: 58px minmax(0, 1fr);
+  }
+
+  .react-activity-rail button span {
+    display: none;
+  }
+
+  .react-chat-page {
+    grid-template-columns: minmax(150px, 210px) minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0ms !important;
+  }
+
+  .react-text-type__text {
+    clip-path: inset(0 0 0 0);
+    animation: none !important;
+  }
+
+  .react-text-type__text::after {
+    display: none;
+  }
+
+  .react-prompt-cycle__item {
+    clip-path: inset(0 0 0 0);
+    animation: none !important;
+  }
+
+  .react-prompt-cycle__item:first-child {
+    opacity: 1;
+  }
+
+  .react-session-list__rows[data-motion="animated-list"] .react-session-row,
+  .react-session-row[data-dissolving="true"],
+  .react-agent-step-item[aria-current="step"] .react-agent-step-item__marker,
+  .react-right-drawer[data-motion="fade-content"] {
+    opacity: 1;
+    transform: none;
+    animation: none !important;
+  }
+
+  .react-session-row__particles {
+    display: none;
+  }
+}

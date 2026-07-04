@@ -15,8 +15,8 @@ describe("desktop static routing", () => {
     expect(resolveDesktopStaticFile(publicRoot, "/docs/")).toBe(path.join(publicRoot, "docs", "index.html"));
     expect(resolveDesktopStaticFile(publicRoot, "/docs/config.html")).toBeNull();
     expect(resolveDesktopStaticFile(publicRoot, "/assets/src/main.js")).toBeNull();
-    expect(resolveDesktopStaticFile(publicRoot, "/assets/styles/components/desktop-settings.css")).toBe(
-      path.join(publicRoot, "assets", "styles", "components", "desktop-settings.css"),
+    expect(resolveDesktopStaticFile(publicRoot, "/assets/docs-styles.css")).toBe(
+      path.join(publicRoot, "assets", "docs-styles.css"),
     );
   });
 
@@ -29,12 +29,12 @@ describe("desktop static routing", () => {
   test("identifies source tests for bundle exclusion", () => {
     expect(isSourceTestFile(path.join(publicRoot, "assets", "src", "provider-cards.test.mjs"))).toBe(true);
     expect(isSourceTestFile(path.join(publicRoot, "assets", "src", "agent-ui-events.test.js"))).toBe(true);
-    expect(isSourceTestFile(path.join(publicRoot, "assets", "styles", "main.css"))).toBe(false);
+    expect(isSourceTestFile(path.join(publicRoot, "assets", "docs-styles.css"))).toBe(false);
   });
 
   test("serves core WebUI content types", () => {
     expect(contentType("docs/index.html")).toBe("text/html; charset=utf-8");
-    expect(contentType("assets/styles/main.css")).toBe("text/css; charset=utf-8");
+    expect(contentType("assets/docs-styles.css")).toBe("text/css; charset=utf-8");
     expect(contentType("assets/docs.js")).toBe("text/javascript; charset=utf-8");
     expect(contentType("assets/logo.svg")).toBe("image/svg+xml");
   });
@@ -49,7 +49,6 @@ describe("desktop static routing", () => {
     expect(bundleFiles).toEqual(
       expect.arrayContaining([
         "docs/index.html",
-        "assets/styles/components/desktop-settings.css",
         "assets/docs-styles.css",
         "assets/docs.js",
         "assets/logo-mark.svg",
