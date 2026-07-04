@@ -904,14 +904,15 @@ button:disabled {
   left: 0;
   z-index: 35;
   display: grid;
+  gap: 0;
   width: min(320px, calc(100vw - 48px));
   max-height: 280px;
   overflow: auto;
   border: 1px solid var(--color-hairline);
-  border-radius: 8px;
+  border-radius: 9px;
   background: #fff;
   padding: 6px;
-  box-shadow: 0 16px 34px rgb(20 20 19 / 12%);
+  box-shadow: 0 18px 42px rgb(20 20 19 / 14%);
 }
 
 .claude-ai-input__tool-menu {
@@ -921,14 +922,17 @@ button:disabled {
 .claude-ai-input__tool-option,
 .claude-ai-input__model-option {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) max-content 16px;
   align-items: center;
-  gap: 8px;
-  min-height: 42px;
-  border-radius: 6px;
-  padding: 7px 8px;
+  gap: 12px;
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  padding: 6px 11px;
   background: transparent;
-  color: var(--color-body);
+  color: var(--color-ink);
+  cursor: default;
   text-align: left;
 }
 
@@ -941,7 +945,12 @@ button:disabled {
 }
 
 .claude-ai-input__tool-option[aria-checked="true"] {
-  background: color-mix(in srgb, var(--color-primary) 10%, #fff);
+  background: var(--color-surface-soft);
+}
+
+.claude-ai-input__tool-option:focus-visible,
+.claude-ai-input__model-option:focus-visible {
+  border-color: var(--color-primary);
 }
 
 .claude-ai-input__tool-option span,
@@ -976,18 +985,24 @@ button:disabled {
 
 .claude-ai-input__tool-option em,
 .claude-ai-input__model-option em {
-  border-radius: 999px;
-  background: var(--color-surface-card);
+  display: inline-flex;
+  align-items: center;
+  justify-self: end;
+  min-height: 20px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 5px;
+  background: #fbfaf8;
   color: var(--color-muted);
-  padding: 2px 6px;
-  font-size: 10px;
+  padding: 1px 6px;
+  font-size: 11px;
   font-style: normal;
-  line-height: 1.2;
+  line-height: 1;
 }
 
-.claude-ai-input__model-option[aria-selected="true"] em {
-  background: var(--color-primary);
-  color: #fff;
+.claude-ai-input__tool-option svg,
+.claude-ai-input__model-option svg {
+  justify-self: center;
+  color: var(--color-body);
 }
 
 .claude-ai-input__attachments {
