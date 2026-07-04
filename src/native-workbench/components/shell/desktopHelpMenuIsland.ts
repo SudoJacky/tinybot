@@ -64,6 +64,8 @@ function createDesktopHelpMenuApp(options: DesktopHelpMenuIslandOptions): App {
             size: "small",
             attrType: "button",
             class: "desktop-application-menu-item desktop-help-menu-trigger",
+            title: label,
+            "aria-label": label,
             "aria-haspopup": "menu",
             "aria-expanded": String(expanded.value),
             onPointerdown: (event: PointerEvent) => event.stopPropagation(),
@@ -84,7 +86,7 @@ function createDesktopHelpMenuApp(options: DesktopHelpMenuIslandOptions): App {
               event.preventDefault();
               close();
             },
-          }, { default: () => label }),
+          }, { default: () => renderApplicationMenuTrigger(label) }),
           h("div", {
             class: "desktop-help-menu-popover",
             role: "menu",
@@ -123,4 +125,30 @@ function createDesktopHelpMenuApp(options: DesktopHelpMenuIslandOptions): App {
 
 function menuCommandAccessibleLabel(command: DesktopMenuCommand): string {
   return command.shortcut ? `${command.label} (${command.shortcut})` : command.label;
+}
+
+function renderApplicationMenuTrigger(label: string) {
+  return [
+    h("span", {
+      class: "desktop-application-menu-icon",
+      "data-desktop-menu-icon": applicationMenuIcon(label),
+      "aria-hidden": "true",
+    }),
+    h("span", { class: "desktop-application-menu-label" }, label),
+  ];
+}
+
+function applicationMenuIcon(label: string): string {
+  switch (label.toLowerCase()) {
+    case "app":
+      return "app";
+    case "resources":
+      return "resources";
+    case "system":
+      return "system";
+    case "help":
+      return "help";
+    default:
+      return "menu";
+  }
 }

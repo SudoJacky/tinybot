@@ -210,9 +210,14 @@ function createDesktopTopMenu(
   const trigger = targetDocument.createElement("button");
   trigger.type = "button";
   trigger.className = "desktop-application-menu-item desktop-help-menu-trigger";
+  trigger.setAttribute("aria-label", label);
   trigger.setAttribute("aria-haspopup", "menu");
   trigger.setAttribute("aria-expanded", "false");
-  trigger.textContent = label;
+  trigger.title = label;
+  trigger.append(
+    createApplicationMenuIcon(targetDocument, label),
+    createApplicationMenuLabel(targetDocument, label),
+  );
 
   const popover = targetDocument.createElement("div");
   popover.className = "desktop-help-menu-popover";
@@ -296,6 +301,36 @@ function createHelpMenuText(targetDocument: Document, className: string, text: s
   node.className = className;
   node.textContent = text;
   return node;
+}
+
+function createApplicationMenuIcon(targetDocument: Document, label: string): HTMLElement {
+  const icon = targetDocument.createElement("span");
+  icon.className = "desktop-application-menu-icon";
+  icon.setAttribute("data-desktop-menu-icon", applicationMenuIcon(label));
+  icon.setAttribute("aria-hidden", "true");
+  return icon;
+}
+
+function createApplicationMenuLabel(targetDocument: Document, label: string): HTMLElement {
+  const node = targetDocument.createElement("span");
+  node.className = "desktop-application-menu-label";
+  node.textContent = label;
+  return node;
+}
+
+function applicationMenuIcon(label: string): string {
+  switch (label.toLowerCase()) {
+    case "app":
+      return "app";
+    case "resources":
+      return "resources";
+    case "system":
+      return "system";
+    case "help":
+      return "help";
+    default:
+      return "menu";
+  }
 }
 
 export function setDesktopWindowRuntimeStatus(
@@ -425,7 +460,7 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
     body.desktop-custom-frame .desktop-application-menu {
       display: flex;
       align-items: center;
-      gap: 2px;
+      gap: 4px;
       margin-left: 78px;
       min-width: 0;
       overflow: visible;
@@ -433,17 +468,23 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
 
     body.desktop-custom-frame .desktop-help-menu {
       position: relative;
+      display: flex;
+      align-items: center;
       flex: 0 0 auto;
     }
 
     body.desktop-custom-frame .desktop-application-menu-item {
-      flex: 0 1 auto;
-      max-width: 136px;
-      min-width: 0;
-      height: 28px;
-      padding: 0 10px;
-      border: 0;
-      border-radius: 4px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+      box-sizing: border-box;
+      max-width: 160px;
+      min-width: 32px;
+      height: 30px;
+      padding: 0 8px;
+      border: 1px solid transparent;
+      border-radius: 999px;
       overflow: hidden;
       background: transparent;
       color: var(--text, #141413);
@@ -451,12 +492,138 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
       text-overflow: ellipsis;
       white-space: nowrap;
       cursor: default;
+      transition:
+        background-color 180ms ease,
+        border-color 180ms ease,
+        color 180ms ease;
+    }
+
+    body.desktop-custom-frame .desktop-application-menu-item .n-button__content {
+      display: inline-flex;
+      align-items: center;
+      min-width: 0;
+      overflow: visible;
+      line-height: 1;
+    }
+
+    body.desktop-custom-frame .desktop-application-menu-icon {
+      position: relative;
+      display: inline-block;
+      flex: 0 0 16px;
+      width: 16px;
+      height: 16px;
+      color: var(--text-muted, #6c6a64);
+      transition: color 180ms ease;
+    }
+
+    body.desktop-custom-frame .desktop-application-menu-icon::before,
+    body.desktop-custom-frame .desktop-application-menu-icon::after {
+      content: "";
+      position: absolute;
+      box-sizing: border-box;
+    }
+
+    body.desktop-custom-frame .desktop-application-menu-icon[data-desktop-menu-icon="app"]::before {
+      top: 2px;
+      left: 2px;
+      width: 4px;
+      height: 4px;
+      border-radius: 1.5px;
+      background: currentColor;
+      box-shadow:
+        8px 0 0 currentColor,
+        0 8px 0 currentColor,
+        8px 8px 0 currentColor;
+    }
+
+    body.desktop-custom-frame .desktop-application-menu-icon[data-desktop-menu-icon="resources"]::before {
+      left: 2px;
+      top: 5px;
+      width: 12px;
+      height: 9px;
+      border: 1.5px solid currentColor;
+      border-radius: 3px;
+    }
+
+    body.desktop-custom-frame .desktop-application-menu-icon[data-desktop-menu-icon="resources"]::after {
+      left: 4px;
+      top: 2px;
+      width: 6px;
+      height: 4px;
+      border: 1.5px solid currentColor;
+      border-bottom: 0;
+      border-radius: 3px 3px 0 0;
+    }
+
+    body.desktop-custom-frame .desktop-application-menu-icon[data-desktop-menu-icon="system"]::before {
+      inset: 3px;
+      border: 1.6px solid currentColor;
+      border-radius: 999px;
+    }
+
+    body.desktop-custom-frame .desktop-application-menu-icon[data-desktop-menu-icon="system"]::after {
+      inset: 6px;
+      border-radius: 999px;
+      background: currentColor;
+      box-shadow:
+        0 -6px 0 -1px currentColor,
+        0 6px 0 -1px currentColor,
+        -6px 0 0 -1px currentColor,
+        6px 0 0 -1px currentColor;
+    }
+
+    body.desktop-custom-frame .desktop-application-menu-icon[data-desktop-menu-icon="help"]::before {
+      inset: 1px;
+      border: 1.5px solid currentColor;
+      border-radius: 999px;
+    }
+
+    body.desktop-custom-frame .desktop-application-menu-icon[data-desktop-menu-icon="help"]::after {
+      content: "?";
+      inset: 0;
+      color: currentColor;
+      font: 700 11px/16px var(--font-sans, system-ui, sans-serif);
+      text-align: center;
+    }
+
+    body.desktop-custom-frame .desktop-application-menu-label {
+      display: inline-block;
+      max-width: 0;
+      margin-left: 0;
+      overflow: hidden;
+      opacity: 0;
+      text-overflow: clip;
+      white-space: nowrap;
+      transition:
+        max-width 220ms ease,
+        margin-left 220ms ease,
+        opacity 160ms ease;
     }
 
     body.desktop-custom-frame .desktop-application-menu-item:hover,
     body.desktop-custom-frame .desktop-application-menu-item:focus-visible {
       background: #f2ede7;
       outline: 0;
+    }
+
+    body.desktop-custom-frame .desktop-application-menu-item:hover .desktop-application-menu-label,
+    body.desktop-custom-frame .desktop-application-menu-item:focus-visible .desktop-application-menu-label,
+    body.desktop-custom-frame .desktop-application-menu-item[aria-expanded="true"] .desktop-application-menu-label {
+      max-width: 96px;
+      margin-left: 8px;
+      opacity: 1;
+    }
+
+    body.desktop-custom-frame .desktop-application-menu-item[aria-expanded="true"] {
+      border-color: color-mix(in srgb, var(--border, #e6dfd8) 82%, var(--primary, #cc785c));
+      background: var(--panel-strong, #efe9de);
+      color: var(--text, #141413);
+    }
+
+    body.desktop-custom-frame .desktop-application-menu-item:hover .desktop-application-menu-icon,
+    body.desktop-custom-frame .desktop-application-menu-item:focus-visible .desktop-application-menu-icon,
+    body.desktop-custom-frame .desktop-application-menu-item[aria-expanded="true"] .desktop-application-menu-icon {
+      color: var(--primary, #cc785c);
     }
 
     body.desktop-custom-frame .desktop-help-menu-popover {
@@ -719,6 +886,11 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
     html[data-theme="dark"] body.desktop-custom-frame .desktop-help-menu-item:hover,
     html[data-theme="dark"] body.desktop-custom-frame .desktop-help-menu-item:focus-visible {
       background: rgba(250, 249, 245, 0.08);
+    }
+
+    html[data-theme="dark"] body.desktop-custom-frame .desktop-application-menu-item[aria-expanded="true"] {
+      border-color: rgba(204, 120, 92, 0.28);
+      background: var(--panel-strong, #252320);
     }
 
     html[data-theme="dark"] body.desktop-custom-frame .desktop-help-menu-popover {

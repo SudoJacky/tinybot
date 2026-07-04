@@ -318,7 +318,9 @@ describe("desktop window frame", () => {
     const appContainer = targetDocument.body.querySelector('[data-desktop-menu-label="App"]');
     const appTrigger = appContainer?.querySelector(".desktop-help-menu-trigger");
     const appMenu = appContainer?.querySelector(".desktop-help-menu-popover");
-    expect(appTrigger?.textContent).toBe("App");
+    expect(appTrigger?.getAttribute("aria-label")).toBe("App");
+    expect(appTrigger?.querySelector(".desktop-application-menu-icon")?.getAttribute("data-desktop-menu-icon")).toBe("app");
+    expect(appTrigger?.querySelector(".desktop-application-menu-label")?.textContent).toBe("App");
     expect(appTrigger?.getAttribute("aria-expanded")).toBe("false");
     expect(appMenu?.hidden).toBe(true);
     appTrigger?.click();
@@ -334,7 +336,8 @@ describe("desktop window frame", () => {
     const resourcesContainer = targetDocument.body.querySelector('[data-desktop-menu-label="Resources"]');
     const resourcesTrigger = resourcesContainer?.querySelector(".desktop-help-menu-trigger");
     const resourcesMenu = resourcesContainer?.querySelector(".desktop-help-menu-popover");
-    expect(resourcesTrigger?.textContent).toBe("Resources");
+    expect(resourcesTrigger?.querySelector(".desktop-application-menu-label")?.textContent).toBe("Resources");
+    expect(resourcesTrigger?.querySelector(".desktop-application-menu-icon")?.getAttribute("data-desktop-menu-icon")).toBe("resources");
     resourcesTrigger?.click();
     expect(appTrigger?.getAttribute("aria-expanded")).toBe("false");
     expect(resourcesTrigger?.getAttribute("aria-expanded")).toBe("true");
@@ -353,7 +356,8 @@ describe("desktop window frame", () => {
 
     const systemContainer = targetDocument.body.querySelector('[data-desktop-menu-label="System"]');
     const systemMenu = systemContainer?.querySelector(".desktop-help-menu-popover");
-    expect(systemContainer?.querySelector(".desktop-help-menu-trigger")?.textContent).toBe("System");
+    expect(systemContainer?.querySelector(".desktop-application-menu-label")?.textContent).toBe("System");
+    expect(systemContainer?.querySelector(".desktop-application-menu-icon")?.getAttribute("data-desktop-menu-icon")).toBe("system");
     expect(systemMenu?.querySelector('[data-desktop-menu-command="open-settings"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Settings");
     expect(systemMenu?.querySelector('[data-desktop-menu-command="refresh-gateway-status"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Gateway Status");
     expect(systemMenu?.querySelector('[data-desktop-menu-command="open-docs"]')).toBeNull();
@@ -361,7 +365,8 @@ describe("desktop window frame", () => {
     const helpContainer = targetDocument.body.querySelector('[data-desktop-menu-label="Help"]');
     const helpTrigger = helpContainer?.querySelector(".desktop-help-menu-trigger");
     const helpMenu = helpContainer?.querySelector(".desktop-help-menu-popover");
-    expect(helpTrigger?.textContent).toBe("Help");
+    expect(helpTrigger?.querySelector(".desktop-application-menu-label")?.textContent).toBe("Help");
+    expect(helpTrigger?.querySelector(".desktop-application-menu-icon")?.getAttribute("data-desktop-menu-icon")).toBe("help");
     expect(helpTrigger?.getAttribute("aria-haspopup")).toBe("menu");
     expect(helpTrigger?.getAttribute("aria-expanded")).toBe("false");
     expect(helpMenu?.getAttribute("role")).toBe("menu");
@@ -522,6 +527,9 @@ describe("desktop window frame", () => {
     expect(document.body.querySelector(".desktop-app-menu .desktop-help-menu-trigger")?.textContent).toBe("App");
     expect(document.body.querySelector(".desktop-resources-menu .desktop-help-menu-trigger")?.textContent).toBe("Resources");
     expect(document.body.querySelector(".desktop-system-menu .desktop-help-menu-trigger")?.textContent).toBe("System");
+    expect(appMenu?.querySelector(".desktop-application-menu-icon")?.getAttribute("data-desktop-menu-icon")).toBe("app");
+    expect(resourcesMenu?.querySelector(".desktop-application-menu-icon")?.getAttribute("data-desktop-menu-icon")).toBe("resources");
+    expect(systemMenu?.querySelector(".desktop-application-menu-icon")?.getAttribute("data-desktop-menu-icon")).toBe("system");
     expect(theme?.closest(".desktop-app-menu")).not.toBeNull();
     expect(cowork?.closest(".desktop-resources-menu")).not.toBeNull();
     expect(docs?.closest(".desktop-help-menu")).not.toBeNull();
@@ -581,6 +589,7 @@ describe("desktop window frame", () => {
 
     const styleText = targetDocument.head.querySelector("#desktop-window-frame-style")?.textContent;
     expect(styleText).toContain("--desktop-window-frame-height: 38px;");
+    expect(styleText).toContain("height: 30px;");
     expect(styleText).toContain("height: 28px;");
     expect(styleText).toContain("width: 12px !important;");
     expect(styleText).toContain("height: 12px !important;");
@@ -606,6 +615,12 @@ describe("desktop window frame", () => {
     expect(styleText).toContain("padding: 5px 16px;");
     expect(styleText).toContain("font: 500 13px/20px var(--font-sans, system-ui, sans-serif);");
     expect(styleText).toContain("body.desktop-custom-frame .desktop-help-menu-item .n-button__content");
+    expect(styleText).toContain("body.desktop-custom-frame .desktop-application-menu-item .n-button__content");
+    expect(styleText).toContain("body.desktop-custom-frame .desktop-application-menu-icon[data-desktop-menu-icon=\"app\"]::before");
+    expect(styleText).toContain("body.desktop-custom-frame .desktop-application-menu-label");
+    expect(styleText).toContain("max-width: 0;");
+    expect(styleText).toContain("body.desktop-custom-frame .desktop-application-menu-item[aria-expanded=\"true\"]");
+    expect(styleText).toContain("color: var(--primary, #cc785c);");
     expect(styleText).toContain("overflow: visible;");
     expect(styleText).toContain("line-height: 20px;");
     expect(styleText).toContain("justify-self: end;");
@@ -634,6 +649,7 @@ describe("desktop window frame", () => {
     const styleText = targetDocument.head.querySelector("#desktop-window-frame-style")?.textContent;
     expect(styleText).toContain('html[data-theme="dark"] body.desktop-custom-frame .desktop-window-frame');
     expect(styleText).toContain('html[data-theme="dark"] body.desktop-custom-frame .desktop-application-menu-item');
+    expect(styleText).toContain('html[data-theme="dark"] body.desktop-custom-frame .desktop-application-menu-item[aria-expanded="true"]');
     expect(styleText).toContain('html[data-theme="dark"] body.desktop-custom-frame .desktop-help-menu-popover');
     expect(styleText).not.toContain('html[data-theme="dark"] body.desktop-custom-frame .desktop-window-button');
   });
