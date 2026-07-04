@@ -470,8 +470,8 @@ button:disabled {
 
 .react-message {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
   max-width: 820px;
   width: 100%;
 }
@@ -540,8 +540,17 @@ button:disabled {
 
 .react-message__actions {
   display: flex;
-  align-items: start;
+  align-items: center;
   gap: 4px;
+  min-height: 32px;
+}
+
+.react-message__actions[data-align="left"] {
+  justify-content: flex-start;
+}
+
+.react-message__actions[data-align="right"] {
+  justify-content: flex-end;
 }
 
 .react-tool-row {

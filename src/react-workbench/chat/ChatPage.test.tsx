@@ -108,6 +108,25 @@ describe("ChatPage", () => {
     expect(screen.getByRole("button", { name: /open details for shell/i })).toBeTruthy();
   });
 
+  it("places message action buttons under each message on the role side", async () => {
+    const stores = createStores();
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const userMessage = await screen.findByTestId("message-u1");
+    const assistantMessage = screen.getByTestId("message-a1");
+    const userBody = userMessage.querySelector(".react-message__body");
+    const assistantBody = assistantMessage.querySelector(".react-message__body");
+    const userActions = userMessage.querySelector(".react-message__actions");
+    const assistantActions = assistantMessage.querySelector(".react-message__actions");
+
+    expect(userMessage.getAttribute("data-actions-placement")).toBe("bottom");
+    expect(assistantMessage.getAttribute("data-actions-placement")).toBe("bottom");
+    expect(userBody?.nextElementSibling).toBe(userActions);
+    expect(assistantBody?.nextElementSibling).toBe(assistantActions);
+    expect(userActions?.getAttribute("data-align")).toBe("right");
+    expect(assistantActions?.getAttribute("data-align")).toBe("left");
+  });
+
   it("renders assistant Markdown tables instead of raw pipe text", async () => {
     const stores = createStores();
     const markdownMessages: ReactChatMessage[] = [

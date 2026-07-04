@@ -314,8 +314,14 @@ function MessageBubble({
   onOpenTool: (toolCall: ToolCallSummary) => void;
   sessionRunning: boolean;
 }) {
+  const actionAlignment = message.role === "user" ? "right" : "left";
   return (
-    <article className="react-message" data-role={message.role} data-testid={`message-${message.id}`}>
+    <article
+      className="react-message"
+      data-actions-placement="bottom"
+      data-role={message.role}
+      data-testid={`message-${message.id}`}
+    >
       <div className="react-message__body">
         <MessageText text={message.text} />
         {message.toolCalls?.map((toolCall) => (
@@ -335,7 +341,7 @@ function MessageBubble({
           </button>
         ))}
       </div>
-      <div className="react-message__actions">
+      <div className="react-message__actions" data-align={actionAlignment}>
         <button aria-label="Copy message" type="button" onClick={onCopy}>
           <Copy aria-hidden="true" size={14} />
         </button>
