@@ -424,7 +424,15 @@ function RouteSurface({
 }) {
   switch (route) {
     case "chat":
-      return <ChatPage chatStore={services.chatStore} createSessionSignal={createChatSignal} now={now} sessionStore={services.sessionStore} />;
+      return (
+        <ChatPage
+          chatStore={services.chatStore}
+          createSessionSignal={createChatSignal}
+          now={now}
+          sessionStore={services.sessionStore}
+          settingsStore={services.settingsStore}
+        />
+      );
     case "files":
       return <FilesPage services={services} />;
     case "knowledge":

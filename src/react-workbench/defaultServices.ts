@@ -27,8 +27,14 @@ import { createDesktopNativeWebuiApi } from "../app-core/native/desktopNativeWeb
 import { createDesktopNativeWorkspaceApi } from "../app-core/native/desktopNativeWorkspace";
 import { startDesktopNativeChannelRuntime } from "../app-core/native/desktopNativeChannelLifecycle";
 import { normalizeNativeBackendEventPayload } from "../app-core/native/nativeBackendContract";
+import {
+  buildDesktopProviderCatalogItems,
+  buildDesktopSettingsFormState,
+  buildDesktopSettingsPaneModel,
+} from "../app-core/settings/desktopSettingsProviders";
 import type {
   AppServices,
+  ChatModelOption,
   ChatEvent,
   KnowledgeDocumentSummary,
   SessionSummary,
@@ -156,6 +162,22 @@ export function createDesktopAppServices(): AppServices {
     }
   }
 
+  async function loadSettingsSnapshot(): Promise<unknown> {
+    return gatewayApi.config.get().catch(async () => nativeConfig?.get().catch(() => null) ?? null);
+  }
+
+  async function loadProviderCatalog(): Promise<unknown[]> {
+    const payload = await gatewayApi.config.providers().catch(() => []);
+    if (Array.isArray(payload)) {
+      return payload;
+    }
+    if (isRecord(payload)) {
+      const providers = payloadItems(payload, ["providers", "items", "catalog"]);
+      return providers.length ? providers : [payload];
+    }
+    return [];
+  }
+
   return {
     sessionStore: {
       async list() {
@@ -225,7 +247,7 @@ export function createDesktopAppServices(): AppServices {
             await controller.selectSession(session.key, session.chatId);
           }
         }
-        controller.submitMessage(input.text, true);
+        controller.submitMessage(input.text, input.usePersistentRag ?? true, input.model);
         notifySession(sessionId, { type: "message-sent" });
       },
       async stop() {
@@ -287,8 +309,19 @@ export function createDesktopAppServices(): AppServices {
     settingsStore: {
       async load() {
         await initialize();
-        const snapshot = nativeConfig ? await nativeConfig.get().catch(() => null) : null;
+        const snapshot = await loadSettingsSnapshot();
         return normalizeSettingsSummary(snapshot, config);
+      },
+      async loadChatModels() {
+        await initialize();
+        const snapshot = await loadSettingsSnapshot();
+        if (!isRecord(snapshot)) {
+          return [];
+        }
+        const providerCatalog = buildDesktopProviderCatalogItems(await loadProviderCatalog());
+        const state = buildDesktopSettingsFormState(snapshot, providerCatalog);
+        const pane = buildDesktopSettingsPaneModel(state, { providerCatalog });
+        return normalizeChatModelOptions(pane);
       },
     },
   };
@@ -403,7 +436,12 @@ function normalizeSettingsSummary(snapshot: unknown, config: { httpBaseUrl: stri
   if (!isRecord(snapshot)) {
     return rows;
   }
-  const defaults = isRecord(snapshot.defaults) ? snapshot.defaults : isRecord(snapshot.agents) ? snapshot.agents : {};
+  const agents = isRecord(snapshot.agents) ? snapshot.agents : {};
+  const defaults = isRecord(snapshot.defaults)
+    ? snapshot.defaults
+    : isRecord(agents.defaults)
+      ? agents.defaults
+      : agents;
   const model = stringValue(defaults.model ?? defaults.default_model ?? snapshot.model);
   if (model) {
     rows.unshift({ label: "Default model", value: model });
@@ -413,6 +451,53 @@ function normalizeSettingsSummary(snapshot: unknown, config: { httpBaseUrl: stri
     rows.push({ label: "Providers", value: String(providers.length) });
   }
   return rows;
+}
+
+function normalizeChatModelOptions(
+  pane: ReturnType<typeof buildDesktopSettingsPaneModel>,
+): ChatModelOption[] {
+  const defaultModel = stringValue(pane.defaultRouting?.model);
+  const defaultProviderId = stringValue(pane.defaultRouting?.providerId);
+  const options = new Map<string, ChatModelOption>();
+  for (const provider of pane.providerCatalog) {
+    if (provider.enabled === false) {
+      continue;
+    }
+    for (const model of provider.models ?? []) {
+      if (!model || options.has(model)) {
+        continue;
+      }
+      const isDefault = model === defaultModel;
+      options.set(model, {
+        id: model,
+        label: model,
+        description: provider.label || provider.id || "Configured provider",
+        providerId: provider.id,
+        providerLabel: provider.label,
+        ...(isDefault ? { default: true } : {}),
+      });
+    }
+  }
+  if (defaultModel && !options.has(defaultModel)) {
+    const defaultProvider = pane.providerCatalog.find((provider) => provider.id === defaultProviderId);
+    options.set(defaultModel, {
+      id: defaultModel,
+      label: defaultModel,
+      description: defaultProvider?.label || pane.defaultRouting?.providerLabel || "Default model",
+      providerId: defaultProvider?.id || defaultProviderId,
+      providerLabel: defaultProvider?.label || pane.defaultRouting?.providerLabel,
+      default: true,
+    });
+  }
+  return [...options.values()].sort((left, right) => {
+    if (left.default) {
+      return -1;
+    }
+    if (right.default) {
+      return 1;
+    }
+    return left.label.localeCompare(right.label);
+  });
 }
 
 function payloadItems(payload: unknown, keys: string[]): Record<string, unknown>[] {

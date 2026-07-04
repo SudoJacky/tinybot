@@ -2096,10 +2096,11 @@ describe("gateway WebSocket client", () => {
       type: "attach",
       chat_id: "chat-1",
     });
-    expect(createGatewaySocketMessage.message("chat-1", "hello", true)).toEqual({
+    expect(createGatewaySocketMessage.message("chat-1", "hello", true, "deepseek-reasoner")).toEqual({
       type: "message",
       chat_id: "chat-1",
       content: "hello",
+      model: "deepseek-reasoner",
       use_persistent_rag: true,
     });
     expect(createGatewaySocketMessage.interrupt("chat-1")).toEqual({

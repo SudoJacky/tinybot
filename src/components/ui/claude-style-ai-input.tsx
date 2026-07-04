@@ -43,12 +43,26 @@ export interface ModelOption {
   badge?: string;
 }
 
+export interface ComposerToolOption {
+  id: string;
+  name: string;
+  description?: string;
+  enabled?: boolean;
+  disabled?: boolean;
+}
+
+export interface ComposerSendOptions {
+  model?: string;
+  usePersistentRag?: boolean;
+}
+
 export interface ClaudeStyleAiInputProps {
   className?: string;
   onSendMessage?: (
     message: string,
     files: FileWithPreview[],
     pastedContent: PastedContent[],
+    options: ComposerSendOptions,
   ) => void | Promise<void>;
   disabled?: boolean;
   placeholder?: string;
@@ -58,29 +72,14 @@ export interface ClaudeStyleAiInputProps {
   models?: ModelOption[];
   defaultModel?: string;
   onModelChange?: (modelId: string) => void;
+  tools?: ComposerToolOption[];
 }
 
 const MAX_FILES = 10;
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
 const PASTE_THRESHOLD = 200;
-const DEFAULT_MODELS_INTERNAL: ModelOption[] = [
-  {
-    id: "claude-sonnet-4",
-    name: "Claude Sonnet 4",
-    description: "Balanced model",
-    badge: "Latest",
-  },
-  {
-    id: "claude-opus-3.5",
-    name: "Claude Opus 3.5",
-    description: "Highest intelligence",
-  },
-  {
-    id: "claude-haiku-3",
-    name: "Claude Haiku 3",
-    description: "Fastest responses",
-  },
-];
+const EMPTY_MODELS: ModelOption[] = [];
+const EMPTY_TOOLS: ComposerToolOption[] = [];
 
 let generatedId = 0;
 
@@ -96,30 +95,57 @@ export function ClaudeStyleAiInput({
   disabled = false,
   maxFileSize = MAX_FILE_SIZE,
   maxFiles = MAX_FILES,
-  models = DEFAULT_MODELS_INTERNAL,
+  models = EMPTY_MODELS,
   onModelChange,
   onSendMessage,
   placeholder = "Message Tinybot",
+  tools = EMPTY_TOOLS,
 }: ClaudeStyleAiInputProps) {
+  const rootRef = useRef<HTMLFormElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [message, setMessage] = useState("");
   const [files, setFiles] = useState<FileWithPreview[]>([]);
   const [pastedContent, setPastedContent] = useState<PastedContent[]>([]);
   const [selectedModelId, setSelectedModelId] = useState(defaultModel ?? models[0]?.id ?? "");
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [toolMenuOpen, setToolMenuOpen] = useState(false);
+  const [enabledToolIds, setEnabledToolIds] = useState<string[]>(() => tools.filter((tool) => tool.enabled).map((tool) => tool.id));
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
   const selectedModel = useMemo(
     () => models.find((model) => model.id === selectedModelId) ?? models[0],
     [models, selectedModelId],
   );
+  const enabledToolIdSet = useMemo(() => new Set(enabledToolIds), [enabledToolIds]);
   const canSend = !disabled && !sending && Boolean(message.trim() || files.length || pastedContent.length);
 
   useEffect(() => {
-    if (defaultModel) {
-      setSelectedModelId(defaultModel);
+    const nextModelId = defaultModel || models[0]?.id || "";
+    setSelectedModelId((current) => {
+      if (current && models.some((model) => model.id === current)) {
+        return current;
+      }
+      return nextModelId;
+    });
+  }, [defaultModel, models]);
+
+  useEffect(() => {
+    setEnabledToolIds(tools.filter((tool) => tool.enabled).map((tool) => tool.id));
+  }, [tools]);
+
+  useEffect(() => {
+    if (!modelMenuOpen && !toolMenuOpen) {
+      return;
     }
-  }, [defaultModel]);
+    function closeMenus(event: PointerEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setModelMenuOpen(false);
+        setToolMenuOpen(false);
+      }
+    }
+    document.addEventListener("pointerdown", closeMenus);
+    return () => document.removeEventListener("pointerdown", closeMenus);
+  }, [modelMenuOpen, toolMenuOpen]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -129,7 +155,11 @@ export function ClaudeStyleAiInput({
     setSending(true);
     setError("");
     try {
-      await onSendMessage?.(message.trim(), files, pastedContent);
+      const usesKnowledgeRag = tools.some((tool) => tool.id === "knowledge-rag");
+      await onSendMessage?.(message.trim(), files, pastedContent, {
+        ...(selectedModel?.id ? { model: selectedModel.id } : {}),
+        ...(usesKnowledgeRag ? { usePersistentRag: enabledToolIdSet.has("knowledge-rag") } : {}),
+      });
       setMessage("");
       setFiles([]);
       setPastedContent([]);
@@ -212,11 +242,25 @@ export function ClaudeStyleAiInput({
     onModelChange?.(modelId);
   }
 
+  function toggleTool(tool: ComposerToolOption) {
+    if (tool.disabled) {
+      return;
+    }
+    setEnabledToolIds((current) => {
+      if (current.includes(tool.id)) {
+        return current.filter((id) => id !== tool.id);
+      }
+      return [...current, tool.id];
+    });
+  }
+
   return (
     <form
+      ref={rootRef}
       aria-label="Message composer"
       className={["claude-ai-input", className].filter(Boolean).join(" ")}
       onSubmit={(event) => void handleSubmit(event)}
+      onPointerDown={(event) => event.stopPropagation()}
     >
       {error ? (
         <div className="claude-ai-input__notice" role="alert">
@@ -239,7 +283,7 @@ export function ClaudeStyleAiInput({
           ))}
           {files.map((item) => (
             <AttachmentChip
-              detail={`${getFileTypeLabel(item.type)} · ${formatFileSize(item.file.size)}`}
+              detail={`${getFileTypeLabel(item.type)} - ${formatFileSize(item.file.size)}`}
               icon={getFileIcon(item.type)}
               key={item.id}
               label={item.file.name}
@@ -284,24 +328,60 @@ export function ClaudeStyleAiInput({
             >
               <Plus aria-hidden="true" size={18} />
             </button>
-            <button
-              aria-label="Model settings"
-              className="claude-ai-input__icon-button"
-              disabled={disabled}
-              title="Model settings"
-              type="button"
-            >
-              <SlidersHorizontal aria-hidden="true" size={18} />
-            </button>
+            <div className="claude-ai-input__tool">
+              <button
+                aria-expanded={toolMenuOpen}
+                aria-haspopup="menu"
+                aria-label="Tools"
+                className="claude-ai-input__icon-button"
+                disabled={disabled || !tools.length}
+                title="Tools"
+                type="button"
+                onClick={() => {
+                  setToolMenuOpen((open) => !open);
+                  setModelMenuOpen(false);
+                }}
+              >
+                <SlidersHorizontal aria-hidden="true" size={18} />
+              </button>
+              {toolMenuOpen ? (
+                <div className="claude-ai-input__tool-menu" role="menu" aria-label="Tools">
+                  {tools.map((tool) => {
+                    const checked = enabledToolIdSet.has(tool.id);
+                    return (
+                      <button
+                        aria-checked={checked}
+                        className="claude-ai-input__tool-option"
+                        disabled={tool.disabled}
+                        key={tool.id}
+                        role="menuitemcheckbox"
+                        type="button"
+                        onClick={() => toggleTool(tool)}
+                      >
+                        <span>
+                          <strong>{tool.name}</strong>
+                          {tool.description ? <small>{tool.description}</small> : null}
+                        </span>
+                        <em>{checked ? "On" : "Off"}</em>
+                        {checked ? <Check aria-hidden="true" size={15} /> : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
             <div className="claude-ai-input__model">
               <button
                 aria-expanded={modelMenuOpen}
                 aria-haspopup="listbox"
                 aria-label="Select model"
                 className="claude-ai-input__model-trigger"
-                disabled={disabled}
+                disabled={disabled || !models.length}
                 type="button"
-                onClick={() => setModelMenuOpen((open) => !open)}
+                onClick={() => {
+                  setModelMenuOpen((open) => !open);
+                  setToolMenuOpen(false);
+                }}
               >
                 <span>{selectedModel?.name ?? "Model"}</span>
                 <ChevronDown aria-hidden="true" size={16} />

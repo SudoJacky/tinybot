@@ -59,7 +59,7 @@ export interface DesktopChatSessionController {
   startNewChat(): void;
   deleteSession(sessionKey: string): Promise<ChatDeleteSessionResult>;
   patchSession(sessionKey: string, body: unknown): Promise<boolean>;
-  submitMessage(content: string, usePersistentRag?: boolean): ChatSubmitResult;
+  submitMessage(content: string, usePersistentRag?: boolean, model?: string): ChatSubmitResult;
   interruptActiveChat(): boolean;
   handleGatewayEvent(event: NormalizedGatewayEvent): Promise<ChatGatewayEventResult>;
   loadMessagesForChat(chatId: string): Promise<boolean>;
@@ -73,7 +73,7 @@ export function createDesktopChatSessionController({
   now = () => new Date().toISOString(),
 }: DesktopChatSessionControllerOptions): DesktopChatSessionController {
   const state = createNativeChatState();
-  let pendingMessage: { content: string; usePersistentRag: boolean } | null = null;
+  let pendingMessage: { content: string; model?: string; usePersistentRag: boolean } | null = null;
 
   async function loadSessions(): Promise<number> {
     logDesktopNativeDebug("session.load.start", summarizeSessionState());
@@ -286,7 +286,7 @@ export function createDesktopChatSessionController({
     return true;
   }
 
-  function submitMessage(content: string, usePersistentRag = true): ChatSubmitResult {
+  function submitMessage(content: string, usePersistentRag = true, model?: string): ChatSubmitResult {
     const trimmed = content.trim();
     if (!trimmed) {
       logDesktopNativeDebug("session.message.empty", summarizeSessionState());
@@ -294,20 +294,22 @@ export function createDesktopChatSessionController({
     }
 
     if (!state.activeChatId) {
-      pendingMessage = { content: trimmed, usePersistentRag };
+      pendingMessage = { content: trimmed, model, usePersistentRag };
       startNewChat();
       logDesktopNativeDebug("session.message.queued", {
         ...summarizeSessionState(),
         content: summarizeDebugText(trimmed),
+        model: model || "",
         usePersistentRag,
       });
       return { status: "creating", pendingContent: trimmed };
     }
 
-    sendActiveChatMessage(trimmed, usePersistentRag);
+    sendActiveChatMessage(trimmed, usePersistentRag, model);
     logDesktopNativeDebug("session.message.sent", {
       ...summarizeSessionState(),
       content: summarizeDebugText(trimmed),
+      model: model || "",
       usePersistentRag,
     });
     return { status: "sent", chatId: state.activeChatId, content: trimmed };
@@ -339,12 +341,13 @@ export function createDesktopChatSessionController({
       }
       result.reloadedSessions = true;
       if (pendingMessage) {
-        const { content, usePersistentRag } = pendingMessage;
+        const { content, model, usePersistentRag } = pendingMessage;
         pendingMessage = null;
-        sendActiveChatMessage(content, usePersistentRag);
+        sendActiveChatMessage(content, usePersistentRag, model);
         logDesktopNativeDebug("session.message.queued.sent", {
           ...summarizeSessionState(),
           content: summarizeDebugText(content),
+          model: model || "",
           usePersistentRag,
         });
         result.pendingMessageSent = true;
@@ -417,9 +420,9 @@ export function createDesktopChatSessionController({
     return artifact;
   }
 
-  function sendActiveChatMessage(content: string, usePersistentRag = true): void {
+  function sendActiveChatMessage(content: string, usePersistentRag = true, model?: string): void {
     appendUserMessage(state, content, now());
-    sendSocketMessage(createGatewaySocketMessage.message(state.activeChatId, content, usePersistentRag));
+    sendSocketMessage(createGatewaySocketMessage.message(state.activeChatId, content, usePersistentRag, model));
   }
 
   return {

@@ -4,11 +4,12 @@ import { logDesktopNativeChatDebug, summarizeDebugText } from "../native/desktop
 export const createGatewaySocketMessage = {
   newChat: () => ({ type: "new_chat" as const }),
   attach: (chatId: string) => ({ type: "attach" as const, chat_id: chatId }),
-  message: (chatId: string, content: string, usePersistentRag?: boolean) => ({
+  message: (chatId: string, content: string, usePersistentRag?: boolean, model?: string) => ({
     type: "message" as const,
     chat_id: chatId,
     content,
     ...(typeof usePersistentRag === "boolean" ? { use_persistent_rag: usePersistentRag } : {}),
+    ...(model ? { model } : {}),
   }),
   interrupt: (chatId: string) => ({ type: "interrupt" as const, chat_id: chatId }),
 };

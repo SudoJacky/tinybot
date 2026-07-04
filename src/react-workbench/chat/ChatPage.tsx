@@ -1,14 +1,22 @@
 import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, Copy, GitBranch, MoreHorizontal, PanelRightOpen, Trash2, X } from "lucide-react";
-import { ClaudeStyleAiInput, type FileWithPreview, type PastedContent } from "../../components/ui/claude-style-ai-input";
+import {
+  ClaudeStyleAiInput,
+  type ComposerSendOptions,
+  type ComposerToolOption,
+  type FileWithPreview,
+  type ModelOption,
+  type PastedContent,
+} from "../../components/ui/claude-style-ai-input";
 import { formatRelativeUpdatedTime } from "../lib/relativeTime";
-import type { ChatStore, SessionStore, SessionSummary } from "../services";
+import type { ChatModelOption, ChatStore, SessionStore, SessionSummary, SettingsStore } from "../services";
 import { reduceSessionDeleteState } from "../sessions/sessionDeleteState";
 import { canBranchFromMessage, type ReactChatMessage, type ToolCallSummary } from "./messageActions";
 
 export type ChatPageProps = {
   chatStore: ChatStore;
   sessionStore: SessionStore;
+  settingsStore?: SettingsStore;
   createSessionSignal?: number;
   now?: () => number;
 };
@@ -18,10 +26,21 @@ type DrawerState = {
   body: string;
 } | null;
 
-export function ChatPage({ chatStore, createSessionSignal = 0, now = Date.now, sessionStore }: ChatPageProps) {
+const COMPOSER_TOOLS: ComposerToolOption[] = [
+  {
+    id: "knowledge-rag",
+    name: "Knowledge RAG",
+    description: "Use uploaded files and knowledge base material",
+    enabled: true,
+  },
+];
+
+export function ChatPage({ chatStore, createSessionSignal = 0, now = Date.now, sessionStore, settingsStore }: ChatPageProps) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [activeSessionId, setActiveSessionId] = useState("");
   const [messages, setMessages] = useState<ReactChatMessage[]>([]);
+  const [composerModels, setComposerModels] = useState<ModelOption[]>([]);
+  const [defaultComposerModel, setDefaultComposerModel] = useState("");
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [drawer, setDrawer] = useState<DrawerState>(null);
   const [deleteState, dispatchDelete] = useReducer(reduceSessionDeleteState, { confirmingSessionId: "" });
@@ -80,6 +99,31 @@ export function ChatPage({ chatStore, createSessionSignal = 0, now = Date.now, s
       unsubscribe();
     };
   }, [activeSessionId, chatStore]);
+
+  useEffect(() => {
+    if (!settingsStore?.loadChatModels) {
+      setComposerModels([]);
+      setDefaultComposerModel("");
+      return;
+    }
+    let cancelled = false;
+    void settingsStore.loadChatModels().then((models) => {
+      if (cancelled) {
+        return;
+      }
+      const nextModels = models.map(toComposerModelOption);
+      setComposerModels(nextModels);
+      setDefaultComposerModel(models.find((model) => model.default)?.id ?? nextModels[0]?.id ?? "");
+    }).catch(() => {
+      if (!cancelled) {
+        setComposerModels([]);
+        setDefaultComposerModel("");
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [settingsStore]);
 
   async function handleCreateSession() {
     const created = await sessionStore.create();
@@ -150,12 +194,21 @@ export function ChatPage({ chatStore, createSessionSignal = 0, now = Date.now, s
     setActiveSessionId(branched.id);
   }
 
-  async function handleComposerSend(message: string, files: FileWithPreview[], pastedContent: PastedContent[]) {
+  async function handleComposerSend(
+    message: string,
+    files: FileWithPreview[],
+    pastedContent: PastedContent[],
+    options: ComposerSendOptions,
+  ) {
     const text = formatComposerMessage(message, files, pastedContent);
     if (!text || !activeSession) {
       return;
     }
-    await chatStore.send(activeSession.id, { text });
+    await chatStore.send(activeSession.id, {
+      text,
+      ...(options.model ? { model: options.model } : {}),
+      ...(typeof options.usePersistentRag === "boolean" ? { usePersistentRag: options.usePersistentRag } : {}),
+    });
     await handleSessionStoreRefresh();
   }
 
@@ -251,8 +304,11 @@ export function ChatPage({ chatStore, createSessionSignal = 0, now = Date.now, s
         <ClaudeStyleAiInput
           className="react-composer"
           disabled={!activeSession}
+          defaultModel={defaultComposerModel}
+          models={composerModels}
           placeholder="Message Tinybot"
-          onSendMessage={(message, files, pastedContent) => handleComposerSend(message, files, pastedContent)}
+          tools={COMPOSER_TOOLS}
+          onSendMessage={(message, files, pastedContent, options) => handleComposerSend(message, files, pastedContent, options)}
         />
       </main>
 
@@ -312,6 +368,15 @@ function formatComposerFileSize(bytes: number): string {
   const sizes = ["Bytes", "KB", "MB", "GB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+}
+
+function toComposerModelOption(model: ChatModelOption): ModelOption {
+  return {
+    id: model.id,
+    name: model.label || model.id,
+    description: model.description || model.providerLabel || "Configured model",
+    ...(model.default ? { badge: "Default" } : {}),
+  };
 }
 
 function MessageBubble({

@@ -455,7 +455,7 @@ describe("desktop chat session controller", () => {
     ]);
   });
 
-  test("sends active chat messages, interrupt requests, and attached message loads through existing gateway shapes", async () => {
+  test("sends active chat messages, model overrides, interrupt requests, and attached message loads through existing gateway shapes", async () => {
     const sent: unknown[] = [];
     const controller = createDesktopChatSessionController({
       api: {
@@ -470,7 +470,7 @@ describe("desktop chat session controller", () => {
 
     await controller.handleGatewayEvent({ kind: "attached", chatId: "chat-3", raw: {} });
 
-    expect(controller.submitMessage("question", false)).toEqual({
+    expect(controller.submitMessage("question", false, "deepseek-reasoner")).toEqual({
       status: "sent",
       chatId: "chat-3",
       content: "question",
@@ -481,7 +481,7 @@ describe("desktop chat session controller", () => {
       { role: "user", content: "question" },
     ]);
     expect(sent).toEqual([
-      { type: "message", chat_id: "chat-3", content: "question", use_persistent_rag: false },
+      { type: "message", chat_id: "chat-3", content: "question", use_persistent_rag: false, model: "deepseek-reasoner" },
       { type: "interrupt", chat_id: "chat-3" },
     ]);
   });

@@ -12,6 +12,8 @@ export type SessionSummary = {
 
 export type ChatInput = {
   text: string;
+  model?: string;
+  usePersistentRag?: boolean;
 };
 
 export type ChatEvent = {
@@ -70,6 +72,16 @@ export type ToolsStore = {
 
 export type SettingsStore = {
   load(): Promise<Array<{ label: string; value: string }>>;
+  loadChatModels?(): Promise<ChatModelOption[]>;
+};
+
+export type ChatModelOption = {
+  id: string;
+  label: string;
+  description?: string;
+  providerId?: string;
+  providerLabel?: string;
+  default?: boolean;
 };
 
 export type AppServices = {

@@ -1,10 +1,10 @@
 // @vitest-environment happy-dom
 
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatPage } from "./ChatPage";
-import type { ChatEvent, ChatStore, SessionStore } from "../services";
+import type { ChatEvent, ChatStore, SessionStore, SettingsStore } from "../services";
 import type { ReactChatMessage } from "./messageActions";
 
 afterEach(() => cleanup());
@@ -79,7 +79,7 @@ describe("ChatPage", () => {
     expect(screen.getByRole("heading", { name: "Planning notes" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Attach files" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Select model" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Model settings" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Tools" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /delete session/i })).toBeNull();
     expect(screen.queryByText(/Agent · rust/i)).toBeNull();
   });
@@ -220,8 +220,80 @@ describe("ChatPage", () => {
     await user.type(input, "Hello from React");
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
-    expect(stores.chatStore.send).toHaveBeenCalledWith("s1", { text: "Hello from React" });
+    expect(stores.chatStore.send).toHaveBeenCalledWith("s1", { text: "Hello from React", usePersistentRag: true });
     expect((input as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("uses settings-backed model options instead of sample model defaults", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    const settingsStore: SettingsStore = {
+      load: vi.fn(async () => []),
+      loadChatModels: vi.fn(async () => [
+        {
+          id: "deepseek-chat",
+          label: "deepseek-chat",
+          description: "DeepSeek",
+          default: true,
+        },
+        {
+          id: "deepseek-reasoner",
+          label: "deepseek-reasoner",
+          description: "DeepSeek",
+        },
+      ]),
+    };
+    render(
+      <ChatPage
+        chatStore={stores.chatStore}
+        now={() => Date.UTC(2026, 6, 4, 12, 0, 0)}
+        sessionStore={stores.sessionStore}
+        settingsStore={settingsStore}
+      />,
+    );
+
+    const modelTrigger = await screen.findByRole("button", { name: "Select model" });
+    expect(modelTrigger.textContent).toContain("deepseek-chat");
+    await user.click(modelTrigger);
+
+    expect(screen.getByRole("option", { name: /deepseek-reasoner/i })).toBeTruthy();
+    expect(screen.queryByText("Claude Sonnet 4")).toBeNull();
+
+    await user.click(screen.getByRole("option", { name: /deepseek-reasoner/i }));
+    await waitFor(() => expect(modelTrigger.textContent).toContain("deepseek-reasoner"));
+    await user.type(screen.getByRole("textbox", { name: /message/i }), "Use a specific model");
+    await user.click(screen.getByRole("button", { name: /send message/i }));
+
+    expect(stores.chatStore.send).toHaveBeenCalledWith("s1", {
+      model: "deepseek-reasoner",
+      text: "Use a specific model",
+      usePersistentRag: true,
+    });
+  });
+
+  it("keeps the old knowledge RAG toggle in the composer tools menu", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    await screen.findByRole("button", { name: "Planning notes" });
+    await user.click(screen.getByRole("button", { name: "Tools" }));
+
+    const ragToggle = screen.getByRole("menuitemcheckbox", { name: /Knowledge RAG/i });
+    expect(ragToggle.getAttribute("aria-checked")).toBe("true");
+
+    await user.click(ragToggle);
+    await waitFor(() => {
+      expect(screen.getByRole("menuitemcheckbox", { name: /Knowledge RAG/i }).getAttribute("aria-checked")).toBe("false");
+    });
+
+    await user.type(screen.getByRole("textbox", { name: /message/i }), "No retrieved material");
+    await user.click(screen.getByRole("button", { name: /send message/i }));
+
+    expect(stores.chatStore.send).toHaveBeenCalledWith("s1", {
+      text: "No retrieved material",
+      usePersistentRag: false,
+    });
   });
 
   it("sends long pasted content through the Claude-style composer", async () => {
@@ -243,7 +315,10 @@ describe("ChatPage", () => {
     await user.type(input, "Summarize this");
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
-    expect(stores.chatStore.send).toHaveBeenCalledWith("s1", { text: `Summarize this\n\nPasted content:\n${pastedText}` });
+    expect(stores.chatStore.send).toHaveBeenCalledWith("s1", {
+      text: `Summarize this\n\nPasted content:\n${pastedText}`,
+      usePersistentRag: true,
+    });
     expect(screen.queryByText("Pasted text")).toBeNull();
   });
 

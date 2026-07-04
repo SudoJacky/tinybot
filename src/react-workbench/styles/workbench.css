@@ -340,15 +340,12 @@ button:disabled {
   line-height: 1.25;
 }
 
-.react-session-list__header button,
-.react-composer button {
+.react-session-list__header button {
   background: var(--color-primary);
   color: #fff;
 }
 
-.react-session-list__header button:hover,
-.react-composer button:hover,
-.react-composer button:focus-visible {
+.react-session-list__header button:hover {
   background: var(--color-primary-active);
 }
 
@@ -701,6 +698,7 @@ button:disabled {
   color: var(--color-muted-soft);
 }
 
+.claude-ai-input__tool,
 .claude-ai-input__model {
   position: relative;
   min-width: 0;
@@ -723,42 +721,62 @@ button:disabled {
   white-space: nowrap;
 }
 
+.claude-ai-input__tool-menu,
 .claude-ai-input__model-menu {
   position: absolute;
   bottom: calc(100% + 8px);
   left: 0;
   z-index: 35;
   display: grid;
-  width: 270px;
+  width: min(320px, calc(100vw - 48px));
+  max-height: 280px;
+  overflow: auto;
   border: 1px solid var(--color-hairline);
-  border-radius: 10px;
+  border-radius: 8px;
   background: #fff;
   padding: 6px;
-  box-shadow: 0 18px 42px rgb(20 20 19 / 14%);
+  box-shadow: 0 16px 34px rgb(20 20 19 / 12%);
 }
 
+.claude-ai-input__tool-menu {
+  width: min(300px, calc(100vw - 48px));
+}
+
+.claude-ai-input__tool-option,
 .claude-ai-input__model-option {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 8px;
-  border-radius: 7px;
-  padding: 8px 9px;
+  min-height: 42px;
+  border-radius: 6px;
+  padding: 7px 8px;
+  background: transparent;
+  color: var(--color-body);
   text-align: left;
 }
 
+.claude-ai-input__tool-option:hover,
+.claude-ai-input__tool-option:focus-visible,
 .claude-ai-input__model-option:hover,
 .claude-ai-input__model-option:focus-visible,
 .claude-ai-input__model-option[aria-selected="true"] {
   background: var(--color-surface-soft);
 }
 
+.claude-ai-input__tool-option[aria-checked="true"] {
+  background: color-mix(in srgb, var(--color-primary) 10%, #fff);
+}
+
+.claude-ai-input__tool-option span,
 .claude-ai-input__model-option span {
   display: grid;
   min-width: 0;
   gap: 1px;
 }
 
+.claude-ai-input__tool-option strong,
+.claude-ai-input__tool-option small,
 .claude-ai-input__model-option strong,
 .claude-ai-input__model-option small {
   min-width: 0;
@@ -767,25 +785,33 @@ button:disabled {
   white-space: nowrap;
 }
 
+.claude-ai-input__tool-option strong,
 .claude-ai-input__model-option strong {
   color: var(--color-ink);
   font-size: 13px;
   font-weight: 600;
 }
 
+.claude-ai-input__tool-option small,
 .claude-ai-input__model-option small {
   color: var(--color-muted);
   font-size: 12px;
 }
 
+.claude-ai-input__tool-option em,
 .claude-ai-input__model-option em {
   border-radius: 999px;
-  background: var(--color-primary);
-  color: #fff;
+  background: var(--color-surface-card);
+  color: var(--color-muted);
   padding: 2px 6px;
   font-size: 10px;
   font-style: normal;
   line-height: 1.2;
+}
+
+.claude-ai-input__model-option[aria-selected="true"] em {
+  background: var(--color-primary);
+  color: #fff;
 }
 
 .claude-ai-input__attachments {
