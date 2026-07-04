@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DesktopShell } from "./DesktopShell";
@@ -55,6 +55,33 @@ function createServices(): AppServices & {
 }
 
 describe("DesktopShell", () => {
+  it("keeps the React window frame draggable and top menus compact", () => {
+    const controls = {
+      startDragging: vi.fn(async () => undefined),
+      toggleMaximize: vi.fn(async () => undefined),
+    };
+    render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={createServices()} windowControls={controls} />);
+
+    const frame = document.querySelector(".react-window-frame");
+    expect(frame?.getAttribute("data-tauri-drag-region")).toBe("");
+
+    const appMenuButton = screen.getByRole("button", { name: "App" });
+    expect(appMenuButton.querySelector(".react-top-menu__icon")).toBeTruthy();
+    expect(appMenuButton.querySelector(".react-top-menu__label")?.textContent).toBe("App");
+
+    fireEvent.pointerDown(frame as Element);
+    expect(controls.startDragging).toHaveBeenCalledTimes(1);
+
+    fireEvent.pointerDown(appMenuButton);
+    expect(controls.startDragging).toHaveBeenCalledTimes(1);
+
+    fireEvent.doubleClick(frame as Element);
+    expect(controls.toggleMaximize).toHaveBeenCalledTimes(1);
+
+    fireEvent.doubleClick(appMenuButton);
+    expect(controls.toggleMaximize).toHaveBeenCalledTimes(1);
+  });
+
   it("renders native-style top menus and functional secondary pages", async () => {
     const user = userEvent.setup();
     const services = createServices();

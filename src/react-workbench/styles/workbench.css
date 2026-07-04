@@ -70,13 +70,14 @@ button:disabled {
 
 .react-window-frame {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto auto minmax(80px, 1fr) auto;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
   padding: 0 12px;
   border-bottom: 1px solid var(--color-hairline);
   background: var(--color-canvas);
   user-select: none;
+  -webkit-user-select: none;
 }
 
 .react-window-frame__brand {
@@ -88,7 +89,8 @@ button:disabled {
 .react-top-menu {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
+  min-width: 0;
 }
 
 .react-top-menu button,
@@ -102,6 +104,58 @@ button:disabled {
   min-width: 32px;
   min-height: 32px;
   padding: 6px 9px;
+}
+
+.react-top-menu button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: auto;
+  max-width: 160px;
+  min-width: 32px;
+  height: 30px;
+  min-height: 30px;
+  gap: 0;
+  overflow: hidden;
+  border-radius: 999px;
+  padding: 0 8px;
+  color: var(--color-ink);
+  cursor: default;
+  white-space: nowrap;
+}
+
+.react-top-menu__icon {
+  flex: 0 0 16px;
+  color: var(--color-muted);
+  transition: color 160ms ease;
+}
+
+.react-top-menu__label {
+  display: inline-block;
+  max-width: 0;
+  margin-left: 0;
+  overflow: hidden;
+  opacity: 0;
+  text-overflow: clip;
+  transition: max-width 220ms ease, margin-left 220ms ease, opacity 160ms ease;
+}
+
+.react-top-menu button:hover .react-top-menu__label,
+.react-top-menu button:focus-visible .react-top-menu__label {
+  max-width: 96px;
+  margin-left: 8px;
+  opacity: 1;
+}
+
+.react-top-menu button:hover .react-top-menu__icon,
+.react-top-menu button:focus-visible .react-top-menu__icon {
+  color: var(--color-primary);
+}
+
+.react-window-frame__drag-space {
+  align-self: stretch;
+  min-width: 80px;
 }
 
 .react-workbench-layout {
@@ -229,6 +283,16 @@ button:disabled {
 
 .react-session-row__delete {
   color: var(--color-muted);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease, color 140ms ease, background-color 140ms ease;
+}
+
+.react-session-row:hover .react-session-row__delete,
+.react-session-row:focus-within .react-session-row__delete,
+.react-session-row__delete[data-confirming="true"] {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .react-session-row__delete[data-confirming="true"] {
@@ -320,6 +384,46 @@ button:disabled {
   white-space: pre-wrap;
 }
 
+.react-message-markdown {
+  display: grid;
+  gap: 10px;
+}
+
+.react-message-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.react-message-table {
+  width: 100%;
+  min-width: min(520px, 100%);
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.react-message-table th,
+.react-message-table td {
+  border: 1px solid var(--color-hairline);
+  padding: 7px 9px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.react-message-table th {
+  background: var(--color-surface-soft);
+  color: var(--color-ink);
+  font-weight: 650;
+}
+
+.react-message-markdown code {
+  border: 1px solid var(--color-hairline);
+  border-radius: 5px;
+  background: var(--color-surface-soft);
+  padding: 1px 4px;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.92em;
+}
+
 .react-message__actions {
   display: flex;
   align-items: start;
@@ -337,9 +441,31 @@ button:disabled {
   text-align: left;
 }
 
-.react-tool-row small {
-  margin-left: auto;
+.react-tool-row__content {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.react-tool-row__content > span,
+.react-tool-row__content > small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-tool-row__content > span {
+  color: var(--color-ink);
+}
+
+.react-tool-row__content > small,
+.react-tool-row > small {
   color: var(--color-muted);
+}
+
+.react-tool-row > small {
+  margin-left: auto;
 }
 
 .react-composer {

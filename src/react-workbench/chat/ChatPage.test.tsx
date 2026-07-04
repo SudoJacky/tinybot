@@ -108,6 +108,87 @@ describe("ChatPage", () => {
     expect(screen.getByRole("button", { name: /open details for shell/i })).toBeTruthy();
   });
 
+  it("renders assistant Markdown tables instead of raw pipe text", async () => {
+    const stores = createStores();
+    const markdownMessages: ReactChatMessage[] = [
+      {
+        id: "a-table",
+        role: "assistant",
+        createdAtMs: Date.UTC(2026, 6, 4, 11, 59, 0),
+        text: "| Step | Status |\n| --- | --- |\n| **spawn_agent** | complete |",
+        status: "complete",
+      },
+    ];
+    stores.chatStore.load = vi.fn(async () => markdownMessages);
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const table = await screen.findByRole("table");
+    expect(within(table).getByRole("columnheader", { name: "Step" })).toBeTruthy();
+    expect(within(table).getByRole("columnheader", { name: "Status" })).toBeTruthy();
+    expect(within(table).getByText("spawn_agent").tagName.toLowerCase()).toBe("strong");
+    expect(screen.queryByText(/\| Step \| Status \|/)).toBeNull();
+  });
+
+  it("copies individual message text from message actions", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const assistantMessage = await screen.findByTestId("message-a1");
+    await user.click(within(assistantMessage).getByRole("button", { name: "Copy message" }));
+
+    expect(writeText).toHaveBeenCalledWith("Yes.");
+  });
+
+  it("switches to the branched session after branching from a message", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    const branchedSession = {
+      id: "s2",
+      chatId: "chat-2",
+      title: "Branch from Yes",
+      updatedAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+      status: "idle" as const,
+    };
+    const branchMessages: ReactChatMessage[] = [
+      {
+        id: "b1",
+        role: "assistant",
+        createdAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+        text: "Branch loaded",
+        status: "complete",
+      },
+    ];
+    stores.chatStore.branchFromMessage = vi.fn(async () => branchedSession);
+    const sourceMessages: ReactChatMessage[] = [
+      {
+        id: "a1",
+        role: "assistant",
+        createdAtMs: Date.UTC(2026, 6, 4, 11, 58, 0),
+        text: "Yes.",
+        status: "complete",
+      },
+    ];
+    stores.chatStore.load = vi.fn(async (sessionId) => (sessionId === "s2" ? branchMessages : sourceMessages));
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const assistantMessage = await screen.findByTestId("message-a1");
+    await user.click(within(assistantMessage).getByRole("button", { name: "Branch from here" }));
+
+    expect(stores.chatStore.branchFromMessage).toHaveBeenCalledWith("s1", "a1");
+    expect(await screen.findByRole("heading", { name: "Branch from Yes" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Branch from Yes" })).toBeTruthy();
+    expect(screen.getByText("Branch loaded")).toBeTruthy();
+  });
+
   it("sends composer text through the chat store", async () => {
     const user = userEvent.setup();
     const stores = createStores();

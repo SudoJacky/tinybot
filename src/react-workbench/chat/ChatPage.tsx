@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useReducer, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useReducer, useState, type FormEvent, type ReactNode } from "react";
 import { ChevronDown, Copy, GitBranch, MoreHorizontal, PanelRightOpen, Send, Trash2, X } from "lucide-react";
 import { formatRelativeUpdatedTime } from "../lib/relativeTime";
 import type { ChatStore, SessionStore, SessionSummary } from "../services";
@@ -134,6 +134,12 @@ export function ChatPage({ chatStore, now = Date.now, sessionStore }: ChatPagePr
     setHeaderMenuOpen(false);
   }
 
+  async function handleBranchFromMessage(session: SessionSummary, messageId: string) {
+    const branched = await chatStore.branchFromMessage(session.id, messageId);
+    setSessions((current) => [branched, ...current.filter((item) => item.id !== branched.id)]);
+    setActiveSessionId(branched.id);
+  }
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     const text = composerText.trim();
@@ -223,10 +229,11 @@ export function ChatPage({ chatStore, now = Date.now, sessionStore }: ChatPagePr
             <MessageBubble
               key={message.id}
               message={message}
-              onBranch={() => void chatStore.branchFromMessage(activeSession.id, message.id)}
+              onBranch={() => void handleBranchFromMessage(activeSession, message.id)}
+              onCopy={() => void writeClipboardText(message.text)}
               onOpenTool={(toolCall) => setDrawer({
                 title: toolCall.name,
-                body: toolCall.summary ?? toolCall.status,
+                body: formatToolCallDetails(toolCall),
               })}
               sessionRunning={sessionRunning}
             />
@@ -287,18 +294,20 @@ async function writeClipboardText(value: string): Promise<void> {
 function MessageBubble({
   message,
   onBranch,
+  onCopy,
   onOpenTool,
   sessionRunning,
 }: {
   message: ReactChatMessage;
   onBranch: () => void;
+  onCopy: () => void;
   onOpenTool: (toolCall: ToolCallSummary) => void;
   sessionRunning: boolean;
 }) {
   return (
     <article className="react-message" data-role={message.role} data-testid={`message-${message.id}`}>
       <div className="react-message__body">
-        <p>{message.text}</p>
+        <MessageText text={message.text} />
         {message.toolCalls?.map((toolCall) => (
           <button
             aria-label={`Open details for ${toolCall.name}`}
@@ -308,13 +317,16 @@ function MessageBubble({
             onClick={() => onOpenTool(toolCall)}
           >
             <PanelRightOpen aria-hidden="true" size={15} />
-            <span>{toolCall.name}</span>
+            <span className="react-tool-row__content">
+              <span>{toolCall.name}</span>
+              {toolCall.summary ? <small>{toolCall.summary}</small> : null}
+            </span>
             <small>{toolCall.status}</small>
           </button>
         ))}
       </div>
       <div className="react-message__actions">
-        <button aria-label="Copy message" type="button">
+        <button aria-label="Copy message" type="button" onClick={onCopy}>
           <Copy aria-hidden="true" size={14} />
         </button>
         {canBranchFromMessage(message, { sessionRunning }) ? (
@@ -325,4 +337,150 @@ function MessageBubble({
       </div>
     </article>
   );
+}
+
+type MessageMarkdownBlock =
+  | { kind: "paragraph"; lines: string[] }
+  | { kind: "table"; headers: string[]; rows: string[][] };
+
+function MessageText({ text }: { text: string }) {
+  const blocks = parseMessageMarkdown(text);
+  if (!blocks.length) {
+    return null;
+  }
+  return (
+    <div className="react-message-markdown">
+      {blocks.map((block, index) => renderMessageMarkdownBlock(block, index))}
+    </div>
+  );
+}
+
+function parseMessageMarkdown(text: string): MessageMarkdownBlock[] {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const blocks: MessageMarkdownBlock[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    if (!lines[index].trim()) {
+      index += 1;
+      continue;
+    }
+
+    if (isMarkdownTableStart(lines, index)) {
+      const headers = parseMarkdownTableRow(lines[index]);
+      index += 2;
+      const rows: string[][] = [];
+      while (index < lines.length && isMarkdownTableRow(lines[index])) {
+        rows.push(parseMarkdownTableRow(lines[index]));
+        index += 1;
+      }
+      blocks.push({ kind: "table", headers, rows });
+      continue;
+    }
+
+    const paragraph: string[] = [];
+    while (index < lines.length && lines[index].trim() && !isMarkdownTableStart(lines, index)) {
+      paragraph.push(lines[index]);
+      index += 1;
+    }
+    blocks.push({ kind: "paragraph", lines: paragraph });
+  }
+
+  return blocks;
+}
+
+function renderMessageMarkdownBlock(block: MessageMarkdownBlock, index: number): ReactNode {
+  if (block.kind === "table") {
+    return (
+      <div className="react-message-table-wrap" key={`table:${index}`}>
+        <table className="react-message-table">
+          <thead>
+            <tr>
+              {block.headers.map((header, headerIndex) => (
+                <th key={`${header}:${headerIndex}`} scope="col">
+                  {renderInlineMarkdown(header, `table:${index}:header:${headerIndex}`)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {block.rows.map((row, rowIndex) => (
+              <tr key={`row:${rowIndex}`}>
+                {block.headers.map((_, cellIndex) => (
+                  <td key={`cell:${cellIndex}`}>
+                    {renderInlineMarkdown(row[cellIndex] ?? "", `table:${index}:row:${rowIndex}:cell:${cellIndex}`)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  return (
+    <p key={`paragraph:${index}`}>
+      {block.lines.map((line, lineIndex) => (
+        <span key={`line:${lineIndex}`}>
+          {lineIndex > 0 ? <br /> : null}
+          {renderInlineMarkdown(line, `paragraph:${index}:line:${lineIndex}`)}
+        </span>
+      ))}
+    </p>
+  );
+}
+
+function renderInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  const pattern = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > cursor) {
+      nodes.push(text.slice(cursor, match.index));
+    }
+    const token = match[0];
+    if (token.startsWith("**")) {
+      nodes.push(<strong key={`${keyPrefix}:strong:${match.index}`}>{token.slice(2, -2)}</strong>);
+    } else {
+      nodes.push(<code key={`${keyPrefix}:code:${match.index}`}>{token.slice(1, -1)}</code>);
+    }
+    cursor = match.index + token.length;
+  }
+
+  if (cursor < text.length) {
+    nodes.push(text.slice(cursor));
+  }
+
+  return nodes;
+}
+
+function isMarkdownTableStart(lines: string[], index: number): boolean {
+  return isMarkdownTableRow(lines[index])
+    && index + 1 < lines.length
+    && isMarkdownTableSeparator(lines[index + 1]);
+}
+
+function isMarkdownTableRow(line: string): boolean {
+  return line.includes("|") && parseMarkdownTableRow(line).length >= 2;
+}
+
+function isMarkdownTableSeparator(line: string): boolean {
+  const cells = parseMarkdownTableRow(line);
+  return cells.length >= 2 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+
+function parseMarkdownTableRow(line: string): string[] {
+  return line
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((cell) => cell.trim());
+}
+
+function formatToolCallDetails(toolCall: ToolCallSummary): string {
+  return [toolCall.status, toolCall.summary].filter(Boolean).join("\n\n");
 }

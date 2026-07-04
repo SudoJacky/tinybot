@@ -1,4 +1,13 @@
-import { useEffect, useMemo, useState, type DependencyList, type ReactNode } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type DependencyList,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
 import { BookOpen, Bot, Code2, Command, FileText, Folder, MessageSquare, Settings, Wrench, X } from "lucide-react";
 import { ChatPage } from "../chat/ChatPage";
 import type { AppServices, WorkspaceFileSummary } from "../services";
@@ -8,6 +17,7 @@ type AppRoute = "chat" | "files" | "knowledge" | "cowork" | "github" | "docs" | 
 export type DesktopShellProps = {
   services: AppServices;
   now?: () => number;
+  windowControls?: WindowFrameControls;
 };
 
 const routeItems: Array<{ id: AppRoute; label: string; icon: typeof MessageSquare }> = [
@@ -21,9 +31,22 @@ const routeItems: Array<{ id: AppRoute; label: string; icon: typeof MessageSquar
   { id: "settings", label: "Settings", icon: Settings },
 ];
 
-export function DesktopShell({ now, services }: DesktopShellProps) {
+type WindowFrameControls = {
+  startDragging(): Promise<void>;
+  toggleMaximize(): Promise<void>;
+};
+
+const topMenuItems: Array<{ label: string; icon: typeof MessageSquare }> = [
+  { label: "App", icon: Command },
+  { label: "Resources", icon: Folder },
+  { label: "System", icon: Settings },
+  { label: "Help", icon: BookOpen },
+];
+
+export function DesktopShell({ now, services, windowControls }: DesktopShellProps) {
   const [route, setRoute] = useState<AppRoute>("chat");
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const frameControls = useMemo(() => windowControls ?? resolveWindowFrameControls(), [windowControls]);
   const commands = useMemo(() => routeItems.map((item) => ({
     id: `open:${item.id}`,
     label: `Open ${item.label}`,
@@ -47,16 +70,57 @@ export function DesktopShell({ now, services }: DesktopShellProps) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  function handleFramePointerDown(event: ReactPointerEvent<HTMLElement>) {
+    if (event.button !== 0 || isWindowFrameInteractiveTarget(event.target, event.currentTarget)) {
+      return;
+    }
+    void frameControls?.startDragging().catch(logWindowFrameError);
+  }
+
+  function handleFrameDoubleClick(event: ReactMouseEvent<HTMLElement>) {
+    if (isWindowFrameInteractiveTarget(event.target, event.currentTarget)) {
+      return;
+    }
+    void frameControls?.toggleMaximize().catch(logWindowFrameError);
+  }
+
   return (
     <div className="react-desktop-shell">
-      <header className="react-window-frame">
-        <div className="react-window-frame__brand">Tinybot</div>
+      <header
+        aria-label="Tinybot desktop window frame"
+        className="react-window-frame"
+        data-tauri-drag-region=""
+        role="banner"
+        onDoubleClick={handleFrameDoubleClick}
+        onPointerDown={handleFramePointerDown}
+      >
+        <div className="react-window-frame__brand" data-tauri-drag-region="">Tinybot</div>
         <nav className="react-top-menu" aria-label="Application menu">
-          {["App", "Resources", "System", "Help"].map((label) => (
-            <button key={label} type="button">{label}</button>
+          {topMenuItems.map(({ icon: Icon, label }) => (
+            <button
+              aria-label={label}
+              data-no-window-drag=""
+              key={label}
+              title={label}
+              type="button"
+              onDoubleClick={stopWindowFrameEvent}
+              onPointerDown={stopWindowFrameEvent}
+            >
+              <Icon aria-hidden="true" className="react-top-menu__icon" size={16} />
+              <span className="react-top-menu__label">{label}</span>
+            </button>
           ))}
         </nav>
-        <button aria-label="Open command palette" title="Open command palette" type="button" onClick={() => setPaletteOpen(true)}>
+        <div className="react-window-frame__drag-space" data-tauri-drag-region="" />
+        <button
+          aria-label="Open command palette"
+          data-no-window-drag=""
+          title="Open command palette"
+          type="button"
+          onClick={() => setPaletteOpen(true)}
+          onDoubleClick={stopWindowFrameEvent}
+          onPointerDown={stopWindowFrameEvent}
+        >
           <Command aria-hidden="true" size={16} />
         </button>
       </header>
@@ -88,6 +152,32 @@ export function DesktopShell({ now, services }: DesktopShellProps) {
       {paletteOpen ? <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} /> : null}
     </div>
   );
+}
+
+function resolveWindowFrameControls(): WindowFrameControls | null {
+  if (!hasTauriRuntime()) {
+    return null;
+  }
+  return getCurrentWindow();
+}
+
+function hasTauriRuntime(): boolean {
+  return "__TAURI_INTERNALS__" in globalThis;
+}
+
+function isWindowFrameInteractiveTarget(target: EventTarget, currentTarget: HTMLElement): boolean {
+  if (!(target instanceof Element) || !currentTarget.contains(target)) {
+    return false;
+  }
+  return Boolean(target.closest("button, a, input, textarea, select, [role='button'], [data-no-window-drag]"));
+}
+
+function stopWindowFrameEvent(event: ReactMouseEvent<HTMLElement> | ReactPointerEvent<HTMLElement>) {
+  event.stopPropagation();
+}
+
+function logWindowFrameError(error: unknown): void {
+  console.warn("Tinybot React window frame action failed", error);
 }
 
 function RouteSurface({ now, route, services }: { now?: () => number; route: AppRoute; services: AppServices }) {
