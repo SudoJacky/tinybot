@@ -296,6 +296,20 @@ describe("ChatPage", () => {
     });
   });
 
+  it("closes the composer tools menu when another composer area is clicked", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    await screen.findByRole("button", { name: "Planning notes" });
+    await user.click(screen.getByRole("button", { name: "Tools" }));
+    expect(screen.getByRole("menuitemcheckbox", { name: /Knowledge RAG/i })).toBeTruthy();
+
+    await user.click(screen.getByRole("textbox", { name: /message/i }));
+
+    expect(screen.queryByRole("menuitemcheckbox", { name: /Knowledge RAG/i })).toBeNull();
+  });
+
   it("sends long pasted content through the Claude-style composer", async () => {
     const user = userEvent.setup();
     const stores = createStores();

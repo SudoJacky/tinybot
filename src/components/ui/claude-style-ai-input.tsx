@@ -101,8 +101,9 @@ export function ClaudeStyleAiInput({
   placeholder = "Message Tinybot",
   tools = EMPTY_TOOLS,
 }: ClaudeStyleAiInputProps) {
-  const rootRef = useRef<HTMLFormElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const modelMenuRef = useRef<HTMLDivElement | null>(null);
+  const toolMenuRef = useRef<HTMLDivElement | null>(null);
   const [message, setMessage] = useState("");
   const [files, setFiles] = useState<FileWithPreview[]>([]);
   const [pastedContent, setPastedContent] = useState<PastedContent[]>([]);
@@ -138,13 +139,16 @@ export function ClaudeStyleAiInput({
       return;
     }
     function closeMenus(event: PointerEvent) {
-      if (!rootRef.current?.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (!modelMenuRef.current?.contains(target)) {
         setModelMenuOpen(false);
+      }
+      if (!toolMenuRef.current?.contains(target)) {
         setToolMenuOpen(false);
       }
     }
-    document.addEventListener("pointerdown", closeMenus);
-    return () => document.removeEventListener("pointerdown", closeMenus);
+    document.addEventListener("pointerdown", closeMenus, true);
+    return () => document.removeEventListener("pointerdown", closeMenus, true);
   }, [modelMenuOpen, toolMenuOpen]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -256,11 +260,9 @@ export function ClaudeStyleAiInput({
 
   return (
     <form
-      ref={rootRef}
       aria-label="Message composer"
       className={["claude-ai-input", className].filter(Boolean).join(" ")}
       onSubmit={(event) => void handleSubmit(event)}
-      onPointerDown={(event) => event.stopPropagation()}
     >
       {error ? (
         <div className="claude-ai-input__notice" role="alert">
@@ -328,7 +330,7 @@ export function ClaudeStyleAiInput({
             >
               <Plus aria-hidden="true" size={18} />
             </button>
-            <div className="claude-ai-input__tool">
+            <div ref={toolMenuRef} className="claude-ai-input__tool">
               <button
                 aria-expanded={toolMenuOpen}
                 aria-haspopup="menu"
@@ -370,7 +372,7 @@ export function ClaudeStyleAiInput({
                 </div>
               ) : null}
             </div>
-            <div className="claude-ai-input__model">
+            <div ref={modelMenuRef} className="claude-ai-input__model">
               <button
                 aria-expanded={modelMenuOpen}
                 aria-haspopup="listbox"
