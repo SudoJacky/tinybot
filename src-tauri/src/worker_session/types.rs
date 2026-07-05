@@ -83,6 +83,14 @@ pub struct AgentRunKey {
 pub struct AgentRunRecord {
     pub session_id: String,
     pub run_id: String,
+    #[serde(default)]
+    pub thread_id: Option<String>,
+    #[serde(default)]
+    pub turn_id: Option<String>,
+    #[serde(default)]
+    pub parent_thread_id: Option<String>,
+    #[serde(default)]
+    pub child_thread_ids: Vec<String>,
     pub status: AgentRunStatus,
     pub phase: String,
     pub started_at: String,
@@ -116,6 +124,10 @@ pub struct AgentRunRecord {
 pub struct AgentRunSummary {
     pub session_id: String,
     pub run_id: String,
+    pub thread_id: Option<String>,
+    pub turn_id: Option<String>,
+    pub parent_thread_id: Option<String>,
+    pub child_thread_ids: Vec<String>,
     pub status: AgentRunStatus,
     pub phase: String,
     pub started_at: String,
@@ -147,6 +159,10 @@ impl AgentRunSummary {
         Self {
             session_id: record.session_id.clone(),
             run_id: record.run_id.clone(),
+            thread_id: record.thread_id.clone(),
+            turn_id: record.turn_id.clone(),
+            parent_thread_id: record.parent_thread_id.clone(),
+            child_thread_ids: record.child_thread_ids.clone(),
             status: record.status.clone(),
             phase: record.phase.clone(),
             started_at: record.started_at.clone(),

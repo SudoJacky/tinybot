@@ -78,6 +78,10 @@ impl CapabilityPolicy {
     pub fn allows(&self, capability: &WorkerCapability) -> bool {
         self.grants.contains(capability)
     }
+
+    pub fn granted_capabilities(&self) -> Vec<WorkerCapability> {
+        self.grants.iter().cloned().collect()
+    }
 }
 
 #[cfg(test)]

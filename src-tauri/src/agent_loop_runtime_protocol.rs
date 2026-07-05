@@ -183,6 +183,8 @@ pub struct AgentRuntimeEventEnvelope {
     pub event_id: String,
     pub sequence: u64,
     pub session_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<String>,
     pub turn_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_turn_id: Option<String>,
@@ -218,6 +220,8 @@ pub struct AgentTurnItem {
 #[serde(rename_all = "camelCase")]
 pub struct LegacyNativeAgentEventEnvelopeInput {
     pub session_id: String,
+    #[serde(default)]
+    pub thread_id: Option<String>,
     pub turn_id: String,
     #[serde(default)]
     pub parent_turn_id: Option<String>,
@@ -254,14 +258,24 @@ pub struct LegacyNativeAgentEventProjection {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AgentRuntimeEventAppender {
     session_id: String,
+    thread_id: Option<String>,
     turn_id: String,
     next_sequence: u64,
 }
 
 impl AgentRuntimeEventAppender {
     pub fn new(session_id: impl Into<String>, turn_id: impl Into<String>) -> Self {
+        Self::new_with_thread_id(session_id, turn_id, None)
+    }
+
+    pub fn new_with_thread_id(
+        session_id: impl Into<String>,
+        turn_id: impl Into<String>,
+        thread_id: Option<String>,
+    ) -> Self {
         Self {
             session_id: session_id.into(),
+            thread_id,
             turn_id: turn_id.into(),
             next_sequence: 1,
         }
@@ -272,14 +286,26 @@ impl AgentRuntimeEventAppender {
         turn_id: impl Into<String>,
         events: &[AgentRuntimeEventEnvelope],
     ) -> Self {
+        Self::from_existing_events_with_thread_id(session_id, turn_id, None, events)
+    }
+
+    pub fn from_existing_events_with_thread_id(
+        session_id: impl Into<String>,
+        turn_id: impl Into<String>,
+        thread_id: Option<String>,
+        events: &[AgentRuntimeEventEnvelope],
+    ) -> Self {
         let next_sequence = events
             .iter()
             .map(|event| event.sequence)
             .max()
             .unwrap_or(0)
             .saturating_add(1);
+        let thread_id =
+            thread_id.or_else(|| events.iter().find_map(|event| event.thread_id.clone()));
         Self {
             session_id: session_id.into(),
+            thread_id,
             turn_id: turn_id.into(),
             next_sequence,
         }
@@ -292,6 +318,7 @@ impl AgentRuntimeEventAppender {
             event_id: deterministic_event_id(&self.turn_id, &input.event_name, sequence),
             sequence,
             session_id: self.session_id.clone(),
+            thread_id: self.thread_id.clone(),
             turn_id: self.turn_id.clone(),
             parent_turn_id: input.parent_turn_id,
             item_id: input.item_id,
@@ -315,6 +342,7 @@ impl AgentRuntimeEventAppender {
         let sequence = self.take_next_sequence();
         AgentRuntimeEventEnvelope::from_legacy_native_event(LegacyNativeAgentEventEnvelopeInput {
             session_id: self.session_id.clone(),
+            thread_id: self.thread_id.clone(),
             turn_id: self.turn_id.clone(),
             parent_turn_id: None,
             item_id,
@@ -344,8 +372,16 @@ pub struct AgentRunEmitter {
 
 impl AgentRunEmitter {
     pub fn new(session_id: impl Into<String>, turn_id: impl Into<String>) -> Self {
+        Self::new_with_thread_id(session_id, turn_id, None)
+    }
+
+    pub fn new_with_thread_id(
+        session_id: impl Into<String>,
+        turn_id: impl Into<String>,
+        thread_id: Option<String>,
+    ) -> Self {
         Self {
-            appender: AgentRuntimeEventAppender::new(session_id, turn_id),
+            appender: AgentRuntimeEventAppender::new_with_thread_id(session_id, turn_id, thread_id),
             events: Vec::new(),
         }
     }
@@ -355,8 +391,19 @@ impl AgentRunEmitter {
         turn_id: impl Into<String>,
         events: &[AgentRuntimeEventEnvelope],
     ) -> Self {
+        Self::from_existing_events_with_thread_id(session_id, turn_id, None, events)
+    }
+
+    pub fn from_existing_events_with_thread_id(
+        session_id: impl Into<String>,
+        turn_id: impl Into<String>,
+        thread_id: Option<String>,
+        events: &[AgentRuntimeEventEnvelope],
+    ) -> Self {
         Self {
-            appender: AgentRuntimeEventAppender::from_existing_events(session_id, turn_id, events),
+            appender: AgentRuntimeEventAppender::from_existing_events_with_thread_id(
+                session_id, turn_id, thread_id, events,
+            ),
             events: Vec::new(),
         }
     }
@@ -1250,6 +1297,7 @@ impl AgentRuntimeEventEnvelope {
             event_id: deterministic_event_id(&input.turn_id, &input.event_name, input.sequence),
             sequence: input.sequence,
             session_id: input.session_id,
+            thread_id: input.thread_id,
             turn_id: input.turn_id,
             parent_turn_id: input.parent_turn_id,
             item_id: input.item_id,
@@ -1385,6 +1433,7 @@ mod tests {
         let envelope = AgentRuntimeEventEnvelope::from_legacy_native_event(
             LegacyNativeAgentEventEnvelopeInput {
                 session_id: "session-1".to_string(),
+                thread_id: None,
                 turn_id: "turn-1".to_string(),
                 parent_turn_id: None,
                 item_id: Some("item-1".to_string()),
@@ -1471,6 +1520,7 @@ mod tests {
         let existing = AgentRuntimeEventEnvelope::from_legacy_native_event(
             LegacyNativeAgentEventEnvelopeInput {
                 session_id: "session-1".to_string(),
+                thread_id: None,
                 turn_id: "turn-1".to_string(),
                 parent_turn_id: None,
                 item_id: None,
@@ -2027,6 +2077,7 @@ mod tests {
             event_id: format!("{turn_id}:{event_name}:{sequence}"),
             sequence,
             session_id: "session-1".to_string(),
+            thread_id: None,
             turn_id: turn_id.to_string(),
             parent_turn_id: None,
             item_id: item_id.map(str::to_string),

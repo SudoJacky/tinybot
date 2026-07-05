@@ -12,10 +12,24 @@ describe("native backend contract", () => {
   test("keeps the existing Tauri command names as compatibility entry points", () => {
     expect(NATIVE_BACKEND_COMMAND_NAMES).toEqual(expect.arrayContaining([
       "worker_run_agent",
+      "worker_submit_thread_turn",
       "worker_cancel_agent",
       "worker_restore_agent_checkpoint",
       "worker_submit_agent_form",
       "worker_resume_agent_approval",
+      "worker_resolve_thread_approval",
+      "worker_submit_thread_form",
+      "worker_thread_read",
+      "worker_thread_resume",
+      "worker_threads_list",
+      "worker_thread_activity",
+      "worker_thread_status",
+      "worker_thread_update_metadata",
+      "worker_thread_agent_registry",
+      "worker_thread_start_turn",
+      "worker_thread_continue_turn",
+      "worker_thread_interrupt",
+      "worker_thread_apply_op",
     ]));
   });
 
