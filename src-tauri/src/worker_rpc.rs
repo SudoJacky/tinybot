@@ -3182,7 +3182,7 @@ mod tests {
             "session.patch_metadata",
             json!({
                 "session_id": "session-1",
-                "metadata": { "pinned": true }
+                "metadata": { "pinned": true, "title": "Patched title" }
             }),
         );
 
@@ -3192,9 +3192,11 @@ mod tests {
             response.result.as_ref().unwrap()["extra"]["metadata"],
             json!({
                 "pinned": true,
+                "title": "Patched title",
                 "topic": "old"
             })
         );
+        assert_eq!(response.result.as_ref().unwrap()["title"], "Patched title");
         assert!(response.error.is_none());
 
         let thread_list = router.dispatch(&WorkerRequest::new(
@@ -3206,11 +3208,12 @@ mod tests {
         assert_eq!(thread_list.error, None);
         let thread = &thread_list.result.as_ref().unwrap()["threads"][0];
         assert_eq!(thread["sessionKey"], "session-1");
-        assert_eq!(thread["title"], "Native Core Migration");
+        assert_eq!(thread["title"], "Patched title");
         assert_eq!(
             thread["metadata"]["extra"]["metadata"],
             json!({
                 "pinned": true,
+                "title": "Patched title",
                 "topic": "old"
             })
         );

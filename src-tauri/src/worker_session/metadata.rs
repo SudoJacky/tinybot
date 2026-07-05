@@ -146,6 +146,14 @@ impl WorkerSessionRpc {
                     existing.insert(key.clone(), value.clone());
                 }
             }
+            if let Some(title) = patch
+                .get("title")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|title| !title.is_empty())
+            {
+                session.title = title.to_string();
+            }
             session.updated_at = now_session_timestamp();
             session.clone()
         };
