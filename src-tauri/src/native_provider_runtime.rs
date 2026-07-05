@@ -303,7 +303,9 @@ pub fn complete_chat_for_agent(config: &Value, body: &Value) -> Result<Value, St
 
 fn aggregate_chat_completion_sse(body: &str) -> Result<Value, String> {
     let mut content = String::new();
+    let mut reasoning_content = String::new();
     let mut model = None::<String>;
+    let mut usage = None::<Value>;
     let mut tool_calls = std::collections::BTreeMap::<usize, StreamingToolCallParts>::new();
     for line in body.lines() {
         let Some(data) = line.trim().strip_prefix("data:") else {
@@ -322,6 +324,9 @@ fn aggregate_chat_completion_sse(body: &str) -> Result<Value, String> {
         if let Some(error) = chunk.get("error") {
             return Err(format!("streaming chat completion returned error: {error}"));
         }
+        if let Some(chunk_usage) = chunk.get("usage").filter(|value| !value.is_null()) {
+            usage = Some(chunk_usage.clone());
+        }
         if model.is_none() {
             model = chunk
                 .get("model")
@@ -333,6 +338,13 @@ fn aggregate_chat_completion_sse(body: &str) -> Result<Value, String> {
             .and_then(Value::as_str)
         {
             content.push_str(delta);
+        }
+        if let Some(delta) = chunk
+            .pointer("/choices/0/delta/reasoning_content")
+            .or_else(|| chunk.pointer("/choices/0/delta/reasoningContent"))
+            .and_then(Value::as_str)
+        {
+            reasoning_content.push_str(delta);
         }
         if let Some(deltas) = chunk
             .pointer("/choices/0/delta/tool_calls")
@@ -364,7 +376,15 @@ fn aggregate_chat_completion_sse(body: &str) -> Result<Value, String> {
     }
     let model = model.unwrap_or_else(|| "unknown-model".to_string());
     if tool_calls.is_empty() {
-        return Ok(chat_completion_body(&model, &content));
+        let mut completion = chat_completion_body(&model, &content);
+        if !reasoning_content.is_empty() {
+            completion["choices"][0]["message"]["reasoning_content"] =
+                Value::String(reasoning_content);
+        }
+        if let Some(usage) = usage {
+            completion["usage"] = usage;
+        }
+        return Ok(completion);
     }
     let tool_calls = tool_calls
         .into_iter()
@@ -380,6 +400,14 @@ fn aggregate_chat_completion_sse(body: &str) -> Result<Value, String> {
             })
         })
         .collect::<Vec<_>>();
+    let mut message = serde_json::json!({
+        "role": "assistant",
+        "content": content,
+        "tool_calls": tool_calls,
+    });
+    if !reasoning_content.is_empty() {
+        message["reasoning_content"] = Value::String(reasoning_content);
+    }
     Ok(serde_json::json!({
         "id": chat_completion_id(),
         "object": "chat.completion",
@@ -387,18 +415,14 @@ fn aggregate_chat_completion_sse(body: &str) -> Result<Value, String> {
         "model": model,
         "choices": [{
             "index": 0,
-            "message": {
-                "role": "assistant",
-                "content": content,
-                "tool_calls": tool_calls,
-            },
+            "message": message,
             "finish_reason": "tool_calls",
         }],
-        "usage": {
+        "usage": usage.unwrap_or_else(|| serde_json::json!({
             "prompt_tokens": 0,
             "completion_tokens": 0,
             "total_tokens": 0,
-        }
+        }))
     }))
 }
 
@@ -1517,6 +1541,26 @@ mod tests {
             completion["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"],
             "{\"path\":\"README.md\"}"
         );
+    }
+
+    #[test]
+    fn aggregates_streaming_reasoning_and_usage_for_agent_completion() {
+        let completion = aggregate_chat_completion_sse(concat!(
+            "data: {\"id\":\"chatcmpl-test\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-test\",\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"think \"},\"finish_reason\":null}]}\n\n",
+            "data: {\"id\":\"chatcmpl-test\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-test\",\"choices\":[{\"index\":0,\"delta\":{\"reasoningContent\":\"again\",\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\n",
+            "data: {\"id\":\"chatcmpl-test\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-test\",\"choices\":[],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":5,\"total_tokens\":12}}\n\n",
+            "data: [DONE]\n\n"
+        ))
+        .expect("streaming reasoning and usage chunks should aggregate");
+
+        assert_eq!(
+            completion["choices"][0]["message"]["reasoning_content"],
+            "think again"
+        );
+        assert_eq!(completion["choices"][0]["message"]["content"], "done");
+        assert_eq!(completion["usage"]["prompt_tokens"], 7);
+        assert_eq!(completion["usage"]["completion_tokens"], 5);
+        assert_eq!(completion["usage"]["total_tokens"], 12);
     }
 
     #[test]
