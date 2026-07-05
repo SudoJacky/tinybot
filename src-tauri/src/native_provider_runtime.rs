@@ -282,11 +282,16 @@ pub fn openai_chat_completions_route(config: &Value, body: &Value) -> Value {
 }
 
 pub fn complete_chat_for_agent(config: &Value, body: &Value) -> Result<Value, String> {
-    let mut request_body = body.clone();
-    request_body["stream"] = Value::Bool(false);
-    match native_chat_completion(config, &request_body) {
+    match native_chat_completion(config, body) {
         Ok(response) if (200..300).contains(&response.status) && !response.stream => {
             Ok(response.body)
+        }
+        Ok(response) if (200..300).contains(&response.status) && response.stream => {
+            let body = response
+                .body
+                .as_str()
+                .ok_or_else(|| "streaming chat completion returned non-text body".to_string())?;
+            aggregate_chat_completion_sse(body)
         }
         Ok(response) => Err(format!(
             "chat completion returned unexpected status {}",
@@ -294,6 +299,139 @@ pub fn complete_chat_for_agent(config: &Value, body: &Value) -> Result<Value, St
         )),
         Err(error) => Err(error.message),
     }
+}
+
+fn aggregate_chat_completion_sse(body: &str) -> Result<Value, String> {
+    let mut content = String::new();
+    let mut reasoning_content = String::new();
+    let mut model = None::<String>;
+    let mut usage = None::<Value>;
+    let mut tool_calls = std::collections::BTreeMap::<usize, StreamingToolCallParts>::new();
+    for line in body.lines() {
+        let Some(data) = line.trim().strip_prefix("data:") else {
+            continue;
+        };
+        let data = data.trim();
+        if data.is_empty() {
+            continue;
+        }
+        if data == "[DONE]" {
+            break;
+        }
+        let chunk: Value = serde_json::from_str(data).map_err(|error| {
+            format!("streaming chat completion chunk was invalid JSON: {error}")
+        })?;
+        if let Some(error) = chunk.get("error") {
+            return Err(format!("streaming chat completion returned error: {error}"));
+        }
+        if let Some(chunk_usage) = chunk.get("usage").filter(|value| !value.is_null()) {
+            usage = Some(chunk_usage.clone());
+        }
+        if model.is_none() {
+            model = chunk
+                .get("model")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+        }
+        if let Some(delta) = chunk
+            .pointer("/choices/0/delta/content")
+            .and_then(Value::as_str)
+        {
+            content.push_str(delta);
+        }
+        if let Some(delta) = chunk
+            .pointer("/choices/0/delta/reasoning_content")
+            .or_else(|| chunk.pointer("/choices/0/delta/reasoningContent"))
+            .and_then(Value::as_str)
+        {
+            reasoning_content.push_str(delta);
+        }
+        if let Some(deltas) = chunk
+            .pointer("/choices/0/delta/tool_calls")
+            .and_then(Value::as_array)
+        {
+            for (fallback_index, delta) in deltas.iter().enumerate() {
+                let index = delta
+                    .get("index")
+                    .and_then(Value::as_u64)
+                    .map(|value| value as usize)
+                    .unwrap_or(fallback_index);
+                let entry = tool_calls.entry(index).or_default();
+                if let Some(id) = delta.get("id").and_then(Value::as_str) {
+                    entry.id = Some(id.to_string());
+                }
+                if let Some(call_type) = delta.get("type").and_then(Value::as_str) {
+                    entry.call_type = Some(call_type.to_string());
+                }
+                if let Some(name) = delta.pointer("/function/name").and_then(Value::as_str) {
+                    entry.name = Some(name.to_string());
+                }
+                if let Some(arguments) =
+                    delta.pointer("/function/arguments").and_then(Value::as_str)
+                {
+                    entry.arguments.push_str(arguments);
+                }
+            }
+        }
+    }
+    let model = model.unwrap_or_else(|| "unknown-model".to_string());
+    if tool_calls.is_empty() {
+        let mut completion = chat_completion_body(&model, &content);
+        if !reasoning_content.is_empty() {
+            completion["choices"][0]["message"]["reasoning_content"] =
+                Value::String(reasoning_content);
+        }
+        if let Some(usage) = usage {
+            completion["usage"] = usage;
+        }
+        return Ok(completion);
+    }
+    let tool_calls = tool_calls
+        .into_iter()
+        .enumerate()
+        .map(|(fallback_index, (_index, parts))| {
+            serde_json::json!({
+                "id": parts.id.unwrap_or_else(|| format!("tool-call-{}", fallback_index + 1)),
+                "type": parts.call_type.unwrap_or_else(|| "function".to_string()),
+                "function": {
+                    "name": parts.name.unwrap_or_default(),
+                    "arguments": parts.arguments,
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut message = serde_json::json!({
+        "role": "assistant",
+        "content": content,
+        "tool_calls": tool_calls,
+    });
+    if !reasoning_content.is_empty() {
+        message["reasoning_content"] = Value::String(reasoning_content);
+    }
+    Ok(serde_json::json!({
+        "id": chat_completion_id(),
+        "object": "chat.completion",
+        "created": unix_timestamp(),
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "message": message,
+            "finish_reason": "tool_calls",
+        }],
+        "usage": usage.unwrap_or_else(|| serde_json::json!({
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }))
+    }))
+}
+
+#[derive(Default)]
+struct StreamingToolCallParts {
+    id: Option<String>,
+    call_type: Option<String>,
+    name: Option<String>,
+    arguments: String,
 }
 
 pub fn list_provider_models(
@@ -1098,8 +1236,9 @@ fn join_models_url(api_base: &str) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
-    use std::io::Read;
+    use std::io::{Read, Write};
     use std::net::TcpListener;
+    use std::sync::mpsc;
     use std::thread;
     use std::time::Duration;
 
@@ -1316,6 +1455,112 @@ mod tests {
         assert!(body.contains(r#""content":"stream answer""#));
         assert_eq!(body.matches(r#""finish_reason":"stop""#).count(), 1);
         assert!(body.ends_with("data: [DONE]\n\n"));
+    }
+
+    #[test]
+    fn agent_chat_completion_preserves_streaming_request_to_provider() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("test listener should bind");
+        let api_base = format!("http://{}", listener.local_addr().unwrap());
+        let (request_tx, request_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buffer = [0_u8; 8192];
+                let read = stream.read(&mut buffer).unwrap_or(0);
+                let request = String::from_utf8_lossy(&buffer[..read]).to_string();
+                let is_streaming = request.contains(r#""stream":true"#);
+                let _ = request_tx.send(request);
+                let body = if is_streaming {
+                    concat!(
+                        "data: {\"id\":\"chatcmpl-test\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-test\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\n",
+                        "data: {\"id\":\"chatcmpl-test\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-test\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"streamed\"},\"finish_reason\":null}]}\n\n",
+                        "data: {\"id\":\"chatcmpl-test\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-test\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+                        "data: [DONE]\n\n"
+                    )
+                } else {
+                    r#"{"id":"chatcmpl-test","object":"chat.completion","created":1,"model":"gpt-test","choices":[{"index":0,"message":{"role":"assistant","content":"not streamed"},"finish_reason":"stop"}]}"#
+                };
+                let content_type = if is_streaming {
+                    "text/event-stream"
+                } else {
+                    "application/json"
+                };
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\n\r\n{body}",
+                    body.len()
+                );
+            }
+        });
+
+        let result = complete_chat_for_agent(
+            &json!({
+                "agents": { "defaults": { "provider": "openai", "model": "gpt-test" } },
+                "providers": {
+                    "openai": {
+                        "api_key": "sk-test",
+                        "api_base": api_base,
+                        "timeout_ms": 500
+                    }
+                }
+            }),
+            &json!({
+                "model": "gpt-test",
+                "messages": [{ "role": "user", "content": "hello" }],
+                "stream": true
+            }),
+        )
+        .expect("streaming agent completion should aggregate provider chunks");
+        let captured_request = request_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("provider request should be captured");
+        let _ = server.join();
+
+        assert!(captured_request.contains(r#""stream":true"#));
+        assert_eq!(result["choices"][0]["message"]["content"], "streamed");
+    }
+
+    #[test]
+    fn aggregates_streaming_tool_call_chunks_for_agent_completion() {
+        let completion = aggregate_chat_completion_sse(concat!(
+            "data: {\"id\":\"chatcmpl-test\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-test\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"workspace.read_file\",\"arguments\":\"{\\\"path\\\"\"}}]},\"finish_reason\":null}]}\n\n",
+            "data: {\"id\":\"chatcmpl-test\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-test\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\":\\\"README.md\\\"}\"}}]},\"finish_reason\":null}]}\n\n",
+            "data: {\"id\":\"chatcmpl-test\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-test\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n",
+            "data: [DONE]\n\n"
+        ))
+        .expect("streaming tool call chunks should aggregate");
+
+        assert_eq!(
+            completion["choices"][0]["message"]["tool_calls"][0]["id"],
+            "call-1"
+        );
+        assert_eq!(
+            completion["choices"][0]["message"]["tool_calls"][0]["function"]["name"],
+            "workspace.read_file"
+        );
+        assert_eq!(
+            completion["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"],
+            "{\"path\":\"README.md\"}"
+        );
+    }
+
+    #[test]
+    fn aggregates_streaming_reasoning_and_usage_for_agent_completion() {
+        let completion = aggregate_chat_completion_sse(concat!(
+            "data: {\"id\":\"chatcmpl-test\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-test\",\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"think \"},\"finish_reason\":null}]}\n\n",
+            "data: {\"id\":\"chatcmpl-test\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-test\",\"choices\":[{\"index\":0,\"delta\":{\"reasoningContent\":\"again\",\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\n",
+            "data: {\"id\":\"chatcmpl-test\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-test\",\"choices\":[],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":5,\"total_tokens\":12}}\n\n",
+            "data: [DONE]\n\n"
+        ))
+        .expect("streaming reasoning and usage chunks should aggregate");
+
+        assert_eq!(
+            completion["choices"][0]["message"]["reasoning_content"],
+            "think again"
+        );
+        assert_eq!(completion["choices"][0]["message"]["content"], "done");
+        assert_eq!(completion["usage"]["prompt_tokens"], 7);
+        assert_eq!(completion["usage"]["completion_tokens"], 5);
+        assert_eq!(completion["usage"]["total_tokens"], 12);
     }
 
     #[test]
