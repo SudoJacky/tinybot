@@ -93,6 +93,15 @@ impl WorkerThreadRpc {
         self.store.get_thread_status(&params.thread_id)
     }
 
+    pub fn get_thread_status_with_legacy_sessions(
+        &self,
+        params: ThreadIdParams,
+        sessions: &[SessionMetadata],
+    ) -> Result<ThreadStatusResult, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionMetadataRead)?;
+        session_adapter::get_thread_status_with_legacy_sessions(&self.store, params, sessions)
+    }
+
     pub fn list_threads(
         &self,
         request: ListThreadsRequest,
@@ -182,10 +191,11 @@ impl WorkerThreadRpc {
 
     pub fn unarchive_thread(
         &self,
-        params: ThreadIdParams,
+        request: ArchiveThreadRequest,
     ) -> Result<ThreadRecord, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
-        self.store.archive_thread(&params.thread_id, false)
+        self.store
+            .archive_thread_with_children(&request.thread_id, false, request.archive_children)
     }
 
     pub fn delete_thread(

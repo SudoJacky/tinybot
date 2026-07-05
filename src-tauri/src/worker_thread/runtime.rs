@@ -99,6 +99,7 @@ impl ThreadRuntime {
             }),
             ThreadOp::Interrupt { run_id, reason } => self.interrupt(InterruptThreadRequest {
                 thread_id: request.thread_id,
+                client_event_id: request.client_event_id,
                 run_id,
                 reason,
             }),
@@ -666,6 +667,11 @@ impl ThreadRuntime {
         request: InterruptThreadRequest,
     ) -> Result<ThreadTurnRuntimeResult, WorkerProtocolError> {
         let thread_id = request.thread_id;
+        if let Some(result) =
+            self.replay_client_event_result(&thread_id, request.client_event_id.as_deref())?
+        {
+            return Ok(result);
+        }
         let live = self.live_thread(thread_id.clone());
         let status = self.store.get_thread_status(&thread_id)?;
         let run_id = request
@@ -679,7 +685,10 @@ impl ThreadRuntime {
                 appended_items: Vec::new(),
             });
         };
-        let append = live.append(cancelled_item(&thread_id, &run_id, request.reason))?;
+        let append = live.append_with_client_event_id(
+            cancelled_item(&thread_id, &run_id, request.reason),
+            request.client_event_id.as_deref(),
+        )?;
         let snapshot = live.snapshot(None, None)?;
         let run = run_from_snapshot(&snapshot.runs, &run_id);
         Ok(ThreadTurnRuntimeResult {

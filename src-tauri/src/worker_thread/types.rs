@@ -524,7 +524,7 @@ pub struct ArchiveThreadRequest {
     pub thread_id: String,
     #[serde(default)]
     pub archived: Option<bool>,
-    #[serde(default)]
+    #[serde(default, alias = "unarchiveChildren")]
     pub archive_children: bool,
 }
 
@@ -905,6 +905,8 @@ pub struct ContinueThreadTurnRequest {
 #[serde(rename_all = "camelCase")]
 pub struct InterruptThreadRequest {
     pub thread_id: String,
+    #[serde(default)]
+    pub client_event_id: Option<String>,
     #[serde(default)]
     pub run_id: Option<String>,
     #[serde(default)]

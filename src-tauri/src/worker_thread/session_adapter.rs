@@ -1,8 +1,9 @@
 use super::local_store::{LocalThreadStore, ThreadStore};
 use super::types::{
     AppendThreadItemsResult, CreateThreadRequest, ListThreadsRequest, ListThreadsResult,
-    ReadThreadRequest, SearchThreadsRequest, SearchThreadsResult, ThreadItem, ThreadItemKind,
-    ThreadMetadata, ThreadMetadataPatch, ThreadRecord, ThreadStatus,
+    ReadThreadRequest, SearchThreadsRequest, SearchThreadsResult, ThreadIdParams, ThreadItem,
+    ThreadItemKind, ThreadMetadata, ThreadMetadataPatch, ThreadRecord, ThreadStatus,
+    ThreadStatusResult,
 };
 use crate::worker_protocol::{
     WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource,
@@ -106,6 +107,28 @@ pub fn get_session_history_from_threads(
         user_profile: json!({}),
         updated_at,
     }))
+}
+
+pub fn get_thread_status_with_legacy_sessions(
+    store: &LocalThreadStore,
+    params: ThreadIdParams,
+    sessions: &[SessionMetadata],
+) -> Result<ThreadStatusResult, WorkerProtocolError> {
+    if let Some(session) = sessions
+        .iter()
+        .find(|session| legacy_projection_thread_id(&session.session_id) == params.thread_id)
+    {
+        return Ok(ThreadStatusResult {
+            thread: project_session_metadata(session),
+            active_run: None,
+            latest_checkpoint: None,
+            runs: Vec::new(),
+            children: Vec::new(),
+            turn_items: Vec::new(),
+            child_activities: Vec::new(),
+        });
+    }
+    store.get_thread_status(&params.thread_id)
 }
 
 pub fn list_threads_with_legacy_sessions(

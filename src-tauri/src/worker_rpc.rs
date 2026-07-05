@@ -541,8 +541,12 @@ impl WorkerRpcRouter {
             }
             "thread.status" => {
                 let params: ThreadIdParams = parse_params(request)?;
-                serde_json::to_value(self.thread.get_thread_status(params)?)
-                    .map_err(serialization_error)
+                let sessions = self.session.list_metadata()?;
+                serde_json::to_value(
+                    self.thread
+                        .get_thread_status_with_legacy_sessions(params, &sessions)?,
+                )
+                .map_err(serialization_error)
             }
             "thread.list" => {
                 let params: ListThreadsRequest = parse_params(request)?;
@@ -573,7 +577,8 @@ impl WorkerRpcRouter {
                     .map_err(serialization_error)
             }
             "thread.unarchive" => {
-                let params: ThreadIdParams = parse_params(request)?;
+                let mut params: ArchiveThreadRequest = parse_params(request)?;
+                params.archived = Some(false);
                 serde_json::to_value(self.thread.unarchive_thread(params)?)
                     .map_err(serialization_error)
             }
@@ -2753,6 +2758,48 @@ mod tests {
     }
 
     #[test]
+    fn dispatches_thread_status_for_legacy_session_projection() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![session_fixture()],
+            20,
+            CapabilityPolicy::new([WorkerCapability::SessionMetadataRead]),
+        );
+
+        let list = router.dispatch(&WorkerRequest::new(
+            "req-legacy-status-list",
+            "trace-legacy-status",
+            "thread.list",
+            json!({}),
+        ));
+        assert_eq!(list.error, None);
+        let projected_thread_id = list.result.as_ref().unwrap()["threads"][0]["threadId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let status = router.dispatch(&WorkerRequest::new(
+            "req-legacy-status",
+            "trace-legacy-status",
+            "thread.status",
+            json!({ "threadId": projected_thread_id }),
+        ));
+
+        assert_eq!(status.error, None);
+        assert_eq!(
+            status.result.as_ref().unwrap()["thread"]["sessionKey"],
+            "session-1"
+        );
+        assert_eq!(
+            status.result.as_ref().unwrap()["thread"]["source"],
+            "legacy_session_projection"
+        );
+        assert_eq!(status.result.as_ref().unwrap()["children"], json!([]));
+    }
+
+    #[test]
     fn dispatches_session_get_metadata_and_history_for_thread_only_sessions() {
         let fixture = WorkspaceFixture::new();
         let mut router = WorkerRpcRouter::new(
@@ -4134,6 +4181,30 @@ mod tests {
                 .unwrap()
                 .len(),
             0
+        );
+
+        let unarchive = router.dispatch(&WorkerRequest::new(
+            "req-thread-archive-tree-unarchive",
+            "trace-thread-archive-tree",
+            "thread.unarchive",
+            json!({
+                "threadId": "thread-archive-tree-parent",
+                "unarchiveChildren": true
+            }),
+        ));
+        assert_eq!(unarchive.error, None);
+        assert_eq!(unarchive.result.as_ref().unwrap()["status"], "empty");
+
+        let unarchived_child = router.dispatch(&WorkerRequest::new(
+            "req-thread-archive-tree-read-unarchived-child",
+            "trace-thread-archive-tree",
+            "thread.read",
+            json!({ "threadId": "thread-archive-tree-child" }),
+        ));
+        assert_eq!(unarchived_child.error, None);
+        assert_eq!(
+            unarchived_child.result.as_ref().unwrap()["thread"]["status"],
+            "empty"
         );
     }
 
@@ -6870,6 +6941,7 @@ mod tests {
             "thread.apply_op",
             json!({
                 "threadId": thread_id,
+                "clientEventId": "interrupt-client-1",
                 "op": {
                     "type": "interrupt",
                     "reason": "user stopped"
@@ -6884,6 +6956,34 @@ mod tests {
         assert_eq!(
             interrupt.result.as_ref().unwrap()["snapshot"]["thread"]["status"],
             "idle"
+        );
+        let cancelled_item_id = interrupt.result.as_ref().unwrap()["appendedItems"][0]["itemId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let interrupt_retry = router.dispatch(&WorkerRequest::new(
+            "req-thread-op-interrupt-retry",
+            "trace-thread-op",
+            "thread.apply_op",
+            json!({
+                "threadId": thread_id,
+                "clientEventId": "interrupt-client-1",
+                "op": {
+                    "type": "interrupt",
+                    "reason": "retry should not append"
+                }
+            }),
+        ));
+        assert_eq!(interrupt_retry.error, None);
+        assert_eq!(
+            interrupt_retry.result.as_ref().unwrap()["appendedItems"][0]["itemId"],
+            cancelled_item_id
+        );
+        assert_eq!(
+            interrupt_retry.result.as_ref().unwrap()["appendedItems"][0]["kind"]["payload"]
+                ["reason"],
+            "user stopped"
         );
     }
 
