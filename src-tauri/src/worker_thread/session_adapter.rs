@@ -72,10 +72,10 @@ pub fn get_session_history_from_threads(
     let snapshot = store.read_thread(ReadThreadRequest {
         thread_id: thread.thread_id.clone(),
         cursor: None,
-        before_sequence: None,
+        before_sequence: Some(u64::MAX),
         checkpoint_sequence: None,
         checkpoint_id: None,
-        limit: None,
+        limit: Some(MAX_LIST_LIMIT),
     })?;
     let mut messages = snapshot
         .items

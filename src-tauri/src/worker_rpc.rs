@@ -1450,11 +1450,12 @@ impl WorkerRpcRouter {
             )?);
         }
 
+        let tool_arguments = tool_executor_arguments_with_context(&params);
         let tool_request = WorkerRequest::new(
             request.id.clone(),
             request.trace_id.clone(),
             tool.method,
-            params.arguments.clone(),
+            tool_arguments,
         );
         match self.dispatch_result(&tool_request) {
             Ok(result) => {
@@ -1522,6 +1523,34 @@ impl WorkerRpcRouter {
             .collect::<Result<Vec<_>, _>>()
             .map_err(serialization_error)
     }
+}
+
+fn tool_executor_arguments_with_context(params: &ToolExecutorExecuteRequest) -> Value {
+    let mut arguments = params.arguments.clone();
+    if let Value::Object(object) = &mut arguments {
+        if !object.contains_key("sessionId") && !object.contains_key("session_id") {
+            if let Some(session_id) = params
+                .session_id
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+            {
+                object.insert(
+                    "sessionId".to_string(),
+                    Value::String(session_id.to_string()),
+                );
+            }
+        }
+        if !object.contains_key("runId") && !object.contains_key("run_id") {
+            if let Some(run_id) = params
+                .run_id
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+            {
+                object.insert("runId".to_string(), Value::String(run_id.to_string()));
+            }
+        }
+    }
+    arguments
 }
 
 #[derive(Deserialize)]
@@ -2840,6 +2869,85 @@ mod tests {
         assert_eq!(
             history.result.as_ref().unwrap()["updated_at"],
             "2026-07-05T04:00:02Z"
+        );
+    }
+
+    #[test]
+    fn dispatches_session_get_history_reads_thread_tail() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::SessionMetadataRead,
+                WorkerCapability::SessionWrite,
+            ]),
+        );
+
+        let create = router.dispatch(&WorkerRequest::new(
+            "req-session-tail-thread-create",
+            "trace-session-tail-thread",
+            "thread.create",
+            json!({
+                "threadId": "thread-tail-history",
+                "title": "Tail History",
+                "sessionKey": "thread-tail-session",
+                "source": "user"
+            }),
+        ));
+        assert_eq!(create.error, None);
+
+        let items = (0..205)
+            .map(|index| {
+                json!({
+                    "itemId": format!("thread-tail-history:item:{index}"),
+                    "threadId": "",
+                    "runId": "run-thread-tail",
+                    "turnId": "turn-thread-tail",
+                    "sequence": 0,
+                    "createdAt": format!("2026-07-05T05:{:02}:{:02}Z", index / 60, index % 60),
+                    "kind": {
+                        "type": "user_message",
+                        "payload": { "content": format!("message-{index}") }
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        let append = router.dispatch(&WorkerRequest::new(
+            "req-session-tail-thread-append",
+            "trace-session-tail-thread",
+            "thread.append_items",
+            json!({
+                "threadId": "thread-tail-history",
+                "items": items
+            }),
+        ));
+        assert_eq!(append.error, None);
+
+        let history = router.dispatch(&WorkerRequest::new(
+            "req-session-tail-history",
+            "trace-session-tail-thread",
+            "session.get_history",
+            json!({ "session_id": "thread-tail-session", "limit": 2 }),
+        ));
+
+        assert_eq!(history.error, None);
+        assert_eq!(
+            history.result.as_ref().unwrap()["messages"],
+            json!([
+                {
+                    "role": "user",
+                    "content": "message-203",
+                    "timestamp": "2026-07-05T05:03:23Z"
+                },
+                {
+                    "role": "user",
+                    "content": "message-204",
+                    "timestamp": "2026-07-05T05:03:24Z"
+                }
+            ])
         );
     }
 
@@ -5171,6 +5279,74 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("approval grant works"));
+    }
+
+    #[test]
+    fn tool_executor_forwards_top_level_context_to_sensitive_tool() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::ShellExecute,
+                WorkerCapability::ApprovalRequest,
+                WorkerCapability::ApprovalResolve,
+            ]),
+        );
+        let request_response = router.dispatch(&WorkerRequest::new(
+            "req-executor-grant-request",
+            "trace-executor-grant",
+            "permission_profile.request_tool_approval",
+            json!({
+                "toolId": "shell.execute",
+                "runId": "run-executor-grant",
+                "sessionId": "session-executor-grant",
+                "arguments": { "command": "echo executor grant works" }
+            }),
+        ));
+        assert_eq!(request_response.error, None);
+        let approval_id = request_response.result.as_ref().unwrap()["approval"]["approvalId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let resolve_response = router.dispatch(&WorkerRequest::new(
+            "req-executor-grant-resolve",
+            "trace-executor-grant",
+            "permission_profile.resolve_tool_approval",
+            json!({
+                "sessionId": "session-executor-grant",
+                "approvalId": approval_id,
+                "approved": true,
+                "scope": "once"
+            }),
+        ));
+        assert_eq!(resolve_response.error, None);
+
+        let executor_response = router.dispatch(&WorkerRequest::new(
+            "req-executor-grant-shell",
+            "trace-executor-grant",
+            "tool_executor.execute",
+            json!({
+                "toolId": "shell.execute",
+                "sessionId": "session-executor-grant",
+                "runId": "run-executor-grant",
+                "arguments": {
+                    "command": "echo executor grant works",
+                    "working_dir": ".",
+                    "timeout": 5
+                }
+            }),
+        ));
+
+        assert_eq!(executor_response.error, None);
+        let result = executor_response.result.as_ref().unwrap();
+        assert_eq!(result["result"]["exit_code"], 0);
+        assert!(result["result"]["content"]
+            .as_str()
+            .unwrap()
+            .contains("executor grant works"));
     }
 
     #[test]

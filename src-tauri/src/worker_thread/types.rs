@@ -548,6 +548,8 @@ pub struct ForkThreadRequest {
 #[serde(rename_all = "camelCase")]
 pub struct UpdateThreadMetadataRequest {
     pub thread_id: String,
+    #[serde(default)]
+    pub session_key: Option<String>,
     pub metadata: ThreadMetadataPatch,
 }
 

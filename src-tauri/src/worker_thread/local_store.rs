@@ -77,6 +77,11 @@ pub trait ThreadStore {
         thread_id: &str,
         patch: ThreadMetadataPatch,
     ) -> Result<ThreadRecord, WorkerProtocolError>;
+    fn update_thread_session_key(
+        &self,
+        thread_id: &str,
+        session_key: String,
+    ) -> Result<ThreadRecord, WorkerProtocolError>;
     fn archive_thread(
         &self,
         thread_id: &str,
@@ -1499,6 +1504,41 @@ impl ThreadStore for LocalThreadStore {
         Ok(updated)
     }
 
+    fn update_thread_session_key(
+        &self,
+        thread_id: &str,
+        session_key: String,
+    ) -> Result<ThreadRecord, WorkerProtocolError> {
+        validate_thread_id(thread_id)?;
+        let normalized_session_key = non_empty_trimmed(session_key, "sessionKey")?;
+        let mut index = self.read_index()?;
+        if index.threads.iter().any(|thread| {
+            thread.thread_id != thread_id
+                && thread.session_key.as_deref() == Some(normalized_session_key.as_str())
+        }) {
+            return Err(WorkerProtocolError::new(
+                WorkerProtocolErrorCode::InvalidProtocol,
+                "session key is already assigned to another thread",
+                serde_json::json!({
+                    "threadId": thread_id,
+                    "sessionKey": normalized_session_key,
+                }),
+                false,
+                WorkerProtocolErrorSource::RustCore,
+            ));
+        }
+        let record = index
+            .threads
+            .iter_mut()
+            .find(|thread| thread.thread_id == thread_id)
+            .ok_or_else(|| unknown_thread_error(thread_id))?;
+        record.session_key = Some(normalized_session_key);
+        record.updated_at = now_timestamp();
+        let updated = record.clone();
+        self.write_index(&index)?;
+        Ok(updated)
+    }
+
     fn archive_thread(
         &self,
         thread_id: &str,
@@ -2659,6 +2699,17 @@ fn status_string(status: &SubagentThreadStatus) -> &'static str {
 fn non_empty_string(value: &str) -> Option<String> {
     let trimmed = value.trim();
     (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
+fn non_empty_trimmed(value: String, field: &str) -> Result<String, WorkerProtocolError> {
+    let trimmed = value.trim();
+    if !trimmed.is_empty() {
+        return Ok(trimmed.to_string());
+    }
+    Err(invalid_thread_request(
+        "field must not be empty",
+        serde_json::json!({ "field": field }),
+    ))
 }
 
 fn string_field(value: &Value, field: &str) -> Option<String> {

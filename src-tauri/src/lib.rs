@@ -2969,7 +2969,19 @@ fn worker_submit_thread_turn_with_options(
         config_snapshot.clone(),
     )?;
     let thread_id = thread_thread_id(&thread)?;
-    let session_id = thread_session_key(&thread).unwrap_or_else(|| thread_id.clone());
+    let session_id = match thread_session_key(&thread) {
+        Some(session_key) => session_key,
+        None => {
+            let session_key = thread_id.clone();
+            assign_thread_turn_session_key(
+                &thread_id,
+                &session_key,
+                workspace_root.clone(),
+                config_snapshot.clone(),
+            )?;
+            session_key
+        }
+    };
     let run_id = native_agent_run_id(&input.spec).unwrap_or_else(generate_thread_turn_run_id);
     let mut spec = if input.spec.is_object() {
         input.spec
@@ -3090,6 +3102,30 @@ fn read_thread_snapshot(
             serde_json::json!({ "threadId": thread_id }),
         ),
         label,
+    )
+}
+
+fn assign_thread_turn_session_key(
+    thread_id: &str,
+    session_key: &str,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("thread-turn-session-key"),
+            request_id.trace_id("thread-turn-session-key"),
+            "thread.update_metadata",
+            serde_json::json!({
+                "threadId": thread_id,
+                "sessionKey": session_key,
+                "metadata": {}
+            }),
+        ),
+        "thread turn session key update",
     )
 }
 
@@ -8312,6 +8348,64 @@ mod tests {
             .expect("thread items should be present")
             .iter()
             .any(|item| item["runId"] == "run-thread-submit-existing"));
+    }
+
+    #[test]
+    fn worker_submit_thread_turn_backfills_missing_existing_thread_session_key() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let config = serde_json::json!({
+            "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+            "providers": {
+                "fixture": {
+                    "responses": [{ "content": "backfilled thread answer" }]
+                }
+            }
+        });
+        let create_request = next_worker_request_correlation();
+        call_rust_state_service(
+            fixture.root.clone(),
+            config.clone(),
+            WorkerRequest::new(
+                create_request.id("thread-without-session-create"),
+                create_request.trace_id("thread-without-session-create"),
+                "thread.create",
+                serde_json::json!({
+                    "threadId": "thread-submit-backfill",
+                    "title": "Existing thread without session"
+                }),
+            ),
+            "existing thread without session create",
+        )
+        .expect("thread without session key should create");
+
+        let result = worker_submit_thread_turn_with_options(
+            &shared,
+            WorkerSubmitThreadTurnInput {
+                thread_id: Some("thread-submit-backfill".to_string()),
+                input: serde_json::json!("continue backfilled thread"),
+                spec: serde_json::json!({
+                    "runtime": "rust",
+                    "runId": "run-thread-submit-backfill"
+                }),
+            },
+            fixture.root.clone(),
+            config,
+            Duration::from_millis(10),
+        )
+        .expect("thread submit should backfill session key and run native agent");
+
+        assert_eq!(result["threadId"], "thread-submit-backfill");
+        assert_eq!(result["sessionId"], "thread-submit-backfill");
+        assert_eq!(
+            result["snapshot"]["thread"]["sessionKey"],
+            "thread-submit-backfill"
+        );
+        assert!(result["snapshot"]["items"]
+            .as_array()
+            .expect("thread items should be present")
+            .iter()
+            .any(|item| item["runId"] == "run-thread-submit-backfill"));
     }
 
     #[test]

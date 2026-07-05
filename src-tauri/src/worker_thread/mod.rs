@@ -157,8 +157,15 @@ impl WorkerThreadRpc {
         request: UpdateThreadMetadataRequest,
     ) -> Result<ThreadRecord, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
-        self.store
-            .update_thread_metadata(&request.thread_id, request.metadata)
+        let mut updated = self
+            .store
+            .update_thread_metadata(&request.thread_id, request.metadata)?;
+        if let Some(session_key) = request.session_key {
+            updated = self
+                .store
+                .update_thread_session_key(&request.thread_id, session_key)?;
+        }
+        Ok(updated)
     }
 
     pub fn archive_thread(
