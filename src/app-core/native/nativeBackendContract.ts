@@ -74,6 +74,7 @@ export const NATIVE_BACKEND_AGENT_EVENT_NAMES = [
   "agent.usage",
   "agent.checkpoint",
   "agent.turn.started",
+  "agent.status",
   "agent.phase.changed",
   "agent.guidance",
   "agent.approval.decision",
@@ -113,6 +114,7 @@ export type NativeBackendRuntimeEventVisibility =
 
 export const NATIVE_BACKEND_RUNTIME_EVENT_VISIBILITY = {
   "agent.turn.started": "user-visible",
+  "agent.status": "user-visible",
   "agent.phase.changed": "debug",
   "agent.guidance": "status",
   "agent.approval.decision": "websocket-visible",

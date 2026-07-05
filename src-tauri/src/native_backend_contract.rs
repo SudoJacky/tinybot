@@ -166,6 +166,7 @@ pub const NATIVE_AGENT_EVENT_NAMES: &[&str] = &[
     "agent.tool.result",
     "agent.usage",
     "agent.checkpoint",
+    "agent.status",
     "agent.awaiting_form",
     "agent.awaiting_approval",
     "agent.memory_reference",

@@ -129,6 +129,7 @@ impl WorkerSessionRpc {
     ) -> Result<AgentRunRecord, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
         let mut record = self.get_agent_run_for_update(session_id, run_id)?;
+        let snapshot_event = event.clone();
         if let Some(event_id) = event.get("eventId").and_then(Value::as_str) {
             if let Some(existing) = record.trace_events.iter_mut().find(|existing| {
                 existing
@@ -143,6 +144,7 @@ impl WorkerSessionRpc {
         } else {
             record.trace_events.push(event);
         }
+        apply_agent_status_snapshot(&mut record, &snapshot_event);
         record.updated_at = now_session_timestamp();
         self.upsert_agent_run(record)
     }
@@ -599,6 +601,37 @@ fn runtime_event_from_trace_value(
             },
         ),
     )
+}
+
+fn apply_agent_status_snapshot(record: &mut AgentRunRecord, event: &Value) {
+    if event.get("eventName").and_then(Value::as_str) != Some("agent.status") {
+        return;
+    }
+    let payload = event.get("payload").unwrap_or(event);
+    if let Some(phase) = payload
+        .get("phase")
+        .or_else(|| event.get("phase"))
+        .and_then(Value::as_str)
+    {
+        record.phase = phase.to_string();
+        record.status = agent_run_status_from_phase(phase);
+    }
+    if let Some(iteration) = payload
+        .get("iteration")
+        .or_else(|| event.get("iteration"))
+        .and_then(Value::as_i64)
+    {
+        record.current_iteration = iteration;
+    }
+}
+
+fn agent_run_status_from_phase(phase: &str) -> AgentRunStatus {
+    match phase {
+        "awaiting_approval" | "awaiting_form" | "awaiting_subagent" | "queued" => {
+            AgentRunStatus::Waiting
+        }
+        _ => AgentRunStatus::Running,
+    }
 }
 
 fn legacy_trace_item_id(event_name: &str, payload: &Value) -> Option<String> {

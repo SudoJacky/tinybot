@@ -1,7 +1,10 @@
 ﻿#[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent_loop_runtime_protocol::AgentTurnItemKind;
+    use crate::agent_loop_runtime_protocol::{
+        AgentRuntimeEventEnvelope, AgentRuntimeEventSource, AgentRuntimeEventVisibility,
+        AgentRuntimePhase, AgentTurnItemKind, AGENT_RUNTIME_EVENT_SCHEMA_VERSION,
+    };
     use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
     use crate::worker_protocol::{WorkerProtocolErrorCode, WorkerProtocolErrorSource};
     use serde_json::json;
@@ -407,6 +410,107 @@ mod tests {
             runtime_state.turn_items[1].payload["content"],
             "Legacy final answer"
         );
+    }
+
+    #[test]
+    fn append_agent_run_status_event_updates_snapshot_state() {
+        let mut rpc = WorkerSessionRpc::new(vec![session_fixture()], read_write_policy());
+        let mut record = agent_run_fixture("session-1", "run-1", AgentRunStatus::Running);
+        record.phase = "planning".to_string();
+        record.current_iteration = 0;
+        rpc.upsert_agent_run(record)
+            .expect("running run should upsert");
+
+        let status_event = AgentRuntimeEventEnvelope {
+            schema_version: AGENT_RUNTIME_EVENT_SCHEMA_VERSION.to_string(),
+            event_id: "run-1:agent-status:0000000000000001".to_string(),
+            sequence: 1,
+            session_id: "session-1".to_string(),
+            turn_id: "run-1".to_string(),
+            parent_turn_id: None,
+            item_id: None,
+            event_name: "agent.status".to_string(),
+            phase: AgentRuntimePhase::ToolRunning,
+            timestamp: "unix-ms:2".to_string(),
+            source: AgentRuntimeEventSource::RustBackend,
+            visibility: AgentRuntimeEventVisibility::User,
+            payload: json!({
+                "runId": "run-1",
+                "sessionId": "session-1",
+                "phase": "tool_running",
+                "label": "Running tool",
+                "detail": "workspace.read_file",
+                "iteration": 2,
+                "isBlocking": false
+            }),
+        };
+
+        let updated = rpc
+            .append_agent_run_trace_event(
+                "session-1",
+                "run-1",
+                serde_json::to_value(status_event).expect("status event should serialize"),
+            )
+            .expect("status event should append and update snapshot");
+
+        assert_eq!(updated.status, AgentRunStatus::Running);
+        assert_eq!(updated.phase, "tool_running");
+        assert_eq!(updated.current_iteration, 2);
+        assert_eq!(updated.trace_events.len(), 1);
+
+        let restored = rpc
+            .get_agent_run("session-1", "run-1")
+            .expect("run should read");
+        assert_eq!(restored.phase, "tool_running");
+        assert_eq!(restored.current_iteration, 2);
+    }
+
+    #[test]
+    fn terminal_agent_run_status_event_does_not_terminalize_snapshot() {
+        let mut rpc = WorkerSessionRpc::new(vec![session_fixture()], read_write_policy());
+        let mut record = agent_run_fixture("session-1", "run-terminal-status", AgentRunStatus::Running);
+        record.phase = "finalizing".to_string();
+        record.current_iteration = 2;
+        rpc.upsert_agent_run(record)
+            .expect("running run should upsert");
+
+        let status_event = AgentRuntimeEventEnvelope {
+            schema_version: AGENT_RUNTIME_EVENT_SCHEMA_VERSION.to_string(),
+            event_id: "run-terminal-status:agent-status:0000000000000001".to_string(),
+            sequence: 1,
+            session_id: "session-1".to_string(),
+            turn_id: "run-terminal-status".to_string(),
+            parent_turn_id: None,
+            item_id: None,
+            event_name: "agent.status".to_string(),
+            phase: AgentRuntimePhase::Completed,
+            timestamp: "unix-ms:3".to_string(),
+            source: AgentRuntimeEventSource::RustBackend,
+            visibility: AgentRuntimeEventVisibility::User,
+            payload: json!({
+                "runId": "run-terminal-status",
+                "sessionId": "session-1",
+                "phase": "completed",
+                "label": "Completed",
+                "detail": "agent.done",
+                "iteration": 2,
+                "isBlocking": false
+            }),
+        };
+
+        let updated = rpc
+            .append_agent_run_trace_event(
+                "session-1",
+                "run-terminal-status",
+                serde_json::to_value(status_event).expect("status event should serialize"),
+            )
+            .expect("status event should append and update snapshot");
+
+        assert_eq!(updated.phase, "completed");
+        assert_eq!(updated.status, AgentRunStatus::Running);
+        assert_eq!(updated.completed_at, None);
+        assert_eq!(updated.stop_reason, None);
+        assert_eq!(updated.error, None);
     }
 
     #[test]

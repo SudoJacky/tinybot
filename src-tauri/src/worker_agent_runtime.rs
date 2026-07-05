@@ -166,6 +166,38 @@ impl NativeAgentRunState {
             }),
         });
         self.append_trace_event(&event);
+        self.emit_status_for_phase(iteration, trigger_event_name);
+    }
+
+    fn emit_status_for_phase(&mut self, iteration: i64, trigger_event_name: &str) {
+        let Some(label) = runtime_status_label(&self.phase) else {
+            return;
+        };
+        let is_blocking = matches!(
+            self.phase,
+            AgentRuntimePhase::AwaitingApproval
+                | AgentRuntimePhase::AwaitingForm
+                | AgentRuntimePhase::AwaitingSubagent
+        );
+        let event = self.emitter.emit(AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id: None,
+            event_name: "agent.status".to_string(),
+            phase: self.phase.clone(),
+            timestamp: runtime_event_timestamp(),
+            source: AgentRuntimeEventSource::RustBackend,
+            visibility: AgentRuntimeEventVisibility::User,
+            payload: serde_json::json!({
+                "runId": self.run_id.clone(),
+                "sessionId": self.session_id.clone(),
+                "phase": self.phase.as_str(),
+                "label": label,
+                "detail": trigger_event_name,
+                "iteration": iteration,
+                "isBlocking": is_blocking,
+            }),
+        });
+        self.append_trace_event(&event);
     }
 
     fn set_stop_reason(&mut self, stop_reason: &str, iteration: i64, trigger_event_name: &str) {
@@ -3246,10 +3278,32 @@ fn legacy_result_events_from_runtime_events(
     project_legacy_native_agent_events(runtime_events)
         .into_iter()
         .filter(|event| {
-            event.event_name != "agent.turn.started" && event.event_name != "agent.phase.changed"
+            event.event_name != "agent.turn.started"
+                && event.event_name != "agent.phase.changed"
+                && event.event_name != "agent.status"
         })
         .map(NativeAgentEvent::from)
         .collect()
+}
+
+fn runtime_status_label(phase: &AgentRuntimePhase) -> Option<&'static str> {
+    match phase {
+        AgentRuntimePhase::CallingModel => Some("Calling model"),
+        AgentRuntimePhase::StreamingModel => Some("Streaming response"),
+        AgentRuntimePhase::ToolCalling => Some("Preparing tool call"),
+        AgentRuntimePhase::ToolRunning => Some("Running tool"),
+        AgentRuntimePhase::AwaitingApproval => Some("Waiting for approval"),
+        AgentRuntimePhase::AwaitingForm => Some("Waiting for form input"),
+        AgentRuntimePhase::AwaitingSubagent => Some("Waiting for subagent"),
+        AgentRuntimePhase::Finalizing => Some("Finalizing response"),
+        AgentRuntimePhase::Completed => Some("Completed"),
+        AgentRuntimePhase::Failed => Some("Failed"),
+        AgentRuntimePhase::Cancelling => Some("Cancelling"),
+        AgentRuntimePhase::Cancelled => Some("Cancelled"),
+        AgentRuntimePhase::Queued
+        | AgentRuntimePhase::HydratingHistory
+        | AgentRuntimePhase::Planning => None,
+    }
 }
 
 fn runtime_event_timestamp() -> String {
@@ -3546,6 +3600,43 @@ mod tests {
     }
 
     #[test]
+    fn emits_user_visible_status_events_without_legacy_event_projection() {
+        let result = run_native_agent_turn(json!({
+            "runtime": "rust",
+            "runId": "run-status",
+            "sessionId": "websocket:chat-status",
+            "stream": true,
+            "messages": [{ "role": "user", "content": "hello" }],
+            "config": fixture_provider_config("fixture answer")
+        }))
+        .expect("fixture provider run should succeed");
+
+        let runtime_events = result["runtimeEvents"].as_array().unwrap();
+        assert!(runtime_events.iter().any(|event| {
+            event["eventName"] == "agent.status"
+                && event["phase"] == "calling_model"
+                && event["visibility"] == "user"
+                && event["payload"]["runId"] == "run-status"
+                && event["payload"]["sessionId"] == "websocket:chat-status"
+                && event["payload"]["phase"] == "calling_model"
+                && event["payload"]["label"] == "Calling model"
+                && event["payload"]["detail"] == "provider_call"
+                && event["payload"]["iteration"] == 0
+                && event["payload"]["isBlocking"] == false
+        }));
+        assert!(runtime_events.iter().any(|event| {
+            event["eventName"] == "agent.status"
+                && event["phase"] == "streaming_model"
+                && event["payload"]["label"] == "Streaming response"
+        }));
+        assert!(result["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|event| event["eventName"] != "agent.status"));
+    }
+
+    #[test]
     fn runs_fixture_tool_event_sequence() {
         let services = NativeAgentRuntimeServices::default();
         let result = run_native_agent_turn_with_config(
@@ -3581,9 +3672,19 @@ mod tests {
 
         let event_names = event_names(&result);
         let runtime_event_names = runtime_event_names(&result);
-        assert!(runtime_event_names
-            .windows(2)
-            .any(|pair| pair == ["agent.phase.changed", "agent.tool_call.delta"]));
+        let runtime_events = result["runtimeEvents"].as_array().unwrap();
+        let tool_calling_phase_index = runtime_events
+            .iter()
+            .position(|event| {
+                event["eventName"] == "agent.phase.changed"
+                    && event["payload"]["nextPhase"] == "tool_calling"
+            })
+            .expect("tool calling phase change should precede tool call delta");
+        let tool_call_delta_index = runtime_event_names
+            .iter()
+            .position(|event_name| *event_name == "agent.tool_call.delta")
+            .expect("tool call delta event should be present");
+        assert!(tool_calling_phase_index < tool_call_delta_index);
         assert!(result["runtimeEvents"]
             .as_array()
             .unwrap()

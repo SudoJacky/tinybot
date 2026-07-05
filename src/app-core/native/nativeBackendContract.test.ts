@@ -35,6 +35,7 @@ describe("native backend contract", () => {
   test("covers canonical runtime events and their visibility classes", () => {
     expect(NATIVE_BACKEND_AGENT_EVENT_NAMES).toEqual(expect.arrayContaining([
       "agent.turn.started",
+      "agent.status",
       "agent.phase.changed",
       "agent.guidance",
       "agent.approval.decision",
@@ -43,6 +44,7 @@ describe("native backend contract", () => {
     ]));
     expect(NATIVE_BACKEND_RUNTIME_EVENT_VISIBILITY).toMatchObject({
       "agent.turn.started": "user-visible",
+      "agent.status": "user-visible",
       "agent.phase.changed": "debug",
       "agent.guidance": "status",
       "agent.approval.decision": "websocket-visible",
