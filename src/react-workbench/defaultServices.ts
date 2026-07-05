@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { createDesktopChatSessionController } from "../app-core/chat/desktopChatSessionController";
-import type { NativeChatMessage, NativeChatSession } from "../app-core/chat/nativeChat";
+import type { NativeChatMessage, NativeChatReference, NativeChatSession } from "../app-core/chat/nativeChat";
 import { DEFAULT_GATEWAY_CONFIG, resolveGatewayConfig } from "../app-core/gateway/gatewayConfig";
 import { installDesktopGatewayBridge } from "../app-core/gateway/desktopGatewayBridge";
 import { ensureGatewayReady } from "../app-core/gateway/desktopGatewayStartup";
@@ -242,10 +242,15 @@ export function createDesktopAppServices(): AppServices {
           return [];
         }
         const session = controller.state.sessions.find((item) => item.key === sessionId);
-        if (session) {
+        if (session && controller.state.activeSessionKey !== session.key) {
           await controller.selectSession(session.key, session.chatId);
         }
-        return (controller.state.messages.get(sessionId) ?? []).map((message, index) => mapMessage(message, index));
+        const sessionMessages = controller.state.messages.get(sessionId) ?? [];
+        const sessionRunning = controller.state.respondingSessionKeys.has(sessionId);
+        return sessionMessages.map((message, index) => mapMessage(message, index, {
+          isLatest: index === sessionMessages.length - 1,
+          sessionRunning,
+        }));
       },
       async send(sessionId, input) {
         await initialize();
@@ -258,8 +263,16 @@ export function createDesktopAppServices(): AppServices {
             await controller.selectSession(session.key, session.chatId);
           }
         }
-        controller.submitMessage(input.text, input.usePersistentRag ?? true, input.model);
-        notifySession(sessionId, { type: "message-sent" });
+        const result = controller.submitMessage(input.text, input.usePersistentRag ?? true, input.model);
+        const optimisticText = result.status === "sent"
+          ? result.content
+          : result.status === "creating"
+            ? result.pendingContent
+            : "";
+        notifySession(sessionId, {
+          type: "message-sent",
+          ...(optimisticText ? { message: createOptimisticUserMessage(optimisticText) } : {}),
+        });
       },
       async stop() {
         await initialize();
@@ -349,7 +362,11 @@ function mapSession(session: NativeChatSession, responding: boolean, fallbackPay
   };
 }
 
-function mapMessage(message: NativeChatMessage, index: number): ReactChatMessage {
+function mapMessage(
+  message: NativeChatMessage,
+  index: number,
+  options: { isLatest?: boolean; sessionRunning?: boolean } = {},
+): ReactChatMessage {
   const role = message.role === "user" || message.role === "system" || message.role === "tool"
     ? message.role
     : "assistant";
@@ -359,13 +376,38 @@ function mapMessage(message: NativeChatMessage, index: number): ReactChatMessage
     status: activity.status || activity.approvalStatus || (activity.kind === "result" ? "complete" : "running"),
     summary: activity.responseText || activity.argsText,
   }));
+  const streaming = role === "assistant" && Boolean(options.sessionRunning && options.isLatest);
+  const contextReferences = (message.references ?? []).map(mapContextReference);
   return {
     id: message.messageId || `${role}:${index}`,
     role,
     createdAtMs: timestampMs(message.timestamp) ?? Date.now(),
-    text: message.content || message.reasoningContent || (toolCalls.length ? "Tool activity" : ""),
-    status: "complete",
+    text: message.content || (toolCalls.length ? "Tool activity" : ""),
+    status: streaming ? "streaming" : "complete",
+    ...(contextReferences.length ? { contextReferences } : {}),
+    ...(message.reasoningContent ? { reasoningText: message.reasoningContent } : {}),
     ...(toolCalls.length ? { toolCalls } : {}),
+  };
+}
+
+function createOptimisticUserMessage(text: string): ReactChatMessage {
+  return {
+    id: `local:user:${Date.now().toString(36)}`,
+    role: "user",
+    createdAtMs: Date.now(),
+    text,
+    status: "complete",
+  };
+}
+
+function mapContextReference(reference: NativeChatReference, index: number) {
+  return {
+    id: reference.noteId || reference.evidenceId || `${reference.kind}:${index}`,
+    kind: reference.kind,
+    title: reference.title,
+    ...(reference.detail ? { detail: reference.detail } : {}),
+    ...(reference.sourcePath ? { sourcePath: reference.sourcePath } : {}),
+    ...(typeof reference.sourceLine === "number" ? { sourceLine: reference.sourceLine } : {}),
   };
 }
 

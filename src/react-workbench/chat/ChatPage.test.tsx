@@ -514,6 +514,69 @@ describe("ChatPage", () => {
     expect((input as HTMLTextAreaElement).value).toBe("");
   });
 
+  it("renders the optimistic user message immediately after send", async () => {
+    const user = userEvent.setup();
+    let subscribed: ((event: ChatEvent) => void) | undefined;
+    const stores = createStores();
+    stores.chatStore.load = vi.fn(async () => []);
+    stores.chatStore.subscribe = vi.fn((_sessionId, listener) => {
+      subscribed = listener;
+      return () => undefined;
+    });
+    stores.chatStore.send = vi.fn(async () => {
+      subscribed?.({
+        message: {
+          id: "local-user",
+          role: "user",
+          createdAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+          text: "Hello immediately",
+          status: "complete",
+        },
+        type: "message-sent",
+      });
+    });
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const input = await screen.findByRole("textbox", { name: /message/i });
+    await user.type(input, "Hello immediately");
+    await user.click(screen.getByRole("button", { name: /send message/i }));
+
+    expect((await screen.findByTestId("message-local-user")).textContent).toContain("Hello immediately");
+  });
+
+  it("renders assistant thinking and context separately from the answer", async () => {
+    const stores = createStores();
+    const streamingMessages: ReactChatMessage[] = [
+      {
+        id: "assistant-live",
+        role: "assistant",
+        createdAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+        reasoningText: "I am checking the available context.",
+        text: "Here is the answer.",
+        status: "streaming",
+        contextReferences: [{
+          id: "mem-1",
+          kind: "memory",
+          title: "Project note",
+          detail: "Use current backend contracts.",
+          sourcePath: "memory/MEMORY.md",
+          sourceLine: 12,
+        }],
+      },
+    ];
+    stores.chatStore.load = vi.fn(async () => streamingMessages);
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const message = await screen.findByTestId("message-assistant-live");
+    expect(within(message).getByLabelText("Thinking").textContent).toContain("I am checking the available context.");
+    expect(within(message).getByLabelText("Context").textContent).toContain("Project note");
+    expect(within(message).getByLabelText("Context").textContent).toContain("Use current backend contracts.");
+    expect(within(message).getByLabelText("Agent is responding")).toBeTruthy();
+    expect(within(message).getByText("Here is the answer.")).toBeTruthy();
+  });
+
   it("keeps a pending new session visible until chat creation returns a real session", async () => {
     const user = userEvent.setup();
     let subscribed: ((event: ChatEvent) => void) | undefined;
