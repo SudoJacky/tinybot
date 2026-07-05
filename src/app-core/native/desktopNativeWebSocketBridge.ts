@@ -405,6 +405,7 @@ class DesktopNativeWebSocket extends EventTarget {
       });
       this.emitAgentEventFrame(run, runId, eventName === "agent.reasoning_delta" ? "reasoning.delta" : "message.delta", {
         message_id: run.messageId,
+        ...(eventName === "agent.reasoning_delta" ? { summary: text } : {}),
         text,
         visibility: eventName === "agent.reasoning_delta" ? "hidden" : "visible",
       });

@@ -104,6 +104,7 @@ describe("desktop native WebSocket bridge", () => {
       turn_id: "run-1",
       payload: expect.objectContaining({
         message_id: "message-1",
+        summary: "thinking",
         text: "thinking",
         visibility: "hidden",
       }),

@@ -100,6 +100,32 @@ describe("default desktop app services", () => {
     expect(mocks.gatewayApi.sessions.messages).toHaveBeenCalledTimes(1);
   });
 
+  test("maps live reasoning deltas to current chat thinking text", async () => {
+    const services = createDesktopAppServices();
+    await services.sessionStore.list();
+
+    const socket = mocks.openGatewaySocket.mock.results[0]?.value;
+    socket.handlers.onEvent({
+      kind: "message.delta",
+      chatId: "chat-1",
+      messageId: "assistant-live",
+      text: "I am checking context.",
+      reasoning: true,
+      raw: {},
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await expect(services.chatStore.load("websocket:chat-1")).resolves.toMatchObject([
+      {
+        id: "assistant-live",
+        reasoningText: "I am checking context.",
+        role: "assistant",
+        status: "streaming",
+      },
+    ]);
+  });
+
   test("emits the user message immediately after send", async () => {
     const services = createDesktopAppServices();
     await services.sessionStore.list();

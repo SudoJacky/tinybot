@@ -772,6 +772,60 @@ describe("native chat state", () => {
     ]);
   });
 
+  test("projects live structured reasoning deltas into message reasoning content", () => {
+    const state = createNativeChatState();
+    applyChatEvent(state, { kind: "attached", chatId: "chat-1", raw: {} });
+    applyChatEvent(state, {
+      kind: "agent.event",
+      chatId: "chat-1",
+      raw: {
+        event: "agent_event",
+        schema_version: "tinybot.agent_event.v1",
+        event_id: "event-turn-start",
+        event_type: "agent.turn.started",
+        chat_id: "chat-1",
+        session_key: "websocket:chat-1",
+        turn_id: "turn-1",
+        sequence: 1,
+        created_at: "2026-06-27T04:00:00.000Z",
+        payload: {
+          user_message: { id: "user-1", role: "user", text: "你好" },
+          user_message_id: "user-1",
+        },
+      },
+    });
+    applyChatEvent(state, {
+      kind: "agent.event",
+      chatId: "chat-1",
+      raw: {
+        event: "agent_event",
+        schema_version: "tinybot.agent_event.v1",
+        event_id: "event-reasoning",
+        event_type: "reasoning.delta",
+        chat_id: "chat-1",
+        session_key: "websocket:chat-1",
+        turn_id: "turn-1",
+        sequence: 2,
+        created_at: "2026-06-27T04:00:01.000Z",
+        payload: {
+          message_id: "assistant-stream",
+          summary: "I am checking context.",
+          text: "I am checking context.",
+          visibility: "hidden",
+        },
+      },
+    });
+
+    expect(state.messages.get(sessionKeyForChat("chat-1"))).toMatchObject([
+      { role: "user", content: "你好" },
+      {
+        role: "assistant",
+        content: "",
+        reasoningContent: "I am checking context.",
+      },
+    ]);
+  });
+
   test("normalizes tool activity execution status for timeline rendering", () => {
     expect(
       normalizeMessagesPayload({
