@@ -185,6 +185,9 @@ export function ChatPage({
         setMessages((current) => [...current, event.message as ReactChatMessage]);
         return;
       }
+      if (shouldReloadSessionsForChatEvent(event.type)) {
+        void handleSessionStoreRefresh();
+      }
       if (shouldReloadMessagesForChatEvent(event.type)) {
         void loadMessages();
       }
@@ -254,8 +257,14 @@ export function ChatPage({
 
   async function handleSessionStoreRefresh() {
     const nextSessions = await sessionStore.list();
+    sessionsRef.current = nextSessions;
     setSessions(nextSessions);
-    setActiveSessionId((current) => current || nextSessions[0]?.id || "");
+    setActiveSessionId((current) => {
+      if (!nextSessions.length) {
+        return "";
+      }
+      return nextSessions.some((session) => session.id === current) ? current : nextSessions[0]?.id ?? "";
+    });
   }
 
   async function handlePinConversation(session: SessionSummary) {
@@ -703,8 +712,16 @@ const MESSAGE_RELOAD_EVENT_TYPES = new Set([
   "interrupted",
 ]);
 
+const SESSION_RELOAD_EVENT_TYPES = new Set([
+  "chat.created",
+]);
+
 function shouldReloadMessagesForChatEvent(type: string): boolean {
   return MESSAGE_RELOAD_EVENT_TYPES.has(type);
+}
+
+function shouldReloadSessionsForChatEvent(type: string): boolean {
+  return SESSION_RELOAD_EVENT_TYPES.has(type);
 }
 
 async function writeClipboardText(value: string): Promise<void> {

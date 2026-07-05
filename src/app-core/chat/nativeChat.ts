@@ -113,14 +113,15 @@ export function createNativeChatState(): NativeChatState {
 }
 
 export function sessionKeyForChat(chatId: string): string {
-  return chatId ? `WebSocket:${chatId}` : "";
+  return chatId ? `websocket:${chatId}` : "";
 }
 
 export function sessionKeyForChatState(state: NativeChatState, chatId: string): string {
   if (!chatId) {
     return "";
   }
-  return state.sessions.find((session) => session.chatId === chatId)?.key || sessionKeyForChat(chatId);
+  const session = state.sessions.find((session) => session.chatId === chatId);
+  return canonicalSessionKey(session?.key ?? "", chatId) || sessionKeyForChat(chatId);
 }
 
 export function normalizeSessionsPayload(payload: unknown): NativeChatSession[] {
@@ -129,7 +130,7 @@ export function normalizeSessionsPayload(payload: unknown): NativeChatSession[] 
   }
   return payload.items.filter(isRecord).map((item) => {
     const chatId = stringValue(item.chat_id) || chatIdFromKey(stringValue(item.key));
-    const key = stringValue(item.key) || sessionKeyForChat(chatId);
+    const key = canonicalSessionKey(stringValue(item.key), chatId) || sessionKeyForChat(chatId);
     const metadata = isRecord(item.metadata) ? item.metadata : isRecord(item.extra) && isRecord(item.extra.metadata) ? item.extra.metadata : {};
     return {
       key,
@@ -177,11 +178,29 @@ export function normalizeMessagesPayload(payload: unknown): NativeChatMessage[] 
 }
 
 export function setSessions(state: NativeChatState, sessions: NativeChatSession[]) {
-  state.sessions = sessions;
-  for (const session of sessions) {
-    if (!state.messages.has(session.key)) {
-      state.messages.set(session.key, []);
+  const nextSessions = sessions.map((session) => ({
+    ...session,
+    key: canonicalSessionKey(session.key, session.chatId) || session.key,
+  }));
+  state.activeSessionKey = canonicalSessionKey(state.activeSessionKey, state.activeChatId) || state.activeSessionKey;
+  state.respondingSessionKeys = new Set([...state.respondingSessionKeys].map((key) => canonicalSessionKey(key) || key));
+  state.streamMessageKeys = new Map([...state.streamMessageKeys].map(([messageId, sessionKey]) => [
+    messageId,
+    canonicalSessionKey(sessionKey) || sessionKey,
+  ]));
+  state.sessions = nextSessions;
+  for (const session of nextSessions) {
+    const bucket = sessionKeyAliases(session.key, session.chatId)
+      .map((key) => state.messages.get(key))
+      .find((messages): messages is NativeChatMessage[] => Boolean(messages?.length))
+      ?? state.messages.get(session.key)
+      ?? [];
+    for (const alias of sessionKeyAliases(session.key, session.chatId)) {
+      if (alias !== session.key) {
+        state.messages.delete(alias);
+      }
     }
+    state.messages.set(session.key, bucket);
   }
 }
 
@@ -439,10 +458,11 @@ export function resolveNativeChatApproval(
   state: NativeChatState,
   options: { approvalId: string; decision: "approved" | "denied"; sessionKey: string },
 ): boolean {
+  const sessionKey = canonicalSessionKey(options.sessionKey, state.activeChatId) || options.sessionKey;
   const status = options.decision === "approved" ? "completed" : "failed";
   const resolutionText = options.decision === "approved" ? "Approved." : "Denied.";
   let changed = false;
-  const messages = state.messages.get(options.sessionKey) ?? [];
+  const messages = state.messages.get(sessionKey) ?? [];
   for (const message of messages) {
     if (!message.toolActivities?.length) {
       continue;
@@ -460,7 +480,7 @@ export function resolveNativeChatApproval(
       };
     });
   }
-  const turns = state.chatRuns.turnsBySession.get(options.sessionKey) ?? [];
+  const turns = state.chatRuns.turnsBySession.get(sessionKey) ?? [];
   for (const turn of turns) {
     for (const step of turn.steps) {
       if (step.toolCall?.approvalId === options.approvalId) {
@@ -479,7 +499,7 @@ export function resolveNativeChatApproval(
     }
   }
   if (turns.length && changed) {
-    state.messages.set(options.sessionKey, coalesceToolActivityMessages(conversationMessagesToNativeMessages(turnsToConversationMessages(turns))));
+    state.messages.set(sessionKey, coalesceToolActivityMessages(conversationMessagesToNativeMessages(turnsToConversationMessages(turns))));
   }
   return changed;
 }
@@ -496,7 +516,7 @@ export function activateChat(state: NativeChatState, chatId: string) {
 
 export function activateSession(state: NativeChatState, sessionKey: string, chatId: string) {
   state.activeChatId = chatId;
-  state.activeSessionKey = sessionKey || sessionKeyForChat(chatId);
+  state.activeSessionKey = canonicalSessionKey(sessionKey, chatId) || sessionKeyForChat(chatId);
   ensureMessageBucket(state, state.activeSessionKey);
   if (!state.sessions.some((session) => session.key === state.activeSessionKey)) {
     state.sessions = [
@@ -573,7 +593,10 @@ export function applyChatEvent(state: NativeChatState, event: NormalizedGatewayE
     if (!envelope) {
       return;
     }
-    const sessionKey = envelope.session_key || sessionKeyForChatState(state, envelope.chat_id || state.activeChatId);
+    const sessionKey = canonicalSessionKey(
+      envelope.session_key || sessionKeyForChatState(state, envelope.chat_id || state.activeChatId),
+      envelope.chat_id || state.activeChatId,
+    );
     if (!sessionKey) {
       return;
     }
@@ -1002,7 +1025,7 @@ function agentEventEnvelopeFromRaw(raw: Record<string, unknown>): AgentEventEnve
     payload: isRecord(raw.payload) ? raw.payload : {},
     schema_version: "tinybot.agent_event.v1",
     sequence: numberValue(raw.sequence) ?? 0,
-    session_key: sessionKey || sessionKeyForChat(chatId),
+    session_key: canonicalSessionKey(sessionKey, chatId) || sessionKeyForChat(chatId),
     ...(stringValue(raw.step_id) ? { step_id: stringValue(raw.step_id) } : {}),
     turn_id: turnId,
   };
@@ -1440,6 +1463,30 @@ function arrayRows(value: unknown): Record<string, unknown>[] {
 
 function chatIdFromKey(key: string): string {
   return key.includes(":") ? key.split(":").slice(1).join(":") : key;
+}
+
+export function canonicalSessionKey(key: string, chatId = ""): string {
+  if (!key) {
+    return chatId ? sessionKeyForChat(chatId) : "";
+  }
+  const separator = key.indexOf(":");
+  if (separator < 0) {
+    return key;
+  }
+  const prefix = key.slice(0, separator).toLowerCase();
+  const rest = key.slice(separator + 1);
+  return prefix === "websocket" ? `websocket:${rest}` : key;
+}
+
+function sessionKeyAliases(key: string, chatId = ""): string[] {
+  const canonical = canonicalSessionKey(key, chatId);
+  const id = chatId || chatIdFromKey(key);
+  return [...new Set([
+    canonical,
+    key,
+    id ? `WebSocket:${id}` : "",
+    id ? `websocket:${id}` : "",
+  ].filter(Boolean))];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

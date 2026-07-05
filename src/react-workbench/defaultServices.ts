@@ -76,6 +76,7 @@ export function createDesktopAppServices(): AppServices {
   const pendingSocketMessages: unknown[] = [];
   const listeners = new Map<string, Set<Listener>>();
   let pendingNewSessionId = "";
+  let pendingNewSession: SessionSummary | null = null;
 
   const controller = createDesktopChatSessionController({
     api: {
@@ -147,6 +148,7 @@ export function createDesktopAppServices(): AppServices {
     await controller.handleGatewayEvent(event);
     if (event.kind === "chat.created") {
       pendingNewSessionId = "";
+      pendingNewSession = null;
     }
     notifyAll({ type: event.kind });
   }
@@ -185,7 +187,11 @@ export function createDesktopAppServices(): AppServices {
     sessionStore: {
       async list() {
         await initialize();
-        return controller.state.sessions.map((session) => mapSession(session, controller.state.respondingSessionKeys.has(session.key)));
+        const sessions = controller.state.sessions.map((session) => mapSession(session, controller.state.respondingSessionKeys.has(session.key)));
+        if (pendingNewSession && !sessions.some((session) => session.id === pendingNewSession?.id)) {
+          return [pendingNewSession, ...sessions];
+        }
+        return sessions;
       },
       async create(input) {
         await initialize();
@@ -199,6 +205,7 @@ export function createDesktopAppServices(): AppServices {
           updatedAtMs: Date.now(),
           status: "running" as const,
         };
+        pendingNewSession = pendingSession;
         notifySession(pendingNewSessionId, { type: "session-created" });
         return pendingSession;
       },
@@ -206,6 +213,7 @@ export function createDesktopAppServices(): AppServices {
         await initialize();
         if (id.startsWith("pending:")) {
           pendingNewSessionId = "";
+          pendingNewSession = null;
           return;
         }
         await controller.deleteSession(id);

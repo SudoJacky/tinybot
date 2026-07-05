@@ -514,6 +514,57 @@ describe("ChatPage", () => {
     expect((input as HTMLTextAreaElement).value).toBe("");
   });
 
+  it("keeps a pending new session visible until chat creation returns a real session", async () => {
+    const user = userEvent.setup();
+    let subscribed: ((event: ChatEvent) => void) | undefined;
+    const stores = createStores();
+    const pendingSession = {
+      id: "pending:1",
+      title: "New session",
+      updatedAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+      status: "running" as const,
+    };
+    const realSession = {
+      id: "WebSocket:chat-2",
+      chatId: "chat-2",
+      title: "Summarize docs",
+      updatedAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
+      status: "idle" as const,
+    };
+    stores.sessionStore.list = vi.fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([pendingSession])
+      .mockResolvedValueOnce([realSession]);
+    stores.sessionStore.create = vi.fn(async () => pendingSession);
+    stores.chatStore.load = vi.fn(async () => []);
+    stores.chatStore.subscribe = vi.fn((_sessionId, listener) => {
+      subscribed = listener;
+      return () => undefined;
+    });
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    await screen.findByText("No sessions yet.");
+    await user.click(screen.getByRole("button", { name: "New Chat" }));
+    expect(await screen.findByRole("heading", { name: "New session" })).toBeTruthy();
+
+    const input = screen.getByRole("textbox", { name: /message/i });
+    await user.type(input, "Summarize docs");
+    await user.click(screen.getByRole("button", { name: /send message/i }));
+
+    await waitFor(() => expect(stores.chatStore.send).toHaveBeenCalledWith("pending:1", {
+      text: "Summarize docs",
+      usePersistentRag: true,
+    }));
+    expect(screen.queryByRole("heading", { name: "No session selected" })).toBeNull();
+    expect(screen.getByRole("button", { name: "New session" })).toBeTruthy();
+
+    subscribed?.({ type: "chat.created" });
+
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Summarize docs" })).toBeTruthy());
+    expect(stores.chatStore.load).toHaveBeenLastCalledWith("WebSocket:chat-2");
+  });
+
   it("uses settings-backed model options instead of sample model defaults", async () => {
     const user = userEvent.setup();
     const stores = createStores();

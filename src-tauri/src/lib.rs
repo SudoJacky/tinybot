@@ -5400,6 +5400,20 @@ fn native_websocket_transport_result(
     input: &WorkerTransportWebSocketDispatchInput,
 ) -> Option<serde_json::Value> {
     let frame = input.frame.as_object()?;
+    if json_string_field(frame, "type") == Some("new_chat") {
+        let chat_id = json_string_field(frame, "chat_id")
+            .or_else(|| json_string_field(frame, "chatId"))
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("chat-{}", next_worker_request_correlation().suffix()));
+        let session_id = format!("websocket:{chat_id}");
+        return Some(serde_json::json!({
+            "kind": "new_chat",
+            "chatId": chat_id,
+            "sessionId": session_id,
+            "attachedChatId": chat_id,
+            "frames": [{ "event": "chat_created", "chat_id": chat_id }],
+        }));
+    }
     if json_string_field(frame, "type") != Some("message") {
         return None;
     }
@@ -11027,6 +11041,41 @@ mod tests {
         assert!(build_worker_transport_websocket_run_input_request(
             test_request_correlation("43"),
             &serde_json::json!({ "kind": "ping", "frames": [{ "event": "pong" }] }),
+            WorkerTransportWebSocketDispatchOptions::default(),
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn worker_transport_websocket_new_chat_returns_created_frame_without_run_request() {
+        let input = WorkerTransportWebSocketDispatchInput {
+            client_id: "client-1".to_string(),
+            frame: serde_json::json!({ "type": "new_chat" }),
+            attached_chat_id: None,
+            session_exists: None,
+            editable_paths: None,
+            model: None,
+            max_iterations: None,
+            run_id: None,
+            stream: None,
+        };
+
+        let result = native_websocket_transport_result(&input)
+            .expect("new chat websocket frame should produce a transport result");
+
+        assert_eq!(result["kind"], "new_chat");
+        assert!(result["chatId"]
+            .as_str()
+            .is_some_and(|chat_id| chat_id.starts_with("chat-")));
+        assert!(result["sessionId"]
+            .as_str()
+            .is_some_and(|session_id| session_id.starts_with("websocket:chat-")));
+        assert_eq!(result["attachedChatId"], result["chatId"]);
+        assert_eq!(result["frames"][0]["event"], "chat_created");
+        assert_eq!(result["frames"][0]["chat_id"], result["chatId"]);
+        assert!(build_worker_transport_websocket_run_input_request(
+            test_request_correlation("44"),
+            &result,
             WorkerTransportWebSocketDispatchOptions::default(),
         )
         .is_none());
