@@ -156,7 +156,7 @@ export function createDesktopAppServices(): AppServices {
       pendingNewSession = null;
       pendingNewSessionTitle = "";
     }
-    notifyAll({ type: event.kind });
+    notifyAll(chatEventFromGatewayEvent(event));
   }
 
   function notifyAll(event: ChatEvent): void {
@@ -540,6 +540,17 @@ function normalizeSettingsSummary(snapshot: unknown, config: { httpBaseUrl: stri
     rows.push({ label: "Providers", value: String(providers.length) });
   }
   return rows;
+}
+
+function chatEventFromGatewayEvent(event: NormalizedGatewayEvent): ChatEvent {
+  if (event.kind !== "agent.event") {
+    return { type: event.kind };
+  }
+  const eventType = stringValue(event.raw.event_type);
+  return {
+    type: event.kind,
+    ...(eventType ? { eventType } : {}),
+  };
 }
 
 function normalizeChatModelOptions(

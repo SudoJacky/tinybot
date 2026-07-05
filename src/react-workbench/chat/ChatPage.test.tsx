@@ -501,6 +501,49 @@ describe("ChatPage", () => {
     expect(screen.getByText("Branch loaded")).toBeTruthy();
   });
 
+  it("shows branch actions when a live assistant message completes", async () => {
+    let subscribed: ((event: ChatEvent) => void) | undefined;
+    const stores = createStores();
+    const runningSession = {
+      id: "s1",
+      chatId: "chat-1",
+      title: "Planning notes",
+      updatedAtMs: Date.UTC(2026, 6, 4, 11, 59, 0),
+      status: "running" as const,
+    };
+    const completedSession = {
+      ...runningSession,
+      status: "idle" as const,
+      updatedAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+    };
+    const assistantMessages: ReactChatMessage[] = [
+      {
+        id: "a1",
+        role: "assistant",
+        createdAtMs: Date.UTC(2026, 6, 4, 11, 58, 0),
+        text: "Yes.",
+        status: "complete",
+      },
+    ];
+    stores.sessionStore.list = vi.fn()
+      .mockResolvedValueOnce([runningSession])
+      .mockResolvedValueOnce([completedSession]);
+    stores.chatStore.load = vi.fn(async () => assistantMessages);
+    stores.chatStore.subscribe = vi.fn((_sessionId, listener) => {
+      subscribed = listener;
+      return () => undefined;
+    });
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const assistantMessage = await screen.findByTestId("message-a1");
+    expect(within(assistantMessage).queryByRole("button", { name: "Branch from here" })).toBeNull();
+
+    subscribed?.({ type: "message.completed" });
+
+    await waitFor(() => expect(within(assistantMessage).getByRole("button", { name: "Branch from here" })).toBeTruthy());
+  });
+
   it("sends composer text through the chat store", async () => {
     const user = userEvent.setup();
     const stores = createStores();

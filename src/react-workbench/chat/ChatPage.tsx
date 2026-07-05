@@ -27,7 +27,7 @@ import {
   type PastedContent,
 } from "../../components/ui/claude-style-ai-input";
 import { formatRelativeUpdatedTime } from "../lib/relativeTime";
-import type { ChatModelOption, ChatStore, SessionStore, SessionSummary, SettingsStore } from "../services";
+import type { ChatEvent, ChatModelOption, ChatStore, SessionStore, SessionSummary, SettingsStore } from "../services";
 import { reduceSessionDeleteState } from "../sessions/sessionDeleteState";
 import { canBranchFromMessage, type ContextReferenceSummary, type ReactChatMessage, type ToolCallSummary } from "./messageActions";
 
@@ -185,7 +185,7 @@ export function ChatPage({
         setMessages((current) => [...current, event.message as ReactChatMessage]);
         return;
       }
-      if (shouldReloadSessionsForChatEvent(event.type)) {
+      if (shouldReloadSessionsForChatEvent(event)) {
         void handleSessionStoreRefresh();
       }
       if (shouldReloadMessagesForChatEvent(event.type)) {
@@ -713,14 +713,25 @@ const MESSAGE_RELOAD_EVENT_TYPES = new Set([
 
 const SESSION_RELOAD_EVENT_TYPES = new Set([
   "chat.created",
+  "interrupted",
+  "message.completed",
+  "message.stream.completed",
+]);
+
+const TERMINAL_AGENT_EVENT_TYPES = new Set([
+  "agent.turn.completed",
+  "agent.turn.failed",
+  "agent.turn.interrupted",
+  "message.completed",
 ]);
 
 function shouldReloadMessagesForChatEvent(type: string): boolean {
   return MESSAGE_RELOAD_EVENT_TYPES.has(type);
 }
 
-function shouldReloadSessionsForChatEvent(type: string): boolean {
-  return SESSION_RELOAD_EVENT_TYPES.has(type);
+function shouldReloadSessionsForChatEvent(event: ChatEvent): boolean {
+  return SESSION_RELOAD_EVENT_TYPES.has(event.type)
+    || (event.type === "agent.event" && Boolean(event.eventType && TERMINAL_AGENT_EVENT_TYPES.has(event.eventType)));
 }
 
 async function writeClipboardText(value: string): Promise<void> {
