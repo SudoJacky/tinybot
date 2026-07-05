@@ -154,6 +154,47 @@ impl NativeAgentTraceSink for NativeAgentRunTraceSink {
 }
 
 #[derive(Clone)]
+struct CompositeNativeAgentTraceSink {
+    sinks: Vec<Arc<dyn NativeAgentTraceSink>>,
+}
+
+impl NativeAgentTraceSink for CompositeNativeAgentTraceSink {
+    fn append_trace_event(
+        &self,
+        session_id: &str,
+        run_id: &str,
+        event: &AgentRuntimeEventEnvelope,
+    ) -> Result<(), String> {
+        let mut first_error = None;
+        for sink in &self.sinks {
+            if let Err(error) = sink.append_trace_event(session_id, run_id, event) {
+                first_error.get_or_insert(error);
+            }
+        }
+        first_error.map_or(Ok(()), Err)
+    }
+}
+
+#[derive(Clone)]
+struct DesktopAgentEventSink<R: Runtime + 'static> {
+    app: tauri::AppHandle<R>,
+}
+
+impl<R: Runtime + 'static> NativeAgentTraceSink for DesktopAgentEventSink<R> {
+    fn append_trace_event(
+        &self,
+        _session_id: &str,
+        _run_id: &str,
+        event: &AgentRuntimeEventEnvelope,
+    ) -> Result<(), String> {
+        let event_name = tauri_safe_event_name(&event.event_name);
+        self.app
+            .emit(&event_name, event.payload.clone())
+            .map_err(|error| format!("native agent frontend event emit failed: {error}"))
+    }
+}
+
+#[derive(Clone)]
 struct NativeAgentToolExecutorDispatcher {
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -1392,20 +1433,23 @@ fn worker_transport_websocket_message(
 }
 
 #[tauri::command]
-async fn worker_transport_dispatch_websocket_message(
+async fn worker_transport_dispatch_websocket_message<R: Runtime + 'static>(
     input: WorkerTransportWebSocketDispatchInput,
     state: State<'_, SharedGateway>,
+    app: tauri::AppHandle<R>,
 ) -> Result<serde_json::Value, String> {
     let shared = state.inner().clone();
     let workspace_root = native_backend_workspace_root();
     let config_snapshot = experimental_worker_config_snapshot();
+    let live_trace_sink: Arc<dyn NativeAgentTraceSink> = Arc::new(DesktopAgentEventSink { app });
     tauri::async_runtime::spawn_blocking(move || {
-        worker_transport_dispatch_websocket_message_with_options(
+        worker_transport_dispatch_websocket_message_with_live_trace_sink(
             &shared,
             input,
             workspace_root,
             config_snapshot,
             Duration::from_secs(60),
+            Some(live_trace_sink),
         )
     })
     .await
@@ -2023,6 +2067,24 @@ fn worker_run_agent_with_options(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    worker_run_agent_with_live_trace_sink(
+        shared,
+        spec,
+        workspace_root,
+        config_snapshot,
+        timeout,
+        None,
+    )
+}
+
+fn worker_run_agent_with_live_trace_sink(
+    shared: &SharedGateway,
+    spec: serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+    live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
+) -> Result<serde_json::Value, String> {
     let _ = timeout;
     let persistence_spec = spec.clone();
     if let Some(rejection) = reject_native_agent_terminal_run_reentry(
@@ -2052,10 +2114,11 @@ fn worker_run_agent_with_options(
         workspace_root.clone(),
         config_snapshot.clone(),
     )
-    .with_trace_sink(Arc::new(NativeAgentRunTraceSink {
-        workspace_root: workspace_root.clone(),
-        config_snapshot: config_snapshot.clone(),
-    }));
+    .with_trace_sink(native_agent_trace_sink(
+        workspace_root.clone(),
+        config_snapshot.clone(),
+        live_trace_sink,
+    ));
     let mut result =
         run_native_agent_turn_with_config(&services, runtime_spec, config_snapshot.clone())?;
     if let Err(error) = persist_native_agent_run_record(
@@ -2088,6 +2151,23 @@ fn worker_run_agent_with_options(
         config_snapshot,
     )?;
     Ok(result)
+}
+
+fn native_agent_trace_sink(
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
+) -> Arc<dyn NativeAgentTraceSink> {
+    let persisted_sink: Arc<dyn NativeAgentTraceSink> = Arc::new(NativeAgentRunTraceSink {
+        workspace_root,
+        config_snapshot,
+    });
+    let Some(live_trace_sink) = live_trace_sink else {
+        return persisted_sink;
+    };
+    Arc::new(CompositeNativeAgentTraceSink {
+        sinks: vec![persisted_sink, live_trace_sink],
+    })
 }
 
 fn reject_native_agent_terminal_run_reentry(
@@ -5358,12 +5438,31 @@ fn worker_transport_websocket_message_with_options(
     unsupported_rust_only_command("worker_transport_websocket_message")
 }
 
+#[allow(dead_code)]
 fn worker_transport_dispatch_websocket_message_with_options(
     shared: &SharedGateway,
     input: WorkerTransportWebSocketDispatchInput,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    worker_transport_dispatch_websocket_message_with_live_trace_sink(
+        shared,
+        input,
+        workspace_root,
+        config_snapshot,
+        timeout,
+        None,
+    )
+}
+
+fn worker_transport_dispatch_websocket_message_with_live_trace_sink(
+    shared: &SharedGateway,
+    input: WorkerTransportWebSocketDispatchInput,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+    live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 ) -> Result<serde_json::Value, String> {
     let Some(transport_result) = native_websocket_transport_result(&input) else {
         return unsupported_rust_only_command("worker_transport_dispatch_websocket_message");
@@ -5387,8 +5486,14 @@ fn worker_transport_dispatch_websocket_message_with_options(
         .get("input")
         .cloned()
         .ok_or_else(|| "native websocket dispatch missing run input".to_string())?;
-    let agent_result =
-        worker_run_agent_with_options(shared, run_spec, workspace_root, config_snapshot, timeout)?;
+    let agent_result = worker_run_agent_with_live_trace_sink(
+        shared,
+        run_spec,
+        workspace_root,
+        config_snapshot,
+        timeout,
+        live_trace_sink,
+    )?;
 
     Ok(serde_json::json!({
         "transport": transport_result,

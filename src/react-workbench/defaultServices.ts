@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { createDesktopChatSessionController } from "../app-core/chat/desktopChatSessionController";
-import type { NativeChatMessage, NativeChatReference, NativeChatSession } from "../app-core/chat/nativeChat";
+import { sessionKeyForChat, type NativeChatMessage, type NativeChatReference, type NativeChatSession } from "../app-core/chat/nativeChat";
 import { DEFAULT_GATEWAY_CONFIG, resolveGatewayConfig } from "../app-core/gateway/gatewayConfig";
 import { installDesktopGatewayBridge } from "../app-core/gateway/desktopGatewayBridge";
 import { ensureGatewayReady } from "../app-core/gateway/desktopGatewayStartup";
@@ -77,6 +77,7 @@ export function createDesktopAppServices(): AppServices {
   const listeners = new Map<string, Set<Listener>>();
   let pendingNewSessionId = "";
   let pendingNewSession: SessionSummary | null = null;
+  let pendingNewSessionTitle = "";
 
   const controller = createDesktopChatSessionController({
     api: {
@@ -145,10 +146,15 @@ export function createDesktopAppServices(): AppServices {
   }
 
   async function handleGatewayEvent(event: NormalizedGatewayEvent): Promise<void> {
+    const titleForCreatedSession = event.kind === "chat.created" ? pendingNewSessionTitle : "";
     await controller.handleGatewayEvent(event);
     if (event.kind === "chat.created") {
+      if (titleForCreatedSession) {
+        await persistAutoSessionTitle(sessionKeyForChat(event.chatId), titleForCreatedSession);
+      }
       pendingNewSessionId = "";
       pendingNewSession = null;
+      pendingNewSessionTitle = "";
     }
     notifyAll({ type: event.kind });
   }
@@ -165,6 +171,13 @@ export function createDesktopAppServices(): AppServices {
     for (const callback of listeners.get(sessionId) ?? []) {
       callback(event);
     }
+  }
+
+  async function persistAutoSessionTitle(sessionId: string, title: string): Promise<void> {
+    if (!title) {
+      return;
+    }
+    await controller.patchSession(sessionId, { title });
   }
 
   async function loadSettingsSnapshot(): Promise<unknown> {
@@ -254,6 +267,7 @@ export function createDesktopAppServices(): AppServices {
       },
       async send(sessionId, input) {
         await initialize();
+        const selectedSessionBeforeSend = controller.state.sessions.find((item) => item.key === sessionId);
         if (sessionId === pendingNewSessionId) {
           controller.state.activeSessionKey = "";
           controller.state.activeChatId = "";
@@ -269,6 +283,16 @@ export function createDesktopAppServices(): AppServices {
           : result.status === "creating"
             ? result.pendingContent
             : "";
+        const optimisticTitle = autoSessionTitleFromMessage(optimisticText);
+        if (result.status === "creating") {
+          pendingNewSessionTitle = optimisticTitle;
+        } else if (
+          result.status === "sent"
+          && optimisticTitle
+          && shouldPersistAutoSessionTitle(selectedSessionBeforeSend?.title)
+        ) {
+          await persistAutoSessionTitle(sessionKeyForChat(result.chatId), optimisticTitle);
+        }
         notifySession(sessionId, {
           type: "message-sent",
           ...(optimisticText ? { message: createOptimisticUserMessage(optimisticText) } : {}),
@@ -398,6 +422,18 @@ function createOptimisticUserMessage(text: string): ReactChatMessage {
     text,
     status: "complete",
   };
+}
+
+function autoSessionTitleFromMessage(text: string): string {
+  const firstLine = text.trim().split(/\r?\n/, 1)[0]?.trim() ?? "";
+  return firstLine.slice(0, 80);
+}
+
+function shouldPersistAutoSessionTitle(title: string | undefined): boolean {
+  const normalized = (title ?? "").trim();
+  return !normalized
+    || normalized === "New session"
+    || normalized.startsWith("Desktop Session websocket:");
 }
 
 function mapContextReference(reference: NativeChatReference, index: number) {

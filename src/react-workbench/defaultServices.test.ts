@@ -116,4 +116,45 @@ describe("default desktop app services", () => {
       type: "message-sent",
     }));
   });
+
+  test("persists the first user message as the title for default sessions", async () => {
+    mocks.gatewayApi.sessions.list.mockResolvedValue({
+      items: [{ key: "websocket:chat-1", chat_id: "chat-1", title: "Desktop Session websocket:chat-1" }],
+    });
+    const services = createDesktopAppServices();
+    await services.sessionStore.list();
+
+    await services.chatStore.send("websocket:chat-1", { text: "你好\n第二行", usePersistentRag: true });
+
+    expect(mocks.gatewayApi.sessions.patch).toHaveBeenCalledWith("websocket:chat-1", {
+      title: "你好",
+    });
+  });
+
+  test("persists the first user message title after a pending session is created", async () => {
+    const services = createDesktopAppServices();
+    const pending = await services.sessionStore.create();
+
+    await services.chatStore.send(pending.id, { text: "帮我总结一份文档", usePersistentRag: true });
+    const socket = mocks.openGatewaySocket.mock.results[0]?.value;
+    socket.handlers.onEvent({
+      kind: "chat.created",
+      chatId: "chat-new",
+      raw: {},
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mocks.gatewayApi.sessions.patch).toHaveBeenCalledWith("websocket:chat-new", {
+      title: "帮我总结一份文档",
+    });
+  });
+
+  test("does not overwrite existing custom session titles", async () => {
+    const services = createDesktopAppServices();
+    await services.sessionStore.list();
+
+    await services.chatStore.send("websocket:chat-1", { text: "new title candidate", usePersistentRag: true });
+
+    expect(mocks.gatewayApi.sessions.patch).not.toHaveBeenCalled();
+  });
 });
