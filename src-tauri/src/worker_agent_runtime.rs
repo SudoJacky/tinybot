@@ -77,6 +77,7 @@ impl From<LegacyNativeAgentEventProjection> for NativeAgentEvent {
 pub struct NativeAgentRunContext {
     pub run_id: String,
     pub session_id: String,
+    pub thread_id: Option<String>,
     pub spec: Value,
     pub messages: Vec<Value>,
     pub config_snapshot: Value,
@@ -120,7 +121,11 @@ impl NativeAgentRunState {
             pending_tool_calls: Vec::new(),
             completed_tool_results: Vec::new(),
             messages: context.messages.clone(),
-            emitter: AgentRunEmitter::new(&context.session_id, &context.run_id),
+            emitter: AgentRunEmitter::new_with_thread_id(
+                &context.session_id,
+                &context.run_id,
+                context.thread_id.clone(),
+            ),
             usage: Vec::new(),
             tools_used: Vec::new(),
             stop_reason: None,
@@ -565,7 +570,7 @@ impl DerefMut for NativeToolResultEnvelope {
 }
 
 impl NativeAgentToolResult {
-    fn generic_success(tool_call: &NativeAgentToolCall, raw_content: Value) -> Self {
+    pub fn generic_success(tool_call: &NativeAgentToolCall, raw_content: Value) -> Self {
         let envelope = NativeToolResultEnvelope::generic_success(tool_call, raw_content);
         let model_content = envelope
             .get("modelContent")
@@ -661,6 +666,15 @@ impl NativeAgentRuntimeServices {
 
     pub fn with_trace_sink(mut self, trace_sink: Arc<dyn NativeAgentTraceSink>) -> Self {
         self.trace_sink = Some(trace_sink);
+        self
+    }
+
+    pub fn tool_dispatcher(&self) -> Arc<dyn NativeAgentToolDispatcher> {
+        self.tools.clone()
+    }
+
+    pub fn with_tool_dispatcher(mut self, tools: Arc<dyn NativeAgentToolDispatcher>) -> Self {
+        self.tools = tools;
         self
     }
 
@@ -1837,6 +1851,10 @@ impl NativeAgentRunContext {
             .get("metadata")
             .cloned()
             .unwrap_or_else(|| serde_json::json!({}));
+        let thread_id = string_field(&spec, "threadId")
+            .or_else(|| string_field(&spec, "thread_id"))
+            .or_else(|| string_field(&metadata, "threadId"))
+            .or_else(|| string_field(&metadata, "thread_id"));
         let model = normalized_model(&spec, &metadata, &config_snapshot);
         let provider = normalized_provider(&spec, &metadata, &config_snapshot);
         let max_iterations = spec
@@ -1869,6 +1887,7 @@ impl NativeAgentRunContext {
         Self {
             run_id,
             session_id,
+            thread_id,
             messages,
             spec,
             config_snapshot,
@@ -3180,9 +3199,10 @@ fn cancelled_run_result(
             "stopReason": "cancelled",
         }),
     );
-    let mut emitter = AgentRunEmitter::from_existing_events(
+    let mut emitter = AgentRunEmitter::from_existing_events_with_thread_id(
         &context.session_id,
         &context.run_id,
+        context.thread_id.clone(),
         &runtime_events,
     );
     runtime_events.push(emitter.cancelled_with_payload(
@@ -3220,7 +3240,11 @@ fn waiting_runtime_events(
     trigger_event_name: &str,
     events: Vec<(&'static str, Option<String>, AgentRuntimePhase, Value)>,
 ) -> Vec<AgentRuntimeEventEnvelope> {
-    let mut emitter = AgentRunEmitter::new(&context.session_id, &context.run_id);
+    let mut emitter = AgentRunEmitter::new_with_thread_id(
+        &context.session_id,
+        &context.run_id,
+        context.thread_id.clone(),
+    );
     emitter.emit(AgentRuntimeEventAppendInput {
         parent_turn_id: None,
         item_id: None,

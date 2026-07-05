@@ -21,6 +21,7 @@ import { createDesktopNativeCoworkApi } from "../app-core/native/desktopNativeCo
 import { createDesktopNativeKnowledgeApi } from "../app-core/native/desktopNativeKnowledge";
 import { createDesktopNativeSessionsApi } from "../app-core/native/desktopNativeSessions";
 import { createDesktopNativeSkillsApi } from "../app-core/native/desktopNativeSkills";
+import { createDesktopNativeThreadsApi } from "../app-core/native/desktopNativeThreads";
 import { createDesktopNativeTransportApi } from "../app-core/native/desktopNativeTransport";
 import { toDesktopNativeTauriEventName } from "../app-core/native/desktopNativeTauriEvents";
 import { createDesktopNativeWebuiApi } from "../app-core/native/desktopNativeWebui";
@@ -53,6 +54,7 @@ export function createDesktopAppServices(): AppServices {
   const nativeKnowledge = nativeMode ? createDesktopNativeKnowledgeApi({ invoke }) : undefined;
   const nativeSessions = nativeMode ? createDesktopNativeSessionsApi({ invoke }) : undefined;
   const nativeSkills = nativeMode ? createDesktopNativeSkillsApi({ invoke }) : undefined;
+  const nativeThreads = nativeMode ? createDesktopNativeThreadsApi({ invoke }) : undefined;
   const nativeTransport = nativeMode ? createDesktopNativeTransportApi({ invoke }) : undefined;
   const nativeWebui = nativeMode ? createDesktopNativeWebuiApi({ invoke }) : undefined;
   const nativeWorkspace = nativeMode ? createDesktopNativeWorkspaceApi({ invoke }) : undefined;
@@ -63,6 +65,7 @@ export function createDesktopAppServices(): AppServices {
     nativeKnowledge,
     nativeSessions,
     nativeSkills,
+    nativeThreads,
     nativeWebui,
     nativeWorkspace,
     tsCoworkRuntime: DEFAULT_TS_COWORK_RUNTIME_ROLLOUT,

@@ -32,6 +32,7 @@ pub mod worker_diagnostics;
 pub mod worker_knowledge;
 pub mod worker_manager;
 pub mod worker_memory;
+pub mod worker_permission_profile;
 pub mod worker_protocol;
 pub mod worker_request_id;
 pub mod worker_rpc;
@@ -43,6 +44,9 @@ pub mod worker_stdio;
 pub mod worker_storage;
 pub mod worker_subagent_manager;
 pub mod worker_task;
+pub mod worker_thread;
+pub mod worker_tool_executor;
+pub mod worker_tool_registry;
 pub mod worker_workspace;
 
 use crate::agent_loop_runtime_protocol::{
@@ -70,7 +74,8 @@ use crate::native_backend_contract::{
     webui_route_inventory_entry, NativeCompatibilityFallbackDiagnostic,
 };
 use crate::worker_agent_runtime::{
-    run_native_agent_turn_with_config, NativeAgentRuntimeServices, NativeAgentTraceSink,
+    run_native_agent_turn_with_config, NativeAgentRunContext, NativeAgentRuntimeServices,
+    NativeAgentToolCall, NativeAgentToolDispatcher, NativeAgentToolResult, NativeAgentTraceSink,
 };
 use crate::worker_background::BackgroundTraceEvent;
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
@@ -148,6 +153,111 @@ impl NativeAgentTraceSink for NativeAgentRunTraceSink {
     }
 }
 
+#[derive(Clone)]
+struct NativeAgentToolExecutorDispatcher {
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    fallback: Arc<dyn NativeAgentToolDispatcher>,
+}
+
+impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
+    fn dispatch(
+        &self,
+        context: &NativeAgentRunContext,
+        tool_call: &NativeAgentToolCall,
+    ) -> Result<NativeAgentToolResult, String> {
+        if native_agent_tool_executor_should_fallback(&tool_call.name) {
+            return self.fallback.dispatch(context, tool_call);
+        }
+        let arguments: serde_json::Value = serde_json::from_str(&tool_call.arguments_json)
+            .map_err(|error| {
+                format!(
+                    "native tool `{}` arguments are invalid JSON: {error}",
+                    tool_call.name
+                )
+            })?;
+        let request_id = next_worker_request_correlation();
+        let executor_result = call_rust_state_service(
+            self.workspace_root.clone(),
+            self.config_snapshot.clone(),
+            WorkerRequest::new(
+                request_id.id("native-tool-executor"),
+                request_id.trace_id("native-tool-executor"),
+                "tool_executor.execute",
+                serde_json::json!({
+                    "toolId": tool_call.name,
+                    "arguments": arguments,
+                }),
+            ),
+            "native tool executor",
+        );
+        match executor_result {
+            Ok(executor_result) => {
+                let raw_result = executor_result
+                    .get("result")
+                    .cloned()
+                    .unwrap_or_else(|| executor_result.clone());
+                let model_content = native_tool_executor_model_content(&raw_result);
+                Ok(NativeAgentToolResult::generic_success(
+                    tool_call,
+                    serde_json::json!({
+                        "content": model_content,
+                        "result": raw_result,
+                        "executor": executor_result,
+                    }),
+                ))
+            }
+            Err(_error) if native_agent_tool_executor_can_fallback(tool_call) => {
+                self.fallback.dispatch(context, tool_call)
+            }
+            Err(error) => Err(error),
+        }
+    }
+}
+
+fn native_agent_tool_executor_should_fallback(tool_name: &str) -> bool {
+    matches!(
+        tool_name,
+        "subagent.spawn"
+            | "subagent.send_input"
+            | "subagent.wait"
+            | "subagent.query"
+            | "subagent.cancel"
+            | "subagent.close"
+            | "spawn_agent"
+            | "send_input"
+            | "wait_agent"
+            | "close_agent"
+    )
+}
+
+fn native_agent_tool_executor_can_fallback(tool_call: &NativeAgentToolCall) -> bool {
+    !tool_call.result.is_null()
+}
+
+fn native_tool_executor_model_content(value: &serde_json::Value) -> String {
+    if let Some(content) = value.as_str() {
+        return content.to_string();
+    }
+    if let Some(content) = value.get("content").and_then(serde_json::Value::as_str) {
+        return content.to_string();
+    }
+    value.to_string()
+}
+
+fn native_agent_services_with_tool_executor(
+    services: NativeAgentRuntimeServices,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+) -> NativeAgentRuntimeServices {
+    let fallback = services.tool_dispatcher();
+    services.with_tool_dispatcher(Arc::new(NativeAgentToolExecutorDispatcher {
+        workspace_root,
+        config_snapshot,
+        fallback,
+    }))
+}
+
 struct GatewayRuntime {
     experimental_worker: WorkerManager,
     native_agent_runtime: NativeAgentRuntimeServices,
@@ -202,6 +312,16 @@ struct WorkerRunAgentInput {
 #[serde(rename_all = "camelCase")]
 struct WorkerRunAgentWithInputInput {
     input: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerSubmitThreadTurnInput {
+    #[serde(default)]
+    thread_id: Option<String>,
+    input: serde_json::Value,
+    #[serde(default)]
+    spec: serde_json::Value,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -274,6 +394,17 @@ struct WorkerSessionTemporaryFileUploadInput {
 struct WorkerSessionTaskProgressInput {
     key: String,
     body: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerThreadRequestInput {
+    #[serde(default = "empty_json_object")]
+    body: serde_json::Value,
+}
+
+fn empty_json_object() -> serde_json::Value {
+    serde_json::json!({})
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -519,6 +650,29 @@ struct WorkerResumeAgentApprovalInput {
     guidance: Option<String>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerResolveThreadApprovalInput {
+    thread_id: String,
+    approval_id: String,
+    approved: bool,
+    #[serde(default)]
+    scope: Option<String>,
+    #[serde(default)]
+    guidance: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerSubmitThreadFormInput {
+    thread_id: String,
+    form_id: String,
+    #[serde(default)]
+    values: serde_json::Value,
+    #[serde(default)]
+    action: Option<String>,
+}
+
 #[tauri::command]
 fn worker_probe_status() -> WorkerRuntimeStatus {
     WorkerRuntimeStatus::rust_backend_active(vec![
@@ -568,6 +722,20 @@ fn worker_run_agent_input(
     worker_run_agent_input_with_options(
         state.inner(),
         input.input,
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(120),
+    )
+}
+
+#[tauri::command]
+fn worker_submit_thread_turn(
+    input: WorkerSubmitThreadTurnInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_submit_thread_turn_with_options(
+        state.inner(),
+        input,
         native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(120),
@@ -855,6 +1023,310 @@ fn worker_session_task_progress(
     worker_session_task_progress_with_options(
         state.inner(),
         input.key,
+        input.body,
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_thread_create(
+    input: WorkerThreadRequestInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_thread_request_with_options(
+        state.inner(),
+        "thread-create",
+        "thread.create",
+        input.body,
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_thread_read(
+    input: WorkerThreadRequestInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_thread_request_with_options(
+        state.inner(),
+        "thread-read",
+        "thread.read",
+        input.body,
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_thread_resume(
+    input: WorkerThreadRequestInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_thread_request_with_options(
+        state.inner(),
+        "thread-resume",
+        "thread.resume",
+        input.body,
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_threads_list(
+    input: WorkerThreadRequestInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_thread_request_with_options(
+        state.inner(),
+        "thread-list",
+        "thread.list",
+        input.body,
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_thread_search(
+    input: WorkerThreadRequestInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_thread_request_with_options(
+        state.inner(),
+        "thread-search",
+        "thread.search",
+        input.body,
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_thread_activity(
+    input: WorkerThreadRequestInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_thread_request_with_options(
+        state.inner(),
+        "thread-activity",
+        "thread.activity",
+        input.body,
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_thread_status(
+    input: WorkerThreadRequestInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_thread_request_with_options(
+        state.inner(),
+        "thread-status",
+        "thread.status",
+        input.body,
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_thread_update_metadata(
+    input: WorkerThreadRequestInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_thread_request_with_options(
+        state.inner(),
+        "thread-update-metadata",
+        "thread.update_metadata",
+        input.body,
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_thread_agent_registry(
+    input: WorkerThreadRequestInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_thread_request_with_options(
+        state.inner(),
+        "thread-agent-registry",
+        "thread.agent_registry",
+        input.body,
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_thread_start_turn(
+    input: WorkerThreadRequestInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_thread_request_with_options(
+        state.inner(),
+        "thread-start-turn",
+        "thread.start_turn",
+        input.body,
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_thread_continue_turn(
+    input: WorkerThreadRequestInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_thread_request_with_options(
+        state.inner(),
+        "thread-continue-turn",
+        "thread.continue_turn",
+        input.body,
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_thread_interrupt(
+    input: WorkerThreadRequestInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_thread_request_with_options(
+        state.inner(),
+        "thread-interrupt",
+        "thread.interrupt",
+        input.body,
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_thread_apply_op(
+    input: WorkerThreadRequestInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_thread_request_with_options(
+        state.inner(),
+        "thread-apply-op",
+        "thread.apply_op",
+        input.body,
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_thread_archive(
+    input: WorkerThreadRequestInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_thread_request_with_options(
+        state.inner(),
+        "thread-archive",
+        "thread.archive",
+        input.body,
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_thread_unarchive(
+    input: WorkerThreadRequestInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_thread_request_with_options(
+        state.inner(),
+        "thread-unarchive",
+        "thread.unarchive",
+        input.body,
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_thread_delete(
+    input: WorkerThreadRequestInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_thread_request_with_options(
+        state.inner(),
+        "thread-delete",
+        "thread.delete",
+        input.body,
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_thread_fork(
+    input: WorkerThreadRequestInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_thread_request_with_options(
+        state.inner(),
+        "thread-fork",
+        "thread.fork",
+        input.body,
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_thread_events(
+    input: WorkerThreadRequestInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_thread_request_with_options(
+        state.inner(),
+        "thread-events",
+        "thread.events",
+        input.body,
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_thread_restore_checkpoint(
+    input: WorkerThreadRequestInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_thread_request_with_options(
+        state.inner(),
+        "thread-restore-checkpoint",
+        "thread.restore_checkpoint",
         input.body,
         native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
@@ -1417,6 +1889,34 @@ fn worker_resume_agent_approval(
 }
 
 #[tauri::command]
+fn worker_resolve_thread_approval(
+    input: WorkerResolveThreadApprovalInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_resolve_thread_approval_with_options(
+        state.inner(),
+        input,
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(120),
+    )
+}
+
+#[tauri::command]
+fn worker_submit_thread_form(
+    input: WorkerSubmitThreadFormInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_submit_thread_form_with_options(
+        state.inner(),
+        input,
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(120),
+    )
+}
+
+#[tauri::command]
 fn apply_config_patch_result(
     result: ConfigPatchBridgeResult,
 ) -> Result<ConfigPatchApplyResult, String> {
@@ -1547,7 +2047,12 @@ fn worker_run_agent_with_options(
         config_snapshot.clone(),
     )
     .err();
-    let services = base_services.with_trace_sink(Arc::new(NativeAgentRunTraceSink {
+    let services = native_agent_services_with_tool_executor(
+        base_services,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+    )
+    .with_trace_sink(Arc::new(NativeAgentRunTraceSink {
         workspace_root: workspace_root.clone(),
         config_snapshot: config_snapshot.clone(),
     }));
@@ -1932,7 +2437,11 @@ fn native_agent_runtime_trace_events(
         return native_agent_persisted_trace_values(runtime_events);
     }
 
-    let mut appender = AgentRuntimeEventAppender::new(session_id, run_id);
+    let mut appender = AgentRuntimeEventAppender::new_with_thread_id(
+        session_id,
+        run_id,
+        native_agent_thread_id(spec),
+    );
     let user_message = native_agent_current_user_message(spec);
     let user_message_id = user_message.as_ref().and_then(native_agent_message_id);
     let mut trace_events = vec![native_agent_persisted_runtime_event(appender.append(
@@ -2285,6 +2794,19 @@ fn native_agent_current_user_message(spec: &serde_json::Value) -> Option<serde_j
     native_agent_user_messages(spec).into_iter().last()
 }
 
+fn native_agent_thread_id(spec: &serde_json::Value) -> Option<String> {
+    native_agent_string_field(spec, "threadId")
+        .or_else(|| native_agent_string_field(spec, "thread_id"))
+        .or_else(|| {
+            spec.get("metadata")
+                .and_then(|metadata| native_agent_string_field(metadata, "threadId"))
+        })
+        .or_else(|| {
+            spec.get("metadata")
+                .and_then(|metadata| native_agent_string_field(metadata, "thread_id"))
+        })
+}
+
 fn native_agent_message_id(message: &serde_json::Value) -> Option<String> {
     message
         .get("messageId")
@@ -2432,6 +2954,200 @@ fn worker_run_agent_input_with_options(
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
     worker_run_agent_with_options(shared, input, workspace_root, config_snapshot, timeout)
+}
+
+fn worker_submit_thread_turn_with_options(
+    shared: &SharedGateway,
+    input: WorkerSubmitThreadTurnInput,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let thread = ensure_thread_turn_target(
+        input.thread_id,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+    )?;
+    let thread_id = thread_thread_id(&thread)?;
+    let session_id = thread_session_key(&thread).unwrap_or_else(|| thread_id.clone());
+    let run_id = native_agent_run_id(&input.spec).unwrap_or_else(generate_thread_turn_run_id);
+    let mut spec = if input.spec.is_object() {
+        input.spec
+    } else {
+        serde_json::json!({})
+    };
+    let spec_object = spec
+        .as_object_mut()
+        .ok_or_else(|| "thread turn spec must be a JSON object".to_string())?;
+    spec_object.insert(
+        "runtime".to_string(),
+        spec_object
+            .get("runtime")
+            .cloned()
+            .unwrap_or_else(|| serde_json::Value::String("rust".to_string())),
+    );
+    spec_object.insert(
+        "sessionId".to_string(),
+        serde_json::Value::String(session_id.clone()),
+    );
+    spec_object.insert(
+        "runId".to_string(),
+        serde_json::Value::String(run_id.clone()),
+    );
+    if !spec_object.contains_key("messages") {
+        spec_object.insert(
+            "messages".to_string(),
+            normalize_thread_turn_messages(input.input),
+        );
+    }
+    let metadata = spec_object
+        .entry("metadata".to_string())
+        .or_insert_with(|| serde_json::json!({}));
+    if let Some(metadata_object) = metadata.as_object_mut() {
+        metadata_object.insert(
+            "threadId".to_string(),
+            serde_json::Value::String(thread_id.clone()),
+        );
+    }
+
+    let mut agent_result = worker_run_agent_with_options(
+        shared,
+        spec,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+        timeout,
+    )?;
+    let snapshot = read_thread_snapshot(
+        &thread_id,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+        "submitted thread turn snapshot",
+    )?;
+    agent_result["threadId"] = serde_json::Value::String(thread_id.clone());
+    agent_result["threadSnapshot"] = snapshot.clone();
+    Ok(serde_json::json!({
+        "threadId": thread_id,
+        "sessionId": session_id,
+        "runId": run_id,
+        "agentResult": agent_result,
+        "snapshot": snapshot,
+    }))
+}
+
+fn ensure_thread_turn_target(
+    thread_id: Option<String>,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    match thread_id {
+        Some(thread_id) if !thread_id.trim().is_empty() => {
+            let snapshot = read_thread_snapshot(
+                &thread_id,
+                workspace_root,
+                config_snapshot,
+                "thread turn target read",
+            )?;
+            snapshot
+                .get("thread")
+                .cloned()
+                .ok_or_else(|| "thread turn target read returned no thread".to_string())
+        }
+        _ => {
+            let generated_thread_id = generate_thread_turn_thread_id();
+            let request_id = next_worker_request_correlation();
+            call_rust_state_service(
+                workspace_root,
+                config_snapshot,
+                WorkerRequest::new(
+                    request_id.id("thread-turn-create"),
+                    request_id.trace_id("thread-turn-create"),
+                    "thread.create",
+                    serde_json::json!({
+                        "threadId": generated_thread_id,
+                        "sessionKey": generated_thread_id,
+                    }),
+                ),
+                "thread turn target create",
+            )
+        }
+    }
+}
+
+fn read_thread_snapshot(
+    thread_id: &str,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    label: &str,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("thread-turn-read"),
+            request_id.trace_id("thread-turn-read"),
+            "thread.read",
+            serde_json::json!({ "threadId": thread_id }),
+        ),
+        label,
+    )
+}
+
+fn thread_thread_id(thread: &serde_json::Value) -> Result<String, String> {
+    thread
+        .get("threadId")
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| "thread target is missing threadId".to_string())
+}
+
+fn thread_session_key(thread: &serde_json::Value) -> Option<String> {
+    thread
+        .get("sessionKey")
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string)
+}
+
+fn normalize_thread_turn_messages(input: serde_json::Value) -> serde_json::Value {
+    if input
+        .as_array()
+        .is_some_and(|messages| !messages.is_empty())
+    {
+        return input;
+    }
+    if input
+        .get("messages")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|messages| !messages.is_empty())
+    {
+        return input
+            .get("messages")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!([]));
+    }
+    let content = input
+        .get("content")
+        .or_else(|| input.get("text"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            if input.is_string() {
+                input.as_str().unwrap_or_default().to_string()
+            } else {
+                input.to_string()
+            }
+        });
+    serde_json::json!([{ "role": "user", "content": content }])
+}
+
+fn generate_thread_turn_thread_id() -> String {
+    format!("thread-turn-{}", now_unix_ms())
+}
+
+fn generate_thread_turn_run_id() -> String {
+    format!("run-thread-turn-{}", now_unix_ms())
 }
 
 fn worker_skills_list_with_options(
@@ -3940,14 +4656,30 @@ fn native_webui_approval_resolution_body(
 
     let continuation_spec =
         native_approval_continuation_spec(&checkpoint, body, &approval_id, approved);
-    let services = {
+    let base_services = {
         let runtime = lock_runtime(shared);
         runtime.native_agent_runtime.clone()
     };
-    services.save_checkpoint(session_key, checkpoint.clone());
+    base_services.save_checkpoint(session_key, checkpoint.clone());
+    let services = native_agent_services_with_tool_executor(
+        base_services,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+    );
     let mut continuation = run_native_agent_turn_with_config(
         &services,
         continuation_spec.clone(),
+        config_snapshot.clone(),
+    )?;
+    persist_native_agent_run_record(
+        continuation_spec.clone(),
+        &mut continuation,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+    )?;
+    persist_native_agent_checkpoint_if_present(
+        &continuation,
+        workspace_root.clone(),
         config_snapshot.clone(),
     )?;
     persist_native_agent_turn_if_final(
@@ -4157,14 +4889,30 @@ fn native_webui_agent_ui_form_resolution_body(
 
     let continuation_spec =
         native_agent_ui_form_continuation_spec(&checkpoint, body, &form_id, &values, cancelled);
-    let services = {
+    let base_services = {
         let runtime = lock_runtime(shared);
         runtime.native_agent_runtime.clone()
     };
-    services.save_checkpoint(&session_key, checkpoint);
+    base_services.save_checkpoint(&session_key, checkpoint);
+    let services = native_agent_services_with_tool_executor(
+        base_services,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+    );
     let mut continuation = run_native_agent_turn_with_config(
         &services,
         continuation_spec.clone(),
+        config_snapshot.clone(),
+    )?;
+    persist_native_agent_run_record(
+        continuation_spec.clone(),
+        &mut continuation,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+    )?;
+    persist_native_agent_checkpoint_if_present(
+        &continuation,
+        workspace_root.clone(),
         config_snapshot.clone(),
     )?;
     persist_native_agent_turn_if_final(
@@ -5261,6 +6009,29 @@ fn worker_task_plan_delete_with_options(
     )
 }
 
+fn worker_thread_request_with_options(
+    _shared: &SharedGateway,
+    request_suffix: &str,
+    method: &str,
+    body: serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id(request_suffix),
+            request_id.trace_id(request_suffix),
+            method,
+            body,
+        ),
+        request_suffix,
+    )
+}
+
 fn dispatch_rust_task_request(
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -5448,30 +6219,155 @@ fn dispatch_rust_knowledge_request(
 }
 
 fn worker_submit_agent_form_with_options(
-    _shared: &SharedGateway,
-    _session_id: String,
-    _form_id: String,
-    _values: serde_json::Value,
-    _action: Option<String>,
-    _workspace_root: PathBuf,
-    _config_snapshot: serde_json::Value,
+    shared: &SharedGateway,
+    session_id: String,
+    form_id: String,
+    values: serde_json::Value,
+    action: Option<String>,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    unsupported_rust_only_command("worker_submit_agent_form")
+    let cancelled = thread_form_action_is_cancel(action.as_deref());
+    let (status_code, mut body) = native_webui_agent_ui_form_resolution_body(
+        shared,
+        form_id,
+        &serde_json::json!({
+            "session_key": session_id,
+            "values": values,
+            "action": action,
+        }),
+        cancelled,
+        workspace_root,
+        config_snapshot,
+    )?;
+    body["statusCode"] = serde_json::Value::Number(status_code.into());
+    Ok(body)
 }
 
 fn worker_resume_agent_approval_with_options(
-    _shared: &SharedGateway,
-    _session_id: String,
-    _approval_id: String,
-    _approved: bool,
-    _scope: Option<String>,
-    _guidance: Option<String>,
-    _workspace_root: PathBuf,
-    _config_snapshot: serde_json::Value,
+    shared: &SharedGateway,
+    session_id: String,
+    approval_id: String,
+    approved: bool,
+    scope: Option<String>,
+    guidance: Option<String>,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    unsupported_rust_only_command("worker_resume_agent_approval")
+    native_webui_approval_resolution_body(
+        shared,
+        approval_id,
+        &serde_json::json!({
+            "session_key": session_id,
+            "scope": scope,
+            "guidance": guidance,
+        }),
+        approved,
+        workspace_root,
+        config_snapshot,
+    )
+}
+
+fn worker_resolve_thread_approval_with_options(
+    shared: &SharedGateway,
+    input: WorkerResolveThreadApprovalInput,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let thread = read_thread_target(
+        &input.thread_id,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+        "thread approval target read",
+    )?;
+    let thread_id = thread_thread_id(&thread)?;
+    let session_id = thread_session_key(&thread).unwrap_or_else(|| thread_id.clone());
+    let mut result = worker_resume_agent_approval_with_options(
+        shared,
+        session_id.clone(),
+        input.approval_id,
+        input.approved,
+        input.scope,
+        input.guidance,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+        timeout,
+    )?;
+    let snapshot = read_thread_snapshot(
+        &thread_id,
+        workspace_root,
+        config_snapshot,
+        "thread approval snapshot",
+    )?;
+    result["threadId"] = serde_json::Value::String(thread_id.clone());
+    result["threadSnapshot"] = snapshot.clone();
+    Ok(serde_json::json!({
+        "threadId": thread_id,
+        "sessionId": session_id,
+        "approvalResult": result,
+        "snapshot": snapshot,
+    }))
+}
+
+fn worker_submit_thread_form_with_options(
+    shared: &SharedGateway,
+    input: WorkerSubmitThreadFormInput,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let thread = read_thread_target(
+        &input.thread_id,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+        "thread form target read",
+    )?;
+    let thread_id = thread_thread_id(&thread)?;
+    let session_id = thread_session_key(&thread).unwrap_or_else(|| thread_id.clone());
+    let mut result = worker_submit_agent_form_with_options(
+        shared,
+        session_id.clone(),
+        input.form_id,
+        input.values,
+        input.action,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+        timeout,
+    )?;
+    let snapshot = read_thread_snapshot(
+        &thread_id,
+        workspace_root,
+        config_snapshot,
+        "thread form snapshot",
+    )?;
+    result["threadId"] = serde_json::Value::String(thread_id.clone());
+    result["threadSnapshot"] = snapshot.clone();
+    Ok(serde_json::json!({
+        "threadId": thread_id,
+        "sessionId": session_id,
+        "formResult": result,
+        "snapshot": snapshot,
+    }))
+}
+
+fn read_thread_target(
+    thread_id: &str,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    label: &str,
+) -> Result<serde_json::Value, String> {
+    let snapshot = read_thread_snapshot(thread_id, workspace_root, config_snapshot, label)?;
+    snapshot
+        .get("thread")
+        .cloned()
+        .ok_or_else(|| "thread target read returned no thread".to_string())
+}
+
+fn thread_form_action_is_cancel(action: Option<&str>) -> bool {
+    matches!(action, Some("cancel" | "cancelled" | "dismiss"))
 }
 
 fn ensure_experimental_fixture_worker_running(
@@ -5774,6 +6670,7 @@ pub fn run() {
             worker_echo_agent,
             worker_run_agent,
             worker_run_agent_input,
+            worker_submit_thread_turn,
             worker_skills_list,
             worker_skills_detail,
             worker_skills_create,
@@ -5795,6 +6692,25 @@ pub fn run() {
             worker_session_branch,
             worker_session_clear,
             worker_session_task_progress,
+            worker_thread_create,
+            worker_thread_read,
+            worker_thread_resume,
+            worker_threads_list,
+            worker_thread_search,
+            worker_thread_activity,
+            worker_thread_status,
+            worker_thread_update_metadata,
+            worker_thread_agent_registry,
+            worker_thread_start_turn,
+            worker_thread_continue_turn,
+            worker_thread_interrupt,
+            worker_thread_apply_op,
+            worker_thread_archive,
+            worker_thread_unarchive,
+            worker_thread_delete,
+            worker_thread_fork,
+            worker_thread_events,
+            worker_thread_restore_checkpoint,
             worker_cowork_route,
             worker_webui_route,
             worker_transport_gateway_frame,
@@ -5833,6 +6749,8 @@ pub fn run() {
             worker_knowledge_graph,
             worker_submit_agent_form,
             worker_resume_agent_approval,
+            worker_resolve_thread_approval,
+            worker_submit_thread_form,
             worker_cron_dispatch_due,
             get_config_editor_snapshot,
             apply_config_patch_result,
@@ -6993,6 +7911,165 @@ mod tests {
     }
 
     #[test]
+    fn worker_run_agent_projects_real_rust_run_into_thread_history() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let config = serde_json::json!({
+            "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+            "providers": {
+                "fixture": {
+                    "responses": [
+                        {
+                            "content": "",
+                            "toolCalls": [{
+                                "id": "call-thread-run-trace",
+                                "name": "workspace.read_file",
+                                "argumentsJson": "{\"path\":\"README.md\"}",
+                                "result": { "content": "README thread body" }
+                            }]
+                        },
+                        { "content": "thread projected answer" }
+                    ]
+                }
+            }
+        });
+        let session_id = "websocket:chat-thread-real-run";
+
+        let result = worker_run_agent_with_options(
+            &shared,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-thread-real",
+                "sessionId": session_id,
+                "maxIterations": 2,
+                "messages": [{
+                    "role": "user",
+                    "content": "read README into thread",
+                    "messageId": "user-thread-real"
+                }]
+            }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("Rust runtime should complete tool-backed turn");
+        assert_eq!(result["stopReason"], "final_response");
+
+        let thread_list = call_rust_state_service(
+            fixture.root.clone(),
+            config.clone(),
+            WorkerRequest::new(
+                "req-real-run-thread-list",
+                "trace-real-run-thread-list",
+                "thread.list",
+                serde_json::json!({ "includeArchived": true }),
+            ),
+            "real run thread list",
+        )
+        .expect("real Rust run should be visible in thread list");
+        let thread = thread_list["threads"]
+            .as_array()
+            .expect("thread list should be an array")
+            .iter()
+            .find(|thread| thread["sessionKey"] == session_id)
+            .expect("real Rust run should create a session-linked thread");
+        let thread_id = thread["threadId"]
+            .as_str()
+            .expect("thread id should be present")
+            .to_string();
+
+        let snapshot = call_rust_state_service(
+            fixture.root.clone(),
+            config,
+            WorkerRequest::new(
+                "req-real-run-thread-read",
+                "trace-real-run-thread-read",
+                "thread.read",
+                serde_json::json!({ "threadId": thread_id }),
+            ),
+            "real run thread read",
+        )
+        .expect("real Rust run thread should be readable");
+        let item_kinds = snapshot["items"]
+            .as_array()
+            .expect("thread items should be an array")
+            .iter()
+            .map(|item| item["kind"]["type"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>();
+
+        assert!(item_kinds.contains(&"user_message".to_string()));
+        assert!(item_kinds.contains(&"tool_call_output".to_string()));
+        assert!(item_kinds.contains(&"assistant_message_completed".to_string()));
+        assert!(item_kinds.contains(&"agent_run_completed".to_string()));
+        assert_eq!(snapshot["activeRun"], serde_json::json!(null));
+        assert_eq!(snapshot["thread"]["status"], "idle");
+    }
+
+    #[test]
+    fn worker_run_agent_uses_native_tool_executor_for_registered_workspace_tool() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("README.md", "actual executor README body");
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let config = serde_json::json!({
+            "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+            "providers": {
+                "fixture": {
+                    "responses": [
+                        {
+                            "content": "",
+                            "toolCalls": [{
+                                "id": "call-native-executor-read",
+                                "name": "workspace.read_file",
+                                "argumentsJson": "{\"path\":\"README.md\"}",
+                                "result": { "content": "fixture result should not be used" }
+                            }]
+                        },
+                        { "content": "executor-backed final" }
+                    ]
+                }
+            }
+        });
+
+        let result = worker_run_agent_with_options(
+            &shared,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-native-tool-executor",
+                "sessionId": "websocket:chat-native-tool-executor",
+                "maxIterations": 2,
+                "messages": [{
+                    "role": "user",
+                    "content": "read README through executor"
+                }]
+            }),
+            fixture.root.clone(),
+            config,
+            Duration::from_millis(10),
+        )
+        .expect("Rust runtime should complete executor-backed tool call");
+
+        assert_eq!(result["stopReason"], "final_response");
+        let tool_result = result["runtimeEvents"]
+            .as_array()
+            .expect("runtime events should be an array")
+            .iter()
+            .find(|event| event["eventName"] == "agent.tool.result")
+            .expect("tool result event should be emitted");
+        assert_eq!(
+            tool_result["payload"]["envelope"]["raw"]["executor"]["toolId"],
+            "workspace.read_file"
+        );
+        assert_eq!(
+            tool_result["payload"]["envelope"]["raw"]["result"]["contents"],
+            "actual executor README body"
+        );
+        assert_ne!(
+            tool_result["payload"]["content"],
+            "fixture result should not be used"
+        );
+    }
+
+    #[test]
     fn worker_run_agent_persists_waiting_approval_run_record() {
         let fixture = WorkspaceFixture::new();
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
@@ -7034,6 +8111,571 @@ mod tests {
             run["pendingToolCalls"][0]["toolCallId"],
             "approval-waiting-persist"
         );
+    }
+
+    #[test]
+    fn worker_run_agent_projects_waiting_approval_into_thread_status() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let config = serde_json::json!({});
+        let session_id = "websocket:chat-thread-waiting";
+        let run_id = "run-thread-waiting";
+
+        let result = worker_run_agent_with_options(
+            &shared,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": run_id,
+                "sessionId": session_id,
+                "messages": [{ "role": "user", "content": "needs approval" }],
+                "metadata": {
+                    "fakeAwaitingApproval": {
+                        "approvalId": "approval-thread-waiting",
+                        "toolName": "workspace.write_file"
+                    }
+                }
+            }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("Rust runtime should return waiting approval");
+        assert_eq!(result["stopReason"], "awaiting_approval");
+
+        let thread_list = call_rust_state_service(
+            fixture.root.clone(),
+            config.clone(),
+            WorkerRequest::new(
+                "req-waiting-thread-list",
+                "trace-waiting-thread-list",
+                "thread.list",
+                serde_json::json!({ "includeArchived": true }),
+            ),
+            "waiting approval thread list",
+        )
+        .expect("waiting run should be visible in thread list");
+        let thread = thread_list["threads"]
+            .as_array()
+            .expect("thread list should be an array")
+            .iter()
+            .find(|thread| thread["sessionKey"] == session_id)
+            .expect("waiting run should have a session-linked thread");
+        let thread_id = thread["threadId"].as_str().unwrap().to_string();
+
+        let status = call_rust_state_service(
+            fixture.root.clone(),
+            config.clone(),
+            WorkerRequest::new(
+                "req-waiting-thread-status",
+                "trace-waiting-thread-status",
+                "thread.status",
+                serde_json::json!({ "threadId": thread_id.clone() }),
+            ),
+            "waiting approval thread status",
+        )
+        .expect("waiting approval thread status should read");
+        assert_eq!(status["thread"]["status"], "waiting_for_approval");
+        assert_eq!(status["activeRun"]["runId"], run_id);
+        assert_eq!(status["activeRun"]["status"], "waiting_for_approval");
+
+        let snapshot = call_rust_state_service(
+            fixture.root.clone(),
+            config,
+            WorkerRequest::new(
+                "req-waiting-thread-read",
+                "trace-waiting-thread-read",
+                "thread.read",
+                serde_json::json!({ "threadId": thread_id }),
+            ),
+            "waiting approval thread read",
+        )
+        .expect("waiting approval thread should be readable");
+        assert!(snapshot["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["kind"]["type"] == "approval_requested"));
+    }
+
+    #[test]
+    fn worker_submit_thread_turn_creates_thread_and_runs_native_agent() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let config = serde_json::json!({
+            "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+            "providers": {
+                "fixture": {
+                    "responses": [{ "content": "thread-first answer" }]
+                }
+            }
+        });
+
+        let result = worker_submit_thread_turn_with_options(
+            &shared,
+            WorkerSubmitThreadTurnInput {
+                thread_id: None,
+                input: serde_json::json!({ "content": "answer from a new thread" }),
+                spec: serde_json::json!({
+                    "runtime": "rust",
+                    "runId": "run-thread-submit-new"
+                }),
+            },
+            fixture.root.clone(),
+            config,
+            Duration::from_millis(10),
+        )
+        .expect("thread-first submit should run native agent");
+
+        let thread_id = result["threadId"].as_str().expect("thread id").to_string();
+        assert_eq!(result["runId"], "run-thread-submit-new");
+        assert_eq!(result["sessionId"], thread_id);
+        assert_eq!(result["agentResult"]["stopReason"], "final_response");
+        assert!(result["agentResult"]["runtimeEvents"]
+            .as_array()
+            .expect("runtime events should be present")
+            .iter()
+            .all(|event| event["threadId"] == thread_id));
+        assert_eq!(
+            result["snapshot"]["thread"]["sessionKey"],
+            serde_json::Value::String(thread_id)
+        );
+        assert!(result["snapshot"]["items"]
+            .as_array()
+            .expect("thread items should be present")
+            .iter()
+            .any(|item| item["kind"]["type"] == "assistant_message_completed"));
+    }
+
+    #[test]
+    fn worker_submit_thread_turn_uses_existing_thread_session_key() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let config = serde_json::json!({
+            "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+            "providers": {
+                "fixture": {
+                    "responses": [{ "content": "existing thread answer" }]
+                }
+            }
+        });
+        let create_request = next_worker_request_correlation();
+        let thread = call_rust_state_service(
+            fixture.root.clone(),
+            config.clone(),
+            WorkerRequest::new(
+                create_request.id("existing-thread-create"),
+                create_request.trace_id("existing-thread-create"),
+                "thread.create",
+                serde_json::json!({
+                    "threadId": "thread-existing-submit",
+                    "sessionKey": "session-existing-submit",
+                    "title": "Existing thread"
+                }),
+            ),
+            "existing thread create",
+        )
+        .expect("existing thread should create");
+
+        let result = worker_submit_thread_turn_with_options(
+            &shared,
+            WorkerSubmitThreadTurnInput {
+                thread_id: Some(
+                    thread["threadId"]
+                        .as_str()
+                        .expect("created thread id")
+                        .to_string(),
+                ),
+                input: serde_json::json!("continue existing thread"),
+                spec: serde_json::json!({
+                    "runtime": "rust",
+                    "runId": "run-thread-submit-existing"
+                }),
+            },
+            fixture.root.clone(),
+            config,
+            Duration::from_millis(10),
+        )
+        .expect("existing thread submit should run native agent");
+
+        assert_eq!(result["threadId"], "thread-existing-submit");
+        assert_eq!(result["sessionId"], "session-existing-submit");
+        assert_eq!(
+            result["agentResult"]["sessionId"],
+            "session-existing-submit"
+        );
+        assert_eq!(
+            result["snapshot"]["thread"]["threadId"],
+            "thread-existing-submit"
+        );
+        assert!(result["snapshot"]["items"]
+            .as_array()
+            .expect("thread items should be present")
+            .iter()
+            .any(|item| item["runId"] == "run-thread-submit-existing"));
+    }
+
+    #[test]
+    fn worker_thread_commands_expose_thread_service_surface() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let config = serde_json::json!({});
+
+        let created = worker_thread_request_with_options(
+            &shared,
+            "test-thread-command-create",
+            "thread.create",
+            serde_json::json!({
+                "threadId": "thread-command-surface",
+                "sessionKey": "session-command-surface",
+                "title": "Command surface thread"
+            }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("thread create command should work");
+        assert_eq!(created["threadId"], "thread-command-surface");
+
+        let list = worker_thread_request_with_options(
+            &shared,
+            "test-thread-command-list",
+            "thread.list",
+            serde_json::json!({ "includeArchived": true }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("thread list command should work");
+        assert!(list["threads"]
+            .as_array()
+            .expect("threads should be an array")
+            .iter()
+            .any(|thread| thread["threadId"] == "thread-command-surface"));
+
+        let search = worker_thread_request_with_options(
+            &shared,
+            "test-thread-command-search",
+            "thread.search",
+            serde_json::json!({
+                "query": "surface",
+                "includeArchived": true,
+            }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("thread search command should work");
+        assert!(search["threads"]
+            .as_array()
+            .expect("search threads should be an array")
+            .iter()
+            .any(|thread| thread["threadId"] == "thread-command-surface"));
+
+        let read = worker_thread_request_with_options(
+            &shared,
+            "test-thread-command-read",
+            "thread.read",
+            serde_json::json!({ "threadId": "thread-command-surface" }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("thread read command should work");
+        assert_eq!(read["thread"]["threadId"], "thread-command-surface");
+
+        let resumed = worker_thread_request_with_options(
+            &shared,
+            "test-thread-command-resume",
+            "thread.resume",
+            serde_json::json!({ "threadId": "thread-command-surface" }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("thread resume command should work");
+        assert_eq!(resumed["thread"]["threadId"], "thread-command-surface");
+
+        let activity = worker_thread_request_with_options(
+            &shared,
+            "test-thread-command-activity",
+            "thread.activity",
+            serde_json::json!({ "threadId": "thread-command-surface" }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("thread activity command should work");
+        assert_eq!(activity["threadId"], "thread-command-surface");
+
+        let status = worker_thread_request_with_options(
+            &shared,
+            "test-thread-command-status",
+            "thread.status",
+            serde_json::json!({ "threadId": "thread-command-surface" }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("thread status command should work");
+        assert_eq!(status["thread"]["threadId"], "thread-command-surface");
+
+        let updated = worker_thread_request_with_options(
+            &shared,
+            "test-thread-command-update-metadata",
+            "thread.update_metadata",
+            serde_json::json!({
+                "threadId": "thread-command-surface",
+                "metadata": { "title": "Renamed command surface" }
+            }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("thread update metadata command should work");
+        assert_eq!(updated["title"], "Renamed command surface");
+
+        let registry = worker_thread_request_with_options(
+            &shared,
+            "test-thread-command-agent-registry",
+            "thread.agent_registry",
+            serde_json::json!({ "threadId": "thread-command-surface" }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("thread agent registry command should work");
+        assert_eq!(registry["rootThreadId"], "thread-command-surface");
+
+        let archived = worker_thread_request_with_options(
+            &shared,
+            "test-thread-command-archive",
+            "thread.archive",
+            serde_json::json!({ "threadId": "thread-command-surface" }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("thread archive command should work");
+        assert_eq!(archived["status"], "archived");
+
+        let unarchived = worker_thread_request_with_options(
+            &shared,
+            "test-thread-command-unarchive",
+            "thread.unarchive",
+            serde_json::json!({ "threadId": "thread-command-surface" }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("thread unarchive command should work");
+        assert_eq!(unarchived["status"], "empty");
+
+        let started = worker_thread_request_with_options(
+            &shared,
+            "test-thread-command-start-turn",
+            "thread.start_turn",
+            serde_json::json!({
+                "threadId": "thread-command-surface",
+                "runId": "run-command-surface",
+                "input": { "text": "start from command" }
+            }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("thread start turn command should work");
+        assert_eq!(started["run"]["runId"], "run-command-surface");
+        assert!(
+            started["appendedItems"]
+                .as_array()
+                .expect("start appended items should be an array")
+                .len()
+                >= 2
+        );
+
+        let continued = worker_thread_request_with_options(
+            &shared,
+            "test-thread-command-continue-turn",
+            "thread.continue_turn",
+            serde_json::json!({
+                "threadId": "thread-command-surface",
+                "runId": "run-command-surface",
+                "input": { "text": "continue from command" }
+            }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("thread continue turn command should work");
+        assert!(continued["appendedItems"]
+            .as_array()
+            .expect("continue appended items should be an array")
+            .iter()
+            .any(|item| item["runId"] == "run-command-surface"));
+
+        let applied = worker_thread_request_with_options(
+            &shared,
+            "test-thread-command-apply-op",
+            "thread.apply_op",
+            serde_json::json!({
+                "threadId": "thread-command-surface",
+                "op": {
+                    "type": "tool_call_started",
+                    "runId": "run-command-surface",
+                    "toolCallId": "tool-command-surface",
+                    "toolName": "workspace.read_file",
+                    "args": { "path": "README.md" }
+                }
+            }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("thread apply op command should work");
+        assert!(applied["appendedItems"]
+            .as_array()
+            .expect("apply-op appended items should be an array")
+            .iter()
+            .any(|item| item["kind"]["type"] == "tool_call_started"));
+
+        let interrupted = worker_thread_request_with_options(
+            &shared,
+            "test-thread-command-interrupt",
+            "thread.interrupt",
+            serde_json::json!({
+                "threadId": "thread-command-surface",
+                "runId": "run-command-surface",
+                "reason": "test interrupt"
+            }),
+            fixture.root.clone(),
+            config,
+            Duration::from_millis(10),
+        )
+        .expect("thread interrupt command should work");
+        assert!(interrupted["appendedItems"]
+            .as_array()
+            .expect("interrupt appended items should be an array")
+            .iter()
+            .any(|item| item["kind"]["type"] == "cancelled"));
+    }
+
+    #[test]
+    fn worker_resolve_thread_approval_resumes_checkpoint_and_updates_thread() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let config = serde_json::json!({
+            "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+            "providers": {
+                "fixture": {
+                    "responses": [{ "content": "approval command final" }]
+                }
+            }
+        });
+        let session_id = "websocket:chat-thread-approval-command";
+        let run_id = "run-thread-approval-command";
+        let awaiting = worker_run_agent_with_options(
+            &shared,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": run_id,
+                "sessionId": session_id,
+                "messages": [{ "role": "user", "content": "needs approval command" }],
+                "metadata": {
+                    "fakeAwaitingApproval": {
+                        "approvalId": "approval-thread-command",
+                        "toolName": "workspace.write_file"
+                    }
+                }
+            }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("awaiting approval run should persist");
+        assert_eq!(awaiting["stopReason"], "awaiting_approval");
+        let thread_id = thread_id_for_session(&fixture, &config, session_id);
+
+        let result = worker_resolve_thread_approval_with_options(
+            &shared,
+            WorkerResolveThreadApprovalInput {
+                thread_id: thread_id.clone(),
+                approval_id: "approval-thread-command".to_string(),
+                approved: true,
+                scope: Some("once".to_string()),
+                guidance: None,
+            },
+            fixture.root.clone(),
+            config,
+            Duration::from_millis(10),
+        )
+        .expect("thread approval command should resume run");
+
+        assert_eq!(result["threadId"], thread_id);
+        assert_eq!(result["sessionId"], session_id);
+        assert_eq!(result["approvalResult"]["stopReason"], "final_response");
+        assert_eq!(result["snapshot"]["thread"]["status"], "idle");
+        assert!(result["snapshot"]["items"]
+            .as_array()
+            .expect("thread items should be present")
+            .iter()
+            .any(|item| item["kind"]["type"] == "assistant_message_completed"
+                && item["runId"] == run_id));
+    }
+
+    #[test]
+    fn worker_submit_thread_form_resumes_checkpoint_and_updates_thread() {
+        let fixture = WorkspaceFixture::new();
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let config = serde_json::json!({});
+        let session_id = "websocket:chat-thread-form-command";
+        let run_id = "run-thread-form-command";
+        let awaiting = worker_run_agent_with_options(
+            &shared,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": run_id,
+                "sessionId": session_id,
+                "messages": [{ "role": "user", "content": "needs form command" }],
+                "metadata": {
+                    "fakeAwaitingForm": {
+                        "formId": "form-thread-command",
+                        "title": "Configure thread run"
+                    }
+                }
+            }),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("awaiting form run should persist");
+        assert_eq!(awaiting["stopReason"], "awaiting_form");
+        let thread_id = thread_id_for_session(&fixture, &config, session_id);
+
+        let result = worker_submit_thread_form_with_options(
+            &shared,
+            WorkerSubmitThreadFormInput {
+                thread_id: thread_id.clone(),
+                form_id: "form-thread-command".to_string(),
+                values: serde_json::json!({}),
+                action: Some("submit".to_string()),
+            },
+            fixture.root.clone(),
+            config,
+            Duration::from_millis(10),
+        )
+        .expect("thread form command should resume run");
+
+        assert_eq!(result["threadId"], thread_id);
+        assert_eq!(result["sessionId"], session_id);
+        assert_eq!(result["formResult"]["statusCode"], 200);
+        assert_eq!(result["formResult"]["stopReason"], "final_response");
+        assert_eq!(result["snapshot"]["thread"]["status"], "idle");
+        assert!(result["snapshot"]["items"]
+            .as_array()
+            .expect("thread items should be present")
+            .iter()
+            .any(|item| item["kind"]["type"] == "assistant_message_completed"
+                && item["runId"] == run_id));
     }
 
     #[test]
@@ -7339,6 +8981,34 @@ mod tests {
             "agent run read",
         )
         .expect("agent run record should persist")
+    }
+
+    fn thread_id_for_session(
+        fixture: &WorkspaceFixture,
+        config_snapshot: &serde_json::Value,
+        session_id: &str,
+    ) -> String {
+        let request_id = next_worker_request_correlation();
+        let thread_list = call_rust_state_service(
+            fixture.root.clone(),
+            config_snapshot.clone(),
+            WorkerRequest::new(
+                request_id.id("test-thread-list"),
+                request_id.trace_id("test-thread-list"),
+                "thread.list",
+                serde_json::json!({ "includeArchived": true }),
+            ),
+            "test thread list",
+        )
+        .expect("thread list should read");
+        thread_list["threads"]
+            .as_array()
+            .expect("thread list should be an array")
+            .iter()
+            .find(|thread| thread["sessionKey"] == session_id)
+            .and_then(|thread| thread["threadId"].as_str())
+            .expect("session-linked thread should exist")
+            .to_string()
     }
 
     #[test]

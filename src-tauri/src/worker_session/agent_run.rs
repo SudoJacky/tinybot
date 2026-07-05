@@ -437,6 +437,33 @@ fn agent_run_from_checkpoint(
     AgentRunRecord {
         session_id: session_id.to_string(),
         run_id: run_id.to_string(),
+        thread_id: checkpoint
+            .get("threadId")
+            .or_else(|| checkpoint.get("thread_id"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        turn_id: checkpoint
+            .get("turnId")
+            .or_else(|| checkpoint.get("turn_id"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        parent_thread_id: checkpoint
+            .get("parentThreadId")
+            .or_else(|| checkpoint.get("parent_thread_id"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        child_thread_ids: checkpoint
+            .get("childThreadIds")
+            .or_else(|| checkpoint.get("child_thread_ids"))
+            .and_then(Value::as_array)
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default(),
         status: AgentRunStatus::Waiting,
         phase: checkpoint
             .get("phase")
@@ -580,6 +607,7 @@ fn runtime_event_from_trace_value(
         crate::agent_loop_runtime_protocol::AgentRuntimeEventEnvelope::from_legacy_native_event(
             crate::agent_loop_runtime_protocol::LegacyNativeAgentEventEnvelopeInput {
                 session_id: record.session_id.clone(),
+                thread_id: record.thread_id.clone(),
                 turn_id: record.run_id.clone(),
                 parent_turn_id: event
                     .get("parentTurnId")

@@ -171,6 +171,10 @@ mod tests {
         let record = AgentRunRecord {
             session_id: "session-1".to_string(),
             run_id: "run-1".to_string(),
+            thread_id: Some("thread-1".to_string()),
+            turn_id: Some("turn-1".to_string()),
+            parent_thread_id: None,
+            child_thread_ids: vec!["thread-child-1".to_string()],
             status: AgentRunStatus::Waiting,
             phase: "awaiting_tool".to_string(),
             started_at: "unix-ms:1".to_string(),
@@ -200,6 +204,9 @@ mod tests {
         let value = serde_json::to_value(&record).expect("run record should serialize");
         assert_eq!(value["sessionId"], "session-1");
         assert_eq!(value["runId"], "run-1");
+        assert_eq!(value["threadId"], "thread-1");
+        assert_eq!(value["turnId"], "turn-1");
+        assert_eq!(value["childThreadIds"][0], "thread-child-1");
         assert_eq!(value["status"], "waiting");
         assert_eq!(value["currentIteration"], 1);
         assert_eq!(value["completedToolResults"][0]["toolCallId"], "call-1");
@@ -426,6 +433,7 @@ mod tests {
             event_id: "run-1:agent-status:0000000000000001".to_string(),
             sequence: 1,
             session_id: "session-1".to_string(),
+            thread_id: None,
             turn_id: "run-1".to_string(),
             parent_turn_id: None,
             item_id: None,
@@ -479,6 +487,7 @@ mod tests {
             event_id: "run-terminal-status:agent-status:0000000000000001".to_string(),
             sequence: 1,
             session_id: "session-1".to_string(),
+            thread_id: None,
             turn_id: "run-terminal-status".to_string(),
             parent_turn_id: None,
             item_id: None,
@@ -1775,6 +1784,10 @@ mod tests {
         AgentRunRecord {
             session_id: session_id.to_string(),
             run_id: run_id.to_string(),
+            thread_id: None,
+            turn_id: None,
+            parent_thread_id: None,
+            child_thread_ids: Vec::new(),
             status,
             phase: "active_turn".to_string(),
             started_at: "unix-ms:0".to_string(),

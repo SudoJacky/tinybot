@@ -56,10 +56,13 @@ pub const NATIVE_TAURI_COMMANDS: &[&str] = &[
     "worker_probe_status",
     "worker_run_agent",
     "worker_run_agent_input",
+    "worker_submit_thread_turn",
     "worker_cancel_agent",
     "worker_restore_agent_checkpoint",
     "worker_submit_agent_form",
     "worker_resume_agent_approval",
+    "worker_resolve_thread_approval",
+    "worker_submit_thread_form",
     "worker_background_trace_list",
     "worker_background_trace_get_delegate_trace",
     "worker_background_trace_get_artifact",
@@ -114,6 +117,25 @@ pub const NATIVE_TAURI_COMMANDS: &[&str] = &[
     "worker_session_branch",
     "worker_session_clear",
     "worker_session_task_progress",
+    "worker_thread_create",
+    "worker_thread_read",
+    "worker_thread_resume",
+    "worker_threads_list",
+    "worker_thread_search",
+    "worker_thread_activity",
+    "worker_thread_status",
+    "worker_thread_update_metadata",
+    "worker_thread_agent_registry",
+    "worker_thread_start_turn",
+    "worker_thread_continue_turn",
+    "worker_thread_interrupt",
+    "worker_thread_apply_op",
+    "worker_thread_archive",
+    "worker_thread_unarchive",
+    "worker_thread_delete",
+    "worker_thread_fork",
+    "worker_thread_events",
+    "worker_thread_restore_checkpoint",
 ];
 
 pub fn native_tauri_command_inventory() -> Vec<NativeRouteInventoryEntry> {
@@ -778,6 +800,8 @@ fn tauri_command_group(command: &str) -> &'static str {
         "cowork"
     } else if command.contains("knowledge") {
         "knowledge"
+    } else if command.contains("thread") {
+        "threads"
     } else if command.contains("session") {
         "sessions"
     } else if command.contains("workspace") {
@@ -938,5 +962,29 @@ mod tests {
             &["sessionId", "runId", "items", "nextCursor"]
         );
         assert!(NATIVE_AGENT_RUN_CHECKPOINT_FIELDS.contains(&"checkpoint"));
+    }
+
+    #[test]
+    fn thread_tauri_commands_are_rust_owned_thread_inventory() {
+        let inventory = native_tauri_command_inventory();
+        for command in [
+            "worker_submit_thread_turn",
+            "worker_resolve_thread_approval",
+            "worker_submit_thread_form",
+            "worker_thread_read",
+            "worker_thread_resume",
+            "worker_threads_list",
+            "worker_thread_activity",
+            "worker_thread_start_turn",
+            "worker_thread_apply_op",
+            "worker_thread_restore_checkpoint",
+        ] {
+            let entry = inventory
+                .iter()
+                .find(|entry| entry.key == command)
+                .expect("thread command should be in native command inventory");
+            assert_eq!(entry.owner, NativeRouteOwner::RustOwned);
+            assert_eq!(entry.route_group, "threads");
+        }
     }
 }

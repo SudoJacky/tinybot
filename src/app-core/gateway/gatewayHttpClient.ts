@@ -9,6 +9,7 @@ type ClientOptions = {
   nativeConfig?: NativeConfigApi;
   nativeKnowledge?: NativeKnowledgeApi;
   nativeSessions?: NativeSessionsApi;
+  nativeThreads?: NativeThreadsApi;
   nativeSkills?: NativeSkillsApi;
   nativeWorkspace?: NativeWorkspaceApi;
   nativeCowork?: NativeCoworkApi;
@@ -77,6 +78,31 @@ export type NativeSessionsApi = {
   branch?: (body: unknown) => Promise<unknown>;
   clear?: (key: string) => Promise<unknown>;
   upsertTaskProgress?: (key: string, body: unknown) => Promise<unknown>;
+};
+
+export type NativeThreadsApi = {
+  create: (body?: unknown) => Promise<unknown>;
+  read: (body: unknown) => Promise<unknown>;
+  resume: (body: unknown) => Promise<unknown>;
+  list: (body?: unknown) => Promise<unknown>;
+  search: (body: unknown) => Promise<unknown>;
+  activity: (body: unknown) => Promise<unknown>;
+  status: (body: unknown) => Promise<unknown>;
+  updateMetadata: (body: unknown) => Promise<unknown>;
+  agentRegistry: (body?: unknown) => Promise<unknown>;
+  startTurn: (body: unknown) => Promise<unknown>;
+  continueTurn: (body: unknown) => Promise<unknown>;
+  interrupt: (body: unknown) => Promise<unknown>;
+  applyOp: (body: unknown) => Promise<unknown>;
+  archive: (body: unknown) => Promise<unknown>;
+  unarchive: (body: unknown) => Promise<unknown>;
+  delete: (body: unknown) => Promise<unknown>;
+  fork: (body: unknown) => Promise<unknown>;
+  events: (body: unknown) => Promise<unknown>;
+  restoreCheckpoint: (body: unknown) => Promise<unknown>;
+  submitTurn: (body: unknown) => Promise<unknown>;
+  resolveApproval: (body: unknown) => Promise<unknown>;
+  submitForm: (body: unknown) => Promise<unknown>;
 };
 
 export type NativeConfigApi = {
@@ -464,6 +490,35 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         () => request(`/api/sessions/${encodePathSegment(key)}/clear`, { method: "POST" }),
         "webui.sessions.clear",
       ),
+    },
+    threads: {
+      create: (body?: unknown) => nativeThreadRequest(options.nativeThreads?.create(body), "threads.create"),
+      read: (body: unknown) => nativeThreadRequest(options.nativeThreads?.read(body), "threads.read"),
+      resume: (body: unknown) => nativeThreadRequest(options.nativeThreads?.resume(body), "threads.resume"),
+      list: (body?: unknown) => nativeThreadRequest(options.nativeThreads?.list(body), "threads.list"),
+      search: (body: unknown) => nativeThreadRequest(options.nativeThreads?.search(body), "threads.search"),
+      activity: (body: unknown) => nativeThreadRequest(options.nativeThreads?.activity(body), "threads.activity"),
+      status: (body: unknown) => nativeThreadRequest(options.nativeThreads?.status(body), "threads.status"),
+      updateMetadata: (body: unknown) =>
+        nativeThreadRequest(options.nativeThreads?.updateMetadata(body), "threads.updateMetadata"),
+      agentRegistry: (body?: unknown) =>
+        nativeThreadRequest(options.nativeThreads?.agentRegistry(body), "threads.agentRegistry"),
+      startTurn: (body: unknown) => nativeThreadRequest(options.nativeThreads?.startTurn(body), "threads.startTurn"),
+      continueTurn: (body: unknown) =>
+        nativeThreadRequest(options.nativeThreads?.continueTurn(body), "threads.continueTurn"),
+      interrupt: (body: unknown) => nativeThreadRequest(options.nativeThreads?.interrupt(body), "threads.interrupt"),
+      applyOp: (body: unknown) => nativeThreadRequest(options.nativeThreads?.applyOp(body), "threads.applyOp"),
+      archive: (body: unknown) => nativeThreadRequest(options.nativeThreads?.archive(body), "threads.archive"),
+      unarchive: (body: unknown) => nativeThreadRequest(options.nativeThreads?.unarchive(body), "threads.unarchive"),
+      delete: (body: unknown) => nativeThreadRequest(options.nativeThreads?.delete(body), "threads.delete"),
+      fork: (body: unknown) => nativeThreadRequest(options.nativeThreads?.fork(body), "threads.fork"),
+      events: (body: unknown) => nativeThreadRequest(options.nativeThreads?.events(body), "threads.events"),
+      restoreCheckpoint: (body: unknown) =>
+        nativeThreadRequest(options.nativeThreads?.restoreCheckpoint(body), "threads.restoreCheckpoint"),
+      submitTurn: (body: unknown) => nativeThreadRequest(options.nativeThreads?.submitTurn(body), "threads.submitTurn"),
+      resolveApproval: (body: unknown) =>
+        nativeThreadRequest(options.nativeThreads?.resolveApproval(body), "threads.resolveApproval"),
+      submitForm: (body: unknown) => nativeThreadRequest(options.nativeThreads?.submitForm(body), "threads.submitForm"),
     },
     config: {
       get: () => nativeOrGateway(
@@ -1049,6 +1104,15 @@ function coworkNativeOrGateway(
   return nativeOrGateway(
     () => nativeCowork.route(nativeRequest),
     () => request(path, gatewayInit),
+    label,
+    false,
+  );
+}
+
+function nativeThreadRequest(request: Promise<unknown> | undefined, label: string): Promise<unknown> {
+  return nativeOrGateway(
+    () => request,
+    () => Promise.reject(new Error("Native thread API unavailable")),
     label,
     false,
   );

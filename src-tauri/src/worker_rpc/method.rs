@@ -11,11 +11,15 @@ pub enum WorkerRpcNamespace {
     Knowledge,
     Mcp,
     Memory,
+    PermissionProfile,
     Provider,
     Runtime,
     Session,
     Skills,
     Task,
+    Thread,
+    ToolExecutor,
+    ToolRegistry,
     Workspace,
     Unknown,
 }
@@ -34,11 +38,15 @@ impl WorkerRpcNamespace {
             WorkerRpcNamespace::Knowledge => "knowledge",
             WorkerRpcNamespace::Mcp => "mcp",
             WorkerRpcNamespace::Memory => "memory",
+            WorkerRpcNamespace::PermissionProfile => "permission_profile",
             WorkerRpcNamespace::Provider => "provider",
             WorkerRpcNamespace::Runtime => "runtime",
             WorkerRpcNamespace::Session => "session",
             WorkerRpcNamespace::Skills => "skills",
             WorkerRpcNamespace::Task => "task",
+            WorkerRpcNamespace::Thread => "thread",
+            WorkerRpcNamespace::ToolExecutor => "tool_executor",
+            WorkerRpcNamespace::ToolRegistry => "tool_registry",
             WorkerRpcNamespace::Workspace => "workspace",
             WorkerRpcNamespace::Unknown => "unknown",
         }
@@ -58,11 +66,15 @@ pub fn classify_method(method: &str) -> WorkerRpcNamespace {
         Some("knowledge") => WorkerRpcNamespace::Knowledge,
         Some("mcp") => WorkerRpcNamespace::Mcp,
         Some("memory") => WorkerRpcNamespace::Memory,
+        Some("permission_profile") => WorkerRpcNamespace::PermissionProfile,
         Some("provider") => WorkerRpcNamespace::Provider,
         Some("runtime") => WorkerRpcNamespace::Runtime,
         Some("session") => WorkerRpcNamespace::Session,
         Some("skills") => WorkerRpcNamespace::Skills,
         Some("task") => WorkerRpcNamespace::Task,
+        Some("thread") => WorkerRpcNamespace::Thread,
+        Some("tool_executor") => WorkerRpcNamespace::ToolExecutor,
+        Some("tool_registry") => WorkerRpcNamespace::ToolRegistry,
         Some("workspace") => WorkerRpcNamespace::Workspace,
         _ => WorkerRpcNamespace::Unknown,
     }
@@ -80,12 +92,25 @@ mod tests {
         );
         assert_eq!(classify_method("memory.search"), WorkerRpcNamespace::Memory);
         assert_eq!(
+            classify_method("permission_profile.current"),
+            WorkerRpcNamespace::PermissionProfile
+        );
+        assert_eq!(
             classify_method("provider.resolve_secret"),
             WorkerRpcNamespace::Provider
         );
         assert_eq!(
             classify_method("agent_run.list"),
             WorkerRpcNamespace::AgentRun
+        );
+        assert_eq!(classify_method("thread.list"), WorkerRpcNamespace::Thread);
+        assert_eq!(
+            classify_method("tool_executor.execute"),
+            WorkerRpcNamespace::ToolExecutor
+        );
+        assert_eq!(
+            classify_method("tool_registry.list"),
+            WorkerRpcNamespace::ToolRegistry
         );
         assert_eq!(classify_method("unknown"), WorkerRpcNamespace::Unknown);
     }
