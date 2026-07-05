@@ -1134,7 +1134,7 @@ fn agent_chat_completion_request(context: &NativeAgentRunContext) -> Result<Valu
     let mut request = serde_json::json!({
         "model": context.model.clone(),
         "messages": messages,
-        "stream": false,
+        "stream": context.stream,
     });
     if let Some(max_tokens) = context
         .spec
@@ -3533,6 +3533,7 @@ mod tests {
         assert!(context.stream);
         assert_eq!(context.metadata["source"], "desktop");
         assert_eq!(request["model"], "fixture-model");
+        assert_eq!(request["stream"], true);
         assert_eq!(request["messages"][0]["content"], "hello normalized");
         assert_eq!(provider_config["agents"]["defaults"]["provider"], "fixture");
         assert_eq!(
