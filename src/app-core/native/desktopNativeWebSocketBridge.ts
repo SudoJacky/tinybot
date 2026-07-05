@@ -250,11 +250,13 @@ class DesktopNativeWebSocket extends EventTarget {
         message_id: runId || `native:${chatId}`,
         reason: stringValue(agent?.stopReason) || "stop",
       });
-      if (run && runId) {
-        this.emitAgentEventFrame(run, runId, "message.completed", {
-          message_id: run.messageId,
-          text: finalContent,
-        }, `${runId}:final`);
+    }
+    if (finalContent && run && runId) {
+      this.emitAgentEventFrame(run, runId, "message.completed", {
+        message_id: run.messageId,
+        text: finalContent,
+      }, `${runId}:final`);
+      if (!alreadyProjectedStream) {
         this.emitAgentEventFrame(run, runId, "agent.turn.completed", {
           message_id: run.messageId,
           reason: stringValue(agent?.stopReason) || "stop",
