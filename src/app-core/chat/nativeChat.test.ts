@@ -815,15 +815,37 @@ describe("native chat state", () => {
         },
       },
     });
+    applyChatEvent(state, {
+      kind: "agent.event",
+      chatId: "chat-1",
+      raw: {
+        event: "agent_event",
+        schema_version: "tinybot.agent_event.v1",
+        event_id: "event-reasoning-next",
+        event_type: "reasoning.delta",
+        chat_id: "chat-1",
+        session_key: "websocket:chat-1",
+        turn_id: "turn-1",
+        sequence: 3,
+        created_at: "2026-06-27T04:00:02.000Z",
+        payload: {
+          message_id: "assistant-stream",
+          summary: " Still thinking.",
+          text: " Still thinking.",
+          visibility: "hidden",
+        },
+      },
+    });
 
     expect(state.messages.get(sessionKeyForChat("chat-1"))).toMatchObject([
       { role: "user", content: "你好" },
       {
         role: "assistant",
         content: "",
-        reasoningContent: "I am checking context.",
+        reasoningContent: "I am checking context. Still thinking.",
       },
     ]);
+    expect(state.messages.get(sessionKeyForChat("chat-1"))).toHaveLength(2);
   });
 
   test("normalizes tool activity execution status for timeline rendering", () => {
