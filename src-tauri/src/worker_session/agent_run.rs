@@ -630,9 +630,6 @@ fn agent_run_status_from_phase(phase: &str) -> AgentRunStatus {
         "awaiting_approval" | "awaiting_form" | "awaiting_subagent" | "queued" => {
             AgentRunStatus::Waiting
         }
-        "completed" => AgentRunStatus::Completed,
-        "failed" => AgentRunStatus::Failed,
-        "cancelled" => AgentRunStatus::Cancelled,
         _ => AgentRunStatus::Running,
     }
 }

@@ -466,6 +466,54 @@ mod tests {
     }
 
     #[test]
+    fn terminal_agent_run_status_event_does_not_terminalize_snapshot() {
+        let mut rpc = WorkerSessionRpc::new(vec![session_fixture()], read_write_policy());
+        let mut record = agent_run_fixture("session-1", "run-terminal-status", AgentRunStatus::Running);
+        record.phase = "finalizing".to_string();
+        record.current_iteration = 2;
+        rpc.upsert_agent_run(record)
+            .expect("running run should upsert");
+
+        let status_event = AgentRuntimeEventEnvelope {
+            schema_version: AGENT_RUNTIME_EVENT_SCHEMA_VERSION.to_string(),
+            event_id: "run-terminal-status:agent-status:0000000000000001".to_string(),
+            sequence: 1,
+            session_id: "session-1".to_string(),
+            turn_id: "run-terminal-status".to_string(),
+            parent_turn_id: None,
+            item_id: None,
+            event_name: "agent.status".to_string(),
+            phase: AgentRuntimePhase::Completed,
+            timestamp: "unix-ms:3".to_string(),
+            source: AgentRuntimeEventSource::RustBackend,
+            visibility: AgentRuntimeEventVisibility::User,
+            payload: json!({
+                "runId": "run-terminal-status",
+                "sessionId": "session-1",
+                "phase": "completed",
+                "label": "Completed",
+                "detail": "agent.done",
+                "iteration": 2,
+                "isBlocking": false
+            }),
+        };
+
+        let updated = rpc
+            .append_agent_run_trace_event(
+                "session-1",
+                "run-terminal-status",
+                serde_json::to_value(status_event).expect("status event should serialize"),
+            )
+            .expect("status event should append and update snapshot");
+
+        assert_eq!(updated.phase, "completed");
+        assert_eq!(updated.status, AgentRunStatus::Running);
+        assert_eq!(updated.completed_at, None);
+        assert_eq!(updated.stop_reason, None);
+        assert_eq!(updated.error, None);
+    }
+
+    #[test]
     fn agent_run_upsert_preserves_original_started_at() {
         let mut rpc = WorkerSessionRpc::new(vec![session_fixture()], read_write_policy());
         let mut running = agent_run_fixture("session-1", "run-1", AgentRunStatus::Running);
