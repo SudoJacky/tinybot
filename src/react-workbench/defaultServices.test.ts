@@ -22,6 +22,14 @@ const mocks = vi.hoisted(() => {
     skills: {
       list: vi.fn(async () => []),
     },
+    tools: {
+      approveApproval: vi.fn(async () => undefined),
+      denyApproval: vi.fn(async () => undefined),
+    },
+    agentUi: {
+      submitForm: vi.fn(async () => undefined),
+      cancelForm: vi.fn(async () => undefined),
+    },
     workspace: {
       files: vi.fn(async () => []),
     },
@@ -63,6 +71,31 @@ vi.mock("../app-core/gateway/desktopGatewayBridge", () => ({ installDesktopGatew
 vi.mock("../app-core/gateway/desktopGatewayStartup", () => ({ ensureGatewayReady: vi.fn() }));
 vi.mock("../app-core/native/desktopNativeChannelLifecycle", () => ({ startDesktopNativeChannelRuntime: vi.fn() }));
 
+function agentEvent({
+  eventId,
+  eventType,
+  payload,
+  sequence,
+}: {
+  eventId: string;
+  eventType: string;
+  payload: Record<string, unknown>;
+  sequence: number;
+}): Record<string, unknown> {
+  return {
+    event: "agent_event",
+    schema_version: "tinybot.agent_event.v1",
+    event_id: eventId,
+    event_type: eventType,
+    chat_id: "chat-1",
+    session_key: "websocket:chat-1",
+    turn_id: "turn-live",
+    sequence,
+    created_at: "2026-07-04T12:00:00.000Z",
+    payload,
+  };
+}
+
 describe("default desktop app services", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -72,58 +105,247 @@ describe("default desktop app services", () => {
     mocks.gatewayApi.sessions.messages.mockResolvedValue({ messages: [] });
   });
 
-  test("does not reload persisted messages over an active live stream", async () => {
+  test("does not reload persisted messages over an active structured live stream", async () => {
     const services = createDesktopAppServices();
     await services.sessionStore.list();
     expect(mocks.gatewayApi.sessions.messages).toHaveBeenCalledTimes(1);
 
     const socket = mocks.openGatewaySocket.mock.results[0]?.value;
     socket.handlers.onEvent({
-      kind: "message.delta",
+      kind: "agent.event",
       chatId: "chat-1",
-      messageId: "assistant-live",
-      text: "live",
-      reasoning: false,
-      raw: {},
+      raw: agentEvent({
+        eventId: "event-message-delta",
+        eventType: "message.delta",
+        payload: {
+          message_id: "assistant-live",
+          text: "live",
+        },
+        sequence: 1,
+      }),
     });
     await Promise.resolve();
     await Promise.resolve();
 
-    await expect(services.chatStore.load("websocket:chat-1")).resolves.toMatchObject([
-      {
+    await expect(services.chatStore.load("websocket:chat-1")).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({
         id: "assistant-live",
         role: "assistant",
         status: "streaming",
         text: "live",
-      },
-    ]);
+      }),
+    ]));
     expect(mocks.gatewayApi.sessions.messages).toHaveBeenCalledTimes(1);
   });
 
-  test("maps live reasoning deltas to current chat thinking text", async () => {
+  test("maps live structured reasoning deltas to current chat thinking text", async () => {
     const services = createDesktopAppServices();
     await services.sessionStore.list();
 
     const socket = mocks.openGatewaySocket.mock.results[0]?.value;
     socket.handlers.onEvent({
-      kind: "message.delta",
+      kind: "agent.event",
       chatId: "chat-1",
-      messageId: "assistant-live",
-      text: "I am checking context.",
-      reasoning: true,
-      raw: {},
+      raw: agentEvent({
+        eventId: "event-reasoning-delta",
+        eventType: "reasoning.delta",
+        payload: {
+          message_id: "assistant-live",
+          summary: "I am checking context.",
+          text: "I am checking context.",
+          visibility: "hidden",
+        },
+        sequence: 1,
+      }),
     });
     await Promise.resolve();
     await Promise.resolve();
 
-    await expect(services.chatStore.load("websocket:chat-1")).resolves.toMatchObject([
-      {
+    await expect(services.chatStore.load("websocket:chat-1")).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({
         id: "assistant-live",
         reasoningText: "I am checking context.",
         role: "assistant",
         status: "streaming",
-      },
+      }),
+    ]));
+  });
+
+  test("preserves detailed tool activity fields for React chat messages", async () => {
+    mocks.gatewayApi.sessions.messages.mockResolvedValue({
+      messages: [{
+        content: "Tool completed.",
+        message_id: "assistant-tool",
+        role: "assistant",
+        timestamp: "2026-07-04T12:00:00.000Z",
+        toolActivities: [{
+          approvalId: "approval-1",
+          approvalStatus: "approval_required",
+          argsText: "{\"path\":\"src/main.ts\"}",
+          childRunId: "child-run-1",
+          delegateId: "delegate-1",
+          delegateTask: "Review implementation",
+          delegateTitle: "Code reviewer",
+          delegateType: "review",
+          finalOutput: "Reviewed implementation.",
+          id: "tool-1",
+          kind: "result",
+          name: "workspace.read_file",
+          parentRunId: "parent-run-1",
+          parentTurnId: "parent-turn-1",
+          responseText: "file contents",
+          sessionKey: "websocket:chat-1",
+          status: "completed",
+          traceRef: "trace-1",
+        }],
+      }],
+    });
+    const services = createDesktopAppServices();
+
+    await expect(services.chatStore.load("websocket:chat-1")).resolves.toEqual([
+      expect.objectContaining({
+        toolCalls: [expect.objectContaining({
+          approvalId: "approval-1",
+          approvalStatus: "approval_required",
+          argsText: "{\"path\":\"src/main.ts\"}",
+          childRunId: "child-run-1",
+          delegateId: "delegate-1",
+          delegateTask: "Review implementation",
+          delegateTitle: "Code reviewer",
+          delegateType: "review",
+          finalOutput: "Reviewed implementation.",
+          parentRunId: "parent-run-1",
+          parentTurnId: "parent-turn-1",
+          responseText: "file contents",
+          sessionKey: "websocket:chat-1",
+          traceRef: "trace-1",
+        })],
+      }),
     ]);
+  });
+
+  test("resolves approval actions through the gateway approval routes", async () => {
+    const services = createDesktopAppServices();
+
+    await (services.chatStore as any).resolveApproval("WebSocket:chat-1", {
+      action: "approveSession",
+      approvalId: "approval-1",
+    });
+    await (services.chatStore as any).resolveApproval("WebSocket:chat-1", {
+      action: "deny",
+      approvalId: "approval-2",
+      guidance: "Use a read-only command.",
+    });
+
+    expect(mocks.gatewayApi.tools.approveApproval).toHaveBeenCalledWith("approval-1", {
+      auto_retry: true,
+      scope: "session",
+      session_key: "websocket:chat-1",
+    });
+    expect(mocks.gatewayApi.tools.denyApproval).toHaveBeenCalledWith("approval-2", {
+      auto_retry: true,
+      guidance: "Use a read-only command.",
+      session_key: "websocket:chat-1",
+    });
+  });
+
+  test("tracks agent-ui forms and submits or cancels them through the gateway", async () => {
+    const services = createDesktopAppServices();
+    await services.sessionStore.list();
+    const socket = mocks.openGatewaySocket.mock.results[0]?.value;
+
+    socket.handlers.onEvent({
+      kind: "agent-ui.event",
+      eventType: "ui.form.requested",
+      raw: {
+        event: "agent_ui_event",
+        chat_id: "chat-1",
+        agent_ui_event: {
+          event_type: "ui.form.requested",
+          chat_id: "chat-1",
+          message_id: "msg-form-1",
+          run_id: "run-1",
+          payload: {
+            form_id: "travel-preferences-1",
+            title: "Travel preferences",
+            submit_label: "Save preferences",
+            cancel_label: "Skip",
+            correlation: {
+              chat_id: "chat-1",
+              message_id: "msg-form-1",
+              run_id: "run-1",
+            },
+            fields: [
+              { name: "destination", type: "text", label: "Destination", required: true },
+              { name: "nights", type: "number", label: "Nights", min: 1, max: 30 },
+            ],
+            initial_values: { destination: "Shanghai", nights: 3 },
+          },
+        },
+      },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await expect((services.chatStore as any).listAgentUiForms("websocket:chat-1")).resolves.toEqual([
+      expect.objectContaining({
+        form_id: "travel-preferences-1",
+        title: "Travel preferences",
+      }),
+    ]);
+
+    await (services.chatStore as any).cancelAgentUiForm("travel-preferences-1");
+    socket.handlers.onEvent({
+      kind: "agent-ui.event",
+      eventType: "ui.form.requested",
+      raw: {
+        event: "agent_ui_event",
+        chat_id: "chat-1",
+        agent_ui_event: {
+          event_type: "ui.form.requested",
+          chat_id: "chat-1",
+          message_id: "msg-form-1",
+          run_id: "run-1",
+          payload: {
+            form_id: "travel-preferences-1",
+            title: "Travel preferences",
+            correlation: {
+              chat_id: "chat-1",
+              message_id: "msg-form-1",
+              run_id: "run-1",
+            },
+            fields: [
+              { name: "destination", type: "text", label: "Destination", required: true },
+              { name: "nights", type: "number", label: "Nights", min: 1, max: 30 },
+            ],
+          },
+        },
+      },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    await (services.chatStore as any).submitAgentUiForm("travel-preferences-1", {
+      destination: "Singapore",
+      nights: 4,
+    });
+
+    expect(mocks.gatewayApi.agentUi.submitForm).toHaveBeenCalledWith("travel-preferences-1", {
+      values: { destination: "Singapore", nights: 4 },
+      correlation: {
+        form_id: "travel-preferences-1",
+        chat_id: "chat-1",
+        message_id: "msg-form-1",
+        run_id: "run-1",
+      },
+    });
+    expect(mocks.gatewayApi.agentUi.cancelForm).toHaveBeenCalledWith("travel-preferences-1", {
+      correlation: {
+        form_id: "travel-preferences-1",
+        chat_id: "chat-1",
+        message_id: "msg-form-1",
+        run_id: "run-1",
+      },
+    });
   });
 
   test("emits the user message immediately after send", async () => {

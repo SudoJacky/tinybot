@@ -111,6 +111,14 @@ fn desktop_status() -> DesktopStatus {
     }
 }
 
+#[tauri::command]
+fn record_renderer_diagnostic(
+    input: serde_json::Value,
+    state: State<'_, SharedGateway>,
+) -> Result<(), String> {
+    record_renderer_diagnostic_with_options(state.inner(), input)
+}
+
 type SharedGateway = Arc<Mutex<GatewayRuntime>>;
 const WORKER_CRON_TIMER_MAX_POLL: Duration = Duration::from_secs(30);
 const WORKER_WEBUI_ROUTE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -6740,6 +6748,43 @@ fn record_worker_manager_event_for_logs(shared: &SharedGateway, event: &WorkerMa
     );
 }
 
+fn record_renderer_diagnostic_with_options(
+    shared: &SharedGateway,
+    input: serde_json::Value,
+) -> Result<(), String> {
+    let line = renderer_diagnostic_log_line(input);
+    let log_path = {
+        let mut runtime = lock_runtime(shared);
+        append_log(&mut runtime, &format!("renderer {line}"));
+        runtime.persistent_log_path.clone()
+    };
+    append_native_backend_log_line(&log_path, NATIVE_BACKEND_LOG_MAX_BYTES, "renderer", &line)
+}
+
+fn renderer_diagnostic_log_line(input: serde_json::Value) -> String {
+    let line = serde_json::to_string(&input)
+        .unwrap_or_else(|_| "{\"type\":\"renderer.diagnostic.serialize_failed\"}".to_string());
+    const MAX_RENDERER_DIAGNOSTIC_LOG_LINE: usize = 16 * 1024;
+    if line.len() <= MAX_RENDERER_DIAGNOSTIC_LOG_LINE {
+        return line;
+    }
+    truncate_utf8_with_ellipsis(line, MAX_RENDERER_DIAGNOSTIC_LOG_LINE)
+}
+
+fn truncate_utf8_with_ellipsis(mut value: String, max_bytes: usize) -> String {
+    if value.len() <= max_bytes {
+        return value;
+    }
+    let boundary = value
+        .char_indices()
+        .map(|(index, _)| index)
+        .take_while(|index| *index <= max_bytes)
+        .last()
+        .unwrap_or(0);
+    value.truncate(boundary);
+    format!("{value}...")
+}
+
 fn worker_manager_frontend_event(event: WorkerManagerEvent) -> (String, serde_json::Value) {
     match event {
         WorkerManagerEvent::Status(status) => (
@@ -6817,6 +6862,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             desktop_status,
+            record_renderer_diagnostic,
             gateway_status,
             start_gateway,
             stop_gateway,
@@ -11692,6 +11738,47 @@ mod tests {
         assert!(contents.contains(
             "stderr [native-backend] worker.request.start route=POST /v1/knowledge/graph/extract"
         ));
+    }
+
+    #[test]
+    fn renderer_diagnostics_append_to_persistent_backend_log() {
+        let fixture = WorkspaceFixture::new();
+        let log_path = fixture.root.join("logs").join("native-backend.log");
+        let shared = Arc::new(Mutex::new(GatewayRuntime {
+            persistent_log_path: log_path.clone(),
+            ..GatewayRuntime::default()
+        }));
+
+        record_renderer_diagnostic_with_options(
+            &shared,
+            serde_json::json!({
+                "id": "renderer-1",
+                "type": "react.render",
+                "message": "render exploded",
+                "recentDebugStages": [
+                    { "stage": "socket.frame", "at": "2026-07-06T01:00:00.000Z" }
+                ]
+            }),
+        )
+        .expect("renderer diagnostic should persist");
+
+        let contents =
+            std::fs::read_to_string(log_path).expect("persistent backend log should be written");
+        assert!(contents.contains("renderer"));
+        assert!(contents.contains("\"type\":\"react.render\""));
+        assert!(contents.contains("\"message\":\"render exploded\""));
+        assert!(contents.contains("\"stage\":\"socket.frame\""));
+    }
+
+    #[test]
+    fn renderer_diagnostics_truncate_on_utf8_boundary() {
+        let line = format!("{}你好", "a".repeat((16 * 1024) - 1));
+
+        let truncated = truncate_utf8_with_ellipsis(line, 16 * 1024);
+
+        assert!(truncated.ends_with("..."));
+        assert!(truncated.is_char_boundary(truncated.len()));
+        assert_eq!(truncated, format!("{}...", "a".repeat((16 * 1024) - 1)));
     }
 
     #[test]

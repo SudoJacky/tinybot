@@ -64,6 +64,43 @@ button:disabled {
   opacity: 0.5;
 }
 
+.react-fatal-error {
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  min-height: 100vh;
+  gap: 12px;
+  padding: 40px;
+  background: #fff;
+  color: var(--color-ink);
+}
+
+.react-fatal-error h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 750;
+}
+
+.react-fatal-error p {
+  max-width: 760px;
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.react-fatal-error button {
+  min-height: 34px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: var(--color-ink);
+  padding: 0 12px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 650;
+}
+
 .react-desktop-shell {
   display: grid;
   grid-template-rows: 42px minmax(0, 1fr);
@@ -807,25 +844,16 @@ button:disabled {
   line-height: 1.6;
 }
 
-.react-prompt-cycle__visual {
-  position: relative;
-  display: grid;
-  justify-items: center;
-  min-width: min(360px, 100%);
+.react-empty-chat-title-type,
+.react-prompt-cycle__text-type {
   max-width: 100%;
-  min-height: 1.6em;
   overflow: hidden;
+  white-space: nowrap;
 }
 
-.react-prompt-cycle__item {
-  grid-area: 1 / 1;
-  max-width: 100%;
-  overflow: hidden;
-  clip-path: inset(0 100% 0 0);
-  opacity: 0;
-  white-space: nowrap;
-  animation: react-prompt-type-delete 8s steps(var(--react-prompt-characters, 14), end) infinite;
-  animation-delay: calc(var(--react-prompt-index, 0) * 2s);
+.react-empty-chat-title-type__cursor,
+.react-prompt-cycle__cursor {
+  color: var(--color-muted);
 }
 
 .react-empty-state {
@@ -836,73 +864,6 @@ button:disabled {
   display: inline-block;
   max-width: 100%;
   vertical-align: baseline;
-}
-
-.react-text-type__text {
-  display: inline-block;
-  max-width: 100%;
-  overflow: hidden;
-  clip-path: inset(0 100% 0 0);
-  white-space: nowrap;
-  animation: react-text-type var(--motion-duration-text) steps(var(--react-text-type-characters, 24), end) forwards;
-}
-
-.react-text-type__text::after {
-  display: inline-block;
-  width: 1px;
-  height: 1em;
-  margin-left: 2px;
-  background: currentColor;
-  content: "";
-  opacity: 0.5;
-  vertical-align: -0.15em;
-  animation: react-text-caret var(--motion-duration-text) step-end 1 forwards;
-}
-
-@keyframes react-text-type {
-  to {
-    clip-path: inset(0 0 0 0);
-  }
-}
-
-@keyframes react-text-caret {
-  0%,
-  65% {
-    opacity: 0.5;
-  }
-
-  100% {
-    opacity: 0;
-  }
-}
-
-@keyframes react-prompt-type-delete {
-  0%,
-  2% {
-    clip-path: inset(0 100% 0 0);
-    opacity: 0;
-  }
-
-  4% {
-    clip-path: inset(0 100% 0 0);
-    opacity: 1;
-  }
-
-  13%,
-  20% {
-    clip-path: inset(0 0 0 0);
-    opacity: 1;
-  }
-
-  25% {
-    clip-path: inset(0 0 0 100%);
-    opacity: 0;
-  }
-
-  100% {
-    clip-path: inset(0 0 0 100%);
-    opacity: 0;
-  }
 }
 
 .react-message {
@@ -1618,6 +1579,268 @@ button:disabled {
   gap: 12px;
 }
 
+.react-tool-detail {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.react-tool-detail section {
+  display: grid;
+  gap: 6px;
+}
+
+.react-tool-detail h3 {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.react-tool-detail__approval-actions > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.react-tool-detail__approval-actions button {
+  min-height: 32px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: #fff;
+  padding: 0 10px;
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.react-tool-detail__approval-actions button:hover,
+.react-tool-detail__approval-actions button:focus-visible {
+  background: var(--color-surface-soft);
+}
+
+.react-tool-detail pre {
+  overflow: auto;
+  max-height: 180px;
+  margin: 0;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: var(--color-surface-soft);
+  padding: 8px;
+  color: var(--color-ink);
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.react-agent-ui-forms {
+  display: grid;
+  gap: 10px;
+  width: min(720px, 100%);
+  margin: 8px auto 0;
+}
+
+.react-agent-ui-form-card {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: #fff;
+  padding: 14px;
+}
+
+.react-agent-ui-form-card__header {
+  display: grid;
+  gap: 4px;
+}
+
+.react-agent-ui-form-card__header h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.react-agent-ui-form-card__header p,
+.react-agent-ui-form-field small {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.react-agent-ui-form-card__fields {
+  display: grid;
+  gap: 10px;
+}
+
+.react-agent-ui-form-field {
+  display: grid;
+  gap: 5px;
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.react-agent-ui-form-field input,
+.react-agent-ui-form-field select,
+.react-agent-ui-form-field textarea {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: var(--color-surface-soft);
+  padding: 7px 9px;
+  color: var(--color-ink);
+  font: 13px/1.4 inherit;
+}
+
+.react-agent-ui-form-field textarea {
+  min-height: 76px;
+  resize: vertical;
+}
+
+.react-agent-ui-form-field input[type="checkbox"] {
+  width: 18px;
+  min-height: 18px;
+}
+
+.react-agent-ui-form-field__choices {
+  display: grid;
+  gap: 6px;
+}
+
+.react-agent-ui-form-field__choices label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+}
+
+.react-agent-ui-form-field__choices input {
+  width: 16px;
+  min-height: 16px;
+}
+
+.react-agent-ui-form-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.react-agent-ui-form-card__actions button {
+  min-height: 34px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: #fff;
+  padding: 0 12px;
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.react-agent-ui-form-card__actions button[type="submit"] {
+  background: var(--color-ink);
+  color: #fff;
+}
+
+.react-queued-inputs {
+  display: grid;
+  gap: 8px;
+  width: min(720px, 100%);
+  margin: 8px auto 0;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px;
+}
+
+.react-queued-inputs__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.react-queued-inputs__header > div {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.react-queued-inputs h2 {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.react-queued-inputs__header span,
+.react-queued-inputs__message {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.react-queued-inputs ol {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.react-queued-input {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border-radius: 6px;
+  background: var(--color-surface-soft);
+  padding: 7px 8px;
+}
+
+.react-queued-input > span {
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.react-queued-input p {
+  overflow: hidden;
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-queued-input button {
+  min-height: 26px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 6px;
+  background: #fff;
+  padding: 0 8px;
+  color: var(--color-ink);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.react-queued-inputs__header button {
+  min-height: 26px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 6px;
+  background: #fff;
+  padding: 0 8px;
+  color: var(--color-ink);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.react-queued-inputs__message {
+  width: min(720px, 100%);
+  margin: 8px auto 0;
+}
+
 .react-placeholder-page {
   display: grid;
   align-content: center;
@@ -1947,24 +2170,6 @@ button:disabled {
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
     transition-duration: 0ms !important;
-  }
-
-  .react-text-type__text {
-    clip-path: inset(0 0 0 0);
-    animation: none !important;
-  }
-
-  .react-text-type__text::after {
-    display: none;
-  }
-
-  .react-prompt-cycle__item {
-    clip-path: inset(0 0 0 0);
-    animation: none !important;
-  }
-
-  .react-prompt-cycle__item:first-child {
-    opacity: 1;
   }
 
   .react-session-list__rows[data-motion="animated-list"] .react-session-row,

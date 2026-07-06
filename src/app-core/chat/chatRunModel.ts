@@ -95,6 +95,7 @@ export interface ChatMessageProjection {
   author: string;
   body: string[];
   copyable?: boolean;
+  messageId?: string;
   references: ChatReferenceProjection[];
   reasoningContent?: string;
   reasoningLabel?: string;
@@ -196,6 +197,7 @@ export type ChatStep = {
   error?: unknown;
   id: string;
   kind: ChatStepKind;
+  messageId?: string;
   parentStepId?: string;
   references?: NativeChatReference[];
   sequence: number;
@@ -515,6 +517,7 @@ export function reduceAgentEvent(state: ChatRunState, event: AgentEventEnvelope)
       : text || existingStep?.summary || "";
     upsertStep(turn, event, {
       kind: "reasoning",
+      messageId,
       status: event.event_type === "reasoning.completed" ? "completed" : "running",
       summary,
       title: event.event_type === "reasoning.completed" ? "Thinking complete" : "Thinking",
@@ -543,6 +546,7 @@ export function reduceAgentEvent(state: ChatRunState, event: AgentEventEnvelope)
     }
     upsertStep(turn, event, {
       kind: "message",
+      messageId,
       status: event.event_type === "message.completed" ? "completed" : "running",
       summary,
       title: event.event_type === "message.completed" ? "Final answer" : "Assistant message",
@@ -967,6 +971,7 @@ export function turnsToConversationMessages(turns: ChatTurn[]): ChatMessageProje
     const messages: ChatMessageProjection[] = [{
       author: "You",
       body: [turn.userMessage.text],
+      messageId: turn.userMessage.id,
       references: [],
       time: turn.userMessage.timestamp,
       tone: "user",
@@ -983,6 +988,7 @@ export function turnsToConversationMessages(turns: ChatTurn[]): ChatMessageProje
         author: "Tinybot",
         body: [turn.finalMessage.text],
         copyable: true,
+        messageId: turn.finalMessage.id,
         references: conversationReferences(turn.finalMessage.references),
         reasoningContent: "",
         time: turn.finalMessage.timestamp,
@@ -1027,6 +1033,7 @@ function stepToConversationMessage(step: ChatStep): ChatMessageProjection {
     author: "Tinybot",
     body: step.kind === "message" && step.summary ? [step.summary] : [],
     copyable: step.kind === "message" ? false : undefined,
+    messageId: step.messageId,
     references: conversationReferences(step.references),
     reasoningContent: step.kind === "reasoning" ? step.summary : "",
     reasoningLabel: step.title,

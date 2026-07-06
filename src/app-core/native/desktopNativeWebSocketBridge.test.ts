@@ -4,7 +4,7 @@ import type { NativeTransportApi } from "./desktopNativeTransport";
 import { toDesktopNativeTauriEventName } from "./desktopNativeTauriEvents";
 
 describe("desktop native WebSocket bridge", () => {
-  test("projects TS worker stream events into legacy WebUI WebSocket frames", async () => {
+  test("projects TS worker stream events into structured agent WebSocket frames", async () => {
     const handlers = new Map<string, (payload: unknown) => void>();
     const unlisteners: Array<() => void> = [];
     const dispatch = deferred<unknown>();
@@ -66,20 +66,9 @@ describe("desktop native WebSocket bridge", () => {
     });
     await flushMicrotasks();
 
-    expect(events).toContainEqual({
+    expect(events).not.toContainEqual(expect.objectContaining({
       event: "delta",
-      chat_id: "chat-native",
-      message_id: "message-1",
-      text: "hello",
-      is_reasoning: false,
-    });
-    expect(events).toContainEqual({
-      event: "delta",
-      chat_id: "chat-native",
-      message_id: "message-1",
-      text: "thinking",
-      is_reasoning: true,
-    });
+    }));
     expect(events).toContainEqual({
       event: "stream_end",
       chat_id: "chat-native",
@@ -159,13 +148,16 @@ describe("desktop native WebSocket bridge", () => {
     handlers.get(toDesktopNativeTauriEventName("agent.delta"))?.({ runId, delta: "live", messageId: "message-live" });
     await flushMicrotasks();
 
-    expect(events).toContainEqual({
-      event: "delta",
-      chat_id: "chat-native",
-      message_id: "message-live",
-      text: "live",
-      is_reasoning: false,
-    });
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "agent_event",
+      event_type: "message.delta",
+      payload: expect.objectContaining({
+        message_id: "message-live",
+        text: "live",
+        visibility: "visible",
+      }),
+      turn_id: runId,
+    }));
 
     dispatch.resolve({
       transport: {
@@ -232,9 +224,13 @@ describe("desktop native WebSocket bridge", () => {
     await flushMicrotasks();
 
     expect(events).toContainEqual(expect.objectContaining({
-      event: "delta",
-      chat_id: "chat-native",
-      text: "live",
+      event: "agent_event",
+      event_type: "message.delta",
+      payload: expect.objectContaining({
+        text: "live",
+        visibility: "visible",
+      }),
+      turn_id: runId,
     }));
     expect(events).not.toContainEqual(expect.objectContaining({
       event: "message",
@@ -301,9 +297,13 @@ describe("desktop native WebSocket bridge", () => {
     await flushMicrotasks();
 
     expect(events).toContainEqual(expect.objectContaining({
-      event: "delta",
-      chat_id: "chat-native",
-      text: "live",
+      event: "agent_event",
+      event_type: "message.delta",
+      payload: expect.objectContaining({
+        text: "live",
+        visibility: "visible",
+      }),
+      turn_id: runId,
     }));
     expect(events).toContainEqual(expect.objectContaining({
       event: "stream_end",

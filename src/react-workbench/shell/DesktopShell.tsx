@@ -2,6 +2,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type DependencyList,
   type MouseEvent as ReactMouseEvent,
@@ -142,6 +143,8 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
   const [activeTopSubmenu, setActiveTopSubmenu] = useState<string | null>(null);
   const [sessionSidebarCollapsed, setSessionSidebarCollapsed] = useState(false);
   const [createChatSignal, setCreateChatSignal] = useState(0);
+  const [stopGenerationSessionId, setStopGenerationSessionId] = useState("");
+  const stopGenerationSessionIdRef = useRef("");
   const frameControls = useMemo(() => windowControls ?? resolveWindowFrameControls(), [windowControls]);
   const commands = useMemo(() => routeItems.map((item) => ({
     id: `open:${item.id}`,
@@ -151,6 +154,18 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
       setPaletteOpen(false);
     },
   })), []);
+
+  function handleStopGenerationTargetChange(sessionId: string) {
+    stopGenerationSessionIdRef.current = sessionId;
+    setStopGenerationSessionId(sessionId);
+  }
+
+  function stopActiveGeneration() {
+    const sessionId = stopGenerationSessionIdRef.current;
+    if (sessionId) {
+      void services.chatStore.stop(sessionId);
+    }
+  }
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -162,6 +177,10 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
         event.preventDefault();
         setSessionSidebarCollapsed((collapsed) => !collapsed);
       }
+      if ((event.ctrlKey || event.metaKey) && event.key === ".") {
+        event.preventDefault();
+        stopActiveGeneration();
+      }
       if (event.key === "Escape") {
         setPaletteOpen(false);
         setActiveTopMenu(null);
@@ -170,7 +189,7 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [services.chatStore]);
 
   useEffect(() => {
     function onWindowPointerDown(event: PointerEvent) {
@@ -228,6 +247,9 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
       case "open-command-palette":
         setPaletteOpen(true);
         return;
+      case "stop-generation":
+        stopActiveGeneration();
+        return;
       case "toggle-theme":
         document.documentElement.dataset.theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
         return;
@@ -240,19 +262,22 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
   }
 
   function renderTopMenuCommand(command: TopMenuCommand) {
+    const resolvedCommand = command.id === "stop-generation"
+      ? { ...command, enabled: Boolean(stopGenerationSessionId) }
+      : command;
     return (
       <button
-        aria-label={menuCommandAccessibleLabel(command)}
+        aria-label={menuCommandAccessibleLabel(resolvedCommand)}
         className="react-top-menu__menu-item"
-        disabled={command.enabled === false}
-        key={command.id}
+        disabled={resolvedCommand.enabled === false}
+        key={resolvedCommand.id}
         role="menuitem"
-        title={menuCommandAccessibleLabel(command)}
+        title={menuCommandAccessibleLabel(resolvedCommand)}
         type="button"
-        onClick={() => runTopMenuCommand(command)}
+        onClick={() => runTopMenuCommand(resolvedCommand)}
       >
-        <span className="react-top-menu__menu-label">{command.label}</span>
-        {command.shortcut ? <span className="react-top-menu__shortcut">{command.shortcut}</span> : null}
+        <span className="react-top-menu__menu-label">{resolvedCommand.label}</span>
+        {resolvedCommand.shortcut ? <span className="react-top-menu__shortcut">{resolvedCommand.shortcut}</span> : null}
       </button>
     );
   }
@@ -388,6 +413,7 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
           sessionSidebarCollapsed={sessionSidebarCollapsed}
           onNavigate={setRoute}
           onSessionSidebarCollapsedChange={setSessionSidebarCollapsed}
+          onStopGenerationTargetChange={handleStopGenerationTargetChange}
         />
         </section>
       </div>
@@ -432,6 +458,7 @@ function RouteSurface({
   now,
   onNavigate,
   onSessionSidebarCollapsedChange,
+  onStopGenerationTargetChange,
   route,
   services,
   sessionSidebarCollapsed,
@@ -440,6 +467,7 @@ function RouteSurface({
   now?: () => number;
   onNavigate: (route: AppRoute) => void;
   onSessionSidebarCollapsedChange: (collapsed: boolean) => void;
+  onStopGenerationTargetChange: (sessionId: string) => void;
   route: AppRoute;
   services: AppServices;
   sessionSidebarCollapsed: boolean;
@@ -457,6 +485,7 @@ function RouteSurface({
           onOpenFiles={() => onNavigate("files")}
           onOpenSettings={() => onNavigate("settings")}
           onSessionSidebarCollapsedChange={onSessionSidebarCollapsedChange}
+          onStopGenerationTargetChange={onStopGenerationTargetChange}
         />
       );
     case "files":

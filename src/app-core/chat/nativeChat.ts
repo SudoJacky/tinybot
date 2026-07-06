@@ -565,29 +565,6 @@ export function applyChatEvent(state: NativeChatState, event: NormalizedGatewayE
     return;
   }
 
-  if (event.kind === "message.delta") {
-    const chatId = event.chatId || state.activeChatId;
-    const sessionKey = sessionKeyForChatState(state, chatId);
-    if (!sessionKey) {
-      logDesktopNativeChatDebug("state.event.after", {
-        dropped: "missing session key",
-        event: summarizeChatEvent(event),
-        state: summarizeNativeChatState(state),
-      });
-      return;
-    }
-    const messageId = event.messageId || `stream:${sessionKey}`;
-    upsertStreamMessage(state, sessionKey, messageId, event.text, event.reasoning);
-    state.respondingSessionKeys.add(sessionKey);
-    state.error = "";
-    logDesktopNativeChatDebug("state.event.after", {
-      event: summarizeChatEvent(event),
-      state: summarizeNativeChatState(state),
-      targetSessionKey: sessionKey,
-    });
-    return;
-  }
-
   if (event.kind === "agent.event") {
     const envelope = agentEventEnvelopeFromRaw(event.raw);
     if (!envelope) {
@@ -624,6 +601,49 @@ export function applyChatEvent(state: NativeChatState, event: NormalizedGatewayE
     } else {
       state.respondingSessionKeys.add(sessionKey);
     }
+    return;
+  }
+
+  if (event.kind === "message.delta") {
+    const sessionKey =
+      event.messageId && state.streamMessageKeys.has(event.messageId)
+        ? state.streamMessageKeys.get(event.messageId) || ""
+        : sessionKeyForChatState(state, event.chatId || state.activeChatId);
+    if (!sessionKey) {
+      logDesktopNativeChatDebug("state.event.after", {
+        dropped: "missing session key",
+        event: summarizeChatEvent(event),
+        state: summarizeNativeChatState(state),
+      });
+      return;
+    }
+    const bucket = ensureMessageBucket(state, sessionKey);
+    const existingMessage = findStreamingDeltaMessage(bucket, event.messageId);
+    const targetMessage = existingMessage ?? {
+      role: "assistant",
+      content: "",
+      reasoningContent: "",
+      timestamp: new Date().toISOString(),
+      messageId: event.messageId || "",
+    };
+    if (event.reasoning) {
+      targetMessage.reasoningContent += event.text;
+    } else {
+      targetMessage.content += event.text;
+    }
+    if (!existingMessage) {
+      bucket.push(targetMessage);
+    }
+    if (event.messageId) {
+      state.streamMessageKeys.set(event.messageId, sessionKey);
+    }
+    state.respondingSessionKeys.add(sessionKey);
+    state.error = "";
+    logDesktopNativeChatDebug("state.event.after", {
+      event: summarizeChatEvent(event),
+      state: summarizeNativeChatState(state),
+      targetSessionKey: sessionKey,
+    });
     return;
   }
 
@@ -741,31 +761,17 @@ export function applyChatEvent(state: NativeChatState, event: NormalizedGatewayE
   });
 }
 
-function upsertStreamMessage(
-  state: NativeChatState,
-  sessionKey: string,
-  messageId: string,
-  deltaText: string,
-  reasoning: boolean,
-) {
-  const bucket = ensureMessageBucket(state, sessionKey);
-  let message = bucket.find((item) => item.messageId === messageId);
-  if (!message) {
-    message = {
-      role: "assistant",
-      content: "",
-      reasoningContent: "",
-      timestamp: new Date().toISOString(),
-      messageId,
-    };
-    bucket.push(message);
-    state.streamMessageKeys.set(messageId, sessionKey);
+function findStreamingDeltaMessage(bucket: NativeChatMessage[], messageId: string | undefined): NativeChatMessage | undefined {
+  if (messageId) {
+    return bucket.find((message) => message.role === "assistant" && message.messageId === messageId);
   }
-  if (reasoning) {
-    message.reasoningContent += deltaText;
-  } else {
-    message.content += deltaText;
+  for (let index = bucket.length - 1; index >= 0; index -= 1) {
+    const message = bucket[index];
+    if (message.role === "assistant" && !message.messageId) {
+      return message;
+    }
   }
+  return undefined;
 }
 
 function upsertToolActivityMessage(bucket: NativeChatMessage[], nextActivity: NativeChatToolActivity): boolean {
@@ -1032,8 +1038,12 @@ function agentEventEnvelopeFromRaw(raw: Record<string, unknown>): AgentEventEnve
 }
 
 function conversationMessagesToNativeMessages(messages: ReturnType<typeof turnsToConversationMessages>): NativeChatMessage[] {
+  const reasoningByMessageId = reasoningContentToMergeByMessageId(messages);
   return messages.filter((message, index) => {
     const next = messages[index + 1];
+    if (message.messageId && reasoningByMessageId.has(message.messageId) && !message.body.join("\n").trim()) {
+      return false;
+    }
     return !(
       message.tone === "assistant"
       && message.copyable !== true
@@ -1045,7 +1055,8 @@ function conversationMessagesToNativeMessages(messages: ReturnType<typeof turnsT
     role: message.tone,
     content: message.body.join("\n"),
     ...(typeof message.copyable === "boolean" ? { copyable: message.copyable } : {}),
-    reasoningContent: message.reasoningContent ?? "",
+    ...(message.messageId ? { messageId: message.messageId } : {}),
+    reasoningContent: `${message.messageId ? reasoningByMessageId.get(message.messageId) ?? "" : ""}${message.reasoningContent ?? ""}`,
     ...(message.toolActivities?.length ? {
       toolActivities: message.toolActivities.map((activity) => ({
         approvalId: activity.approvalId,
@@ -1085,8 +1096,32 @@ function conversationMessagesToNativeMessages(messages: ReturnType<typeof turnsT
       })),
     } : {}),
     timestamp: message.time,
-    messageId: `agent-run:${index}`,
+    messageId: message.messageId || `agent-run:${index}`,
   }));
+}
+
+function reasoningContentToMergeByMessageId(messages: ReturnType<typeof turnsToConversationMessages>): Map<string, string> {
+  const reasoningByMessageId = new Map<string, string>();
+  messages.forEach((message, index) => {
+    if (
+      message.tone !== "assistant"
+      || !message.messageId
+      || message.body.join("\n").trim()
+      || !message.reasoningContent?.trim()
+    ) {
+      return;
+    }
+    const hasAnswerForSameMessage = messages.slice(index + 1).some((next) => (
+      next.tone === "assistant"
+      && next.messageId === message.messageId
+      && Boolean(next.body.join("\n").trim())
+    ));
+    if (!hasAnswerForSameMessage) {
+      return;
+    }
+    reasoningByMessageId.set(message.messageId, `${reasoningByMessageId.get(message.messageId) ?? ""}${message.reasoningContent}`);
+  });
+  return reasoningByMessageId;
 }
 
 function nativeReferenceKind(value: string): NativeChatReference["kind"] {
@@ -1110,6 +1145,10 @@ function normalizeMessageReferences(message: Record<string, unknown>): NativeCha
 }
 
 function normalizeToolActivities(message: Record<string, unknown>): NativeChatToolActivity[] {
+  const directActivities = directToolActivityRows(message.toolActivities ?? message.tool_activities);
+  if (directActivities.length) {
+    return directActivities;
+  }
   const calls = toolCallRows(message.tool_calls ?? message.toolCalls);
   const results = toolResultRows(message.tool_results ?? message.toolResults);
   const usedResultIndexes = new Set<number>();
@@ -1342,6 +1381,39 @@ function shouldSuppressToolActivityContent(message: Record<string, unknown>, act
       || booleanValue(message._tool_detail)
       || booleanValue(message._tool_result),
   );
+}
+
+function directToolActivityRows(value: unknown): NativeChatToolActivity[] {
+  return arrayRows(value).map((row, index) => {
+    const status = normalizeToolActivityStatus(row.status ?? row.state ?? row.phase);
+    const kind = stringValue(row.kind).toLowerCase() === "result" ? "result" : "call";
+    const delegatedTrace = isRecord(row.delegatedTrace)
+      ? row.delegatedTrace
+      : isRecord(row.delegated_trace)
+        ? row.delegated_trace
+        : undefined;
+    return {
+      id: stringValue(row.id ?? row.tool_call_id ?? row.toolCallId) || `tool-activity-${index + 1}`,
+      name: stringValue(row.name ?? row.tool_name ?? row.title) || "tool",
+      argsText: textValue(row.argsText ?? row.args_text ?? row.arguments ?? row.args),
+      responseText: textValue(row.responseText ?? row.response_text ?? row.response ?? row.result ?? row.output),
+      kind,
+      ...(stringValue(row.approvalId ?? row.approval_id ?? row._approval_id) ? { approvalId: stringValue(row.approvalId ?? row.approval_id ?? row._approval_id) } : {}),
+      ...(stringValue(row.approvalStatus ?? row.approval_status ?? row._approval_status) ? { approvalStatus: stringValue(row.approvalStatus ?? row.approval_status ?? row._approval_status) } : {}),
+      ...(stringValue(row.childRunId ?? row.child_run_id) ? { childRunId: stringValue(row.childRunId ?? row.child_run_id) } : {}),
+      ...(stringValue(row.delegateId ?? row.delegate_id) ? { delegateId: stringValue(row.delegateId ?? row.delegate_id) } : {}),
+      ...(stringValue(row.delegateTask ?? row.delegate_task) ? { delegateTask: stringValue(row.delegateTask ?? row.delegate_task) } : {}),
+      ...(stringValue(row.delegateTitle ?? row.delegate_title) ? { delegateTitle: stringValue(row.delegateTitle ?? row.delegate_title) } : {}),
+      ...(stringValue(row.delegateType ?? row.delegate_type) ? { delegateType: stringValue(row.delegateType ?? row.delegate_type) } : {}),
+      ...(delegatedTrace ? { delegatedTrace } : {}),
+      ...(stringValue(row.finalOutput ?? row.final_output) ? { finalOutput: stringValue(row.finalOutput ?? row.final_output) } : {}),
+      ...(stringValue(row.parentRunId ?? row.parent_run_id) ? { parentRunId: stringValue(row.parentRunId ?? row.parent_run_id) } : {}),
+      ...(stringValue(row.parentTurnId ?? row.parent_turn_id) ? { parentTurnId: stringValue(row.parentTurnId ?? row.parent_turn_id) } : {}),
+      ...(stringValue(row.sessionKey ?? row.session_key) ? { sessionKey: stringValue(row.sessionKey ?? row.session_key) } : {}),
+      ...(status ? { status } : {}),
+      ...(stringValue(row.traceRef ?? row.trace_ref) ? { traceRef: stringValue(row.traceRef ?? row.trace_ref) } : {}),
+    };
+  });
 }
 
 function toolCallRows(value: unknown): Array<Pick<NativeChatToolActivity, "id" | "name" | "argsText"> & { approvalId?: string; approvalStatus?: string; status?: string }> {

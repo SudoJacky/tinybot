@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import {
   AlertTriangle,
   Check,
@@ -19,6 +19,16 @@ import {
   X,
 } from "lucide-react";
 import {
+  MAX_QUEUED_INPUTS,
+  deleteQueuedInput,
+  dispatchNextQueuedInput,
+  pauseQueuedInputs,
+  resumeNextQueuedInput,
+  submitComposerText,
+  type SubmitComposerTextResult,
+} from "../../app-core/chat/chatInputState";
+import type { QueuedInput } from "../../app-core/chat/chatUiProjection";
+import {
   ClaudeStyleAiInput,
   type ComposerSendOptions,
   type ComposerToolOption,
@@ -26,10 +36,12 @@ import {
   type ModelOption,
   type PastedContent,
 } from "../../components/ui/claude-style-ai-input";
+import { TextType } from "../../components/ui/TextType";
 import { formatRelativeUpdatedTime } from "../lib/relativeTime";
-import type { ChatEvent, ChatModelOption, ChatStore, SessionStore, SessionSummary, SettingsStore } from "../services";
+import type { ApprovalAction, ChatEvent, ChatInput, ChatModelOption, ChatStore, SessionStore, SessionSummary, SettingsStore } from "../services";
 import { reduceSessionDeleteState } from "../sessions/sessionDeleteState";
 import { canBranchFromMessage, type ContextReferenceSummary, type ReactChatMessage, type ToolCallSummary } from "./messageActions";
+import type { AgentUiForm, AgentUiFormField } from "../../app-core/agent-ui/agentUiEvents";
 
 export type ChatPageProps = {
   chatStore: ChatStore;
@@ -38,6 +50,7 @@ export type ChatPageProps = {
   createSessionSignal?: number;
   sessionSidebarCollapsed?: boolean;
   onSessionSidebarCollapsedChange?: (collapsed: boolean) => void;
+  onStopGenerationTargetChange?: (sessionId: string) => void;
   onOpenFiles?: () => void;
   onOpenSettings?: () => void;
   now?: () => number;
@@ -45,8 +58,10 @@ export type ChatPageProps = {
 
 type DrawerState = {
   title: string;
-  body: string;
+  toolCall: ToolCallSummary;
 } | null;
+
+type QueuedComposerInput = QueuedInput & Pick<ChatInput, "model" | "usePersistentRag">;
 
 const COMPOSER_TOOLS: ComposerToolOption[] = [
   {
@@ -57,11 +72,36 @@ const COMPOSER_TOOLS: ComposerToolOption[] = [
   },
 ];
 
-const EMPTY_CHAT_PROMPTS = [
-  "帮我总结一份文档",
-  "帮我搜索资料并整理结论",
-  "帮我检查这段代码的问题",
-  "帮我把需求拆成可执行任务",
+const EMPTY_CHAT_GROUP_INTERVAL_MS = 8000;
+
+const EMPTY_CHAT_START_GROUPS = [
+  {
+    title: "想让 Tinybot 做什么？",
+    prompts: [
+      "规划一次旅行行程",
+      "比较几款产品并给出建议",
+      "整理会议记录和待办",
+      "起草一封重要邮件",
+    ],
+  },
+  {
+    title: "准备让 Tinybot 接手什么？",
+    prompts: [
+      "跟进一个复杂任务",
+      "把需求拆成执行计划",
+      "整理资料并形成简报",
+      "检查方案里的遗漏",
+    ],
+  },
+  {
+    title: "想让 Tinybot 查清什么？",
+    prompts: [
+      "查证一个关键问题",
+      "梳理一个陌生主题",
+      "找出决策需要的信息",
+      "汇总不同来源的结论",
+    ],
+  },
 ] as const;
 
 const SESSION_DELETE_DISSOLVE_MS = 760;
@@ -102,6 +142,7 @@ export function ChatPage({
   onOpenFiles,
   onOpenSettings,
   onSessionSidebarCollapsedChange,
+  onStopGenerationTargetChange,
   sessionSidebarCollapsed,
   sessionStore,
   settingsStore,
@@ -116,9 +157,15 @@ export function ChatPage({
   const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
   const [localSessionSidebarCollapsed, setLocalSessionSidebarCollapsed] = useState(false);
   const [drawer, setDrawer] = useState<DrawerState>(null);
+  const [resolvingApprovalId, setResolvingApprovalId] = useState("");
+  const [agentUiForms, setAgentUiForms] = useState<AgentUiForm[]>([]);
+  const [queuedInputsBySession, setQueuedInputsBySession] = useState<Map<string, QueuedComposerInput[]>>(() => new Map());
+  const [queueMessage, setQueueMessage] = useState("");
   const [dissolvingSessionIds, setDissolvingSessionIds] = useState<Set<string>>(() => new Set());
   const [deleteState, dispatchDelete] = useReducer(reduceSessionDeleteState, { confirmingSessionId: "" });
   const sessionsRef = useRef<SessionSummary[]>([]);
+  const queuedInputsRef = useRef<Map<string, QueuedComposerInput[]>>(new Map());
+  const queuedInputSequence = useRef(0);
   const deleteDissolveTimers = useRef<number[]>([]);
   const lastCreateSessionSignal = useRef(createSessionSignal);
   const resolvedSessionSidebarCollapsed = sessionSidebarCollapsed ?? localSessionSidebarCollapsed;
@@ -129,6 +176,8 @@ export function ChatPage({
   const messagesLoaded = Boolean(activeSession) && loadedMessageSessionId === activeSession?.id;
   const emptyActiveSession = messagesLoaded && messages.length === 0;
   const sessionRunning = activeSession?.status === "running" || activeSession?.status === "waiting_approval";
+  const sessionResponding = sessionRunning && !emptyActiveSession;
+  const activeQueuedInputs = activeSession ? queuedInputsBySession.get(activeSession.id) ?? [] : [];
 
   useEffect(() => {
     sessionsRef.current = sessions;
@@ -171,6 +220,7 @@ export function ChatPage({
       return;
     }
     setMessages([]);
+    setAgentUiForms([]);
     setLoadedMessageSessionId("");
     let cancelled = false;
     const loadMessages = () => chatStore.load(activeSessionId).then((nextMessages) => {
@@ -179,17 +229,26 @@ export function ChatPage({
         setLoadedMessageSessionId(activeSessionId);
       }
     });
+    const loadAgentUiForms = () => chatStore.listAgentUiForms(activeSessionId).then((nextForms) => {
+      if (!cancelled) {
+        setAgentUiForms(nextForms);
+      }
+    });
     void loadMessages();
+    void loadAgentUiForms();
     const unsubscribe = chatStore.subscribe(activeSessionId, (event) => {
+      const eventHasMessage = Boolean(event.message);
       if (event.message) {
         setMessages((current) => [...current, event.message as ReactChatMessage]);
-        return;
       }
       if (shouldReloadSessionsForChatEvent(event)) {
-        void handleSessionStoreRefresh();
+        void handleQueueStateAfterChatEvent(activeSessionId, event);
       }
-      if (shouldReloadMessagesForChatEvent(event.type)) {
+      if (!eventHasMessage && shouldReloadMessagesForChatEvent(event.type)) {
         void loadMessages();
+      }
+      if (shouldReloadAgentUiFormsForChatEvent(event.type)) {
+        void loadAgentUiForms();
       }
     });
     return () => {
@@ -223,6 +282,10 @@ export function ChatPage({
     };
   }, [settingsStore]);
 
+  useEffect(() => {
+    onStopGenerationTargetChange?.(activeSession && sessionResponding ? activeSession.id : "");
+  }, [activeSession?.id, onStopGenerationTargetChange, sessionResponding]);
+
   async function handleCreateSession() {
     const created = await sessionStore.create();
     setSessions((current) => [created, ...current]);
@@ -255,7 +318,7 @@ export function ChatPage({
     }
   }
 
-  async function handleSessionStoreRefresh() {
+  async function handleSessionStoreRefresh(): Promise<SessionSummary[]> {
     const nextSessions = await sessionStore.list();
     sessionsRef.current = nextSessions;
     setSessions(nextSessions);
@@ -265,6 +328,7 @@ export function ChatPage({
       }
       return nextSessions.some((session) => session.id === current) ? current : nextSessions[0]?.id ?? "";
     });
+    return nextSessions;
   }
 
   async function handlePinConversation(session: SessionSummary) {
@@ -321,12 +385,168 @@ export function ChatPage({
     if (!text || !activeSession) {
       return;
     }
+    const queuedResult = submitComposerText({
+      approvals: [],
+      content: text,
+      isRunning: isQueueableRunningSession(activeSession, emptyActiveSession),
+      now: nextQueuedInputTimestamp(),
+      queuedInputs: activeQueuedInputs,
+    });
+    if (queuedResult.kind !== "send_message") {
+      handleQueuedComposerResult(activeSession.id, queuedResult, options);
+      return;
+    }
     await chatStore.send(activeSession.id, {
-      text,
+      text: queuedResult.content,
       ...(options.model ? { model: options.model } : {}),
       ...(typeof options.usePersistentRag === "boolean" ? { usePersistentRag: options.usePersistentRag } : {}),
     });
     await handleSessionStoreRefresh();
+  }
+
+  function handleQueuedComposerResult(
+    sessionId: string,
+    result: Exclude<SubmitComposerTextResult, { kind: "send_message" }>,
+    options: ComposerSendOptions,
+  ) {
+    if (result.kind === "queue_limit_reached") {
+      setQueueMessage("Already have 5 queued messages. Wait for processing or delete one before sending more.");
+      return;
+    }
+    if (result.kind === "reject_approval_with_guidance") {
+      return;
+    }
+    setQueueMessage("");
+    updateQueuedInputsBySession((current) => {
+      const next = new Map(current);
+      next.set(sessionId, [...(next.get(sessionId) ?? []), {
+        ...result.input,
+        ...(options.model ? { model: options.model } : {}),
+        ...(typeof options.usePersistentRag === "boolean" ? { usePersistentRag: options.usePersistentRag } : {}),
+      }]);
+      return next;
+    });
+  }
+
+  function handleDeleteQueuedInput(sessionId: string, inputId: string) {
+    setQueueMessage("");
+    updateQueuedInputsBySession((current) => {
+      const next = new Map(current);
+      const remaining = deleteQueuedInput(next.get(sessionId) ?? [], inputId);
+      if (remaining.length) {
+        next.set(sessionId, remaining);
+      } else {
+        next.delete(sessionId);
+      }
+      return next;
+    });
+  }
+
+  async function handleStopGeneration(session: SessionSummary) {
+    pauseQueuedInputsForSession(session.id);
+    await chatStore.stop(session.id);
+    await handleSessionStoreRefresh();
+  }
+
+  function updateQueuedInputsBySession(
+    updater: (current: Map<string, QueuedComposerInput[]>) => Map<string, QueuedComposerInput[]>,
+  ) {
+    setQueuedInputsBySession((current) => {
+      const next = updater(current);
+      queuedInputsRef.current = next;
+      return next;
+    });
+  }
+
+  function nextQueuedInputTimestamp(): string {
+    const sequence = queuedInputSequence.current;
+    queuedInputSequence.current += 1;
+    return new Date(now() + sequence).toISOString();
+  }
+
+  async function handleQueueStateAfterChatEvent(sessionId: string, event: ChatEvent) {
+    const nextSessions = await handleSessionStoreRefresh();
+    if (shouldPauseQueuedInputsForChatEvent(event)) {
+      pauseQueuedInputsForSession(sessionId);
+      return;
+    }
+    if (!shouldDispatchQueuedInputForChatEvent(event)) {
+      return;
+    }
+    const nextSession = nextSessions.find((session) => session.id === sessionId);
+    if (!canDispatchQueuedInputForSession(nextSession)) {
+      return;
+    }
+    await sendNextQueuedInput(sessionId, "normal_completion");
+  }
+
+  async function handleResumeQueuedInputs(sessionId: string) {
+    await sendNextQueuedInput(sessionId, "manual_resume");
+  }
+
+  async function sendNextQueuedInput(sessionId: string, mode: "normal_completion" | "manual_resume") {
+    const inputs = queuedInputsRef.current.get(sessionId) ?? [];
+    const result = mode === "manual_resume" ? resumeNextQueuedInput(inputs) : dispatchNextQueuedInput(inputs);
+    if (!result.nextInput) {
+      return;
+    }
+    await chatStore.send(sessionId, toChatInput(result.nextInput as QueuedComposerInput));
+    updateQueuedInputsBySession((current) => {
+      const next = new Map(current);
+      if (result.remainingInputs.length) {
+        next.set(sessionId, result.remainingInputs as QueuedComposerInput[]);
+      } else {
+        next.delete(sessionId);
+      }
+      return next;
+    });
+    await handleSessionStoreRefresh();
+  }
+
+  function pauseQueuedInputsForSession(sessionId: string) {
+    updateQueuedInputsBySession((current) => {
+      const inputs = current.get(sessionId) ?? [];
+      if (!inputs.length) {
+        return current;
+      }
+      const next = new Map(current);
+      next.set(sessionId, pauseQueuedInputs(inputs) as QueuedComposerInput[]);
+      return next;
+    });
+  }
+
+  async function handleResolveApproval(toolCall: ToolCallSummary, action: ApprovalAction) {
+    if (!activeSession || !toolCall.approvalId) {
+      return;
+    }
+    const sessionId = activeSession.id;
+    setResolvingApprovalId(toolCall.approvalId);
+    try {
+      await chatStore.resolveApproval(sessionId, {
+        action,
+        approvalId: toolCall.approvalId,
+      });
+      await handleSessionStoreRefresh();
+      const nextMessages = await chatStore.load(sessionId);
+      setMessages(nextMessages);
+      setLoadedMessageSessionId(sessionId);
+    } finally {
+      setResolvingApprovalId("");
+    }
+  }
+
+  async function handleSubmitAgentUiForm(form: AgentUiForm, values: Record<string, unknown>) {
+    await chatStore.submitAgentUiForm(form.form_id, values);
+    if (activeSession) {
+      setAgentUiForms(await chatStore.listAgentUiForms(activeSession.id));
+    }
+  }
+
+  async function handleCancelAgentUiForm(form: AgentUiForm) {
+    await chatStore.cancelAgentUiForm(form.form_id);
+    if (activeSession) {
+      setAgentUiForms(await chatStore.listAgentUiForms(activeSession.id));
+    }
   }
 
   function handleSessionSidebarCollapsedChange(collapsed: boolean) {
@@ -341,6 +561,8 @@ export function ChatPage({
     setActiveSessionId(session.id);
     setSessionSearchOpen(false);
   }
+
+  const visibleAgentUiForms = agentUiForms.filter(isVisibleAgentUiForm);
 
   return (
     <section className="react-chat-page" aria-label="Chat" data-session-sidebar-collapsed={resolvedSessionSidebarCollapsed}>
@@ -475,21 +697,43 @@ export function ChatPage({
               onCopy={() => void writeClipboardText(formatMessageForCopy(message))}
               onOpenTool={(toolCall) => setDrawer({
                 title: toolCall.name,
-                body: formatToolCallDetails(toolCall),
+                toolCall,
               })}
               sessionRunning={sessionRunning}
             />
           )) : emptyActiveSession ? <EmptyChatStart /> : activeSession ? null : <EmptyStateText text="Select or create a session." />}
+          {visibleAgentUiForms.length ? (
+            <div className="react-agent-ui-forms" aria-label="Agent forms">
+              {visibleAgentUiForms.map((form) => (
+                <AgentUiFormCard
+                  form={form}
+                  key={form.form_id}
+                  onCancel={() => void handleCancelAgentUiForm(form)}
+                  onSubmit={(values) => void handleSubmitAgentUiForm(form, values)}
+                />
+              ))}
+            </div>
+          ) : null}
         </div>
 
+        {activeSession && activeQueuedInputs.length ? (
+          <QueuedInputsPanel
+            inputs={activeQueuedInputs}
+            onDelete={(inputId) => handleDeleteQueuedInput(activeSession.id, inputId)}
+            onResume={() => void handleResumeQueuedInputs(activeSession.id)}
+          />
+        ) : null}
+        {queueMessage ? <p className="react-queued-inputs__message">{queueMessage}</p> : null}
         <ClaudeStyleAiInput
           className={["react-composer", emptyActiveSession ? "react-composer--raised" : ""].filter(Boolean).join(" ")}
           disabled={!activeSession}
           defaultModel={defaultComposerModel}
           models={composerModels}
+          responding={sessionResponding}
           placeholder={emptyActiveSession ? "输入任务，或粘贴/拖入文件" : "Message Tinybot"}
           tools={COMPOSER_TOOLS}
           onSendMessage={(message, files, pastedContent, options) => handleComposerSend(message, files, pastedContent, options)}
+          onStopResponding={() => activeSession && handleStopGeneration(activeSession)}
         />
       </main>
 
@@ -501,7 +745,11 @@ export function ChatPage({
               <X aria-hidden="true" size={16} />
             </button>
           </div>
-          <p>{drawer.body || "Details placeholder."}</p>
+          <ToolCallDetails
+            resolvingApprovalId={resolvingApprovalId}
+            toolCall={drawer.toolCall}
+            onResolveApproval={(toolCall, action) => void handleResolveApproval(toolCall, action)}
+          />
         </aside>
       ) : null}
 
@@ -648,10 +896,32 @@ function SessionSearchDialog({
 }
 
 function EmptyChatStart() {
+  const [groupIndex, setGroupIndex] = useState(0);
+  const group = EMPTY_CHAT_START_GROUPS[groupIndex] ?? EMPTY_CHAT_START_GROUPS[0];
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setGroupIndex((current) => (current + 1) % EMPTY_CHAT_START_GROUPS.length);
+    }, EMPTY_CHAT_GROUP_INTERVAL_MS);
+    return () => window.clearInterval(interval);
+  }, []);
+
   return (
     <section aria-label="Start a new chat" className="react-empty-chat-start" data-empty-session="true">
-      <h2>想让 Tinybot 做什么？</h2>
-      <PromptCycleText prompts={EMPTY_CHAT_PROMPTS} />
+      <h2>
+        <TextType
+          ariaLabel={group.title}
+          className="react-empty-chat-title-type"
+          cursorClassName="react-empty-chat-title-type__cursor"
+          deletingSpeed={22}
+          loop={false}
+          pauseDuration={6800}
+          showCursor
+          text={group.title}
+          typingSpeed={34}
+        />
+      </h2>
+      <PromptCycleText prompts={group.prompts} />
     </section>
   );
 }
@@ -660,22 +930,16 @@ function PromptCycleText({ prompts }: { prompts: readonly string[] }) {
   return (
     <p aria-label="Prompt suggestions" className="react-prompt-cycle" data-motion="text-type-loop">
       <span className="react-sr-only">{`建议：${prompts.join("；")}`}</span>
-      <span aria-hidden="true" className="react-prompt-cycle__visual">
-        {prompts.map((prompt, index) => (
-          <span
-            className="react-prompt-cycle__item"
-            key={prompt}
-            style={
-              {
-                "--react-prompt-characters": String(Math.max(prompt.length, 1)),
-                "--react-prompt-index": String(index),
-              } as CSSProperties
-            }
-          >
-            {prompt}
-          </span>
-        ))}
-      </span>
+      <TextType
+        ariaHidden
+        className="react-prompt-cycle__text-type"
+        cursorClassName="react-prompt-cycle__cursor"
+        deletingSpeed={24}
+        pauseDuration={1350}
+        showCursor
+        text={prompts}
+        typingSpeed={34}
+      />
     </p>
   );
 }
@@ -683,28 +947,14 @@ function PromptCycleText({ prompts }: { prompts: readonly string[] }) {
 function EmptyStateText({ text }: { text: string }) {
   return (
     <p className="react-empty-state">
-      <TextType text={text} />
+      <TextType ariaLabel={text} className="react-text-type" loop={false} showCursor={false} text={text} />
     </p>
-  );
-}
-
-function TextType({ text }: { text: string }) {
-  return (
-    <span
-      aria-label={text}
-      className="react-text-type"
-      data-text-type="once"
-      style={{ "--react-text-type-characters": String(Math.max(text.length, 1)) } as CSSProperties}
-    >
-      <span aria-hidden="true" className="react-text-type__text">{text}</span>
-    </span>
   );
 }
 
 const MESSAGE_RELOAD_EVENT_TYPES = new Set([
   "attached",
   "agent.event",
-  "message.delta",
   "message.completed",
   "message.stream.completed",
   "message-sent",
@@ -732,6 +982,43 @@ function shouldReloadMessagesForChatEvent(type: string): boolean {
 function shouldReloadSessionsForChatEvent(event: ChatEvent): boolean {
   return SESSION_RELOAD_EVENT_TYPES.has(event.type)
     || (event.type === "agent.event" && Boolean(event.eventType && TERMINAL_AGENT_EVENT_TYPES.has(event.eventType)));
+}
+
+function shouldReloadAgentUiFormsForChatEvent(type: string): boolean {
+  return type === "agent-ui.form" || type === "agent-ui.event";
+}
+
+function shouldDispatchQueuedInputForChatEvent(event: ChatEvent): boolean {
+  return event.type === "message.completed"
+    || event.type === "message.stream.completed"
+    || (event.type === "agent.event" && event.eventType === "agent.turn.completed");
+}
+
+function shouldPauseQueuedInputsForChatEvent(event: ChatEvent): boolean {
+  return event.type === "interrupted"
+    || (event.type === "agent.event" && (
+      event.eventType === "agent.turn.failed" || event.eventType === "agent.turn.interrupted"
+    ));
+}
+
+function canDispatchQueuedInputForSession(session: SessionSummary | undefined): boolean {
+  return session?.status !== "running" && session?.status !== "waiting_approval" && session?.status !== "failed";
+}
+
+function isQueueableRunningSession(session: SessionSummary, emptyActiveSession: boolean): boolean {
+  return session.status === "running" && !emptyActiveSession && !session.id.startsWith("pending:");
+}
+
+function toChatInput(input: QueuedComposerInput): ChatInput {
+  return {
+    text: input.content,
+    ...(input.model ? { model: input.model } : {}),
+    ...(typeof input.usePersistentRag === "boolean" ? { usePersistentRag: input.usePersistentRag } : {}),
+  };
+}
+
+function isVisibleAgentUiForm(form: AgentUiForm): boolean {
+  return form.status !== "submitted" && form.status !== "cancelled" && form.status !== "expired";
 }
 
 async function writeClipboardText(value: string): Promise<void> {
@@ -769,6 +1056,258 @@ function toComposerModelOption(model: ChatModelOption): ModelOption {
     description: model.description || model.providerLabel || "Configured model",
     ...(model.default ? { badge: "Default" } : {}),
   };
+}
+
+function QueuedInputsPanel({
+  inputs,
+  onDelete,
+  onResume,
+}: {
+  inputs: QueuedInput[];
+  onDelete: (inputId: string) => void;
+  onResume: () => void;
+}) {
+  const hasPausedInput = inputs.some((input) => input.status === "paused");
+  return (
+    <section aria-label="Queued inputs" className="react-queued-inputs">
+      <div className="react-queued-inputs__header">
+        <h2>Queued inputs</h2>
+        <div>
+          <span>{inputs.length}/{MAX_QUEUED_INPUTS}</span>
+          {hasPausedInput ? <button type="button" onClick={onResume}>Resume queue</button> : null}
+        </div>
+      </div>
+      <ol>
+        {inputs.map((input) => (
+          <li className="react-queued-input" data-status={input.status} key={input.id}>
+            <span>{queuedInputStatusLabel(input)}</span>
+            <p>{input.content}</p>
+            {input.status === "queued" || input.status === "paused" ? (
+              <button type="button" onClick={() => onDelete(input.id)}>Delete queued input</button>
+            ) : null}
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+function queuedInputStatusLabel(input: QueuedInput): string {
+  switch (input.status) {
+    case "guided":
+      return "Guided";
+    case "paused":
+      return "Paused";
+    case "sent":
+      return "Sent";
+    default:
+      return "Waiting";
+  }
+}
+
+function AgentUiFormCard({
+  form,
+  onCancel,
+  onSubmit,
+}: {
+  form: AgentUiForm;
+  onCancel: () => void;
+  onSubmit: (values: Record<string, unknown>) => void;
+}) {
+  const [values, setValues] = useState<Record<string, unknown>>(() => initialAgentUiFormValues(form));
+
+  useEffect(() => {
+    setValues(initialAgentUiFormValues(form));
+  }, [form]);
+
+  function updateValue(field: AgentUiFormField, value: unknown) {
+    setValues((current) => ({ ...current, [field.name]: value }));
+  }
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onSubmit(normalizeAgentUiFormValues(form, values));
+  }
+
+  return (
+    <form aria-label={form.title || form.form_id} className="react-agent-ui-form-card" onSubmit={handleSubmit}>
+      <div className="react-agent-ui-form-card__header">
+        <h2>{form.title || "Agent form"}</h2>
+        {form.description ? <p>{form.description}</p> : null}
+      </div>
+      <div className="react-agent-ui-form-card__fields">
+        {form.fields.map((field) => (
+          <AgentUiFormFieldControl
+            field={field}
+            key={field.name}
+            value={values[field.name]}
+            onChange={(value) => updateValue(field, value)}
+          />
+        ))}
+      </div>
+      <div className="react-agent-ui-form-card__actions">
+        <button type="submit">{form.submit_label || "Submit"}</button>
+        <button type="button" onClick={onCancel}>{form.cancel_label || "Cancel"}</button>
+      </div>
+    </form>
+  );
+}
+
+function AgentUiFormFieldControl({
+  field,
+  onChange,
+  value,
+}: {
+  field: AgentUiFormField;
+  onChange: (value: unknown) => void;
+  value: unknown;
+}) {
+  const id = `agent-ui-form-${field.name}`;
+  const stringValue = value === undefined || value === null ? "" : String(value);
+  return (
+    <label className="react-agent-ui-form-field" htmlFor={id}>
+      <span>{field.label}</span>
+      {renderAgentUiFormInput(field, id, stringValue, value, onChange)}
+      {field.help ? <small>{field.help}</small> : null}
+    </label>
+  );
+}
+
+function renderAgentUiFormInput(
+  field: AgentUiFormField,
+  id: string,
+  stringValue: string,
+  value: unknown,
+  onChange: (value: unknown) => void,
+): ReactNode {
+  if (field.type === "textarea") {
+    return (
+      <textarea
+        id={id}
+        maxLength={field.max_length}
+        minLength={field.min_length}
+        placeholder={field.placeholder}
+        required={field.required}
+        value={stringValue}
+        onChange={(event) => onChange(event.currentTarget.value)}
+      />
+    );
+  }
+  if (field.type === "select") {
+    return (
+      <select id={id} required={field.required} value={stringValue} onChange={(event) => onChange(optionValueFromString(field, event.currentTarget.value))}>
+        <option value="">Select...</option>
+        {(field.options ?? []).map((option) => (
+          <option key={String(option.value)} value={String(option.value)}>{option.label}</option>
+        ))}
+      </select>
+    );
+  }
+  if (field.type === "multiselect") {
+    const selected = Array.isArray(value) ? value.map(String) : [];
+    return (
+      <select
+        id={id}
+        multiple
+        required={field.required}
+        value={selected}
+        onChange={(event) => onChange(Array.from(event.currentTarget.selectedOptions).map((option) => optionValueFromString(field, option.value)))}
+      >
+        {(field.options ?? []).map((option) => (
+          <option key={String(option.value)} value={String(option.value)}>{option.label}</option>
+        ))}
+      </select>
+    );
+  }
+  if (field.type === "radio") {
+    return (
+      <span className="react-agent-ui-form-field__choices">
+        {(field.options ?? []).map((option) => (
+          <label key={String(option.value)}>
+            <input
+              checked={stringValue === String(option.value)}
+              name={field.name}
+              required={field.required}
+              type="radio"
+              value={String(option.value)}
+              onChange={(event) => onChange(optionValueFromString(field, event.currentTarget.value))}
+            />
+            <span>{option.label}</span>
+          </label>
+        ))}
+      </span>
+    );
+  }
+  if (field.type === "checkbox") {
+    return (
+      <input
+        checked={value === true}
+        id={id}
+        type="checkbox"
+        onChange={(event) => onChange(event.currentTarget.checked)}
+      />
+    );
+  }
+  return (
+    <input
+      id={id}
+      max={field.max}
+      maxLength={field.max_length}
+      min={field.min}
+      minLength={field.min_length}
+      pattern={field.pattern}
+      placeholder={field.placeholder}
+      required={field.required}
+      type={inputTypeForAgentUiField(field)}
+      value={stringValue}
+      onChange={(event) => onChange(field.type === "number" ? event.currentTarget.valueAsNumber : event.currentTarget.value)}
+    />
+  );
+}
+
+function inputTypeForAgentUiField(field: AgentUiFormField): string {
+  switch (field.type) {
+    case "date":
+    case "time":
+      return field.type;
+    case "datetime":
+      return "datetime-local";
+    case "number":
+      return "number";
+    default:
+      return "text";
+  }
+}
+
+function initialAgentUiFormValues(form: AgentUiForm): Record<string, unknown> {
+  const values: Record<string, unknown> = {};
+  for (const field of form.fields) {
+    if (field.default !== undefined) {
+      values[field.name] = field.default;
+    }
+  }
+  return {
+    ...values,
+    ...(form.initial_values ?? {}),
+    ...(form.values ?? {}),
+  };
+}
+
+function normalizeAgentUiFormValues(form: AgentUiForm, values: Record<string, unknown>): Record<string, unknown> {
+  const normalized: Record<string, unknown> = {};
+  for (const field of form.fields) {
+    const value = values[field.name];
+    if (field.type === "number") {
+      normalized[field.name] = typeof value === "number" && Number.isFinite(value) ? value : undefined;
+      continue;
+    }
+    normalized[field.name] = value;
+  }
+  return normalized;
+}
+
+function optionValueFromString(field: AgentUiFormField, value: string): string | number | boolean {
+  return field.options?.find((option) => String(option.value) === value)?.value ?? value;
 }
 
 function MessageBubble({
@@ -1142,6 +1681,81 @@ function sessionTitleInitial(title: string): string {
   return title.trim().charAt(0).toUpperCase() || "C";
 }
 
-function formatToolCallDetails(toolCall: ToolCallSummary): string {
-  return [toolCall.status, toolCall.summary].filter(Boolean).join("\n\n");
+function ToolCallDetails({
+  resolvingApprovalId = "",
+  toolCall,
+  onResolveApproval,
+}: {
+  resolvingApprovalId?: string;
+  toolCall: ToolCallSummary;
+  onResolveApproval?: (toolCall: ToolCallSummary, action: ApprovalAction) => void;
+}) {
+  const sections = toolCallDetailSections(toolCall);
+  if (!sections.length) {
+    return <p>Details unavailable.</p>;
+  }
+  const showApprovalActions = isPendingApprovalToolCall(toolCall) && Boolean(onResolveApproval);
+  const resolving = Boolean(toolCall.approvalId && resolvingApprovalId === toolCall.approvalId);
+  return (
+    <div className="react-tool-detail">
+      {showApprovalActions ? (
+        <section className="react-tool-detail__approval-actions" aria-label="Approval actions">
+          <h3>Approval actions</h3>
+          <div>
+            <button disabled={resolving} type="button" onClick={() => onResolveApproval?.(toolCall, "approveOnce")}>Approve once</button>
+            <button disabled={resolving} type="button" onClick={() => onResolveApproval?.(toolCall, "approveSession")}>Allow for session</button>
+            <button disabled={resolving} type="button" onClick={() => onResolveApproval?.(toolCall, "deny")}>Deny</button>
+          </div>
+        </section>
+      ) : null}
+      {sections.map((section) => (
+        <section key={section.label}>
+          <h3>{section.label}</h3>
+          <pre>{section.value}</pre>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function isPendingApprovalToolCall(toolCall: ToolCallSummary): boolean {
+  if (!toolCall.approvalId) {
+    return false;
+  }
+  const status = normalizeAgentStepStatus(toolCall.approvalStatus || toolCall.status);
+  return status === "waiting";
+}
+
+function toolCallDetailSections(toolCall: ToolCallSummary): Array<{ label: string; value: string }> {
+  return [
+    { label: "Status", value: toolCall.status },
+    { label: "Summary", value: toolCall.summary ?? "" },
+    { label: "Arguments", value: toolCall.argsText ?? "" },
+    { label: "Response", value: toolCall.responseText ?? "" },
+    { label: "Approval", value: formatDetailLines([
+      ["ID", toolCall.approvalId],
+      ["Status", toolCall.approvalStatus],
+    ]) },
+    { label: "Delegate", value: formatDetailLines([
+      ["Title", toolCall.delegateTitle],
+      ["Type", toolCall.delegateType],
+      ["Task", toolCall.delegateTask],
+      ["ID", toolCall.delegateId],
+    ]) },
+    { label: "Trace", value: formatDetailLines([
+      ["Trace", toolCall.traceRef],
+      ["Child run", toolCall.childRunId],
+      ["Parent run", toolCall.parentRunId],
+      ["Parent turn", toolCall.parentTurnId],
+      ["Session", toolCall.sessionKey],
+    ]) },
+    { label: "Final output", value: toolCall.finalOutput ?? "" },
+  ].filter((section) => section.value.trim());
+}
+
+function formatDetailLines(rows: Array<[string, string | undefined]>): string {
+  return rows
+    .filter(([, value]) => Boolean(value?.trim()))
+    .map(([label, value]) => `${label}: ${value}`)
+    .join("\n");
 }

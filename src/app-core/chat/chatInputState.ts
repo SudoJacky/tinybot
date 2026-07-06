@@ -96,3 +96,18 @@ export function resumeNextQueuedInput(inputs: QueuedInput[]): { nextInput?: Queu
     remainingInputs: inputs.filter((_, index) => index !== nextIndex),
   };
 }
+
+export function dispatchNextQueuedInput(inputs: QueuedInput[]): { nextInput?: QueuedInput; remainingInputs: QueuedInput[] } {
+  const nextIndex = inputs.findIndex((input) => input.status === "queued");
+  if (nextIndex === -1) {
+    return { remainingInputs: inputs };
+  }
+  return {
+    nextInput: { ...inputs[nextIndex], status: "queued" },
+    remainingInputs: inputs.filter((_, index) => index !== nextIndex),
+  };
+}
+
+export function deleteQueuedInput(inputs: QueuedInput[], inputId: string): QueuedInput[] {
+  return inputs.filter((input) => input.id !== inputId || input.status === "sent" || input.status === "guided");
+}
