@@ -175,6 +175,28 @@ describe("default desktop app services", () => {
     });
   });
 
+  test("keeps pending session cleanup best-effort when auto-title persistence fails", async () => {
+    mocks.gatewayApi.sessions.patch.mockRejectedValueOnce(new Error("unknown session"));
+    const services = createDesktopAppServices();
+    const pending = await services.sessionStore.create();
+
+    await expect(services.chatStore.send(pending.id, { text: "summarize docs", usePersistentRag: true })).resolves.toBeUndefined();
+    const socket = mocks.openGatewaySocket.mock.results[0]?.value;
+    socket.handlers.onEvent({
+      kind: "chat.created",
+      chatId: "chat-new",
+      raw: {},
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    await expect(services.sessionStore.list()).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "websocket:chat-new" }),
+    ]));
+    await expect(services.sessionStore.list()).resolves.not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: pending.id }),
+    ]));
+  });
+
   test("does not overwrite existing custom session titles", async () => {
     const services = createDesktopAppServices();
     await services.sessionStore.list();

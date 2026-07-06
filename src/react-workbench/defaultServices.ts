@@ -177,7 +177,11 @@ export function createDesktopAppServices(): AppServices {
     if (!title) {
       return;
     }
-    await controller.patchSession(sessionId, { title });
+    try {
+      await controller.patchSession(sessionId, { title });
+    } catch {
+      // Auto-generated titles should not block chat lifecycle events.
+    }
   }
 
   async function loadSettingsSnapshot(): Promise<unknown> {
