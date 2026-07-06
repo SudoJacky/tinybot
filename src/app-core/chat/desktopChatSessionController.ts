@@ -174,11 +174,6 @@ export function createDesktopChatSessionController({
     await deleteGatewaySession(target);
     state.messages.delete(sessionKey);
     state.respondingSessionKeys.delete(sessionKey);
-    for (const [messageId, messageSessionKey] of state.streamMessageKeys) {
-      if (messageSessionKey === sessionKey) {
-        state.streamMessageKeys.delete(messageId);
-      }
-    }
 
     const sessions = normalizeSessionsPayload(await api.listSessions());
     setSessions(state, sessions);

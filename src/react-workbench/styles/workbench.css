@@ -111,10 +111,10 @@ button:disabled {
 
 .react-window-frame {
   display: grid;
-  grid-template-columns: auto auto minmax(80px, 1fr) auto;
+  grid-template-columns: auto auto minmax(80px, 1fr) auto auto;
   align-items: center;
-  gap: 12px;
-  padding: 0 12px;
+  gap: 8px;
+  padding: 0 8px 0 12px;
   border-bottom: 1px solid var(--color-hairline);
   background: var(--color-canvas);
   user-select: none;
@@ -145,6 +145,44 @@ button:disabled {
   min-width: 32px;
   min-height: 32px;
   padding: 6px 9px;
+}
+
+.react-window-frame__controls {
+  display: flex;
+  align-items: stretch;
+  align-self: stretch;
+  margin-right: -8px;
+}
+
+.react-window-frame__control {
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  min-width: 44px;
+  height: 100%;
+  min-height: 42px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: default;
+}
+
+.react-window-frame__control:hover,
+.react-window-frame__control:focus-visible {
+  background: var(--color-surface-soft);
+  color: var(--color-ink);
+}
+
+.react-window-frame__control:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 55%, transparent);
+  outline-offset: -2px;
+}
+
+.react-window-frame__control--close:hover,
+.react-window-frame__control--close:focus-visible {
+  background: #c42b1c;
+  color: #fff;
 }
 
 .react-top-menu__group {
@@ -877,18 +915,19 @@ button:disabled {
 .react-message[data-role="user"] {
   justify-self: end;
   max-width: min(680px, 92%);
+  width: fit-content;
 }
 
 .react-message__body {
   min-width: 0;
-  border: 1px solid var(--color-hairline);
-  border-radius: 8px;
-  background: #fff;
-  padding: 12px 14px;
+  padding: 2px 0;
 }
 
 .react-message[data-role="user"] .react-message__body {
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
   background: var(--color-surface-card);
+  padding: 12px 14px;
 }
 
 .react-message__body p {
@@ -901,13 +940,20 @@ button:disabled {
   gap: 10px;
 }
 
-.react-message-reasoning,
 .react-message-context {
   display: grid;
   gap: 7px;
   margin-bottom: 10px;
   border-left: 2px solid var(--color-hairline-strong);
   padding-left: 10px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.react-message-reasoning {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 10px;
   color: var(--color-muted);
   font-size: 12px;
 }

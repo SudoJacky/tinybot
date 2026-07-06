@@ -69,14 +69,10 @@ describe("desktop native WebSocket bridge", () => {
     expect(events).not.toContainEqual(expect.objectContaining({
       event: "delta",
     }));
-    expect(events).toContainEqual({
+    expect(events).not.toContainEqual(expect.objectContaining({
       event: "stream_end",
       chat_id: "chat-native",
-      message_id: "message-1",
-      reason: "final_response",
-      _memory_references: [{ note_id: "note-1" }],
-      _recent_context_references: [{ evidence_id: "ev-1" }],
-    });
+    }));
     expect(events).toContainEqual(expect.objectContaining({
       event: "agent_event",
       event_type: "message.delta",
@@ -305,7 +301,7 @@ describe("desktop native WebSocket bridge", () => {
       }),
       turn_id: runId,
     }));
-    expect(events).toContainEqual(expect.objectContaining({
+    expect(events).not.toContainEqual(expect.objectContaining({
       event: "stream_end",
       chat_id: "chat-native",
     }));
@@ -526,7 +522,7 @@ describe("desktop native WebSocket bridge", () => {
     }));
   });
 
-  test("projects TS worker tool progress into legacy WebUI message frames", async () => {
+  test("projects TS worker tool progress into structured agent event frames", async () => {
     const handlers = new Map<string, (payload: unknown) => void>();
     const nativeTransport: NativeTransportApi = {
       gatewayFrame: vi.fn(),
@@ -584,38 +580,18 @@ describe("desktop native WebSocket bridge", () => {
       content: "file contents",
     });
 
-    expect(events).toContainEqual({
-      event: "message",
-      chat_id: "chat-native",
-      message_id: "run-2:call-read:args",
-      text: "read_file({\"path\":\"AGENTS.md\"})",
-      _progress: true,
-      _tool_call_id: "call-read",
-      _tool_detail: true,
-      _tool_hint: true,
-      _tool_name: "read_file",
-    });
-    expect(events).toContainEqual({
-      event: "message",
-      chat_id: "chat-native",
-      message_id: "run-2:call-read:start",
-      text: "read_file({\"path\":\"AGENTS.md\"})",
-      _progress: true,
-      _tool_call_id: "call-read",
-      _tool_detail: true,
-      _tool_hint: true,
-      _tool_name: "read_file",
-    });
-    expect(events).toContainEqual({
-      event: "message",
-      chat_id: "chat-native",
-      message_id: "run-2:call-read:result",
-      text: "file contents",
-      _progress: true,
-      _tool_call_id: "call-read",
-      _tool_name: "read_file",
-      _tool_result: true,
-    });
+    expect(events).not.toContainEqual(expect.objectContaining({ event: "message" }));
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "agent_event",
+      event_type: "tool.call.arguments.delta",
+      step_id: "run-2:call-read",
+      payload: expect.objectContaining({
+        args_preview: "{\"path\":\"AGENTS.md\"}",
+        name: "read_file",
+        status: "running",
+        tool_call_id: "call-read",
+      }),
+    }));
     expect(events).toContainEqual(expect.objectContaining({
       event: "agent_event",
       schema_version: "tinybot.agent_event.v1",
@@ -702,17 +678,7 @@ describe("desktop native WebSocket bridge", () => {
       },
     });
 
-    expect(events).toContainEqual(expect.objectContaining({
-      event: "message",
-      message_id: "run-approval:call-spawn:result",
-      status: "blocked",
-      text: "Waiting for approval.",
-      _approval_id: "approval-1",
-      _approval_status: "approval_required",
-      _tool_call_id: "call-spawn",
-      _tool_name: "spawn",
-      _tool_result: true,
-    }));
+    expect(events).not.toContainEqual(expect.objectContaining({ event: "message" }));
     expect(events).toContainEqual({
       event: "approval_pending",
       chat_id: "chat-native",
@@ -869,16 +835,16 @@ describe("desktop native WebSocket bridge", () => {
       toolName: "spawn",
     });
 
+    expect(events).not.toContainEqual(expect.objectContaining({ event: "message" }));
     expect(events).toContainEqual(expect.objectContaining({
-      event: "message",
-      message_id: "run-approval:approval:approval-1:result",
-      status: "blocked",
-      text: "Waiting for approval.",
-      _approval_id: "approval-1",
-      _approval_status: "approval_required",
-      _tool_call_id: "call-spawn",
-      _tool_name: "spawn",
-      _tool_result: true,
+      event: "agent_event",
+      event_type: "approval.requested",
+      step_id: "run-approval:approval:approval-1",
+      payload: expect.objectContaining({
+        approval_id: "approval-1",
+        tool_call_id: "call-spawn",
+      }),
+      turn_id: "run-approval",
     }));
   });
 
@@ -1042,7 +1008,7 @@ describe("desktop native WebSocket bridge", () => {
     }));
   });
 
-  test("projects TS worker memory references and task progress into legacy WebUI message frames", async () => {
+  test("projects TS worker task progress into structured agent event frames", async () => {
     const handlers = new Map<string, (payload: unknown) => void>();
     const nativeTransport: NativeTransportApi = {
       gatewayFrame: vi.fn(),
@@ -1084,10 +1050,6 @@ describe("desktop native WebSocket bridge", () => {
     expect(handlers.get(toDesktopNativeTauriEventName("agent.memory_reference"))).toBeDefined();
     expect(handlers.get(toDesktopNativeTauriEventName("agent.task_progress"))).toBeDefined();
 
-    handlers.get(toDesktopNativeTauriEventName("agent.memory_reference"))?.({
-      runId: "run-4",
-      references: [{ note_id: "note-1", content: "Remembered preference" }],
-    });
     handlers.get(toDesktopNativeTauriEventName("agent.task_progress"))?.({
       runId: "run-4",
       toolCallId: "task-call",
@@ -1096,26 +1058,17 @@ describe("desktop native WebSocket bridge", () => {
       progress: { plan_id: "plan-1", completed: 1, total: 2 },
     });
 
-    expect(events).toContainEqual({
-      event: "message",
-      chat_id: "chat-native",
-      message_id: "run-4",
-      text: "",
-      _memory_references: [{ note_id: "note-1", content: "Remembered preference" }],
-    });
-    expect(events).toContainEqual({
-      event: "message",
-      chat_id: "chat-native",
-      message_id: "run-4:task-call:task-progress",
-      text: "Task progress updated.",
-      _progress: true,
-      _tool_call_id: "task-call",
-      _tool_name: "task",
-      _tool_result: true,
-      _task_event: true,
-      _task_plan_id: "plan-1",
-      _task_progress: { plan_id: "plan-1", completed: 1, total: 2 },
-    });
+    expect(events).not.toContainEqual(expect.objectContaining({ event: "message" }));
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "agent_event",
+      event_type: "tool.call.completed",
+      payload: expect.objectContaining({
+        result_preview: "Task progress updated.",
+        status: "completed",
+        tool_call_id: "task-call",
+      }),
+      turn_id: "run-4",
+    }));
   });
 
   test("projects TS worker browser frames into legacy WebUI browser frame events", async () => {

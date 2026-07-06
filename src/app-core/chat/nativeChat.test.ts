@@ -173,7 +173,7 @@ describe("native chat state", () => {
       eventId: "event-turn-start",
       eventType: "agent.turn.started",
       payload: {
-        user_message: { id: "user-1", role: "user", text: "hello" },
+          user_message: { id: "user-1", role: "user", text: "hello" },
         user_message_id: "user-1",
       },
       sequence: 1,
@@ -222,78 +222,6 @@ describe("native chat state", () => {
     }));
 
     expect(state.respondingSessionKeys.has(sessionKeyForChat("chat-1"))).toBe(false);
-  });
-
-  test("keeps legacy normalized message deltas streaming without agent events", () => {
-    const state = createNativeChatState();
-    applyChatEvent(state, { kind: "attached", chatId: "chat-1", raw: {} });
-
-    applyChatEvent(state, {
-      kind: "message.delta",
-      chatId: "chat-1",
-      messageId: "legacy-stream-1",
-      text: "Hello",
-      reasoning: false,
-      raw: { event: "delta" },
-    });
-    applyChatEvent(state, {
-      kind: "message.delta",
-      chatId: "chat-1",
-      messageId: "legacy-stream-1",
-      text: " world",
-      reasoning: false,
-      raw: { event: "message_delta" },
-    });
-
-    expect(state.messages.get(sessionKeyForChat("chat-1"))).toMatchObject([
-      {
-        role: "assistant",
-        content: "Hello world",
-        reasoningContent: "",
-        messageId: "legacy-stream-1",
-      },
-    ]);
-    expect(state.respondingSessionKeys.has(sessionKeyForChat("chat-1"))).toBe(true);
-
-    applyChatEvent(state, {
-      kind: "message.stream.completed",
-      chatId: "chat-1",
-      messageId: "legacy-stream-1",
-      raw: { event: "stream_end" },
-    });
-
-    expect(state.respondingSessionKeys.has(sessionKeyForChat("chat-1"))).toBe(false);
-  });
-
-  test("keeps legacy normalized reasoning deltas on the assistant message", () => {
-    const state = createNativeChatState();
-    applyChatEvent(state, { kind: "attached", chatId: "chat-1", raw: {} });
-
-    applyChatEvent(state, {
-      kind: "message.delta",
-      chatId: "chat-1",
-      messageId: "legacy-stream-2",
-      text: "Thinking",
-      reasoning: true,
-      raw: { event: "reasoning_delta" },
-    });
-    applyChatEvent(state, {
-      kind: "message.delta",
-      chatId: "chat-1",
-      messageId: "legacy-stream-2",
-      text: " done",
-      reasoning: false,
-      raw: { event: "delta" },
-    });
-
-    expect(state.messages.get(sessionKeyForChat("chat-1"))).toMatchObject([
-      {
-        role: "assistant",
-        content: " done",
-        reasoningContent: "Thinking",
-        messageId: "legacy-stream-2",
-      },
-    ]);
   });
 
   test("normalizes backend memory and recent context references from persisted messages", () => {
@@ -427,45 +355,25 @@ describe("native chat state", () => {
     }]);
   });
 
-  test("attaches backend references from live completed and streamed messages", () => {
+  test("attaches backend references from structured completed messages", () => {
     const state = createNativeChatState();
     applyChatEvent(state, { kind: "attached", chatId: "chat-1", raw: {} });
 
-    applyChatEvent(state, {
-      kind: "message.completed",
-      chatId: "chat-1",
-      messageId: "m-complete",
-      text: "Complete answer",
-      raw: {
-        _memory_references: [{ note_id: "note_complete", content: "Complete memory" }],
-      },
-    });
     applyChatEvent(state, agentEvent({
-      eventId: "event-stream-delta",
-      eventType: "message.delta",
+      eventId: "event-complete",
+      eventType: "message.completed",
       payload: {
-        message_id: "m-stream",
-        text: "Streamed answer",
+        message_id: "m-complete",
+        references: [{ title: "note_complete", content: "Complete memory" }],
+        text: "Complete answer",
       },
       sequence: 1,
     }));
-    applyChatEvent(state, {
-      kind: "message.stream.completed",
-      chatId: "chat-1",
-      messageId: "m-stream",
-      raw: {
-        _recent_context_references: [{ evidence_id: "ev_stream", excerpt: "Stream context" }],
-      },
-    });
 
     expect(state.messages.get(sessionKeyForChat("chat-1"))).toEqual(expect.arrayContaining([
       expect.objectContaining({
         messageId: "m-complete",
-        references: [expect.objectContaining({ kind: "memory", title: "note_complete", detail: "Complete memory" })],
-      }),
-      expect.objectContaining({
-        messageId: "m-stream",
-        references: [expect.objectContaining({ kind: "recent", title: "ev_stream", detail: "Stream context" })],
+        references: [expect.objectContaining({ kind: "reference", title: "note_complete", detail: "Complete memory" })],
       }),
     ]));
   });
@@ -483,21 +391,22 @@ describe("native chat state", () => {
       },
       sequence: 1,
     }));
-    applyChatEvent(state, {
-      kind: "message.completed",
-      chatId: "chat-1",
-      messageId: "m-stream",
-      text: "Streamed answer",
-      raw: {
-        _memory_references: [{ note_id: "note_stream", content: "Stream memory" }],
+    applyChatEvent(state, agentEvent({
+      eventId: "event-stream-complete",
+      eventType: "message.completed",
+      payload: {
+        message_id: "m-stream",
+        references: [{ title: "note_stream", content: "Stream memory" }],
+        text: "Streamed answer",
       },
-    });
+      sequence: 2,
+    }));
 
     expect(state.messages.get(sessionKeyForChat("chat-1"))).toEqual(expect.arrayContaining([
       expect.objectContaining({
         content: "Streamed answer",
         messageId: "m-stream",
-        references: [expect.objectContaining({ kind: "memory", title: "note_stream", detail: "Stream memory" })],
+        references: [expect.objectContaining({ kind: "reference", title: "note_stream", detail: "Stream memory" })],
       }),
     ]));
     expect(state.messages.get(sessionKeyForChat("chat-1"))?.filter((message) => message.messageId === "m-stream")).toHaveLength(1);
@@ -645,91 +554,6 @@ describe("native chat state", () => {
     ]);
   });
 
-  test("routes live tool hint messages into tool activities instead of assistant body text", () => {
-    const state = createNativeChatState();
-    applyChatEvent(state, { kind: "attached", chatId: "chat-1", raw: {} });
-
-    applyChatEvent(state, {
-      kind: "message.completed",
-      chatId: "chat-1",
-      messageId: "tool-detail-1",
-      text: "list_dir(path=\"C:\\\\Users\\\\12921\\\\tinybot\\\\workspace\\\\web-articles\")",
-      raw: {
-        _tool_hint: true,
-        _tool_detail: true,
-        _tool_name: "list_dir",
-      },
-    });
-
-    expect(state.messages.get(sessionKeyForChat("chat-1"))).toMatchObject([
-      {
-        role: "assistant",
-        content: "",
-        messageId: "tool-detail-1",
-        toolActivities: [
-          {
-            id: "tool-detail-1",
-            name: "list_dir",
-            argsText: "list_dir(path=\"C:\\\\Users\\\\12921\\\\tinybot\\\\workspace\\\\web-articles\")",
-            responseText: "",
-            kind: "call",
-            status: "running",
-          },
-        ],
-      },
-    ]);
-  });
-
-  test("updates live tool activity status instead of appending duplicate tool messages", () => {
-    const state = createNativeChatState();
-    applyChatEvent(state, { kind: "attached", chatId: "chat-1", raw: {} });
-
-    applyChatEvent(state, {
-      kind: "message.completed",
-      chatId: "chat-1",
-      messageId: "tool-running-1",
-      text: "search_memory_notes(query=\"financial banking\")",
-      raw: {
-        _tool_hint: true,
-        _tool_detail: true,
-        _tool_call_id: "call-search-memory",
-        _tool_name: "search_memory_notes",
-        status: "running",
-      },
-    });
-    applyChatEvent(state, {
-      kind: "message.completed",
-      chatId: "chat-1",
-      messageId: "tool-completed-1",
-      text: "[{\"summary\":\"User follows AI impact on financial banking.\"}]",
-      raw: {
-        _tool_result: true,
-        tool_call_id: "call-search-memory",
-        _tool_name: "search_memory_notes",
-        status: "completed",
-      },
-    });
-
-    expect(state.messages.get(sessionKeyForChat("chat-1"))).toMatchObject([
-      {
-        role: "assistant",
-        content: "",
-        messageId: "tool-running-1",
-        toolActivities: [
-          {
-            id: "call-search-memory",
-            name: "search_memory_notes",
-            argsText: "search_memory_notes(query=\"financial banking\")",
-            responseText: "[{\"summary\":\"User follows AI impact on financial banking.\"}]",
-            kind: "result",
-            status: "completed",
-          },
-        ],
-      },
-    ]);
-    expect(state.messages.get(sessionKeyForChat("chat-1"))).toHaveLength(1);
-  });
-
   test("keeps late live tool events before the streamed final answer", () => {
     const state = createNativeChatState();
     applyChatEvent(state, { kind: "attached", chatId: "chat-1", raw: {} });
@@ -742,24 +566,22 @@ describe("native chat state", () => {
       },
       sequence: 1,
     }));
-    applyChatEvent(state, {
-      kind: "message.completed",
-      chatId: "chat-1",
-      messageId: "tool-list-1",
-      text: "AGENTS.md\napps/\ndocs/",
-      raw: {
-        _tool_result: true,
-        tool_call_id: "call-list",
-        _tool_name: "list_dir",
+    applyChatEvent(state, agentEvent({
+      eventId: "event-tool-list",
+      eventType: "tool.call.completed",
+      payload: {
+        name: "list_dir",
+        result_preview: "AGENTS.md\napps/\ndocs/",
         status: "completed",
+        tool_call_id: "call-list",
       },
-    });
+      sequence: 2,
+    }));
 
     expect(state.messages.get(sessionKeyForChat("chat-1"))).toEqual(expect.arrayContaining([
       expect.objectContaining({
         role: "assistant",
         content: "",
-        messageId: "tool-list-1",
         toolActivities: [
           expect.objectContaining({
             id: "call-list",
@@ -839,6 +661,28 @@ describe("native chat state", () => {
       },
       { role: "assistant", content: "Files inspected." },
     ]);
+    expect(state.respondingSessionKeys.has(sessionKeyForChat("chat-1"))).toBe(true);
+
+    applyChatEvent(state, {
+      kind: "agent.event",
+      chatId: "chat-1",
+      raw: {
+        event: "agent_event",
+        schema_version: "tinybot.agent_event.v1",
+        event_id: "event-turn-complete",
+        event_type: "agent.turn.completed",
+        chat_id: "chat-1",
+        session_key: "websocket:chat-1",
+        turn_id: "turn-1",
+        sequence: 4,
+        created_at: "2026-06-27T04:00:03.000Z",
+        payload: {
+          message_id: "assistant-final",
+          reason: "stop",
+        },
+      },
+    });
+
     expect(state.respondingSessionKeys.has(sessionKeyForChat("chat-1"))).toBe(false);
   });
 
@@ -859,7 +703,7 @@ describe("native chat state", () => {
         sequence: 1,
         created_at: "2026-06-27T04:00:00.000Z",
         payload: {
-          user_message: { id: "user-1", role: "user", text: "Use subagent" },
+          user_message: { id: "user-1", role: "user", text: "hello" },
           user_message_id: "user-1",
         },
       },
@@ -885,7 +729,7 @@ describe("native chat state", () => {
     });
 
     expect(state.messages.get(sessionKeyForChat("chat-1"))).toMatchObject([
-      { role: "user", content: "Use subagent" },
+      { role: "user", content: "hello" },
       {
         role: "assistant",
         content: "working with a child agent",
@@ -911,7 +755,7 @@ describe("native chat state", () => {
         sequence: 1,
         created_at: "2026-06-27T04:00:00.000Z",
         payload: {
-          user_message: { id: "user-1", role: "user", text: "你好" },
+          user_message: { id: "user-1", role: "user", text: "hello" },
           user_message_id: "user-1",
         },
       },
@@ -960,7 +804,7 @@ describe("native chat state", () => {
     });
 
     expect(state.messages.get(sessionKeyForChat("chat-1"))).toMatchObject([
-      { role: "user", content: "你好" },
+      { role: "user", content: "hello" },
       {
         role: "assistant",
         content: "",
@@ -1069,7 +913,7 @@ describe("native chat state", () => {
           _delegate_event: true,
           _delegate_id: "delegate-1",
           _delegate_status: "awaiting_approval",
-          _delegate_task: "请用中文说一句\"你好\"",
+          _delegate_task: "Ask the delegated agent to say hello",
           timestamp: "2026-06-27T04:00:03Z",
           message_id: "tool-approval",
         },
@@ -1085,7 +929,7 @@ describe("native chat state", () => {
       approvalStatus: "approval_required",
       status: "blocked",
     })]);
-    expect(messages[0].toolActivities?.[0]?.argsText).toContain("请用中文说一句");
+    expect(messages[0].toolActivities?.[0]?.argsText).toContain("Ask the delegated agent to say hello");
   });
 
   test("restores completed delegated results without losing delegated task details", () => {
@@ -1098,9 +942,9 @@ describe("native chat state", () => {
           name: "spawn",
           _delegate_event: true,
           _delegate_id: "delegate-1",
-          _delegate_result: { summary: "你好", status: "completed" },
+          _delegate_result: { summary: "hello", status: "completed" },
           _delegate_status: "completed",
-          _delegate_task: "请用中文说一句\"你好\"",
+          _delegate_task: "Ask the delegated agent to say hello",
           _delegate_trace: {
             steps: [{
               id: "tool:call-1:completed",
@@ -1123,7 +967,7 @@ describe("native chat state", () => {
       kind: "result",
       status: "completed",
     })]);
-    expect(messages[0].toolActivities?.[0]?.argsText).toContain("请用中文说一句");
+    expect(messages[0].toolActivities?.[0]?.argsText).toContain("Ask the delegated agent to say hello");
     expect(messages[0].toolActivities?.[0]?.argsText).toContain("Spawned agent workflow");
     expect(messages[0].toolActivities?.[0]?.argsText).toContain("tool:call-1:completed");
   });
@@ -1147,7 +991,7 @@ describe("native chat state", () => {
           _delegate_id: "delegate-1",
           _delegate_label: "Greeter",
           _delegate_status: "completed",
-          _delegate_task: "Say hello",
+          _delegate_task: "Ask the delegated agent to say hello",
           _delegate_trace_ref: "trace-delegate-1",
           _delegate_result: { summary: "hello", status: "completed" },
           _delegate_trace: {
@@ -1181,7 +1025,7 @@ describe("native chat state", () => {
     expect(delegate).toMatchObject({
       id: "delegate-1",
       title: "Greeter",
-      task: "Say hello",
+      task: "Ask the delegated agent to say hello",
       status: "completed",
       traceRef: "trace-delegate-1",
       trace: {
@@ -1278,61 +1122,6 @@ describe("native chat state", () => {
         })],
       }),
     }));
-  });
-
-  test("merges pending approval tool result messages into the latest running tool by name", () => {
-    const state = createNativeChatState();
-    activateChat(state, "chat-1");
-    appendUserMessage(state, "Use subagent");
-
-    applyChatEvent(state, {
-      kind: "message.completed",
-      chatId: "chat-1",
-      messageId: "run-1:call-spawn:start",
-      text: "spawn({\"task\":\"say hi\"})",
-      raw: {
-        event: "agent.tool.start",
-        chat_id: "chat-1",
-        content: "spawn({\"task\":\"say hi\"})",
-        message_id: "run-1:call-spawn:start",
-        status: "running",
-        _tool_call_id: "call-spawn",
-        _tool_detail: true,
-        _tool_hint: true,
-        _tool_name: "spawn",
-      },
-    });
-    applyChatEvent(state, {
-      kind: "message.completed",
-      chatId: "chat-1",
-      messageId: "run-1:approval-1:approval",
-      text: "Waiting for approval.",
-      raw: {
-        event: "agent.awaiting_approval",
-        chat_id: "chat-1",
-        content: "Waiting for approval.",
-        message_id: "run-1:approval-1:approval",
-        status: "blocked",
-        _approval_id: "approval-1",
-        _approval_status: "approval_required",
-        _tool_call_id: "approval-1",
-        _tool_name: "spawn",
-        _tool_result: true,
-      },
-    });
-
-    const assistantMessages = state.messages.get(sessionKeyForChat("chat-1"))?.filter((message) => message.role === "assistant") ?? [];
-    expect(assistantMessages).toHaveLength(1);
-    expect(assistantMessages[0].toolActivities).toEqual([{
-      id: "call-spawn",
-      name: "spawn",
-      argsText: "spawn({\"task\":\"say hi\"})",
-      responseText: "Waiting for approval.",
-      kind: "result",
-      approvalId: "approval-1",
-      approvalStatus: "approval_required",
-      status: "blocked",
-    }]);
   });
 
   test("merges approval requests into the matching tool activity", () => {
@@ -1466,163 +1255,4 @@ describe("native chat state", () => {
     })]);
   });
 
-  test("coalesces resolved approval activities with the original delegated tool call", () => {
-    const state = createNativeChatState();
-    activateChat(state, "chat-1");
-    appendUserMessage(state, "Use subagent");
-
-    applyChatEvent(state, {
-      kind: "message.completed",
-      chatId: "chat-1",
-      messageId: "run-1:call-spawn:start",
-      text: "spawn({\"task\":\"say hi\"})",
-      raw: {
-        event: "agent.tool.start",
-        chat_id: "chat-1",
-        content: "spawn({\"task\":\"say hi\"})",
-        message_id: "run-1:call-spawn:start",
-        status: "running",
-        _tool_call_id: "call-spawn",
-        _tool_detail: true,
-        _tool_hint: true,
-        _tool_name: "spawn",
-      },
-    });
-    applyChatEvent(state, {
-      kind: "message.completed",
-      chatId: "chat-1",
-      messageId: "run-1:approval:approval-1:result",
-      text: "Waiting for approval.",
-      raw: {
-        event: "message",
-        chat_id: "chat-1",
-        content: "Waiting for approval.",
-        message_id: "run-1:approval:approval-1:result",
-        status: "blocked",
-        _approval_id: "approval-1",
-        _approval_status: "approval_required",
-        _tool_call_id: "approval-1",
-        _tool_name: "spawn",
-        _tool_result: true,
-      },
-    });
-    applyChatEvent(state, {
-      kind: "agent.event",
-      chatId: "chat-1",
-      raw: {
-        event: "agent_event",
-        schema_version: "tinybot.agent_event.v1",
-        event_id: "event-approval",
-        event_type: "approval.requested",
-        chat_id: "chat-1",
-        session_key: "websocket:chat-1",
-        turn_id: "run-1",
-        step_id: "run-1:approval:approval-1",
-        sequence: 3,
-        created_at: "2026-06-27T04:00:02.000Z",
-        payload: {
-          approval_id: "approval-1",
-          approval_status: "approval_required",
-          args_preview: "",
-          title: "Approval required",
-          tool_call_id: "approval-1",
-        },
-      },
-    });
-
-    expect(resolveNativeChatApproval(state, {
-      approvalId: "approval-1",
-      decision: "approved",
-      sessionKey: "websocket:chat-1",
-    })).toBe(true);
-
-    const toolActivities = (state.messages.get(sessionKeyForChat("chat-1")) ?? [])
-      .flatMap((message) => message.toolActivities ?? []);
-    expect(toolActivities).toHaveLength(1);
-    expect(toolActivities[0]).toEqual(expect.objectContaining({
-      approvalId: "approval-1",
-      approvalStatus: "approved",
-      argsText: "spawn({\"task\":\"say hi\"})",
-      name: "spawn",
-      responseText: "Approved.",
-      status: "completed",
-    }));
-  });
-
-  test("merges completed tool results into the locally approved delegated tool call", () => {
-    const state = createNativeChatState();
-    activateChat(state, "chat-1");
-    appendUserMessage(state, "Use subagent");
-
-    applyChatEvent(state, {
-      kind: "message.completed",
-      chatId: "chat-1",
-      messageId: "run-1:call-spawn:start",
-      text: "spawn({\"task\":\"say hi\"})",
-      raw: {
-        event: "agent.tool.start",
-        chat_id: "chat-1",
-        content: "spawn({\"task\":\"say hi\"})",
-        message_id: "run-1:call-spawn:start",
-        status: "running",
-        _tool_call_id: "call-spawn",
-        _tool_detail: true,
-        _tool_hint: true,
-        _tool_name: "spawn",
-      },
-    });
-    applyChatEvent(state, {
-      kind: "message.completed",
-      chatId: "chat-1",
-      messageId: "run-1:approval:approval-1:result",
-      text: "Waiting for approval.",
-      raw: {
-        event: "message",
-        chat_id: "chat-1",
-        content: "Waiting for approval.",
-        message_id: "run-1:approval:approval-1:result",
-        status: "blocked",
-        _approval_id: "approval-1",
-        _approval_status: "approval_required",
-        _tool_call_id: "approval-1",
-        _tool_name: "spawn",
-        _tool_result: true,
-      },
-    });
-
-    expect(resolveNativeChatApproval(state, {
-      approvalId: "approval-1",
-      decision: "approved",
-      sessionKey: "websocket:chat-1",
-    })).toBe(true);
-    applyChatEvent(state, {
-      kind: "message.completed",
-      chatId: "chat-1",
-      messageId: "run-1:approval-1:completed",
-      text: "你好",
-      raw: {
-        event: "message",
-        chat_id: "chat-1",
-        content: "你好",
-        message_id: "run-1:approval-1:completed",
-        status: "completed",
-        _tool_call_id: "approval-1",
-        _tool_name: "spawn",
-        _tool_result: true,
-      },
-    });
-
-    const toolActivities = (state.messages.get(sessionKeyForChat("chat-1")) ?? [])
-      .flatMap((message) => message.toolActivities ?? []);
-    expect(toolActivities).toHaveLength(1);
-    expect(toolActivities[0]).toEqual(expect.objectContaining({
-      approvalId: "approval-1",
-      approvalStatus: "approved",
-      argsText: "spawn({\"task\":\"say hi\"})",
-      id: "call-spawn",
-      name: "spawn",
-      responseText: "你好",
-      status: "completed",
-    }));
-  });
 });

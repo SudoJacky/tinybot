@@ -2130,28 +2130,26 @@ describe("gateway WebSocket client", () => {
     expect(queue).toEqual([]);
   });
 
-  test("normalizes stream, browser, and agent-ui frames", () => {
+  test("normalizes browser, agent-ui, and agent event frames while ignoring legacy message streams", () => {
     expect(normalizeGatewayFrame({ event: "attached", chat_id: "chat-1" })).toMatchObject({
       kind: "attached",
       chatId: "chat-1",
     });
     expect(normalizeGatewayFrame({ event: "delta", text: "hi", message_id: "m1" })).toMatchObject({
-      kind: "message.delta",
-      text: "hi",
-      messageId: "m1",
+      kind: "unknown",
+      event: "delta",
     });
     expect(normalizeGatewayFrame({ event: "delta", text: "plan", is_reasoning: true })).toMatchObject({
-      kind: "message.delta",
-      reasoning: true,
+      kind: "unknown",
+      event: "delta",
     });
     expect(normalizeGatewayFrame({ event: "message", text: "done", message_id: "m2" })).toMatchObject({
-      kind: "message.completed",
-      text: "done",
-      messageId: "m2",
+      kind: "unknown",
+      event: "message",
     });
     expect(normalizeGatewayFrame({ event: "stream_end", chat_id: "chat-1" })).toMatchObject({
-      kind: "message.stream.completed",
-      chatId: "chat-1",
+      kind: "unknown",
+      event: "stream_end",
     });
     expect(normalizeGatewayFrame({ event: "usage", chat_id: "chat-1", usage: { total_tokens: 16384 } })).toMatchObject({
       kind: "usage",
@@ -2210,11 +2208,8 @@ describe("gateway WebSocket client", () => {
         },
       }),
     ).toMatchObject({
-      kind: "message.delta",
-      chatId: "chat-1",
-      messageId: "m3",
-      text: "streamed",
-      reasoning: false,
+      kind: "agent-ui.event",
+      eventType: "message.delta",
     });
     expect(
       normalizeGatewayFrame({
@@ -2245,11 +2240,8 @@ describe("gateway WebSocket client", () => {
         completed: false,
       }),
     ).toMatchObject({
-      kind: "message.delta",
-      chatId: "chat-1",
-      messageId: "cowork:session-1:agent-1:step-1",
-      text: "live answer",
-      reasoning: false,
+      kind: "unknown",
+      event: "cowork_stream",
     });
 
     expect(
@@ -2264,9 +2256,8 @@ describe("gateway WebSocket client", () => {
         completed: true,
       }),
     ).toMatchObject({
-      kind: "message.stream.completed",
-      chatId: "chat-1",
-      messageId: "cowork-mailbox:draft-1",
+      kind: "unknown",
+      event: "cowork_mailbox_stream",
     });
   });
 });

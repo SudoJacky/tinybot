@@ -37,6 +37,8 @@ export type ReactChatMessage = {
   contextReferences?: ContextReferenceSummary[];
   reasoningText?: string;
   toolCalls?: ToolCallSummary[];
+  turnId?: string;
+  turnStatus?: string;
 };
 
 export type MessageActionContext = {
@@ -45,13 +47,32 @@ export type MessageActionContext = {
 
 export type MessageAction = "copy" | "branch";
 
+export function canCopyMessage(message: ReactChatMessage, context: MessageActionContext): boolean {
+  if (!message.text.trim()) {
+    return false;
+  }
+  if (message.role !== "assistant") {
+    return true;
+  }
+  if (message.turnStatus) {
+    return message.status === "complete" && message.turnStatus === "completed";
+  }
+  return message.status === "complete" && !context.sessionRunning;
+}
+
 export function canBranchFromMessage(message: ReactChatMessage, context: MessageActionContext): boolean {
-  return message.role === "assistant"
-    && message.status === "complete"
-    && !context.sessionRunning
-    && !message.toolCalls?.length;
+  if (message.role !== "assistant" || !canCopyMessage(message, context) || message.toolCalls?.length) {
+    return false;
+  }
+  if (message.turnStatus) {
+    return message.turnStatus === "completed";
+  }
+  return !context.sessionRunning;
 }
 
 export function visibleMessageActions(message: ReactChatMessage, context: MessageActionContext): MessageAction[] {
+  if (!canCopyMessage(message, context)) {
+    return [];
+  }
   return canBranchFromMessage(message, context) ? ["copy", "branch"] : ["copy"];
 }

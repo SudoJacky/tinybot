@@ -237,20 +237,6 @@ class DesktopNativeWebSocket extends EventTarget {
     const finalContent = stringValue(agent?.finalContent);
     const run = runId ? this.activeRuns.get(runId) : undefined;
     const alreadyProjectedStream = Boolean((runId && this.completedStreamedRunIds.has(runId)) || run?.streamed);
-    if (finalContent && chatId && !alreadyProjectedStream) {
-      this.emitJson({
-        event: "message",
-        chat_id: chatId,
-        message_id: runId || `native:${chatId}`,
-        text: finalContent,
-      });
-      this.emitJson({
-        event: "stream_end",
-        chat_id: chatId,
-        message_id: runId || `native:${chatId}`,
-        reason: stringValue(agent?.stopReason) || "stop",
-      });
-    }
     if (finalContent && run && runId) {
       this.emitAgentEventFrame(run, runId, "message.completed", {
         message_id: run.messageId,
@@ -414,21 +400,18 @@ class DesktopNativeWebSocket extends EventTarget {
       const toolName = stringValue(payload.toolName) || stringValue(payload.tool_name) || current?.toolName || "tool";
       const argumentsText = `${current?.argumentsText ?? ""}${stringValue(payload.deltaText) || stringValue(payload.delta_text) || stringValue(payload.argumentsDelta) || stringValue(payload.arguments_delta)}`;
       this.activeToolCallDeltas.set(deltaKey, { argumentsText, toolCallId, toolName });
-      this.emitToolProgressFrame(run.chatId, `${runId}:${toolCallId}:args`, toolName, toolCallId, formatToolCallText(toolName, argumentsText), {
-        detail: true,
-        hint: true,
-      });
+      this.emitAgentEventFrame(run, runId, "tool.call.arguments.delta", {
+        args_preview: argumentsText,
+        name: toolName,
+        status: "running",
+        tool_call_id: toolCallId,
+      }, `${runId}:${toolCallId}`);
       return;
     }
     if (eventName === "agent.tool.start") {
       const toolCallId = stringValue(payload.toolCallId) || stringValue(payload.tool_call_id) || `${runId}:tool`;
       const cachedToolCall = this.findToolCallDelta(runId, toolCallId);
       const toolName = cachedToolCall?.toolName || stringValue(payload.toolName) || stringValue(payload.tool_name) || "tool";
-      const text = formatToolCallText(toolName, cachedToolCall?.argumentsText ?? "");
-      this.emitToolProgressFrame(run.chatId, `${runId}:${toolCallId}:start`, toolName, toolCallId, text, {
-        detail: true,
-        hint: true,
-      });
       this.emitAgentEventFrame(run, runId, "tool.call.started", {
         args_preview: cachedToolCall?.argumentsText ?? "",
         name: toolName,
@@ -458,15 +441,6 @@ class DesktopNativeWebSocket extends EventTarget {
       const awaitingApproval = isAwaitingApprovalToolResult(payload, metadata, text);
       const failed = ["failed", "error", "errored"].includes(stringValue(payload.status).toLowerCase());
       if (awaitingApproval) {
-        this.emitApprovalRequiredToolResultFrame({
-          approvalId,
-          messageId: `${runId}:${toolCallId}:result`,
-          run,
-          runId,
-          text: text || "Waiting for approval.",
-          toolCallId,
-          toolName,
-        });
         if (approvalId) {
           this.emitJson({
             event: "approval_pending",
@@ -486,9 +460,6 @@ class DesktopNativeWebSocket extends EventTarget {
         this.deleteToolCallDelta(runId, toolCallId);
         return;
       }
-      this.emitToolProgressFrame(run.chatId, `${runId}:${toolCallId}:result`, toolName, toolCallId, text, {
-        result: true,
-      });
       this.emitAgentEventFrame(run, runId, failed ? "tool.call.failed" : "tool.call.completed", {
         error: failed ? { message: text || "tool failed" } : undefined,
         name: toolName,
@@ -520,15 +491,6 @@ class DesktopNativeWebSocket extends EventTarget {
         || stringValue(operation.toolName)
         || stringValue(operation.tool_name)
         || "tool";
-      this.emitApprovalRequiredToolResultFrame({
-        approvalId,
-        messageId: approvalId ? `${runId}:approval:${approvalId}:result` : `${runId}:${toolCallId}:approval:result`,
-        run,
-        runId,
-        text: stringValue(payload.content) || stringValue(payload.text) || "Waiting for approval.",
-        toolCallId,
-        toolName,
-      });
       this.emitJson({
         event: "approval_pending",
         chat_id: run.chatId,
@@ -545,17 +507,6 @@ class DesktopNativeWebSocket extends EventTarget {
       return;
     }
     if (eventName === "agent.memory_reference") {
-      const references = arrayValue(payload.references);
-      if (references.length === 0) {
-        return;
-      }
-      this.emitJson({
-        event: "message",
-        chat_id: run.chatId,
-        message_id: run.messageId,
-        text: "",
-        _memory_references: references,
-      });
       return;
     }
     if (eventName === "agent.task_progress") {
@@ -563,7 +514,16 @@ class DesktopNativeWebSocket extends EventTarget {
       const toolCallId = stringValue(payload.toolCallId) || stringValue(payload.tool_call_id) || `${runId}:task-progress`;
       const toolName = stringValue(payload.toolName) || stringValue(payload.tool_name) || "task_progress";
       const planId = stringValue(payload.planId) || stringValue(payload.plan_id) || (isRecord(progress) ? stringValue(progress.plan_id) : "");
-      this.emitTaskProgressFrame(run.chatId, `${runId}:${toolCallId}:task-progress`, toolName, toolCallId, progress, planId);
+      this.emitAgentEventFrame(run, runId, "tool.call.completed", {
+        name: toolName,
+        result_json: {
+          ...(planId ? { plan_id: planId } : {}),
+          progress,
+        },
+        result_preview: "Task progress updated.",
+        status: "completed",
+        tool_call_id: toolCallId,
+      }, `${runId}:${toolCallId}:task-progress`);
       return;
     }
     if (isDelegatedAgentEventName(eventName)) {
@@ -622,13 +582,6 @@ class DesktopNativeWebSocket extends EventTarget {
     }
     if (eventName === "agent.done") {
       run.streamed = true;
-      this.emitJson({
-        event: "stream_end",
-        chat_id: run.chatId,
-        message_id: run.messageId,
-        reason: stringValue(payload.stopReason) || stringValue(payload.stop_reason) || "stop",
-        ...referenceMetadata(payload),
-      });
       this.emitAgentEventFrame(run, runId, "agent.turn.completed", {
         message_id: run.messageId,
         reason: stringValue(payload.stopReason) || stringValue(payload.stop_reason) || "stop",
@@ -669,80 +622,6 @@ class DesktopNativeWebSocket extends EventTarget {
         chat_id: run.chatId,
         payload: agentUiPayload,
       },
-    });
-  }
-
-  private emitTaskProgressFrame(
-    chatId: string,
-    messageId: string,
-    toolName: string,
-    toolCallId: string,
-    progress: unknown,
-    planId: string,
-  ): void {
-    this.emitJson({
-      event: "message",
-      chat_id: chatId,
-      message_id: messageId,
-      text: "Task progress updated.",
-      _progress: true,
-      _tool_call_id: toolCallId,
-      _tool_name: toolName,
-      _tool_result: true,
-      _task_event: true,
-      ...(planId ? { _task_plan_id: planId } : {}),
-      _task_progress: progress,
-    });
-  }
-
-  private emitToolProgressFrame(
-    chatId: string,
-    messageId: string,
-    toolName: string,
-    toolCallId: string,
-    text: string,
-    flags: { detail?: boolean; hint?: boolean; result?: boolean },
-    extra: Record<string, unknown> = {},
-  ): void {
-    this.emitJson({
-      event: "message",
-      chat_id: chatId,
-      message_id: messageId,
-      text,
-      _progress: true,
-      _tool_call_id: toolCallId,
-      ...(flags.detail ? { _tool_detail: true } : {}),
-      ...(flags.hint ? { _tool_hint: true } : {}),
-      ...(flags.result ? { _tool_result: true } : {}),
-      _tool_name: toolName,
-      ...extra,
-    });
-  }
-
-  private emitApprovalRequiredToolResultFrame(options: {
-    approvalId: string;
-    messageId: string;
-    run: ActiveRun;
-    runId: string;
-    text: string;
-    toolCallId: string;
-    toolName: string;
-  }): void {
-    this.emitToolProgressFrame(options.run.chatId, options.messageId, options.toolName, options.toolCallId, options.text, {
-      result: true,
-    }, {
-      ...(options.approvalId ? { _approval_id: options.approvalId } : {}),
-      _approval_status: "approval_required",
-      status: "blocked",
-    });
-    logDesktopNativeDebug("nativeWebSocket.agentEvent.projected", {
-      approvalId: options.approvalId,
-      chatId: options.run.chatId,
-      eventName: "agent.awaiting_approval",
-      messageId: options.messageId,
-      runId: options.runId,
-      toolCallId: options.toolCallId,
-      toolName: options.toolName,
     });
   }
 
@@ -1033,21 +912,6 @@ function sanitizeRunIdPart(value: string): string {
   return value.replace(/[^A-Za-z0-9_.:-]/g, "-") || "chat";
 }
 
-function referenceMetadata(payload: Record<string, unknown>): Record<string, unknown> {
-  const memoryReferences = arrayValue(payload._memory_references ?? payload.memoryReferences ?? payload.memory_references);
-  const recentContextReferences = arrayValue(
-    payload._recent_context_references ?? payload.recentContextReferences ?? payload.recent_context_references,
-  );
-  return {
-    ...(memoryReferences.length ? { _memory_references: memoryReferences } : {}),
-    ...(recentContextReferences.length ? { _recent_context_references: recentContextReferences } : {}),
-  };
-}
-
 function toolCallDeltaKey(runId: string, index: number): string {
   return `${runId}:${index}`;
-}
-
-function formatToolCallText(toolName: string, argumentsText: string): string {
-  return `${toolName}(${argumentsText})`;
 }

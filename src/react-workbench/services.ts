@@ -20,7 +20,6 @@ export type ChatInput = {
 export type ChatEvent = {
   type: string;
   eventType?: string;
-  message?: ReactChatMessage;
 };
 
 export type ApprovalAction = "approveOnce" | "approveSession" | "deny";

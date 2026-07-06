@@ -40,7 +40,7 @@ import { TextType } from "../../components/ui/TextType";
 import { formatRelativeUpdatedTime } from "../lib/relativeTime";
 import type { ApprovalAction, ChatEvent, ChatInput, ChatModelOption, ChatStore, SessionStore, SessionSummary, SettingsStore } from "../services";
 import { reduceSessionDeleteState } from "../sessions/sessionDeleteState";
-import { canBranchFromMessage, type ContextReferenceSummary, type ReactChatMessage, type ToolCallSummary } from "./messageActions";
+import { canBranchFromMessage, canCopyMessage, type ContextReferenceSummary, type ReactChatMessage, type ToolCallSummary } from "./messageActions";
 import type { AgentUiForm, AgentUiFormField } from "../../app-core/agent-ui/agentUiEvents";
 
 export type ChatPageProps = {
@@ -237,14 +237,10 @@ export function ChatPage({
     void loadMessages();
     void loadAgentUiForms();
     const unsubscribe = chatStore.subscribe(activeSessionId, (event) => {
-      const eventHasMessage = Boolean(event.message);
-      if (event.message) {
-        setMessages((current) => [...current, event.message as ReactChatMessage]);
-      }
       if (shouldReloadSessionsForChatEvent(event)) {
         void handleQueueStateAfterChatEvent(activeSessionId, event);
       }
-      if (!eventHasMessage && shouldReloadMessagesForChatEvent(event.type)) {
+      if (shouldReloadMessagesForChatEvent(event.type)) {
         void loadMessages();
       }
       if (shouldReloadAgentUiFormsForChatEvent(event.type)) {
@@ -955,8 +951,6 @@ function EmptyStateText({ text }: { text: string }) {
 const MESSAGE_RELOAD_EVENT_TYPES = new Set([
   "attached",
   "agent.event",
-  "message.completed",
-  "message.stream.completed",
   "message-sent",
   "interrupted",
 ]);
@@ -964,15 +958,12 @@ const MESSAGE_RELOAD_EVENT_TYPES = new Set([
 const SESSION_RELOAD_EVENT_TYPES = new Set([
   "chat.created",
   "interrupted",
-  "message.completed",
-  "message.stream.completed",
 ]);
 
 const TERMINAL_AGENT_EVENT_TYPES = new Set([
   "agent.turn.completed",
   "agent.turn.failed",
   "agent.turn.interrupted",
-  "message.completed",
 ]);
 
 function shouldReloadMessagesForChatEvent(type: string): boolean {
@@ -989,9 +980,7 @@ function shouldReloadAgentUiFormsForChatEvent(type: string): boolean {
 }
 
 function shouldDispatchQueuedInputForChatEvent(event: ChatEvent): boolean {
-  return event.type === "message.completed"
-    || event.type === "message.stream.completed"
-    || (event.type === "agent.event" && event.eventType === "agent.turn.completed");
+  return event.type === "agent.event" && event.eventType === "agent.turn.completed";
 }
 
 function shouldPauseQueuedInputsForChatEvent(event: ChatEvent): boolean {
@@ -1324,6 +1313,8 @@ function MessageBubble({
   sessionRunning: boolean;
 }) {
   const actionAlignment = message.role === "user" ? "right" : "left";
+  const showCopyAction = canCopyMessage(message, { sessionRunning });
+  const showBranchAction = canBranchFromMessage(message, { sessionRunning });
   return (
     <article
       className="react-message"
@@ -1338,16 +1329,20 @@ function MessageBubble({
         {message.toolCalls?.length ? <AgentSteps toolCalls={message.toolCalls} onOpenTool={onOpenTool} /> : null}
         {message.status === "streaming" ? <span className="react-message__streaming" aria-label="Agent is responding" /> : null}
       </div>
-      <div className="react-message__actions" data-align={actionAlignment}>
-        <button aria-label="Copy message" type="button" onClick={onCopy}>
-          <Copy aria-hidden="true" size={14} />
-        </button>
-        {canBranchFromMessage(message, { sessionRunning }) ? (
-          <button aria-label="Branch from here" type="button" onClick={onBranch}>
-            <GitBranch aria-hidden="true" size={14} />
-          </button>
-        ) : null}
-      </div>
+      {showCopyAction || showBranchAction ? (
+        <div className="react-message__actions" data-align={actionAlignment}>
+          {showCopyAction ? (
+            <button aria-label="Copy message" type="button" onClick={onCopy}>
+              <Copy aria-hidden="true" size={14} />
+            </button>
+          ) : null}
+          {showBranchAction ? (
+            <button aria-label="Branch from here" type="button" onClick={onBranch}>
+              <GitBranch aria-hidden="true" size={14} />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </article>
   );
 }
@@ -1383,15 +1378,7 @@ function MessageContext({ references }: { references: ContextReferenceSummary[] 
 }
 
 function formatMessageForCopy(message: ReactChatMessage): string {
-  return [
-    message.reasoningText ? `Thinking:\n${message.reasoningText}` : "",
-    message.text,
-    message.contextReferences?.length
-      ? `Context:\n${message.contextReferences.map((reference) => (
-        [reference.title, reference.detail, reference.sourcePath].filter(Boolean).join(" - ")
-      )).join("\n")}`
-      : "",
-  ].filter(Boolean).join("\n\n");
+  return message.text;
 }
 
 type AgentStepStatus = "pending" | "active" | "success" | "waiting" | "error";
