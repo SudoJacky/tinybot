@@ -62,6 +62,7 @@ type ActiveRun = {
   chatId: string;
   sessionId?: string;
   messageId: string;
+  references?: unknown[];
   streamed: boolean;
 };
 
@@ -240,6 +241,7 @@ class DesktopNativeWebSocket extends EventTarget {
     if (finalContent && run && runId) {
       this.emitAgentEventFrame(run, runId, "message.completed", {
         message_id: run.messageId,
+        ...(run.references?.length ? { references: run.references } : {}),
         text: finalContent,
       }, `${runId}:final`);
       if (!alreadyProjectedStream) {
@@ -312,7 +314,12 @@ class DesktopNativeWebSocket extends EventTarget {
 
   private registerRun(runId: string, run: ActiveRun): void {
     const existing = this.activeRuns.get(runId);
-    this.activeRuns.set(runId, existing ? { ...run, messageId: existing.messageId, streamed: existing.streamed } : run);
+    this.activeRuns.set(runId, existing ? {
+      ...run,
+      messageId: existing.messageId,
+      references: existing.references,
+      streamed: existing.streamed,
+    } : run);
     const pending = this.pendingAgentEvents.get(runId) ?? [];
     this.pendingAgentEvents.delete(runId);
     for (const event of pending) {
@@ -507,6 +514,14 @@ class DesktopNativeWebSocket extends EventTarget {
       return;
     }
     if (eventName === "agent.memory_reference") {
+      const references = arrayValue(payload.references)
+        .concat(arrayValue(payload._memory_references))
+        .concat(arrayValue(payload.memory_references))
+        .concat(arrayValue(payload._recent_context_references))
+        .concat(arrayValue(payload.recent_context_references));
+      if (references.length) {
+        run.references = [...(run.references ?? []), ...references];
+      }
       return;
     }
     if (eventName === "agent.task_progress") {

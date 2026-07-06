@@ -1071,6 +1071,72 @@ describe("desktop native WebSocket bridge", () => {
     }));
   });
 
+  test("attaches live memory references to the structured completed message", async () => {
+    const handlers = new Map<string, (payload: unknown) => void>();
+    const dispatch = deferred<unknown>();
+    const nativeTransport: NativeTransportApi = {
+      gatewayFrame: vi.fn(),
+      websocketMessage: vi.fn(),
+      dispatchWebsocketMessage: vi.fn(async () => dispatch.promise),
+      dispatchChannelInbound: vi.fn(),
+      startChannels: vi.fn(),
+      channelStatus: vi.fn(),
+      stopChannels: vi.fn(),
+    };
+    const socket = createDesktopNativeWebSocket({
+      url: "/ws",
+      nativeTransport,
+      listenToAgentEvent: (eventName, handler) => {
+        handlers.set(eventName, handler);
+      },
+    });
+    const events: Array<Record<string, unknown>> = [];
+    socket.addEventListener("message", (event) => {
+      events.push(JSON.parse(String((event as MessageEvent).data)) as Record<string, unknown>);
+    });
+
+    await flushMicrotasks();
+    socket.send(JSON.stringify({ type: "message", chat_id: "chat-native", content: "hello" }));
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    const request = vi.mocked(nativeTransport.dispatchWebsocketMessage).mock.calls[0]?.[0] as { runId?: string };
+    handlers.get(toDesktopNativeTauriEventName("agent.delta"))?.({
+      runId: request.runId,
+      delta: "live answer",
+      messageId: "message-live",
+    });
+    handlers.get(toDesktopNativeTauriEventName("agent.memory_reference"))?.({
+      runId: request.runId,
+      references: [{ title: "note_live", content: "Live memory" }],
+    });
+    dispatch.resolve({
+      transport: {
+        kind: "message",
+        chatId: "chat-native",
+        sessionId: "websocket:chat-native",
+        frames: [],
+      },
+      agent: {
+        runId: request.runId,
+        finalContent: "live answer",
+        stopReason: "final_response",
+      },
+    });
+    await flushMicrotasks();
+
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "agent_event",
+      event_type: "message.completed",
+      payload: expect.objectContaining({
+        message_id: "message-live",
+        references: [{ title: "note_live", content: "Live memory" }],
+        text: "live answer",
+      }),
+      turn_id: request.runId,
+    }));
+  });
+
   test("projects TS worker browser frames into legacy WebUI browser frame events", async () => {
     const handlers = new Map<string, (payload: unknown) => void>();
     const nativeTransport: NativeTransportApi = {

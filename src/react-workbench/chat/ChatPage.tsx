@@ -237,6 +237,15 @@ export function ChatPage({
     void loadMessages();
     void loadAgentUiForms();
     const unsubscribe = chatStore.subscribe(activeSessionId, (event) => {
+      if (event.message) {
+        setMessages((current) => (
+          current.some((message) => message.id === event.message?.id)
+            ? current
+            : [...current, event.message as ReactChatMessage]
+        ));
+        setLoadedMessageSessionId(activeSessionId);
+        return;
+      }
       if (shouldReloadSessionsForChatEvent(event)) {
         void handleQueueStateAfterChatEvent(activeSessionId, event);
       }

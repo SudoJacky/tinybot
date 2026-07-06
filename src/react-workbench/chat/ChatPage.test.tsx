@@ -1164,6 +1164,48 @@ describe("ChatPage", () => {
     expect((await screen.findByTestId("message-local-user")).textContent).toContain("Hello immediately");
   });
 
+  it("preserves the optimistic first message while a pending session is being created", async () => {
+    const user = userEvent.setup();
+    let subscribed: ((event: ChatEvent) => void) | undefined;
+    const stores = createStores({ sessions: [] });
+    const pendingSession = {
+      id: "pending:1",
+      title: "New session",
+      updatedAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+      status: "running" as const,
+    };
+    const optimisticMessage: ReactChatMessage = {
+      id: "local-user",
+      role: "user",
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+      text: "Summarize this pending chat",
+      status: "complete",
+    };
+    stores.sessionStore.list = vi.fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([pendingSession]);
+    stores.sessionStore.create = vi.fn(async () => pendingSession);
+    stores.chatStore.load = vi.fn(async () => []);
+    stores.chatStore.subscribe = vi.fn((_sessionId, listener) => {
+      subscribed = listener;
+      return () => undefined;
+    });
+    stores.chatStore.send = vi.fn(async () => {
+      subscribed?.({ type: "message-sent", message: optimisticMessage });
+    });
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    await screen.findByText("No sessions yet.");
+    await user.click(screen.getByRole("button", { name: "New Chat" }));
+    const input = await screen.findByRole("textbox", { name: /message/i });
+    await user.type(input, "Summarize this pending chat");
+    await user.click(screen.getByRole("button", { name: /send message/i }));
+
+    expect((await screen.findByTestId("message-local-user")).textContent).toContain("Summarize this pending chat");
+    expect(screen.queryByText("No sessions yet.")).toBeNull();
+  });
+
   it("renders assistant thinking and context separately from the answer", async () => {
     const stores = createStores();
     const streamingMessages: ReactChatMessage[] = [

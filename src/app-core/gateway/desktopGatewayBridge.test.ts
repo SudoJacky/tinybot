@@ -484,9 +484,12 @@ describe("desktop gateway bridge", () => {
 
     expect(events).toContainEqual({ event: "chat_created", chat_id: "chat-native" });
     expect(events).toContainEqual(expect.objectContaining({
-      event: "message",
+      event: "agent_event",
+      event_type: "message.completed",
       chat_id: "chat-native",
-      text: "native done",
+      payload: expect.objectContaining({
+        text: "native done",
+      }),
     }));
     expect(dispatched).toEqual([
       expect.objectContaining({
