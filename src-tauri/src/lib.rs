@@ -20,6 +20,7 @@ pub mod desktop_logging;
 pub mod desktop_menu;
 pub mod native_backend_contract;
 pub mod native_provider_runtime;
+pub mod settings_registry;
 pub mod worker_agent_runtime;
 pub mod worker_background;
 pub mod worker_capability;
@@ -73,6 +74,7 @@ use crate::desktop_menu::{
 use crate::native_backend_contract::{
     webui_route_inventory_entry, NativeCompatibilityFallbackDiagnostic,
 };
+use crate::settings_registry::{build_settings_snapshot, SettingsSnapshot, SettingsSnapshotInput};
 use crate::worker_agent_runtime::{
     run_native_agent_turn_with_config, NativeAgentRunContext, NativeAgentRuntimeServices,
     NativeAgentToolCall, NativeAgentToolDispatcher, NativeAgentToolResult, NativeAgentTraceSink,
@@ -1988,6 +1990,14 @@ fn get_config_editor_snapshot() -> Result<ConfigEditorSnapshot, String> {
 }
 
 #[tauri::command]
+fn get_settings_snapshot() -> Result<SettingsSnapshot, String> {
+    get_settings_snapshot_from_path(
+        &default_tinybot_config_path(),
+        experimental_worker_default_config_snapshot(),
+    )
+}
+
+#[tauri::command]
 fn apply_config_operations(
     request: ConfigOperationRequest,
 ) -> Result<ConfigPatchApplyResult, String> {
@@ -2032,6 +2042,20 @@ fn config_editor_snapshot_from_path(
     let store = ConfigStore::load(config_path.to_path_buf(), default_snapshot)
         .map_err(|error| format!("failed to load config store: {error}"))?;
     Ok(store.editor_snapshot())
+}
+
+fn get_settings_snapshot_from_path(
+    config_path: &Path,
+    default_snapshot: serde_json::Value,
+) -> Result<SettingsSnapshot, String> {
+    let store = ConfigStore::load(config_path.to_path_buf(), default_snapshot)
+        .map_err(|error| format!("failed to load config store: {error}"))?;
+    Ok(build_settings_snapshot(SettingsSnapshotInput {
+        config: store.snapshot().clone(),
+        config_path: store.config_path().to_path_buf(),
+        revision: store.revision(),
+        diagnostics: store.diagnostics().to_vec(),
+    }))
 }
 
 fn apply_config_operations_to_path(
@@ -6953,6 +6977,7 @@ pub fn run() {
             worker_resolve_thread_approval,
             worker_submit_thread_form,
             worker_cron_dispatch_due,
+            get_settings_snapshot,
             get_config_editor_snapshot,
             apply_config_patch_result,
             apply_config_operations,
@@ -11898,6 +11923,84 @@ mod tests {
             snapshot.secret_presence["providers.openai.api_key"]["configured"],
             true
         );
+    }
+
+    #[test]
+    fn native_settings_snapshot_returns_registry_projection() {
+        let fixture = WorkspaceFixture::new();
+        let config_path = fixture.root.join(".tinybot").join("config.json");
+        std::fs::create_dir_all(
+            config_path
+                .parent()
+                .expect("config path should have parent"),
+        )
+        .expect("config directory should create");
+        std::fs::write(
+            &config_path,
+            r#"{
+              "agents": { "defaults": { "active_profile": "openai-work", "model": "gpt-5" } },
+              "providers": {
+                "profiles": {
+                  "openai-work": {
+                    "provider": "openai",
+                    "api_key": "sk-secret",
+                    "default_model": "gpt-5-mini"
+                  }
+                }
+              },
+              "gateway": { "host": "0.0.0.0", "port": 18791 }
+            }"#,
+        )
+        .expect("fixture config should write");
+
+        let snapshot = get_settings_snapshot_from_path(
+            &config_path,
+            serde_json::json!({ "gateway": { "host": "127.0.0.1", "port": 18790 } }),
+        )
+        .expect("settings snapshot should load");
+
+        let group_ids: Vec<&str> = snapshot
+            .groups
+            .iter()
+            .map(|group| group.id.as_str())
+            .collect();
+        assert_eq!(group_ids[0], "general");
+        assert!(group_ids.contains(&"provider-models"));
+        assert!(group_ids.contains(&"expert-config"));
+        assert!(!group_ids.contains(&"knowledge"));
+
+        let provider_group = snapshot
+            .groups
+            .iter()
+            .find(|group| group.id == "provider-models")
+            .expect("provider group should exist");
+        let api_key = provider_group
+            .fields
+            .iter()
+            .find(|field| field.path == "providers.profiles.openai-work.api_key")
+            .expect("api key field should exist");
+        assert_eq!(api_key.value, serde_json::Value::Null);
+        assert_eq!(
+            api_key
+                .secret
+                .as_ref()
+                .expect("secret metadata should exist")
+                .configured,
+            true
+        );
+
+        let gateway_group = snapshot
+            .groups
+            .iter()
+            .find(|group| group.id == "gateway-runtime")
+            .expect("gateway group should exist");
+        let host = gateway_group
+            .fields
+            .iter()
+            .find(|field| field.path == "gateway.host")
+            .expect("host field should exist");
+        assert!(!host.editable);
+        assert_eq!(host.value, serde_json::json!("127.0.0.1"));
     }
 
     #[test]
