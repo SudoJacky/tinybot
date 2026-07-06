@@ -1,6 +1,7 @@
 import {
   appendUserMessage,
   applyChatEvent,
+  canonicalSessionKey,
   createNativeChatState,
   activateSession,
   hydrateAgentRunRuntimeStates,
@@ -90,6 +91,7 @@ export function createDesktopChatSessionController({
   }
 
   async function selectSession(sessionKey: string, chatId: string): Promise<void> {
+    sessionKey = canonicalSessionKey(sessionKey, chatId) || sessionKey;
     logDesktopNativeDebug("session.select.start", {
       ...summarizeSessionState(),
       chatId,
@@ -153,6 +155,7 @@ export function createDesktopChatSessionController({
 
   async function deleteSession(sessionKey: string): Promise<ChatDeleteSessionResult> {
     const deletedSessionKey = sessionKey;
+    sessionKey = canonicalSessionKey(sessionKey) || sessionKey;
     const target = state.sessions.find((session) => session.key === sessionKey);
     logDesktopNativeDebug("session.delete.start", {
       ...summarizeSessionState(),
@@ -263,6 +266,7 @@ export function createDesktopChatSessionController({
   }
 
   async function patchSession(sessionKey: string, body: unknown): Promise<boolean> {
+    sessionKey = canonicalSessionKey(sessionKey) || sessionKey;
     const target = state.sessions.find((session) => session.key === sessionKey);
     logDesktopNativeDebug("session.patch.start", {
       ...summarizeSessionState(),

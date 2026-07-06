@@ -316,6 +316,12 @@ pub struct NativeAgentProviderResponse {
     pub tool_calls: Vec<NativeAgentToolCall>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum NativeAgentProviderStreamEvent {
+    ContentDelta(String),
+    ReasoningDelta(String),
+}
+
 #[derive(Clone, Debug)]
 pub struct NativeAgentToolCall {
     pub id: String,
@@ -589,6 +595,14 @@ pub trait NativeAgentProvider: Send + Sync {
         &self,
         context: &NativeAgentRunContext,
     ) -> Result<NativeAgentProviderResponse, String>;
+
+    fn complete_streaming(
+        &self,
+        context: &NativeAgentRunContext,
+        _observer: &mut dyn FnMut(NativeAgentProviderStreamEvent),
+    ) -> Result<NativeAgentProviderResponse, String> {
+        self.complete(context)
+    }
 }
 
 pub trait NativeAgentToolDispatcher: Send + Sync {
@@ -878,10 +892,32 @@ impl NativeAgentProvider for RustNativeAgentProvider {
         &self,
         context: &NativeAgentRunContext,
     ) -> Result<NativeAgentProviderResponse, String> {
+        let mut observer = |_event: NativeAgentProviderStreamEvent| {};
+        self.complete_streaming(context, &mut observer)
+    }
+
+    fn complete_streaming(
+        &self,
+        context: &NativeAgentRunContext,
+        observer: &mut dyn FnMut(NativeAgentProviderStreamEvent),
+    ) -> Result<NativeAgentProviderResponse, String> {
         let request = agent_chat_completion_request(context)?;
         let provider_config = agent_provider_config(context);
-        let completion =
-            crate::native_provider_runtime::complete_chat_for_agent(&provider_config, &request)?;
+        let mut provider_observer = |event: crate::native_provider_runtime::NativeProviderStreamEvent| {
+            match event {
+                crate::native_provider_runtime::NativeProviderStreamEvent::ContentDelta(delta) => {
+                    observer(NativeAgentProviderStreamEvent::ContentDelta(delta));
+                }
+                crate::native_provider_runtime::NativeProviderStreamEvent::ReasoningDelta(delta) => {
+                    observer(NativeAgentProviderStreamEvent::ReasoningDelta(delta));
+                }
+            }
+        };
+        let completion = crate::native_provider_runtime::complete_chat_for_agent_with_observer(
+            &provider_config,
+            &request,
+            &mut provider_observer,
+        )?;
         let fixture_response = fixture_agent_response(&context.config_snapshot, &context.messages);
 
         Ok(NativeAgentProviderResponse {
@@ -1443,7 +1479,54 @@ pub fn run_native_agent_turn_with_config(
         );
         context.messages = state.messages.clone();
         context.spec["messages"] = Value::Array(state.messages.clone());
-        let provider_response = match services.provider.complete(&context) {
+        let mut provider_streamed_content = false;
+        let mut provider_streamed_reasoning = false;
+        let provider_response = {
+            let mut stream_observer = |event: NativeAgentProviderStreamEvent| match event {
+                NativeAgentProviderStreamEvent::ContentDelta(delta) => {
+                    if delta.is_empty() {
+                        return;
+                    }
+                    provider_streamed_content = true;
+                    state.transition_phase(
+                        AgentRuntimePhase::StreamingModel,
+                        iteration,
+                        "agent.delta",
+                    );
+                    state.emit_event(
+                        "agent.delta",
+                        serde_json::json!({
+                            "runId": context.run_id,
+                            "sessionId": context.session_id,
+                            "iteration": iteration,
+                            "delta": delta,
+                        }),
+                    );
+                }
+                NativeAgentProviderStreamEvent::ReasoningDelta(delta) => {
+                    if delta.is_empty() {
+                        return;
+                    }
+                    provider_streamed_reasoning = true;
+                    state.transition_phase(
+                        AgentRuntimePhase::StreamingModel,
+                        iteration,
+                        "agent.reasoning_delta",
+                    );
+                    state.emit_event(
+                        "agent.reasoning_delta",
+                        serde_json::json!({
+                            "runId": context.run_id,
+                            "sessionId": context.session_id,
+                            "iteration": iteration,
+                            "delta": delta,
+                        }),
+                    );
+                }
+            };
+            services.provider.complete_streaming(&context, &mut stream_observer)
+        };
+        let provider_response = match provider_response {
             Ok(response) => response,
             Err(error) => {
                 state.set_stop_reason("provider_error", iteration, "agent.error");
@@ -1478,7 +1561,7 @@ pub fn run_native_agent_turn_with_config(
 
         let current_phase = state.phase.as_str().to_string();
         maybe_emit_checkpoint(services, &context, &mut state, &current_phase);
-        if let Some(reasoning_delta) = provider_response.reasoning_delta.clone() {
+        if let Some(reasoning_delta) = provider_response.reasoning_delta.clone().filter(|_| !provider_streamed_reasoning) {
             state.transition_phase(
                 AgentRuntimePhase::StreamingModel,
                 iteration,
@@ -1494,7 +1577,7 @@ pub fn run_native_agent_turn_with_config(
                 }),
             );
         }
-        if context.stream && !provider_response.final_content.is_empty() {
+        if context.stream && !provider_response.final_content.is_empty() && !provider_streamed_content {
             state.transition_phase(AgentRuntimePhase::StreamingModel, iteration, "agent.delta");
             state.emit_event(
                 "agent.delta",
@@ -5896,6 +5979,81 @@ mod tests {
         assert!(
             services.restore_checkpoint("websocket:chat-approval-guidance")["checkpoint"].is_null()
         );
+    }
+
+    #[test]
+    fn provider_stream_observer_emits_live_deltas_without_duplicate_final_delta() {
+        struct StreamingProvider;
+
+        impl NativeAgentProvider for StreamingProvider {
+            fn complete(
+                &self,
+                _context: &NativeAgentRunContext,
+            ) -> Result<NativeAgentProviderResponse, String> {
+                Ok(NativeAgentProviderResponse {
+                    final_content: "Hello".to_string(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: Vec::new(),
+                })
+            }
+
+            fn complete_streaming(
+                &self,
+                _context: &NativeAgentRunContext,
+                observer: &mut dyn FnMut(NativeAgentProviderStreamEvent),
+            ) -> Result<NativeAgentProviderResponse, String> {
+                observer(NativeAgentProviderStreamEvent::ReasoningDelta(
+                    "thinking".to_string(),
+                ));
+                observer(NativeAgentProviderStreamEvent::ContentDelta("Hel".to_string()));
+                observer(NativeAgentProviderStreamEvent::ContentDelta("lo".to_string()));
+                Ok(NativeAgentProviderResponse {
+                    final_content: "Hello".to_string(),
+                    reasoning_delta: Some("thinking".to_string()),
+                    usage: None,
+                    tool_calls: Vec::new(),
+                })
+            }
+        }
+
+        let services = NativeAgentRuntimeServices::new(
+            Arc::new(StreamingProvider),
+            Arc::new(FakeNativeAgentToolDispatcher),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        );
+
+        let result = run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-streaming-provider",
+                "sessionId": "websocket:chat-streaming-provider",
+                "stream": true,
+                "messages": [{ "role": "user", "content": "hello" }]
+            }),
+        )
+        .expect("streaming provider run should succeed");
+
+        let deltas = result["events"]
+            .as_array()
+            .expect("events should be an array")
+            .iter()
+            .filter(|event| event["eventName"] == "agent.delta")
+            .map(|event| event["payload"]["delta"].as_str().unwrap_or_default())
+            .collect::<Vec<_>>();
+        let reasoning_deltas = result["events"]
+            .as_array()
+            .expect("events should be an array")
+            .iter()
+            .filter(|event| event["eventName"] == "agent.reasoning_delta")
+            .map(|event| event["payload"]["delta"].as_str().unwrap_or_default())
+            .collect::<Vec<_>>();
+
+        assert_eq!(deltas, vec!["Hel", "lo"]);
+        assert_eq!(reasoning_deltas, vec!["thinking"]);
+        assert_eq!(result["finalContent"], "Hello");
     }
 
     fn event_names(result: &Value) -> Vec<&str> {

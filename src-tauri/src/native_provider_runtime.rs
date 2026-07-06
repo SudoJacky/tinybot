@@ -36,6 +36,12 @@ pub struct NativeProviderProfile {
     pub request_timeout_ms: u64,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum NativeProviderStreamEvent {
+    ContentDelta(String),
+    ReasoningDelta(String),
+}
+
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NativeProviderModelsRequest {
@@ -282,7 +288,16 @@ pub fn openai_chat_completions_route(config: &Value, body: &Value) -> Value {
 }
 
 pub fn complete_chat_for_agent(config: &Value, body: &Value) -> Result<Value, String> {
-    match native_chat_completion(config, body) {
+    let mut observer = |_event: NativeProviderStreamEvent| {};
+    complete_chat_for_agent_with_observer(config, body, &mut observer)
+}
+
+pub fn complete_chat_for_agent_with_observer(
+    config: &Value,
+    body: &Value,
+    observer: &mut dyn FnMut(NativeProviderStreamEvent),
+) -> Result<Value, String> {
+    match native_chat_completion_with_observer(config, body, Some(observer)) {
         Ok(response) if (200..300).contains(&response.status) && !response.stream => {
             Ok(response.body)
         }
@@ -291,7 +306,11 @@ pub fn complete_chat_for_agent(config: &Value, body: &Value) -> Result<Value, St
                 .body
                 .as_str()
                 .ok_or_else(|| "streaming chat completion returned non-text body".to_string())?;
-            aggregate_chat_completion_sse(body)
+            if response.observed_stream {
+                aggregate_chat_completion_sse(body)
+            } else {
+                aggregate_chat_completion_sse_with_observer(body, Some(observer))
+            }
         }
         Ok(response) => Err(format!(
             "chat completion returned unexpected status {}",
@@ -302,6 +321,13 @@ pub fn complete_chat_for_agent(config: &Value, body: &Value) -> Result<Value, St
 }
 
 fn aggregate_chat_completion_sse(body: &str) -> Result<Value, String> {
+    aggregate_chat_completion_sse_with_observer(body, None)
+}
+
+fn aggregate_chat_completion_sse_with_observer(
+    body: &str,
+    mut observer: Option<&mut dyn FnMut(NativeProviderStreamEvent)>,
+) -> Result<Value, String> {
     let mut content = String::new();
     let mut reasoning_content = String::new();
     let mut model = None::<String>;
@@ -338,6 +364,9 @@ fn aggregate_chat_completion_sse(body: &str) -> Result<Value, String> {
             .and_then(Value::as_str)
         {
             content.push_str(delta);
+            if let Some(observer) = observer.as_deref_mut() {
+                observer(NativeProviderStreamEvent::ContentDelta(delta.to_string()));
+            }
         }
         if let Some(delta) = chunk
             .pointer("/choices/0/delta/reasoning_content")
@@ -345,6 +374,9 @@ fn aggregate_chat_completion_sse(body: &str) -> Result<Value, String> {
             .and_then(Value::as_str)
         {
             reasoning_content.push_str(delta);
+            if let Some(observer) = observer.as_deref_mut() {
+                observer(NativeProviderStreamEvent::ReasoningDelta(delta.to_string()));
+            }
         }
         if let Some(deltas) = chunk
             .pointer("/choices/0/delta/tool_calls")
@@ -588,6 +620,7 @@ struct NativeChatRouteBody {
     status: u16,
     body: Value,
     stream: bool,
+    observed_stream: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -601,6 +634,14 @@ struct NativeChatRouteError {
 fn native_chat_completion(
     config: &Value,
     body: &Value,
+) -> Result<NativeChatRouteBody, NativeChatRouteError> {
+    native_chat_completion_with_observer(config, body, None)
+}
+
+fn native_chat_completion_with_observer(
+    config: &Value,
+    body: &Value,
+    mut observer: Option<&mut dyn FnMut(NativeProviderStreamEvent)>,
 ) -> Result<NativeChatRouteBody, NativeChatRouteError> {
     let request = parse_chat_request(config, body)?;
     let profile = resolve_chat_provider_profile(config, &request.model).ok_or_else(|| {
@@ -619,27 +660,36 @@ fn native_chat_completion(
                 status: 200,
                 body: Value::String(chat_completion_sse(&request.model, &content)),
                 stream: true,
+                observed_stream: false,
             }
         } else {
             NativeChatRouteBody {
                 status: 200,
                 body: chat_completion_body(&request.model, &content),
                 stream: false,
+                observed_stream: false,
             }
         });
     }
 
     if request.stream {
-        complete_openai_chat_stream(profile, request).map(|body| NativeChatRouteBody {
+        let observed_stream = observer.is_some();
+        let stream_result = match observer {
+            Some(ref mut observer) => complete_openai_chat_stream(profile, request, Some(&mut **observer)),
+            None => complete_openai_chat_stream(profile, request, None),
+        };
+        stream_result.map(|body| NativeChatRouteBody {
             status: 200,
             body: Value::String(body),
             stream: true,
+            observed_stream,
         })
     } else {
         complete_openai_chat(profile, request).map(|body| NativeChatRouteBody {
             status: 200,
             body,
             stream: false,
+            observed_stream: false,
         })
     }
 }
@@ -723,6 +773,7 @@ fn complete_openai_chat(
 fn complete_openai_chat_stream(
     profile: NativeProviderProfile,
     mut request: NativeChatRequest,
+    mut observer: Option<&mut dyn FnMut(NativeProviderStreamEvent)>,
 ) -> Result<String, NativeChatRouteError> {
     request.body["stream"] = Value::Bool(true);
     tauri::async_runtime::block_on(async move {
@@ -736,7 +787,12 @@ fn complete_openai_chat_stream(
         let mut body = String::new();
         while let Some(chunk) = stream.next().await {
             match chunk {
-                Ok(chunk) => push_sse_json(&mut body, &chunk),
+                Ok(chunk) => {
+                    if let Some(observer) = observer.as_deref_mut() {
+                        observe_stream_chunk(&chunk, observer);
+                    }
+                    push_sse_json(&mut body, &chunk);
+                }
                 Err(error) => {
                     push_sse_error(&mut body, error.to_string());
                     body.push_str("data: [DONE]\n\n");
@@ -888,6 +944,27 @@ fn push_sse_json(body: &mut String, value: &Value) {
     body.push_str("data: ");
     body.push_str(&line);
     body.push_str("\n\n");
+}
+
+fn observe_stream_chunk(
+    chunk: &Value,
+    observer: &mut dyn FnMut(NativeProviderStreamEvent),
+) {
+    if let Some(delta) = chunk
+        .pointer("/choices/0/delta/content")
+        .and_then(Value::as_str)
+        .filter(|delta| !delta.is_empty())
+    {
+        observer(NativeProviderStreamEvent::ContentDelta(delta.to_string()));
+    }
+    if let Some(delta) = chunk
+        .pointer("/choices/0/delta/reasoning_content")
+        .or_else(|| chunk.pointer("/choices/0/delta/reasoningContent"))
+        .and_then(Value::as_str)
+        .filter(|delta| !delta.is_empty())
+    {
+        observer(NativeProviderStreamEvent::ReasoningDelta(delta.to_string()));
+    }
 }
 
 fn push_sse_error(body: &mut String, message: String) {

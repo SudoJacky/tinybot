@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { createDesktopChatSessionController } from "../app-core/chat/desktopChatSessionController";
-import type { NativeChatMessage, NativeChatSession } from "../app-core/chat/nativeChat";
+import { sessionKeyForChat, type NativeChatMessage, type NativeChatReference, type NativeChatSession } from "../app-core/chat/nativeChat";
 import { DEFAULT_GATEWAY_CONFIG, resolveGatewayConfig } from "../app-core/gateway/gatewayConfig";
 import { installDesktopGatewayBridge } from "../app-core/gateway/desktopGatewayBridge";
 import { ensureGatewayReady } from "../app-core/gateway/desktopGatewayStartup";
@@ -76,6 +76,8 @@ export function createDesktopAppServices(): AppServices {
   const pendingSocketMessages: unknown[] = [];
   const listeners = new Map<string, Set<Listener>>();
   let pendingNewSessionId = "";
+  let pendingNewSession: SessionSummary | null = null;
+  let pendingNewSessionTitle = "";
 
   const controller = createDesktopChatSessionController({
     api: {
@@ -144,11 +146,17 @@ export function createDesktopAppServices(): AppServices {
   }
 
   async function handleGatewayEvent(event: NormalizedGatewayEvent): Promise<void> {
+    const titleForCreatedSession = event.kind === "chat.created" ? pendingNewSessionTitle : "";
     await controller.handleGatewayEvent(event);
     if (event.kind === "chat.created") {
+      if (titleForCreatedSession) {
+        await persistAutoSessionTitle(sessionKeyForChat(event.chatId), titleForCreatedSession);
+      }
       pendingNewSessionId = "";
+      pendingNewSession = null;
+      pendingNewSessionTitle = "";
     }
-    notifyAll({ type: event.kind });
+    notifyAll(chatEventFromGatewayEvent(event));
   }
 
   function notifyAll(event: ChatEvent): void {
@@ -162,6 +170,17 @@ export function createDesktopAppServices(): AppServices {
   function notifySession(sessionId: string, event: ChatEvent): void {
     for (const callback of listeners.get(sessionId) ?? []) {
       callback(event);
+    }
+  }
+
+  async function persistAutoSessionTitle(sessionId: string, title: string): Promise<void> {
+    if (!title) {
+      return;
+    }
+    try {
+      await controller.patchSession(sessionId, { title });
+    } catch {
+      // Auto-generated titles should not block chat lifecycle events.
     }
   }
 
@@ -185,7 +204,11 @@ export function createDesktopAppServices(): AppServices {
     sessionStore: {
       async list() {
         await initialize();
-        return controller.state.sessions.map((session) => mapSession(session, controller.state.respondingSessionKeys.has(session.key)));
+        const sessions = controller.state.sessions.map((session) => mapSession(session, controller.state.respondingSessionKeys.has(session.key)));
+        if (pendingNewSession && !sessions.some((session) => session.id === pendingNewSession?.id)) {
+          return [pendingNewSession, ...sessions];
+        }
+        return sessions;
       },
       async create(input) {
         await initialize();
@@ -199,6 +222,7 @@ export function createDesktopAppServices(): AppServices {
           updatedAtMs: Date.now(),
           status: "running" as const,
         };
+        pendingNewSession = pendingSession;
         notifySession(pendingNewSessionId, { type: "session-created" });
         return pendingSession;
       },
@@ -206,6 +230,7 @@ export function createDesktopAppServices(): AppServices {
         await initialize();
         if (id.startsWith("pending:")) {
           pendingNewSessionId = "";
+          pendingNewSession = null;
           return;
         }
         await controller.deleteSession(id);
@@ -234,13 +259,19 @@ export function createDesktopAppServices(): AppServices {
           return [];
         }
         const session = controller.state.sessions.find((item) => item.key === sessionId);
-        if (session) {
+        if (session && controller.state.activeSessionKey !== session.key) {
           await controller.selectSession(session.key, session.chatId);
         }
-        return (controller.state.messages.get(sessionId) ?? []).map((message, index) => mapMessage(message, index));
+        const sessionMessages = controller.state.messages.get(sessionId) ?? [];
+        const sessionRunning = controller.state.respondingSessionKeys.has(sessionId);
+        return sessionMessages.map((message, index) => mapMessage(message, index, {
+          isLatest: index === sessionMessages.length - 1,
+          sessionRunning,
+        }));
       },
       async send(sessionId, input) {
         await initialize();
+        const selectedSessionBeforeSend = controller.state.sessions.find((item) => item.key === sessionId);
         if (sessionId === pendingNewSessionId) {
           controller.state.activeSessionKey = "";
           controller.state.activeChatId = "";
@@ -250,8 +281,26 @@ export function createDesktopAppServices(): AppServices {
             await controller.selectSession(session.key, session.chatId);
           }
         }
-        controller.submitMessage(input.text, input.usePersistentRag ?? true, input.model);
-        notifySession(sessionId, { type: "message-sent" });
+        const result = controller.submitMessage(input.text, input.usePersistentRag ?? true, input.model);
+        const optimisticText = result.status === "sent"
+          ? result.content
+          : result.status === "creating"
+            ? result.pendingContent
+            : "";
+        const optimisticTitle = autoSessionTitleFromMessage(optimisticText);
+        if (result.status === "creating") {
+          pendingNewSessionTitle = optimisticTitle;
+        } else if (
+          result.status === "sent"
+          && optimisticTitle
+          && shouldPersistAutoSessionTitle(selectedSessionBeforeSend?.title)
+        ) {
+          await persistAutoSessionTitle(sessionKeyForChat(result.chatId), optimisticTitle);
+        }
+        notifySession(sessionId, {
+          type: "message-sent",
+          ...(optimisticText ? { message: createOptimisticUserMessage(optimisticText) } : {}),
+        });
       },
       async stop() {
         await initialize();
@@ -341,7 +390,11 @@ function mapSession(session: NativeChatSession, responding: boolean, fallbackPay
   };
 }
 
-function mapMessage(message: NativeChatMessage, index: number): ReactChatMessage {
+function mapMessage(
+  message: NativeChatMessage,
+  index: number,
+  options: { isLatest?: boolean; sessionRunning?: boolean } = {},
+): ReactChatMessage {
   const role = message.role === "user" || message.role === "system" || message.role === "tool"
     ? message.role
     : "assistant";
@@ -351,13 +404,50 @@ function mapMessage(message: NativeChatMessage, index: number): ReactChatMessage
     status: activity.status || activity.approvalStatus || (activity.kind === "result" ? "complete" : "running"),
     summary: activity.responseText || activity.argsText,
   }));
+  const streaming = role === "assistant" && Boolean(options.sessionRunning && options.isLatest);
+  const contextReferences = (message.references ?? []).map(mapContextReference);
   return {
     id: message.messageId || `${role}:${index}`,
     role,
     createdAtMs: timestampMs(message.timestamp) ?? Date.now(),
-    text: message.content || message.reasoningContent || (toolCalls.length ? "Tool activity" : ""),
-    status: "complete",
+    text: message.content || (toolCalls.length ? "Tool activity" : ""),
+    status: streaming ? "streaming" : "complete",
+    ...(contextReferences.length ? { contextReferences } : {}),
+    ...(message.reasoningContent ? { reasoningText: message.reasoningContent } : {}),
     ...(toolCalls.length ? { toolCalls } : {}),
+  };
+}
+
+function createOptimisticUserMessage(text: string): ReactChatMessage {
+  return {
+    id: `local:user:${Date.now().toString(36)}`,
+    role: "user",
+    createdAtMs: Date.now(),
+    text,
+    status: "complete",
+  };
+}
+
+function autoSessionTitleFromMessage(text: string): string {
+  const firstLine = text.trim().split(/\r?\n/, 1)[0]?.trim() ?? "";
+  return firstLine.slice(0, 80);
+}
+
+function shouldPersistAutoSessionTitle(title: string | undefined): boolean {
+  const normalized = (title ?? "").trim();
+  return !normalized
+    || normalized === "New session"
+    || normalized.startsWith("Desktop Session websocket:");
+}
+
+function mapContextReference(reference: NativeChatReference, index: number) {
+  return {
+    id: reference.noteId || reference.evidenceId || `${reference.kind}:${index}`,
+    kind: reference.kind,
+    title: reference.title,
+    ...(reference.detail ? { detail: reference.detail } : {}),
+    ...(reference.sourcePath ? { sourcePath: reference.sourcePath } : {}),
+    ...(typeof reference.sourceLine === "number" ? { sourceLine: reference.sourceLine } : {}),
   };
 }
 
@@ -454,6 +544,17 @@ function normalizeSettingsSummary(snapshot: unknown, config: { httpBaseUrl: stri
     rows.push({ label: "Providers", value: String(providers.length) });
   }
   return rows;
+}
+
+function chatEventFromGatewayEvent(event: NormalizedGatewayEvent): ChatEvent {
+  if (event.kind !== "agent.event") {
+    return { type: event.kind };
+  }
+  const eventType = stringValue(event.raw.event_type);
+  return {
+    type: event.kind,
+    ...(eventType ? { eventType } : {}),
+  };
 }
 
 function normalizeChatModelOptions(

@@ -104,6 +104,7 @@ describe("desktop native WebSocket bridge", () => {
       turn_id: "run-1",
       payload: expect.objectContaining({
         message_id: "message-1",
+        summary: "thinking",
         text: "thinking",
         visibility: "hidden",
       }),
@@ -240,6 +241,14 @@ describe("desktop native WebSocket bridge", () => {
       chat_id: "chat-native",
       text: "live final",
     }));
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "agent_event",
+      event_type: "message.completed",
+      payload: expect.objectContaining({
+        text: "live final",
+      }),
+      turn_id: runId,
+    }));
   });
 
   test("does not emit final fallback content after done completes a streamed run first", async () => {
@@ -304,6 +313,14 @@ describe("desktop native WebSocket bridge", () => {
       event: "message",
       chat_id: "chat-native",
       text: "live final",
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "agent_event",
+      event_type: "message.completed",
+      payload: expect.objectContaining({
+        text: "live final",
+      }),
+      turn_id: runId,
     }));
   });
 

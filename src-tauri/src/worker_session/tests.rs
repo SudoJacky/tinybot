@@ -865,6 +865,20 @@ mod tests {
     }
 
     #[test]
+    fn patch_metadata_updates_session_title_with_write_capability() {
+        let session = session_fixture();
+        let mut rpc = WorkerSessionRpc::new(vec![session], write_policy());
+
+        let updated = rpc
+            .patch_metadata("session-1", json!({ "title": "你好" }))
+            .expect("metadata title should patch");
+
+        assert_eq!(updated.session_id, "session-1");
+        assert_eq!(updated.title, "你好");
+        assert_eq!(updated.extra["metadata"]["title"], json!("你好"));
+    }
+
+    #[test]
     fn get_checkpoint_returns_runtime_checkpoint_with_read_capability() {
         let mut session = session_fixture();
         session.extra = json!({

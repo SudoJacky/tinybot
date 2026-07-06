@@ -8,7 +8,7 @@ describe("desktop chat session controller", () => {
     const controller = createDesktopChatSessionController({
       api: {
         listSessions: vi.fn(async () => ({
-          items: [{ key: "WebSocket:chat-1", chat_id: "chat-1", title: "Plan", updated_at: "2026-05-31T08:00:00Z" }],
+          items: [{ key: "websocket:chat-1", chat_id: "chat-1", title: "Plan", updated_at: "2026-05-31T08:00:00Z" }],
         })),
         loadMessages: vi.fn(async (key: string) => ({
           messages: [{ role: "user", content: `loaded ${key}`, message_id: "m-user" }],
@@ -19,24 +19,24 @@ describe("desktop chat session controller", () => {
 
     await expect(controller.loadSessions()).resolves.toBe(1);
 
-    expect(controller.state.activeSessionKey).toBe("WebSocket:chat-1");
-    expect(controller.state.messages.get("WebSocket:chat-1")).toMatchObject([{ content: "loaded WebSocket:chat-1" }]);
+    expect(controller.state.activeSessionKey).toBe("websocket:chat-1");
+    expect(controller.state.messages.get("websocket:chat-1")).toMatchObject([{ content: "loaded websocket:chat-1" }]);
     expect(sent).toEqual([{ type: "attach", chat_id: "chat-1" }]);
   });
 
   test("hydrates restored chat surface messages from backend turn items when available", async () => {
     const sent: unknown[] = [];
     const listAgentRuns = vi.fn(async () => ({
-      sessionId: "WebSocket:chat-1",
+      sessionId: "websocket:chat-1",
       runs: [{ runId: "run-1", startedAt: "2026-07-03T01:00:00Z" }],
     }));
     const getAgentRunRuntimeState = vi.fn(async () => ({
-      sessionId: "WebSocket:chat-1",
+      sessionId: "websocket:chat-1",
       runId: "run-1",
       runtimeEvents: [],
       turnItems: [{
         itemId: "call-read",
-        sessionId: "WebSocket:chat-1",
+        sessionId: "websocket:chat-1",
         turnId: "run-1",
         kind: "tool_call",
         status: "completed",
@@ -54,7 +54,7 @@ describe("desktop chat session controller", () => {
     const controller = createDesktopChatSessionController({
       api: {
         listSessions: vi.fn(async () => ({
-          items: [{ key: "WebSocket:chat-1", chat_id: "chat-1", title: "Plan", updated_at: "2026-07-03T01:00:00Z" }],
+          items: [{ key: "websocket:chat-1", chat_id: "chat-1", title: "Plan", updated_at: "2026-07-03T01:00:00Z" }],
         })),
         loadMessages: vi.fn(async () => ({
           messages: [{ role: "user", content: "Read README", timestamp: "2026-07-03T01:00:00Z", message_id: "m-user" }],
@@ -67,9 +67,9 @@ describe("desktop chat session controller", () => {
 
     await controller.loadSessions();
 
-    expect(listAgentRuns).toHaveBeenCalledWith("WebSocket:chat-1");
-    expect(getAgentRunRuntimeState).toHaveBeenCalledWith("WebSocket:chat-1", "run-1");
-    expect(controller.state.chatRuns.turnsBySession.get("WebSocket:chat-1")?.[0]).toMatchObject({
+    expect(listAgentRuns).toHaveBeenCalledWith("websocket:chat-1");
+    expect(getAgentRunRuntimeState).toHaveBeenCalledWith("websocket:chat-1", "run-1");
+    expect(controller.state.chatRuns.turnsBySession.get("websocket:chat-1")?.[0]).toMatchObject({
       id: "run-1",
       userMessage: { text: "Read README" },
       steps: [expect.objectContaining({
@@ -80,7 +80,7 @@ describe("desktop chat session controller", () => {
         }),
       })],
     });
-    expect(controller.state.messages.get("WebSocket:chat-1")?.flatMap((message) => message.toolActivities ?? [])).toEqual([
+    expect(controller.state.messages.get("websocket:chat-1")?.flatMap((message) => message.toolActivities ?? [])).toEqual([
       expect.objectContaining({
         id: "call-read",
         name: "read_file",
@@ -96,7 +96,7 @@ describe("desktop chat session controller", () => {
       events: [{
         eventId: "trace-event-1",
         eventType: "agent.delegate.trace.updated",
-        sessionKey: "WebSocket:chat-1",
+        sessionKey: "websocket:chat-1",
         turnId: "turn-restored",
         stepId: "step-delegate-1",
         sequence: 1,
@@ -114,7 +114,7 @@ describe("desktop chat session controller", () => {
           trace: {
             delegateId: "delegate-1",
             parentRunId: "run-parent",
-            parentSessionKey: "WebSocket:chat-1",
+            parentSessionKey: "websocket:chat-1",
             status: "completed",
             steps: [{
               id: "message:delegate-1",
@@ -130,7 +130,7 @@ describe("desktop chat session controller", () => {
     const controller = createDesktopChatSessionController({
       api: {
         listSessions: vi.fn(async () => ({
-          items: [{ key: "WebSocket:chat-1", chat_id: "chat-1", title: "Spawn", updated_at: "2026-06-28T04:00:00Z" }],
+          items: [{ key: "websocket:chat-1", chat_id: "chat-1", title: "Spawn", updated_at: "2026-06-28T04:00:00Z" }],
         })),
         loadMessages: vi.fn(async () => ({
           messages: [{ role: "user", content: "spawn a subagent", message_id: "m-user" }],
@@ -142,8 +142,8 @@ describe("desktop chat session controller", () => {
 
     await controller.loadSessions();
 
-    expect(listTraceEvents).toHaveBeenCalledWith({ sessionKey: "WebSocket:chat-1" });
-    const toolActivities = [...(controller.state.messages.get("WebSocket:chat-1") ?? [])]
+    expect(listTraceEvents).toHaveBeenCalledWith({ sessionKey: "websocket:chat-1" });
+    const toolActivities = [...(controller.state.messages.get("websocket:chat-1") ?? [])]
       .flatMap((message) => message.toolActivities ?? []);
     expect(toolActivities).toEqual([
       expect.objectContaining({
@@ -183,7 +183,7 @@ describe("desktop chat session controller", () => {
     await expect(controller.loadArtifact({
       artifactId: "artifact-1",
       delegateId: "delegate-1",
-      sessionKey: "WebSocket:chat-1",
+      sessionKey: "websocket:chat-1",
       traceRef: "trace-1",
     })).resolves.toEqual({
       artifact: {
@@ -195,7 +195,7 @@ describe("desktop chat session controller", () => {
     expect(getArtifact).toHaveBeenCalledWith({
       artifactId: "artifact-1",
       delegateId: "delegate-1",
-      sessionKey: "WebSocket:chat-1",
+      sessionKey: "websocket:chat-1",
       traceRef: "trace-1",
     });
   });
@@ -207,7 +207,7 @@ describe("desktop chat session controller", () => {
         listSessions: vi.fn(async () => ({
           items: [
             { key: "7e9e439b4487", chat_id: "chat-7e9e", title: "你好", updated_at: "2026-06-03T08:11:21Z" },
-            { key: "WebSocket:chat-1", chat_id: "chat-1", title: "New session" },
+            { key: "websocket:chat-1", chat_id: "chat-1", title: "New session" },
           ],
         })),
         loadMessages: vi.fn(async (key: string) => ({
@@ -232,8 +232,8 @@ describe("desktop chat session controller", () => {
     const sent: unknown[] = [];
     const deleted: string[] = [];
     let sessions = [
-      { key: "WebSocket:chat-1", chat_id: "chat-1", title: "First chat" },
-      { key: "WebSocket:chat-2", chat_id: "chat-2", title: "Second chat" },
+      { key: "websocket:chat-1", chat_id: "chat-1", title: "First chat" },
+      { key: "websocket:chat-2", chat_id: "chat-2", title: "Second chat" },
     ];
     const controller = createDesktopChatSessionController({
       api: {
@@ -252,18 +252,18 @@ describe("desktop chat session controller", () => {
 
     await controller.loadSessions();
 
-    await expect(controller.deleteSession("WebSocket:chat-1")).resolves.toEqual({
+    await expect(controller.deleteSession("websocket:chat-1")).resolves.toEqual({
       status: "deleted",
-      deletedSessionKey: "WebSocket:chat-1",
-      nextSessionKey: "WebSocket:chat-2",
+      deletedSessionKey: "websocket:chat-1",
+      nextSessionKey: "websocket:chat-2",
     });
 
-    expect(deleted).toEqual(["WebSocket:chat-1"]);
-    expect(controller.state.sessions.map((session) => session.key)).toEqual(["WebSocket:chat-2"]);
-    expect(controller.state.activeSessionKey).toBe("WebSocket:chat-2");
+    expect(deleted).toEqual(["websocket:chat-1"]);
+    expect(controller.state.sessions.map((session) => session.key)).toEqual(["websocket:chat-2"]);
+    expect(controller.state.activeSessionKey).toBe("websocket:chat-2");
     expect(controller.state.activeChatId).toBe("chat-2");
-    expect(controller.state.messages.has("WebSocket:chat-1")).toBe(false);
-    expect(controller.state.messages.get("WebSocket:chat-2")).toMatchObject([{ content: "loaded WebSocket:chat-2" }]);
+    expect(controller.state.messages.has("websocket:chat-1")).toBe(false);
+    expect(controller.state.messages.get("websocket:chat-2")).toMatchObject([{ content: "loaded websocket:chat-2" }]);
     expect(sent).toEqual([
       { type: "attach", chat_id: "chat-1" },
       { type: "attach", chat_id: "chat-2" },
@@ -274,7 +274,7 @@ describe("desktop chat session controller", () => {
     const deleted: string[] = [];
     let sessions = [
       { key: "5225ad1670a7", chat_id: "5225ad1670a7", title: "New session" },
-      { key: "WebSocket:f9387efaabab", chat_id: "f9387efaabab", title: "Next session" },
+      { key: "websocket:f9387efaabab", chat_id: "f9387efaabab", title: "Next session" },
     ];
     const controller = createDesktopChatSessionController({
       api: {
@@ -299,18 +299,18 @@ describe("desktop chat session controller", () => {
     await expect(controller.deleteSession("5225ad1670a7")).resolves.toEqual({
       status: "deleted",
       deletedSessionKey: "5225ad1670a7",
-      nextSessionKey: "WebSocket:f9387efaabab",
+      nextSessionKey: "websocket:f9387efaabab",
     });
 
-    expect(deleted).toEqual(["5225ad1670a7", "WebSocket:5225ad1670a7"]);
-    expect(controller.state.sessions.map((session) => session.key)).toEqual(["WebSocket:f9387efaabab"]);
-    expect(controller.state.activeSessionKey).toBe("WebSocket:f9387efaabab");
+    expect(deleted).toEqual(["5225ad1670a7", "websocket:5225ad1670a7"]);
+    expect(controller.state.sessions.map((session) => session.key)).toEqual(["websocket:f9387efaabab"]);
+    expect(controller.state.activeSessionKey).toBe("websocket:f9387efaabab");
   });
 
   test("patches session metadata and refreshes the local session list", async () => {
     const patched: unknown[] = [];
     let sessions = [
-      { key: "WebSocket:chat-1", chat_id: "chat-1", title: "First chat", metadata: { pinned: false } },
+      { key: "websocket:chat-1", chat_id: "chat-1", title: "First chat", metadata: { pinned: false } },
     ];
     const controller = createDesktopChatSessionController({
       api: {
@@ -319,7 +319,7 @@ describe("desktop chat session controller", () => {
         patchSession: vi.fn(async (sessionKey: string, body: unknown) => {
           patched.push({ body, sessionKey });
           sessions = [
-            { key: "WebSocket:chat-1", chat_id: "chat-1", title: "Renamed chat", metadata: { pinned: true } },
+            { key: "websocket:chat-1", chat_id: "chat-1", title: "Renamed chat", metadata: { pinned: true } },
           ];
           return { key: sessionKey };
         }),
@@ -329,11 +329,11 @@ describe("desktop chat session controller", () => {
 
     await controller.loadSessions();
 
-    await expect(controller.patchSession("WebSocket:chat-1", { metadata: { pinned: true, title: "Renamed chat" } })).resolves.toBe(true);
+    await expect(controller.patchSession("websocket:chat-1", { metadata: { pinned: true, title: "Renamed chat" } })).resolves.toBe(true);
 
     expect(patched).toEqual([{
       body: { metadata: { pinned: true, title: "Renamed chat" } },
-      sessionKey: "WebSocket:chat-1",
+      sessionKey: "websocket:chat-1",
     }]);
     expect(controller.state.sessions[0]).toMatchObject({
       pinned: true,
@@ -346,7 +346,7 @@ describe("desktop chat session controller", () => {
     const controller = createDesktopChatSessionController({
       api: {
         listSessions: vi.fn(async () => ({
-          items: [{ key: "WebSocket:chat-2", chat_id: "chat-2", title: "", updated_at: "2026-05-31T08:00:00Z" }],
+          items: [{ key: "websocket:chat-2", chat_id: "chat-2", title: "", updated_at: "2026-05-31T08:00:00Z" }],
         })),
         loadMessages: vi.fn(async () => ({ messages: [] })),
       },
@@ -429,7 +429,7 @@ describe("desktop chat session controller", () => {
     const controller = createDesktopChatSessionController({
       api: {
         listSessions: vi.fn(async () => ({
-          items: [{ key: "WebSocket:chat-old", chat_id: "chat-old", title: "Older chat" }],
+          items: [{ key: "websocket:chat-old", chat_id: "chat-old", title: "Older chat" }],
         })),
         loadMessages,
       },
@@ -439,7 +439,7 @@ describe("desktop chat session controller", () => {
     await controller.loadSessions();
     controller.startNewChat();
     await controller.handleGatewayEvent({ kind: "chat.created", chatId: "chat-live", raw: {} });
-    await controller.selectSession("WebSocket:chat-old", "chat-old");
+    await controller.selectSession("websocket:chat-old", "chat-old");
 
     await expect(controller.selectSession(sessionKeyForChat("chat-live"), "chat-live")).resolves.toBeUndefined();
 
@@ -493,7 +493,7 @@ describe("desktop chat session controller", () => {
     const controller = createDesktopChatSessionController({
       api: {
         listSessions: vi.fn(async () => ({
-          items: [{ key: "websocket:chat-native", chat_id: "chat-native", title: "Native chat" }],
+          items: [{ key: "WebSocket:chat-native", chat_id: "chat-native", title: "Native chat" }],
         })),
         loadMessages,
       },

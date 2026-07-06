@@ -504,12 +504,21 @@ export function reduceAgentEvent(state: ChatRunState, event: AgentEventEnvelope)
 
   if (event.event_type === "reasoning.started" || event.event_type === "reasoning.delta" || event.event_type === "reasoning.completed") {
     const visibility = stringValue(event.payload.visibility) || "hidden";
+    const text = visibility === "hidden"
+      ? stringValue(event.payload.summary ?? event.payload.text)
+      : stringValue(event.payload.text ?? event.payload.summary);
+    const messageId = stringValue(event.payload.message_id) || stringValue(event.payload.messageId);
+    const stepId = reasoningStepId(turn.id, messageId);
+    const existingStep = turn.steps.find((step) => step.id === stepId && step.kind === "reasoning");
+    const summary = event.event_type === "reasoning.delta" && existingStep
+      ? `${existingStep.summary ?? ""}${text}`
+      : text || existingStep?.summary || "";
     upsertStep(turn, event, {
       kind: "reasoning",
       status: event.event_type === "reasoning.completed" ? "completed" : "running",
-      summary: visibility === "hidden" ? stringValue(event.payload.summary) : stringValue(event.payload.text ?? event.payload.summary),
+      summary,
       title: event.event_type === "reasoning.completed" ? "Thinking complete" : "Thinking",
-    });
+    }, stepId);
     return state;
   }
 
@@ -1192,6 +1201,10 @@ function upsertStep(
 
 function messageStepId(turnId: string, messageId: string): string {
   return stableId("step", turnId, "message", messageId);
+}
+
+function reasoningStepId(turnId: string, messageId: string): string {
+  return stableId("step", turnId, "reasoning", messageId || "default");
 }
 
 function syntheticTurn(sessionKey: string, index: number, timestamp: string): ChatTurn {

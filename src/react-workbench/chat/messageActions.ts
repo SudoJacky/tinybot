@@ -5,12 +5,23 @@ export type ToolCallSummary = {
   summary?: string;
 };
 
+export type ContextReferenceSummary = {
+  id: string;
+  kind: string;
+  title: string;
+  detail?: string;
+  sourcePath?: string;
+  sourceLine?: number;
+};
+
 export type ReactChatMessage = {
   id: string;
   role: "user" | "assistant" | "system" | "tool";
   createdAtMs: number;
   text: string;
   status: "streaming" | "complete" | "failed";
+  contextReferences?: ContextReferenceSummary[];
+  reasoningText?: string;
   toolCalls?: ToolCallSummary[];
 };
 

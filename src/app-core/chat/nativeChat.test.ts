@@ -1,4 +1,4 @@
-﻿import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vitest";
 import {
   activateChat,
   applyChatEvent,
@@ -9,6 +9,7 @@ import {
   normalizeSessionsPayload,
   resolveNativeChatApproval,
   setMessages,
+  setSessions,
   sessionKeyForChat,
 } from "./nativeChat";
 
@@ -18,7 +19,7 @@ describe("native chat state", () => {
       normalizeSessionsPayload({
         items: [
           {
-            key: "WebSocket:chat-1",
+            key: "websocket:chat-1",
             chat_id: "chat-1",
             title: "Existing session",
             created_at: "2026-05-29T08:00:00Z",
@@ -28,7 +29,7 @@ describe("native chat state", () => {
       }),
     ).toEqual([
       {
-        key: "WebSocket:chat-1",
+        key: "websocket:chat-1",
         chatId: "chat-1",
         title: "Existing session",
         createdAt: "2026-05-29T08:00:00Z",
@@ -91,6 +92,44 @@ describe("native chat state", () => {
         messageId: "m-assistant",
       },
     ]);
+  });
+
+  test("canonicalizes legacy WebSocket session keys to the native backend key", () => {
+    expect(
+      normalizeSessionsPayload({
+        items: [
+          {
+            key: "WebSocket:chat-legacy",
+            chat_id: "chat-legacy",
+            title: "Legacy session",
+          },
+        ],
+      })[0],
+    ).toMatchObject({
+      key: "websocket:chat-legacy",
+      chatId: "chat-legacy",
+    });
+
+    const state = createNativeChatState();
+    state.messages.set("WebSocket:chat-legacy", [{
+      role: "user",
+      content: "kept message",
+      reasoningContent: "",
+      timestamp: "2026-07-05T10:00:00.000Z",
+      messageId: "legacy-user",
+    }]);
+
+    setSessions(state, [{
+      key: "WebSocket:chat-legacy",
+      chatId: "chat-legacy",
+      title: "Legacy session",
+      createdAt: "",
+      updatedAt: "",
+    }]);
+
+    expect(state.sessions[0].key).toBe("websocket:chat-legacy");
+    expect(state.messages.has("WebSocket:chat-legacy")).toBe(false);
+    expect(state.messages.get("websocket:chat-legacy")).toMatchObject([{ content: "kept message" }]);
   });
 
   test("tracks active session and merges streaming deltas like the hosted WebUI", () => {
@@ -630,7 +669,7 @@ describe("native chat state", () => {
         event_id: "event-tool-start",
         event_type: "tool.call.started",
         chat_id: "chat-1",
-        session_key: "WebSocket:chat-1",
+        session_key: "websocket:chat-1",
         turn_id: "turn-1",
         step_id: "step-tool",
         sequence: 2,
@@ -652,7 +691,7 @@ describe("native chat state", () => {
         event_id: "event-final",
         event_type: "message.completed",
         chat_id: "chat-1",
-        session_key: "WebSocket:chat-1",
+        session_key: "websocket:chat-1",
         turn_id: "turn-1",
         step_id: "step-final",
         sequence: 3,
@@ -693,7 +732,7 @@ describe("native chat state", () => {
         event_id: "event-turn-start",
         event_type: "agent.turn.started",
         chat_id: "chat-1",
-        session_key: "WebSocket:chat-1",
+        session_key: "websocket:chat-1",
         turn_id: "turn-1",
         sequence: 1,
         created_at: "2026-06-27T04:00:00.000Z",
@@ -712,7 +751,7 @@ describe("native chat state", () => {
         event_id: "event-delta",
         event_type: "message.delta",
         chat_id: "chat-1",
-        session_key: "WebSocket:chat-1",
+        session_key: "websocket:chat-1",
         turn_id: "turn-1",
         sequence: 2,
         created_at: "2026-06-27T04:00:01.000Z",
@@ -731,6 +770,82 @@ describe("native chat state", () => {
         copyable: false,
       },
     ]);
+  });
+
+  test("projects live structured reasoning deltas into message reasoning content", () => {
+    const state = createNativeChatState();
+    applyChatEvent(state, { kind: "attached", chatId: "chat-1", raw: {} });
+    applyChatEvent(state, {
+      kind: "agent.event",
+      chatId: "chat-1",
+      raw: {
+        event: "agent_event",
+        schema_version: "tinybot.agent_event.v1",
+        event_id: "event-turn-start",
+        event_type: "agent.turn.started",
+        chat_id: "chat-1",
+        session_key: "websocket:chat-1",
+        turn_id: "turn-1",
+        sequence: 1,
+        created_at: "2026-06-27T04:00:00.000Z",
+        payload: {
+          user_message: { id: "user-1", role: "user", text: "你好" },
+          user_message_id: "user-1",
+        },
+      },
+    });
+    applyChatEvent(state, {
+      kind: "agent.event",
+      chatId: "chat-1",
+      raw: {
+        event: "agent_event",
+        schema_version: "tinybot.agent_event.v1",
+        event_id: "event-reasoning",
+        event_type: "reasoning.delta",
+        chat_id: "chat-1",
+        session_key: "websocket:chat-1",
+        turn_id: "turn-1",
+        sequence: 2,
+        created_at: "2026-06-27T04:00:01.000Z",
+        payload: {
+          message_id: "assistant-stream",
+          summary: "I am checking context.",
+          text: "I am checking context.",
+          visibility: "hidden",
+        },
+      },
+    });
+    applyChatEvent(state, {
+      kind: "agent.event",
+      chatId: "chat-1",
+      raw: {
+        event: "agent_event",
+        schema_version: "tinybot.agent_event.v1",
+        event_id: "event-reasoning-next",
+        event_type: "reasoning.delta",
+        chat_id: "chat-1",
+        session_key: "websocket:chat-1",
+        turn_id: "turn-1",
+        sequence: 3,
+        created_at: "2026-06-27T04:00:02.000Z",
+        payload: {
+          message_id: "assistant-stream",
+          summary: " Still thinking.",
+          text: " Still thinking.",
+          visibility: "hidden",
+        },
+      },
+    });
+
+    expect(state.messages.get(sessionKeyForChat("chat-1"))).toMatchObject([
+      { role: "user", content: "你好" },
+      {
+        role: "assistant",
+        content: "",
+        reasoningContent: "I am checking context. Still thinking.",
+      },
+    ]);
+    expect(state.messages.get(sessionKeyForChat("chat-1"))).toHaveLength(2);
   });
 
   test("normalizes tool activity execution status for timeline rendering", () => {
@@ -917,7 +1032,7 @@ describe("native chat state", () => {
             delegateId: "delegate-1",
             childRunId: "delegate-1",
             parentRunId: "run-1",
-            parentSessionKey: "WebSocket:chat-1",
+            parentSessionKey: "websocket:chat-1",
             status: "completed",
             steps: [{
               id: "message:delegate-1",
@@ -938,9 +1053,9 @@ describe("native chat state", () => {
       ],
     });
 
-    setMessages(state, "WebSocket:chat-1", messages);
+    setMessages(state, "websocket:chat-1", messages);
 
-    const delegate = state.chatRuns.delegatedRunsBySession.get("WebSocket:chat-1")?.get("delegate-1");
+    const delegate = state.chatRuns.delegatedRunsBySession.get("websocket:chat-1")?.get("delegate-1");
     expect(delegate).toMatchObject({
       id: "delegate-1",
       title: "Greeter",
@@ -958,7 +1073,7 @@ describe("native chat state", () => {
 
   test("hydrates child trace journal events into delegated run traces", () => {
     const state = createNativeChatState();
-    const sessionKey = "WebSocket:chat-1";
+    const sessionKey = "websocket:chat-1";
     setMessages(state, sessionKey, normalizeMessagesPayload({
       messages: [
         {
@@ -1112,7 +1227,7 @@ describe("native chat state", () => {
         event_id: "event-tool-start",
         event_type: "tool.call.started",
         chat_id: "chat-1",
-        session_key: "WebSocket:chat-1",
+        session_key: "websocket:chat-1",
         turn_id: "turn-1",
         step_id: "turn-1:call-spawn",
         sequence: 2,
@@ -1134,7 +1249,7 @@ describe("native chat state", () => {
         event_id: "event-approval",
         event_type: "approval.requested",
         chat_id: "chat-1",
-        session_key: "WebSocket:chat-1",
+        session_key: "websocket:chat-1",
         turn_id: "turn-1",
         step_id: "turn-1:approval:approval-1",
         sequence: 3,
@@ -1177,7 +1292,7 @@ describe("native chat state", () => {
         event_id: "event-tool-start",
         event_type: "tool.call.started",
         chat_id: "chat-1",
-        session_key: "WebSocket:chat-1",
+        session_key: "websocket:chat-1",
         turn_id: "turn-1",
         step_id: "turn-1:call-spawn",
         sequence: 2,
@@ -1199,7 +1314,7 @@ describe("native chat state", () => {
         event_id: "event-approval",
         event_type: "approval.requested",
         chat_id: "chat-1",
-        session_key: "WebSocket:chat-1",
+        session_key: "websocket:chat-1",
         turn_id: "turn-1",
         step_id: "turn-1:approval:approval-1",
         sequence: 3,
@@ -1216,7 +1331,7 @@ describe("native chat state", () => {
     expect(resolveNativeChatApproval(state, {
       approvalId: "approval-1",
       decision: "approved",
-      sessionKey: "WebSocket:chat-1",
+      sessionKey: "websocket:chat-1",
     })).toBe(true);
 
     const assistantMessages = state.messages.get(sessionKeyForChat("chat-1"))?.filter((message) => message.role === "assistant") ?? [];
@@ -1278,7 +1393,7 @@ describe("native chat state", () => {
         event_id: "event-approval",
         event_type: "approval.requested",
         chat_id: "chat-1",
-        session_key: "WebSocket:chat-1",
+        session_key: "websocket:chat-1",
         turn_id: "run-1",
         step_id: "run-1:approval:approval-1",
         sequence: 3,
@@ -1296,7 +1411,7 @@ describe("native chat state", () => {
     expect(resolveNativeChatApproval(state, {
       approvalId: "approval-1",
       decision: "approved",
-      sessionKey: "WebSocket:chat-1",
+      sessionKey: "websocket:chat-1",
     })).toBe(true);
 
     const toolActivities = (state.messages.get(sessionKeyForChat("chat-1")) ?? [])
@@ -1356,7 +1471,7 @@ describe("native chat state", () => {
     expect(resolveNativeChatApproval(state, {
       approvalId: "approval-1",
       decision: "approved",
-      sessionKey: "WebSocket:chat-1",
+      sessionKey: "websocket:chat-1",
     })).toBe(true);
     applyChatEvent(state, {
       kind: "message.completed",

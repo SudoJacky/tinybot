@@ -27,9 +27,9 @@ import {
   type PastedContent,
 } from "../../components/ui/claude-style-ai-input";
 import { formatRelativeUpdatedTime } from "../lib/relativeTime";
-import type { ChatModelOption, ChatStore, SessionStore, SessionSummary, SettingsStore } from "../services";
+import type { ChatEvent, ChatModelOption, ChatStore, SessionStore, SessionSummary, SettingsStore } from "../services";
 import { reduceSessionDeleteState } from "../sessions/sessionDeleteState";
-import { canBranchFromMessage, type ReactChatMessage, type ToolCallSummary } from "./messageActions";
+import { canBranchFromMessage, type ContextReferenceSummary, type ReactChatMessage, type ToolCallSummary } from "./messageActions";
 
 export type ChatPageProps = {
   chatStore: ChatStore;
@@ -185,6 +185,9 @@ export function ChatPage({
         setMessages((current) => [...current, event.message as ReactChatMessage]);
         return;
       }
+      if (shouldReloadSessionsForChatEvent(event)) {
+        void handleSessionStoreRefresh();
+      }
       if (shouldReloadMessagesForChatEvent(event.type)) {
         void loadMessages();
       }
@@ -254,8 +257,14 @@ export function ChatPage({
 
   async function handleSessionStoreRefresh() {
     const nextSessions = await sessionStore.list();
+    sessionsRef.current = nextSessions;
     setSessions(nextSessions);
-    setActiveSessionId((current) => current || nextSessions[0]?.id || "");
+    setActiveSessionId((current) => {
+      if (!nextSessions.length) {
+        return "";
+      }
+      return nextSessions.some((session) => session.id === current) ? current : nextSessions[0]?.id ?? "";
+    });
   }
 
   async function handlePinConversation(session: SessionSummary) {
@@ -463,7 +472,7 @@ export function ChatPage({
               key={message.id}
               message={message}
               onBranch={() => void handleBranchFromMessage(activeSession, message.id)}
-              onCopy={() => void writeClipboardText(message.text)}
+              onCopy={() => void writeClipboardText(formatMessageForCopy(message))}
               onOpenTool={(toolCall) => setDrawer({
                 title: toolCall.name,
                 body: formatToolCallDetails(toolCall),
@@ -694,7 +703,6 @@ function TextType({ text }: { text: string }) {
 
 const MESSAGE_RELOAD_EVENT_TYPES = new Set([
   "attached",
-  "chat.created",
   "agent.event",
   "message.delta",
   "message.completed",
@@ -703,8 +711,27 @@ const MESSAGE_RELOAD_EVENT_TYPES = new Set([
   "interrupted",
 ]);
 
+const SESSION_RELOAD_EVENT_TYPES = new Set([
+  "chat.created",
+  "interrupted",
+  "message.completed",
+  "message.stream.completed",
+]);
+
+const TERMINAL_AGENT_EVENT_TYPES = new Set([
+  "agent.turn.completed",
+  "agent.turn.failed",
+  "agent.turn.interrupted",
+  "message.completed",
+]);
+
 function shouldReloadMessagesForChatEvent(type: string): boolean {
   return MESSAGE_RELOAD_EVENT_TYPES.has(type);
+}
+
+function shouldReloadSessionsForChatEvent(event: ChatEvent): boolean {
+  return SESSION_RELOAD_EVENT_TYPES.has(event.type)
+    || (event.type === "agent.event" && Boolean(event.eventType && TERMINAL_AGENT_EVENT_TYPES.has(event.eventType)));
 }
 
 async function writeClipboardText(value: string): Promise<void> {
@@ -766,8 +793,11 @@ function MessageBubble({
       data-testid={`message-${message.id}`}
     >
       <div className="react-message__body">
+        {message.reasoningText ? <MessageReasoning text={message.reasoningText} /> : null}
         <MessageText text={message.text} />
+        {message.contextReferences?.length ? <MessageContext references={message.contextReferences} /> : null}
         {message.toolCalls?.length ? <AgentSteps toolCalls={message.toolCalls} onOpenTool={onOpenTool} /> : null}
+        {message.status === "streaming" ? <span className="react-message__streaming" aria-label="Agent is responding" /> : null}
       </div>
       <div className="react-message__actions" data-align={actionAlignment}>
         <button aria-label="Copy message" type="button" onClick={onCopy}>
@@ -781,6 +811,48 @@ function MessageBubble({
       </div>
     </article>
   );
+}
+
+function MessageReasoning({ text }: { text: string }) {
+  return (
+    <section className="react-message-reasoning" aria-label="Thinking">
+      <h3>Thinking</h3>
+      <MessageText text={text} />
+    </section>
+  );
+}
+
+function MessageContext({ references }: { references: ContextReferenceSummary[] }) {
+  return (
+    <section className="react-message-context" aria-label="Context">
+      <h3>Context</h3>
+      <ul>
+        {references.map((reference) => (
+          <li key={reference.id}>
+            <span>{reference.title}</span>
+            {reference.detail ? <small>{reference.detail}</small> : null}
+            {reference.sourcePath ? (
+              <small>
+                {reference.sourcePath}{typeof reference.sourceLine === "number" ? `:${reference.sourceLine}` : ""}
+              </small>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function formatMessageForCopy(message: ReactChatMessage): string {
+  return [
+    message.reasoningText ? `Thinking:\n${message.reasoningText}` : "",
+    message.text,
+    message.contextReferences?.length
+      ? `Context:\n${message.contextReferences.map((reference) => (
+        [reference.title, reference.detail, reference.sourcePath].filter(Boolean).join(" - ")
+      )).join("\n")}`
+      : "",
+  ].filter(Boolean).join("\n\n");
 }
 
 type AgentStepStatus = "pending" | "active" | "success" | "waiting" | "error";
